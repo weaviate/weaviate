@@ -34,7 +34,7 @@ type Memtable struct {
 	primaryIndex       *binarySearchTree
 	roaringSet         *roaringset.BinarySearchTree
 	roaringSetRange    *roaringsetrange.Memtable
-	commitlog          *commitLogger
+	commitlog          memtableCommitLogger
 	size               uint64
 	path               string
 	strategy           string
@@ -51,7 +51,7 @@ type Memtable struct {
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
-	cl *commitLogger, metrics *Metrics, logger logrus.FieldLogger,
+	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
 	enableChecksumValidation bool,
 ) (*Memtable, error) {
 	m := &Memtable{
@@ -352,15 +352,12 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 			StrategyMapCollection, StrategyInverted)
 	}
 
-	m.Lock()
-	defer m.Unlock()
-
 	valuesForCommitLog, err := pair.Bytes()
 	if err != nil {
 		return err
 	}
 
-	if err := m.commitlog.append(segmentCollectionNode{
+	newNode := segmentCollectionNode{
 		primaryKey: key,
 		values: []value{
 			{
@@ -368,7 +365,12 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 				tombstone: pair.Tombstone,
 			},
 		},
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.append(newNode); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
@@ -376,11 +378,6 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.size += uint64(len(key) + len(valuesForCommitLog))
 	m.metrics.size(m.size)
 	m.updateDirtyAt()
-
-	if m.strategy == StrategyInverted {
-		docID := binary.BigEndian.Uint64(pair.Key)
-		m.tombstones.Set(docID)
-	}
 
 	return nil
 }
@@ -436,7 +433,7 @@ func (m *Memtable) writeWAL() error {
 	return m.commitlog.flushBuffers()
 }
 
-func (m *Memtable) GetTombstones() (*sroar.Bitmap, error) {
+func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	if m.strategy != StrategyInverted {
 		return nil, errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
 	}
@@ -445,8 +442,21 @@ func (m *Memtable) GetTombstones() (*sroar.Bitmap, error) {
 	defer m.RUnlock()
 
 	if m.tombstones != nil {
-		return m.tombstones, nil
+		return m.tombstones.Clone(), nil
 	}
 
 	return nil, lsmkv.NotFound
+}
+
+func (m *Memtable) SetTombstone(docId uint64) error {
+	if m.strategy != StrategyInverted {
+		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	m.tombstones.Set(docId)
+
+	return nil
 }

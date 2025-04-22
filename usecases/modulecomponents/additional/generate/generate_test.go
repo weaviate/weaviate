@@ -69,21 +69,21 @@ func TestAdditionalAnswerProvider(t *testing.T) {
 
 type fakeClient struct{}
 
-func (c *fakeClient) GenerateAllResults(ctx context.Context, textProperties []map[string]string, task string, settings interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	return c.getResults(textProperties, task), nil
+func (c *fakeClient) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, settings interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	return c.getResults(task), nil
 }
 
-func (c *fakeClient) GenerateSingleResult(ctx context.Context, textProperties map[string]string, prompt string, settings interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	return c.getResult(textProperties, prompt), nil
+func (c *fakeClient) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, settings interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
+	return c.getResult(prompt), nil
 }
 
-func (c *fakeClient) getResults(text []map[string]string, task string) *modulecapabilities.GenerateResponse {
+func (c *fakeClient) getResults(task string) *modulecapabilities.GenerateResponse {
 	return &modulecapabilities.GenerateResponse{
 		Result: &task,
 	}
 }
 
-func (c *fakeClient) getResult(text map[string]string, task string) *modulecapabilities.GenerateResponse {
+func (c *fakeClient) getResult(task string) *modulecapabilities.GenerateResponse {
 	return &modulecapabilities.GenerateResponse{
 		Result: &task,
 	}

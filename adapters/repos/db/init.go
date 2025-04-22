@@ -73,6 +73,7 @@ func (db *DB) init(ctx context.Context) error {
 						K1: config.DefaultBM25k1,
 						B:  config.DefaultBM25b,
 					},
+					UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 				}
 			}
 			if err := replica.ValidateConfig(class, db.config.Replication); err != nil {
@@ -92,6 +93,8 @@ func (db *DB) init(ctx context.Context) error {
 				MemtablesMaxActiveSeconds:           db.config.MemtablesMaxActiveSeconds,
 				SegmentsCleanupIntervalSeconds:      db.config.SegmentsCleanupIntervalSeconds,
 				SeparateObjectsCompactions:          db.config.SeparateObjectsCompactions,
+				CycleManagerRoutinesFactor:          db.config.CycleManagerRoutinesFactor,
+				IndexRangeableInMemory:              db.config.IndexRangeableInMemory,
 				MaxSegmentSize:                      db.config.MaxSegmentSize,
 				HNSWMaxLogSize:                      db.config.HNSWMaxLogSize,
 				HNSWWaitForCachePrefill:             db.config.HNSWWaitForCachePrefill,
@@ -106,13 +109,14 @@ func (db *DB) init(ctx context.Context) error {
 				ReplicationFactor:                   class.ReplicationConfig.Factor,
 				AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
+				ShardLoadLimiter:                    db.shardLoadLimiter,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
 				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
-				db.memMonitor)
+				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler,
+				db.indexCheckpoints, db.memMonitor, db.reindexer)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

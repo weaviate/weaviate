@@ -12,13 +12,12 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 
-	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	gproto "google.golang.org/protobuf/proto"
@@ -76,12 +75,19 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.schema.shardReader = idx
 }
 
-func (s *SchemaManager) Snapshot() raft.FSMSnapshot {
-	return s.schema
+func (s *SchemaManager) Snapshot() ([]byte, error) {
+	var buf bytes.Buffer
+
+	err := json.NewEncoder(&buf).Encode(s.schema.MetaClasses())
+	return buf.Bytes(), err
 }
 
-func (s *SchemaManager) Restore(rc io.ReadCloser, parser Parser) error {
-	return s.schema.Restore(rc, parser)
+func (s *SchemaManager) Restore(data []byte, parser Parser) error {
+	return s.schema.Restore(data, parser)
+}
+
+func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
+	return s.schema.RestoreLegacy(data, parser)
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
@@ -119,9 +125,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	i := 0
 	for _, v := range classes {
 		migratePropertiesIfNecessary(&v.Class)
-		// an immutable copy of the sharding state has to be used to avoid conflicts
-		shardingState, _ := v.CopyShardingState()
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
+		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
@@ -223,6 +227,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
 		meta.Class.Description = u.Description
+		meta.Class.Properties = u.Properties
 		meta.ClassVersion = cmd.Version
 		if req.State != nil {
 			meta.Sharding = *req.State

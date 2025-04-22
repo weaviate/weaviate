@@ -118,6 +118,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMaxActiveSeconds:           m.db.config.MemtablesMaxActiveSeconds,
 			SegmentsCleanupIntervalSeconds:      m.db.config.SegmentsCleanupIntervalSeconds,
 			SeparateObjectsCompactions:          m.db.config.SeparateObjectsCompactions,
+			CycleManagerRoutinesFactor:          m.db.config.CycleManagerRoutinesFactor,
+			IndexRangeableInMemory:              m.db.config.IndexRangeableInMemory,
 			MaxSegmentSize:                      m.db.config.MaxSegmentSize,
 			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill:             m.db.config.HNSWWaitForCachePrefill,
@@ -132,6 +134,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			ReplicationFactor:                   class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
+			ShardLoadLimiter:                    m.db.shardLoadLimiter,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -140,8 +143,8 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
 		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
-		m.db.memMonitor)
+		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler,
+		m.db.indexCheckpoints, m.db.memMonitor, m.db.reindexer)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -705,28 +708,12 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 		// Iterate over all shards
 		err = index.IterateObjects(ctx, func(index *Index, shard ShardLike, object *storobj.Object) error {
 			count = count + 1
-			if shard.hasTargetVectors() {
-				for vecName, vec := range object.Vectors {
-					if err := shard.extendDimensionTrackerForVecLSM(len(vec), object.DocID, vecName); err != nil {
-						return err
-					}
+			return object.IterateThroughVectorDimensions(func(targetVector string, dims int) error {
+				if err = shard.extendDimensionTrackerLSM(dims, object.DocID, targetVector); err != nil {
+					return fmt.Errorf("failed to extend dimension tracker for vector %q: %w", targetVector, err)
 				}
-				var dims int
-				for vecName, vec := range object.MultiVectors {
-					dims = 0
-					for _, v := range vec {
-						dims += len(v)
-					}
-					if err := shard.extendDimensionTrackerForVecLSM(dims, object.DocID, vecName); err != nil {
-						return err
-					}
-				}
-			} else {
-				if err := shard.extendDimensionTrackerLSM(len(object.Vector), object.DocID); err != nil {
-					return err
-				}
-			}
-			return nil
+				return nil
+			})
 		})
 		if err != nil {
 			m.logger.WithField("action", "reindex").WithError(err).Warn("could not extend vector dimensions")

@@ -17,8 +17,10 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"sync"
@@ -43,12 +45,14 @@ import (
 const (
 	defaultHashtreeHeight              = 16
 	defaultFrequency                   = 30 * time.Second
-	defaultFrequencyWhilePropagating   = 10 * time.Millisecond
+	defaultFrequencyWhilePropagating   = 3 * time.Second
 	defaultAliveNodesCheckingFrequency = 5 * time.Second
-	defaultLoggingFrequency            = 5 * time.Second
+	defaultLoggingFrequency            = 60 * time.Second
+	defaultInitShieldCPUEveryN         = 1_000
 	defaultDiffBatchSize               = 1_000
 	defaultDiffPerNodeTimeout          = 10 * time.Second
-	defaultPropagationTimeout          = 30 * time.Second
+	defaultPrePropagationTimeout       = 300 * time.Second
+	defaultPropagationTimeout          = 60 * time.Second
 	defaultPropagationLimit            = 10_000
 	defaultPropagationDelay            = 30 * time.Second
 	defaultPropagationConcurrency      = 5
@@ -56,6 +60,9 @@ const (
 
 	minHashtreeHeight = 0
 	maxHashtreeHeight = 20
+
+	minInitShieldCPUEveryN = 0
+	maxInitShieldCPUEveryN = math.MaxInt
 
 	minDiffBatchSize = 1
 	maxDiffBatchSize = 10_000
@@ -76,8 +83,10 @@ type asyncReplicationConfig struct {
 	frequencyWhilePropagating   time.Duration
 	aliveNodesCheckingFrequency time.Duration
 	loggingFrequency            time.Duration
+	initShieldCPUEveryN         int
 	diffBatchSize               int
 	diffPerNodeTimeout          time.Duration
+	prePropagationTimeout       time.Duration
 	propagationTimeout          time.Duration
 	propagationLimit            int
 	propagationDelay            time.Duration
@@ -114,6 +123,12 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_LOGGING_FREQUENCY", err)
 	}
 
+	config.initShieldCPUEveryN, err = optParseInt(
+		os.Getenv("ASYNC_REPLICATION_INIT_SHIELD_CPU_EVERY_N"), defaultInitShieldCPUEveryN, minInitShieldCPUEveryN, maxInitShieldCPUEveryN)
+	if err != nil {
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_INIT_SHIELD_CPU_EVERY_N", err)
+	}
+
 	config.diffBatchSize, err = optParseInt(
 		os.Getenv("ASYNC_REPLICATION_DIFF_BATCH_SIZE"), defaultDiffBatchSize, minDiffBatchSize, maxDiffBatchSize)
 	if err != nil {
@@ -124,6 +139,12 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 		os.Getenv("ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT"), defaultDiffPerNodeTimeout)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_DIFF_PER_NODE_TIMEOUT", err)
+	}
+
+	config.prePropagationTimeout, err = optParseDuration(
+		os.Getenv("ASYNC_REPLICATION_PRE_PROPAGATION_TIMEOUT"), defaultPrePropagationTimeout)
+	if err != nil {
+		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PRE_PROPAGATION_TIMEOUT", err)
 	}
 
 	config.propagationTimeout, err = optParseDuration(
@@ -296,14 +317,21 @@ func (s *Shard) initAsyncReplication() error {
 	// sync hashtree with current object states
 
 	enterrors.GoWrapper(func() {
+		err := s.store.PauseCompaction(ctx)
+		if err != nil {
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				Errorf("pausing compaction during hashtree initialization: %v", err)
+			return
+		}
+		defer s.store.ResumeCompaction(ctx)
+
 		objCount := 0
 		prevProgressLogging := time.Now()
 
-		err := bucket.ApplyToObjectDigests(ctx, func(object *storobj.Object) error {
-			if ctx.Err() != nil {
-				return ctx.Err()
-			}
-
+		err = bucket.ApplyToObjectDigests(ctx, func(object *storobj.Object) error {
 			if time.Since(prevProgressLogging) >= config.loggingFrequency {
 				s.index.logger.
 					WithField("action", "async_replication").
@@ -326,6 +354,14 @@ func (s *Shard) initAsyncReplication() error {
 			}
 
 			objCount++
+
+			if config.initShieldCPUEveryN > 0 {
+				if objCount%config.initShieldCPUEveryN == 0 {
+					// yield the processor so other goroutines can run
+					runtime.Gosched()
+					time.Sleep(time.Millisecond)
+				}
+			}
 
 			return nil
 		})
@@ -589,11 +625,11 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 	}, s.index.logger)
 
 	enterrors.GoWrapper(func() {
-		ft := time.NewTicker(10 * time.Millisecond)
-		defer ft.Stop()
-
 		nt := time.NewTicker(config.aliveNodesCheckingFrequency)
 		defer nt.Stop()
+
+		ft := time.NewTicker(min(config.frequencyWhilePropagating, config.frequency))
+		defer ft.Stop()
 
 		for {
 			select {
@@ -677,14 +713,17 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 
 	objectProgationStart := time.Now()
 
-	localObjects := 0
-	remoteObjects := 0
-	objectsPropagated := 0
+	localObjectsCount := 0
+	remoteObjectsCount := 0
 
-	ctx, cancel := context.WithTimeout(ctx, config.propagationTimeout)
+	objectsToPropagate := make([]strfmt.UUID, 0, config.propagationLimit)
+	localUpdateTimeByUUID := make(map[strfmt.UUID]int64, config.propagationLimit)
+	remoteStaleUpdateTimeByUUID := make(map[strfmt.UUID]int64, config.propagationLimit)
+
+	prepropagationCtx, cancel := context.WithTimeout(ctx, config.prePropagationTimeout)
 	defer cancel()
 
-	for objectsPropagated < config.propagationLimit {
+	for len(objectsToPropagate) < config.propagationLimit {
 		initialLeaf, finalLeaf, err := rangeReader.Next()
 		if err != nil {
 			if errors.Is(err, hashtree.ErrNoMoreRanges) {
@@ -693,29 +732,71 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 			return nil, fmt.Errorf("reading collected differences: %w", err)
 		}
 
-		localObjs, remoteObjs, propagations, err := s.stepsTowardsShardConsistency(
-			ctx,
+		localObjsCountWithinRange, remoteObjsCountWithinRange, objsToPropagateWithinRange, err := s.objectsToPropagateWithinRange(
+			prepropagationCtx,
 			config,
 			shardDiffReader.Host,
 			initialLeaf,
 			finalLeaf,
-			config.propagationLimit-objectsPropagated,
+			config.propagationLimit-len(objectsToPropagate),
 		)
 		if err != nil {
-			return nil, fmt.Errorf("achieving shard consistency: %w", err)
+			if prepropagationCtx.Err() != nil {
+				// it may be the case that just pre propagation timeout was reached
+				// and some objects could be propagated
+				break
+			}
+
+			return nil, fmt.Errorf("collecting local objects to be propagated: %w", err)
 		}
 
-		localObjects += localObjs
-		remoteObjects += remoteObjs
-		objectsPropagated += propagations
+		localObjectsCount += localObjsCountWithinRange
+		remoteObjectsCount += remoteObjsCountWithinRange
+
+		for _, obj := range objsToPropagateWithinRange {
+			objectsToPropagate = append(objectsToPropagate, obj.uuid)
+			localUpdateTimeByUUID[obj.uuid] = obj.lastUpdateTime
+			remoteStaleUpdateTimeByUUID[obj.uuid] = obj.remoteStaleUpdateTime
+		}
+	}
+
+	if len(objectsToPropagate) > 0 {
+		propagationCtx, cancel := context.WithTimeout(ctx, config.propagationTimeout)
+		defer cancel()
+
+		resp, err := s.propagateObjects(propagationCtx, config, shardDiffReader.Host, objectsToPropagate, remoteStaleUpdateTimeByUUID)
+		if err != nil {
+			return nil, fmt.Errorf("propagating local objects: %w", err)
+		}
+
+		for _, r := range resp {
+			// NOTE: deleted objects are not propagated but locally deleted when conflict is detected
+
+			deletionStrategy := s.index.DeletionStrategy()
+
+			if !r.Deleted ||
+				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
+				continue
+			}
+
+			if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
+				(deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
+					r.UpdateTime > localUpdateTimeByUUID[strfmt.UUID(r.ID)]) {
+
+				err := s.DeleteObject(propagationCtx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime))
+				if err != nil {
+					return nil, fmt.Errorf("deleting local objects: %w", err)
+				}
+			}
+		}
 	}
 
 	return &hashBeatHostStats{
 		host:                shardDiffReader.Host,
 		diffCalculationTook: diffCalculationTook,
-		localObjects:        localObjects,
-		remoteObjects:       remoteObjects,
-		objectsPropagated:   objectsPropagated,
+		localObjects:        localObjectsCount,
+		remoteObjects:       remoteObjectsCount,
+		objectsPropagated:   len(objectsToPropagate),
 		objectProgationTook: time.Since(objectProgationStart),
 	}, nil
 }
@@ -747,9 +828,17 @@ func incToNextLexValue(b []byte) bool {
 	return true
 }
 
-func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncReplicationConfig,
+type objectToPropagate struct {
+	uuid                  strfmt.UUID
+	lastUpdateTime        int64
+	remoteStaleUpdateTime int64
+}
+
+func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncReplicationConfig,
 	host string, initialLeaf, finalLeaf uint64, limit int,
-) (localObjects, remoteObjects, propagations int, err error) {
+) (localObjectsCount int, remoteObjectsCount int, objectsToPropagate []objectToPropagate, err error) {
+	objectsToPropagate = make([]objectToPropagate, 0, limit)
+
 	hashtreeHeight := config.hashtreeHeight
 
 	finalUUIDBytes := make([]byte, 16)
@@ -758,130 +847,138 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 
 	finalUUID, err := uuidFromBytes(finalUUIDBytes)
 	if err != nil {
-		return localObjects, remoteObjects, propagations, err
+		return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
 	}
 
 	currLocalUUIDBytes := make([]byte, 16)
 	binary.BigEndian.PutUint64(currLocalUUIDBytes, initialLeaf<<(64-hashtreeHeight))
 
-	shouldContinueFetchingLocalData := true
-
-	for shouldContinueFetchingLocalData && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
+	for limit > 0 && bytes.Compare(currLocalUUIDBytes, finalUUIDBytes) < 1 {
 		if ctx.Err() != nil {
-			return localObjects, remoteObjects, propagations, ctx.Err()
+			return localObjectsCount, remoteObjectsCount, objectsToPropagate, ctx.Err()
 		}
 
 		currLocalUUID, err := uuidFromBytes(currLocalUUIDBytes)
 		if err != nil {
-			return localObjects, remoteObjects, propagations, err
+			return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
 		}
 
-		allLocalDigests, err := s.index.DigestObjectsInRange(ctx, s.name, currLocalUUID, finalUUID, config.diffBatchSize)
+		currBatchSize := min(limit, config.diffBatchSize)
+
+		allLocalDigests, err := s.index.DigestObjectsInRange(ctx, s.name, currLocalUUID, finalUUID, currBatchSize)
 		if err != nil {
-			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local object digests: %w", err)
+			return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("fetching local object digests: %w", err)
 		}
 
-		// filter out too recent local digests to avoid object propagation when all the nodes may be alive
-		localDigests := make([]replica.RepairResponse, 0, len(allLocalDigests))
-
-		maxUpdateTime := time.Now().Add(-config.propagationDelay).UnixMilli()
-
-		for _, d := range allLocalDigests {
-			if d.UpdateTime <= maxUpdateTime {
-				localDigests = append(localDigests, d)
-			}
-		}
-
-		if len(localDigests) == 0 {
+		if len(allLocalDigests) == 0 {
 			// no more local objects need to be propagated in this iteration
 			break
 		}
 
-		// iteration should stop when all local digests within the range has been read
-		shouldContinueFetchingLocalData = len(localDigests) == config.diffBatchSize
+		localObjectsCount += len(allLocalDigests)
 
-		lastLocalUUID := strfmt.UUID(localDigests[len(localDigests)-1].ID)
+		// iteration should stop when all local digests within the range has been read
+
+		lastLocalUUID := strfmt.UUID(allLocalDigests[len(allLocalDigests)-1].ID)
 
 		lastLocalUUIDBytes, err := bytesFromUUID(lastLocalUUID)
 		if err != nil {
-			return localObjects, remoteObjects, propagations, err
+			return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
 		}
 
-		localDigestsByUUID := make(map[string]replica.RepairResponse, len(localDigests))
+		localDigestsByUUID := make(map[string]replica.RepairResponse, len(allLocalDigests))
 
-		for _, d := range localDigests {
-			localDigestsByUUID[d.ID] = d
+		// filter out too recent local digests to avoid object propagation when all the nodes may be alive
+		maxUpdateTime := time.Now().Add(-config.propagationDelay).UnixMilli()
+
+		for _, d := range allLocalDigests {
+			if d.UpdateTime <= maxUpdateTime {
+				localDigestsByUUID[d.ID] = d
+			}
 		}
-
-		localObjects += len(localDigestsByUUID)
 
 		remoteStaleUpdateTime := make(map[string]int64, len(localDigestsByUUID))
 
-		// fetch digests from remote host in order to avoid sending unnecessary objects
-		for currRemoteUUIDBytes := currLocalUUIDBytes; bytes.Compare(currRemoteUUIDBytes, lastLocalUUIDBytes) < 1; {
-			if ctx.Err() != nil {
-				return localObjects, remoteObjects, propagations, ctx.Err()
-			}
+		if len(localDigestsByUUID) > 0 {
+			// fetch digests from remote host in order to avoid sending unnecessary objects
+			for currRemoteUUIDBytes := currLocalUUIDBytes; bytes.Compare(currRemoteUUIDBytes, lastLocalUUIDBytes) < 1; {
+				if ctx.Err() != nil {
+					return localObjectsCount, remoteObjectsCount, objectsToPropagate, ctx.Err()
+				}
 
-			currRemoteUUID, err := uuidFromBytes(currRemoteUUIDBytes)
-			if err != nil {
-				return localObjects, remoteObjects, propagations, err
-			}
+				currRemoteUUID, err := uuidFromBytes(currRemoteUUIDBytes)
+				if err != nil {
+					return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
+				}
 
-			remoteDigests, err := s.index.replicator.DigestObjectsInRange(ctx,
-				s.name, host, currRemoteUUID, lastLocalUUID, config.diffBatchSize)
-			if err != nil {
-				return localObjects, remoteObjects, propagations, fmt.Errorf("fetching remote object digests: %w", err)
-			}
+				remoteDigests, err := s.index.replicator.DigestObjectsInRange(ctx,
+					s.name, host, currRemoteUUID, lastLocalUUID, config.diffBatchSize)
+				if err != nil {
+					return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("fetching remote object digests: %w", err)
+				}
 
-			if len(remoteDigests) == 0 {
-				// no more digests in remote host
-				break
-			}
+				if len(remoteDigests) == 0 {
+					// no more digests in remote host
+					break
+				}
 
-			remoteObjects += len(remoteDigests)
+				remoteObjectsCount += len(remoteDigests)
 
-			for _, d := range remoteDigests {
-				localDigest, ok := localDigestsByUUID[d.ID]
-				if ok {
-					if localDigest.UpdateTime <= d.UpdateTime {
-						// older or up to date objects are not propagated
-						delete(localDigestsByUUID, d.ID)
+				for _, d := range remoteDigests {
+					localDigest, ok := localDigestsByUUID[d.ID]
+					if ok {
+						if localDigest.UpdateTime <= d.UpdateTime {
+							// older or up to date objects are not propagated
+							delete(localDigestsByUUID, d.ID)
 
-						if len(localDigestsByUUID) == 0 {
-							// no more local objects need to be propagated in this iteration
-							break
+							if len(localDigestsByUUID) == 0 {
+								// no more local objects need to be propagated in this iteration
+								break
+							}
+						} else {
+							// older object is subject to be overwriten
+							remoteStaleUpdateTime[d.ID] = d.UpdateTime
 						}
-					} else {
-						// older object is subject to be overwriten
-						remoteStaleUpdateTime[d.ID] = d.UpdateTime
 					}
 				}
+
+				if len(localDigestsByUUID) == 0 {
+					// no more local objects need to be propagated in this iteration
+					break
+				}
+
+				if len(remoteDigests) < config.diffBatchSize {
+					break
+				}
+
+				lastRemoteUUID := strfmt.UUID(remoteDigests[len(remoteDigests)-1].ID)
+
+				lastRemoteUUIDBytes, err := bytesFromUUID(lastRemoteUUID)
+				if err != nil {
+					return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
+				}
+
+				overflow := incToNextLexValue(lastRemoteUUIDBytes)
+				if overflow {
+					// no more remote digests need to be fetched
+					break
+				}
+
+				currRemoteUUIDBytes = lastRemoteUUIDBytes
 			}
+		}
 
-			if len(localDigestsByUUID) == 0 {
-				// no more local objects need to be propagated in this iteration
-				break
-			}
+		for _, obj := range localDigestsByUUID {
+			objectsToPropagate = append(objectsToPropagate, objectToPropagate{
+				uuid:                  strfmt.UUID(obj.ID),
+				lastUpdateTime:        obj.UpdateTime,
+				remoteStaleUpdateTime: remoteStaleUpdateTime[obj.ID],
+			})
+		}
 
-			if len(remoteDigests) < config.diffBatchSize {
-				break
-			}
-
-			lastRemoteUUID := strfmt.UUID(remoteDigests[len(remoteDigests)-1].ID)
-
-			lastRemoteUUIDBytes, err := bytesFromUUID(lastRemoteUUID)
-			if err != nil {
-				return localObjects, remoteObjects, propagations, err
-			}
-
-			overflow := incToNextLexValue(lastRemoteUUIDBytes)
-			if overflow {
-				// no more remote digests need to be fetched
-				break
-			}
-
-			currRemoteUUIDBytes = lastRemoteUUIDBytes
+		if len(allLocalDigests) < currBatchSize {
+			// no more local objects need to be propagated
+			break
 		}
 
 		// to avoid reading the last uuid in the next iteration
@@ -893,103 +990,18 @@ func (s *Shard) stepsTowardsShardConsistency(ctx context.Context, config asyncRe
 
 		currLocalUUIDBytes = lastLocalUUIDBytes
 
-		if len(localDigestsByUUID) == 0 {
-			// no more local objects need to be propagated in this iteration
-			continue
-		}
-
-		uuids := make([]strfmt.UUID, 0, len(localDigestsByUUID))
-		for uuid := range localDigestsByUUID {
-			uuids = append(uuids, strfmt.UUID(uuid))
-		}
-
-		localObjs, err := s.MultiObjectByID(ctx, wrapIDsInMulti(uuids))
-		if err != nil {
-			return localObjects, remoteObjects, propagations, fmt.Errorf("fetching local objects: %w", err)
-		}
-
-		mergeObjs := make([]*objects.VObject, 0, len(localObjs))
-
-		for _, obj := range localObjs {
-			if obj == nil {
-				// local object was deleted meanwhile
-				continue
-			}
-
-			var vectors map[string][]float32
-			var multiVectors map[string][][]float32
-
-			if obj.Vectors != nil {
-				vectors = make(map[string][]float32, len(obj.Vectors))
-				for targetVector, v := range obj.Vectors {
-					vectors[targetVector] = v
-				}
-			}
-			if obj.MultiVectors != nil {
-				multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
-				for targetVector, v := range obj.MultiVectors {
-					multiVectors[targetVector] = v
-				}
-			}
-
-			obj := &objects.VObject{
-				ID:                      obj.ID(),
-				LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
-				LatestObject:            &obj.Object,
-				Vector:                  obj.Vector,
-				Vectors:                 vectors,
-				MultiVectors:            multiVectors,
-				StaleUpdateTime:         remoteStaleUpdateTime[obj.ID().String()],
-			}
-
-			mergeObjs = append(mergeObjs, obj)
-		}
-
-		if len(mergeObjs) == 0 {
-			// no more local objects need to be propagated in this iteration
-			continue
-		}
-
-		resp, err := s.propagateObjects(ctx, config, host, mergeObjs)
-		if err != nil {
-			return localObjects, remoteObjects, propagations, fmt.Errorf("propagating local objects: %w", err)
-		}
-
-		for _, r := range resp {
-			// NOTE: deleted objects are not propagated but locally deleted when conflict is detected
-
-			deletionStrategy := s.index.DeletionStrategy()
-
-			if !r.Deleted ||
-				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
-				continue
-			}
-
-			if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
-				(deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
-					r.UpdateTime > localDigestsByUUID[r.ID].UpdateTime) {
-
-				err := s.DeleteObject(ctx, strfmt.UUID(r.ID), time.UnixMilli(r.UpdateTime))
-				if err != nil {
-					return localObjects, remoteObjects, propagations, fmt.Errorf("deleting local objects: %w", err)
-				}
-			}
-		}
-
-		propagations += len(mergeObjs)
-
-		if propagations >= limit {
-			break
-		}
+		limit -= len(localDigestsByUUID)
 	}
 
 	// Note: propagations == 0 means local shard is laying behind remote shard,
 	// the local shard may receive recent objects when remote shard propagates them
 
-	return localObjects, remoteObjects, propagations, nil
+	return localObjectsCount, remoteObjectsCount, objectsToPropagate, nil
 }
 
-func (s *Shard) propagateObjects(ctx context.Context, config asyncReplicationConfig, host string, objs []*objects.VObject) (res []replica.RepairResponse, err error) {
+func (s *Shard) propagateObjects(ctx context.Context, config asyncReplicationConfig, host string,
+	objectsToPropagate []strfmt.UUID, remoteStaleUpdateTime map[strfmt.UUID]int64,
+) (res []replica.RepairResponse, err error) {
 	type workerResponse struct {
 		resp []replica.RepairResponse
 		err  error
@@ -997,17 +1009,65 @@ func (s *Shard) propagateObjects(ctx context.Context, config asyncReplicationCon
 
 	var wg sync.WaitGroup
 
-	batchCh := make(chan []*objects.VObject, len(objs)/config.propagationBatchSize+1)
-	resultCh := make(chan workerResponse, len(objs)/config.propagationBatchSize+1)
+	batchCh := make(chan []strfmt.UUID, len(objectsToPropagate)/config.propagationBatchSize+1)
+	resultCh := make(chan workerResponse, len(objectsToPropagate)/config.propagationBatchSize+1)
 
-	for i := 0; i < config.propagationConcurrency; i++ {
+	for range config.propagationConcurrency {
 		enterrors.GoWrapper(func() {
-			for batch := range batchCh {
-				resp, err := s.index.replicator.Overwrite(ctx, host, s.class.Class, s.name, batch)
+			for uuidBatch := range batchCh {
+				localObjs, err := s.MultiObjectByID(ctx, wrapIDsInMulti(uuidBatch))
+				if err != nil {
+					resultCh <- workerResponse{
+						err: fmt.Errorf("fetching local objects: %w", err),
+					}
+					wg.Done()
+					continue
+				}
 
-				resultCh <- workerResponse{
-					resp: resp,
-					err:  err,
+				batch := make([]*objects.VObject, 0, len(localObjs))
+
+				for _, obj := range localObjs {
+					if obj == nil {
+						// local object was deleted meanwhile
+						continue
+					}
+
+					var vectors map[string][]float32
+					var multiVectors map[string][][]float32
+
+					if obj.Vectors != nil {
+						vectors = make(map[string][]float32, len(obj.Vectors))
+						for targetVector, v := range obj.Vectors {
+							vectors[targetVector] = v
+						}
+					}
+					if obj.MultiVectors != nil {
+						multiVectors = make(map[string][][]float32, len(obj.MultiVectors))
+						for targetVector, v := range obj.MultiVectors {
+							multiVectors[targetVector] = v
+						}
+					}
+
+					obj := &objects.VObject{
+						ID:                      obj.ID(),
+						LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
+						LatestObject:            &obj.Object,
+						Vector:                  obj.Vector,
+						Vectors:                 vectors,
+						MultiVectors:            multiVectors,
+						StaleUpdateTime:         remoteStaleUpdateTime[obj.ID()],
+					}
+
+					batch = append(batch, obj)
+				}
+
+				if len(batch) > 0 {
+					resp, err := s.index.replicator.Overwrite(ctx, host, s.class.Class, s.name, batch)
+
+					resultCh <- workerResponse{
+						resp: resp,
+						err:  err,
+					}
 				}
 
 				wg.Done()
@@ -1015,14 +1075,14 @@ func (s *Shard) propagateObjects(ctx context.Context, config asyncReplicationCon
 		}, s.index.logger)
 	}
 
-	for i := 0; i < len(objs); {
+	for i := 0; i < len(objectsToPropagate); {
 		actualBatchSize := config.propagationBatchSize
-		if i+actualBatchSize > len(objs) {
-			actualBatchSize = len(objs) - i
+		if i+actualBatchSize > len(objectsToPropagate) {
+			actualBatchSize = len(objectsToPropagate) - i
 		}
 
 		wg.Add(1)
-		batchCh <- objs[i : i+actualBatchSize]
+		batchCh <- objectsToPropagate[i : i+actualBatchSize]
 
 		i += actualBatchSize
 	}

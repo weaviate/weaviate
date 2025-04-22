@@ -14,13 +14,14 @@ package schema
 import (
 	"context"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -32,7 +33,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound           = errors.New("not found")
+	ErrUnexpectedMultiple = errors.New("unexpected multiple results")
+)
 
 // SchemaManager is responsible for consistent schema operations.
 // It allows reading and writing the schema while directly talking to the leader, no matter which node it is.
@@ -63,6 +67,7 @@ type SchemaManager interface {
 	QueryReadOnlyClasses(names ...string) (map[string]versioned.Class, error)
 	QuerySchema() (models.Schema, error)
 	QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error)
+	QueryCollectionsCount() (int, error)
 	QueryShardOwner(class, shard string) (string, uint64, error)
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
@@ -124,6 +129,7 @@ type Handler struct {
 
 	logger                  logrus.FieldLogger
 	Authorizer              authorization.Authorizer
+	schemaConfig            *config.SchemaHandlerConfig
 	config                  config.Config
 	vectorizerValidator     VectorizerValidator
 	moduleConfig            ModuleConfig
@@ -133,6 +139,8 @@ type Handler struct {
 	scaleOut                scaleOut
 	parser                  Parser
 	classGetter             *ClassGetter
+
+	asyncIndexingEnabled bool
 }
 
 // NewHandler creates a new handler
@@ -140,7 +148,8 @@ func NewHandler(
 	schemaReader SchemaReader,
 	schemaManager SchemaManager,
 	validator validator,
-	logger logrus.FieldLogger, authorizer authorization.Authorizer, config config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer, schemaConfig *config.SchemaHandlerConfig,
+	config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
@@ -150,6 +159,7 @@ func NewHandler(
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
+		schemaConfig:            schemaConfig,
 		schemaReader:            schemaReader,
 		schemaManager:           schemaManager,
 		parser:                  parser,
@@ -164,6 +174,8 @@ func NewHandler(
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
 		classGetter:             classGetter,
+
+		asyncIndexingEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
 	}
 
 	handler.scaleOut.SetSchemaReader(schemaReader)

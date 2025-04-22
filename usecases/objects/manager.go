@@ -72,7 +72,6 @@ type schemaManager interface {
 // underlying databases or storage providers
 type Manager struct {
 	config            *config.WeaviateConfig
-	locks             locks
 	schemaManager     schemaManager
 	logger            logrus.FieldLogger
 	authorizer        authorization.Authorizer
@@ -116,11 +115,6 @@ type timeSource interface {
 	Now() int64
 }
 
-type locks interface {
-	LockConnector() (func() error, error)
-	LockSchema() (func() error, error)
-}
-
 type VectorRepo interface {
 	PutObject(ctx context.Context, concept *models.Object, vector []float32,
 		vectors map[string][]float32, multiVectors map[string][][]float32,
@@ -159,7 +153,7 @@ type ModulesProvider interface {
 }
 
 // NewManager creates a new manager
-func NewManager(locks locks, schemaManager schemaManager,
+func NewManager(schemaManager schemaManager,
 	config *config.WeaviateConfig, logger logrus.FieldLogger,
 	authorizer authorization.Authorizer, vectorRepo VectorRepo,
 	modulesProvider ModulesProvider, metrics objectsMetrics, allocChecker *memwatch.Monitor,
@@ -170,7 +164,6 @@ func NewManager(locks locks, schemaManager schemaManager,
 
 	return &Manager{
 		config:            config,
-		locks:             locks,
 		schemaManager:     schemaManager,
 		logger:            logger,
 		authorizer:        authorizer,

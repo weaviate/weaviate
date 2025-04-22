@@ -15,6 +15,8 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -23,32 +25,33 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestAssignRoleToUserSuccess(t *testing.T) {
-	authorizer := mocks.NewAuthorizer(t)
-	controller := mocks.NewController(t)
+	authorizer := authorization.NewMockAuthorizer(t)
+	controller := NewMockControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
+	userType := models.UserTypeInputDb
 	principal := &models.Principal{Username: "user1"}
 	params := authz.AssignRoleToUserParams{
 		ID: "user1",
 		Body: authz.AssignRoleToUserBody{
-			Roles: []string{"testRole"},
+			Roles:    []string{"testRole"},
+			UserType: userType,
 		},
 	}
 
-	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users(params.ID)[0]).Return(nil)
+	authorizer.On("Authorize", principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(params.ID)[0]).Return(nil)
 	controller.On("GetRoles", params.Body.Roles[0]).Return(map[string][]authorization.Policy{params.Body.Roles[0]: {}}, nil)
-	controller.On("AddRolesForUser", conv.PrefixUserName(params.ID), params.Body.Roles).Return(nil)
+	controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(params.ID, params.Body.UserType), params.Body.Roles).Return(nil)
 
 	h := &authZHandlers{
 		authorizer:     authorizer,
 		controller:     controller,
-		apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
+		apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user1"}},
 		logger:         logger,
 	}
 	res := h.assignRoleToUser(params, principal)
@@ -58,8 +61,8 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 }
 
 func TestAssignRoleToGroupSuccess(t *testing.T) {
-	authorizer := mocks.NewAuthorizer(t)
-	controller := mocks.NewController(t)
+	authorizer := authorization.NewMockAuthorizer(t)
+	controller := NewMockControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "root-user"}
@@ -77,7 +80,7 @@ func TestAssignRoleToGroupSuccess(t *testing.T) {
 	h := &authZHandlers{
 		authorizer:     authorizer,
 		controller:     controller,
-		apiKeysConfigs: config.APIKey{Enabled: true, Users: []string{"user1"}},
+		apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"user1"}},
 		logger:         logger,
 		rbacconfig: rbacconf.Config{
 			RootUsers: []string{"root-user"},
@@ -96,7 +99,7 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 		principal     *models.Principal
 		existedRoles  map[string][]authorization.Policy
 		existedUsers  []string
-		callToGetRole bool
+		callToGetUser bool
 	}
 
 	tests := []testCase{
@@ -108,9 +111,10 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 					Roles: []string{"role1"},
 				},
 			},
-			principal:    &models.Principal{Username: "user1"},
-			existedRoles: map[string][]authorization.Policy{},
-			existedUsers: []string{"user1"},
+			principal:     &models.Principal{Username: "user1"},
+			existedRoles:  map[string][]authorization.Policy{"role1": {}},
+			existedUsers:  []string{"user1"},
+			callToGetUser: true,
 		},
 		{
 			name: "role not found",
@@ -123,26 +127,27 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			existedRoles:  map[string][]authorization.Policy{},
 			existedUsers:  []string{"user1"},
-			callToGetRole: true,
+			callToGetUser: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, mock.Anything, mock.Anything).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, mock.Anything, mock.Anything).Return(nil)
 
-			if tt.callToGetRole {
-				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
+			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
+			if tt.callToGetUser {
+				controller.On("GetUsers", tt.params.ID).Return(nil, nil)
 			}
 
 			h := &authZHandlers{
 				authorizer:     authorizer,
 				controller:     controller,
-				apiKeysConfigs: config.APIKey{Enabled: true, Users: tt.existedUsers},
+				apiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: tt.existedUsers},
 				logger:         logger,
 			}
 			res := h.assignRoleToUser(tt.params, tt.principal)
@@ -179,8 +184,8 @@ func TestAssignRoleToGroupOrUserNotFound(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), mock.Anything, mock.Anything).Return(nil)
@@ -237,8 +242,8 @@ func TestAssignRoleToUserBadRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			h := &authZHandlers{
@@ -291,8 +296,8 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			h := &authZHandlers{
@@ -352,12 +357,12 @@ func TestAssignRoleToUserForbidden(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -423,8 +428,8 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
@@ -460,13 +465,16 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 		expectedError string
 	}
 
+	userType := models.UserTypeInputDb
+
 	tests := []testCase{
 		{
 			name: "internal server error from assigning",
 			params: authz.AssignRoleToUserParams{
 				ID: "testUser",
 				Body: authz.AssignRoleToUserBody{
-					Roles: []string{"testRole"},
+					Roles:    []string{"testRole"},
+					UserType: userType,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -478,7 +486,8 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 			params: authz.AssignRoleToUserParams{
 				ID: "testUser",
 				Body: authz.AssignRoleToUserBody{
-					Roles: []string{"testRole"},
+					Roles:    []string{"testRole"},
+					UserType: userType,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -489,14 +498,15 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.UPDATE, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
-				controller.On("AddRolesForUser", conv.PrefixUserName(tt.params.ID), tt.params.Body.Roles).Return(tt.assignErr)
+				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
+				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, tt.params.Body.UserType), tt.params.Body.Roles).Return(tt.assignErr)
 			}
 
 			h := &authZHandlers{
@@ -554,8 +564,8 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)

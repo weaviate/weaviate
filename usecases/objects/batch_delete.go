@@ -45,14 +45,6 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
-	unlock, err := b.locks.LockConnector()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
-
-	ctx = classcache.ContextWithClassCache(ctx)
-
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
@@ -64,12 +56,6 @@ func (b *BatchManager) DeleteObjectsFromGRPCAfterAuth(ctx context.Context, princ
 	params BatchDeleteParams,
 	repl *additional.ReplicationProperties, tenant string,
 ) (BatchDeleteResult, error) {
-	unlock, err := b.locks.LockConnector()
-	if err != nil {
-		return BatchDeleteResult{}, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
-
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 

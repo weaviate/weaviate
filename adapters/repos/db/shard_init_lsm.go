@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
@@ -38,12 +39,6 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 			"duration": took,
 		}).Debugf("loaded non-vector (lsm, object, inverted) in %s for shard %q", took, s.ID())
 	}()
-
-	// init the store itself synchronously
-	err := s.initLSMStore()
-	if err != nil {
-		return fmt.Errorf("init shard %q: lsm store: %w", s.ID(), err)
-	}
 
 	// the shard versioner is also dependency of some of the bucket
 	// initializations, so it also needs to happen synchronously
@@ -89,7 +84,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	// the other initializations going on here.
 	s.initProperties(eg, class)
 
-	err = eg.Wait()
+	err := eg.Wait()
 	if err != nil {
 		// annotate error with shard id only once, all inner functions should only
 		// annotate what they do, but not repeat the shard id.
@@ -107,6 +102,14 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		}
 	} else if s.index.replicationEnabled() {
 		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
+	}
+
+	// check if we need to set Inverted Index config to use BlockMax inverted format for new properties
+	// TODO(amourao): this is a temporary solution, we need to update the inverted index config in the schema as well
+	// right now, this is done as part of the migration process, but we need to find a way of dealing with MT indices
+	// where some shards are using the old format and some shards are using the new format
+	if !s.usingBlockMaxWAND && config.DefaultUsingBlockMaxWAND {
+		s.usingBlockMaxWAND = s.areAllSearchableBucketsBlockMax()
 	}
 
 	return nil
@@ -183,8 +186,9 @@ func (s *Shard) initIndexCounterVersionerAndBitmapFactory() error {
 		return fmt.Errorf("init index counter: %w", err)
 	}
 	s.counter = counter
+	s.bitmapBufPool = roaringset.NewBitmapBufPool(1024, 1.1)
 	// counter is incremented whenever new docID is fetched, therefore last docID is lower by 1
-	s.bitmapFactory = roaringset.NewBitmapFactory(func() uint64 { return s.counter.Get() - 1 })
+	s.bitmapFactory = roaringset.NewBitmapFactory(s.bitmapBufPool, func() uint64 { return s.counter.Get() - 1 })
 
 	dataPresent := s.counter.PreviewNext() != 0
 	versionPath := path.Join(s.path(), "version")

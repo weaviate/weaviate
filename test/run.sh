@@ -123,6 +123,7 @@ function main() {
     if $run_acceptance_only_authz || $run_acceptance_only_python
     then
       tools/test/run_ci_server.sh --with-auth
+      build_mockoidc_docker_image_for_tests
     else
       tools/test/run_ci_server.sh
     fi
@@ -196,6 +197,14 @@ function build_docker_image_for_tests() {
 
   docker build --build-arg GIT_REVISION="$GIT_REVISION" --build-arg GIT_BRANCH="$GIT_BRANCH" --target weaviate -t $module_test_image .
   export "TEST_WEAVIATE_IMAGE"=$module_test_image
+}
+
+function build_mockoidc_docker_image_for_tests() {
+  local mockoidc_test_image=mockoidc:module-tests
+  echo_green "Building MockOIDC image for module acceptance tests..."
+  docker build  -t $mockoidc_test_image test/docker/mockoidc
+  export "TEST_MOCKOIDC_IMAGE"=$mockoidc_test_image
+  echo_green "MockOIDC image successfully built"
 }
 
 function run_unit_tests() {
@@ -341,7 +350,7 @@ function run_acceptance_graphql_tests() {
 function run_acceptance_only_authz() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
   for pkg in $(go list ./.../ | grep 'test/acceptance/authz'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi

@@ -13,20 +13,20 @@ package schema
 
 import (
 	"fmt"
+	"math/rand"
+	"slices"
 	"strings"
 	"sync"
 
-	"github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	"golang.org/x/exp/slices"
 )
 
 type (
-	NodeShardProcess map[string]*api.TenantsProcess
+	NodeShardProcess map[string]*command.TenantsProcess
 	metaClass        struct {
 		sync.RWMutex
 		Class        models.Class
@@ -94,6 +94,7 @@ func (m *metaClass) CloneClass() *models.Class {
 }
 
 // ShardOwner returns the node owner of the specified shard
+// will randomize the owner if there is more than one node
 func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 	m.RLock()
 	defer m.RUnlock()
@@ -105,7 +106,12 @@ func (m *metaClass) ShardOwner(shard string) (string, uint64, error) {
 	if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
 		return "", 0, fmt.Errorf("owner node not found")
 	}
-	return x.BelongsToNodes[0], m.version(), nil
+
+	// we randomize the owner if there is more than one node
+	// - avoid hotspots
+	// - tolerate down nodes
+	// - distribute load
+	return x.BelongsToNodes[rand.Intn(len(x.BelongsToNodes))], m.version(), nil
 }
 
 // ShardFromUUID returns shard name of the provided uuid
@@ -519,14 +525,14 @@ func (m *metaClass) applyShardProcess(name string, action command.TenantProcessR
 	delete(m.ShardProcesses, shardProcessID(name, action))
 }
 
-func (m *metaClass) shardProcess(name string, action command.TenantProcessRequest_Action) map[string]*api.TenantsProcess {
+func (m *metaClass) shardProcess(name string, action command.TenantProcessRequest_Action) map[string]*command.TenantsProcess {
 	if len(m.ShardProcesses) == 0 {
 		m.ShardProcesses = make(map[string]NodeShardProcess)
 	}
 
 	process, ok := m.ShardProcesses[shardProcessID(name, action)]
 	if !ok {
-		process = make(map[string]*api.TenantsProcess)
+		process = make(map[string]*command.TenantsProcess)
 	}
 	return process
 }
@@ -538,7 +544,7 @@ func (m *metaClass) freeze(i int, req *command.UpdateTenantsRequest, shard shard
 	process := m.shardProcess(req.Tenants[i].Name, command.TenantProcessRequest_ACTION_FREEZING)
 
 	for _, node := range shard.BelongsToNodes {
-		process[node] = &api.TenantsProcess{
+		process[node] = &command.TenantsProcess{
 			Op: command.TenantsProcess_OP_START,
 			Tenant: &command.Tenant{
 				Name:   req.Tenants[i].Name,
@@ -588,7 +594,7 @@ func (m *metaClass) unfreeze(nodeID string, i int, req *command.UpdateTenantsReq
 			continue
 		}
 		newToOld[node] = oldNodes[idx]
-		process[node] = &api.TenantsProcess{
+		process[node] = &command.TenantsProcess{
 			Op: command.TenantsProcess_OP_START,
 			Tenant: &command.Tenant{
 				Name:   name,

@@ -133,10 +133,6 @@ func Test_ReferenceAdd(t *testing.T) {
 		Stage int
 	}{
 		{
-			Name: "locking", Req: req, Stage: 0,
-			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
-		},
-		{
 			Name: "authorization", Req: req, Stage: 0,
 			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
 		},
@@ -207,7 +203,6 @@ func Test_ReferenceAdd(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			m := newFakeGetManager(zooAnimalSchemaForTest())
 			m.authorizer.SetErr(tc.ErrAuth)
-			m.locks.Err = tc.ErrLock
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			m.modulesProvider.On("UsingRef2Vec", mock.Anything).Return(false)
 			if tc.Stage >= 2 {
@@ -292,11 +287,6 @@ func Test_ReferenceUpdate(t *testing.T) {
 			Stage:       1,
 		},
 		{
-			Name: "locking", Req: req,
-			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr,
-			Stage: 1,
-		},
-		{
 			Name: "authorization", Req: req,
 			WantCode: StatusForbidden, WantErr: anyErr, ErrAuth: anyErr,
 			Stage: 0,
@@ -352,7 +342,6 @@ func Test_ReferenceUpdate(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			m := newFakeGetManager(zooAnimalSchemaForTest())
 			m.authorizer.SetErr(tc.ErrAuth)
-			m.locks.Err = tc.ErrLock
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			srcObj := &search.Result{
 				ClassName: cls,
@@ -439,7 +428,6 @@ func Test_ReferenceDelete(t *testing.T) {
 		ErrTargetExists error
 		ErrSrcExists    error
 		ErrAuth         error
-		ErrLock         error
 		ErrSchema       error
 		// Stage: 1 -> validation(), 2 -> target exists(), 3 -> PutObject()
 		Stage int
@@ -454,10 +442,6 @@ func Test_ReferenceDelete(t *testing.T) {
 			Name: "source object missing", Req: req,
 			WantCode:    StatusNotFound,
 			SrcNotFound: true, Stage: 2,
-		},
-		{
-			Name: "locking", Req: req,
-			WantCode: StatusInternalServerError, WantErr: anyErr, ErrLock: anyErr, Stage: 2,
 		},
 		{
 			Name: "authorization", Req: req,
@@ -545,7 +529,6 @@ func Test_ReferenceDelete(t *testing.T) {
 		t.Run(tc.Name, func(t *testing.T) {
 			m := newFakeGetManager(zooAnimalSchemaForTest())
 			m.authorizer.SetErr(tc.ErrAuth)
-			m.locks.Err = tc.ErrLock
 			m.schemaManager.(*fakeSchemaManager).GetschemaErr = tc.ErrSchema
 			srcObj := &search.Result{
 				ClassName: cls,

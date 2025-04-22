@@ -18,6 +18,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync/atomic"
 	"time"
 
@@ -41,8 +42,14 @@ type VectorIndexQueue struct {
 	shard        *Shard
 	scheduler    *queue.Scheduler
 	metrics      *VectorIndexQueueMetrics
+
 	// tracks the dimensions of the vectors in the queue
 	dims atomic.Int32
+	// If positive, accumulates vectors in a batch before indexing them.
+	// Otherwise, the batch size is determined by the size of a chunk file
+	// (typically 10MB worth of vectors).
+	// Batch size is not guaranteed to match this value exactly.
+	batchSize int
 
 	vectorIndex VectorIndex
 }
@@ -64,6 +71,10 @@ func NewVectorIndexQueue(
 		WithField("target_vector", targetVector)
 
 	staleTimeout, _ := time.ParseDuration(os.Getenv("ASYNC_INDEXING_STALE_TIMEOUT"))
+	batchSize, _ := strconv.Atoi(os.Getenv("ASYNC_INDEXING_BATCH_SIZE"))
+	if batchSize > 0 {
+		viq.batchSize = batchSize
+	}
 
 	viq.metrics = NewVectorIndexQueueMetrics(logger, shard.promMetrics, shard.index.Config.ClassName.String(), shard.Name(), targetVector)
 
@@ -146,6 +157,43 @@ func (iq *VectorIndexQueue) Insert(ctx context.Context, vectors ...common.Vector
 	}
 
 	return nil
+}
+
+// DequeueBatch dequeues a batch of tasks from the queue.
+// If the queue is configured to accumulate vectors in a batch, it will dequeue
+// tasks until the target batch size is reached.
+// Otherwise, dequeues a single chunk file worth of tasks.
+func (iq *VectorIndexQueue) DequeueBatch() (*queue.Batch, error) {
+	if iq.batchSize <= 0 {
+		return iq.DiskQueue.DequeueBatch()
+	}
+
+	var batches []*queue.Batch
+	var taskCount int
+
+	for {
+		batch, err := iq.DiskQueue.DequeueBatch()
+		if err != nil {
+			return nil, err
+		}
+
+		if batch == nil {
+			break
+		}
+
+		batches = append(batches, batch)
+
+		taskCount += len(batch.Tasks)
+		if taskCount >= iq.batchSize {
+			break
+		}
+	}
+
+	if len(batches) == 0 {
+		return nil, nil
+	}
+
+	return queue.MergeBatches(batches...), nil
 }
 
 func (iq *VectorIndexQueue) Delete(ids ...uint64) error {

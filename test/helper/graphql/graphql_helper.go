@@ -75,9 +75,10 @@ func getGraphQLResponseOrFatal(t *testing.T, response *models.GraphQLResponse, e
 	if err != nil {
 		var parsedErr *graphql.GraphqlPostUnprocessableEntity
 		if !errors.As(err, &parsedErr) {
-			t.Fatalf("Expected the query to succeed, but failed due to: %#v", err)
+			t.Fatalf("Expected the query to succeed, but failed due to: %#v, with message: %s", err, err.Error())
 		}
-		t.Fatalf("Expected the query to succeed, but failed with unprocessable entity: %v", parsedErr.Payload.Error[0])
+		innerErr := parsedErr.Payload.Error[0]
+		t.Fatalf("Expected the query to succeed, but failed with unprocessable entity: %v, with message: %s", innerErr, innerErr.Message)
 	}
 	return response
 }

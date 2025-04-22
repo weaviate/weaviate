@@ -23,9 +23,9 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -84,6 +84,8 @@ type SegmentGroup struct {
 	cleanupInterval    time.Duration
 	lastCleanupCall    time.Time
 	lastCompactionCall time.Time
+
+	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 }
 
 type sgConfig struct {
@@ -99,6 +101,7 @@ type sgConfig struct {
 	maxSegmentSize           int64
 	cleanupInterval          time.Duration
 	enableChecksumValidation bool
+	keepSegmentsInMemory     bool
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -360,31 +363,35 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		sg.strategy = StrategyMapCollection
 	}
 
-	if sg.strategy == StrategyInverted {
-		// start at  len(sg.segments) - 2 as the last segment doesn't need any tombstones for now
+	switch sg.strategy {
+	case StrategyInverted:
+		// start with last but one segment, as the last one doesn't need tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
 			// avoid crashing if segment has no tombstones
-			tombstonesNext, err := sg.segments[i+1].GetTombstones()
+			tombstonesNext, err := sg.segments[i+1].ReadOnlyTombstones()
 			if err != nil {
 				return nil, fmt.Errorf("init segment %s: load tombstones %w", sg.segments[i+1].path, err)
 			}
+			if _, err := sg.segments[i].MergeTombstones(tombstonesNext); err != nil {
+				return nil, fmt.Errorf("init segment %s: merge tombstones %w", sg.segments[i].path, err)
+			}
+		}
 
-			tombstonesCurrent, err := sg.segments[i].GetTombstones()
-			if err != nil {
-				return nil, fmt.Errorf("init segment %s: load tombstones %w", sg.segments[i].path, err)
+	case StrategyRoaringSetRange:
+		if cfg.keepSegmentsInMemory {
+			t := time.Now()
+			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory()
+			for _, seg := range sg.segments {
+				cursor := seg.newRoaringSetRangeCursor()
+				if err := sg.roaringSetRangeSegmentInMemory.MergeSegmentByCursor(cursor); err != nil {
+					return nil, fmt.Errorf("build segment-in-memory of strategy '%s': %w", sg.strategy, err)
+				}
 			}
-
-			if tombstonesNext == nil {
-				continue
-			}
-			// init new sroar bitmap if segment had no tombstones
-			if tombstonesCurrent == nil {
-				tombstonesCurrent = sroar.NewBitmap()
-			}
-			if tombstonesNext.IsEmpty() {
-				continue
-			}
-			tombstonesCurrent.Or(tombstonesNext)
+			logger.WithFields(logrus.Fields{
+				"took":    time.Since(t).String(),
+				"bucket":  filepath.Base(cfg.dir),
+				"size_mb": fmt.Sprintf("%.3f", float64(sg.roaringSetRangeSegmentInMemory.Size())/1024/1024),
+			}).Debug("rangeable segment-in-memory built")
 		}
 	}
 

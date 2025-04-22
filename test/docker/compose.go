@@ -37,6 +37,7 @@ import (
 	modgenerativenvidia "github.com/weaviate/weaviate/modules/generative-nvidia"
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
+	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
@@ -79,6 +80,8 @@ const (
 	envTestImg2VecNeuralImage = "TEST_IMG2VEC_NEURAL_IMAGE"
 	// envTestRerankerTransformersImage adds ability to pass a custom image to module tests
 	envTestRerankerTransformersImage = "TEST_RERANKER_TRANSFORMERS_IMAGE"
+	// envTestMockOIDCImage adds ability to pass a custom image to module tests
+	envTestMockOIDCImage = "TEST_MOCKOIDC_IMAGE"
 )
 
 const (
@@ -116,6 +119,7 @@ type Compose struct {
 	weaviateApiKeyUsers            []ApiKeyUser
 	weaviateAdminlistAdminUsers    []string
 	weaviateAdminlistReadOnlyUsers []string
+	withWeaviateDbUsers            bool
 	withWeaviateRbac               bool
 	weaviateRbacAdmins             []string
 	weaviateRbacRootGroups         []string
@@ -337,6 +341,12 @@ func (d *Compose) WithGenerativeNvidia(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithGenerativeXAI(apiKey string) *Compose {
+	d.weaviateEnvs["XAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modgenerativexai.Name)
+	return d
+}
+
 func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modjinaai.Name)
@@ -510,6 +520,11 @@ func (d *Compose) WithUserApiKey(username, key string) *Compose {
 
 func (d *Compose) WithRBAC() *Compose {
 	d.withWeaviateRbac = true
+	return d
+}
+
+func (d *Compose) WithDbUsers() *Compose {
+	d.withWeaviateDbUsers = true
 	return d
 }
 
@@ -728,7 +743,8 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		containers = append(containers, container)
 	}
 	if d.withMockOIDC {
-		container, err := startMockOIDC(ctx, networkName)
+		image := os.Getenv(envTestMockOIDCImage)
+		container, err := startMockOIDC(ctx, networkName, image)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MockOIDC)
 		}
@@ -822,7 +838,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "email"
 		settings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
-		settings["AUTHORIZATION_ADMINLIST_USERS"] = "ms_2d0e007e7136de11d5f29fce7a53dae219a51458@existiert.net"
+		settings["AUTHORIZATION_ADMINLIST_USERS"] = "oidc-test-user@weaviate.io"
 	}
 	if len(d.weaviateAdminlistAdminUsers) > 0 {
 		settings["AUTHORIZATION_ADMINLIST_ENABLED"] = "true"
@@ -866,6 +882,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		}
 	}
 
+	if d.withWeaviateDbUsers {
+		settings["AUTHENTICATION_DB_USERS_ENABLED"] = "true"
+	}
+
 	if d.withAutoschema {
 		settings["AUTOSCHEMA_ENABLED"] = "true"
 	}
@@ -903,7 +923,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		config2["CLUSTER_DATA_BIND_PORT"] = "7103"
 		config2["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
 		eg.Go(func() (err error) {
-			time.Sleep(time.Second * 3)
+			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[1], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 				config2, networkName, image, Weaviate2, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node2"))
 			if err != nil {
@@ -920,7 +940,7 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		config3["CLUSTER_DATA_BIND_PORT"] = "7105"
 		config3["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
 		eg.Go(func() (err error) {
-			time.Sleep(time.Second * 3)
+			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
 			cs[2], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
 				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node3"))
 			if err != nil {

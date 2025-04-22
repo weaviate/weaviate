@@ -13,6 +13,7 @@ package text2vecbase
 
 import (
 	"context"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -20,6 +21,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	libvectorizer "github.com/weaviate/weaviate/usecases/vectorizer"
 )
 
@@ -33,6 +35,7 @@ func newBatchVectorizer[T dto.Embedding](client BatchClient[T], batchVectorizer 
 		objectVectorizer: objectsvectorizer.New(),
 		batchVectorizer:  batchVectorizer,
 		tokenizerFunc:    tokenizerFunc,
+		encoderCache:     batch.NewEncoderCache(),
 	}
 
 	return vec
@@ -60,7 +63,8 @@ func (v *BatchVectorizer[T]) object(ctx context.Context, object *models.Object, 
 
 func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.Object, skipObject []bool, cfg moduletools.ClassConfig,
 ) ([]T, map[int]error) {
-	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, cfg, v.objectVectorizer)
+	beforeTokenization := time.Now()
+	texts, tokenCounts, skipAll, err := v.tokenizerFunc(ctx, objects, skipObject, cfg, v.objectVectorizer, v.encoderCache)
 	if err != nil {
 		errs := make(map[int]error)
 		for j := range texts {
@@ -69,9 +73,14 @@ func (v *BatchVectorizer[T]) ObjectBatch(ctx context.Context, objects []*models.
 		return nil, errs
 	}
 
+	monitoring.GetMetrics().T2VBatchQueueDuration.WithLabelValues(v.batchVectorizer.Label, "tokenization").
+		Observe(time.Since(beforeTokenization).Seconds())
+
 	if skipAll {
 		return make([]T, len(objects)), make(map[int]error)
 	}
+
+	monitoring.GetMetrics().ModuleExternalBatchLength.WithLabelValues("vectorizeBatch", objects[0].Class).Observe(float64(len(objects)))
 
 	return v.batchVectorizer.SubmitBatchAndWait(ctx, cfg, skipObject, tokenCounts, texts)
 }

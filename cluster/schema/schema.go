@@ -15,13 +15,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 
-	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -194,6 +193,13 @@ func (s *schema) ReadOnlySchema() models.Schema {
 	}
 
 	return cp
+}
+
+func (s *schema) CollectionsCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	return len(s.classes)
 }
 
 // ShardOwner returns the node owner of the specified shard
@@ -507,49 +513,52 @@ func (s *schema) States() map[string]types.ClassState {
 	return cs
 }
 
+// MetaClasses is thread-safe and returns a deep copy of the meta classes and sharding states
 func (s *schema) MetaClasses() map[string]*metaClass {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return s.classes
+	classesCopy := make(map[string]*metaClass, len(s.classes))
+	for k, v := range s.classes {
+		v.RLock()
+		classesCopy[k] = &metaClass{
+			Class:        v.Class,
+			ClassVersion: v.ClassVersion,
+			Sharding:     v.Sharding.DeepCopy(),
+			ShardVersion: v.ShardVersion,
+		}
+		v.RUnlock()
+	}
+
+	return classesCopy
 }
 
-func (s *schema) Restore(r io.Reader, parser Parser) error {
-	snap := snapshot{}
-	if err := json.NewDecoder(r).Decode(&snap); err != nil {
+func (s *schema) Restore(data []byte, parser Parser) error {
+	var classes map[string]*metaClass
+	if err := json.Unmarshal(data, &classes); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
-	for _, cls := range snap.Classes {
+
+	return s.restore(classes, parser)
+}
+
+func (s *schema) RestoreLegacy(data []byte, parser Parser) error {
+	snap := snapshot{}
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+	return s.restore(snap.Classes, parser)
+}
+
+func (s *schema) restore(classes map[string]*metaClass, parser Parser) error {
+	for _, cls := range classes {
 		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
 			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
 		}
 		cls.Sharding.SetLocalName(s.nodeID)
 	}
-
-	s.replaceClasses(snap.Classes)
+	s.replaceClasses(classes)
 	return nil
-}
-
-// Persist should dump all necessary state to the WriteCloser 'sink',
-// and call sink.Close() when finished or call sink.Cancel() on error.
-func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-
-	defer sink.Close()
-	snap := snapshot{
-		NodeID:     s.nodeID,
-		SnapshotID: sink.ID(),
-		Classes:    s.classes,
-	}
-	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
-		return fmt.Errorf("encode: %w", err)
-	}
-
-	return nil
-}
-
-func (s *schema) Release() {
 }
 
 // makeTenant creates a tenant with the given name and status

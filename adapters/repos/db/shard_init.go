@@ -21,21 +21,23 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
-	scheduler *queue.Scheduler,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
+	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
+	reindexer ShardReindexerV3,
 ) (_ *Shard, err error) {
-	before := time.Now()
+	start := time.Now()
 
 	index.logger.WithFields(logrus.Fields{
 		"action": "init_shard",
@@ -60,8 +62,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		shut:         false,
 		shutdownLock: new(sync.RWMutex),
 
-		status: NewShardStatus(),
+		status:                          ShardStatus{Status: storagestate.StatusLoading},
+		searchableBlockmaxPropNamesLock: new(sync.Mutex),
+		reindexer:                       reindexer,
+		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
 	}
+
+	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
 
 	defer func() {
 		p := recover()
@@ -93,12 +100,16 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		}
 	}()
 
+	defer func() {
+		index.metrics.ObserveUpdateShardStatus(s.status.Status.String(), time.Since(start))
+	}()
+
 	s.activityTracker.Store(1) // initial state
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
 
-	defer s.metrics.ShardStartup(before)
+	defer index.metrics.ShardStartup(start)
 
 	_, err = os.Stat(s.path())
 	exists := false
@@ -110,55 +121,44 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
+	// init the store itself synchronously
+	if err := s.initLSMStore(); err != nil {
+		return nil, fmt.Errorf("init shard's %q store: %w", s.ID(), err)
+	}
+
+	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
+
 	if err := s.initNonVector(ctx, class); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
-	if s.hasTargetVectors() {
-		if err := s.initTargetVectors(ctx); err != nil {
-			return nil, err
-		}
-		if err := s.initTargetQueues(); err != nil {
-			return nil, err
-		}
-	} else {
-		if err := s.initLegacyVector(ctx); err != nil {
-			return nil, err
-		}
-		if err := s.initLegacyQueue(); err != nil {
-			return nil, err
-		}
+	if err = s.initShardVectors(ctx); err != nil {
+		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
 
 	s.initDimensionTracking()
 
 	if asyncEnabled() {
 		f := func() {
-			// convert in-memory queues to on-disk queues in the background.
-			// no-op if the queues are already on disk.
-			if s.hasTargetVectors() {
-				for targetVector, queue := range s.queues {
-					err := s.ConvertQueue(targetVector)
-					if err != nil {
-						queue.Logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
-					}
+			_ = s.ForEachVectorQueue(func(targetVector string, _ *VectorIndexQueue) error {
+				if err := s.ConvertQueue(targetVector); err != nil {
+					index.logger.WithError(err).Errorf("preload shard for target vector: %s", targetVector)
 				}
-			} else {
-				err := s.ConvertQueue("")
-				if err != nil {
-					s.queue.Logger.WithError(err).Error("preload shard")
-				}
-			}
+				return nil
+			})
 		}
 		enterrors.GoWrapper(f, s.index.logger)
 	}
 	s.NotifyReady()
 
 	if exists {
-		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(before))
+		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
 	} else {
-		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(before))
+		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
 	}
+
+	_ = s.reindexer.RunAfterLsmInit(ctx, s)
+	_ = s.reindexer.RunAfterLsmInitAsync(ctx, s)
 	return s, nil
 }
 
@@ -174,7 +174,7 @@ func (s *Shard) cleanupPartialInit(ctx context.Context) {
 }
 
 func (s *Shard) NotifyReady() {
-	s.initStatus()
+	s.UpdateStatus(storagestate.StatusReady.String())
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)

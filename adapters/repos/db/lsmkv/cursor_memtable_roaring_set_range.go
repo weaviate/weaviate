@@ -19,5 +19,5 @@ func (m *Memtable) newRoaringSetRangeReader() roaringsetrange.InnerReader {
 	m.RLock()
 	defer m.RUnlock()
 
-	return roaringsetrange.NewMemtableReader(m.roaringSetRange)
+	return roaringsetrange.NewMemtableReader(m.roaringSetRange.Clone())
 }

@@ -17,11 +17,13 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/oidc"
@@ -30,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/locks"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -46,15 +47,16 @@ import (
 // NOTE: This is not true yet, see gh-723
 // TODO: remove dependencies to anything that's not an ent or uc
 type State struct {
-	OIDC            *oidc.Client
-	AnonymousAccess *anonymous.Client
-	APIKey          *apikey.Client
-	Authorizer      authorization.Authorizer
-	AuthzController authorization.Controller
+	OIDC             *oidc.Client
+	AnonymousAccess  *anonymous.Client
+	APIKey           *apikey.ApiKey
+	APIKeyRemote     *apikey.RemoteApiKey
+	Authorizer       authorization.Authorizer
+	AuthzController  authorization.Controller
+	AuthzSnapshotter fsm.Snapshotter
 
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration
-	Locks                 locks.ConnectorSchemaLock
 	Logger                *logrus.Logger
 	gqlMutex              sync.Mutex
 	GraphQL               graphql.GraphQL
@@ -75,7 +77,7 @@ type State struct {
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
 	ClusterHttpClient  *http.Client
-	ReindexCtxCancel   context.CancelFunc
+	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
 	ClusterService *rCluster.Service

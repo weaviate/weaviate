@@ -59,6 +59,9 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_BOOTSTRAP_EXPECT=1 \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -180,7 +183,6 @@ case $CONFIG in
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
       DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
       ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
-      PROMETHEUS_MONITORING_PORT="2112" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \
@@ -981,7 +983,7 @@ case $CONFIG in
     ;;
   local-prometheus)
     echo "Starting monitoring setup..."
-      
+
     cleanup() {
       echo "Cleaning up existing containers and volumes..."
       docker stop prometheus grafana 2>/dev/null || true
@@ -990,14 +992,14 @@ case $CONFIG in
       docker network rm monitoring 2>/dev/null || true
       echo "Cleanup complete."
     }
-    
+
     cleanup
 
     echo "Creating new setup..."
-    
+
     docker network create monitoring 2>/dev/null || true
 
-    
+
     echo "Starting Prometheus..."
     docker run -d \
       --name prometheus \
@@ -1007,7 +1009,7 @@ case $CONFIG in
       -v "$(pwd)/tools/dev/prometheus_config/prometheus.yml:/etc/prometheus/prometheus.yml" \
       prom/prometheus
 
-    
+
     echo "Starting Grafana..."
     docker run -d \
       --name grafana \
@@ -1019,7 +1021,7 @@ case $CONFIG in
       -v "$(pwd)/tools/dev/grafana/dashboards/dashboard.yml:/etc/grafana/provisioning/dashboards/dashboard.yml" \
       -v "$(pwd)/tools/dev/grafana/dashboards:/etc/grafana/dashboards" \
       grafana/grafana
-    
+
     echo "Waiting for services to start..."
     sleep 5
 

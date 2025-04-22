@@ -123,17 +123,19 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	}
 
 	if inverted.HasSearchableIndex(prop) {
-		strategy := lsmkv.DefaultSearchableStrategy()
+		strategy := lsmkv.DefaultSearchableStrategy(s.usingBlockMaxWAND)
 		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(strategy))
 		if strategy == lsmkv.StrategyMapCollection && s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 
-		if err := s.store.CreateOrLoadBucket(ctx,
-			helpers.BucketSearchableFromPropNameLSM(prop.Name),
-			searchableBucketOpts...,
-		); err != nil {
+		bucketName := helpers.BucketSearchableFromPropNameLSM(prop.Name)
+		if err := s.store.CreateOrLoadBucket(ctx, bucketName, searchableBucketOpts...); err != nil {
 			return err
+		}
+
+		if actualStrategy := s.store.Bucket(bucketName).Strategy(); actualStrategy == lsmkv.StrategyInverted {
+			s.markSearchableBlockmaxProperties(prop.Name)
 		}
 	}
 
@@ -144,6 +146,8 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 				lsmkv.WithStrategy(lsmkv.StrategyRoaringSetRange),
 				lsmkv.WithUseBloomFilter(false),
 				lsmkv.WithCalcCountNetAdditions(false),
+				lsmkv.WithKeepSegmentsInMemory(s.index.Config.IndexRangeableInMemory),
+				lsmkv.WithBitmapBufPool(s.bitmapBufPool),
 			)...,
 		); err != nil {
 			return err
@@ -290,4 +294,17 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		s.segmentCleanupConfig(),
 	)
+}
+
+func (s *Shard) markSearchableBlockmaxProperties(propNames ...string) {
+	s.searchableBlockmaxPropNamesLock.Lock()
+	s.searchableBlockmaxPropNames = append(s.searchableBlockmaxPropNames, propNames...)
+	s.searchableBlockmaxPropNamesLock.Unlock()
+}
+
+func (s *Shard) getSearchableBlockmaxProperties() []string {
+	// since slice is only appended, it should be safe to return it that way
+	s.searchableBlockmaxPropNamesLock.Lock()
+	defer s.searchableBlockmaxPropNamesLock.Unlock()
+	return s.searchableBlockmaxPropNames
 }

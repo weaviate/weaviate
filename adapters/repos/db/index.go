@@ -41,7 +41,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -49,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/multi"
+	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/search"
@@ -59,6 +59,7 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	runtimeconfig "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -159,17 +160,20 @@ func (m *shardMap) LoadAndDelete(name string) (ShardLike, bool) {
 // class. An index can be further broken up into self-contained units, called
 // Shards, to allow for easy distribution across Nodes
 type Index struct {
-	classSearcher             inverted.ClassSearcher // to allow for nested by-references searches
-	shards                    shardMap
-	Config                    IndexConfig
-	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
+	classSearcher           inverted.ClassSearcher // to allow for nested by-references searches
+	shards                  shardMap
+	Config                  IndexConfig
+	globalreplicationConfig *replication.GlobalConfig
+
+	getSchema  schemaUC.SchemaGetter
+	logger     logrus.FieldLogger
+	remote     *sharding.RemoteIndex
+	stopwords  *stopwords.Detector
+	replicator *replica.Replicator
+
 	vectorIndexUserConfigLock sync.Mutex
+	vectorIndexUserConfig     schemaConfig.VectorIndexConfig
 	vectorIndexUserConfigs    map[string]schemaConfig.VectorIndexConfig
-	getSchema                 schemaUC.SchemaGetter
-	logger                    logrus.FieldLogger
-	remote                    *sharding.RemoteIndex
-	stopwords                 *stopwords.Detector
-	replicator                *replica.Replicator
 
 	partitioningEnabled bool
 
@@ -212,8 +216,12 @@ type Index struct {
 
 	replicationConfigLock sync.RWMutex
 
+	shardLoadLimiter ShardLoadLimiter
+
 	closeLock sync.RWMutex
 	closed    bool
+
+	shardReindexer ShardReindexerV3
 }
 
 func (i *Index) ID() string {
@@ -239,10 +247,12 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
+	globalReplicationConfig *replication.GlobalConfig,
 	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 	allocChecker memwatch.AllocChecker,
+	shardReindexer ShardReindexerV3,
 ) (*Index, error) {
 	sd, err := stopwords.NewDetectorFromConfig(invertedIndexConfig.Stopwords)
 	if err != nil {
@@ -253,24 +263,31 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		cfg.QueryNestedRefLimit = config.DefaultQueryNestedCrossReferenceLimit
 	}
 
+	if vectorIndexUserConfigs == nil {
+		vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{}
+	}
+
 	index := &Index{
-		Config:                 cfg,
-		getSchema:              sg,
-		logger:                 logger,
-		classSearcher:          cs,
-		vectorIndexUserConfig:  vectorIndexUserConfig,
-		invertedIndexConfig:    invertedIndexConfig,
-		vectorIndexUserConfigs: vectorIndexUserConfigs,
-		stopwords:              sd,
-		partitioningEnabled:    shardState.PartitioningEnabled,
-		remote:                 sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
-		metrics:                NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
-		centralJobQueue:        jobQueueCh,
-		shardTransferMutex:     shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
-		scheduler:              scheduler,
-		indexCheckpoints:       indexCheckpoints,
-		allocChecker:           allocChecker,
-		shardCreateLocks:       esync.NewKeyLocker(),
+		Config:                  cfg,
+		globalreplicationConfig: globalReplicationConfig,
+		getSchema:               sg,
+		logger:                  logger,
+		classSearcher:           cs,
+		vectorIndexUserConfig:   vectorIndexUserConfig,
+		invertedIndexConfig:     invertedIndexConfig,
+		vectorIndexUserConfigs:  vectorIndexUserConfigs,
+		stopwords:               sd,
+		partitioningEnabled:     shardState.PartitioningEnabled,
+		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		metrics:                 NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
+		centralJobQueue:         jobQueueCh,
+		shardTransferMutex:      shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
+		scheduler:               scheduler,
+		indexCheckpoints:        indexCheckpoints,
+		allocChecker:            allocChecker,
+		shardCreateLocks:        esync.NewKeyLocker(),
+		shardLoadLimiter:        cfg.ShardLoadLimiter,
+		shardReindexer:          shardReindexer,
 	}
 
 	getDeletionStrategy := func() string {
@@ -321,7 +338,13 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 			shardName := shardName // prevent loop variable capture
 			eg.Go(func() error {
-				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints)
+				if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
+					return fmt.Errorf("acquiring permit to load shard: %w", err)
+				}
+				defer i.shardLoadLimiter.Release()
+
+				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
+					i.indexCheckpoints, i.shardReindexer)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -339,14 +362,19 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		return nil
 	}
 
-	for _, shardName := range shardState.AllLocalPhysicalShards() {
+	// shards to lazily initialize are fetch once and in the same goroutine the index is initialized
+	// so to avoid races if shards are deleted before being initialized
+	shards := shardState.AllLocalPhysicalShards()
+
+	for _, shardName := range shards {
 		physical := shardState.Physical[shardName]
 		if physical.ActivityStatus() != models.TenantActivityStatusHOT {
 			// do not instantiate inactive shard
 			continue
 		}
 
-		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker)
+		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
+			i.allocChecker, i.shardLoadLimiter, i.shardReindexer)
 		i.shards.Store(shardName, shard)
 	}
 
@@ -358,7 +386,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 
 		now := time.Now()
 
-		for _, shardName := range shardState.AllLocalPhysicalShards() {
+		for _, shardName := range shards {
 			// prioritize closingCtx over ticker:
 			// check closing again in case of ticker was selected when both
 			// cases where available
@@ -429,7 +457,13 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 			return nil, errors.Wrap(err, "memory pressure: cannot init shard")
 		}
 
-		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints)
+		if err := i.shardLoadLimiter.Acquire(ctx); err != nil {
+			return nil, fmt.Errorf("acquiring permit to load shard: %w", err)
+		}
+		defer i.shardLoadLimiter.Release()
+
+		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
+			i.indexCheckpoints, i.shardReindexer)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
@@ -437,7 +471,8 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		return shard, nil
 	}
 
-	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker)
+	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
+		i.allocChecker, i.shardLoadLimiter, i.shardReindexer)
 	return shard, nil
 }
 
@@ -548,7 +583,7 @@ func (i *Index) updateVectorIndexConfigs(ctx context.Context,
 	return nil
 }
 
-func (i *Index) getInvertedIndexConfig() schema.InvertedIndexConfig {
+func (i *Index) GetInvertedIndexConfig() schema.InvertedIndexConfig {
 	i.invertedIndexConfigLock.Lock()
 	defer i.invertedIndexConfigLock.Unlock()
 
@@ -566,9 +601,8 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 	return nil
 }
 
-func asyncReplicationGloballyDisabled() bool {
-	// Disable async replication regardless of class setting if env var is set
-	return entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED"))
+func (i *Index) asyncReplicationGloballyDisabled() bool {
+	return runtimeconfig.GetOverrides(i.globalreplicationConfig.AsyncReplicationDisabled, i.globalreplicationConfig.AsyncReplicationDisabledFn)
 }
 
 func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.ReplicationConfig) error {
@@ -577,7 +611,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !asyncReplicationGloballyDisabled()
+	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
 		if err := shard.updateAsyncReplicationConfig(ctx, i.Config.AsyncReplicationEnabled); err != nil {
@@ -619,6 +653,8 @@ type IndexConfig struct {
 	MemtablesMaxActiveSeconds           int
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
+	CycleManagerRoutinesFactor          int
+	IndexRangeableInMemory              bool
 	MaxSegmentSize                      int64
 	HNSWMaxLogSize                      int64
 	HNSWWaitForCachePrefill             bool
@@ -633,6 +669,7 @@ type IndexConfig struct {
 	ForceFullReplicasSearch             bool
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
+	ShardLoadLimiter                    ShardLoadLimiter
 }
 
 func indexID(class schema.ClassName) string {
@@ -777,7 +814,7 @@ func (i *Index) asyncReplicationEnabled() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
-	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !asyncReplicationGloballyDisabled()
+	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
 }
 
 // parseDateFieldsInProps checks the schema for the current class for which
@@ -1468,10 +1505,11 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 						"local shard object search %s: %w", shard.ID(), err)
 				}
 				nodeName = i.getSchema.NodeName()
-
 			} else {
+				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
+
 				objs, scores, nodeName, err = i.remote.SearchShard(
-					ctx, shardName, nil, nil, limit, filters, keywordRanking,
+					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled(), nil, properties)
 				if err != nil {
 					return fmt.Errorf(
@@ -1631,7 +1669,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 }
 
 func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Vector,
-	targetVectors []string, limit int, localFilters *filters.LocalFilter,
+	targetVectors []string, distance float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, shardName string,
 ) ([]*storobj.Object, []float32, error) {
@@ -1649,7 +1687,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 	if i.Config.ForceFullReplicasSearch {
 		// Force a search on all the replicas for the shard
 		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
-			i.logger, shardName, searchVectors, targetVectors, limit, localFilters,
+			i.logger, shardName, searchVectors, targetVectors, distance, limit, localFilters,
 			nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName(), targetCombination, properties)
 		// Only return an error if we failed to query remote shards AND we had no local shard to query
 		if err != nil && shard == nil {
@@ -1666,7 +1704,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 	} else {
 		// Search only what is necessary
 		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
-			shardName, searchVectors, targetVectors, limit, localFilters,
+			shardName, searchVectors, targetVectors, distance, limit, localFilters,
 			nil, sort, nil, groupBy, additional, i.replicationEnabled(), targetCombination, properties)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
@@ -1759,7 +1797,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
-				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err2)
@@ -2034,6 +2072,9 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 
 		className := i.Config.ClassName.String()
 		class := i.getSchema.ReadOnlyClass(className)
+		if class == nil {
+			return nil, func() {}, fmt.Errorf("class %s not found in schema", className)
+		}
 
 		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true)
 		if err != nil {
@@ -2391,13 +2432,10 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 			if shard != nil {
 				func() {
 					defer release()
-					if shard.hasTargetVectors() {
-						for _, queue := range shard.Queues() {
-							size += queue.Size()
-						}
-					} else {
-						size = shard.Queue().Size()
-					}
+					_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+						size += queue.Size()
+						return nil
+					})
 				}()
 			} else {
 				size, err = i.remote.GetShardQueueSize(ctx, shardName)
@@ -2424,13 +2462,11 @@ func (i *Index) IncomingGetShardQueueSize(ctx context.Context, shardName string)
 	if shard.GetStatus() == storagestate.StatusLoading {
 		return 0, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
-	if !shard.hasTargetVectors() {
-		return shard.Queue().Size(), nil
-	}
-	size := int64(0)
-	for _, queue := range shard.Queues() {
+	var size int64
+	_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
 		size += queue.Size()
-	}
+		return nil
+	})
 	return size, nil
 }
 
@@ -2439,6 +2475,10 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 
 	// TODO-RAFT should be strongly consistent?
 	shardState := i.getSchema.CopyShardingState(i.Config.ClassName.String())
+	if shardState == nil {
+		return nil, fmt.Errorf("class %s not found in schema", i.Config.ClassName)
+	}
+
 	shardNames := shardState.AllPhysicalShards()
 
 	for _, shardName := range shardNames {
@@ -2686,6 +2726,38 @@ func (i *Index) validateMultiTenancy(tenant string) error {
 	return nil
 }
 
+// GetVectorIndexConfig returns a vector index configuration associated with targetVector.
+// In case targetVector is empty string, legacy vector configuration is returned.
+// Method expects that configuration associated with targetVector is present.
+func (i *Index) GetVectorIndexConfig(targetVector string) schemaConfig.VectorIndexConfig {
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	if targetVector == "" {
+		return i.vectorIndexUserConfig
+	}
+
+	return i.vectorIndexUserConfigs[targetVector]
+}
+
+// GetVectorIndexConfigs returns a map of vector index configurations.
+// If present, legacy vector is return under the key of empty string.
+func (i *Index) GetVectorIndexConfigs() map[string]schemaConfig.VectorIndexConfig {
+	i.vectorIndexUserConfigLock.Lock()
+	defer i.vectorIndexUserConfigLock.Unlock()
+
+	configs := make(map[string]schemaConfig.VectorIndexConfig, len(i.vectorIndexUserConfigs)+1)
+	for k, v := range i.vectorIndexUserConfigs {
+		configs[k] = v
+	}
+
+	if i.vectorIndexUserConfig != nil {
+		configs[""] = i.vectorIndexUserConfig
+	}
+
+	return configs
+}
+
 func convertToVectorIndexConfig(config interface{}) schemaConfig.VectorIndexConfig {
 	if config == nil {
 		return nil
@@ -2726,30 +2798,13 @@ func (i *Index) DebugResetVectorIndex(ctx context.Context, shardName, targetVect
 	defer release()
 
 	// Get the vector index
-	var vidx VectorIndex
-	if targetVector == "" {
-		vidx = shard.VectorIndex()
-	} else {
-		vidx = shard.VectorIndexes()[targetVector]
-	}
-
-	if vidx == nil {
+	vidx, ok := shard.GetVectorIndex(targetVector)
+	if !ok {
 		return errors.New("vector index not found")
 	}
 
 	if !hnsw.IsHNSWIndex(vidx) {
 		return errors.New("vector index is not hnsw")
-	}
-
-	// Reset the queue
-	var q *VectorIndexQueue
-	if targetVector == "" {
-		q = shard.Queue()
-	} else {
-		q = shard.Queues()[targetVector]
-	}
-	if q == nil {
-		return errors.New("index queue not found")
 	}
 
 	// Reset the vector index

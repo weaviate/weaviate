@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/versioned"
 
 	"github.com/google/uuid"
@@ -37,6 +38,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 
 	classesShards := make(map[string][]string)
 	for _, obj := range objects {
+		obj.Class = schema.UppercaseClassName(obj.Class)
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}
@@ -73,12 +75,6 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
-
-	unlock, err := b.locks.LockConnector()
-	if err != nil {
-		return nil, NewErrInternal("could not acquire lock: %v", err)
-	}
-	defer unlock()
 
 	before := time.Now()
 	b.metrics.BatchInc()

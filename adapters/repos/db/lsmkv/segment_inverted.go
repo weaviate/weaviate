@@ -118,21 +118,39 @@ func (s *segment) loadPropertyLengths() (map[uint64]uint32, error) {
 	return s.invertedData.propertyLengths, nil
 }
 
-func (s *segment) GetTombstones() (*sroar.Bitmap, error) {
+// ReadOnlyTombstones returns segment's tombstones
+// Returned bitmap must not be mutated
+func (s *segment) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	if s.strategy != segmentindex.StrategyInverted {
 		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
 	}
 
 	s.invertedData.lockInvertedData.RLock()
-	loaded := s.invertedData.tombstonesLoaded
+	if s.invertedData.tombstonesLoaded {
+		defer s.invertedData.lockInvertedData.RUnlock()
+		return s.invertedData.tombstones, nil
+	}
 	s.invertedData.lockInvertedData.RUnlock()
-	if !loaded {
-		return s.loadTombstones()
+
+	return s.loadTombstones()
+}
+
+// MergeTombstones merges segment's tombstones with other tombstones
+// creating new bitmap that replaces the previous one (previous one is not mutated)
+// Returned bitmap must not be mutated
+func (s *segment) MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error) {
+	if s.strategy != segmentindex.StrategyInverted {
+		return nil, fmt.Errorf("tombstones only supported for inverted strategy")
 	}
 
-	s.invertedData.lockInvertedData.RLock()
-	defer s.invertedData.lockInvertedData.RUnlock()
+	if _, err := s.ReadOnlyTombstones(); err != nil {
+		return nil, err
+	}
 
+	s.invertedData.lockInvertedData.Lock()
+	defer s.invertedData.lockInvertedData.Unlock()
+
+	s.invertedData.tombstones = sroar.Or(s.invertedData.tombstones, other)
 	return s.invertedData.tombstones, nil
 }
 

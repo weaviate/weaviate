@@ -15,14 +15,15 @@ import (
 	"context"
 	"testing"
 
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
 
-	client "github.com/weaviate/weaviate-go-client/v4/weaviate"
+	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 )
 
 func TestCorrectErrorForIsNullFilter(t *testing.T) {
@@ -36,7 +37,7 @@ func TestCorrectErrorForIsNullFilter(t *testing.T) {
 		Properties: []*models.Property{
 			{Name: propName, DataType: []string{string(schema.DataTypeText)}, IndexInverted: &vTrue},
 		},
-		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true},
+		InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 		Vectorizer:          "none",
 	}
 

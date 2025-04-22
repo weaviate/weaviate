@@ -317,7 +317,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 
 		className := s.index.Config.ClassName
-		bm25Config := s.index.getInvertedIndexConfig().BM25
+		bm25Config := s.index.GetInvertedIndexConfig().BM25
 		logger := s.index.logger.WithFields(logrus.Fields{"class": s.index.Config.ClassName, "shard": s.name})
 		bm25searcher := inverted.NewBM25Searcher(bm25Config, s.store,
 			s.index.getSchema.ReadOnlyClass, s.propertyIndices, s.index.classSearcher,
@@ -348,9 +348,8 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 	}
 
 	distances := make([]float32, len(targetVectors))
-	indexes := s.VectorIndexes()
 	for j, target := range targetVectors {
-		index, ok := indexes[target]
+		index, ok := s.GetVectorIndex(target)
 		if !ok {
 			return nil, fmt.Errorf("index %s not found", target)
 		}
@@ -370,41 +369,6 @@ func (s *Shard) VectorDistanceForQuery(ctx context.Context, docId uint64, search
 		distances[j] = dist
 	}
 	return distances, nil
-}
-
-func (s *Shard) getVectorIndex(targetVector string) (VectorIndex, error) {
-	if s.hasTargetVectors() {
-		if targetVector == "" {
-			return nil, fmt.Errorf("vector index: missing target vector")
-		}
-		vidx, ok := s.vectorIndexes[targetVector]
-		if !ok {
-			return nil, fmt.Errorf("vector index for target vector: %s doesn't exist", targetVector)
-		}
-		return vidx, nil
-	}
-	if targetVector != "" {
-		return nil, fmt.Errorf("vector index: target vector not found: %q", targetVector)
-	}
-
-	return s.vectorIndex, nil
-}
-
-func (s *Shard) getIndexQueue(targetVector string) (*VectorIndexQueue, error) {
-	if s.hasTargetVectors() {
-		if targetVector == "" {
-			return nil, fmt.Errorf("index queue: missing target vector")
-		}
-		queue, ok := s.queues[targetVector]
-		if !ok {
-			return nil, fmt.Errorf("index queue for target vector: %s doesn't exist", targetVector)
-		}
-		return queue, nil
-	}
-	if targetVector != "" {
-		return nil, fmt.Errorf("index queue: target vector not found: %q", targetVector)
-	}
-	return s.queue, nil
 }
 
 func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.Vector, targetVectors []string, targetDist float32, limit int, filters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string) ([]*storobj.Object, []float32, error) {
@@ -452,14 +416,16 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 	for i, targetVector := range targetVectors {
 		i := i
 		targetVector := targetVector
-		var (
-			ids   []uint64
-			dists []float32
-		)
 		eg.Go(func() error {
-			vidx, err := s.getVectorIndex(targetVector)
-			if err != nil {
-				return err
+			var (
+				ids   []uint64
+				dists []float32
+				err   error
+			)
+
+			vidx, ok := s.GetVectorIndex(targetVector)
+			if !ok {
+				return fmt.Errorf("index for target vector %q not found", targetVector)
 			}
 
 			if limit < 0 {
@@ -739,16 +705,14 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
-	if s.hasTargetVectors() {
-		for targetVector, queue := range s.queues {
-			if err = queue.Delete(docID); err != nil {
-				return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
-			}
+	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
+		if err = queue.Delete(docID); err != nil {
+			return fmt.Errorf("delete from vector index queue of vector %q: %w", targetVector, err)
 		}
-	} else {
-		if err = s.queue.Delete(docID); err != nil {
-			return errors.Wrap(err, "delete from vector index queue")
-		}
+		return nil
+	})
+	if err != nil {
+		return err
 	}
 
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {

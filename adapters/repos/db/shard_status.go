@@ -15,28 +15,13 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 type ShardStatus struct {
 	Status storagestate.Status
 	Reason string
-}
-
-func NewShardStatus() ShardStatus {
-	return ShardStatus{Status: storagestate.StatusLoading}
-}
-
-func (s *ShardStatus) Init() {
-	s.Status = storagestate.StatusReady
-	s.Reason = ""
-}
-
-func (s *Shard) initStatus() {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	s.status.Init()
 }
 
 func (s *Shard) GetStatus() storagestate.Status {
@@ -47,34 +32,19 @@ func (s *Shard) GetStatus() storagestate.Status {
 		return s.status.Status
 	}
 
-	if s.hasTargetVectors() {
-		if len(s.queues) == 0 {
-			return s.status.Status
-		}
-
-		for _, q := range s.queues {
-			if q.Size() > 0 {
-				s.status.Status = storagestate.StatusIndexing
-				return storagestate.StatusIndexing
-			}
-		}
-
-		s.status.Status = storagestate.StatusReady
-		return storagestate.StatusReady
-	}
-
-	if s.queue == nil {
+	if !s.hasAnyVectorIndex() {
 		return s.status.Status
 	}
 
-	if s.queue.Size() > 0 {
-		s.status.Status = storagestate.StatusIndexing
-		return storagestate.StatusIndexing
-	}
-
-	s.status.Status = storagestate.StatusReady
-
-	return storagestate.StatusReady
+	status := storagestate.StatusReady
+	_ = s.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+		if queue.Size() > 0 {
+			status = storagestate.StatusIndexing
+		}
+		return nil
+	})
+	s.status.Status = status
+	return status
 }
 
 // Same implem for for a regular shard, this only differ in lazy loaded shards
@@ -119,14 +89,15 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	if err != nil {
 		return errors.Wrap(err, in)
 	}
-
+	oldStatus := s.status.Status
 	s.status.Status = targetStatus
 	s.status.Reason = reason
 
-	err = s.updateStoreStatus(targetStatus)
-	if err != nil {
+	if err = s.store.UpdateBucketsStatus(targetStatus); err != nil {
 		return err
 	}
+
+	s.index.metrics.UpdateShardStatus(oldStatus.String(), targetStatus.String())
 
 	s.index.logger.
 		WithField("action", "update shard status").
@@ -136,8 +107,4 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		WithField("readOnlyReason", reason)
 
 	return nil
-}
-
-func (s *Shard) updateStoreStatus(targetStatus storagestate.Status) error {
-	return s.store.UpdateBucketsStatus(targetStatus)
 }

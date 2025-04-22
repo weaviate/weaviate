@@ -30,6 +30,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 	pv *propValuePair,
 ) (bm docBitmap, err error) {
 	before := time.Now()
+	strategy := "geo"
 	defer func() {
 		took := time.Since(before)
 		vals := map[string]any{
@@ -39,6 +40,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 			"took_string": took.String(),
 			"value":       pv.value,
 			"count":       bm.count(),
+			"strategy":    strategy,
 		}
 
 		helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap", vals)
@@ -51,6 +53,7 @@ func (s *Searcher) docBitmap(ctx context.Context, b *lsmkv.Bucket, limit int,
 		bm, err = s.docBitmapGeo(ctx, pv)
 		return
 	}
+	strategy = b.Strategy()
 
 	// all other operators perform operations on the inverted index which we
 	// can serve directly
@@ -119,14 +122,14 @@ func (s *Searcher) docBitmapInvertedRoaringSetRange(ctx context.Context, b *lsmk
 	reader := b.ReaderRoaringSetRange()
 	defer reader.Close()
 
-	docIds, err := reader.Read(ctx, binary.BigEndian.Uint64(pv.value), pv.operator)
+	docIds, release, err := reader.Read(ctx, binary.BigEndian.Uint64(pv.value), pv.operator)
 	if err != nil {
 		return newDocBitmap(), fmt.Errorf("readerRoaringSetRange: %w", err)
 	}
 
 	out := newUninitializedDocBitmap()
 	out.docIDs = docIds
-	out.release = noopRelease
+	out.release = release
 	return out, nil
 }
 

@@ -55,7 +55,6 @@ func Test_GetAction(t *testing.T) {
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
-		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
 		cfg.Config.QueryDefaults.Limit = 20
 		cfg.Config.QueryMaximumResults = 200
@@ -64,7 +63,7 @@ func Test_GetAction(t *testing.T) {
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
 		metrics = &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger,
+		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil)
 	}
@@ -684,7 +683,6 @@ func Test_GetThing(t *testing.T) {
 		schemaManager := &fakeSchemaManager{
 			GetSchemaResponse: schema,
 		}
-		locks := &fakeLocks{}
 		cfg := &config.WeaviateConfig{}
 		cfg.Config.QueryDefaults.Limit = 20
 		cfg.Config.QueryMaximumResults = 200
@@ -693,7 +691,7 @@ func Test_GetThing(t *testing.T) {
 		extender = &fakeExtender{}
 		projectorFake = &fakeProjector{}
 		metrics := &fakeMetrics{}
-		manager = NewManager(locks, schemaManager, cfg, logger,
+		manager = NewManager(schemaManager, cfg, logger,
 			authorizer, vectorRepo,
 			getFakeModulesProviderWithCustomExtenders(extender, projectorFake), metrics, nil)
 	}
@@ -1062,7 +1060,6 @@ type fakeGetManager struct {
 	extender        *fakeExtender
 	projector       *fakeProjector
 	authorizer      *mocks.FakeAuthorizer
-	locks           *fakeLocks
 	metrics         *fakeMetrics
 	modulesProvider *fakeModulesProvider
 }
@@ -1073,7 +1070,6 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 		extender:        new(fakeExtender),
 		projector:       new(fakeProjector),
 		authorizer:      mocks.NewMockAuthorizer(),
-		locks:           new(fakeLocks),
 		metrics:         new(fakeMetrics),
 		modulesProvider: new(fakeModulesProvider),
 	}
@@ -1085,13 +1081,14 @@ func newFakeGetManager(schema schema.Schema, opts ...func(*fakeGetManager)) fake
 	schemaManager := &fakeSchemaManager{
 		GetSchemaResponse: schema,
 	}
+
 	cfg := &config.WeaviateConfig{}
 	cfg.Config.QueryDefaults.Limit = 20
 	cfg.Config.QueryMaximumResults = 200
 	cfg.Config.TrackVectorDimensions = true
 	logger, _ := test.NewNullLogger()
 	r.modulesProvider = getFakeModulesProviderWithCustomExtenders(r.extender, r.projector)
-	r.Manager = NewManager(r.locks, schemaManager, cfg, logger,
+	r.Manager = NewManager(schemaManager, cfg, logger,
 		r.authorizer, r.repo, r.modulesProvider, r.metrics, nil)
 
 	return r

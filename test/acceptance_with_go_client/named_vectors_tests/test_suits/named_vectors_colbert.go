@@ -12,23 +12,24 @@
 package test_suits
 
 import (
-	acceptance_with_go_client "acceptance_tests_with_client"
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
 
+	acceptance_with_go_client "acceptance_tests_with_client"
+	"acceptance_tests_with_client/fixtures"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	wvt "github.com/weaviate/weaviate-go-client/v4/weaviate"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/filters"
-	"github.com/weaviate/weaviate-go-client/v4/weaviate/graphql"
+	wvt "github.com/weaviate/weaviate-go-client/v5/weaviate"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/filters"
+	"github.com/weaviate/weaviate-go-client/v5/weaviate/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func testColBERT(host string) func(t *testing.T) {
+func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
@@ -145,7 +146,6 @@ func testColBERT(host string) func(t *testing.T) {
 			t.Run("vector search after insert", func(t *testing.T) {
 				performNearVector(t, client, className)
 				performNearObject(t, client, className)
-
 			})
 
 			t.Run("check existence", func(t *testing.T) {
@@ -658,7 +658,12 @@ func testColBERT(host string) func(t *testing.T) {
 				// Weaviate overrides the multivector setting if it finds that someone has enabled
 				// multi vector vectorizer
 				require.Error(t, err)
-				assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"dynamic\", only supported type is hnsw`)
+
+				if asyncIndexingEnabled {
+					assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"dynamic\", only supported type is hnsw`)
+				} else {
+					assert.ErrorContains(t, err, `the dynamic index can only be created under async indexing environment`)
+				}
 			})
 		})
 

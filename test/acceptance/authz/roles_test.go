@@ -14,7 +14,8 @@ package authz
 import (
 	"context"
 	"errors"
-	"sort"
+	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -246,27 +247,21 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get roles for user after assignment", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser), clientAuth)
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser).WithUserType(string(models.UserTypeInputDb)), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 2, len(res.Payload))
-
-		names := make([]string, 2)
-		for i, role := range res.Payload {
-			names[i] = *role.Name
+		names := make([]string, len(res.Payload))
+		for i := range res.Payload {
+			names[i] = *res.Payload[i].Name
 		}
-		sort.Strings(names)
 
-		roles := []string{existingRole, testRoleName}
-		sort.Strings(roles)
-
-		require.Equal(t, roles, names)
+		require.ElementsMatch(t, names, []string{existingRole, testRoleName})
 	})
 
 	t.Run("get users for role after assignment", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(testRoleName), clientAuth)
-		require.Nil(t, err)
-		require.Equal(t, 1, len(res.Payload))
-		require.Equal(t, adminUser, res.Payload[0])
+		roles := helper.GetUserForRoles(t, testRoleName, adminKey)
+		require.Equal(t, 1, len(roles))
+		require.Equal(t, adminUser, roles[0])
 	})
 
 	t.Run("delete role by name", func(t *testing.T) {
@@ -274,7 +269,7 @@ func TestAuthzRolesJourney(t *testing.T) {
 	})
 
 	t.Run("get roles for user after deletion", func(t *testing.T) {
-		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser), clientAuth)
+		res, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(adminUser).WithUserType(string(models.UserTypeInputDb)), clientAuth)
 		require.Nil(t, err)
 		require.Equal(t, 1, len(res.Payload))
 		require.Equal(t, existingRole, *res.Payload[0].Name)
@@ -343,7 +338,7 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 	})
 
 	t.Run("get role assigned to user", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, testUser, adminKey)
+		roles := helper.GetRolesForUser(t, testUser, adminKey, true)
 		require.Equal(t, 1, len(roles))
 	})
 
@@ -356,7 +351,7 @@ func TestAuthzRolesRemoveAlsoAssignments(t *testing.T) {
 	})
 
 	t.Run("get role assigned to user expected none", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, testUser, adminKey)
+		roles := helper.GetRolesForUser(t, testUser, adminKey, false)
 		require.Equal(t, 0, len(roles))
 	})
 }
@@ -762,7 +757,7 @@ func TestAuthzRoleScopeMatching(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, limitedRole, limitedUser)
 
 		// Verify role assignment and permissions
-		roles := helper.GetRolesForUser(t, limitedUser, adminKey)
+		roles := helper.GetRolesForUser(t, limitedUser, adminKey, false)
 		require.Equal(t, 1, len(roles))
 		require.Equal(t, limitedRole, *roles[0].Name)
 	})
@@ -990,5 +985,251 @@ func TestAuthzRoleFilteredTenantPermissions(t *testing.T) {
 		require.NoError(t, err)
 		require.Equal(t, 1, len(tenants.Payload))
 		require.Equal(t, allowedTenant, tenants.Payload[0].Name)
+	})
+}
+
+func TestRaceConcurrentRoleCreation(t *testing.T) {
+	ctx := context.Background()
+
+	adminKey := "admin-key"
+	adminUser := "admin-user"
+
+	compose, err := docker.New().WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).
+		WithRBAC().WithRbacAdmins(adminUser).
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	for i := 0; i < 10; i++ {
+		var err1, err2 error
+		name := fmt.Sprintf("role%d", i)
+		helper.DeleteRole(t, adminKey, name) // leftovers from previous runs
+		wg := sync.WaitGroup{}
+		wg.Add(2)
+
+		// send off two concurrent requests with the same role name, but different permissions.
+		// If the race is
+		//   - detected correctly, one of the two requests should fail and the resulting role should only have one permission
+		//   - NOT detected correctly, bot requests succeed and the resulting role has two permissions
+
+		go func() {
+			_, err1 = helper.Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &name,
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.CreateCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection1"),
+						},
+					},
+				},
+			}), helper.CreateAuth(adminKey))
+			defer wg.Done()
+		}()
+		go func() {
+			_, err2 = helper.Client(t).Authz.CreateRole(authz.NewCreateRoleParams().WithBody(&models.Role{
+				Name: &name,
+				Permissions: []*models.Permission{
+					{
+						Action: String(authorization.DeleteCollections),
+						Collections: &models.PermissionCollections{
+							Collection: String("Collection1"),
+						},
+					},
+				},
+			}), helper.CreateAuth(adminKey))
+
+			defer wg.Done()
+		}()
+
+		wg.Wait()
+		require.True(t, (err1 != nil) || (err2 != nil)) // we expect one call to fail
+
+		role := helper.GetRoleByName(t, adminKey, name)
+		require.NotNil(t, role)
+		require.Len(t, role.Permissions, 1)
+
+	}
+}
+
+func TestRolesUserExistence(t *testing.T) {
+	adminKey := "admin-key"
+	adminUser := "admin-user"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
+		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	roleName := "role1"
+	helper.DeleteRole(t, adminKey, roleName)
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: &roleName,
+		Permissions: []*models.Permission{
+			{
+				Action: String(authorization.DeleteCollections),
+				Collections: &models.PermissionCollections{
+					Collection: String("Collection1"),
+				},
+			},
+		},
+	})
+	defer helper.DeleteRole(t, adminKey, roleName)
+
+	t.Run("Cannot assign or revoke to/from OIDC user (not enabled)", func(t *testing.T) {
+		resp, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, UserType: models.UserTypeInputOidc}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Nil(t, resp)
+		require.Error(t, err)
+
+		resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
+			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, UserType: models.UserTypeInputOidc}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Nil(t, resp2)
+		require.Error(t, err)
+	})
+
+	t.Run("Cannot assign or revoke to/from non-existent db user", func(t *testing.T) {
+		resp, err := helper.Client(t).Authz.AssignRoleToUser(
+			authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{roleName}, UserType: models.UserTypeInputDb}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Nil(t, resp)
+		require.Error(t, err)
+
+		resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
+			authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{roleName}, UserType: models.UserTypeInputDb}),
+			helper.CreateAuth(adminKey),
+		)
+		require.Nil(t, resp2)
+		require.Error(t, err)
+	})
+
+	t.Run("No assignment of root user to oidc when disabled", func(t *testing.T) {
+		users := helper.GetUserForRolesBoth(t, "root", adminKey)
+		for _, user := range users {
+			require.NotEqual(t, *user.UserType, models.UserTypeOutputOidc)
+		}
+	})
+}
+
+func TestGetRolesForUserPermission(t *testing.T) {
+	adminKey := "admin-key"
+	adminUser := "admin-user"
+
+	customUser := "custom-user"
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "a").WithDbUsers().
+		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
+	require.Nil(t, err)
+
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	all := "*"
+
+	userRoleName := "userRole"
+	helper.DeleteRole(t, adminKey, userRoleName)
+	defer helper.DeleteRole(t, adminKey, userRoleName)
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: &userRoleName,
+		Permissions: []*models.Permission{
+			{
+				Action: String(authorization.ReadUsers),
+				Users: &models.PermissionUsers{
+					Users: &all,
+				},
+			},
+		},
+	})
+
+	roleRoleName := "roleRole"
+	helper.DeleteRole(t, adminKey, roleRoleName)
+	defer helper.DeleteRole(t, adminKey, roleRoleName)
+	helper.CreateRole(t, adminKey, &models.Role{
+		Name: &roleRoleName,
+		Permissions: []*models.Permission{
+			{
+				Action: String(authorization.ReadRoles),
+				Roles: &models.PermissionRoles{
+					Role: &all,
+				},
+			},
+		},
+	})
+
+	helper.AssignRoleToUser(t, adminKey, userRoleName, customUser)
+
+	userName := "user"
+	userKey := helper.CreateUser(t, userName, adminKey)
+	defer helper.DeleteUser(t, userName, adminKey)
+
+	falsep := false
+	truep := true
+	t.Run("No permissions", func(t *testing.T) {
+		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)), helper.CreateAuth(userKey))
+		require.Error(t, err)
+	})
+
+	t.Run("With user permission", func(t *testing.T) {
+		helper.AssignRoleToUser(t, adminKey, userRoleName, userName)
+		defer helper.RevokeRoleFromUser(t, adminKey, userRoleName, userName)
+
+		// can get role names
+		resp, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)).WithIncludeFullRoles(&falsep), helper.CreateAuth(userKey))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Payload, 1)
+		require.Equal(t, userRoleName, *resp.Payload[0].Name)
+		require.Nil(t, resp.Payload[0].Permissions)
+
+		// cannot get all roles
+		_, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)).WithIncludeFullRoles(&truep), helper.CreateAuth(userKey))
+		require.Error(t, err)
+	})
+
+	t.Run("With user and role permission", func(t *testing.T) {
+		helper.AssignRoleToUser(t, adminKey, userRoleName, userName)
+		helper.AssignRoleToUser(t, adminKey, roleRoleName, userName)
+		defer helper.RevokeRoleFromUser(t, adminKey, userRoleName, userName)
+		defer helper.RevokeRoleFromUser(t, adminKey, roleRoleName, userName)
+
+		// can get role names
+		resp, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)).WithIncludeFullRoles(&falsep), helper.CreateAuth(userKey))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Payload, 1)
+		require.Equal(t, userRoleName, *resp.Payload[0].Name)
+		require.Nil(t, resp.Payload[0].Permissions)
+
+		// can get all roles
+		resp, err = helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)).WithIncludeFullRoles(&truep), helper.CreateAuth(userKey))
+		require.NoError(t, err)
+		require.NotNil(t, resp)
+		require.Len(t, resp.Payload, 1)
+		require.Equal(t, userRoleName, *resp.Payload[0].Name)
+		require.NotNil(t, resp.Payload[0].Permissions)
 	})
 }

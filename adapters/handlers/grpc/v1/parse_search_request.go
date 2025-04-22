@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"slices"
 
+	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/usecases/config"
 
@@ -49,16 +50,18 @@ import (
 type generativeParser interface {
 	Extract(req *pb.GenerativeSearch, class *models.Class) *generate.Params
 	ProviderName() string
-	ReturnMetadata() bool
+	ReturnMetadataForSingle() bool
+	ReturnMetadataForGrouped() bool
+	Debug() bool
 }
 
 type Parser struct {
 	generative         generativeParser
-	authorizedGetClass func(string) (*models.Class, error)
+	authorizedGetClass classGetterWithAuthzFunc
 }
 
 func NewParser(uses127Api bool,
-	authorizedGetClass func(string) (*models.Class, error),
+	authorizedGetClass classGetterWithAuthzFunc,
 ) *Parser {
 	return &Parser{
 		generative:         generative.NewParser(uses127Api),
@@ -92,7 +95,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.AdditionalProperties = addProps
 	}
 
-	out.Properties, err = extractPropertiesRequest(req.Properties, p.authorizedGetClass, req.Collection, req.Uses_123Api, targetVectors, vectorSearch)
+	out.Properties, err = extractPropertiesRequest(req.Properties, p.authorizedGetClass, req.Collection, targetVectors, vectorSearch)
 	if err != nil {
 		return dto.GetParams{}, errors.Wrap(err, "extract properties request")
 	}
@@ -345,7 +348,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant)
 		if err != nil {
 			return dto.GetParams{}, err
 		}
@@ -382,7 +385,9 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	if out.HybridSearch != nil && out.HybridSearch.NearVectorParams != nil && out.HybridSearch.Vector != nil {
 		return dto.GetParams{}, errors.New("cannot combine nearVector and vector in hybrid search")
 	}
-	extractPropertiesForModules(&out)
+	if err := p.extractPropertiesForModules(&out); err != nil {
+		return dto.GetParams{}, err
+	}
 	return out, nil
 }
 
@@ -481,10 +486,12 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 		combination = &dto.TargetCombination{Type: dto.DefaultTargetCombinationType}
 	}
 
-	if vectorSearch && len(targetVectors) == 0 {
+	if vectorSearch && len(targetVectors) == 0 && !schemachecks.HasLegacyVectorIndex(class) {
 		if len(class.VectorConfig) > 1 {
 			return nil, nil, false, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
-		} else if len(class.VectorConfig) == 1 {
+		}
+
+		if len(class.VectorConfig) == 1 {
 			for targetVector := range class.VectorConfig {
 				targetVectors = append(targetVectors, targetVector)
 			}
@@ -494,7 +501,11 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 	if vectorSearch {
 		for _, target := range targetVectors {
 			if _, ok := class.VectorConfig[target]; !ok {
-				return nil, nil, false, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, class.VectorConfig)
+				configuredNamedVectors := make([]string, 0, len(class.VectorConfig))
+				for key := range class.VectorConfig {
+					configuredNamedVectors = append(configuredNamedVectors, key)
+				}
+				return nil, nil, false, fmt.Errorf("class %s does not have named vector %v configured. Available named vectors %v", class.Class, target, configuredNamedVectors)
 			}
 		}
 	}
@@ -659,7 +670,7 @@ func extractNearTextMove(classname string, Move *pb.NearTextSearch_Move) (nearTe
 	return moveAwayOut, nil
 }
 
-func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass func(string) (*models.Class, error), className string, usesNewDefaultLogic bool, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
+func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass classGetterWithAuthzFunc, className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
 	props := make([]search.SelectProperty, 0)
 
 	if reqProps == nil {
@@ -670,11 +681,6 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 			return nil, errors.Wrap(err, "get all non ref non blob properties")
 		}
 		return nonRefProps, nil
-	}
-
-	if !usesNewDefaultLogic {
-		// Old stubs being used, use deprecated method
-		return extractPropertiesRequestDeprecated(reqProps, authorizedGetClass, className, targetVectors, vectorSearch)
 	}
 
 	if reqProps.ReturnAllNonrefProperties {
@@ -731,102 +737,10 @@ func extractPropertiesRequest(reqProps *pb.PropertiesRequest, authorizedGetClass
 			var refProperties []search.SelectProperty
 			var addProps additional.Properties
 			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequest(prop.Properties, authorizedGetClass, linkedClassName, usesNewDefaultLogic, targetVectors, vectorSearch)
+				refProperties, err = extractPropertiesRequest(prop.Properties, authorizedGetClass, linkedClassName, targetVectors, vectorSearch)
 				if err != nil {
 					return nil, errors.Wrap(err, "extract properties request")
 				}
-			}
-			if prop.Metadata != nil {
-				addProps, err = extractAdditionalPropsFromMetadata(linkedClass, prop.Metadata, targetVectors, vectorSearch)
-				if err != nil {
-					return nil, errors.Wrap(err, "extract additional props for refs")
-				}
-			}
-
-			if prop.Properties == nil {
-				refProperties, err = getAllNonRefNonBlobProperties(authorizedGetClass, linkedClassName)
-				if err != nil {
-					return nil, errors.Wrap(err, "get all non ref non blob properties")
-				}
-			}
-			if len(refProperties) == 0 && isIdOnlyRequest(prop.Metadata) {
-				// This is a pure-ID query without any properties or additional metadata.
-				// Indicate this to the DB, so it can optimize accordingly
-				addProps.NoProps = true
-			}
-
-			props = append(props, search.SelectProperty{
-				Name:        normalizedRefPropName,
-				IsPrimitive: false,
-				IsObject:    false,
-				Refs: []search.SelectClass{{
-					ClassName:            linkedClassName,
-					RefProperties:        refProperties,
-					AdditionalProperties: addProps,
-				}},
-			})
-		}
-	}
-
-	if len(reqProps.ObjectProperties) > 0 {
-		props = append(props, extractNestedProperties(reqProps.ObjectProperties)...)
-	}
-
-	return props, nil
-}
-
-func extractPropertiesRequestDeprecated(reqProps *pb.PropertiesRequest, authorizedGetClass func(string) (*models.Class, error), className string, targetVectors []string, vectorSearch bool) ([]search.SelectProperty, error) {
-	if reqProps == nil {
-		return nil, nil
-	}
-	props := make([]search.SelectProperty, 0)
-	if len(reqProps.NonRefProperties) > 0 {
-		for _, prop := range reqProps.NonRefProperties {
-			props = append(props, search.SelectProperty{
-				Name:        schema.LowercaseFirstLetter(prop),
-				IsPrimitive: true,
-				IsObject:    false,
-			})
-		}
-	}
-
-	if len(reqProps.RefProperties) > 0 {
-		class, err := authorizedGetClass(className)
-		if err != nil {
-			return nil, err
-		}
-
-		for _, prop := range reqProps.RefProperties {
-			normalizedRefPropName := schema.LowercaseFirstLetter(prop.ReferenceProperty)
-			schemaProp, err := schema.GetPropertyByName(class, normalizedRefPropName)
-			if err != nil {
-				return nil, err
-			}
-
-			var linkedClassName string
-			if len(schemaProp.DataType) == 1 {
-				// use datatype of the reference property to get the name of the linked class
-				linkedClassName = schemaProp.DataType[0]
-			} else {
-				linkedClassName = prop.TargetCollection
-				if linkedClassName == "" {
-					return nil, fmt.Errorf(
-						"multi target references from collection %v and property %v with need an explicit"+
-							"linked collection. Available linked collections are %v",
-						className, prop.ReferenceProperty, schemaProp.DataType)
-				}
-			}
-			var refProperties []search.SelectProperty
-			var addProps additional.Properties
-			if prop.Properties != nil {
-				refProperties, err = extractPropertiesRequestDeprecated(prop.Properties, authorizedGetClass, linkedClassName, targetVectors, vectorSearch)
-				if err != nil {
-					return nil, errors.Wrap(err, "extract properties request")
-				}
-			}
-			linkedClass, err := authorizedGetClass(linkedClassName)
-			if err != nil {
-				return nil, err
 			}
 			if prop.Metadata != nil {
 				addProps, err = extractAdditionalPropsFromMetadata(linkedClass, prop.Metadata, targetVectors, vectorSearch)
@@ -938,7 +852,7 @@ func isIdOnlyRequest(metadata *pb.MetadataRequest) bool {
 		!metadata.IsConsistent)
 }
 
-func getAllNonRefNonBlobProperties(authorizedGetClass func(string) (*models.Class, error), className string) ([]search.SelectProperty, error) {
+func getAllNonRefNonBlobProperties(authorizedGetClass classGetterWithAuthzFunc, className string) ([]search.SelectProperty, error) {
 	var props []search.SelectProperty
 	class, err := authorizedGetClass(className)
 	if err != nil {
@@ -1343,7 +1257,7 @@ func indexOf(slice []string, value string) int {
 }
 
 // extractPropertiesForModules extracts properties that are needed by modules but are not requested by the user
-func extractPropertiesForModules(params *dto.GetParams) {
+func (p *Parser) extractPropertiesForModules(params *dto.GetParams) error {
 	var additionalProps []string
 	for _, value := range params.AdditionalProperties.ModuleParams {
 		extractor, ok := value.(additional2.PropertyExtractor)
@@ -1351,7 +1265,15 @@ func extractPropertiesForModules(params *dto.GetParams) {
 			additionalProps = append(additionalProps, extractor.GetPropertiesToExtract()...)
 		}
 	}
-
+	class, err := p.authorizedGetClass(params.ClassName)
+	if err != nil {
+		return err
+	}
+	schemaProps := class.Properties
+	propDataTypes := make(map[string]schema.DataType)
+	for _, prop := range schemaProps {
+		propDataTypes[prop.Name] = schema.DataType(prop.DataType[0])
+	}
 	propsToAdd := make([]search.SelectProperty, 0)
 OUTER:
 	for _, additionalProp := range additionalProps {
@@ -1360,12 +1282,18 @@ OUTER:
 				continue OUTER
 			}
 		}
-		propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: true})
+		if propDataTypes[additionalProp] == schema.DataTypeBlob {
+			// make sure that blobs aren't added to the response payload by accident
+			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: false})
+		} else {
+			propsToAdd = append(propsToAdd, search.SelectProperty{Name: additionalProp, IsPrimitive: true})
+		}
 	}
 	params.Properties = append(params.Properties, propsToAdd...)
 	if len(params.Properties) > 0 {
 		params.AdditionalProperties.NoProps = false
 	}
+	return nil
 }
 
 func extractVectors(vectors []*pb.Vectors) (interface{}, error) {

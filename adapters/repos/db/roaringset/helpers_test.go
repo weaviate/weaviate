@@ -142,7 +142,7 @@ func slice(from, to uint64) []uint64 {
 func TestBitmapFactory(t *testing.T) {
 	maxId := uint64(10)
 	maxIdGetter := func() uint64 { return maxId }
-	bmf := NewBitmapFactory(maxIdGetter)
+	bmf := NewBitmapFactory(NewBitmapBufPoolNoop(), maxIdGetter)
 
 	t.Run("prefilled bitmap includes increment", func(t *testing.T) {
 		expPrefilledMaxId := maxId + defaultIdIncrement

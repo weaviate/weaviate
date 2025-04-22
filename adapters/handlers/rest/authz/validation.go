@@ -19,8 +19,8 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func validatePermissions(permissions ...*models.Permission) error {
-	if len(permissions) == 0 {
+func validatePermissions(allowEmpty bool, permissions ...*models.Permission) error {
+	if !allowEmpty && len(permissions) == 0 {
 		return fmt.Errorf("role has to have at least 1 permission")
 	}
 

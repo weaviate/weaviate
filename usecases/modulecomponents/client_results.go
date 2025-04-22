@@ -15,19 +15,22 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/dto"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type RateLimits struct {
-	LastOverwrite        time.Time
-	AfterRequestFunction func(limits *RateLimits, tokensUsed int, deductRequest bool)
-	LimitRequests        int
-	LimitTokens          int
-	RemainingRequests    int
-	RemainingTokens      int
-	ReservedRequests     int
-	ReservedTokens       int
-	ResetRequests        time.Time
-	ResetTokens          time.Time
+	LastOverwrite           time.Time
+	AfterRequestFunction    func(limits *RateLimits, tokensUsed int, deductRequest bool)
+	LimitRequests           int
+	LimitTokens             int
+	RemainingRequests       int
+	RemainingTokens         int
+	ReservedRequests        int
+	ReservedTokens          int
+	ResetRequests           time.Time
+	ResetTokens             time.Time
+	Label                   string
+	UpdateWithMissingValues bool
 }
 
 func (rl *RateLimits) ResetAfterRequestFunction(tokensUsed int) {
@@ -42,9 +45,18 @@ func (rl *RateLimits) CheckForReset() {
 	}
 }
 
-func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int) bool {
+func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int, addMetrics bool, metricsLabel string) bool {
 	freeRequests := rl.RemainingRequests - rl.ReservedRequests
 	freeTokens := rl.RemainingTokens - rl.ReservedTokens
+
+	stats := monitoring.GetMetrics().T2VRepeatStats
+
+	if addMetrics {
+		stats.WithLabelValues(metricsLabel, "free_requests").Set(float64(freeRequests))
+		stats.WithLabelValues(metricsLabel, "free_tokens").Set(float64(freeTokens))
+		stats.WithLabelValues(metricsLabel, "expected_requests").Set(float64(numRequests))
+		stats.WithLabelValues(metricsLabel, "expected_tokens").Set(float64(batchTokens))
+	}
 
 	fitsCurrentBatch := freeRequests >= numRequests && freeTokens >= batchTokens
 	if !fitsCurrentBatch {
@@ -60,12 +72,20 @@ func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int) bool {
 		percentageOfTokens = batchTokens * 100 / rl.LimitTokens
 	}
 
+	if addMetrics {
+		stats.WithLabelValues(metricsLabel, "percentage_of_requests").Set(float64(percentageOfRequests))
+		stats.WithLabelValues(metricsLabel, "percentage_of_tokens").Set(float64(percentageOfTokens))
+	}
+
 	// the clients aim for 10s per batch, or 6 batches per minute in sequential-mode. 15% is somewhat below that to
 	// account for some variance in the rate limits
 	return percentageOfRequests <= 15 && percentageOfTokens <= 15
 }
 
 func (rl *RateLimits) UpdateWithRateLimit(other *RateLimits) {
+	if other.UpdateWithMissingValues {
+		return
+	}
 	rl.LimitRequests = other.LimitRequests
 	rl.LimitTokens = other.LimitTokens
 	rl.ResetRequests = other.ResetRequests

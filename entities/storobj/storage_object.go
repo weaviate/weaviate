@@ -290,6 +290,19 @@ type PropertyExtraction struct {
 	PropertyPaths [][]string
 }
 
+func NewPropExtraction() *PropertyExtraction {
+	return &PropertyExtraction{
+		PropertyPaths: [][]string{},
+	}
+}
+
+func (pe *PropertyExtraction) Add(props ...string) *PropertyExtraction {
+	for i := range props {
+		pe.PropertyPaths = append(pe.PropertyPaths, []string{props[i]})
+	}
+	return pe
+}
+
 type bucket interface {
 	GetBySecondary(int, []byte) ([]byte, error)
 	GetBySecondaryWithBuffer(int, []byte, []byte) ([]byte, []byte, error)
@@ -594,6 +607,33 @@ func (ko *Object) SearchResultWithScoreAndTenant(addl additional.Properties, sco
 func (ko *Object) Valid() bool {
 	return ko.ID() != "" &&
 		ko.Class().String() != ""
+}
+
+// IterateThroughVectorDimensions iterates through all vectors present on the Object and invokes
+// the callback with target name and dimensions of the vector.
+func (ko *Object) IterateThroughVectorDimensions(f func(targetVector string, dims int) error) error {
+	if len(ko.Vector) > 0 {
+		if err := f("", len(ko.Vector)); err != nil {
+			return err
+		}
+	}
+
+	for targetVector, vector := range ko.Vectors {
+		if err := f(targetVector, len(vector)); err != nil {
+			return err
+		}
+	}
+
+	for targetVector, vectors := range ko.MultiVectors {
+		var dims int
+		for _, vector := range vectors {
+			dims += len(vector)
+		}
+		if err := f(targetVector, dims); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func SearchResults(in []*Object, additional additional.Properties, tenant string) search.Results {
@@ -951,7 +991,7 @@ func UnmarshalPropertiesFromObject(data []byte, resultProperties map[string]inte
 	clear(resultProperties)
 
 	startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-	rw := byteops.NewReadWriter(data, byteops.WithPosition(startPos))
+	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(startPos))
 	// get the length of the vector, each element is a float32 (4 bytes)
 	vectorLength := uint64(rw.ReadUint16())
 	rw.MoveBufferPositionForward(vectorLength * 4)
@@ -1076,7 +1116,7 @@ func (ko *Object) UnmarshalBinary(data []byte) error {
 	}
 	ko.MarshallerVersion = version
 
-	rw := byteops.NewReadWriter(data, byteops.WithPosition(1))
+	rw := byteops.NewReadWriterWithOps(data, byteops.WithPosition(1))
 	ko.DocID = rw.ReadUint64()
 	rw.MoveBufferPositionForward(1) // kind-byte
 
@@ -1240,7 +1280,7 @@ func VectorFromBinary(in []byte, buffer []float32, targetVector string) ([]float
 
 	if targetVector != "" {
 		startPos := uint64(1 + 8 + 1 + 16 + 8 + 8) // elements at the start
-		rw := byteops.NewReadWriter(in, byteops.WithPosition(startPos))
+		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(startPos))
 
 		vectorLength := uint64(rw.ReadUint16())
 		rw.MoveBufferPositionForward(vectorLength * 4)
@@ -1354,7 +1394,7 @@ func MultiVectorFromBinary(in []byte, buffer []float32, targetVector string) ([]
 	var multiVectors map[string][][]float32
 
 	if len(in) > pos {
-		rw := byteops.NewReadWriter(in, byteops.WithPosition(uint64(pos)))
+		rw := byteops.NewReadWriterWithOps(in, byteops.WithPosition(uint64(pos)))
 		mv, err := unmarshalMultiVectors(&rw, map[string]interface{}{targetVector: nil})
 		if err != nil {
 			return nil, errors.Errorf("unable to unmarshal multivector for target vector: %s", targetVector)

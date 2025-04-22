@@ -71,6 +71,22 @@ func GetValueAsStringArray(f *ast.ObjectField) []string {
 	}
 }
 
+func GetValueAsStringPtrArray(f *ast.ObjectField) []*string {
+	switch vals := f.Value.GetValue().(type) {
+	case string:
+		return []*string{&vals}
+	case []ast.Value:
+		var values []*string
+		for _, val := range vals {
+			value := val.GetValue().(string)
+			values = append(values, &value)
+		}
+		return values
+	default:
+		return nil
+	}
+}
+
 func GetValueAsBool(f *ast.ObjectField) *bool {
 	asBool, ok := f.Value.GetValue().(bool)
 	if ok {
