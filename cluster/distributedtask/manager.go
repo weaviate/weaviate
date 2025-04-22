@@ -14,11 +14,11 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/jonboulle/clockwork"
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -55,7 +55,7 @@ func NewManager(params ManagerParameters) *Manager {
 func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	var r api.AddDistributedTaskRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
-		return errors.Wrap(err, "unmarshal add task request")
+		return fmt.Errorf("unmarshal add task request: %w", err)
 	}
 
 	m.mu.Lock()
@@ -64,11 +64,11 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 	task := m.findTaskWithLock(r.Namespace, r.Id)
 	if task != nil {
 		if task.Status == TaskStatusStarted {
-			return errors.Errorf("task %s/%s is already running with version %d", r.Namespace, r.Id, task.Version)
+			return fmt.Errorf("task %s/%s is already running with version %d", r.Namespace, r.Id, task.Version)
 		}
 
 		if seqNum <= task.Version {
-			return errors.Errorf("task %s/%s is already finished with version %d", r.Namespace, r.Id, task.Version)
+			return fmt.Errorf("task %s/%s is already finished with version %d", r.Namespace, r.Id, task.Version)
 		}
 	}
 
@@ -87,7 +87,7 @@ func (m *Manager) AddTask(c *api.ApplyRequest, seqNum uint64) error {
 func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCluster int) error {
 	var r api.RecordDistributedTaskNodeCompletionRequest
 	if err := json.Unmarshal(c.SubCommand, &r); err != nil {
-		return errors.Wrap(err, "unmarshal record task node completion request")
+		return fmt.Errorf("unmarshal record task node completion request: %w", err)
 	}
 
 	m.mu.Lock()
@@ -99,7 +99,7 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 	}
 
 	if task.Status != TaskStatusStarted {
-		return errors.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
 	}
 
 	if r.Error != nil {
@@ -122,7 +122,7 @@ func (m *Manager) RecordNodeCompletion(c *api.ApplyRequest, numberOfNodesInTheCl
 func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	var r api.CancelDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
-		return errors.Wrap(err, "unmarshal cancel task request")
+		return fmt.Errorf("unmarshal cancel task request: %w", err)
 	}
 
 	m.mu.Lock()
@@ -134,7 +134,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 	}
 
 	if task.Status != TaskStatusStarted {
-		return errors.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
+		return fmt.Errorf("task %s/%s/%d is no longer running", r.Namespace, r.Id, task.Version)
 	}
 
 	task.Status = TaskStatusCancelled
@@ -145,7 +145,7 @@ func (m *Manager) CancelTask(a *api.ApplyRequest) error {
 func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	var r api.CleanUpDistributedTaskRequest
 	if err := json.Unmarshal(a.SubCommand, &r); err != nil {
-		return errors.Wrap(err, "unmarshal clean up task request")
+		return fmt.Errorf("unmarshal clean up task request: %w", err)
 	}
 
 	m.mu.Lock()
@@ -157,11 +157,11 @@ func (m *Manager) CleanUpTask(a *api.ApplyRequest) error {
 	}
 
 	if task.Status == TaskStatusStarted {
-		return errors.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
+		return fmt.Errorf("task %s/%s/%d is still running", r.Namespace, r.Id, task.Version)
 	}
 
 	if m.clock.Since(task.FinishedAt) <= m.completedTaskTTL {
-		return errors.Errorf("task %s/%s/%d is too fresh to clean up", r.Namespace, r.Id, task.Version)
+		return fmt.Errorf("task %s/%s/%d is too fresh to clean up", r.Namespace, r.Id, task.Version)
 	}
 
 	delete(m.tasks[task.Namespace], task.ID)
@@ -189,7 +189,7 @@ func (m *Manager) ListDistributedTasks(_ context.Context) (map[string][]*Task, e
 func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, error) {
 	tasks, err := m.ListDistributedTasks(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "list distributed tasks")
+		return nil, fmt.Errorf("list distributed tasks: %w", err)
 	}
 
 	return json.Marshal(&ListDistributedTasksResponse{
@@ -200,7 +200,7 @@ func (m *Manager) ListDistributedTasksPayload(ctx context.Context) ([]byte, erro
 func (m *Manager) findVersionedTaskWithLock(namespace, taskID string, taskVersion uint64) (*Task, error) {
 	task := m.findTaskWithLock(namespace, taskID)
 	if task == nil || task.Version != taskVersion {
-		return nil, errors.Errorf("task %s/%s/%d does not exist", namespace, taskID, taskVersion)
+		return nil, fmt.Errorf("task %s/%s/%d does not exist", namespace, taskID, taskVersion)
 	}
 
 	return task, nil

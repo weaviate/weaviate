@@ -13,11 +13,11 @@ package distributedtask
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
 	"github.com/jonboulle/clockwork"
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
@@ -110,7 +110,7 @@ func NewScheduler(params SchedulerParams) *Scheduler {
 func (s *Scheduler) Start(ctx context.Context) error {
 	tasksByNamespace, err := s.listTasks(ctx)
 	if err != nil {
-		return errors.Wrap(err, "list distributed tasks")
+		return fmt.Errorf("list distributed tasks: %w", err)
 	}
 
 	s.mu.Lock()
@@ -148,7 +148,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 		for desc, task := range startedTasks {
 			handle, err := provider.StartTask(task)
 			if err != nil {
-				return errors.Wrapf(err, "provider %s start task %v", namespace, desc)
+				return fmt.Errorf("provider %s start task %v: %w", namespace, desc, err)
 			}
 
 			s.setRunningTaskHandleWithLock(namespace, desc, handle)
@@ -320,7 +320,7 @@ func (s *Scheduler) tick() {
 func (s *Scheduler) listTasks(ctx context.Context) (map[string]map[TaskDescriptor]*Task, error) {
 	tasksByNamespace, err := s.tasksLister.ListDistributedTasks(ctx)
 	if err != nil {
-		return nil, errors.Wrap(err, "list distributed tasks")
+		return nil, fmt.Errorf("list distributed tasks: %w", err)
 	}
 
 	result := make(map[string]map[TaskDescriptor]*Task, len(tasksByNamespace))
