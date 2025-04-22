@@ -14,6 +14,8 @@ package rbac
 import (
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,7 +44,7 @@ func TestSnapshotAndRestore(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.PrefixUserName("test-user"), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
 				return err
 			},
 		},
@@ -58,11 +60,11 @@ func TestSnapshotAndRestore(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.PrefixUserName("test-user"), conv.PrefixRoleName("admin"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("admin"))
 				if err != nil {
 					return err
 				}
-				_, err = m.casbin.AddRoleForUser(conv.PrefixUserName("test-user"), conv.PrefixRoleName("editor"))
+				_, err = m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId("test-user", models.UserTypeInputDb), conv.PrefixRoleName("editor"))
 				return err
 			},
 		},
