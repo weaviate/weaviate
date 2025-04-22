@@ -119,7 +119,6 @@ func TestUpgradeRoles(t *testing.T) {
 			expectedPolicies: [][]string{
 				{"role:other_role", "data/collections/.*/shards/.*/objects/.*", " R", "data"},
 			},
-			version: DEFAULT_POLICY_VERSION,
 		},
 		{
 			name: "upgrade update user if coming from old version",
@@ -129,17 +128,6 @@ func TestUpgradeRoles(t *testing.T) {
 			expectedPolicies: [][]string{
 				{"p, role:some_role, users/.*, A, users"},
 			},
-			version: DEFAULT_POLICY_VERSION,
-		},
-		{
-			name: "dont upgrade if coming from 1.30+",
-			lines: []string{
-				"p, role:some_role, users/.*, U, users",
-			},
-			expectedPolicies: [][]string{
-				{"p, role:some_role, users/.*, A, users"},
-			},
-			version: "1.30.1",
 		},
 		{
 			name: "mixed upgrade and not upgrade and skip",
@@ -152,7 +140,6 @@ func TestUpgradeRoles(t *testing.T) {
 				{"p, role:some_role, users/.*, A, users, "},
 				{"role:other_role", "data/collections/.*/shards/.*/objects/.*", " R", "data"},
 			},
-			version: DEFAULT_POLICY_VERSION,
 		},
 	}
 	for _, tt := range tests {
@@ -178,7 +165,7 @@ func TestUpgradeRoles(t *testing.T) {
 			enforcer.SetAdapter(fileadapter.NewAdapter(tmpFile.Name()))
 			require.NoError(t, enforcer.LoadPolicy())
 
-			require.NoError(t, upgradeRolesFrom129(enforcer, tt.version))
+			require.NoError(t, upgradePoliciesFrom129(enforcer))
 			policies, _ := enforcer.GetPolicy()
 			require.Len(t, policies, len(tt.expectedPolicies))
 			for i, policy := range tt.expectedPolicies {
