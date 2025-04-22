@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -107,29 +108,38 @@ func updateRuntimeConfig(source, parsed reflect.Value) {
 		pf := parsed.Field(i)
 
 		if pf.IsNil() {
-			method := sf.MethodByName("Reset")
-			if method.IsValid() && method.Type().NumIn() == 0 {
-				method.Call(nil)
+			si := sf.Interface()
+			src, ok := si.(interface{ Reset() })
+			if !ok {
+				panic(fmt.Sprintf("type doesn't have Reset() method: %#v", si))
 			}
+			src.Reset()
 			continue
 		}
 
-		// NOTE(kavi):
-		// Q: why not type cast it into *DynamicValue[T] and call the method instead?
-		// A: Given DynamicValue[T] is generic type, you have to know the concrete type before doing type cast. Which is not possible here. ¯\_(ツ)_/¯
-		gmethod := pf.MethodByName("Get")
-		smethod := sf.MethodByName("SetValue")
+		si := sf.Interface()
+		pi := pf.Interface()
 
-		if !gmethod.IsValid() || gmethod.Type().NumIn() != 0 || gmethod.Type().NumOut() != 1 {
-			panic("Get() has non-zero arguments and more than one return values")
+		switch sv := si.(type) {
+		case *runtime.DynamicValue[int]:
+			// this casting is fine, because both `parsed` and `source` are same struct.
+			p := pi.(*runtime.DynamicValue[int])
+			sv.SetValue(p.Get())
+		case *runtime.DynamicValue[float64]:
+			p := pi.(*runtime.DynamicValue[float64])
+			sv.SetValue(p.Get())
+		case *runtime.DynamicValue[bool]:
+			p := pi.(*runtime.DynamicValue[bool])
+			sv.SetValue(p.Get())
+		case *runtime.DynamicValue[time.Duration]:
+			p := pi.(*runtime.DynamicValue[time.Duration])
+			sv.SetValue(p.Get())
+		case *runtime.DynamicValue[string]:
+			p := pi.(*runtime.DynamicValue[string])
+			sv.SetValue(p.Get())
+		default:
+			panic(fmt.Sprintf("not recognized type: %#v, %#v", pi, si))
 		}
 
-		val := gmethod.Call(nil)
-
-		if !smethod.IsValid() || smethod.Type().NumIn() != 1 {
-			panic("SetValue() must have one argument")
-		}
-
-		smethod.Call(val)
 	}
 }
