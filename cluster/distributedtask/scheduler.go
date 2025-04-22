@@ -128,21 +128,13 @@ func (s *Scheduler) Start(ctx context.Context) error {
 				continue
 			}
 
-			if err := provider.CleanupTask(taskDesc); err != nil {
-				s.logger.WithFields(logrus.Fields{
-					"namespace":   namespace,
-					"taskID":      taskDesc.ID,
-					"taskVersion": taskDesc.Version,
-					"error":       err,
-				}).Error("failed to clean up local distributed task state")
+			if err = provider.CleanupTask(taskDesc); err != nil {
+				s.loggerWithTask(namespace, taskDesc).WithError(err).
+					Error("failed to clean up local distributed task state")
 				continue
 			}
 
-			s.logger.WithFields(logrus.Fields{
-				"namespace":   namespace,
-				"taskID":      taskDesc.ID,
-				"taskVersion": taskDesc.Version,
-			}).Info("cleaned up local distributed task state")
+			s.loggerWithTask(namespace, taskDesc).Info("cleaned up local distributed task state")
 		}
 
 		for desc, task := range startedTasks {
@@ -152,11 +144,7 @@ func (s *Scheduler) Start(ctx context.Context) error {
 			}
 
 			s.setRunningTaskHandleWithLock(namespace, desc, handle)
-			s.logger.WithFields(logrus.Fields{
-				"namespace":   namespace,
-				"taskID":      desc.ID,
-				"taskVersion": desc.Version,
-			}).Info("started distributed task execution")
+			s.loggerWithTask(namespace, desc).Info("started distributed task execution")
 		}
 
 		s.tasksRunning.
@@ -208,9 +196,7 @@ func (s *Scheduler) tick() {
 	tasksByNamespace, err := s.listTasks(context.Background())
 	if err != nil {
 		s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
-			l.WithFields(logrus.Fields{
-				"error": err,
-			}).Error("failed to list distributed tasks")
+			l.WithError(err).Error("failed to list distributed tasks")
 		})
 		return
 	}
@@ -232,22 +218,14 @@ func (s *Scheduler) tick() {
 			handle, err := provider.StartTask(activeTask)
 			if err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
-					l.WithFields(logrus.Fields{
-						"namespace":   namespace,
-						"taskID":      activeTask.ID,
-						"taskVersion": activeTask.Version,
-						"error":       err,
-					}).Error("failed to start distributed task")
+					s.loggerWithTask(namespace, activeTask.TaskDescriptor).WithError(err).
+						Error("failed to start distributed task")
 				})
 				continue
 			}
 
 			s.setRunningTaskHandleWithLock(namespace, activeTask.TaskDescriptor, handle)
-			s.logger.WithFields(logrus.Fields{
-				"namespace":   namespace,
-				"taskID":      activeTask.ID,
-				"taskVersion": activeTask.Version,
-			}).Info("started distributed task execution")
+			s.loggerWithTask(namespace, activeTask.TaskDescriptor).Info("started distributed task execution")
 		}
 
 		s.tasksRunning.
@@ -263,11 +241,8 @@ func (s *Scheduler) tick() {
 			taskHandle.Terminate()
 			delete(s.runningTasks[namespace], desc)
 
-			s.logger.WithFields(logrus.Fields{
-				"namespace":   namespace,
-				"taskID":      desc.ID,
-				"taskVersion": desc.Version,
-			}).Info("terminated distributed task execution")
+			s.loggerWithTask(namespace, desc).Info("terminated distributed task execution")
+
 		}
 
 		// Check that all tasks that are already finished and if their TTL has passed, so we can clean them up.
@@ -275,24 +250,17 @@ func (s *Scheduler) tick() {
 			return task.Status != TaskStatusStarted && s.completedTaskTTL <= s.clock.Since(task.FinishedAt)
 		})
 		for _, task := range cleanableTasks {
-			err := s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
+			err = s.taskCleaner.CleanUpDistributedTask(context.Background(), namespace, task.ID, task.Version)
 			if err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
-					l.WithFields(logrus.Fields{
-						"namespace":   namespace,
-						"taskID":      task.ID,
-						"taskVersion": task.Version,
-						"error":       err,
-					}).Error("failed to clean up distributed task")
+					s.loggerWithTask(namespace, task.TaskDescriptor).WithError(err).
+						Error("failed to clean up distributed task")
 				})
 				continue
 			}
 
-			s.logger.WithFields(logrus.Fields{
-				"namespace":   namespace,
-				"taskID":      task.ID,
-				"taskVersion": task.Version,
-			}).Info("successfully submitted request to clean up distributed task")
+			s.loggerWithTask(namespace, task.TaskDescriptor).
+				Info("successfully submitted request to clean up distributed task")
 		}
 
 		// Check that tasks that can be cleaned up locally
@@ -303,14 +271,10 @@ func (s *Scheduler) tick() {
 				continue
 			}
 
-			if err := provider.CleanupTask(desc); err != nil {
+			if err = provider.CleanupTask(desc); err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
-					l.WithFields(logrus.Fields{
-						"namespace":   namespace,
-						"taskID":      desc.ID,
-						"taskVersion": desc.Version,
-						"error":       err,
-					}).Error("failed to clean up local distributed task state")
+					s.loggerWithTask(namespace, desc).WithError(err).
+						Error("failed to clean up local distributed task state")
 				})
 			}
 		}
@@ -362,4 +326,12 @@ func (s *Scheduler) totalRunningTaskCount() int {
 		count += len(tasks)
 	}
 	return count
+}
+
+func (s *Scheduler) loggerWithTask(namespace string, taskDesc TaskDescriptor) *logrus.Entry {
+	return s.logger.WithFields(logrus.Fields{
+		"namespace":   namespace,
+		"taskID":      taskDesc.ID,
+		"taskVersion": taskDesc.Version,
+	})
 }
