@@ -73,6 +73,7 @@ func (vv *DynamicValue[T]) SetDefault(val T) {
 	vv.def = val
 }
 
+// UnmarshalYAML implements `yaml.v3` custom decoding for `DynamicValue` type.
 func (vv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
 	var zero T
 	switch any(zero).(type) {
