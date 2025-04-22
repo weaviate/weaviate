@@ -477,7 +477,7 @@ func assertTasks(t *testing.T, expected, actual map[string][]*Task) {
 		require.Equal(t, len(expectedTasks), len(actualTasks))
 		sortTasks := func(tasks []*Task) {
 			sort.Slice(tasks, func(i, j int) bool {
-				return tasks[i].TaskDescriptor.ID < tasks[j].TaskDescriptor.ID
+				return tasks[i].ID < tasks[j].ID
 			})
 		}
 		sortTasks(expectedTasks)
