@@ -106,6 +106,7 @@ type hnsw struct {
 	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
 	multiVectorForID          common.MultiVectorForID
 	trackDimensionsOnce       sync.Once
+	trackMuveraOnce           sync.Once
 	dims                      int32
 
 	cache               cache.Cache[float32]

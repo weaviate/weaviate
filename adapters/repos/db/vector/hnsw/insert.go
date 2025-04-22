@@ -178,6 +178,9 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	}
 
 	if h.muvera.Load() {
+		h.trackMuveraOnce.Do(func() {
+			h.muveraEncoder.InitEncoder(len(vectors[0][0]))
+		})
 		// Process all vectors
 		processedVectors := make([][]float32, len(vectors))
 		for i, v := range vectors {

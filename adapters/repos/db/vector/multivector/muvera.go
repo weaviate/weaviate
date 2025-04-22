@@ -41,19 +41,23 @@ func NewMuveraEncoder(config ent.MuveraConfig) *MuveraEncoder {
 		config: MuveraConfig{
 			KSim:         config.KSim,
 			NumClusters:  int(math.Pow(2, float64(config.KSim))),
-			Dimensions:   128,
 			DProjections: config.DProjections,
 			Repetitions:  config.Repetitions,
 		},
 		dotDistancerProvider: distancer.NewDotProductProvider(),
 	}
 
-	encoder.gaussians = make([][][]float32, config.Repetitions)
-	encoder.S = make([][][]float32, config.Repetitions)
-	for rep := 0; rep < config.Repetitions; rep++ {
+	return encoder
+}
+
+func (encoder *MuveraEncoder) InitEncoder(dimensions int) {
+	encoder.config.Dimensions = dimensions
+	encoder.gaussians = make([][][]float32, encoder.config.Repetitions)
+	encoder.S = make([][][]float32, encoder.config.Repetitions)
+	for rep := 0; rep < encoder.config.Repetitions; rep++ {
 		// Initialize random Gaussian vectors
-		encoder.gaussians[rep] = make([][]float32, config.KSim)
-		for i := 0; i < config.KSim; i++ {
+		encoder.gaussians[rep] = make([][]float32, encoder.config.KSim)
+		for i := 0; i < encoder.config.KSim; i++ {
 			encoder.gaussians[rep][i] = make([]float32, encoder.config.Dimensions)
 			for j := 0; j < encoder.config.Dimensions; j++ {
 				u1 := rand.Float64()
@@ -62,12 +66,10 @@ func NewMuveraEncoder(config ent.MuveraConfig) *MuveraEncoder {
 			}
 		}
 
-		encoder.S[rep] = initProjectionMatrix(config.DProjections, encoder.config.Dimensions)
+		encoder.S[rep] = initProjectionMatrix(encoder.config.DProjections, encoder.config.Dimensions)
 	}
 
 	// encoder.Sfinal = initProjectionMatrix(config.DFinal, config.DProjections*config.NumClusters*config.Repetitions)
-
-	return encoder
 }
 
 func initProjectionMatrix(rows int, cols int) [][]float32 {
