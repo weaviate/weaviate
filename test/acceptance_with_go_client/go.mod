@@ -11,8 +11,8 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/tailor-inc/graphql v0.5.7
-	github.com/weaviate/weaviate v1.29.0
-	github.com/weaviate/weaviate-go-client/v5 v5.0.2
+	github.com/weaviate/weaviate v1.30.1
+	github.com/weaviate/weaviate-go-client/v5 v5.1.0
 )
 
 require (
@@ -183,7 +183,7 @@ require (
 	go.uber.org/mock v0.4.0 // indirect
 	golang.org/x/crypto v0.37.0 // indirect
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa // indirect
-	golang.org/x/net v0.35.0 // indirect
+	golang.org/x/net v0.39.0 // indirect
 	golang.org/x/oauth2 v0.25.0 // indirect
 	golang.org/x/sync v0.13.0 // indirect
 	golang.org/x/sys v0.32.0 // indirect
