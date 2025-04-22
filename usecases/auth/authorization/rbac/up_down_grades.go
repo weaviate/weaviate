@@ -71,6 +71,7 @@ func upgradePoliciesFrom129(enforcer *casbin.SyncedCachedEnforcer, keepBuildInRo
 		return err
 	}
 
+	// a role can have multiple policies, so first all old role need to be removed and then re-added
 	policiesToAdd := make([][]string, 0, len(policies))
 	for _, policy := range policies {
 		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, policy[0]); err != nil {
@@ -84,12 +85,13 @@ func upgradePoliciesFrom129(enforcer *casbin.SyncedCachedEnforcer, keepBuildInRo
 		policiesToAdd = append(policiesToAdd, policy)
 	}
 
-	// re-add policy with changed server version, leave out build-in roles
 	for _, policy := range policiesToAdd {
-		if !keepBuildInRoles {
-			roleName := conv.TrimRoleNamePrefix(policy[0])
-			if _, ok := conv.BuiltInPolicies[roleName]; ok {
+		roleName := conv.TrimRoleNamePrefix(policy[0])
+		if _, ok := conv.BuiltInPolicies[roleName]; ok {
+			if !keepBuildInRoles {
 				continue
+			} else if policy[2] == conv.CRUD {
+				policy[2] = conv.VALID_VERBS
 			}
 		}
 

@@ -239,12 +239,14 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			},
 		},
 		{
-			name: "build-in not touched",
+			name: "build-in",
 			policiesInput: [][]string{
 				{"role:viewer", "*", "R", "*"},
+				{"role:admin", "*", "(C)|(R)|(U)|(D)", "*"},
 			},
 			policiesExpected: [][]string{
 				{"role:viewer", "*", "R", "*"},
+				{"role:admin", "*", conv.VALID_VERBS, "*"},
 			},
 		},
 		{
