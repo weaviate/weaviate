@@ -49,37 +49,6 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
 
-	-       verifyThatAllBooksExist := func(t *testing.T) {
-		-               book := helper.AssertGetObject(t, booksClass.Class, books.Dune)
-		-               require.Equal(t, books.Dune, book.ID)
-		-               book = helper.AssertGetObject(t, booksClass.Class, books.ProjectHailMary)
-		-               require.Equal(t, books.ProjectHailMary, book.ID)
-		-               book = helper.AssertGetObject(t, booksClass.Class, books.TheLordOfTheIceGarden)
-		-               require.Equal(t, books.TheLordOfTheIceGarden, book.ID)
-		-       }
-		-
-		-       vectorsForDune := func() map[string][]float32 {
-		-               vectors := map[string][]float32{}
-		-               duneBook := helper.AssertGetObject(t, booksClass.Class, books.Dune)
-		-
-		-               if vectorsConfigType == vectorsNamed || vectorsConfigType == vectorsMixed {
-		-                       for name := range booksClass.VectorConfig {
-		-                               switch vec := duneBook.Vectors[name].(type) {
-		-                               case []float32:
-		-                                       vectors[name] = vec
-		-                               case [][]float32:
-		-                                       // do nothing
-		-                               default:
-		-                                       // do nothing
-		-                               }
-		-                       }
-		-               }
-		-               if vectorsConfigType == vectorsLegacy || vectorsConfigType == vectorsMixed {
-		-                       vectors["vector"] = duneBook.Vector
-		-               }
-		-               return vectors
-		-       }
-
 	backupID := "backup-1_named_vectors_" + string(vectorsConfigType)
 	t.Run("add data to Books schema", func(t *testing.T) {
 		for _, book := range books.Objects() {
