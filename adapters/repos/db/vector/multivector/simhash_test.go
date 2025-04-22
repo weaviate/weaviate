@@ -15,11 +15,17 @@ import (
 	"testing"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func TestSimHashTest(t *testing.T) {
 	// Create a default config
-	config := DefaultMuveraConfig()
+	config := ent.MuveraConfig{
+		KSim:         3,
+		DProjections: 8,
+		Repetitions:  20,
+	}
+
 	encoder := NewMuveraEncoder(config)
 
 	// Test case 1: Similar vectors should produce similar hashes

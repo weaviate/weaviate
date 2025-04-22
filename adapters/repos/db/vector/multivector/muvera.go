@@ -28,17 +28,6 @@ type MuveraConfig struct {
 	Repetitions  int // Number of repetitions (20 in the Python implementation)
 }
 
-func DefaultMuveraConfig() ent.MuveraConfig {
-	kSim := 3
-	dProjections := 8
-	reps := 20
-	return ent.MuveraConfig{
-		KSim:         kSim,
-		DProjections: dProjections,
-		Repetitions:  reps,
-	}
-}
-
 type MuveraEncoder struct {
 	config               MuveraConfig
 	gaussians            [][][]float32 // Random Gaussian vectors for SimHash projection
