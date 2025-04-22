@@ -24,8 +24,12 @@ import (
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"github.com/jonboulle/clockwork"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
@@ -157,6 +161,9 @@ type Config struct {
 
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier
+
+	// DistributedTasks is the configuration for the distributed task manager.
+	DistributedTasks config.DistributedTasksConfig
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -209,6 +216,9 @@ type Store struct {
 	// replicationManager is responsible for applying/querying the replication FSM used to handle replication operations
 	replicationManager *replication.Manager
 
+	// distributedTaskManager is responsible for applying/querying the distributed task FSM used to handle distributed tasks.
+	distributedTasksManager *distributedtask.Manager
+
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
@@ -233,6 +243,10 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		authZManager:       rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
 		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader(), cfg.ReplicaCopier, reg),
+		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
+			Clock:            clockwork.NewRealClock(),
+			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
+		}),
 	}
 }
 
