@@ -700,10 +700,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			return
 		}
 		if err = scheduler.Start(ctx); err != nil {
-			appState.Logger.WithFields(logrus.Fields{
-				"action": "startup",
-				"error":  err,
-			}).Error("failed to start distributed task scheduler")
+			appState.Logger.WithError(err).WithField("action", "startup").
+				Error("failed to start distributed task scheduler")
 		}
 	}, appState.Logger)
 
