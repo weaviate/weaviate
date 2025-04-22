@@ -40,13 +40,6 @@ func (p RealTimeProvider) Now() time.Time {
 	return time.Now()
 }
 
-// Timer defines an interface for scheduling tasks with a delay.
-type Timer interface {
-	// AfterFunc waits for the specified duration to elapse and then calls the provided function
-	// in its own goroutine.
-	AfterFunc(duration time.Duration, fn func()) *time.Timer
-}
-
 // ShardReplicationEngine coordinates the replication of shard data between nodes in a distributed system.
 //
 // It uses a producer-consumer pattern where replication operations are pulled from a source (e.g., FSM)
