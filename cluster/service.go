@@ -38,6 +38,7 @@ const (
 	shardReplicationEngineBufferSize = 16
 	replicationEngineShutdownTimeout = 10 * time.Minute
 	replicationOperationTimeout      = 24 * time.Hour
+	catchUpInterval                  = 5 * time.Second
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
@@ -105,7 +106,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 }
 
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
-	ticker := time.NewTicker(5 * time.Second)
+	ticker := time.NewTicker(catchUpInterval)
 	defer ticker.Stop()
 	for {
 		select {
