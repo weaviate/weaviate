@@ -41,6 +41,9 @@ const (
 	DefaultHNSWAcornFilterRatio = 0.4
 
 	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
+
+	DefaultDistributedTasksSchedulerTickInterval = time.Minute
+	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -633,6 +636,22 @@ func FromEnv(config *Config) error {
 			return fmt.Errorf("parse RUNTIME_OVERRIDES_LOAD_INTERVAL as time.Duration: %w", err)
 		}
 		config.RuntimeOverrides.LoadInterval = interval
+	}
+
+	if err = parsePositiveInt(
+		"DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
+		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
+		int(DefaultDistributedTasksSchedulerTickInterval.Seconds()),
+	); err != nil {
+		return err
+	}
+
+	if err = parsePositiveInt(
+		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
+		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
+	); err != nil {
+		return err
 	}
 
 	return nil

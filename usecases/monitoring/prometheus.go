@@ -377,6 +377,7 @@ func GetMetrics() *PrometheusMetrics {
 
 func newPrometheusMetrics() *PrometheusMetrics {
 	return &PrometheusMetrics{
+		Registerer: prometheus.DefaultRegisterer,
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
 			Help:    "Duration in ms of a single batch",
