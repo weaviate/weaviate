@@ -21,6 +21,8 @@ function main() {
   run_unit_and_integration_tests=false
   run_unit_tests=false
   run_integration_tests=false
+  run_integration_tests_only_vector_package=false
+  run_integration_tests_without_vector_package=false
   run_benchmark=false
   run_module_only_backup_tests=false
   run_module_only_offload_tests=false
@@ -37,6 +39,8 @@ function main() {
           --unit-only|-u) run_all_tests=false; run_unit_tests=true;;
           --unit-and-integration-only|-ui) run_all_tests=false; run_unit_and_integration_tests=true;;
           --integration-only|-i) run_all_tests=false; run_integration_tests=true;;
+          --integration-vector-package-only|-ivpo) run_all_tests=false; run_integration_tests=true; run_integration_tests_only_vector_package=true;;
+          --integration-without-vector-package|-iwvp) run_all_tests=false; run_integration_tests=true; run_integration_tests_without_vector_package=true;;
           --acceptance-only|--e2e-only|-a) run_all_tests=false; run_acceptance_tests=true ;;
           --acceptance-only-fast|-aof) run_all_tests=false; run_acceptance_only_fast=true;;
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
@@ -223,7 +227,13 @@ function run_integration_tests() {
     return
   fi
 
-  ./test/integration/run.sh --include-slow
+  if $run_integration_tests_only_vector_package; then
+    ./test/integration/run.sh --include-slow --only-vector-pkg
+  elif $run_integration_tests_without_vector_package; then
+    ./test/integration/run.sh --include-slow --without-vector-pkg
+  else
+    ./test/integration/run.sh --include-slow
+  fi
 }
 
 function run_acceptance_lsmkv() {
