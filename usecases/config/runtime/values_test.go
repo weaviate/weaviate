@@ -12,11 +12,42 @@
 package runtime
 
 import (
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"gopkg.in/yaml.v3"
 )
+
+func TestDynamicValue_Unmarshal(t *testing.T) {
+	// assert if all supported types unmarshal correctly
+	val := struct {
+		Foo    int           `yaml:"foo"`
+		Bar    float64       `yaml:"bar"`
+		Alice  bool          `yaml:"alice"`
+		Dave   time.Duration `yaml:"dave"`
+		Status string        `yaml:"status"`
+	}{}
+	buf := `
+foo: 2
+bar: 4.5
+alice: true
+dave: 20s
+status: "done"
+`
+
+	dec := yaml.NewDecoder(strings.NewReader(buf))
+	dec.KnownFields(true)
+	err := dec.Decode(&val)
+	require.NoError(t, err)
+	assert.Equal(t, 2, val.Foo)
+	assert.Equal(t, 4.5, val.Bar)
+	assert.Equal(t, true, val.Alice)
+	assert.Equal(t, 20*time.Second, val.Dave)
+	assert.Equal(t, "done", val.Status)
+}
 
 func TestDynamicValue(t *testing.T) {
 	var (
@@ -58,7 +89,7 @@ func TestDynamicValue(t *testing.T) {
 	assert.Equal(t, time.Duration(4*time.Second), dDuration2.Get())
 
 	// invariant: After setting dynamic default via `SetValue`, this value should
-	// override both `zero-value` and `cutom-default`.
+	// override both `zero-value` and `custom-default`.
 
 	dInt.SetValue(30)
 	dFloat.SetValue(22.7)

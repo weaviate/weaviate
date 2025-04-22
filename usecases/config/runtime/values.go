@@ -14,6 +14,7 @@ package runtime
 import (
 	"fmt"
 	"strconv"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -22,17 +23,22 @@ import (
 
 // Type represents different types that is supported in runtime configs
 type DynamicType interface {
-	int | float64 | bool | time.Duration
+	~int | ~float64 | ~bool | time.Duration | ~string
 }
 
 // Value represents any runtime config value. It's zero value is
 // fully usable.
 // If you want zero value with different `default`, use `NewDynamicValue` constructor.
 type DynamicValue[T DynamicType] struct {
-	// val is the dynamically chaning value.
+	// val is the dynamically changing value.
 	val atomic.Value
+	// protects `val` during Reset()
+	valMu sync.Mutex
+
 	// def represents the default value.
 	def T
+	// protects `def`
+	defMu sync.Mutex
 }
 
 // NewDynamicValue returns an instance of DynamicValue as passed in type
@@ -46,35 +52,47 @@ func NewDynamicValue[T DynamicType](val T) DynamicValue[T] {
 // Get returns a current value for the given config. It can either be dynamic value or default
 // value (if unable to get dynamic value)
 // Consumer of the dynamic config value should care only about this `Get()` api.
-func (vv *DynamicValue[T]) Get() T {
-	v := vv.val.Load()
+func (dv *DynamicValue[T]) Get() T {
+	v := dv.val.Load()
 	if v != nil {
 		return v.(T)
 	}
-	return vv.def
+
+	dv.defMu.Lock()
+	def := dv.def
+	dv.defMu.Unlock()
+
+	return def
 }
 
 // Reset removes the old dynamic value.
-func (vv *DynamicValue[T]) Reset() {
-	vv.val = atomic.Value{}
+func (dv *DynamicValue[T]) Reset() {
+	// Once atomic value is set via `Store()`, no api to reset it
+	// hence replacing the full value.
+	dv.valMu.Lock()
+	defer dv.valMu.Unlock()
+
+	dv.val = atomic.Value{}
 }
 
 // Set is used by the config manager to update the dynamic value.
-func (vv *DynamicValue[T]) SetValue(val T) error {
-	vv.val.Store(val)
-	return nil
+func (dv *DynamicValue[T]) SetValue(val T) {
+	dv.val.Store(val)
 
 	// NOTE: doesn't need to set any default value here
 	// as `Get()` api will return default if dynamic value is not set.
 }
 
 // SetDefault updates the `default` value for DynamicValue.
-func (vv *DynamicValue[T]) SetDefault(val T) {
-	vv.def = val
+func (dv *DynamicValue[T]) SetDefault(val T) {
+	dv.defMu.Lock()
+	defer dv.defMu.Unlock()
+
+	dv.def = val
 }
 
 // UnmarshalYAML implements `yaml.v3` custom decoding for `DynamicValue` type.
-func (vv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
+func (dv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
 	var zero T
 	switch any(zero).(type) {
 	case int:
@@ -82,25 +100,27 @@ func (vv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
 		if err != nil {
 			return fmt.Errorf("invalid int: %w", err)
 		}
-		vv.val.Store(i)
+		dv.val.Store(i)
 	case float64:
 		f, err := strconv.ParseFloat(node.Value, 64)
 		if err != nil {
 			return fmt.Errorf("invalid float: %w", err)
 		}
-		vv.val.Store(f)
+		dv.val.Store(f)
 	case bool:
 		b, err := strconv.ParseBool(node.Value)
 		if err != nil {
 			return fmt.Errorf("invalid bool: %w", err)
 		}
-		vv.val.Store(b)
+		dv.val.Store(b)
 	case time.Duration: // to parse time.Duration (e.g: 2m, 20s, etc)
 		d, err := time.ParseDuration(node.Value)
 		if err != nil {
 			return fmt.Errorf("invalid duration: %w", err)
 		}
-		vv.val.Store(d)
+		dv.val.Store(d)
+	case string:
+		dv.val.Store(node.Value)
 	default:
 		return fmt.Errorf("unsupported type in runtime config: %T", zero)
 	}
