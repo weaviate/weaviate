@@ -14,9 +14,11 @@ package distributedtask
 import (
 	"context"
 	"encoding/json"
+	"sort"
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -373,7 +375,7 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 func TestManager_ListDistributedTasksPayload(t *testing.T) {
 	var (
 		h   = newTestHarness(t).init(t)
-		now = h.clock.Now().Local().Truncate(time.Millisecond)
+		now = h.clock.Now().Truncate(time.Millisecond)
 	)
 
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
@@ -418,7 +420,7 @@ func TestManager_ListDistributedTasksPayload(t *testing.T) {
 	var resp ListDistributedTasksResponse
 	require.NoError(t, json.Unmarshal(payload, &resp))
 
-	require.Equal(t, map[string][]*Task{
+	assertTasks(t, map[string][]*Task{
 		"ns1": {
 			{
 				Namespace: "ns1",
@@ -461,4 +463,39 @@ func TestManager_ListDistributedTasksPayload(t *testing.T) {
 			},
 		},
 	}, resp.Tasks)
+}
+
+func assertTasks(t *testing.T, expected, actual map[string][]*Task) {
+	require.Equal(t, len(expected), len(actual))
+	for namespace := range expected {
+		expectedTasks, ok := expected[namespace]
+		require.True(t, ok)
+
+		actualTasks, ok := actual[namespace]
+		require.True(t, ok)
+
+		require.Equal(t, len(expectedTasks), len(actualTasks))
+		sortTasks := func(tasks []*Task) {
+			sort.Slice(tasks, func(i, j int) bool {
+				return tasks[i].TaskDescriptor.ID < tasks[j].TaskDescriptor.ID
+			})
+		}
+		sortTasks(expectedTasks)
+		sortTasks(actualTasks)
+
+		for i := range expectedTasks {
+			assertTask(t, expectedTasks[i], actualTasks[i])
+		}
+	}
+}
+
+func assertTask(t *testing.T, expected, actual *Task) {
+	assert.Equal(t, expected.Namespace, actual.Namespace)
+	assert.Equal(t, expected.TaskDescriptor, actual.TaskDescriptor)
+	assert.Equal(t, expected.Payload, actual.Payload)
+	assert.Equal(t, expected.Status, actual.Status)
+	assert.Equal(t, expected.StartedAt.UTC(), actual.StartedAt.UTC())
+	assert.Equal(t, expected.FinishedAt.UTC(), actual.FinishedAt.UTC())
+	assert.Equal(t, expected.Error, actual.Error)
+	assert.Equal(t, expected.FinishedNodes, actual.FinishedNodes)
 }
