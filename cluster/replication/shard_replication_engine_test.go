@@ -1179,75 +1179,53 @@ func TestEngineWithCallbacks(t *testing.T) {
 		mockProducer := replication.NewMockOpProducer(t)
 		mockConsumer := replication.NewMockOpConsumer(t)
 
-		var (
-			startEngineCallbacksCounter, stopEngineCallbacksCounter     int
-			startProducerCallbacksCounter, stopProducerCallbacksCounter int
-			startConsumerCallbacksCounter, stopConsumerCallbacksCounter int
-			callbackMutex                                               sync.Mutex
-		)
+		// Use channels to track callback execution
+		engineStarted := make(chan struct{}, 1)
+		engineStopped := make(chan struct{}, 1)
+		producerStarted := make(chan struct{}, 1)
+		producerStopped := make(chan struct{}, 1)
+		consumerStarted := make(chan struct{}, 1)
+		consumerStopped := make(chan struct{}, 1)
 
-		allStartCallbacksDone := make(chan struct{})
-		var startCallbacksWg sync.WaitGroup
-		startCallbacksWg.Add(3) // start engine, producer, consumer
-
-		allStopCallbacksDone := make(chan struct{})
-		var stopCallbacksWg sync.WaitGroup
-		stopCallbacksWg.Add(3) // stop engine, producer, consumer
+		engineStartCount := 0
+		engineStopCount := 0
+		producerStartCount := 0
+		producerStopCount := 0
+		consumerStartCount := 0
+		consumerStopCount := 0
 
 		callbacks := metrics.NewReplicationEngineCallbacksBuilder().
 			WithEngineStartCallback(func(node string) {
 				require.Equal(t, "node1", node)
-				callbackMutex.Lock()
-				startEngineCallbacksCounter++
-				callbackMutex.Unlock()
-				startCallbacksWg.Done()
+				engineStartCount++
+				engineStarted <- struct{}{}
 			}).
 			WithEngineStopCallback(func(node string) {
 				require.Equal(t, "node1", node)
-				callbackMutex.Lock()
-				stopEngineCallbacksCounter++
-				callbackMutex.Unlock()
-				stopCallbacksWg.Done()
+				engineStopCount++
+				engineStopped <- struct{}{}
 			}).
 			WithProducerStartCallback(func(node string) {
 				require.Equal(t, "node1", node)
-				callbackMutex.Lock()
-				startProducerCallbacksCounter++
-				callbackMutex.Unlock()
-				startCallbacksWg.Done()
+				producerStartCount++
+				producerStarted <- struct{}{}
 			}).
 			WithProducerStopCallback(func(node string) {
 				require.Equal(t, "node1", node)
-				callbackMutex.Lock()
-				stopProducerCallbacksCounter++
-				callbackMutex.Unlock()
-				stopCallbacksWg.Done()
+				producerStopCount++
+				producerStopped <- struct{}{}
 			}).
 			WithConsumerStartCallback(func(node string) {
+				consumerStartCount++
 				require.Equal(t, "node1", node)
-				callbackMutex.Lock()
-				startConsumerCallbacksCounter++
-				callbackMutex.Unlock()
-				startCallbacksWg.Done()
+				consumerStarted <- struct{}{}
 			}).
 			WithConsumerStopCallback(func(node string) {
+				consumerStopCount++
 				require.Equal(t, "node1", node)
-				callbackMutex.Lock()
-				stopConsumerCallbacksCounter++
-				callbackMutex.Unlock()
-				stopCallbacksWg.Done()
+				consumerStopped <- struct{}{}
 			}).
 			Build()
-
-		go func() {
-			startCallbacksWg.Wait()
-			allStartCallbacksDone <- struct{}{}
-		}()
-
-		go func() {
-			stopCallbacksWg.Wait()
-			allStopCallbacksDone <- struct{}{}
-		}()
 
 		mockProducer.On("Produce", mock.Anything, mock.Anything).Return(nil).Maybe()
 		mockConsumer.On("Consume", mock.Anything, mock.Anything).Return(nil).Maybe()
@@ -1276,35 +1254,52 @@ func TestEngineWithCallbacks(t *testing.T) {
 			engineStartErr = engine.Start(ctx)
 		}()
 
+		// Wait for all start callbacks
 		select {
-		case <-allStartCallbacksDone:
+		case <-engineStarted:
 		case <-time.After(5 * time.Second):
-			// This is here just to avoid waiting indefinitely
-			t.Fatal("timeout waiting for all start callbacks")
+			t.Fatal("timeout waiting for engine start callback")
+		}
+		select {
+		case <-producerStarted:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timeout waiting for producer start callback")
+		}
+		select {
+		case <-consumerStarted:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timeout waiting for consumer start callback")
 		}
 
-		// Before stopping we make sure we wait for all start callbacks to complete
 		engine.Stop()
 
+		// Wait for all stop callbacks
 		select {
-		case <-allStopCallbacksDone:
+		case <-engineStopped:
 		case <-time.After(5 * time.Second):
-			// This is here just to avoid waiting indefinitely
-			t.Fatal("timeout waiting for all stop callbacks")
+			t.Fatal("timeout waiting for engine stop callback")
+		}
+		select {
+		case <-producerStopped:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timeout waiting for producer stop callback")
+		}
+		select {
+		case <-consumerStopped:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timeout waiting for consumer stop callback")
 		}
 
 		engineStartWG.Wait()
 
 		// THEN
 		require.NoErrorf(t, engineStartErr, "engine start should not return error")
-		callbackMutex.Lock()
-		require.Equal(t, 1, startEngineCallbacksCounter, "engine start callbacks should have been called once")
-		require.Equal(t, 1, stopEngineCallbacksCounter, "engine stop callbacks should have been called once")
-		require.Equal(t, 1, startProducerCallbacksCounter, "engine start callbacks should have been called once")
-		require.Equal(t, 1, stopProducerCallbacksCounter, "engine stop callbacks should have been called once")
-		require.Equal(t, 1, startConsumerCallbacksCounter, "engine start callbacks should have been called once")
-		require.Equal(t, 1, stopConsumerCallbacksCounter, "engine stop callbacks should have been called once")
-		callbackMutex.Unlock()
+		require.Equal(t, engineStartCount, 1, "engine start count should be 1")
+		require.Equal(t, engineStopCount, 1, "engine stop count should be 1")
+		require.Equal(t, producerStartCount, 1, "producer start count should be 1")
+		require.Equal(t, producerStopCount, 1, "producer stop count should be 1")
+		require.Equal(t, consumerStartCount, 1, "consumer start count should be 1")
+		require.Equal(t, consumerStopCount, 1, "consumer stop count should be 1")
 	})
 }
 
