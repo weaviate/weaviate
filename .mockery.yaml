@@ -5,12 +5,9 @@ dir: "{{ .InterfaceDir }}"
 outpkg: "{{ .PackageName }}"
 filename: "mock_{{ snakecase .InterfaceName }}.go"
 packages:
-  github.com/weaviate/weaviate/cluster/replication:
+  github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
     interfaces:
-      OpProducer:
-      OpConsumer:
-      TimeProvider:
-      Timer:
+      BucketCreator:
   github.com/weaviate/weaviate/entities/modulecapabilities:
     interfaces:
       BackupBackend:
@@ -35,8 +32,13 @@ packages:
   github.com/weaviate/weaviate/adapters/handlers/rest/db_users:
     interfaces:
       DbUserAndRolesGetter:
+  github.com/weaviate/weaviate/cluster/replication:
+    interfaces:
+      OpProducer:
+      OpConsumer:
+      TimeProvider:
+      Timer:
   github.com/weaviate/weaviate/cluster/replication/types:
     interfaces:
       ReplicationFSMReader:
       Manager:
-      BucketCreator:
