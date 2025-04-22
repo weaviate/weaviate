@@ -209,38 +209,33 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 
 	startTime := c.timeProvider.Now()
 
-	eg := enterrors.NewErrorGroupWrapper(logger)
-	eg.Go(func() error {
-		return backoff.Retry(func() error {
-			if ctx.Err() != nil {
-				logger.WithField("consumer", c).WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
-				return backoff.Permanent(ctx.Err())
-			}
+	return backoff.Retry(func() error {
+		if ctx.Err() != nil {
+			logger.WithField("consumer", c).WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
+			return backoff.Permanent(ctx.Err())
+		}
 
-			if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.ID, api.HYDRATING); err != nil {
-				logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'HYDRATING'")
-				return err
-			}
+		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.ID, api.HYDRATING); err != nil {
+			logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'HYDRATING'")
+			return err
+		}
 
-			logger.WithField("consumer", c).Info("starting replication copy operation")
+		logger.WithField("consumer", c).Info("starting replication copy operation")
 
-			if err := c.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
-				logger.WithField("consumer", c).WithError(err).Error("failure while copying replica shard")
-				return err
-			}
+		if err := c.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
+			logger.WithField("consumer", c).WithError(err).Error("failure while copying replica shard")
+			return err
+		}
 
-			if _, err := c.leaderClient.AddReplicaToShard(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.targetShard.nodeId); err != nil {
-				logger.WithField("consumer", c).WithError(err).Error("failure while updating sharding state")
-				return err
-			}
+		if _, err := c.leaderClient.AddReplicaToShard(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.targetShard.nodeId); err != nil {
+			logger.WithField("consumer", c).WithError(err).Error("failure while updating sharding state")
+			return err
+		}
 
-			c.logCompletedReplicationOp(workerId, startTime, c.timeProvider.Now(), op)
+		c.logCompletedReplicationOp(workerId, startTime, c.timeProvider.Now(), op)
 
-			return nil
-		}, c.backoffPolicy)
-	})
-
-	return eg.Wait()
+		return nil
+	}, c.backoffPolicy)
 }
 
 func (c *CopyOpConsumer) logCompletedReplicationOp(workerId uint64, startTime time.Time, endTime time.Time, op ShardReplicationOp) {
