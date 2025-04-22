@@ -1176,8 +1176,8 @@ func TestEngineWithCallbacks(t *testing.T) {
 	t.Run("should trigger engine/producer/consumer start and stop callbacks", func(t *testing.T) {
 		// GIVEN
 		logger, _ := logrustest.NewNullLogger()
-		mockProducer := &replicationMocks.OpProducer{}
-		mockConsumer := &replicationMocks.OpConsumer{}
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
 
 		var (
 			startEngineCallbacksCounter, stopEngineCallbacksCounter     int
