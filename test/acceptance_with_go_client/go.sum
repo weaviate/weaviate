@@ -315,12 +315,15 @@ github.com/hashicorp/raft v1.7.2/go.mod h1:DfvCGFxpAUPE0L4Uc8JLlTPtc3GzSbdH0MTJC
 github.com/ikawaha/kagome-dict v1.0.3/go.mod h1:8Ma5E21J2kyaak6KumYLWGLKxm1kaAkCCWKWnrc5o/o=
 github.com/ikawaha/kagome-dict v1.1.0 h1:ePU16KkyonhYLo4YDf/UExmZJBhY/6C946T1SOg1TI4=
 github.com/ikawaha/kagome-dict v1.1.0/go.mod h1:tcbTxQQll5voEBnJqGYt2zJuCouUL6buAOrpSxzo9Fg=
+github.com/ikawaha/kagome-dict v1.1.6/go.mod h1:kVQBTitXg2pqmQUMFqGOw60e14zahWKyEyuZW2n7Yus=
 github.com/ikawaha/kagome-dict-ko v0.2.1 h1:4vBxs9FhnrtCnCpM5J4niQIF8Ys2/p4xpy1pRKW1Iow=
 github.com/ikawaha/kagome-dict-ko v0.2.1/go.mod h1:37IdqtbE77c8xxVmsxtS4MIT5f78KZRDhiBOFfJ1wvw=
 github.com/ikawaha/kagome-dict/ipa v1.2.0 h1:lgehXOf2USDkBwGPEBD9sbbOBk3WlkhZ2zejPSLjIJA=
 github.com/ikawaha/kagome-dict/ipa v1.2.0/go.mod h1:LRtB3BXipG3Iu4V+KI/E1E7r9GMa79WgAH6IAW4wy6A=
+github.com/ikawaha/kagome-dict/ipa v1.2.5/go.mod h1:mfrhW/dynf56fNLSD4fyC29wQsEffWJj7trEJjSZz5Q=
 github.com/ikawaha/kagome/v2 v2.10.0 h1:gObyHxSPVudvHXHQecyVAv3DohIifx9MtA8ErXlx+1g=
 github.com/ikawaha/kagome/v2 v2.10.0/go.mod h1:IEyFbC0oCkMMaIvTAU3O4IrM5mK0AyWJwM41Tb4u77U=
+github.com/ikawaha/kagome/v2 v2.10.2/go.mod h1:vUBsiTqPQiG+dqSHmvRz3rWb3sCwnS6WO3HNXSPclL4=
 github.com/inconshreveable/mousetrap v1.0.0/go.mod h1:PxqpIevigyE2G7u3NXJIT2ANytuPF1OarO4DADm73n8=
 github.com/jmespath/go-jmespath v0.4.0 h1:BEgLn5cpjn8UN1mAw4NjwDrS35OdebyEtFe+9YPoQUg=
 github.com/jmespath/go-jmespath v0.4.0/go.mod h1:T8mJZnbsbmF+m6zOOFylbeCJqk5+pHWvzYPziyZiYoo=
