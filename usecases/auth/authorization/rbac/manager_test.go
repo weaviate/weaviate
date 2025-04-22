@@ -251,6 +251,12 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 		},
 		{
 			name: "users",
+			policiesInput: [][]string{
+				{"role:admin", "*", "(C)|(R)|(U)|(D)", "*"}, // present to iterate over all roles in downgrade
+			},
+			policiesExpected: [][]string{
+				{"role:admin", "*", "(C)|(R)|(U)|(D)|(A)", "*"},
+			},
 			groupingsInput: [][]string{
 				{"user:test-user", "role:admin"},
 			},
