@@ -690,6 +690,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
 	})
 	enterrors.GoWrapper(func() {
+		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
+		// and stopping tasks.
+		// Additionally, not-ready RAFT state could lead to lose of local task metadata.
 		<-storeReadyCtx.Done()
 		if !errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
 			return
