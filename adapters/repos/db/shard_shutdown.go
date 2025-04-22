@@ -18,6 +18,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 /*
@@ -44,6 +45,17 @@ import (
 // component was initialized. If not, it turns it into a noop to prevent
 // blocking.
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
+	start := time.Now()
+	defer func() {
+		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
+
+		if err != nil {
+			return
+		}
+
+		s.UpdateStatus(storagestate.StatusShutdown.String())
+	}()
+
 	s.reindexer.Stop(s, fmt.Errorf("shard shutdown"))
 
 	if err = s.waitForShutdown(ctx); err != nil {

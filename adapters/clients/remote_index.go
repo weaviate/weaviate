@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/scaler"
@@ -763,16 +764,70 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 	return c.retry(ctx, 34, try)
 }
 
-// PauseAndListFiles pauses the collection's shard replica background processes on the specified
-// host and returns a list of files that can be used to get the shard data at the time the pause
-// was requested. You should explicitly resume the background processes once you're done with the
-// files. The returned relative file paths are relative to the shard's root directory.
+// PauseFileActivity pauses the collection's shard replica background processes on the specified
+// host. You should explicitly resume the background processes once you're done with the
+// files.
+func (c *RemoteIndex) PauseFileActivity(ctx context.Context,
+	hostName, indexName, shardName string,
+) error {
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/background:pause", indexName, shardName),
+		"", nil)
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
+
+	try := func(ctx context.Context) (bool, error) {
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusOK {
+			body, _ := io.ReadAll(res.Body)
+			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+		}
+		return false, nil
+	}
+	return c.retry(ctx, 9, try)
+}
+
+// ResumeFileActivity resumes the collection's shard replica background processes on the specified host
+func (c *RemoteIndex) ResumeFileActivity(ctx context.Context,
+	hostName, indexName, shardName string,
+) error {
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/background:resume", indexName, shardName),
+		"", nil)
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
+
+	try := func(ctx context.Context) (bool, error) {
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusOK {
+			body, _ := io.ReadAll(res.Body)
+			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+		}
+		return false, nil
+	}
+	return c.retry(ctx, 9, try)
+}
+
+// ListFiles returns a list of files that can be used to get the shard data at the time the pause
+// was requested. The returned relative file paths are relative to the shard's root directory.
 // indexName is the collection name.
-func (c *RemoteIndex) PauseAndListFiles(ctx context.Context,
+func (c *RemoteIndex) ListFiles(ctx context.Context,
 	hostName, indexName, shardName string,
 ) ([]string, error) {
 	req, err := setupRequest(ctx, http.MethodPost, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/background/pauselist", indexName, shardName),
+		fmt.Sprintf("/indices/%s/shards/%s/background:list", indexName, shardName),
 		"", nil)
 	if err != nil {
 		return []string{}, fmt.Errorf("create http request: %w", err)
@@ -803,6 +858,50 @@ func (c *RemoteIndex) PauseAndListFiles(ctx context.Context,
 		return false, nil
 	}
 	return relativeFilePaths, c.retry(ctx, 9, try)
+}
+
+// GetFileMetadata returns file info to the file relative to the
+// shard's root directory.
+func (c *RemoteIndex) GetFileMetadata(ctx context.Context, hostName, indexName,
+	shardName, relativeFilePath string,
+) (file.FileMetadata, error) {
+	req, err := setupRequest(ctx, http.MethodGet, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/files:metadata/%s", indexName, shardName, relativeFilePath),
+		"", nil)
+	if err != nil {
+		return file.FileMetadata{}, fmt.Errorf("create http request: %w", err)
+	}
+
+	clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
+
+	var md file.FileMetadata
+
+	try := func(ctx context.Context) (bool, error) {
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+
+		if res.StatusCode != http.StatusOK {
+			defer res.Body.Close()
+			body, _ := io.ReadAll(res.Body)
+			return shouldRetry(res.StatusCode), fmt.Errorf(
+				"unexpected status code %d (%s)", res.StatusCode, body)
+		}
+
+		resBytes, err := io.ReadAll(res.Body)
+		if err != nil {
+			return false, errors.Wrap(err, "read body")
+		}
+
+		md, err = clusterapi.IndicesPayloads.ShardFileMetadataResults.Unmarshal(resBytes)
+		if err != nil {
+			return false, errors.Wrap(err, "unmarshal body")
+		}
+
+		return false, nil
+	}
+	return md, c.retry(ctx, 9, try)
 }
 
 // GetFile caller must close the returned io.ReadCloser if no error is returned.

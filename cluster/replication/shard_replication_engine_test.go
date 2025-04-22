@@ -21,22 +21,20 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
+	"github.com/weaviate/weaviate/cluster/replication"
 
 	"github.com/pkg/errors"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/cluster/replication"
-
-	replicationMocks "github.com/weaviate/weaviate/mocks/cluster/replication"
 )
 
 func TestShardReplicationEngine(t *testing.T) {
 	t.Run("replication engine cancel graceful handling", func(t *testing.T) {
 		// GIVEN
-		mockProducer := &replicationMocks.OpProducer{}
-		mockConsumer := &replicationMocks.OpConsumer{}
-		mockTimer := &replicationMocks.TimeProvider{}
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
+		mockTimer := replication.NewMockTimer(t)
 
 		producerStartedChan := make(chan struct{})
 		consumerStartedChan := make(chan struct{})
@@ -100,9 +98,9 @@ func TestShardReplicationEngine(t *testing.T) {
 
 	t.Run("replication engine consumer failure", func(t *testing.T) {
 		// GIVEN
-		mockProducer := &replicationMocks.OpProducer{}
-		mockConsumer := &replicationMocks.OpConsumer{}
-		mockTimer := &replicationMocks.TimeProvider{}
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
+		mockTimer := replication.NewMockTimer(t)
 
 		producerStartedChan := make(chan struct{})
 
@@ -152,9 +150,9 @@ func TestShardReplicationEngine(t *testing.T) {
 
 	t.Run("replication engine producer failure", func(t *testing.T) {
 		// GIVEN
-		mockProducer := &replicationMocks.OpProducer{}
-		mockConsumer := &replicationMocks.OpConsumer{}
-		mockTimer := &replicationMocks.TimeProvider{}
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
+		mockTimer := replication.NewMockTimer(t)
 
 		consumerStartedChan := make(chan struct{})
 
@@ -203,9 +201,9 @@ func TestShardReplicationEngine(t *testing.T) {
 
 	t.Run("replication engine stop graceful handling", func(t *testing.T) {
 		// GIVEN
-		mockProducer := &replicationMocks.OpProducer{}
-		mockConsumer := &replicationMocks.OpConsumer{}
-		mockTimer := &replicationMocks.TimeProvider{}
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
+		mockTimer := replication.NewMockTimer(t)
 
 		producerStartedChan := make(chan struct{})
 		consumerStartedChan := make(chan struct{})
@@ -266,9 +264,9 @@ func TestShardReplicationEngine(t *testing.T) {
 
 	t.Run("replication engine started twice", func(t *testing.T) {
 		// GIVEN
-		mockProducer := &replicationMocks.OpProducer{}
-		mockConsumer := &replicationMocks.OpConsumer{}
-		mockTimer := &replicationMocks.TimeProvider{}
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
+		mockTimer := replication.NewMockTimer(t)
 
 		producerStarted := make(chan struct{})
 		consumerStarted := make(chan struct{})
@@ -333,11 +331,11 @@ func TestShardReplicationEngine(t *testing.T) {
 
 	t.Run("two replication engines run independently on different nodes", func(t *testing.T) {
 		// GIVEN
-		mockProducer1 := &replicationMocks.OpProducer{}
-		mockConsumer1 := &replicationMocks.OpConsumer{}
-		mockProducer2 := &replicationMocks.OpProducer{}
-		mockConsumer2 := &replicationMocks.OpConsumer{}
-		mockTimer := &replicationMocks.TimeProvider{}
+		mockProducer1 := replication.NewMockOpProducer(t)
+		mockConsumer1 := replication.NewMockOpConsumer(t)
+		mockProducer2 := replication.NewMockOpProducer(t)
+		mockConsumer2 := replication.NewMockOpConsumer(t)
+		mockTimer := replication.NewMockTimer(t)
 
 		producer1StartedChan := make(chan struct{})
 		consumer1StartedChan := make(chan struct{})
@@ -437,9 +435,9 @@ func TestShardReplicationEngine(t *testing.T) {
 
 	t.Run("replication engine stop is idempotent", func(t *testing.T) {
 		// GIVEN
-		mockProducer := &replicationMocks.OpProducer{}
-		mockConsumer := &replicationMocks.OpConsumer{}
-		mockTimer := &replicationMocks.TimeProvider{}
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
+		mockTimer := replication.NewMockTimer(t)
 
 		producerStarted := make(chan struct{})
 		consumerStarted := make(chan struct{})
@@ -501,9 +499,9 @@ func TestShardReplicationEngine(t *testing.T) {
 
 	t.Run("replication engine start-stop-start-stop works correctly", func(t *testing.T) {
 		// GIVEN
-		mockProducer := &replicationMocks.OpProducer{}
-		mockConsumer := &replicationMocks.OpConsumer{}
-		mockTimer := &replicationMocks.TimeProvider{}
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
+		mockTimer := replication.NewMockTimer(t)
 
 		mockTimer.On("Now").Return(time.Now())
 
@@ -613,9 +611,9 @@ func TestShardReplicationEngine(t *testing.T) {
 
 	t.Run("replication engine supports multiple start/stop cycles", func(t *testing.T) {
 		// GIVEN
-		mockProducer := &replicationMocks.OpProducer{}
-		mockConsumer := &replicationMocks.OpConsumer{}
-		mockTimer := &replicationMocks.TimeProvider{}
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
+		mockTimer := replication.NewMockTimer(t)
 
 		mockTimer.On("Now").Return(time.Now())
 		logger, _ := logrustest.NewNullLogger()
@@ -686,9 +684,9 @@ func TestShardReplicationEngine(t *testing.T) {
 
 	t.Run("replication engine stop without start is a no-op", func(t *testing.T) {
 		// GIVEN
-		mockProducer := &replicationMocks.OpProducer{}
-		mockConsumer := &replicationMocks.OpConsumer{}
-		mockTimer := &replicationMocks.TimeProvider{}
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
+		mockTimer := replication.NewMockTimer(t)
 
 		mockTimer.On("Now").Return(time.Now())
 		logger, _ := logrustest.NewNullLogger()
@@ -717,9 +715,9 @@ func TestShardReplicationEngine(t *testing.T) {
 
 	t.Run("replication engine custom op channel size", func(t *testing.T) {
 		// GIVEN
-		mockProducer := &replicationMocks.OpProducer{}
-		mockConsumer := &replicationMocks.OpConsumer{}
-		mockTimer := replicationMocks.TimeProvider{}
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
+		mockTimer := replication.NewMockTimer(t)
 
 		producerStartedChan := make(chan struct{})
 		consumerStartedChan := make(chan struct{})
@@ -794,13 +792,13 @@ func TestShardReplicationEngine(t *testing.T) {
 		opIds, err := randomOpIds(t, opsCount)
 		require.NoError(t, err, "error generating operation IDs")
 
-		mockTimer := &replicationMocks.TimeProvider{}
+		mockTimer := replication.NewMockTimer(t)
 		mockTimer.On("Now").Return(time.Now())
 
 		var producerWg sync.WaitGroup
 		producerWg.Add(1)
 
-		mockProducer := &replicationMocks.OpProducer{}
+		mockProducer := replication.NewMockOpProducer(t)
 		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
 			func(args mock.Arguments) {
 				defer producerWg.Done()
@@ -822,7 +820,7 @@ func TestShardReplicationEngine(t *testing.T) {
 				}
 			}).Return(nil)
 
-		mockConsumer := &replicationMocks.OpConsumer{}
+		mockConsumer := replication.NewMockOpConsumer(t)
 		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
 			func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -929,7 +927,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		expectedErr := errors.New(fmt.Sprintf("producer error after sending operation %d", uint64(opId)))
 
 		// First attempt - producer sends one operation then errors
-		mockProducer := &replicationMocks.OpProducer{}
+		mockProducer := replication.NewMockOpProducer(t)
 		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
 			func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -956,7 +954,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			}).Once().Return(context.Canceled)
 
 		// Consumer runs normally processing operations
-		mockConsumer := &replicationMocks.OpConsumer{}
+		mockConsumer := replication.NewMockOpConsumer(t)
 		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
 			func(args mock.Arguments) {
 				ctx := args.Get(0).(context.Context)
@@ -1049,7 +1047,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		require.NoErrorf(t, err, "error generating random op id")
 		expectedErr := errors.New(fmt.Sprintf("consumer error while processing operation %d", opId))
 
-		mockProducer := &replicationMocks.OpProducer{}
+		mockProducer := replication.NewMockOpProducer(t)
 
 		// First attempt - producer sends operation and waits for cancellation
 		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
@@ -1078,7 +1076,7 @@ func TestShardReplicationEngine(t *testing.T) {
 				<-ctx.Done()
 			}).Once().Return(context.Canceled)
 
-		mockConsumer := &replicationMocks.OpConsumer{}
+		mockConsumer := replication.NewMockOpConsumer(t)
 
 		// First consumer attempt - fails with error
 		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(

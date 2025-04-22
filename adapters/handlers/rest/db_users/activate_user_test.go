@@ -16,21 +16,19 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	authzMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestSuccessActivate(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {Id: "user", Active: false}}, nil)
 	dynUser.On("ActivateUser", "user").Return(nil)
 
@@ -46,9 +44,9 @@ func TestSuccessActivate(t *testing.T) {
 
 func TestActivateNotFound(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
@@ -74,9 +72,9 @@ func TestActivateBadParameters(t *testing.T) {
 	for _, test := range tests {
 		t.Run(fmt.Sprint(test.name), func(t *testing.T) {
 			principal := &models.Principal{}
-			authorizer := authzMocks.NewAuthorizer(t)
+			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users(test.user)[0]).Return(nil)
-			dynUser := mocks.NewDbUserAndRolesGetter(t)
+			dynUser := NewMockDbUserAndRolesGetter(t)
 			if test.getUserReturn != nil {
 				dynUser.On("GetUsers", test.user).Return(test.getUserReturn, nil)
 			}
@@ -98,9 +96,9 @@ func TestActivateBadParameters(t *testing.T) {
 func TestDoubleActivate(t *testing.T) {
 	user := "active-user"
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users(user)[0]).Return(nil)
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{user: {Id: user, Active: true}}, nil)
 
 	h := dynUserHandler{
@@ -117,11 +115,11 @@ func TestDoubleActivate(t *testing.T) {
 
 func TestActivateNoDynamic(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
-		dbUsers:       mocks.NewDbUserAndRolesGetter(t),
+		dbUsers:       NewMockDbUserAndRolesGetter(t),
 		authorizer:    authorizer,
 		dbUserEnabled: false,
 	}

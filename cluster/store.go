@@ -27,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/dynusers"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
@@ -214,7 +215,7 @@ type Store struct {
 	lastAppliedIndex atomic.Uint64
 }
 
-func NewFSM(cfg Config, reg prometheus.Registerer) Store {
+func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 
 	return Store{
@@ -229,7 +230,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 			NodeNameToPortMap:  cfg.NodeNameToPortMap,
 		}),
 		schemaManager:      schemaManager,
-		authZManager:       rbacRaft.NewManager(cfg.AuthzController, cfg.AuthNConfig, cfg.Logger),
+		authZManager:       rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
 		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader(), cfg.ReplicaCopier, reg),
 	}
@@ -767,6 +768,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 		applyTimeout:  st.applyTimeout,
 		snapshotStore: st.snapshotStore,
 		schemaManager: st.schemaManager,
+		authZManager:  st.authZManager,
 		logStore:      st.logStore,
 		logCache:      st.logCache,
 	}, st.logCache,
