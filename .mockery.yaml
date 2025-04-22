@@ -11,9 +11,6 @@ packages:
       OpConsumer:
       TimeProvider:
       Timer:
-  github.com/weaviate/weaviate/cluster/replication/types:
-    interfaces:
-      BucketCreator:
   github.com/weaviate/weaviate/entities/modulecapabilities:
     interfaces:
       BackupBackend:
@@ -42,3 +39,4 @@ packages:
     interfaces:
       ReplicationFSMReader:
       Manager:
+      BucketCreator:
