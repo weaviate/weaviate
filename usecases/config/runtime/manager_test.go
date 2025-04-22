@@ -32,7 +32,7 @@ import (
 )
 
 type testConfig struct {
-	BackupInterval DynamicValue[time.Duration] `yaml:"backup_interval"`
+	BackupInterval *DynamicValue[time.Duration] `yaml:"backup_interval"`
 }
 
 func parseYaml(buf []byte) (*testConfig, error) {

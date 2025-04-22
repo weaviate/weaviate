@@ -55,6 +55,7 @@ func TestDynamicValue(t *testing.T) {
 		dFloat    DynamicValue[float64]
 		dBool     DynamicValue[bool]
 		dDuration DynamicValue[time.Duration]
+		dString   DynamicValue[string]
 	)
 
 	// invariant: Zero value of any `DynamicValue` is usable and should return correct
@@ -63,6 +64,7 @@ func TestDynamicValue(t *testing.T) {
 	assert.Equal(t, float64(0), dFloat.Get())
 	assert.Equal(t, false, dBool.Get())
 	assert.Equal(t, time.Duration(0), dDuration.Get())
+	assert.Equal(t, "", dString.Get())
 
 	// invariant: After setting custom default via `SetDefault`, this custom default should
 	// override the `zero-value`.
@@ -70,11 +72,13 @@ func TestDynamicValue(t *testing.T) {
 	dFloat.SetDefault(12.5)
 	dBool.SetDefault(true)
 	dDuration.SetDefault(2 * time.Second)
+	dString.SetDefault("done")
 
 	assert.Equal(t, int(20), dInt.Get())
 	assert.Equal(t, float64(12.5), dFloat.Get())
 	assert.Equal(t, true, dBool.Get())
 	assert.Equal(t, time.Duration(2*time.Second), dDuration.Get())
+	assert.Equal(t, "done", dString.Get())
 
 	// invariant: `NewDynamicValue` constructor should set custom default and should override
 	// the `zero-value`
@@ -82,22 +86,40 @@ func TestDynamicValue(t *testing.T) {
 	dFloat2 := NewDynamicValue(18.6)
 	dBool2 := NewDynamicValue(true)
 	dDuration2 := NewDynamicValue(4 * time.Second)
+	dString2 := NewDynamicValue("progress")
 
 	assert.Equal(t, int(25), dInt2.Get())
 	assert.Equal(t, float64(18.6), dFloat2.Get())
 	assert.Equal(t, true, dBool2.Get())
 	assert.Equal(t, time.Duration(4*time.Second), dDuration2.Get())
+	assert.Equal(t, "progress", dString2.Get())
 
 	// invariant: After setting dynamic default via `SetValue`, this value should
 	// override both `zero-value` and `custom-default`.
-
 	dInt.SetValue(30)
 	dFloat.SetValue(22.7)
 	dBool.SetValue(false)
 	dDuration.SetValue(10 * time.Second)
+	dString.SetValue("backlog")
 
 	assert.Equal(t, int(30), dInt.Get())
 	assert.Equal(t, float64(22.7), dFloat.Get())
 	assert.Equal(t, false, dBool.Get())
 	assert.Equal(t, time.Duration(10*time.Second), dDuration.Get())
+	assert.Equal(t, "backlog", dString.Get())
+
+	// invariant: Zero value pointer type should return correct zero value with `Get()` without panic
+	var (
+		zeroInt    *DynamicValue[int]
+		zeroFloat  *DynamicValue[float64]
+		zeroBool   *DynamicValue[bool]
+		zeroDur    *DynamicValue[time.Duration]
+		zeroString *DynamicValue[string]
+	)
+
+	assert.Equal(t, 0, zeroInt.Get())
+	assert.Equal(t, float64(0), zeroFloat.Get())
+	assert.Equal(t, false, zeroBool.Get())
+	assert.Equal(t, time.Duration(0), zeroDur.Get())
+	assert.Equal(t, "", zeroString.Get())
 }

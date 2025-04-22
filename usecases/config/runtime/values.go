@@ -43,8 +43,8 @@ type DynamicValue[T DynamicType] struct {
 
 // NewDynamicValue returns an instance of DynamicValue as passed in type
 // with passed in value as default.
-func NewDynamicValue[T DynamicType](val T) DynamicValue[T] {
-	return DynamicValue[T]{
+func NewDynamicValue[T DynamicType](val T) *DynamicValue[T] {
+	return &DynamicValue[T]{
 		def: val,
 	}
 }
@@ -53,6 +53,12 @@ func NewDynamicValue[T DynamicType](val T) DynamicValue[T] {
 // value (if unable to get dynamic value)
 // Consumer of the dynamic config value should care only about this `Get()` api.
 func (dv *DynamicValue[T]) Get() T {
+	// Handle zero-value of `*DynamicValue[T]` without panic.
+	if dv == nil {
+		var zero T
+		return zero
+	}
+
 	v := dv.val.Load()
 	if v != nil {
 		return v.(T)
