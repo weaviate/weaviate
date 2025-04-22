@@ -49,49 +49,53 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 	helper.CreateClass(t, booksClass)
 	defer helper.DeleteClass(t, booksClass.Class)
 
-	verifyThatAllBooksExist := func(t *testing.T) {
-		book := helper.AssertGetObject(t, booksClass.Class, books.Dune)
-		require.Equal(t, books.Dune, book.ID)
-		book = helper.AssertGetObject(t, booksClass.Class, books.ProjectHailMary)
-		require.Equal(t, books.ProjectHailMary, book.ID)
-		book = helper.AssertGetObject(t, booksClass.Class, books.TheLordOfTheIceGarden)
-		require.Equal(t, books.TheLordOfTheIceGarden, book.ID)
-	}
-
-	vectorsForDune := func() map[string][]float32 {
-		vectors := map[string][]float32{}
-		duneBook := helper.AssertGetObject(t, booksClass.Class, books.Dune)
-
-		if vectorsConfigType == vectorsNamed || vectorsConfigType == vectorsMixed {
-			for name := range booksClass.VectorConfig {
-				switch vec := duneBook.Vectors[name].(type) {
-				case []float32:
-					vectors[name] = vec
-				case [][]float32:
-					// do nothing
-				default:
-					// do nothing
-				}
-			}
-		}
-		if vectorsConfigType == vectorsLegacy || vectorsConfigType == vectorsMixed {
-			vectors["vector"] = duneBook.Vector
-		}
-		return vectors
-	}
+	-       verifyThatAllBooksExist := func(t *testing.T) {
+		-               book := helper.AssertGetObject(t, booksClass.Class, books.Dune)
+		-               require.Equal(t, books.Dune, book.ID)
+		-               book = helper.AssertGetObject(t, booksClass.Class, books.ProjectHailMary)
+		-               require.Equal(t, books.ProjectHailMary, book.ID)
+		-               book = helper.AssertGetObject(t, booksClass.Class, books.TheLordOfTheIceGarden)
+		-               require.Equal(t, books.TheLordOfTheIceGarden, book.ID)
+		-       }
+		-
+		-       vectorsForDune := func() map[string][]float32 {
+		-               vectors := map[string][]float32{}
+		-               duneBook := helper.AssertGetObject(t, booksClass.Class, books.Dune)
+		-
+		-               if vectorsConfigType == vectorsNamed || vectorsConfigType == vectorsMixed {
+		-                       for name := range booksClass.VectorConfig {
+		-                               switch vec := duneBook.Vectors[name].(type) {
+		-                               case []float32:
+		-                                       vectors[name] = vec
+		-                               case [][]float32:
+		-                                       // do nothing
+		-                               default:
+		-                                       // do nothing
+		-                               }
+		-                       }
+		-               }
+		-               if vectorsConfigType == vectorsLegacy || vectorsConfigType == vectorsMixed {
+		-                       vectors["vector"] = duneBook.Vector
+		-               }
+		-               return vectors
+		-       }
 
 	backupID := "backup-1_named_vectors_" + string(vectorsConfigType)
 	t.Run("add data to Books schema", func(t *testing.T) {
 		for _, book := range books.Objects() {
 			helper.CreateObject(t, book)
-			helper.AssertGetObjectEventually(t, book.Class, book.ID)
+			helper.AssertGetObjectEventuallyWithTimeout(t, book.Class, book.ID, 1*time.Second, 10*time.Second)
 		}
 	})
 
 	t.Run("verify that Books objects exist", func(t *testing.T) {
-		verifyThatAllBooksExist(t)
+		verifyThatAllBooksExist(t, booksClass.Class)
 	})
-	initialVectors := vectorsForDune()
+	if t.Failed() {
+		return
+	}
+	
+	initialVectors := vectorsForDune(t, booksClass, vectorsConfigType)
 
 	t.Run("verify invalid compression config", func(t *testing.T) {
 		// unknown compression level
@@ -122,6 +126,9 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			require.True(t, errors.As(err, &customErr), "not backups.BackupsCreateUnprocessableEntity")
 		})
 	})
+	if t.Failed() {
+		return
+	}
 
 	t.Run("start backup process", func(t *testing.T) {
 		params := backups.NewBackupsCreateParams().
@@ -145,6 +152,9 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			require.Equal(t, models.BackupCreateStatusResponseStatusSTARTED, *meta.Status)
 		})
 	})
+	if t.Failed() {
+		return
+	}
 
 	t.Run("verify that backup process is completed", func(t *testing.T) {
 		params := backups.NewBackupsCreateStatusParams().
@@ -178,9 +188,12 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 			}
 		}
 	})
+	if t.Failed() {
+		return
+	}
 
 	t.Run("verify that Books objects still exist", func(t *testing.T) {
-		verifyThatAllBooksExist(t)
+		verifyThatAllBooksExist(t, booksClass.Class)
 	})
 
 	t.Run("remove Books class", func(t *testing.T) {
@@ -254,11 +267,43 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 	})
 
 	t.Run("verify that Books objects exist after restore", func(t *testing.T) {
-		verifyThatAllBooksExist(t)
+		verifyThatAllBooksExist(t, booksClass.Class)
 	})
-
+	
 	t.Run("verify that vectors are the same after restore", func(t *testing.T) {
-		restoredVectors := vectorsForDune()
+		restoredVectors := vectorsForDune(t, booksClass, vectorsConfigType)
 		require.Equal(t, initialVectors, restoredVectors)
 	})
+}
+
+
+func verifyThatAllBooksExist(t *testing.T, className string) {
+	book := helper.AssertGetObject(t, className, books.Dune)
+	require.Equal(t, books.Dune, book.ID)
+	book = helper.AssertGetObject(t, className, books.ProjectHailMary)
+	require.Equal(t, books.ProjectHailMary, book.ID)
+	book = helper.AssertGetObject(t, className, books.TheLordOfTheIceGarden)
+	require.Equal(t, books.TheLordOfTheIceGarden, book.ID)
+}
+
+func vectorsForDune(t *testing.T, class *models.Class, configType vectorsConfigType) map[string][]float32 {
+	vectors := map[string][]float32{}
+	duneBook := helper.AssertGetObject(t, class.Class, books.Dune)
+
+	if configType == vectorsNamed || configType == vectorsMixed {
+		for name := range class.VectorConfig {
+			switch vec := duneBook.Vectors[name].(type) {
+			case []float32:
+				vectors[name] = vec
+			case [][]float32:
+				// skip multi-vectors
+			default:
+				// unknown type, skip
+			}
+		}
+	}
+	if configType == vectorsLegacy || configType == vectorsMixed {
+		vectors["vector"] = duneBook.Vector
+	}
+	return vectors
 }

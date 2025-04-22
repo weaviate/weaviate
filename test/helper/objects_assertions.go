@@ -15,6 +15,7 @@ import (
 	"errors"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/client/objects"
@@ -62,6 +63,28 @@ func AssertGetObjectEventually(t *testing.T, class string, uuid strfmt.UUID) *mo
 	}
 
 	AssertEventuallyEqual(t, true, checkThunk)
+
+	var object *models.Object
+
+	AssertRequestOk(t, resp, err, func() {
+		object = resp.Payload
+	})
+
+	return object
+}
+
+func AssertGetObjectEventuallyWithTimeout(t *testing.T, class string, uuid strfmt.UUID, interval time.Duration, timeout time.Duration) *models.Object {
+	var (
+		resp *objects.ObjectsClassGetOK
+		err  error
+	)
+
+	checkThunk := func() interface{} {
+		resp, err = Client(t).Objects.ObjectsClassGet(objects.NewObjectsClassGetParams().WithClassName(class).WithID(uuid), nil)
+		return err == nil
+	}
+
+	AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, interval*time.Second, timeout*time.Second)
 
 	var object *models.Object
 
