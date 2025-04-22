@@ -167,7 +167,7 @@ message AddDistributedTaskRequest {
   string namespace = 1;
   string id = 2;
   bytes payload = 4;
-  int64 submittedAtUnixMillis = 5;
+  int64 submitted_at_unix_millis = 5;
 }
 
 message RecordDistributedTaskNodeCompletionRequest {
@@ -176,14 +176,14 @@ message RecordDistributedTaskNodeCompletionRequest {
   uint64 version = 3;
   string node_id = 4;
   optional string error = 5;
-  int64 finishedAtUnixMillis = 6;
+  int64 finished_at_unix_millis = 6;
 }
 
 message CancelDistributedTaskRequest {
   string namespace = 1;
   string id = 2;
   uint64 version = 3;
-  int64 cancelledAtUnixMillis = 6;
+  int64 cancelled_at_unix_millis = 6;
 }
 
 message CleanUpDistributedTaskRequest {

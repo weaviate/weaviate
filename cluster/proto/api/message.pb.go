@@ -1165,7 +1165,7 @@ type AddDistributedTaskRequest struct {
 	Namespace             string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Id                    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
 	Payload               []byte                 `protobuf:"bytes,4,opt,name=payload,proto3" json:"payload,omitempty"`
-	SubmittedAtUnixMillis int64                  `protobuf:"varint,5,opt,name=submittedAtUnixMillis,proto3" json:"submittedAtUnixMillis,omitempty"`
+	SubmittedAtUnixMillis int64                  `protobuf:"varint,5,opt,name=submitted_at_unix_millis,json=submittedAtUnixMillis,proto3" json:"submitted_at_unix_millis,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -1235,7 +1235,7 @@ type RecordDistributedTaskNodeCompletionRequest struct {
 	Version              uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
 	NodeId               string                 `protobuf:"bytes,4,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	Error                *string                `protobuf:"bytes,5,opt,name=error,proto3,oneof" json:"error,omitempty"`
-	FinishedAtUnixMillis int64                  `protobuf:"varint,6,opt,name=finishedAtUnixMillis,proto3" json:"finishedAtUnixMillis,omitempty"`
+	FinishedAtUnixMillis int64                  `protobuf:"varint,6,opt,name=finished_at_unix_millis,json=finishedAtUnixMillis,proto3" json:"finished_at_unix_millis,omitempty"`
 	unknownFields        protoimpl.UnknownFields
 	sizeCache            protoimpl.SizeCache
 }
@@ -1317,7 +1317,7 @@ type CancelDistributedTaskRequest struct {
 	Namespace             string                 `protobuf:"bytes,1,opt,name=namespace,proto3" json:"namespace,omitempty"`
 	Id                    string                 `protobuf:"bytes,2,opt,name=id,proto3" json:"id,omitempty"`
 	Version               uint64                 `protobuf:"varint,3,opt,name=version,proto3" json:"version,omitempty"`
-	CancelledAtUnixMillis int64                  `protobuf:"varint,6,opt,name=cancelledAtUnixMillis,proto3" json:"cancelledAtUnixMillis,omitempty"`
+	CancelledAtUnixMillis int64                  `protobuf:"varint,6,opt,name=cancelled_at_unix_millis,json=cancelledAtUnixMillis,proto3" json:"cancelled_at_unix_millis,omitempty"`
 	unknownFields         protoimpl.UnknownFields
 	sizeCache             protoimpl.SizeCache
 }
@@ -1552,25 +1552,25 @@ const file_api_message_proto_rawDesc = "" +
 	"\atenants\x18\x01 \x03(\tR\atenants\"4\n" +
 	"\x06Tenant\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12\x16\n" +
-	"\x06status\x18\x02 \x01(\tR\x06status\"\x99\x01\n" +
+	"\x06status\x18\x02 \x01(\tR\x06status\"\x9c\x01\n" +
 	"\x19AddDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
-	"\apayload\x18\x04 \x01(\fR\apayload\x124\n" +
-	"\x15submittedAtUnixMillis\x18\x05 \x01(\x03R\x15submittedAtUnixMillis\"\xe6\x01\n" +
+	"\apayload\x18\x04 \x01(\fR\apayload\x127\n" +
+	"\x18submitted_at_unix_millis\x18\x05 \x01(\x03R\x15submittedAtUnixMillis\"\xe9\x01\n" +
 	"*RecordDistributedTaskNodeCompletionRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x17\n" +
 	"\anode_id\x18\x04 \x01(\tR\x06nodeId\x12\x19\n" +
-	"\x05error\x18\x05 \x01(\tH\x00R\x05error\x88\x01\x01\x122\n" +
-	"\x14finishedAtUnixMillis\x18\x06 \x01(\x03R\x14finishedAtUnixMillisB\b\n" +
-	"\x06_error\"\x9c\x01\n" +
+	"\x05error\x18\x05 \x01(\tH\x00R\x05error\x88\x01\x01\x125\n" +
+	"\x17finished_at_unix_millis\x18\x06 \x01(\x03R\x14finishedAtUnixMillisB\b\n" +
+	"\x06_error\"\x9f\x01\n" +
 	"\x1cCancelDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
-	"\aversion\x18\x03 \x01(\x04R\aversion\x124\n" +
-	"\x15cancelledAtUnixMillis\x18\x06 \x01(\x03R\x15cancelledAtUnixMillis\"g\n" +
+	"\aversion\x18\x03 \x01(\x04R\aversion\x127\n" +
+	"\x18cancelled_at_unix_millis\x18\x06 \x01(\x03R\x15cancelledAtUnixMillis\"g\n" +
 	"\x1dCleanUpDistributedTaskRequest\x12\x1c\n" +
 	"\tnamespace\x18\x01 \x01(\tR\tnamespace\x12\x0e\n" +
 	"\x02id\x18\x02 \x01(\tR\x02id\x12\x18\n" +
