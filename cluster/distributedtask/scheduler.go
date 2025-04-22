@@ -30,15 +30,13 @@ import (
 // and making sure that the tasks are running on the local node.
 //
 // The general flow of a distributed task is as follows:
-// 1. A Provider is registered to Scheduler at startup to handle all tasks under a specific namespace.
-// 1. A task is created and added to the cluster via Manager.AddTask.
-// 2. Scheduler picks the new task up and instructs Provider to execute it locally.
-// 3. A task is responsible to update its status in the cluster via TaskCompletionRecorder.
-// 4. Scheduler polls the cluster for the task status and checks if it is still running. It cancels the local task
-// if it is not marked as STARTED anymore.
-// 5. After finished task TTL have passed, Scheduler issues Manager.CleanUpDistributedTask request to remove
-// the task from the cluster list.
-// 6. After task is removed from the cluster list, Scheduler instructs Provider to clean up the local task state.
+// 1. A Provider is registered with the Scheduler at startup to handle all tasks under a specific namespace.
+// 2. A task is created and added to the cluster via the Manager.AddTask.
+// 3. Scheduler regularly scans all available tasks in the cluster, picks up new ones and instructs the Provider to execute them locally.
+// 4. A task is responsible for updating its status in the cluster via TaskCompletionRecorder.
+// 6. Scheduler polls the cluster for the task status and checks if it is still running. It cancels the local task if it is not marked as STARTED anymore.
+// 7. After completed task TTL has passed, the Scheduler issues the Manager.CleanUpDistributedTask request to remove the task from the cluster list.
+// 8. After a task is removed from the cluster list, the Scheduler instructs the Provider to clean up the local task state.
 type Scheduler struct {
 	mu           sync.Mutex
 	runningTasks map[string]map[TaskDescriptor]TaskHandle

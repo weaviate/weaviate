@@ -373,7 +373,7 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 func TestManager_ListDistributedTasksPayload(t *testing.T) {
 	var (
 		h   = newTestHarness(t).init(t)
-		now = h.clock.Now().Truncate(time.Millisecond)
+		now = h.clock.Now().Local().Truncate(time.Millisecond)
 	)
 
 	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
