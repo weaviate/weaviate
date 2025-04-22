@@ -104,7 +104,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	}
 }
 
-func (c *Service) onFSMCaughtUp() {
+func (c *Service) onFSMCaughtUp(ctx context.Context) {
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -114,7 +114,7 @@ func (c *Service) onFSMCaughtUp() {
 		case <-ticker.C:
 			if c.Raft.store.FSMHasCaughtUp() {
 				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
-				replicationEngineCtx, replicationEngineCancel := context.WithCancel(context.Background())
+				replicationEngineCtx, replicationEngineCancel := context.WithCancel(ctx)
 				c.replicationEngineCancel = replicationEngineCancel
 				enterrors.GoWrapper(func() {
 					if err := c.replicationEngine.Start(replicationEngineCtx); err != nil {
@@ -184,7 +184,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	}
 
 	enterrors.GoWrapper(func() {
-		c.onFSMCaughtUp()
+		c.onFSMCaughtUp(ctx)
 	}, c.logger)
 	return nil
 }
