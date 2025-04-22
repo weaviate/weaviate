@@ -23,12 +23,12 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
-	replicationMocks "github.com/weaviate/weaviate/mocks/cluster/replication/types"
-	schemaMocks "github.com/weaviate/weaviate/mocks/cluster/schema/types"
 	clusterMocks "github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"golang.org/x/exp/slices"
@@ -744,18 +744,18 @@ func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
 		}
 	}
 	clusterState := clusterMocks.NewMockNodeSelector(nodes...)
-	schemaReaderMock := &schemaMocks.SchemaReader{}
+	schemaReaderMock := schemaTypes.NewMockSchemaReader(f.t)
 	schemaReaderMock.On("ShardReplicas", mock.Anything, mock.Anything).Return(func(class string, shard string) ([]string, error) {
 		v, ok := f.Shard2replicas[shard]
 		if !ok {
 			return []string{}, fmt.Errorf("could not find node")
 		}
 		return v, nil
-	})
-	replicationFsmMock := &replicationMocks.ReplicationFSMReader{}
+	}).Maybe()
+	replicationFsmMock := replicationTypes.NewMockReplicationFSMReader(f.t)
 	replicationFsmMock.On("FilterOneShardReplicasReadWrite", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
 		return shardReplicasLocation, shardReplicasLocation
-	})
+	}).Maybe()
 	router := clusterRouter.New(f.log, clusterState, schemaReaderMock, replicationFsmMock)
 	return router
 }

@@ -66,7 +66,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
-	_, ok := dynUsers.memoryOnyData.WeakKeyStorageById[userId]
+	_, ok := dynUsers.memoryOnlyData.WeakKeyStorageById[userId]
 	require.False(t, ok)
 
 	startSlow := time.Now()
@@ -74,7 +74,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	require.NoError(t, err)
 	tookSlow := time.Since(startSlow)
 
-	_, ok = dynUsers.memoryOnyData.WeakKeyStorageById[userId]
+	_, ok = dynUsers.memoryOnlyData.WeakKeyStorageById[userId]
 	require.True(t, ok)
 
 	startFast := time.Now()
