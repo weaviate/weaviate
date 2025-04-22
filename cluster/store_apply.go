@@ -243,7 +243,22 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
 		}
-
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		f = func() {
+			ret.Error = st.distributedTasksManager.AddTask(&cmd, l.Index)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordNodeCompletion(&cmd, st.numberOfNodesInTheCluster())
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:
+		f = func() {
+			ret.Error = st.distributedTasksManager.CancelTask(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP:
+		f = func() {
+			ret.Error = st.distributedTasksManager.CleanUpTask(&cmd)
+		}
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
@@ -267,4 +282,8 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	wg.Wait()
 
 	return ret
+}
+
+func (st *Store) numberOfNodesInTheCluster() int {
+	return len(st.raft.GetConfiguration().Configuration().Servers)
 }

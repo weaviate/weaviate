@@ -22,6 +22,7 @@ require (
 	github.com/edsrzf/mmap-go v1.2.0
 	github.com/fatih/camelcase v1.0.0
 	github.com/felixge/httpsnoop v1.0.4
+	github.com/fortytw2/leaktest v1.3.0
 	github.com/getsentry/sentry-go v0.30.0
 	github.com/go-ego/gse v0.80.3
 	github.com/go-jose/go-jose/v4 v4.0.5
@@ -42,10 +43,11 @@ require (
 	github.com/hashicorp/raft v1.7.2
 	github.com/hashicorp/raft-boltdb/v2 v2.3.1
 	github.com/ikawaha/kagome-dict-ko v0.2.1
-	github.com/ikawaha/kagome-dict/ipa v1.2.0
-	github.com/ikawaha/kagome/v2 v2.10.0
+	github.com/ikawaha/kagome-dict/ipa v1.2.5
+	github.com/ikawaha/kagome/v2 v2.10.2
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/johnbellone/grpc-middleware-sentry v0.4.0
+	github.com/jonboulle/clockwork v0.5.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.2.0
 	github.com/launchdarkly/go-server-sdk/v7 v7.8.0
 	github.com/minio/minio-go/v7 v7.0.84
@@ -135,7 +137,7 @@ require (
 	github.com/go-openapi/jsonreference v0.21.0 // indirect
 	github.com/goccy/go-json v0.10.4 // indirect
 	github.com/gogo/protobuf v1.3.2 // indirect
-	github.com/golang-jwt/jwt/v5 v5.2.1 // indirect
+	github.com/golang-jwt/jwt/v5 v5.2.2 // indirect
 	github.com/golang/groupcache v0.0.0-20210331224755-41bb18bfe9da // indirect
 	github.com/golang/protobuf v1.5.4 // indirect
 	github.com/google/btree v1.0.1 // indirect
@@ -150,7 +152,7 @@ require (
 	github.com/hashicorp/go-sockaddr v1.0.0 // indirect
 	github.com/hashicorp/go-uuid v1.0.1 // indirect
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
-	github.com/ikawaha/kagome-dict v1.1.0 // indirect
+	github.com/ikawaha/kagome-dict v1.1.6 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/karrick/godirwalk v1.15.3 // indirect
