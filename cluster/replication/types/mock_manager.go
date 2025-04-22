@@ -237,8 +237,7 @@ func (_c *MockManager_ReplicationReplicateReplica_Call) RunAndReturn(run func(st
 func NewMockManager(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockManager {
+}) *MockManager {
 	mock := &MockManager{}
 	mock.Mock.Test(t)
 
