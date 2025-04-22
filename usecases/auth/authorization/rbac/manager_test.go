@@ -12,6 +12,7 @@
 package rbac
 
 import (
+	"encoding/json"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -217,4 +218,75 @@ func TestRestoreEmptyData(t *testing.T) {
 	policies, err = m.casbin.GetPolicy()
 	require.NoError(t, err)
 	require.Len(t, policies, 4)
+}
+
+func TestSnapshotAndRestoreUpgrade(t *testing.T) {
+	tests := []struct {
+		name              string
+		policiesInput     [][]string
+		policiesExpected  [][]string
+		groupingsInput    [][]string
+		groupingsExpected [][]string
+	}{
+		{
+			name: "assign users",
+			policiesInput: [][]string{
+				{"role:some_role", "users/.*", "A", "users"},
+			},
+			policiesExpected: [][]string{
+				{"role:some_role", "users/.*", "U", "users"},
+			},
+		},
+		{
+			name: "build-in",
+			policiesInput: [][]string{
+				{"role:viewer", "*", "R", "*"},
+				{"role:admin", "*", "(C)|(R)|(U)|(D)|(A)", "*"},
+			},
+			policiesExpected: [][]string{
+				{"role:viewer", "*", "R", "*"},
+				{"role:admin", "*", "(C)|(R)|(U)|(D)", "*"},
+			},
+		},
+		{
+			name: "users",
+			policiesInput: [][]string{
+				{"role:admin", "*", "(C)|(R)|(U)|(D)|(A)", "*"}, // present to iterate over all roles in downgrade
+			},
+			policiesExpected: [][]string{
+				{"role:admin", "*", "(C)|(R)|(U)|(D)", "*"},
+			},
+			groupingsInput: [][]string{
+				{"db:test-user", "role:admin"},
+				{"oidc:test-user", "role:admin"},
+			},
+			groupingsExpected: [][]string{
+				{"user:test-user", "role:admin"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			logger, _ := test.NewNullLogger()
+			m, err := setupTestManager(t, logger)
+			require.NoError(t, err)
+
+			sh := snapshot{Version: SnapshotVersionLatest, GroupingPolicy: tt.groupingsInput, Policy: tt.policiesInput}
+
+			bytes, err := json.Marshal(sh)
+			require.NoError(t, err)
+
+			err = m.Restore(bytes)
+			require.NoError(t, err)
+
+			finalPolicies, err := m.casbin.GetPolicy()
+			require.NoError(t, err)
+			assert.Equal(t, finalPolicies, tt.policiesExpected)
+
+			finalGroupingPolicies, err := m.casbin.GetGroupingPolicy()
+			require.NoError(t, err)
+			assert.Equal(t, finalGroupingPolicies, tt.groupingsExpected)
+		})
+	}
 }
