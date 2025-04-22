@@ -118,8 +118,5 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())     // this should still return `default` value. not old value
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file, should return default value.
-
-		colCount.SetDefault(20)             // changing the default.
-		assert.Equal(t, 20, colCount.Get()) // this should still return `default` value
 	})
 }

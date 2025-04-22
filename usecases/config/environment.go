@@ -480,10 +480,12 @@ func FromEnv(config *Config) error {
 		config.EnableApiBasedModules = true
 	}
 
-	config.AutoSchema.Enabled = runtime.NewDynamicValue(true)
+	autoSchemaEnabled := true
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
-		config.AutoSchema.Enabled.SetDefault(!(strings.ToLower(v) == "false"))
+		autoSchemaEnabled = !(strings.ToLower(v) == "false")
 	}
+	config.AutoSchema.Enabled = runtime.NewDynamicValue(autoSchemaEnabled)
+
 	config.AutoSchema.DefaultString = schema.DataTypeText.String()
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_STRING"); v != "" {
 		config.AutoSchema.DefaultString = v

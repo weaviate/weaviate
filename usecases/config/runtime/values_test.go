@@ -66,20 +66,6 @@ func TestDynamicValue(t *testing.T) {
 	assert.Equal(t, time.Duration(0), dDuration.Get())
 	assert.Equal(t, "", dString.Get())
 
-	// invariant: After setting custom default via `SetDefault`, this custom default should
-	// override the `zero-value`.
-	dInt.SetDefault(20)
-	dFloat.SetDefault(12.5)
-	dBool.SetDefault(true)
-	dDuration.SetDefault(2 * time.Second)
-	dString.SetDefault("done")
-
-	assert.Equal(t, int(20), dInt.Get())
-	assert.Equal(t, float64(12.5), dFloat.Get())
-	assert.Equal(t, true, dBool.Get())
-	assert.Equal(t, time.Duration(2*time.Second), dDuration.Get())
-	assert.Equal(t, "done", dString.Get())
-
 	// invariant: `NewDynamicValue` constructor should set custom default and should override
 	// the `zero-value`
 	dInt2 := NewDynamicValue(25)

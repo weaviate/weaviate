@@ -21,12 +21,12 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// Type represents different types that is supported in runtime configs
+// DynamicType represents different types that is supported in runtime configs
 type DynamicType interface {
 	~int | ~float64 | ~bool | time.Duration | ~string
 }
 
-// Value represents any runtime config value. It's zero value is
+// DynamicValue represents any runtime config value. It's zero value is
 // fully usable.
 // If you want zero value with different `default`, use `NewDynamicValue` constructor.
 type DynamicValue[T DynamicType] struct {
@@ -37,8 +37,6 @@ type DynamicValue[T DynamicType] struct {
 
 	// def represents the default value.
 	def T
-	// protects `def`
-	defMu sync.Mutex
 }
 
 // NewDynamicValue returns an instance of DynamicValue as passed in type
@@ -64,11 +62,7 @@ func (dv *DynamicValue[T]) Get() T {
 		return v.(T)
 	}
 
-	dv.defMu.Lock()
-	def := dv.def
-	dv.defMu.Unlock()
-
-	return def
+	return dv.def
 }
 
 // Reset removes the old dynamic value.
@@ -87,14 +81,6 @@ func (dv *DynamicValue[T]) SetValue(val T) {
 
 	// NOTE: doesn't need to set any default value here
 	// as `Get()` api will return default if dynamic value is not set.
-}
-
-// SetDefault updates the `default` value for DynamicValue.
-func (dv *DynamicValue[T]) SetDefault(val T) {
-	dv.defMu.Lock()
-	defer dv.defMu.Unlock()
-
-	dv.def = val
 }
 
 // UnmarshalYAML implements `yaml.v3` custom decoding for `DynamicValue` type.
