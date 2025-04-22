@@ -27,7 +27,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	mocks "github.com/weaviate/weaviate/mocks/cluster/distributedtask"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -545,8 +544,8 @@ type testHarness struct {
 	schedulerTickInterval time.Duration
 	clock                 *clockwork.FakeClock
 	logger                logrus.FieldLogger
-	completionRecorder    *mocks.TaskCompletionRecorder
-	cleaner               *mocks.TaskCleaner
+	completionRecorder    *MockTaskCompletionRecorder
+	cleaner               *MockTaskCleaner
 	provider              *testTaskProvider
 	registeredProviders   map[string]Provider
 
@@ -571,8 +570,8 @@ func newTestHarness(t *testing.T) *testHarness {
 		schedulerTickInterval: 30 * time.Second,
 		clock:                 clockwork.NewFakeClock(),
 		logger:                logger,
-		completionRecorder:    mocks.NewTaskCompletionRecorder(t),
-		cleaner:               mocks.NewTaskCleaner(t),
+		completionRecorder:    NewMockTaskCompletionRecorder(t),
+		cleaner:               NewMockTaskCleaner(t),
 		provider:              defaultProvider,
 		registeredProviders: map[string]Provider{
 			defaultNamespace: defaultProvider,
