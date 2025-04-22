@@ -3,7 +3,7 @@
     {
       "url": "http://localhost:8080/v1"
     }
-  ],  
+  ],
   "basePath": "/v1",
   "consumes": [
     "application/json"
@@ -3580,13 +3580,14 @@
     "/authz/roles/{id}/users": {
       "get": {
         "deprecated": true,
-        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "summary": "get users (db + OIDC) assigned to role",
+        "description": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
         "operationId": "getUsersForRoleDeprecated",
         "x-serviceIds": [
           "weaviate.authz.get.roles.users"
         ],
         "tags": [
-          "authz"
+          "deprecated"
         ],
         "parameters": [
           {
@@ -3702,13 +3703,14 @@
     "/authz/users/{id}/roles": {
       "get": {
         "deprecated": true,
-        "summary": "get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "summary": "get roles assigned to user (DB + OIDC)",
+        "description": "get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
         "operationId": "getRolesForUserDeprecated",
         "x-serviceIds": [
           "weaviate.authz.get.users.roles"
         ],
         "tags": [
-          "authz"
+          "deprecated"
         ],
         "parameters": [
           {
@@ -4302,7 +4304,7 @@
         },
         "summary": "Delete an Object based on its UUID.",
         "tags": [
-          "objects"
+          "deprecated"
         ],
         "x-available-in-mqtt": true,
         "x-available-in-websocket": true,
@@ -4361,7 +4363,7 @@
         },
         "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
         "tags": [
-          "objects"
+          "deprecated"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
@@ -4429,7 +4431,7 @@
         },
         "summary": "Update an Object based on its UUID (using patch semantics).",
         "tags": [
-          "objects"
+          "deprecated"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
@@ -4496,7 +4498,7 @@
         },
         "summary": "Update an Object based on its UUID.",
         "tags": [
-          "objects"
+          "deprecated"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
@@ -4543,7 +4545,7 @@
         },
         "summary": "Checks Object's existence based on its UUID.",
         "tags": [
-          "objects"
+          "deprecated"
         ],
         "x-available-in-mqtt": true,
         "x-available-in-websocket": true,
@@ -4978,7 +4980,7 @@
         },
         "summary": "Add a single reference to a class-property.",
         "tags": [
-          "objects"
+          "deprecated"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
@@ -5046,7 +5048,7 @@
         },
         "summary": "Replace all references to a class-property.",
         "tags": [
-          "objects"
+          "deprecated"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
@@ -5114,7 +5116,7 @@
         },
         "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
         "tags": [
-          "objects"
+          "deprecated"
         ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false,
@@ -7318,6 +7320,10 @@
     {
       "name": "classifications",
       "description": "Perform classification operations"
+    },
+    {
+      "name": "deprecated",
+      "description": "Create, update and delete objects and cross-references."
     }
   ]
 }
