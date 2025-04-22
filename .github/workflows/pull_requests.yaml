@@ -166,7 +166,7 @@ jobs:
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
-          max_attempts: 3
+          max_attempts: 2
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-On-Demand-Tests-Check:
@@ -224,7 +224,7 @@ jobs:
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
-          max_attempts: 3
+          max_attempts: 2
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-light:
@@ -260,7 +260,7 @@ jobs:
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
-          max_attempts: 3
+          max_attempts: 2
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
