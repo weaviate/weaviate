@@ -1,13 +1,13 @@
 SHELL:=/usr/bin/env bash -o pipefail
 
 # Adapted from https://www.thapaliya.com/en/writings/well-documented-makefiles/
-# .PHONY: help mocks
+# .PHONY: help
 help:
 	@awk 'BEGIN {FS = ":.*##"; printf "\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-45s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
 
 .DEFAULT_GOAL := weaviate
 
-GO_VERSION         := 1.22.0
+GO_VERSION         := 1.24.0
 
 # Git tags
 GIT_REVISION       := $(shell git rev-parse --short HEAD)
@@ -96,5 +96,7 @@ debug: ## Connect local weaviate server via delv for debugging
 banner: ## Add Weaviate banner with license details
 	./tools/gen-code-from-swagger.sh
 
-mocks: .mockery.yaml
-	mockery
+.PHONY: mocks
+mocks:
+	docker run --rm -v $(PWD):/src -w /src vektra/mockery:v2.53.2
+	$(MAKE) banner

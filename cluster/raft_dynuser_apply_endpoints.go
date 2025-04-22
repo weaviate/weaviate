@@ -43,11 +43,13 @@ func (s *Raft) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters
 	return nil
 }
 
-func (s *Raft) RotateKey(userId, secureHash string) error {
+func (s *Raft) RotateKey(userId, secureHash, oldIdentifier, newIdentifier string) error {
 	req := cmd.RotateUserApiKeyRequest{
-		UserId:     userId,
-		SecureHash: secureHash,
-		Version:    cmd.DynUserLatestCommandPolicyVersion,
+		UserId:        userId,
+		SecureHash:    secureHash,
+		OldIdentifier: oldIdentifier,
+		NewIdentifier: newIdentifier,
+		Version:       cmd.DynUserLatestCommandPolicyVersion,
 	}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {

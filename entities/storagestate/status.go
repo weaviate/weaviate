@@ -21,6 +21,7 @@ const (
 	StatusIndexing Status = "INDEXING"
 	StatusLoading  Status = "LOADING"
 	StatusReady    Status = "READY"
+	StatusShutdown Status = "SHUTDOWN"
 )
 
 var ErrStatusReadOnlyWithReason = func(reason string) error {

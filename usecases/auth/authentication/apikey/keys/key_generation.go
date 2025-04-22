@@ -52,26 +52,24 @@ var argonParameters = &argon2id.Params{
 //   - decode the key into the 3 parts mentioned above using DecodeApiKey
 //   - fetch the saved hash based on the returned user identifier
 //   - compare the returned randomKey with the fetched hash using argon2id.ComparePasswordAndHash
-func CreateApiKeyAndHash(existingIdentifier string) (string, string, string, error) {
+func CreateApiKeyAndHash() (string, string, string, error) {
 	randomBytesKey, err := generateRandomBytes(RandomBytesLength)
 	if err != nil {
 		return "", "", "", err
 	}
 	randomKey := base64.StdEncoding.EncodeToString(randomBytesKey)
 
-	if existingIdentifier == "" {
-		randomBytesIdentifier, err := generateRandomBytes(UserIdentifierBytesLength)
-		if err != nil {
-			return "", "", "", err
-		}
-		existingIdentifier = base64.StdEncoding.EncodeToString(randomBytesIdentifier)
+	randomBytesIdentifier, err := generateRandomBytes(UserIdentifierBytesLength)
+	if err != nil {
+		return "", "", "", err
 	}
+	identifier := base64.StdEncoding.EncodeToString(randomBytesIdentifier)
 
-	fullApiKey := generateApiKey(randomKey, existingIdentifier)
+	fullApiKey := generateApiKey(randomKey, identifier)
 
 	hash, err := argon2id.CreateHash(randomKey, argonParameters)
 
-	return fullApiKey, hash, existingIdentifier, err
+	return fullApiKey, hash, identifier, err
 }
 
 func generateApiKey(randomKey, userIdentifier string) string {

@@ -369,9 +369,13 @@ func TestConcurrentWriting_RoaringSetRange(t *testing.T) {
 		for i := range keys {
 			// verify every 5th key to save time
 			if i%5 == 0 {
-				value, err := reader.Read(testCtx(), keys[i], filters.OperatorEqual)
-				require.NoError(t, err)
-				assert.ElementsMatch(t, values[i], value.ToArray())
+				func() {
+					value, release, err := reader.Read(testCtx(), keys[i], filters.OperatorEqual)
+					require.NoError(t, err)
+					defer release()
+
+					assert.ElementsMatch(t, values[i], value.ToArray())
+				}()
 			}
 		}
 	})

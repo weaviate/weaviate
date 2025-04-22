@@ -215,10 +215,10 @@ func (v *awsClient) sendBedrockRequest(ctx context.Context,
 				"Please double-check the service availability for your region at " +
 				"https://aws.amazon.com/about-aws/global-infrastructure/regional-product-services/")
 		} else if strings.Contains(errMsg, "Could not resolve the foundation model") {
-			return nil, fmt.Errorf("Could not resolve the foundation model from model identifier: \"%v\". "+
+			return nil, fmt.Errorf("could not resolve the foundation model from model identifier: \"%v\". "+
 				"Please verify that the requested model exists and is accessible within the specified region", model)
 		} else {
-			return nil, fmt.Errorf("Couldn't invoke %s model: %w", model, err)
+			return nil, fmt.Errorf("couldn't invoke %s model: %w", model, err)
 		}
 	}
 

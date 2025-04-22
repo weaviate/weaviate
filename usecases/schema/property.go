@@ -102,7 +102,7 @@ func (h *Handler) DeleteClassProperty(ctx context.Context, principal *models.Pri
 	}
 
 	return fmt.Errorf("deleting a property is currently not supported, see " +
-		"https://github.com/weaviate/weaviate/issues/973 for details.")
+		"https://github.com/weaviate/weaviate/issues/973 for details")
 	// return h.deleteClassProperty(ctx, class, property, kind.Action)
 }
 

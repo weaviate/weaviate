@@ -4349,9 +4349,18 @@ func init() {
         ],
         "summary": "list all db users",
         "operationId": "listAllUsers",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include the last used time of the users",
+            "name": "includeLastUsedTime",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the users",
             "schema": {
               "type": "array",
               "items": {
@@ -4394,6 +4403,13 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include the last used time of the given user",
+            "name": "includeLastUsedTime",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4414,6 +4430,12 @@ func init() {
           },
           "404": {
             "description": "user not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -5618,6 +5640,14 @@ func init() {
           "description": "activity status of the returned user",
           "type": "boolean"
         },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API-key",
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 3
+        },
         "createdAt": {
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
           "type": [
@@ -5633,6 +5663,14 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "lastUsedAt": {
+          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
         },
         "roles": {
           "description": "The role names associated to the user",
@@ -11949,9 +11987,18 @@ func init() {
         ],
         "summary": "list all db users",
         "operationId": "listAllUsers",
+        "parameters": [
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include the last used time of the users",
+            "name": "includeLastUsedTime",
+            "in": "query"
+          }
+        ],
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the users",
             "schema": {
               "type": "array",
               "items": {
@@ -11994,6 +12041,13 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include the last used time of the given user",
+            "name": "includeLastUsedTime",
+            "in": "query"
           }
         ],
         "responses": {
@@ -12014,6 +12068,12 @@ func init() {
           },
           "404": {
             "description": "user not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -13373,6 +13433,14 @@ func init() {
           "description": "activity status of the returned user",
           "type": "boolean"
         },
+        "apiKeyFirstLetters": {
+          "description": "First 3 letters of the associated API-key",
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 3
+        },
         "createdAt": {
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
           "type": [
@@ -13388,6 +13456,14 @@ func init() {
             "db_user",
             "db_env_user"
           ]
+        },
+        "lastUsedAt": {
+          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
         },
         "roles": {
           "description": "The role names associated to the user",

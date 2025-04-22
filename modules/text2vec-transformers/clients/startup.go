@@ -13,15 +13,14 @@ package clients
 
 import (
 	"context"
-	"net/http"
 	"strings"
 	"sync"
 	"time"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/transformers"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
 )
 
 func (v *vectorizer) WaitForStartup(initCtx context.Context,
@@ -29,10 +28,10 @@ func (v *vectorizer) WaitForStartup(initCtx context.Context,
 ) error {
 	endpoints := map[string]string{}
 	if v.originPassage != v.originQuery {
-		endpoints["passage"] = v.urlPassage("/.well-known/ready", ent.VectorizationConfig{})
-		endpoints["query"] = v.urlQuery("/.well-known/ready", ent.VectorizationConfig{})
+		endpoints["passage"] = v.urlBuilder.GetPassageURL("/.well-known/ready", transformers.VectorizationConfig{})
+		endpoints["query"] = v.urlBuilder.GetQueryURL("/.well-known/ready", transformers.VectorizationConfig{})
 	} else {
-		endpoints[""] = v.urlPassage("/.well-known/ready", ent.VectorizationConfig{})
+		endpoints[""] = v.urlBuilder.GetPassageURL("/.well-known/ready", transformers.VectorizationConfig{})
 	}
 
 	ch := make(chan error, len(endpoints))
@@ -73,7 +72,7 @@ func (v *vectorizer) waitFor(initCtx context.Context, interval time.Duration, en
 	for {
 		select {
 		case <-ticker.C:
-			lastErr = v.checkReady(initCtx, endpoint, serviceName)
+			lastErr = v.client.CheckReady(initCtx, endpoint)
 			if lastErr == nil {
 				return nil
 			}
@@ -84,30 +83,4 @@ func (v *vectorizer) waitFor(initCtx context.Context, interval time.Duration, en
 			return errors.Wrapf(lastErr, "%sinit context expired before remote was ready", prefix)
 		}
 	}
-}
-
-func (v *vectorizer) checkReady(initCtx context.Context, endpoint string, serviceName string) error {
-	// spawn a new context (derived on the overall context) which is used to
-	// consider an individual request timed out
-	// due to parent timeout being superior over request's one, request can be cancelled by parent timeout
-	// resulting in "send check ready request" even if service is responding with non 2xx http code
-	requestCtx, cancel := context.WithTimeout(initCtx, 500*time.Millisecond)
-	defer cancel()
-
-	req, err := http.NewRequestWithContext(requestCtx, http.MethodGet, endpoint, nil)
-	if err != nil {
-		return errors.Wrap(err, "create check ready request")
-	}
-
-	res, err := v.httpClient.Do(req)
-	if err != nil {
-		return errors.Wrap(err, "send check ready request")
-	}
-
-	defer res.Body.Close()
-	if res.StatusCode > 299 {
-		return errors.Errorf("not ready: status %d", res.StatusCode)
-	}
-
-	return nil
 }
