@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
 
 	"github.com/pkg/errors"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
