@@ -73,7 +73,7 @@ type CopyOpConsumer struct {
 	// nodeId uniquely identifies the node on which this consumer instance is running.
 	nodeId string
 
-	engineOpCallbacks *metrics.EngineOpCallbacks
+	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks
 }
 
 // String returns a string representation of the CopyOpConsumer,
@@ -98,7 +98,7 @@ func NewCopyOpConsumer(
 	backoffPolicy backoff.BackOff,
 	opTimeout time.Duration,
 	maxWorkers int,
-	engineOpCallbacks *metrics.EngineOpCallbacks,
+	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks,
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
 		logger:            logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),

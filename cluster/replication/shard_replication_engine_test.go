@@ -65,7 +65,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			mockConsumer,
 			1,
 			1, 1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
@@ -124,7 +124,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
@@ -177,7 +177,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()))
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()))
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
 		var wg sync.WaitGroup
@@ -234,7 +234,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
@@ -297,7 +297,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
@@ -379,7 +379,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		engine2 := replication.NewShardReplicationEngine(logger,
 			"node2",
@@ -388,7 +388,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		require.False(t, engine1.IsRunning(), "engine1 should not be running before start")
 		require.False(t, engine2.IsRunning(), "engine2 should not be running before start")
@@ -468,7 +468,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		require.False(t, engine.IsRunning(), "engine should not be running before start")
 
@@ -554,7 +554,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		require.False(t, engine.IsRunning(), "engine should not be running before start")
@@ -628,7 +628,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		require.False(t, engine.IsRunning(), "engine should not be running before start")
@@ -701,7 +701,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		require.False(t, engine.IsRunning(), "engine should not be running initially")
@@ -750,7 +750,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			randomOpBufferSize,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
@@ -862,7 +862,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			opsCount,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -978,7 +978,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			randomBufferSize,
 			randomWorkers,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		// WHEN - First attempt fails due to producer facing an unexpected error
@@ -1120,7 +1120,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			randomBufferSize,
 			randomWorkers,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbackMetrics(prometheus.NewPedanticRegistry()),
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		// WHEN - First attempt fails due to consumer error
@@ -1192,7 +1192,7 @@ func TestEngineWithCallbacks(t *testing.T) {
 			engineStopCalled                                            = make(chan struct{}, 1)
 		)
 
-		engineCallbacks := metrics.NewEngineCallbacksBuilder().
+		engineCallbacks := metrics.NewReplicationEngineCallbacksBuilder().
 			WithEngineStartCallback(func(node string) {
 				require.Equal(t, "node1", node, "invalid node in engine start callback")
 				callbackMutex.Lock()

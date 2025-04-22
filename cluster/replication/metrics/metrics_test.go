@@ -23,7 +23,7 @@ import (
 
 func TestOpCallbacks(t *testing.T) {
 	t.Run("default callbacks should be no-op", func(t *testing.T) {
-		callbacks := metrics.NewEngineOpCallbacksBuilder().Build()
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().Build()
 		callbacks.OnOpPending("node1")
 		callbacks.OnOpStart("node1")
 		callbacks.OnOpComplete("node1")
@@ -39,7 +39,7 @@ func TestOpCallbacks(t *testing.T) {
 			failedNode   string
 		)
 
-		callbacks := metrics.NewEngineOpCallbacksBuilder().
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
 			WithOpPendingCallback(func(node string) {
 				pendingNode = node
 			}).
@@ -71,7 +71,7 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("only op pending", func(t *testing.T) {
 		// GIVEN
 		pendingCalled := false
-		callbacks := metrics.NewEngineOpCallbacksBuilder().
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
 			WithOpPendingCallback(func(node string) {
 				pendingCalled = true
 			}).
@@ -87,7 +87,7 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("only op start", func(t *testing.T) {
 		// GIVEN
 		startCalled := false
-		callbacks := metrics.NewEngineOpCallbacksBuilder().
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
 			WithOpStartCallback(func(node string) {
 				startCalled = true
 			}).
@@ -103,7 +103,7 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("only op complete", func(t *testing.T) {
 		// GIVEN
 		completeCalled := false
-		callbacks := metrics.NewEngineOpCallbacksBuilder().
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
 			WithOpCompleteCallback(func(node string) {
 				completeCalled = true
 			}).
@@ -119,7 +119,7 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("only op failed", func(t *testing.T) {
 		// GIVEN
 		failedCalled := false
-		callbacks := metrics.NewEngineOpCallbacksBuilder().
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
 			WithOpFailedCallback(func(node string) {
 				failedCalled = true
 			}).
@@ -137,7 +137,7 @@ func TestMetricsCollection(t *testing.T) {
 	t.Run("metrics should track operations correctly", func(t *testing.T) {
 		// GIVEN
 		reg := prometheus.NewPedanticRegistry()
-		callbacks := metrics.NewReplicationOpCallbackMetrics(reg)
+		callbacks := metrics.NewReplicationEngineOpsCallbacks(reg)
 		node := "test-node"
 
 		// Process first operation completing successfully
@@ -176,7 +176,7 @@ func TestMetricsCollection(t *testing.T) {
 	t.Run("metrics should be tracked separately for different nodes", func(t *testing.T) {
 		// GIVEN
 		reg := prometheus.NewPedanticRegistry()
-		callbacks := metrics.NewReplicationOpCallbackMetrics(reg)
+		callbacks := metrics.NewReplicationEngineOpsCallbacks(reg)
 		node1 := "node-1"
 		node2 := "node-2"
 
@@ -249,7 +249,7 @@ func TestMetricsCollection(t *testing.T) {
 
 func TestEngineCallbacks(t *testing.T) {
 	t.Run("default callbacks should be no-op", func(t *testing.T) {
-		callbacks := metrics.NewEngineCallbacksBuilder().Build()
+		callbacks := metrics.NewReplicationEngineCallbacksBuilder().Build()
 		callbacks.OnEngineStart("node1")
 		callbacks.OnEngineStop("node1")
 		callbacks.OnProducerStart("node1")
@@ -268,7 +268,7 @@ func TestEngineCallbacks(t *testing.T) {
 			consumerStartedCallbacksCounter, consumerStoppedCallbacksCounter int
 		)
 
-		callbacks := metrics.NewEngineCallbacksBuilder().
+		callbacks := metrics.NewReplicationEngineCallbacksBuilder().
 			WithEngineStartCallback(func(node string) {
 				engineStartedNode = node
 				engineStartedCallbacksCounter++
@@ -322,7 +322,7 @@ func TestEngineMetricsCollection(t *testing.T) {
 	t.Run("engine lifecycle metrics are tracked correctly", func(t *testing.T) {
 		// GIVEN
 		reg := prometheus.NewPedanticRegistry()
-		callbacks := metrics.NewReplicationEngineCallbackMetrics(reg)
+		callbacks := metrics.NewReplicationEngineCallbacks(reg)
 		node := "node1"
 
 		// WHEN

@@ -129,7 +129,7 @@ type ShardReplicationEngine struct {
 	// This ensures that the system doesn't hang indefinitely during shutdown.
 	shutdownTimeout time.Duration
 
-	engineMetricCallbacks *metrics.EngineMetricCallbacks
+	engineMetricCallbacks *metrics.ReplicationEngineCallbacks
 }
 
 // NewShardReplicationEngine creates a new replication engine
@@ -141,7 +141,7 @@ func NewShardReplicationEngine(
 	opBufferSize int,
 	maxWorkers int,
 	shutdownTimeout time.Duration,
-	engineMetricCallbacks *metrics.EngineMetricCallbacks,
+	engineMetricCallbacks *metrics.ReplicationEngineCallbacks,
 ) *ShardReplicationEngine {
 	return &ShardReplicationEngine{
 		nodeId:                nodeId,
