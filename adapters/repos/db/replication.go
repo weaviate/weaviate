@@ -374,6 +374,15 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 	defer release()
 
 	sd := backup.ShardDescriptor{Name: shardName}
+
+	// prevent writing into the index during collection of metadata
+	i.shardTransferMutex.Lock()
+	defer i.shardTransferMutex.Unlock()
+
+	if err = localShard.Store().FlushMemtables(ctx); err != nil {
+		return nil, fmt.Errorf("flush memtables: %w", err)
+	}
+
 	if err := localShard.ListBackupFiles(ctx, &sd); err != nil {
 		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
 	}
