@@ -337,12 +337,13 @@ func (m *Manager) ResolveParentNodes(class, shardName string) (map[string]string
 func (m *Manager) TenantsShards(ctx context.Context, class string, tenants ...string) (map[string]string, error) {
 	slices.Sort(tenants)
 	tenants = slices.Compact(tenants)
-	status, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
-	if !m.AllowImplicitTenantActivation(class) || err != nil {
+
+	if !m.AllowImplicitTenantActivation(class) {
+		status, _, err := m.schemaManager.QueryTenantsShards(class, tenants...)
 		return status, err
 	}
 
-	return m.activateTenantIfInactive(ctx, class, status)
+	return m.activateTenants(ctx, class, tenants)
 }
 
 // OptimisticTenantStatus tries to query the local state first. It is
@@ -397,24 +398,17 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 	}, nil
 }
 
-func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
-	status map[string]string,
+func (m *Manager) activateTenants(ctx context.Context, class string,
+	tenants []string,
 ) (map[string]string, error) {
 	req := &api.UpdateTenantsRequest{
-		Tenants:      make([]*api.Tenant, 0, len(status)),
+		Tenants:      make([]*api.Tenant, 0, len(tenants)),
 		ClusterNodes: m.schemaManager.StorageCandidates(),
 	}
 
-	for tenant, s := range status {
-		if s != models.TenantActivityStatusHOT {
-			req.Tenants = append(req.Tenants,
-				&api.Tenant{Name: tenant, Status: models.TenantActivityStatusHOT})
-		}
-	}
-
-	if len(req.Tenants) == 0 {
-		// nothing to do, all tenants are already HOT
-		return status, nil
+	for _, tenant := range tenants {
+		req.Tenants = append(req.Tenants,
+			&api.Tenant{Name: tenant, Status: models.TenantActivityStatusHOT})
 	}
 
 	_, err := m.schemaManager.UpdateTenants(ctx, class, req)
@@ -426,6 +420,8 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 
 		return nil, fmt.Errorf("implicit activation of tenants %s: %w", strings.Join(names, ", "), err)
 	}
+
+	status := make(map[string]string, len(tenants))
 
 	for _, t := range req.Tenants {
 		status[t.Name] = models.TenantActivityStatusHOT

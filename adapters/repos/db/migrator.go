@@ -404,7 +404,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 		}
 
 		eg.Go(func() error {
-			return idx.loadLocalShard(ctx, pl.Name)
+			return idx.initLocalShard(ctx, pl.Name)
 		})
 	}
 
