@@ -101,6 +101,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsmbjtestbucketoverride")
 		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+		defer moduleshelper.DeleteGCSBucket(ctx, t, "gcsmbjtestbucketoverride")
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
@@ -136,6 +137,7 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsmbjtestbucketoverride")
 		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+		defer moduleshelper.DeleteGCSBucket(ctx, t, "gcsmbjtestbucketoverride")
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
