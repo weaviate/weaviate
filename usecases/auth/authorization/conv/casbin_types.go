@@ -25,8 +25,6 @@ const (
 	// https://casbin.org/docs/rbac/#how-to-distinguish-role-from-user
 	// ROLE_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
 	ROLE_NAME_PREFIX = "role" + PREFIX_SEPARATOR
-	// USER_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	USER_NAME_PREFIX = "user:"
 	// GROUP_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
 	GROUP_NAME_PREFIX = "group" + PREFIX_SEPARATOR
 	PREFIX_SEPARATOR  = ":"
@@ -414,13 +412,6 @@ func validResource(input string) bool {
 
 func validVerb(input string) bool {
 	return regexp.MustCompile(VALID_VERBS).MatchString(input)
-}
-
-func PrefixUserName(name string) string {
-	if strings.HasPrefix(name, USER_NAME_PREFIX) {
-		return name
-	}
-	return fmt.Sprintf("%s%s", USER_NAME_PREFIX, name)
 }
 
 func PrefixRoleName(name string) string {
