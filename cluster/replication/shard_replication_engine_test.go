@@ -19,14 +19,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/weaviate/weaviate/cluster/replication"
-	"github.com/weaviate/weaviate/cluster/replication/metrics"
-
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
 )
 
 func TestShardReplicationEngine(t *testing.T) {

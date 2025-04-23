@@ -40,6 +40,7 @@ const (
 	shardReplicationEngineBufferSize = 16
 	replicationEngineShutdownTimeout = 10 * time.Minute
 	replicationOperationTimeout      = 24 * time.Hour
+	catchUpInterval                  = 5 * time.Second
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
@@ -116,8 +117,8 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	}
 }
 
-func (c *Service) onFSMCaughtUp() {
-	ticker := time.NewTicker(5 * time.Second)
+func (c *Service) onFSMCaughtUp(ctx context.Context) {
+	ticker := time.NewTicker(catchUpInterval)
 	defer ticker.Stop()
 	for {
 		select {
@@ -126,7 +127,7 @@ func (c *Service) onFSMCaughtUp() {
 		case <-ticker.C:
 			if c.Raft.store.FSMHasCaughtUp() {
 				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
-				replicationEngineCtx, replicationEngineCancel := context.WithCancel(context.Background())
+				replicationEngineCtx, replicationEngineCancel := context.WithCancel(ctx)
 				c.replicationEngineCancel = replicationEngineCancel
 				enterrors.GoWrapper(func() {
 					if err := c.replicationEngine.Start(replicationEngineCtx); err != nil {
@@ -196,7 +197,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	}
 
 	enterrors.GoWrapper(func() {
-		c.onFSMCaughtUp()
+		c.onFSMCaughtUp(ctx)
 	}, c.logger)
 	return nil
 }

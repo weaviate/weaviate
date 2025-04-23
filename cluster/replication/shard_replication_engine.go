@@ -42,13 +42,6 @@ func (p RealTimeProvider) Now() time.Time {
 	return time.Now()
 }
 
-// Timer defines an interface for scheduling tasks with a delay.
-type Timer interface {
-	// AfterFunc waits for the specified duration to elapse and then calls the provided function
-	// in its own goroutine.
-	AfterFunc(duration time.Duration, fn func()) *time.Timer
-}
-
 // ShardReplicationEngine coordinates the replication of shard data between nodes in a distributed system.
 //
 // It uses a producer-consumer pattern where replication operations are pulled from a source (e.g., FSM)
@@ -170,8 +163,8 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 		e.logger.Warnf("replication engine already running: %v", e)
 		return nil
 	}
-	e.engineMetricCallbacks.OnEngineStart(e.nodeId)
 
+	e.engineMetricCallbacks.OnEngineStart(e.nodeId)
 	// Channels are creating while starting the replication engine to allow start/stop.
 	e.opsChan = make(chan ShardReplicationOp, e.opBufferSize)
 	e.stopChan = make(chan struct{})
