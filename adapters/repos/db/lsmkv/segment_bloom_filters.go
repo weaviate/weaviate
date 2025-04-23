@@ -18,6 +18,7 @@ import (
 	"hash/crc32"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -26,6 +27,8 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
+
+var _NUMCPU = runtime.GOMAXPROCS(0)
 
 func (s *segment) bloomFilterPath() string {
 	extless := strings.TrimSuffix(s.path, filepath.Ext(s.path))
@@ -39,7 +42,7 @@ func (s *segment) bloomFilterSecondaryPath(pos int) string {
 
 func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
 	g := enterrors.NewErrorGroupWrapper(s.logger)
-
+	g.SetLimit(_NUMCPU)
 	g.Go(func() error {
 		if err := s.initBloomFilter(overwrite); err != nil {
 			return fmt.Errorf("primary index: %w", err)
