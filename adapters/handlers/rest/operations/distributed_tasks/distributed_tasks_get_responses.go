@@ -72,15 +72,15 @@ func (o *DistributedTasksGetOK) WriteResponse(rw http.ResponseWriter, producer r
 	}
 }
 
-// DistributedTasksGetUnauthorizedCode is the HTTP code returned for type DistributedTasksGetUnauthorized
-const DistributedTasksGetUnauthorizedCode int = 401
+// DistributedTasksGetForbiddenCode is the HTTP code returned for type DistributedTasksGetForbidden
+const DistributedTasksGetForbiddenCode int = 403
 
 /*
-DistributedTasksGetUnauthorized Unauthorized or invalid credentials.
+DistributedTasksGetForbidden Unauthorized or invalid credentials.
 
-swagger:response distributedTasksGetUnauthorized
+swagger:response distributedTasksGetForbidden
 */
-type DistributedTasksGetUnauthorized struct {
+type DistributedTasksGetForbidden struct {
 
 	/*
 	  In: Body
@@ -88,27 +88,27 @@ type DistributedTasksGetUnauthorized struct {
 	Payload *models.ErrorResponse `json:"body,omitempty"`
 }
 
-// NewDistributedTasksGetUnauthorized creates DistributedTasksGetUnauthorized with default headers values
-func NewDistributedTasksGetUnauthorized() *DistributedTasksGetUnauthorized {
+// NewDistributedTasksGetForbidden creates DistributedTasksGetForbidden with default headers values
+func NewDistributedTasksGetForbidden() *DistributedTasksGetForbidden {
 
-	return &DistributedTasksGetUnauthorized{}
+	return &DistributedTasksGetForbidden{}
 }
 
-// WithPayload adds the payload to the distributed tasks get unauthorized response
-func (o *DistributedTasksGetUnauthorized) WithPayload(payload *models.ErrorResponse) *DistributedTasksGetUnauthorized {
+// WithPayload adds the payload to the distributed tasks get forbidden response
+func (o *DistributedTasksGetForbidden) WithPayload(payload *models.ErrorResponse) *DistributedTasksGetForbidden {
 	o.Payload = payload
 	return o
 }
 
-// SetPayload sets the payload to the distributed tasks get unauthorized response
-func (o *DistributedTasksGetUnauthorized) SetPayload(payload *models.ErrorResponse) {
+// SetPayload sets the payload to the distributed tasks get forbidden response
+func (o *DistributedTasksGetForbidden) SetPayload(payload *models.ErrorResponse) {
 	o.Payload = payload
 }
 
 // WriteResponse to the client
-func (o *DistributedTasksGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *DistributedTasksGetForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
-	rw.WriteHeader(401)
+	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

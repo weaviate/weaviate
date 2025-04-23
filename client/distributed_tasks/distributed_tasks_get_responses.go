@@ -40,8 +40,8 @@ func (o *DistributedTasksGetReader) ReadResponse(response runtime.ClientResponse
 			return nil, err
 		}
 		return result, nil
-	case 401:
-		result := NewDistributedTasksGetUnauthorized()
+	case 403:
+		result := NewDistributedTasksGetForbidden()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -123,63 +123,63 @@ func (o *DistributedTasksGetOK) readResponse(response runtime.ClientResponse, co
 	return nil
 }
 
-// NewDistributedTasksGetUnauthorized creates a DistributedTasksGetUnauthorized with default headers values
-func NewDistributedTasksGetUnauthorized() *DistributedTasksGetUnauthorized {
-	return &DistributedTasksGetUnauthorized{}
+// NewDistributedTasksGetForbidden creates a DistributedTasksGetForbidden with default headers values
+func NewDistributedTasksGetForbidden() *DistributedTasksGetForbidden {
+	return &DistributedTasksGetForbidden{}
 }
 
 /*
-DistributedTasksGetUnauthorized describes a response with status code 401, with default header values.
+DistributedTasksGetForbidden describes a response with status code 403, with default header values.
 
 Unauthorized or invalid credentials.
 */
-type DistributedTasksGetUnauthorized struct {
+type DistributedTasksGetForbidden struct {
 	Payload *models.ErrorResponse
 }
 
-// IsSuccess returns true when this distributed tasks get unauthorized response has a 2xx status code
-func (o *DistributedTasksGetUnauthorized) IsSuccess() bool {
+// IsSuccess returns true when this distributed tasks get forbidden response has a 2xx status code
+func (o *DistributedTasksGetForbidden) IsSuccess() bool {
 	return false
 }
 
-// IsRedirect returns true when this distributed tasks get unauthorized response has a 3xx status code
-func (o *DistributedTasksGetUnauthorized) IsRedirect() bool {
+// IsRedirect returns true when this distributed tasks get forbidden response has a 3xx status code
+func (o *DistributedTasksGetForbidden) IsRedirect() bool {
 	return false
 }
 
-// IsClientError returns true when this distributed tasks get unauthorized response has a 4xx status code
-func (o *DistributedTasksGetUnauthorized) IsClientError() bool {
+// IsClientError returns true when this distributed tasks get forbidden response has a 4xx status code
+func (o *DistributedTasksGetForbidden) IsClientError() bool {
 	return true
 }
 
-// IsServerError returns true when this distributed tasks get unauthorized response has a 5xx status code
-func (o *DistributedTasksGetUnauthorized) IsServerError() bool {
+// IsServerError returns true when this distributed tasks get forbidden response has a 5xx status code
+func (o *DistributedTasksGetForbidden) IsServerError() bool {
 	return false
 }
 
-// IsCode returns true when this distributed tasks get unauthorized response a status code equal to that given
-func (o *DistributedTasksGetUnauthorized) IsCode(code int) bool {
-	return code == 401
+// IsCode returns true when this distributed tasks get forbidden response a status code equal to that given
+func (o *DistributedTasksGetForbidden) IsCode(code int) bool {
+	return code == 403
 }
 
-// Code gets the status code for the distributed tasks get unauthorized response
-func (o *DistributedTasksGetUnauthorized) Code() int {
-	return 401
+// Code gets the status code for the distributed tasks get forbidden response
+func (o *DistributedTasksGetForbidden) Code() int {
+	return 403
 }
 
-func (o *DistributedTasksGetUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetUnauthorized  %+v", 401, o.Payload)
+func (o *DistributedTasksGetForbidden) Error() string {
+	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetForbidden  %+v", 403, o.Payload)
 }
 
-func (o *DistributedTasksGetUnauthorized) String() string {
-	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetUnauthorized  %+v", 401, o.Payload)
+func (o *DistributedTasksGetForbidden) String() string {
+	return fmt.Sprintf("[GET /tasks][%d] distributedTasksGetForbidden  %+v", 403, o.Payload)
 }
 
-func (o *DistributedTasksGetUnauthorized) GetPayload() *models.ErrorResponse {
+func (o *DistributedTasksGetForbidden) GetPayload() *models.ErrorResponse {
 	return o.Payload
 }
 
-func (o *DistributedTasksGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *DistributedTasksGetForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

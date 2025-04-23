@@ -4356,7 +4356,7 @@ func init() {
               "$ref": "#/definitions/DistributedTasks"
             }
           },
-          "401": {
+          "403": {
             "description": "Unauthorized or invalid credentials.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
@@ -12080,7 +12080,7 @@ func init() {
               "$ref": "#/definitions/DistributedTasks"
             }
           },
-          "401": {
+          "403": {
             "description": "Unauthorized or invalid credentials.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
