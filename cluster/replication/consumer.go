@@ -222,6 +222,7 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 	})
 
 	startTime := c.timeProvider.Now()
+
 	return backoff.Retry(func() error {
 		if ctx.Err() != nil {
 			logger.WithField("consumer", c).WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
