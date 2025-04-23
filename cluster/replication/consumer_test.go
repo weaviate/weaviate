@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication/types"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -27,18 +29,15 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
-
-	replicationMocks "github.com/weaviate/weaviate/mocks/cluster/replication"
-	replicationMockTypes "github.com/weaviate/weaviate/mocks/cluster/replication/types"
 )
 
 func TestConsumerWithCallbacks(t *testing.T) {
 	t.Run("successful operation should trigger expected callbacks", func(t *testing.T) {
 		// GIVEN
 		logger, _ := logrustest.NewNullLogger()
-		mockFSMUpdater := &replicationMockTypes.FSMUpdater{}
-		mockReplicaCopier := &replicationMockTypes.ReplicaCopier{}
-		mockTimeProvider := &replicationMocks.TimeProvider{}
+		mockFSMUpdater := types.NewMockFSMUpdater(t)
+		mockReplicaCopier := types.NewMockReplicaCopier(t)
+		mockTimeProvider := replication.NewMockTimeProvider(t)
 
 		opId, err := randInt(t, 100, 200)
 		require.NoError(t, err, "error generating random operation id")
@@ -140,9 +139,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 	t.Run("failed operation should trigger failed callback", func(t *testing.T) {
 		// GIVEN
 		logger, _ := logrustest.NewNullLogger()
-		mockFSMUpdater := &replicationMockTypes.FSMUpdater{}
-		mockReplicaCopier := &replicationMockTypes.ReplicaCopier{}
-		mockTimeProvider := &replicationMocks.TimeProvider{}
+		mockFSMUpdater := types.NewMockFSMUpdater(t)
+		mockReplicaCopier := types.NewMockReplicaCopier(t)
+		mockTimeProvider := replication.NewMockTimeProvider(t)
 
 		opId, err := randInt(t, 100, 200)
 		require.NoError(t, err, "error generating random operation id")
@@ -237,9 +236,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 	t.Run("multiple random concurrent operations should be tracked correctly", func(t *testing.T) {
 		// GIVEN
 		logger, _ := logrustest.NewNullLogger()
-		mockFSMUpdater := &replicationMockTypes.FSMUpdater{}
-		mockReplicaCopier := &replicationMockTypes.ReplicaCopier{}
-		mockTimeProvider := &replicationMocks.TimeProvider{}
+		mockFSMUpdater := types.NewMockFSMUpdater(t)
+		mockReplicaCopier := types.NewMockReplicaCopier(t)
+		mockTimeProvider := replication.NewMockTimeProvider(t)
 
 		randomNumberOfOps, err := randInt(t, 10, 20)
 		require.NoError(t, err, "error while generating random number of operations")
