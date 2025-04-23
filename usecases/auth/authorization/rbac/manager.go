@@ -27,6 +27,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
+const (
+	SnapshotVersionV0 = iota
+	SnapshotVersionLatest
+)
+
 type manager struct {
 	casbin *casbin.SyncedCachedEnforcer
 	logger logrus.FieldLogger
@@ -243,6 +248,7 @@ func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
 type snapshot struct {
 	Policy         [][]string `json:"roles_policies"`
 	GroupingPolicy [][]string `json:"grouping_policies"`
+	Version        int        `json:"version"`
 }
 
 func (m *manager) Snapshot() ([]byte, error) {
@@ -261,7 +267,7 @@ func (m *manager) Snapshot() ([]byte, error) {
 
 	// Use a buffer to stream the JSON encoding
 	var buf bytes.Buffer
-	if err := json.NewEncoder(&buf).Encode(snapshot{Policy: policy, GroupingPolicy: groupingPolicy}); err != nil {
+	if err := json.NewEncoder(&buf).Encode(snapshot{Policy: policy, GroupingPolicy: groupingPolicy, Version: SnapshotVersionV0}); err != nil {
 		return nil, err
 	}
 	return buf.Bytes(), nil
@@ -286,16 +292,24 @@ func (m *manager) Restore(b []byte) error {
 	// we need to clear the policies before adding the new ones
 	m.casbin.ClearPolicy()
 
-	// TODO : migration has to be done here if needed
 	_, err := m.casbin.AddPolicies(snapshot.Policy)
 	if err != nil {
 		return fmt.Errorf("add policies: %w", err)
 	}
 
-	// TODO : migration has to be done here if needed
 	_, err = m.casbin.AddGroupingPolicies(snapshot.GroupingPolicy)
 	if err != nil {
 		return fmt.Errorf("add grouping policies: %w", err)
+	}
+
+	// this code should not be in 1.30
+	if snapshot.Version == SnapshotVersionLatest {
+		if err := downgradesAssignmentsFrom130(m.casbin, true); err != nil {
+			return fmt.Errorf("migrate policies: %w", err)
+		}
+		if err := downgradeRolesFrom130(m.casbin, true); err != nil {
+			return fmt.Errorf("migrate groupings: %w", err)
+		}
 	}
 
 	// Save the policies to ensure they are persisted

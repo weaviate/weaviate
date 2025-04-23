@@ -108,11 +108,24 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
-	if err := downgradesAssignmentsFrom130(enforcer, rbacStoragePath); err != nil {
+	version, err := getVersion(rbacStoragePath)
+	if err != nil {
 		return nil, err
 	}
-	if err := downgradeRolesFrom130(enforcer); err != nil {
+
+	versionParts := strings.Split(version, ".")
+	minorVersion, err := strconv.Atoi(versionParts[1])
+	if err != nil {
 		return nil, err
+	}
+
+	if minorVersion == 30 {
+		if err := downgradesAssignmentsFrom130(enforcer, false); err != nil {
+			return nil, err
+		}
+		if err := downgradeRolesFrom130(enforcer, false); err != nil {
+			return nil, err
+		}
 	}
 
 	err = writeVersion(rbacStoragePath, build.Version)
@@ -195,33 +208,20 @@ func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
 	return (bool)(WeaviateMatcher(name1, name2)), nil
 }
 
-func downgradesAssignmentsFrom130(enforcer *casbin.SyncedCachedEnforcer, path string) error {
-	version, err := getVersion(path)
-	if err != nil {
-		return err
-	}
-
-	versionParts := strings.Split(version, ".")
-	minorVersion, err := strconv.Atoi(versionParts[1])
-	if err != nil {
-		return err
-	}
-
-	if minorVersion < 30 {
-		return nil
-	}
-
+func downgradesAssignmentsFrom130(enforcer *casbin.SyncedCachedEnforcer, keepInternalRoles bool) error {
 	// remove build-in roles with potentially changed verbs. These will be re-added in the next step
 	policies, err := enforcer.GetPolicy()
 	if err != nil {
 		return err
 	}
 
-	for _, policy := range policies {
-		roleName := conv.TrimRoleNamePrefix(policy[0])
-		if _, ok := conv.BuiltInPolicies[roleName]; ok {
-			if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, policy[0]); err != nil {
-				return err
+	if !keepInternalRoles {
+		for _, policy := range policies {
+			roleName := conv.TrimRoleNamePrefix(policy[0])
+			if _, ok := conv.BuiltInPolicies[roleName]; ok {
+				if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, policy[0]); err != nil {
+					return err
+				}
 			}
 		}
 	}
@@ -264,7 +264,7 @@ func downgradesAssignmentsFrom130(enforcer *casbin.SyncedCachedEnforcer, path st
 	return nil
 }
 
-func downgradeRolesFrom130(enforcer *casbin.SyncedCachedEnforcer) error {
+func downgradeRolesFrom130(enforcer *casbin.SyncedCachedEnforcer, keepBuildInRoles bool) error {
 	policies, err := enforcer.GetPolicy()
 	if err != nil {
 		return err
@@ -287,7 +287,11 @@ func downgradeRolesFrom130(enforcer *casbin.SyncedCachedEnforcer) error {
 	for _, policy := range policiesToAdd {
 		roleName := conv.TrimRoleNamePrefix(policy[0])
 		if _, ok := conv.BuiltInPolicies[roleName]; ok {
-			continue
+			if !keepBuildInRoles {
+				continue
+			} else if policy[2] == "(C)|(R)|(U)|(D)|(A)" {
+				policy[2] = conv.CRUD
+			}
 		}
 
 		if _, err := enforcer.AddNamedPolicy("p", policy[0], policy[1], policy[2], policy[3]); err != nil {
