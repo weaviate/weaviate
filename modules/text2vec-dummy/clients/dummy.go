@@ -75,8 +75,7 @@ func (v *vectorizer) vectorize(ctx context.Context, input []string) (*modulecomp
 			vectors[i][j] = randomSlice[j] + shift
 		}
 	}
-
-	time.Sleep(5*time.Second - time.Since(start))
+	time.Sleep(time.Duration(len(input))*100*time.Millisecond - time.Since(start))
 
 	return &modulecomponents.VectorizationResult{
 		Text:       input,
