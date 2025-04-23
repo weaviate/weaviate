@@ -1,7 +1,7 @@
 {
   "servers": [
     {
-      "url": "http://localhost:8080/v1"
+      "url": "http(s):{WEAVIATE_HOSTNAME}:{PORT}/v1"
     }
   ],
   "consumes": [
