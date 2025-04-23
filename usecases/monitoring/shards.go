@@ -34,8 +34,8 @@ func (pm *PrometheusMetrics) StartLoadingShard(className string) error {
 	if err != nil {
 		return err
 	}
-
 	slding.Inc()
+
 	return nil
 }
 
@@ -82,7 +82,7 @@ func (pm *PrometheusMetrics) StartUnloadingShard(className string) error {
 
 	sldd.Dec()
 
-	suld, err := pm.ShardsUnloaded.GetMetricWith(labels)
+	suld, err := pm.ShardsUnloading.GetMetricWith(labels)
 	if err != nil {
 		return err
 	}
