@@ -199,3 +199,24 @@ func TestRestoreInvalidData(t *testing.T) {
 	err = m.Restore([]byte("{}"))
 	require.NoError(t, err)
 }
+
+func TestRestoreEmptyData(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+	m, err := setupTestManager(t, logger)
+	require.NoError(t, err)
+
+	_, err = m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.SchemaDomain)
+	require.NoError(t, err)
+
+	policies, err := m.casbin.GetPolicy()
+	require.NoError(t, err)
+	require.Len(t, policies, 4)
+
+	err = m.Restore([]byte{})
+	require.NoError(t, err)
+
+	// nothing overwritten
+	policies, err = m.casbin.GetPolicy()
+	require.NoError(t, err)
+	require.Len(t, policies, 4)
+}
