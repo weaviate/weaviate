@@ -61,7 +61,6 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
-	runtimeconfig "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -604,7 +603,7 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 }
 
 func (i *Index) asyncReplicationGloballyDisabled() bool {
-	return runtimeconfig.GetOverrides(i.globalreplicationConfig.AsyncReplicationDisabled, i.globalreplicationConfig.AsyncReplicationDisabledFn)
+	return i.globalreplicationConfig.AsyncReplicationDisabled.Get()
 }
 
 func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.ReplicationConfig) error {
