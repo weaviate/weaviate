@@ -13,7 +13,6 @@ package lsmkv
 
 import (
 	"bufio"
-	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -27,19 +26,9 @@ import (
 
 var logOnceWhenRecoveringFromWAL sync.Once
 
-func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
+func (b *Bucket) mayRecoverFromCommitLogs() error {
 	beforeAll := time.Now()
 	defer b.metrics.TrackStartupBucketRecovery(beforeAll)
-
-	// the context is only ever checked once at the beginning, as there is no
-	// point in aborting an ongoing recovery. It makes more sense to let it
-	// complete and have the next recovery (this is called once per bucket) run
-	// into this error. This way in a crashloop we'd eventually recover each
-	// bucket until there is nothing left to recover and startup could complete
-	// in time
-	if err := ctx.Err(); err != nil {
-		return errors.Wrap(err, "recover commit log")
-	}
 
 	list, err := os.ReadDir(b.dir)
 	if err != nil {
@@ -109,20 +98,6 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 
 		if err := mt.flush(); err != nil {
 			return errors.Wrap(err, "flush memtable after WAL recovery")
-		}
-
-		if mt.Size() == 0 {
-			continue
-		}
-
-		if err := b.disk.add(path + ".db"); err != nil {
-			return err
-		}
-
-		if b.strategy == StrategyReplace && b.monitorCount {
-			// having just flushed the memtable we now have the most up2date count which
-			// is a good place to update the metric
-			b.metrics.ObjectCount(b.disk.count())
 		}
 
 		b.logger.WithField("action", "lsm_recover_from_active_wal_success").

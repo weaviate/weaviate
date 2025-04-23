@@ -36,7 +36,7 @@ func TestCreateBloomOnFlush(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1), WithSegmentsPreloading(true))
 	require.Nil(t, err)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
@@ -79,7 +79,7 @@ func TestCreateBloomInit(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1), WithSegmentsPreloading(true))
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
 
@@ -102,6 +102,8 @@ func TestCreateBloomInit(t *testing.T) {
 		require.False(t, ok, "verify the file is really gone")
 	}
 
+	count := b.Count()
+
 	require.Nil(t, b.Shutdown(ctx))
 
 	// now create a new bucket and assert that the file is re-created on init
@@ -110,6 +112,8 @@ func TestCreateBloomInit(t *testing.T) {
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
+
+	require.Equal(t, count, b2.Count())
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -127,7 +131,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace))
+		WithStrategy(StrategyReplace), WithSegmentsPreloading(true))
 	require.Nil(t, err)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
@@ -164,7 +168,7 @@ func TestRepairTooShortBloomOnInit(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace))
+		WithStrategy(StrategyReplace), WithSegmentsPreloading(true))
 	require.Nil(t, err)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
@@ -200,7 +204,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1), WithSegmentsPreloading(true))
 	require.Nil(t, err)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
@@ -250,7 +254,7 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1), WithSegmentsPreloading(true))
 	require.Nil(t, err)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
@@ -288,7 +292,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 
 	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1), WithSegmentsPreloading(true))
 	require.Nil(t, err)
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
@@ -501,7 +505,10 @@ func dontPrecomputeBloom(ctx context.Context, t *testing.T, opts []BucketOption)
 			WithSecondaryKey(0, []byte("bonjour2"))))
 		require.NoError(t, b.FlushMemtable())
 
-		compacted, err := b.disk.compactOnce()
+		disk, err := b.getDisk()
+		require.NoError(t, err)
+
+		compacted, err := disk.compactOnce()
 		require.NoError(t, err)
 		require.True(t, compacted)
 	})

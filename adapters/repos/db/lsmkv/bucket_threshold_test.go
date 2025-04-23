@@ -251,11 +251,14 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		)
 		require.Nil(t, err)
 
-		t.Run("assert no segments exist initially", func(t *testing.T) {
-			bucket.disk.maintenanceLock.RLock()
-			defer bucket.disk.maintenanceLock.RUnlock()
+		disk, err := bucket.getDisk()
+		require.NoError(t, err)
 
-			assert.Equal(t, 0, len(bucket.disk.segments))
+		t.Run("assert no segments exist initially", func(t *testing.T) {
+			disk.maintenanceLock.RLock()
+			defer disk.maintenanceLock.RUnlock()
+
+			assert.Equal(t, 0, len(disk.segments))
 		})
 
 		t.Run("wait until dirty threshold has passed", func(t *testing.T) {
@@ -265,10 +268,10 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist even after passing the dirty threshold", func(t *testing.T) {
-			bucket.disk.maintenanceLock.RLock()
-			defer bucket.disk.maintenanceLock.RUnlock()
+			disk.maintenanceLock.RLock()
+			defer disk.maintenanceLock.RUnlock()
 
-			assert.Equal(t, 0, len(bucket.disk.segments))
+			assert.Equal(t, 0, len(disk.segments))
 		})
 
 		t.Run("shutdown bucket", func(t *testing.T) {
@@ -299,11 +302,14 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 			require.Nil(t, bucket.Put([]byte("some-key"), []byte("some-value")))
 		})
 
-		t.Run("assert no segments exist initially", func(t *testing.T) {
-			bucket.disk.maintenanceLock.RLock()
-			defer bucket.disk.maintenanceLock.RUnlock()
+		disk, err := bucket.getDisk()
+		require.NoError(t, err)
 
-			assert.Equal(t, 0, len(bucket.disk.segments))
+		t.Run("assert no segments exist initially", func(t *testing.T) {
+			disk.maintenanceLock.RLock()
+			defer disk.maintenanceLock.RUnlock()
+
+			assert.Equal(t, 0, len(disk.segments))
 		})
 
 		t.Run("wait until dirty threshold has passed", func(t *testing.T) {
@@ -313,10 +319,10 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert that a flush has occurred (and one segment exists)", func(t *testing.T) {
-			bucket.disk.maintenanceLock.RLock()
-			defer bucket.disk.maintenanceLock.RUnlock()
+			disk.maintenanceLock.RLock()
+			defer disk.maintenanceLock.RUnlock()
 
-			assert.Equal(t, 1, len(bucket.disk.segments))
+			assert.Equal(t, 1, len(disk.segments))
 		})
 
 		t.Run("shutdown bucket", func(t *testing.T) {
@@ -340,6 +346,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 			WithMemtableThreshold(1e12), // large enough to not affect this test
 			WithWalThreshold(1e12),      // large enough to not affect this test
 			WithDirtyThreshold(50*time.Millisecond),
+			WithSegmentsPreloading(true),
 		)
 		require.Nil(t, err)
 

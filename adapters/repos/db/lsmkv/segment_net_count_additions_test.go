@@ -34,6 +34,7 @@ func TestCNA(t *testing.T) {
 			f:    createCNAOnFlush,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithSegmentsPreloading(true),
 			},
 		},
 		{
@@ -41,6 +42,7 @@ func TestCNA(t *testing.T) {
 			f:    createCNAInit,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithSegmentsPreloading(true),
 			},
 		},
 		{
@@ -48,6 +50,7 @@ func TestCNA(t *testing.T) {
 			f:    repairCorruptedCNAOnInit,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithSegmentsPreloading(true),
 			},
 		},
 	}
@@ -262,7 +265,10 @@ func dontPrecomputeCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 		require.NoError(t, b.Put([]byte("hello2"), []byte("world2")))
 		require.NoError(t, b.FlushMemtable())
 
-		compacted, err := b.disk.compactOnce()
+		disk, err := b.getDisk()
+		require.NoError(t, err)
+
+		compacted, err := disk.compactOnce()
 		require.NoError(t, err)
 		require.True(t, compacted)
 	})

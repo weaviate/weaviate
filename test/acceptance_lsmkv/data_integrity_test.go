@@ -88,7 +88,10 @@ func TestLSMKV_ChecksumsCatchCorruptedFiles(t *testing.T) {
 	fileContent[valueOffset] = 0xFF
 	require.NoError(t, os.WriteFile(segmentPath, fileContent, os.ModePerm))
 
-	_, err = newTestBucket(dataDir, true)
+	b, err := newTestBucket(dataDir, true)
+	require.NoError(t, err)
+
+	_, err = b.Get([]byte{1})
 	require.ErrorContains(t, err, "invalid checksum")
 }
 

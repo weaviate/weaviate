@@ -178,7 +178,8 @@ func buildCompressedBucketForTest(t *testing.T, totalVecs int) *lsmkv.Bucket {
 		require.Nil(t, err)
 	}
 
-	require.Nil(t, bucket.FlushAndSwitch())
+	err = bucket.FlushAndSwitch()
+	require.NoError(t, err)
 
 	return bucket
 }

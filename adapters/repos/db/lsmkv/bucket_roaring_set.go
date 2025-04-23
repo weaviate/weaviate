@@ -67,10 +67,15 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 		return nil, err
 	}
 
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil, err
+	}
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	layers, err := b.disk.roaringSetGet(key)
+	layers, err := disk.roaringSetGet(key)
 	if err != nil {
 		return nil, err
 	}

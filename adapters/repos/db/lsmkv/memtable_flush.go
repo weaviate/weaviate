@@ -28,7 +28,6 @@ func (m *Memtable) flush() (rerr error) {
 	// only be deleted at the very end, if the flush was successful
 	// (indicated by a successful close of the flush file - which indicates a
 	// successful fsync)
-
 	if err := m.commitlog.close(); err != nil {
 		return errors.Wrap(err, "close commit log file")
 	}

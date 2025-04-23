@@ -12,6 +12,8 @@
 package lsmkv
 
 import (
+	"fmt"
+
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 )
@@ -53,11 +55,16 @@ func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
 }
 
 func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
+	disk, err := b.getDisk()
+	if err != nil {
+		panic(fmt.Errorf("cursorRoaringSet() failed during segment data loading %w", err))
+	}
+
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSet)
 
 	b.flushLock.RLock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newRoaringSetCursors()
+	innerCursors, unlockSegmentGroup := disk.newRoaringSetCursors()
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two

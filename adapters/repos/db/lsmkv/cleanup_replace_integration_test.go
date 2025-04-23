@@ -214,7 +214,10 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 
 		// all but last segments should be cleaned
 		for i := 0; i < count; i++ {
-			cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(shouldAbort)
+			disk, err := bucket.getDisk()
+			require.NoError(t, err)
+
+			cleaned, err := disk.segmentCleaner.cleanupOnce(shouldAbort)
 			assert.NoError(t, err)
 
 			if i != count-1 {
@@ -227,12 +230,15 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 
 	t.Run("verify segments' contents", func(t *testing.T) {
 		assertContents := func(t *testing.T, segIdx int, expected []*kvt) {
-			seg := bucket.disk.segments[segIdx]
+			disk, err := bucket.getDisk()
+			require.NoError(t, err)
+
+			seg := disk.segments[segIdx]
 			cur := seg.newCursor()
 
 			i := 0
 			var k, v []byte
-			var err error
+
 			for k, v, err = cur.first(); k != nil && i < len(expected); k, v, err = cur.next() {
 				assert.Equal(t, []byte(expected[i].pkey), k)
 				if expected[i].tomb {
@@ -601,7 +607,10 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 
 		// all but last segments should be cleaned
 		for i := 0; i < count; i++ {
-			cleaned, err := bucket.disk.segmentCleaner.cleanupOnce(shouldAbort)
+			disk, err := bucket.getDisk()
+			require.NoError(t, err)
+
+			cleaned, err := disk.segmentCleaner.cleanupOnce(shouldAbort)
 			assert.NoError(t, err)
 
 			if i != count-1 {
@@ -614,12 +623,14 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 
 	t.Run("verify segments' contents", func(t *testing.T) {
 		assertContents := func(t *testing.T, segIdx int, expected []*kvt) {
-			seg := bucket.disk.segments[segIdx]
+			disk, err := bucket.getDisk()
+			require.NoError(t, err)
+
+			seg := disk.segments[segIdx]
 			cur := seg.newCursor()
 
 			i := 0
 			var n segmentReplaceNode
-			var err error
 
 			for n, err = cur.firstWithAllKeys(); !errors.Is(err, lsmkv.NotFound) && i < len(expected); n, err = cur.nextWithAllKeys() {
 				assert.Equal(t, uint16(2), n.secondaryIndexCount)

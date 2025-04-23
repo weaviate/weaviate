@@ -413,8 +413,13 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 }
 
 func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, string, error) {
-	replacementBucket.disk.maintenanceLock.Lock()
-	defer replacementBucket.disk.maintenanceLock.Unlock()
+	disk, err := replacementBucket.getDisk()
+	if err != nil {
+		return "", "", "", "", err
+	}
+
+	disk.maintenanceLock.Lock()
+	defer disk.maintenanceLock.Unlock()
 
 	currBucketDir := bucket.dir
 	newBucketDir := bucket.dir + "___del"
@@ -539,10 +544,16 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 		bucket.flushing.commitlog.path = updatePath(bucket.flushing.commitlog.path)
 	}
 	bucket.flushLock.Unlock()
-	bucket.disk.maintenanceLock.Lock()
-	bucket.disk.dir = newBucketDir
-	for _, segment := range bucket.disk.segments {
+
+	disk, err := bucket.getDisk()
+	if err != nil {
+		panic(fmt.Errorf("updateBucketDir() failed during segment data loading %w", err))
+	}
+
+	disk.maintenanceLock.Lock()
+	disk.dir = newBucketDir
+	for _, segment := range disk.segments {
 		segment.path = updatePath(segment.path)
 	}
-	bucket.disk.maintenanceLock.Unlock()
+	disk.maintenanceLock.Unlock()
 }

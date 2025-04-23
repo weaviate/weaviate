@@ -35,6 +35,7 @@ func TestPrecomputeForCompaction(t *testing.T) {
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
 				WithSecondaryIndices(1),
+				WithSegmentsPreloading(true),
 			},
 		},
 		{
@@ -42,6 +43,7 @@ func TestPrecomputeForCompaction(t *testing.T) {
 			f:    precomputeSegmentMeta_Set,
 			opts: []BucketOption{
 				WithStrategy(StrategySetCollection),
+				WithSegmentsPreloading(true),
 			},
 		},
 	}

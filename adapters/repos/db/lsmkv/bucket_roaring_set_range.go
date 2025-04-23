@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -50,9 +51,14 @@ type ReaderRoaringSetRange interface {
 func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSetRange)
 
+	disk, err := b.getDisk()
+	if err != nil {
+		panic(fmt.Errorf("ReaderRoaringSetRange() failed during segment data loading %w", err))
+	}
+
 	b.flushLock.RLock()
 
-	readers, releaseSegmentGroup := b.disk.newRoaringSetRangeReaders()
+	readers, releaseSegmentGroup := disk.newRoaringSetRangeReaders()
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two

@@ -53,6 +53,7 @@ func TestBucket(t *testing.T) {
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
 				WithKeepTombstones(true),
+				WithSegmentsPreloading(true),
 			},
 		},
 		{
@@ -60,6 +61,7 @@ func TestBucket(t *testing.T) {
 			f:    bucket_WasDeleted_CleanupTombstones,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithSegmentsPreloading(true),
 			},
 		},
 		{
@@ -68,6 +70,7 @@ func TestBucket(t *testing.T) {
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
 				WithSecondaryIndices(1),
+				WithSegmentsPreloading(true),
 			},
 		},
 	}

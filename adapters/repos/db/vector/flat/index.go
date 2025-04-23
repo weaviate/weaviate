@@ -221,6 +221,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		// In the future when the pure pread performance is on par with mmap, we
 		// should update this to pass the global setting.
 		lsmkv.WithPread(false),
+		lsmkv.WithSegmentsPreloading(true),
 	); err != nil {
 		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
 	}

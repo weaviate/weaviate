@@ -196,8 +196,11 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
-		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+
+		disk, err := bucket.getDisk()
+		require.NoError(t, err)
+
+		for compacted, err = disk.compactOnce(); err == nil && compacted; compacted, err = disk.compactOnce() {
 		}
 		require.Nil(t, err)
 	})
@@ -417,8 +420,11 @@ func compactionReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing
 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
-		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+
+		disk, err := bucket.getDisk()
+		require.NoError(t, err)
+
+		for compacted, err = disk.compactOnce(); err == nil && compacted; compacted, err = disk.compactOnce() {
 		}
 		require.Nil(t, err)
 	})
@@ -511,8 +517,11 @@ func compactionReplaceStrategy_RemoveUnnecessaryDeletes(ctx context.Context, t *
 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
-		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+
+		disk, err := bucket.getDisk()
+		require.NoError(t, err)
+
+		for compacted, err = disk.compactOnce(); err == nil && compacted; compacted, err = disk.compactOnce() {
 		}
 		require.Nil(t, err)
 	})
@@ -596,8 +605,11 @@ func compactionReplaceStrategy_RemoveUnnecessaryUpdates(ctx context.Context, t *
 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
-		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+
+		disk, err := bucket.getDisk()
+		require.NoError(t, err)
+
+		for compacted, err = disk.compactOnce(); err == nil && compacted; compacted, err = disk.compactOnce() {
 		}
 		require.Nil(t, err)
 	})
@@ -666,8 +678,11 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations(ctx context.Context, 
 
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
-		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+
+		disk, err := bucket.getDisk()
+		require.NoError(t, err)
+
+		for compacted, err = disk.compactOnce(); err == nil && compacted; compacted, err = disk.compactOnce() {
 		}
 		require.Nil(t, err)
 	})
@@ -738,8 +753,11 @@ func compactionReplaceStrategy_FrequentPutDeleteOperations_WithSecondaryKeys(ctx
 
 			t.Run("compact until no longer eligible", func(t *testing.T) {
 				var compacted bool
-				var err error
-				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+
+				disk, err := bucket.getDisk()
+				require.NoError(t, err)
+
+				for compacted, err = disk.compactOnce(); err == nil && compacted; compacted, err = disk.compactOnce() {
 				}
 				require.Nil(t, err)
 			})

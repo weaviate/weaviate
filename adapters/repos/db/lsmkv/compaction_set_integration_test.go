@@ -309,8 +309,11 @@ func compactionSetStrategy(ctx context.Context, t *testing.T, opts []BucketOptio
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		i := 0
 		var compacted bool
-		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+
+		disk, err := bucket.getDisk()
+		require.NoError(t, err)
+
+		for compacted, err = disk.compactOnce(); err == nil && compacted; compacted, err = disk.compactOnce() {
 			if i == 1 {
 				// segment1 and segment2 merged
 				// none of them is root segment, so tombstones
@@ -408,8 +411,11 @@ func compactionSetStrategy_RemoveUnnecessary(ctx context.Context, t *testing.T, 
 	})
 	t.Run("compact until no longer eligible", func(t *testing.T) {
 		var compacted bool
-		var err error
-		for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+
+		disk, err := bucket.getDisk()
+		require.NoError(t, err)
+
+		for compacted, err = disk.compactOnce(); err == nil && compacted; compacted, err = disk.compactOnce() {
 		}
 		require.Nil(t, err)
 	})
@@ -504,8 +510,11 @@ func compactionSetStrategy_FrequentPutDeleteOperations(ctx context.Context, t *t
 
 			t.Run("compact until no longer eligible", func(t *testing.T) {
 				var compacted bool
-				var err error
-				for compacted, err = bucket.disk.compactOnce(); err == nil && compacted; compacted, err = bucket.disk.compactOnce() {
+
+				disk, err := bucket.getDisk()
+				require.NoError(t, err)
+
+				for compacted, err = disk.compactOnce(); err == nil && compacted; compacted, err = disk.compactOnce() {
 				}
 				require.Nil(t, err)
 			})

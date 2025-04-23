@@ -48,8 +48,18 @@ type Bucket struct {
 	rootDir  string
 	active   *Memtable
 	flushing *Memtable
-	disk     *SegmentGroup
-	logger   logrus.FieldLogger
+
+	flushAndSwitchMux sync.Mutex
+
+	diskMux sync.Mutex
+	// NOTE:
+	// - it's important to first acquire diskMux before statusLock
+	// - it's important to first acquire flushLock before diskMux
+	disk *SegmentGroup
+
+	compactionCallbacks cyclemanager.CycleCallbackGroup
+
+	logger logrus.FieldLogger
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -133,6 +143,9 @@ type Bucket struct {
 	// introduces latency of segment availability, for the tradeoff of
 	// ensuring segment files have integrity before reading them.
 	enableChecksumValidation bool
+
+	// preload segments as part of bucket loading
+	preloadSegments bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -164,6 +177,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		walThreshold:          defaultWalThreshold,
 		flushDirtyAfter:       defaultFlushAfterDirty,
 		strategy:              defaultStrategy,
+		compactionCallbacks:   compactionCallbacks,
 		mmapContents:          true,
 		logger:                logger,
 		metrics:               metrics,
@@ -182,9 +196,46 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
 
-	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
+	if err := b.mayRecoverFromCommitLogs(); err != nil {
+		return nil, err
+	}
+
+	if b.preloadSegments {
+		_, err := b.getDisk()
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	err := b.setNewActiveMemtable()
+	if err != nil {
+		return nil, err
+	}
+
+	id := "bucket/flush/" + b.dir
+	b.flushCallbackCtrl = flushCallbacks.Register(id, b.flushAndSwitchIfThresholdsMet)
+
+	b.metrics.TrackStartupBucket(beforeAll)
+
+	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
+		// prevent accidentally trying to register the same bucket twice
+		return nil, err
+	}
+
+	return b, nil
+}
+
+func (b *Bucket) getDisk() (*SegmentGroup, error) {
+	b.diskMux.Lock()
+	defer b.diskMux.Unlock()
+
+	if b.disk != nil {
+		return b.disk, nil
+	}
+
+	sg, err := newSegmentGroup(b.logger, b.metrics, b.compactionCallbacks,
 		sgConfig{
-			dir:                      dir,
+			dir:                      b.dir,
 			strategy:                 b.strategy,
 			mapRequiresSorting:       b.legacyMapSortingBeforeCompaction,
 			monitorCount:             b.monitorCount,
@@ -226,28 +277,13 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		sg.strategy = StrategyMapCollection
 	}
 
+	b.statusLock.Lock()
+	sg.UpdateStatus(b.status)
+	b.statusLock.Unlock()
+
 	b.disk = sg
 
-	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
-		return nil, err
-	}
-
-	err = b.setNewActiveMemtable()
-	if err != nil {
-		return nil, err
-	}
-
-	id := "bucket/flush/" + b.dir
-	b.flushCallbackCtrl = flushCallbacks.Register(id, b.flushAndSwitchIfThresholdsMet)
-
-	b.metrics.TrackStartupBucket(beforeAll)
-
-	if err := GlobalBucketRegistry.TryAdd(dir); err != nil {
-		// prevent accidentally trying to register the same bucket twice
-		return nil, err
-	}
-
-	return b, nil
+	return b.disk, nil
 }
 
 func (b *Bucket) GetDir() string {
@@ -408,7 +444,12 @@ func (b *Bucket) get(key []byte) ([]byte, error) {
 		}
 	}
 
-	return b.disk.get(key)
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil, err
+	}
+
+	return disk.get(key)
 }
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
@@ -449,7 +490,12 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 		}
 	}
 
-	return b.disk.getErrDeleted(key)
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil, err
+	}
+
+	return disk.getErrDeleted(key)
 }
 
 // GetBySecondary retrieves an object using one of its secondary keys. A bucket
@@ -532,7 +578,12 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 		}
 	}
 
-	k, v, buffer, err := b.disk.getBySecondaryIntoMemory(pos, key, buffer)
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	k, v, buffer, err := disk.getBySecondaryIntoMemory(pos, key, buffer)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -558,7 +609,12 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 
 	var out []value
 
-	v, err := b.disk.getCollection(key)
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil, err
+	}
+
+	v, err := disk.getCollection(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -708,7 +764,12 @@ func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
 		// can still check disk
 	}
 
-	_, err = b.disk.getErrDeleted(key)
+	disk, err := b.getDisk()
+	if err != nil {
+		return false, time.Time{}, err
+	}
+
+	_, err = disk.getErrDeleted(key)
 	if err == nil {
 		return false, time.Time{}, nil
 	}
@@ -762,8 +823,13 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		cfg(&c)
 	}
 
+	bdisk, err := b.getDisk()
+	if err != nil {
+		return nil, err
+	}
+
 	segments := [][]MapPair{}
-	disk, err := b.disk.getCollectionBySegments(key)
+	disk, err := bdisk.getCollectionBySegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}
@@ -942,7 +1008,12 @@ func (b *Bucket) Count() int {
 		memtableCount = deltaActive + deltaFlushing
 	}
 
-	diskCount := b.disk.count()
+	disk, err := b.getDisk()
+	if err != nil {
+		panic(fmt.Errorf("Count() failed during segment data loading: %w", err))
+	}
+
+	diskCount := disk.count()
 
 	if b.monitorCount {
 		b.metrics.ObjectCount(memtableCount + diskCount)
@@ -955,7 +1026,12 @@ func (b *Bucket) Count() int {
 // call, so it can be used for observability purposes where eventual
 // consistency on the count is fine, but a large cost is not.
 func (b *Bucket) CountAsync() int {
-	return b.disk.count()
+	disk, err := b.getDisk()
+	if err != nil {
+		panic(fmt.Errorf("CountAsync() failed during segment data loading %w", err))
+	}
+
+	return disk.count()
 }
 
 func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStats) int {
@@ -980,7 +1056,12 @@ func (b *Bucket) memtableNetCount(stats *countStats, previousMemtable *countStat
 }
 
 func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byte) bool {
-	v, _ := b.disk.get(key) // current implementation can't error
+	disk, err := b.getDisk()
+	if err != nil {
+		panic(fmt.Errorf("existsOnDiskAndPreviousMemtable() failed during segment data loading %w", err))
+	}
+
+	v, _ := disk.get(key) // current implementation can't error
 	if v == nil {
 		// not on disk, but it could still be in the previous memtable
 		return previous.hasUpsert(key)
@@ -993,9 +1074,14 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 func (b *Bucket) Shutdown(ctx context.Context) error {
 	defer GlobalBucketRegistry.Remove(b.dir)
 
-	if err := b.disk.shutdown(ctx); err != nil {
-		return err
-	}
+	defer func() {
+		b.diskMux.Lock()
+		defer b.diskMux.Unlock()
+
+		if b.disk != nil {
+			b.disk.shutdown(ctx)
+		}
+	}()
 
 	if err := b.flushCallbackCtrl.Unregister(ctx); err != nil {
 		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
@@ -1003,15 +1089,16 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 
 	b.flushLock.Lock()
 	if err := b.active.flush(); err != nil {
+		b.flushLock.Unlock()
 		return err
 	}
-	b.flushLock.Unlock()
-
 	if b.flushing == nil {
+		b.flushLock.Unlock()
 		// active has flushing, no one else was currently flushing, it's safe to
 		// exit
 		return nil
 	}
+	b.flushLock.Unlock()
 
 	// it seems we still need to wait for someone to finish flushing
 	t := time.NewTicker(50 * time.Millisecond)
@@ -1021,9 +1108,12 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-t.C:
+			b.flushLock.RLock()
 			if b.flushing == nil {
+				b.flushLock.RUnlock()
 				return nil
 			}
+			b.flushLock.RUnlock()
 		}
 	}
 }
@@ -1080,11 +1170,17 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 // when the shard has been set to readonly, or when it is ready for
 // writes.
 func (b *Bucket) UpdateStatus(status storagestate.Status) {
+	b.diskMux.Lock()
+	defer b.diskMux.Unlock()
+
 	b.statusLock.Lock()
 	defer b.statusLock.Unlock()
 
 	b.status = status
-	b.disk.UpdateStatus(status)
+
+	if b.disk != nil {
+		b.disk.UpdateStatus(status)
+	}
 }
 
 func (b *Bucket) isReadOnly() bool {
@@ -1141,27 +1237,55 @@ func (b *Bucket) isReadOnly() bool {
 // FlushAndSwitch is typically called periodically and does not require manual
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
-func (b *Bucket) FlushAndSwitch() error {
+func (b *Bucket) FlushAndSwitch() (err error) {
+	b.flushAndSwitchMux.Lock()
+	defer b.flushAndSwitchMux.Unlock()
+
 	before := time.Now()
 
 	b.logger.WithField("action", "lsm_memtable_flush_start").
 		WithField("path", b.dir).
 		Trace("start flush and switch")
+
 	if err := b.atomicallySwitchMemtable(); err != nil {
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
 
+	b.flushLock.Lock()
+	b.diskMux.Lock()
+
+	disk := b.disk
+
+	if disk != nil {
+		b.diskMux.Unlock()
+		// note: it's safe to release the lock because once loaded the reference becomes immutable
+	}
+
 	if err := b.flushing.flush(); err != nil {
+		if disk == nil {
+			b.diskMux.Unlock()
+		}
+		b.flushLock.Unlock()
 		return fmt.Errorf("flush: %w", err)
 	}
 
-	segment, err := b.initAndPrecomputeNewSegment()
-	if err != nil {
-		return fmt.Errorf("precompute metadata: %w", err)
-	}
+	if disk == nil || b.flushing.Size() == 0 {
+		b.flushing = nil
+		if disk == nil {
+			b.diskMux.Unlock()
+		}
+		b.flushLock.Unlock()
+	} else {
+		b.flushLock.Unlock()
 
-	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
-		return fmt.Errorf("add segment and remove flushing: %w", err)
+		segment, err := disk.initAndPrecomputeNewSegment(b.flushing.path + ".db")
+		if err != nil {
+			return fmt.Errorf("precompute metadata: %w", err)
+		}
+
+		if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(disk, segment); err != nil {
+			return fmt.Errorf("add segment and remove flushing: %w", err)
+		}
 	}
 
 	took := time.Since(before)
@@ -1177,20 +1301,7 @@ func (b *Bucket) FlushAndSwitch() error {
 	return nil
 }
 
-func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
-	// Note that this operation does not require the flush lock, i.e. it can
-	// happen in the background and we can accept new writes will this
-	// pre-compute is happening.
-	path := b.flushing.path
-	segment, err := b.disk.initAndPrecomputeNewSegment(path + ".db")
-	if err != nil {
-		return nil, err
-	}
-
-	return segment, nil
-}
-
-func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg *segment) error {
+func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(disk *SegmentGroup, segment *segment) error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 
@@ -1199,9 +1310,10 @@ func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg *segment) error {
 		return nil
 	}
 
-	if err := b.disk.addInitializedSegment(seg); err != nil {
+	if err := disk.addInitializedSegment(segment); err != nil {
 		return err
 	}
+
 	b.flushing = nil
 
 	if b.strategy == StrategyReplace && b.monitorCount {
@@ -1251,8 +1363,13 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 		cfg(&c)
 	}
 
+	bdisk, err := b.getDisk()
+	if err != nil {
+		return nil, err
+	}
+
 	segments := [][]terms.DocPointerWithScore{}
-	disk, err := b.disk.getCollectionBySegments(key)
+	disk, err := bdisk.getCollectionBySegments(key)
 	if err != nil && !errors.Is(err, lsmkv.NotFound) {
 		return nil, err
 	}

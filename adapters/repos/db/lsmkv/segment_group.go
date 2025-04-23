@@ -366,28 +366,6 @@ func (sg *SegmentGroup) makeExistsOnLower(nextSegmentIndex int) existsOnLowerSeg
 	}
 }
 
-func (sg *SegmentGroup) add(path string) error {
-	sg.maintenanceLock.Lock()
-	defer sg.maintenanceLock.Unlock()
-
-	newSegmentIndex := len(sg.segments)
-	segment, err := newSegment(path, sg.logger,
-		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
-		segmentConfig{
-			mmapContents:             sg.mmapContents,
-			useBloomFilter:           sg.useBloomFilter,
-			calcCountNetAdditions:    sg.calcCountNetAdditions,
-			overwriteDerived:         true,
-			enableChecksumValidation: sg.enableChecksumValidation,
-		})
-	if err != nil {
-		return fmt.Errorf("init segment %s: %w", path, err)
-	}
-
-	sg.segments = append(sg.segments, segment)
-	return nil
-}
-
 func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()

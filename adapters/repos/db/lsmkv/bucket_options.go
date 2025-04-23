@@ -166,6 +166,13 @@ func WithSegmentsChecksumValidationEnabled(enable bool) BucketOption {
 	}
 }
 
+func WithSegmentsPreloading(preloadSegments bool) BucketOption {
+	return func(b *Bucket) error {
+		b.preloadSegments = preloadSegments
+		return nil
+	}
+}
+
 /*
 Background for this option:
 

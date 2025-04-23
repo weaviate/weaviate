@@ -46,7 +46,7 @@ func Test_BucketBackup(t *testing.T) {
 
 func bucketBackup_FlushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 	t.Run("assert that readonly bucket fails to flush", func(t *testing.T) {
-		dirName := t.TempDir()
+		dirName := t.TempDir() + "ro"
 
 		b, err := NewBucketCreator().NewBucket(ctx, dirName, dirName, logrus.New(), nil,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)

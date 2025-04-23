@@ -42,6 +42,11 @@ type innerCursorMap interface {
 }
 
 func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
+	disk, err := b.getDisk()
+	if err != nil {
+		panic(fmt.Errorf("MapCursor() failed during segment data loading %w", err))
+	}
+
 	b.flushLock.RLock()
 
 	c := MapListOptionConfig{}
@@ -49,7 +54,7 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 		cfg(&c)
 	}
 
-	innerCursors, unlockSegmentGroup := b.disk.newMapCursors()
+	innerCursors, unlockSegmentGroup := disk.newMapCursors()
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two

@@ -139,6 +139,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithSecondaryIndices(2),
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithKeepTombstones(true),
+		lsmkv.WithSegmentsPreloading(true),
 		s.dynamicMemtableSizing(),
 		s.memtableDirtyConfig(),
 		lsmkv.WithAllocChecker(s.index.allocChecker),

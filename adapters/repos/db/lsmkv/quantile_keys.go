@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"fmt"
 	"math"
 	"sort"
 )
@@ -38,10 +39,15 @@ func (b *Bucket) QuantileKeys(q int) [][]byte {
 		return nil
 	}
 
+	disk, err := b.getDisk()
+	if err != nil {
+		panic(fmt.Errorf("QuantileKeys() failed during segment data loading %w", err))
+	}
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	keys := b.disk.quantileKeys(q)
+	keys := disk.quantileKeys(q)
 	return keys
 }
 
