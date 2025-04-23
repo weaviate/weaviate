@@ -64,14 +64,19 @@ func Test_BackupJourney(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
 			runBackupJourney(t, ctx, tt.overrideBucket, tt.bucket, tt.bucketOverride, tt.pathOverride)
-		})
+
 	}
 }
 
 func runBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-	gcsBackupJourneyBucketName := containerName
+
+	singleNodeTests(t, ctx, override, containerName, overrideBucket, overridePath)
+	multiNodeTests(t, ctx, override, containerName, overrideBucket, overridePath)
+}
+
+
+func singleNodeTests(t *testing.T, ctx context.Context, override bool, gcsBackupJourneyBucketName, overrideBucket, overridePath string) {
 
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
@@ -123,6 +128,9 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 	if t.Failed() {
 		return
 	}
+
+}
+func multiNodeTests(t *testing.T, ctx context.Context, override bool, gcsBackupJourneyBucketName, overrideBucket, overridePath string) {
 
 	t.Run("multiple node", func(t *testing.T) {
 		t.Log("pre-instance env setup")

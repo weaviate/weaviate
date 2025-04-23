@@ -84,7 +84,7 @@ func AssertGetObjectEventuallyWithTimeout(t *testing.T, class string, uuid strfm
 		return err == nil
 	}
 
-	AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, interval*time.Second, timeout*time.Second)
+	AssertEventuallyEqualWithFrequencyAndTimeout(t, true, checkThunk, interval, timeout, "get object %s", uuid)
 
 	var object *models.Object
 
