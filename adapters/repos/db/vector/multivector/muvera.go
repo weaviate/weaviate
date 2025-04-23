@@ -77,11 +77,7 @@ func initProjectionMatrix(rows int, cols int) [][]float32 {
 	for i := 0; i < rows; i++ {
 		matrix[i] = make([]float32, cols)
 		for j := 0; j < cols; j++ {
-			if rand.Float64() < 0.5 {
-				matrix[i][j] = 1.0
-			} else {
-				matrix[i][j] = -1.0
-			}
+			matrix[i][j] = float32(rand.Intn(2)*2 - 1)
 		}
 	}
 	return matrix
