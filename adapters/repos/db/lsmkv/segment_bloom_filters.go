@@ -21,8 +21,8 @@ import (
 	"strings"
 	"time"
 
+	bloom "github.com/bits-and-blooms/bloom/v3"
 	"github.com/pkg/errors"
-	"github.com/willf/bloom"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
