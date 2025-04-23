@@ -4342,6 +4342,38 @@ func init() {
         }
       }
     },
+    "/tasks": {
+      "get": {
+        "tags": [
+          "distributedTasks"
+        ],
+        "summary": "Lists all distributed tasks in the cluster.",
+        "operationId": "distributedTasks.get",
+        "responses": {
+          "200": {
+            "description": "Distributed tasks successfully returned",
+            "schema": {
+              "$ref": "#/definitions/DistributedTasks"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.distributedTasks.get"
+        ]
+      }
+    },
     "/users/db": {
       "get": {
         "tags": [
@@ -5738,6 +5770,60 @@ func init() {
         "status": {
           "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed",
           "type": "string"
+        }
+      }
+    },
+    "DistributedTask": {
+      "description": "Distributed task metadata.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "The high level reason why the task failed.",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "finishedAt": {
+          "description": "The time when the task was finished.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "finishedNodes": {
+          "description": "The nodes that finished the task.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "The ID of the task.",
+          "type": "string"
+        },
+        "payload": {
+          "description": "The payload of the task.",
+          "type": "object"
+        },
+        "startedAt": {
+          "description": "The time when the task was created.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "description": "The status of the task.",
+          "type": "string"
+        },
+        "version": {
+          "description": "The version of the task.",
+          "type": "integer"
+        }
+      }
+    },
+    "DistributedTasks": {
+      "description": "Active distributed tasks by namespace.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/DistributedTask"
         }
       }
     },
@@ -11980,6 +12066,38 @@ func init() {
         }
       }
     },
+    "/tasks": {
+      "get": {
+        "tags": [
+          "distributedTasks"
+        ],
+        "summary": "Lists all distributed tasks in the cluster.",
+        "operationId": "distributedTasks.get",
+        "responses": {
+          "200": {
+            "description": "Distributed tasks successfully returned",
+            "schema": {
+              "$ref": "#/definitions/DistributedTasks"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.distributedTasks.get"
+        ]
+      }
+    },
     "/users/db": {
       "get": {
         "tags": [
@@ -13531,6 +13649,60 @@ func init() {
         "status": {
           "description": "Whether the problematic API functionality is deprecated (planned to be removed) or already removed",
           "type": "string"
+        }
+      }
+    },
+    "DistributedTask": {
+      "description": "Distributed task metadata.",
+      "type": "object",
+      "properties": {
+        "error": {
+          "description": "The high level reason why the task failed.",
+          "type": "string",
+          "x-omitempty": true
+        },
+        "finishedAt": {
+          "description": "The time when the task was finished.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "finishedNodes": {
+          "description": "The nodes that finished the task.",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "id": {
+          "description": "The ID of the task.",
+          "type": "string"
+        },
+        "payload": {
+          "description": "The payload of the task.",
+          "type": "object"
+        },
+        "startedAt": {
+          "description": "The time when the task was created.",
+          "type": "string",
+          "format": "date-time"
+        },
+        "status": {
+          "description": "The status of the task.",
+          "type": "string"
+        },
+        "version": {
+          "description": "The version of the task.",
+          "type": "integer"
+        }
+      }
+    },
+    "DistributedTasks": {
+      "description": "Active distributed tasks by namespace.",
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/definitions/DistributedTask"
         }
       }
     },
