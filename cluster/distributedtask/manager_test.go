@@ -375,44 +375,10 @@ func TestManager_CleanUpTask_Failures(t *testing.T) {
 func TestManager_ListDistributedTasksPayload(t *testing.T) {
 	var (
 		h   = newTestHarness(t).init(t)
-		now = h.clock.Now().Truncate(time.Millisecond)
+		now = h.clock.Now().Local().Truncate(time.Millisecond)
 	)
 
-	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Namespace:             "ns1",
-		Id:                    "task1",
-		Payload:               []byte("test1"),
-		SubmittedAtUnixMillis: now.UnixMilli(),
-	}), 10))
-
-	require.NoError(t, h.manager.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
-		Namespace:             "ns1",
-		Id:                    "task1",
-		Version:               10,
-		CancelledAtUnixMillis: now.Add(time.Minute).UnixMilli(),
-	})))
-
-	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Namespace:             "ns1",
-		Id:                    "task2",
-		Payload:               []byte("test2"),
-		SubmittedAtUnixMillis: now.UnixMilli(),
-	}), 13))
-
-	require.NoError(t, h.manager.RecordNodeCompletion(toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
-		Namespace:            "ns1",
-		Id:                   "task2",
-		Version:              13,
-		NodeId:               "local-node",
-		FinishedAtUnixMillis: now.Add(time.Minute).UnixMilli(),
-	}), 1))
-
-	require.NoError(t, h.manager.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
-		Namespace:             "ns2",
-		Id:                    "task3",
-		Payload:               []byte("test3"),
-		SubmittedAtUnixMillis: now.UnixMilli(),
-	}), 15))
+	expectedTasks := ingestSampleTasks(t, h.manager, now)
 
 	payload, err := h.manager.ListDistributedTasksPayload(context.Background())
 	require.NoError(t, err)
@@ -420,7 +386,67 @@ func TestManager_ListDistributedTasksPayload(t *testing.T) {
 	var resp ListDistributedTasksResponse
 	require.NoError(t, json.Unmarshal(payload, &resp))
 
-	assertTasks(t, map[string][]*Task{
+	assertTasks(t, expectedTasks, resp.Tasks)
+}
+
+func TestManager_SnapshotRestore(t *testing.T) {
+	var (
+		h   = newTestHarness(t).init(t)
+		now = h.clock.Now().Truncate(time.Millisecond)
+	)
+
+	expectedTasks := ingestSampleTasks(t, h.manager, now)
+
+	snap, err := h.manager.Snapshot()
+	require.NoError(t, err)
+
+	h = newTestHarness(t).init(t)
+	require.NoError(t, h.manager.Restore(snap))
+
+	tasks, err := h.manager.ListDistributedTasks(context.Background())
+	require.NoError(t, err)
+
+	assertTasks(t, expectedTasks, tasks)
+}
+
+func ingestSampleTasks(t *testing.T, m *Manager, now time.Time) map[string][]*Task {
+	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns1",
+		Id:                    "task1",
+		Payload:               []byte("test1"),
+		SubmittedAtUnixMillis: now.UnixMilli(),
+	}), 10))
+
+	require.NoError(t, m.CancelTask(toCmd(t, &cmd.CancelDistributedTaskRequest{
+		Namespace:             "ns1",
+		Id:                    "task1",
+		Version:               10,
+		CancelledAtUnixMillis: now.Add(time.Minute).UnixMilli(),
+	})))
+
+	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns1",
+		Id:                    "task2",
+		Payload:               []byte("test2"),
+		SubmittedAtUnixMillis: now.UnixMilli(),
+	}), 13))
+
+	require.NoError(t, m.RecordNodeCompletion(toCmd(t, &cmd.RecordDistributedTaskNodeCompletionRequest{
+		Namespace:            "ns1",
+		Id:                   "task2",
+		Version:              13,
+		NodeId:               "local-node",
+		FinishedAtUnixMillis: now.Add(time.Minute).UnixMilli(),
+	}), 1))
+
+	require.NoError(t, m.AddTask(toCmd(t, &cmd.AddDistributedTaskRequest{
+		Namespace:             "ns2",
+		Id:                    "task3",
+		Payload:               []byte("test3"),
+		SubmittedAtUnixMillis: now.UnixMilli(),
+	}), 15))
+
+	return map[string][]*Task{
 		"ns1": {
 			{
 				Namespace: "ns1",
@@ -462,7 +488,7 @@ func TestManager_ListDistributedTasksPayload(t *testing.T) {
 				FinishedNodes: map[string]bool{},
 			},
 		},
-	}, resp.Tasks)
+	}
 }
 
 func assertTasks(t *testing.T, expected, actual map[string][]*Task) {

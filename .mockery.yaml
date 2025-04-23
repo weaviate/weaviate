@@ -32,6 +32,12 @@ packages:
   github.com/weaviate/weaviate/adapters/handlers/rest/db_users:
     interfaces:
       DbUserAndRolesGetter:
+  github.com/weaviate/weaviate/cluster/replication:
+    interfaces:
+      OpProducer:
+      OpConsumer:
+      TimeProvider:
+      Timer:
   github.com/weaviate/weaviate/cluster/replication/types:
     interfaces:
       ReplicationFSMReader:

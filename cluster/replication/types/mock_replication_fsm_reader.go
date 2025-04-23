@@ -95,8 +95,7 @@ func (_c *MockReplicationFSMReader_FilterOneShardReplicasReadWrite_Call) RunAndR
 func NewMockReplicationFSMReader(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockReplicationFSMReader {
+}) *MockReplicationFSMReader {
 	mock := &MockReplicationFSMReader{}
 	mock.Mock.Test(t)
 
