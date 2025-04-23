@@ -122,6 +122,8 @@ type ShardReplicationEngine struct {
 	// This ensures that the system doesn't hang indefinitely during shutdown.
 	shutdownTimeout time.Duration
 
+	// engineMetricCallbacks defines optional hooks for tracking engine lifecycle events
+	// like start/stop of the engine, producer, and consumer via Prometheus metrics or custom logic.
 	engineMetricCallbacks *metrics.ReplicationEngineCallbacks
 }
 

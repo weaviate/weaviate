@@ -73,6 +73,8 @@ type CopyOpConsumer struct {
 	// nodeId uniquely identifies the node on which this consumer instance is running.
 	nodeId string
 
+	// engineOpCallbacks defines hooks invoked at various stages of a replication operation's lifecycle
+	// (e.g., pending, start, complete, failure) to support metrics or custom observability logic.
 	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks
 }
 
