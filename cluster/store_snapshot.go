@@ -123,9 +123,11 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			}
 		}
 
-		if err := st.distributedTasksManager.Restore(snap.DistributedTasks); err != nil {
-			st.log.WithError(err).Error("restoring distributed tasks from snapshot")
-			return fmt.Errorf("restore distributed tasks from snapshot: %w", err)
+		if snap.DistributedTasks != nil {
+			if err := st.distributedTasksManager.Restore(snap.DistributedTasks); err != nil {
+				st.log.WithError(err).Error("restoring distributed tasks from snapshot")
+				return fmt.Errorf("restore distributed tasks from snapshot: %w", err)
+			}
 		}
 
 		if st.cfg.MetadataOnlyVoters {
