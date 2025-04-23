@@ -116,9 +116,11 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 
 		st.log.Info("successfully restored schema from snapshot")
 
-		if err := st.authZManager.Restore(snap.RBAC); err != nil {
-			st.log.WithError(err).Error("restoring rbac from snapshot")
-			return fmt.Errorf("restore rbac from snapshot: %w", err)
+		if snap.RBAC != nil {
+			if err := st.authZManager.Restore(snap.RBAC); err != nil {
+				st.log.WithError(err).Error("restoring rbac from snapshot")
+				return fmt.Errorf("restore rbac from snapshot: %w", err)
+			}
 		}
 
 		if err := st.distributedTasksManager.Restore(snap.DistributedTasks); err != nil {

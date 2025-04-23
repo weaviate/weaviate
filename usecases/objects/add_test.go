@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
@@ -64,7 +65,7 @@ func Test_Add_Object_WithNoVectorizerModule(t *testing.T) {
 		cfg := &config.WeaviateConfig{
 			Config: config.Config{
 				AutoSchema: config.AutoSchema{
-					Enabled:       autoSchemaEnabled,
+					Enabled:       runtime.NewDynamicValue(autoSchemaEnabled),
 					DefaultString: schema.DataTypeText.String(),
 				},
 			},
