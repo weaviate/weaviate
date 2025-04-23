@@ -363,10 +363,11 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.nodes[nodeId] = node
 	h.shardedNodeLocks.Unlock(nodeId)
 
-	if h.compressed.Load() && (!h.multivector.Load() || (h.multivector.Load() && h.muvera.Load())) {
-		h.compressor.Preload(nodeId, vector)
-	} else {
-		if h.muvera.Load() || !h.multivector.Load() {
+	singleVector := !h.multivector.Load() || h.muvera.Load()
+	if singleVector {
+		if h.compressed.Load() {
+			h.compressor.Preload(nodeId, vector)
+		} else {
 			h.cache.Preload(nodeId, vector)
 		}
 	}
@@ -458,10 +459,11 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.nodes[node.id] = node
 	h.shardedNodeLocks.Unlock(node.id)
 
-	if h.compressed.Load() && (!h.multivector.Load() || (h.multivector.Load() && h.muvera.Load())) {
-		h.compressor.Preload(node.id, nodeVec)
-	} else {
-		if h.muvera.Load() || !h.multivector.Load() {
+	singleVector := !h.multivector.Load() || h.muvera.Load()
+	if singleVector {
+		if h.compressed.Load() {
+			h.compressor.Preload(node.id, nodeVec)
+		} else {
 			h.cache.Preload(node.id, nodeVec)
 		}
 	}

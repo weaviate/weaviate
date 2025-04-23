@@ -150,7 +150,7 @@ func (h *hnsw) restoreFromDisk() error {
 				if h.pqConfig.Segments == 0 {
 					h.pqConfig.Segments = int(data.Dimensions)
 				}
-				if !h.multivector.Load() || (h.multivector.Load() && h.muvera.Load()) {
+				if !h.multivector.Load() || h.muvera.Load() {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQCompressor(
 						h.pqConfig,
 						h.distancerProvider,
@@ -181,7 +181,7 @@ func (h *hnsw) restoreFromDisk() error {
 		} else if state.CompressionSQData != nil {
 			data := state.CompressionSQData
 			h.dims = int32(data.Dimensions)
-			if !h.multivector.Load() || (h.multivector.Load() && h.muvera.Load()) {
+			if !h.multivector.Load() || h.muvera.Load() {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
 					h.distancerProvider,
 					1e12,
@@ -216,7 +216,7 @@ func (h *hnsw) restoreFromDisk() error {
 		// make sure the cache fits the current size
 		h.cache.Grow(uint64(len(h.nodes)))
 
-		if h.multivector.Load() {
+		if h.multivector.Load() && !h.muvera.Load() {
 			h.populateKeys()
 		}
 		if len(h.nodes) > 0 {
@@ -225,7 +225,7 @@ func (h *hnsw) restoreFromDisk() error {
 			}
 		}
 	}
-	if h.compressed.Load() && h.multivector.Load() {
+	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
 		h.populateKeys()
 	}
@@ -348,7 +348,7 @@ func (h *hnsw) prefillCache() {
 
 		var err error
 		if h.compressed.Load() {
-			if !h.multivector.Load() || (h.multivector.Load() && h.muvera.Load()) {
+			if !h.multivector.Load() || h.muvera.Load() {
 				h.compressor.PrefillCache()
 			} else {
 				h.compressor.PrefillMultiCache(h.docIDVectors)
