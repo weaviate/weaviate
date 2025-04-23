@@ -23,6 +23,8 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/willf/bloom"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func (s *segment) bloomFilterPath() string {
@@ -36,17 +38,32 @@ func (s *segment) bloomFilterSecondaryPath(pos int) string {
 }
 
 func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
-	if err := s.initBloomFilter(overwrite); err != nil {
-		return fmt.Errorf("init bloom filter for primary index: %w", err)
-	}
+	g := enterrors.NewErrorGroupWrapper(s.logger)
+
+	g.Go(func() error {
+		if err := s.initBloomFilter(overwrite); err != nil {
+			return fmt.Errorf("primary index: %w", err)
+		}
+		return nil
+	})
+
 	if s.secondaryIndexCount > 0 {
 		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
 		for i := range s.secondaryBloomFilters {
-			if err := s.initSecondaryBloomFilter(i, overwrite); err != nil {
-				return fmt.Errorf("init bloom filter for secondary index at %d: %w", i, err)
-			}
+			i := i // capture loop var
+			g.Go(func() error {
+				if err := s.initSecondaryBloomFilter(i, overwrite); err != nil {
+					return fmt.Errorf("secondary index at %d: %w", i, err)
+				}
+				return nil
+			})
 		}
 	}
+
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("init bloom filter for %w", err)
+	}
+
 	s.bloomFilterMetrics = newBloomFilterMetrics(metrics)
 	return nil
 }
