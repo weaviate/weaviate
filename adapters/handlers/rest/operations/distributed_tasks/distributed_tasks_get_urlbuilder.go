@@ -46,7 +46,7 @@ func (o *DistributedTasksGetURL) SetBasePath(bp string) {
 func (o *DistributedTasksGetURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/tasks"
+	var _path = "/tasks"
 
 	_basePath := o._basePath
 	if _basePath == "" {

@@ -27,6 +27,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewDistributedTasksGetParams() DistributedTasksGetParams {
+
 	return DistributedTasksGetParams{}
 }
 
@@ -35,6 +36,7 @@ func NewDistributedTasksGetParams() DistributedTasksGetParams {
 //
 // swagger:parameters distributedTasks.get
 type DistributedTasksGetParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 }

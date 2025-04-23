@@ -114,6 +114,7 @@ func (o *DistributedTasksGetOK) GetPayload() models.DistributedTasks {
 }
 
 func (o *DistributedTasksGetOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	// response payload
 	if err := consumer.Consume(response.Body(), &o.Payload); err != nil && err != io.EOF {
 		return err
@@ -179,6 +180,7 @@ func (o *DistributedTasksGetUnauthorized) GetPayload() *models.ErrorResponse {
 }
 
 func (o *DistributedTasksGetUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -246,6 +248,7 @@ func (o *DistributedTasksGetInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *DistributedTasksGetInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

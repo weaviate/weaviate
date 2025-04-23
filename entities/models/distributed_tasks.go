@@ -41,6 +41,7 @@ func (m DistributedTasks) Validate(formats strfmt.Registry) error {
 		}
 
 		for i := 0; i < len(m[k]); i++ {
+
 			if err := m[k][i].Validate(formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName(k + "." + strconv.Itoa(i))
@@ -49,6 +50,7 @@ func (m DistributedTasks) Validate(formats strfmt.Registry) error {
 				}
 				return err
 			}
+
 		}
 
 	}
@@ -64,7 +66,9 @@ func (m DistributedTasks) ContextValidate(ctx context.Context, formats strfmt.Re
 	var res []error
 
 	for k := range m {
+
 		for i := 0; i < len(m[k]); i++ {
+
 			if err := m[k][i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
 					return ve.ValidateName(k + "." + strconv.Itoa(i))
@@ -73,7 +77,9 @@ func (m DistributedTasks) ContextValidate(ctx context.Context, formats strfmt.Re
 				}
 				return err
 			}
+
 		}
+
 	}
 
 	if len(res) > 0 {

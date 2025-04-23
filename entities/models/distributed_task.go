@@ -29,6 +29,7 @@ import (
 //
 // swagger:model DistributedTask
 type DistributedTask struct {
+
 	// The high level reason why the task failed.
 	Error string `json:"error,omitempty"`
 

@@ -33,6 +33,7 @@ DistributedTasksGetOK Distributed tasks successfully returned
 swagger:response distributedTasksGetOK
 */
 type DistributedTasksGetOK struct {
+
 	/*
 	  In: Body
 	*/
@@ -41,6 +42,7 @@ type DistributedTasksGetOK struct {
 
 // NewDistributedTasksGetOK creates DistributedTasksGetOK with default headers values
 func NewDistributedTasksGetOK() *DistributedTasksGetOK {
+
 	return &DistributedTasksGetOK{}
 }
 
@@ -57,6 +59,7 @@ func (o *DistributedTasksGetOK) SetPayload(payload models.DistributedTasks) {
 
 // WriteResponse to the client
 func (o *DistributedTasksGetOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(200)
 	payload := o.Payload
 	if payload == nil {
@@ -78,6 +81,7 @@ DistributedTasksGetUnauthorized Unauthorized or invalid credentials.
 swagger:response distributedTasksGetUnauthorized
 */
 type DistributedTasksGetUnauthorized struct {
+
 	/*
 	  In: Body
 	*/
@@ -86,6 +90,7 @@ type DistributedTasksGetUnauthorized struct {
 
 // NewDistributedTasksGetUnauthorized creates DistributedTasksGetUnauthorized with default headers values
 func NewDistributedTasksGetUnauthorized() *DistributedTasksGetUnauthorized {
+
 	return &DistributedTasksGetUnauthorized{}
 }
 
@@ -102,6 +107,7 @@ func (o *DistributedTasksGetUnauthorized) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *DistributedTasksGetUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(401)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -120,6 +126,7 @@ DistributedTasksGetInternalServerError An error has occurred while trying to ful
 swagger:response distributedTasksGetInternalServerError
 */
 type DistributedTasksGetInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -128,6 +135,7 @@ type DistributedTasksGetInternalServerError struct {
 
 // NewDistributedTasksGetInternalServerError creates DistributedTasksGetInternalServerError with default headers values
 func NewDistributedTasksGetInternalServerError() *DistributedTasksGetInternalServerError {
+
 	return &DistributedTasksGetInternalServerError{}
 }
 
@@ -144,6 +152,7 @@ func (o *DistributedTasksGetInternalServerError) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *DistributedTasksGetInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload
