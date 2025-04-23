@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func Test_BatchDelete_RequestValidation(t *testing.T) {
@@ -55,7 +56,7 @@ func Test_BatchDelete_RequestValidation(t *testing.T) {
 		config := &config.WeaviateConfig{
 			Config: config.Config{
 				AutoSchema: config.AutoSchema{
-					Enabled: autoSchema,
+					Enabled: runtime.NewDynamicValue(autoSchema),
 				},
 			},
 		}

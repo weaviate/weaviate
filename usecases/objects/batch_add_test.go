@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
@@ -59,7 +60,7 @@ func Test_BatchManager_AddObjects_WithNoVectorizerModule(t *testing.T) {
 		config := &config.WeaviateConfig{
 			Config: config.Config{
 				AutoSchema: config.AutoSchema{
-					Enabled: autoSchema,
+					Enabled: runtime.NewDynamicValue(autoSchema),
 				},
 				TrackVectorDimensions: true,
 			},
