@@ -168,7 +168,7 @@ func (o *DeleteUserForbidden) WriteResponse(rw http.ResponseWriter, producer run
 const DeleteUserNotFoundCode int = 404
 
 /*
-DeleteUserNotFound user not found
+DeleteUserNotFound User not found.
 
 swagger:response deleteUserNotFound
 */

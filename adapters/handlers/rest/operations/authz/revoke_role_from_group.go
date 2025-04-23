@@ -48,7 +48,9 @@ func NewRevokeRoleFromGroup(ctx *middleware.Context, handler RevokeRoleFromGroup
 /*
 	RevokeRoleFromGroup swagger:route POST /authz/groups/{id}/revoke authz revokeRoleFromGroup
 
-Revoke a role from a group
+# Revoke a role from a group
+
+Revoke roles from the specified group.
 */
 type RevokeRoleFromGroup struct {
 	Context *middleware.Context
@@ -89,7 +91,7 @@ func (o *RevokeRoleFromGroup) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 // swagger:model RevokeRoleFromGroupBody
 type RevokeRoleFromGroupBody struct {
 
-	// the roles that revoked from group
+	// The roles to revoke from the specified group.
 	Roles []string `json:"roles" yaml:"roles"`
 }
 

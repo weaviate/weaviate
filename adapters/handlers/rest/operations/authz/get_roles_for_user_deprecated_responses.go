@@ -28,7 +28,7 @@ import (
 const GetRolesForUserDeprecatedOKCode int = 200
 
 /*
-GetRolesForUserDeprecatedOK Role assigned users
+GetRolesForUserDeprecatedOK Roles assigned to the user.
 
 swagger:response getRolesForUserDeprecatedOK
 */
@@ -76,7 +76,7 @@ func (o *GetRolesForUserDeprecatedOK) WriteResponse(rw http.ResponseWriter, prod
 const GetRolesForUserDeprecatedBadRequestCode int = 400
 
 /*
-GetRolesForUserDeprecatedBadRequest Bad request
+GetRolesForUserDeprecatedBadRequest Bad request.
 
 swagger:response getRolesForUserDeprecatedBadRequest
 */
@@ -191,7 +191,7 @@ func (o *GetRolesForUserDeprecatedForbidden) WriteResponse(rw http.ResponseWrite
 const GetRolesForUserDeprecatedNotFoundCode int = 404
 
 /*
-GetRolesForUserDeprecatedNotFound no role found for user
+GetRolesForUserDeprecatedNotFound No roles found for specified user.
 
 swagger:response getRolesForUserDeprecatedNotFound
 */

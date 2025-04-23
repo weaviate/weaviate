@@ -152,6 +152,7 @@ func init() {
     },
     "/authz/groups/{id}/assign": {
       "post": {
+        "description": "Assign roles to the specified group.",
         "tags": [
           "authz"
         ],
@@ -160,7 +161,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "group name",
+            "description": "The name of the group.",
             "name": "id",
             "in": "path",
             "required": true
@@ -173,7 +174,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that assigned to group",
+                  "description": "The roles to assign to the specified group.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -185,10 +186,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned successfully"
+            "description": "Roles assigned successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -203,7 +204,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or group is not found."
+            "description": "Role or group not found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -219,6 +220,7 @@ func init() {
     },
     "/authz/groups/{id}/revoke": {
       "post": {
+        "description": "Revoke roles from the specified group.",
         "tags": [
           "authz"
         ],
@@ -227,7 +229,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "group name",
+            "description": "The name of the group.",
             "name": "id",
             "in": "path",
             "required": true
@@ -240,7 +242,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that revoked from group",
+                  "description": "The roles to revoke from the specified group.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -252,10 +254,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role revoked successfully"
+            "description": "Roles revoked successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -270,7 +272,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or group is not found."
+            "description": "Role or group not found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -286,6 +288,7 @@ func init() {
     },
     "/authz/roles": {
       "get": {
+        "description": "Get all roles and their assigned permissions.",
         "tags": [
           "authz"
         ],
@@ -325,10 +328,11 @@ func init() {
         ]
       },
       "post": {
+        "description": "Create a new role with the specified permissions.",
         "tags": [
           "authz"
         ],
-        "summary": "create new role",
+        "summary": "Create new role",
         "operationId": "createRole",
         "parameters": [
           {
@@ -342,7 +346,7 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "Role created successfully"
+            "description": "Role created successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -360,7 +364,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Role already exists",
+            "description": "Role already exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -385,6 +389,7 @@ func init() {
     },
     "/authz/roles/{id}": {
       "get": {
+        "description": "Fetch a role by its name.",
         "tags": [
           "authz"
         ],
@@ -393,7 +398,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -422,7 +427,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -436,15 +441,16 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Deleting a role will remove it from the system, and revoke the associated permissions from all users who had this role.",
         "tags": [
           "authz"
         ],
-        "summary": "Delete role",
+        "summary": "Delete a role",
         "operationId": "deleteRole",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -483,15 +489,16 @@ func init() {
     },
     "/authz/roles/{id}/add-permissions": {
       "post": {
+        "description": "Remove specific permissions from a role. If all permissions are removed, the role itself will be deleted.",
         "tags": [
           "authz"
         ],
-        "summary": "Add permission to a given role.",
+        "summary": "Add permissions to a role",
         "operationId": "addPermissions",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role being modified.",
             "name": "id",
             "in": "path",
             "required": true
@@ -508,7 +515,7 @@ func init() {
               ],
               "properties": {
                 "permissions": {
-                  "description": "permissions to be added to the role",
+                  "description": "Permissions to be added to the role.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -520,7 +527,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permissions added successfully"
+            "description": "Permissions added successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -538,7 +545,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -560,20 +567,22 @@ func init() {
     },
     "/authz/roles/{id}/has-permission": {
       "post": {
+        "description": "Check whether a role has the specified permissions.",
         "tags": [
           "authz"
         ],
-        "summary": "Check whether role possesses this permission.",
+        "summary": "Check whether a role possesses a permission",
         "operationId": "hasPermission",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
+            "description": "The permissions to be checked.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -584,7 +593,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permission check was successful",
+            "description": "Permission check was successful.",
             "schema": {
               "type": "boolean"
             }
@@ -624,15 +633,16 @@ func init() {
     },
     "/authz/roles/{id}/remove-permissions": {
       "post": {
+        "description": "Permissions can be revoked from a specified role. Removing all permissions from a role will delete the role itself.",
         "tags": [
           "authz"
         ],
-        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
+        "summary": "Remove permissions from a role",
         "operationId": "removePermissions",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role being modified.",
             "name": "id",
             "in": "path",
             "required": true
@@ -648,7 +658,7 @@ func init() {
               ],
               "properties": {
                 "permissions": {
-                  "description": "permissions to remove from the role",
+                  "description": "Permissions to remove from the role.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -660,7 +670,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permissions removed successfully"
+            "description": "Permissions removed successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -678,7 +688,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -700,15 +710,16 @@ func init() {
     },
     "/authz/roles/{id}/user-assignments": {
       "get": {
+        "description": "Fetch a list of users which have the specified role.",
         "tags": [
           "authz"
         ],
-        "summary": "get users assigned to role",
+        "summary": "Get users assigned to a role",
         "operationId": "getUsersForRole",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -716,7 +727,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Users assigned to this role",
+            "description": "Users assigned to this role.",
             "schema": {
               "type": "array",
               "items": {
@@ -737,7 +748,7 @@ func init() {
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -752,7 +763,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -768,16 +779,17 @@ func init() {
     },
     "/authz/roles/{id}/users": {
       "get": {
+        "description": "Get all the users (db + OIDC) who have been assigned a specific role. Deprecated, will be removed when 1.29 is not supported anymore",
         "tags": [
           "authz"
         ],
-        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "summary": "Get users assigned to a role",
         "operationId": "getUsersForRoleDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -785,7 +797,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Users assigned to this role",
+            "description": "Users assigned to this role.",
             "schema": {
               "type": "array",
               "items": {
@@ -809,7 +821,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -825,6 +837,7 @@ func init() {
     },
     "/authz/users/{id}/assign": {
       "post": {
+        "description": "Assign one or more roles to a user. Users can have multiple roles.",
         "tags": [
           "authz"
         ],
@@ -833,7 +846,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -846,7 +859,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that assigned to user",
+                  "description": "The roles that are assigned to the specified user.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -861,10 +874,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned successfully"
+            "description": "Role assigned successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -879,7 +892,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found.",
+            "description": "Specified role or user not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -898,6 +911,7 @@ func init() {
     },
     "/authz/users/{id}/revoke": {
       "post": {
+        "description": "Remove one or more roles from a user.",
         "tags": [
           "authz"
         ],
@@ -906,7 +920,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -919,7 +933,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that revoked from the key or user",
+                  "description": "The roles to revoke from the specified user.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -934,10 +948,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role revoked successfully"
+            "description": "Roles revoked successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -952,7 +966,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found.",
+            "description": "Specified role or user not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -971,16 +985,17 @@ func init() {
     },
     "/authz/users/{id}/roles": {
       "get": {
+        "description": "Retrieve the roles assigned to a specific user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "summary": "Get roles assigned to a user",
         "operationId": "getRolesForUserDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -988,13 +1003,13 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned users",
+            "description": "Roles assigned to the user.",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -1009,7 +1024,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "No roles found for specified user."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -1031,15 +1046,16 @@ func init() {
     },
     "/authz/users/{id}/roles/{userType}": {
       "get": {
+        "description": "Get all the roles for a specific user (DB or OIDC).",
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user",
+        "summary": "Get roles assigned to a user",
         "operationId": "getRolesForUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -1050,7 +1066,7 @@ func init() {
               "db"
             ],
             "type": "string",
-            "description": "The type of user",
+            "description": "The type of the user.",
             "name": "userType",
             "in": "path",
             "required": true
@@ -1065,7 +1081,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned users",
+            "description": "Roles assigned to the user.",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
             }
@@ -1086,7 +1102,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "No roles found for specified user."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -4344,23 +4360,24 @@ func init() {
     },
     "/users/db": {
       "get": {
+        "description": "Retrieves a list of all database users with their roles and status information.",
         "tags": [
           "users"
         ],
-        "summary": "list all db users",
+        "summary": "List all DB users",
         "operationId": "listAllUsers",
         "parameters": [
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include the last used time of the users",
+            "description": "Whether to include the last used time of the users.",
             "name": "includeLastUsedTime",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Info about the users",
+            "description": "Info about the users.",
             "schema": {
               "type": "array",
               "items": {
@@ -4391,15 +4408,16 @@ func init() {
     },
     "/users/db/{user_id}": {
       "get": {
+        "description": "Retrieve detailed information about a specific database user, including their roles, status, and type.",
         "tags": [
           "users"
         ],
-        "summary": "get info relevant to user, e.g. username, roles",
+        "summary": "Get user info",
         "operationId": "getUserInfo",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -4414,7 +4432,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the user.",
             "schema": {
               "$ref": "#/definitions/DBUserInfo"
             }
@@ -4429,7 +4447,7 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
@@ -4449,15 +4467,16 @@ func init() {
         ]
       },
       "post": {
+        "description": "Create a new user with the specified name. Returns an API key for the newly created user.",
         "tags": [
           "users"
         ],
-        "summary": "create new user",
+        "summary": "Create a new user",
         "operationId": "createUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -4465,7 +4484,7 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "User created successfully",
+            "description": "User created successfully and API key returned.",
             "schema": {
               "$ref": "#/definitions/UserApiKey"
             }
@@ -4486,7 +4505,7 @@ func init() {
             }
           },
           "409": {
-            "description": "User already exists",
+            "description": "A user with the specified name already exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4509,15 +4528,16 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Delete a DB user. You can't delete your current user.",
         "tags": [
           "users"
         ],
-        "summary": "Delete User",
+        "summary": "Delete a user",
         "operationId": "deleteUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -4543,7 +4563,7 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
@@ -4565,15 +4585,16 @@ func init() {
     },
     "/users/db/{user_id}/activate": {
       "post": {
+        "description": "Activate a deactivated user.",
         "tags": [
           "users"
         ],
-        "summary": "activate a deactivated user",
+        "summary": "Activate a user",
         "operationId": "activateUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -4581,7 +4602,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "User successfully activated"
+            "description": "User successfully activated."
           },
           "400": {
             "description": "Malformed request.",
@@ -4599,10 +4620,10 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "409": {
-            "description": "user already activated"
+            "description": "User already activated."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
@@ -4624,15 +4645,16 @@ func init() {
     },
     "/users/db/{user_id}/deactivate": {
       "post": {
+        "description": "Deactivate a user.",
         "tags": [
           "users"
         ],
-        "summary": "deactivate a user",
+        "summary": "Deactivate a user",
         "operationId": "deactivateUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -4644,7 +4666,7 @@ func init() {
               "type": "object",
               "properties": {
                 "revoke_key": {
-                  "description": "if the key should be revoked when deactivating the user",
+                  "description": "Whether the API key should be revoked when deactivating the user.",
                   "type": "boolean",
                   "default": false
                 }
@@ -4654,7 +4676,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "users successfully deactivated"
+            "description": "User successfully deactivated."
           },
           "400": {
             "description": "Malformed request.",
@@ -4672,10 +4694,10 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "409": {
-            "description": "user already deactivated"
+            "description": "User already deactivated."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -4697,10 +4719,11 @@ func init() {
     },
     "/users/db/{user_id}/rotate-key": {
       "post": {
+        "description": "Revoke the current API key for the specified user and generate a new one.",
         "tags": [
           "users"
         ],
-        "summary": "rotate user api key",
+        "summary": "Rotate API key of a user",
         "operationId": "rotateUserApiKey",
         "parameters": [
           {
@@ -4713,7 +4736,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "ApiKey successfully changed",
+            "description": "API key successfully updated.",
             "schema": {
               "$ref": "#/definitions/UserApiKey"
             }
@@ -4734,7 +4757,7 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
@@ -4756,14 +4779,15 @@ func init() {
     },
     "/users/own-info": {
       "get": {
+        "description": "Get information about the currently authenticated user, including username and assigned roles.",
         "tags": [
           "users"
         ],
-        "summary": "get info relevant to own user, e.g. username, roles",
+        "summary": "Get info relevant to own user",
         "operationId": "getOwnInfo",
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the user.",
             "schema": {
               "$ref": "#/definitions/UserOwnInfo"
             }
@@ -5673,7 +5697,7 @@ func init() {
           "format": "date-time"
         },
         "roles": {
-          "description": "The role names associated to the user",
+          "description": "The roles associated with the user.",
           "type": "array",
           "items": {
             "type": "string"
@@ -6342,14 +6366,14 @@ func init() {
       }
     },
     "Permission": {
-      "description": "permissions attached to a role.",
+      "description": "Permissions attached to a role.",
       "type": "object",
       "required": [
         "action"
       ],
       "properties": {
         "action": {
-          "description": "allowed actions in weaviate.",
+          "description": "Allowed actions in weaviate.",
           "type": "string",
           "enum": [
             "manage_backups",
@@ -6379,59 +6403,59 @@ func init() {
           ]
         },
         "backups": {
-          "description": "resources applicable for backup actions",
+          "description": "Resources applicable for backup actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collections.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "collections": {
-          "description": "resources applicable for collection and/or tenant actions",
+          "description": "Resources applicable for collection and/or tenant actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "data": {
-          "description": "resources applicable for data actions",
+          "description": "Resources applicable for data actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
               "type": "string",
               "default": "*"
             },
             "object": {
-              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+              "description": "String or regex of a specific object ID. If left empty (or *) it will encompass ALL object IDs.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific tenant name. If left empty (or *) it will encompass ALL tenant names.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "nodes": {
-          "description": "resources applicable for cluster actions",
+          "description": "Resources applicable for cluster actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
               "type": "string",
               "default": "*"
             },
             "verbosity": {
-              "description": "whether to allow (verbose) returning shards and stats data in the response",
+              "description": "Whether to allow (verbose) returning shards and stats data in the response.",
               "type": "string",
               "default": "minimal",
               "enum": [
@@ -6442,16 +6466,16 @@ func init() {
           }
         },
         "roles": {
-          "description": "resources applicable for role actions",
+          "description": "Resources applicable for role actions.",
           "type": "object",
           "properties": {
             "role": {
-              "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific role name. If left empty (or *) it will encompass ALL role names.",
               "type": "string",
               "default": "*"
             },
             "scope": {
-              "description": "set the scope for the manage role permission",
+              "description": "Set the scope for the manage role permission.",
               "type": "string",
               "default": "match",
               "enum": [
@@ -6462,27 +6486,27 @@ func init() {
           }
         },
         "tenants": {
-          "description": "resources applicable for tenant actions",
+          "description": "Resources applicable for tenant actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL tenant names.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "users": {
-          "description": "resources applicable for user actions",
+          "description": "Resources applicable for user actions.",
           "type": "object",
           "properties": {
             "users": {
-              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific user name. If left empty (or *) it will encompass ALL user names.",
               "type": "string",
               "default": "*"
             }
@@ -7191,7 +7215,7 @@ func init() {
       ],
       "properties": {
         "groups": {
-          "description": "The groups associated to the user",
+          "description": "The groups associated with the user.",
           "type": "array",
           "items": {
             "type": "string"
@@ -7200,19 +7224,19 @@ func init() {
         "roles": {
           "type": "array",
           "items": {
-            "description": "The roles assigned to own user",
+            "description": "The roles assigned to the user.",
             "type": "object",
             "$ref": "#/definitions/Role"
           }
         },
         "username": {
-          "description": "The username associated with the provided key",
+          "description": "The name (ID) of the user.",
           "type": "string"
         }
       }
     },
     "UserTypeInput": {
-      "description": "the type of user",
+      "description": "The type of the user.",
       "type": "string",
       "enum": [
         "db",
@@ -7220,7 +7244,7 @@ func init() {
       ]
     },
     "UserTypeOutput": {
-      "description": "the type of user",
+      "description": "The type of the user",
       "type": "string",
       "enum": [
         "db_user",
@@ -7680,6 +7704,7 @@ func init() {
     },
     "/authz/groups/{id}/assign": {
       "post": {
+        "description": "Assign roles to the specified group.",
         "tags": [
           "authz"
         ],
@@ -7688,7 +7713,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "group name",
+            "description": "The name of the group.",
             "name": "id",
             "in": "path",
             "required": true
@@ -7701,7 +7726,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that assigned to group",
+                  "description": "The roles to assign to the specified group.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -7713,10 +7738,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned successfully"
+            "description": "Roles assigned successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7731,7 +7756,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or group is not found."
+            "description": "Role or group not found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -7747,6 +7772,7 @@ func init() {
     },
     "/authz/groups/{id}/revoke": {
       "post": {
+        "description": "Revoke roles from the specified group.",
         "tags": [
           "authz"
         ],
@@ -7755,7 +7781,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "group name",
+            "description": "The name of the group.",
             "name": "id",
             "in": "path",
             "required": true
@@ -7768,7 +7794,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that revoked from group",
+                  "description": "The roles to revoke from the specified group.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -7780,10 +7806,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role revoked successfully"
+            "description": "Roles revoked successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7798,7 +7824,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or group is not found."
+            "description": "Role or group not found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -7814,6 +7840,7 @@ func init() {
     },
     "/authz/roles": {
       "get": {
+        "description": "Get all roles and their assigned permissions.",
         "tags": [
           "authz"
         ],
@@ -7853,10 +7880,11 @@ func init() {
         ]
       },
       "post": {
+        "description": "Create a new role with the specified permissions.",
         "tags": [
           "authz"
         ],
-        "summary": "create new role",
+        "summary": "Create new role",
         "operationId": "createRole",
         "parameters": [
           {
@@ -7870,7 +7898,7 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "Role created successfully"
+            "description": "Role created successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -7888,7 +7916,7 @@ func init() {
             }
           },
           "409": {
-            "description": "Role already exists",
+            "description": "Role already exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7913,6 +7941,7 @@ func init() {
     },
     "/authz/roles/{id}": {
       "get": {
+        "description": "Fetch a role by its name.",
         "tags": [
           "authz"
         ],
@@ -7921,7 +7950,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -7950,7 +7979,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -7964,15 +7993,16 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Deleting a role will remove it from the system, and revoke the associated permissions from all users who had this role.",
         "tags": [
           "authz"
         ],
-        "summary": "Delete role",
+        "summary": "Delete a role",
         "operationId": "deleteRole",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -8011,15 +8041,16 @@ func init() {
     },
     "/authz/roles/{id}/add-permissions": {
       "post": {
+        "description": "Remove specific permissions from a role. If all permissions are removed, the role itself will be deleted.",
         "tags": [
           "authz"
         ],
-        "summary": "Add permission to a given role.",
+        "summary": "Add permissions to a role",
         "operationId": "addPermissions",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role being modified.",
             "name": "id",
             "in": "path",
             "required": true
@@ -8036,7 +8067,7 @@ func init() {
               ],
               "properties": {
                 "permissions": {
-                  "description": "permissions to be added to the role",
+                  "description": "Permissions to be added to the role.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -8048,7 +8079,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permissions added successfully"
+            "description": "Permissions added successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -8066,7 +8097,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -8088,20 +8119,22 @@ func init() {
     },
     "/authz/roles/{id}/has-permission": {
       "post": {
+        "description": "Check whether a role has the specified permissions.",
         "tags": [
           "authz"
         ],
-        "summary": "Check whether role possesses this permission.",
+        "summary": "Check whether a role possesses a permission",
         "operationId": "hasPermission",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
           },
           {
+            "description": "The permissions to be checked.",
             "name": "body",
             "in": "body",
             "required": true,
@@ -8112,7 +8145,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permission check was successful",
+            "description": "Permission check was successful.",
             "schema": {
               "type": "boolean"
             }
@@ -8152,15 +8185,16 @@ func init() {
     },
     "/authz/roles/{id}/remove-permissions": {
       "post": {
+        "description": "Permissions can be revoked from a specified role. Removing all permissions from a role will delete the role itself.",
         "tags": [
           "authz"
         ],
-        "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
+        "summary": "Remove permissions from a role",
         "operationId": "removePermissions",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role being modified.",
             "name": "id",
             "in": "path",
             "required": true
@@ -8176,7 +8210,7 @@ func init() {
               ],
               "properties": {
                 "permissions": {
-                  "description": "permissions to remove from the role",
+                  "description": "Permissions to remove from the role.",
                   "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
@@ -8188,7 +8222,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Permissions removed successfully"
+            "description": "Permissions removed successfully."
           },
           "400": {
             "description": "Malformed request.",
@@ -8206,7 +8240,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -8228,15 +8262,16 @@ func init() {
     },
     "/authz/roles/{id}/user-assignments": {
       "get": {
+        "description": "Fetch a list of users which have the specified role.",
         "tags": [
           "authz"
         ],
-        "summary": "get users assigned to role",
+        "summary": "Get users assigned to a role",
         "operationId": "getUsersForRole",
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -8244,7 +8279,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Users assigned to this role",
+            "description": "Users assigned to this role.",
             "schema": {
               "type": "array",
               "items": {
@@ -8253,7 +8288,7 @@ func init() {
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8268,7 +8303,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -8284,16 +8319,17 @@ func init() {
     },
     "/authz/roles/{id}/users": {
       "get": {
+        "description": "Get all the users (db + OIDC) who have been assigned a specific role. Deprecated, will be removed when 1.29 is not supported anymore",
         "tags": [
           "authz"
         ],
-        "summary": "get users (db + OIDC) assigned to role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "summary": "Get users assigned to a role",
         "operationId": "getUsersForRoleDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
-            "description": "role name",
+            "description": "The name of the role.",
             "name": "id",
             "in": "path",
             "required": true
@@ -8301,7 +8337,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Users assigned to this role",
+            "description": "Users assigned to this role.",
             "schema": {
               "type": "array",
               "items": {
@@ -8325,7 +8361,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found"
+            "description": "No role found."
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -8341,6 +8377,7 @@ func init() {
     },
     "/authz/users/{id}/assign": {
       "post": {
+        "description": "Assign one or more roles to a user. Users can have multiple roles.",
         "tags": [
           "authz"
         ],
@@ -8349,7 +8386,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -8362,7 +8399,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that assigned to user",
+                  "description": "The roles that are assigned to the specified user.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -8377,10 +8414,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned successfully"
+            "description": "Role assigned successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8395,7 +8432,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found.",
+            "description": "Specified role or user not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8414,6 +8451,7 @@ func init() {
     },
     "/authz/users/{id}/revoke": {
       "post": {
+        "description": "Remove one or more roles from a user.",
         "tags": [
           "authz"
         ],
@@ -8422,7 +8460,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -8435,7 +8473,7 @@ func init() {
               "type": "object",
               "properties": {
                 "roles": {
-                  "description": "the roles that revoked from the key or user",
+                  "description": "The roles to revoke from the specified user.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -8450,10 +8488,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role revoked successfully"
+            "description": "Roles revoked successfully."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8468,7 +8506,7 @@ func init() {
             }
           },
           "404": {
-            "description": "role or user is not found.",
+            "description": "Specified role or user not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8487,16 +8525,17 @@ func init() {
     },
     "/authz/users/{id}/roles": {
       "get": {
+        "description": "Retrieve the roles assigned to a specific user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "summary": "Get roles assigned to a user",
         "operationId": "getRolesForUserDeprecated",
         "deprecated": true,
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -8504,13 +8543,13 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned users",
+            "description": "Roles assigned to the user.",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Bad request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8525,7 +8564,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "No roles found for specified user."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -8547,15 +8586,16 @@ func init() {
     },
     "/authz/users/{id}/roles/{userType}": {
       "get": {
+        "description": "Get all the roles for a specific user (DB or OIDC).",
         "tags": [
           "authz"
         ],
-        "summary": "get roles assigned to user",
+        "summary": "Get roles assigned to a user",
         "operationId": "getRolesForUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "id",
             "in": "path",
             "required": true
@@ -8566,7 +8606,7 @@ func init() {
               "db"
             ],
             "type": "string",
-            "description": "The type of user",
+            "description": "The type of the user.",
             "name": "userType",
             "in": "path",
             "required": true
@@ -8581,7 +8621,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Role assigned users",
+            "description": "Roles assigned to the user.",
             "schema": {
               "$ref": "#/definitions/RolesListResponse"
             }
@@ -8602,7 +8642,7 @@ func init() {
             }
           },
           "404": {
-            "description": "no role found for user"
+            "description": "No roles found for specified user."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -11982,23 +12022,24 @@ func init() {
     },
     "/users/db": {
       "get": {
+        "description": "Retrieves a list of all database users with their roles and status information.",
         "tags": [
           "users"
         ],
-        "summary": "list all db users",
+        "summary": "List all DB users",
         "operationId": "listAllUsers",
         "parameters": [
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include the last used time of the users",
+            "description": "Whether to include the last used time of the users.",
             "name": "includeLastUsedTime",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "Info about the users",
+            "description": "Info about the users.",
             "schema": {
               "type": "array",
               "items": {
@@ -12029,15 +12070,16 @@ func init() {
     },
     "/users/db/{user_id}": {
       "get": {
+        "description": "Retrieve detailed information about a specific database user, including their roles, status, and type.",
         "tags": [
           "users"
         ],
-        "summary": "get info relevant to user, e.g. username, roles",
+        "summary": "Get user info",
         "operationId": "getUserInfo",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -12052,7 +12094,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the user.",
             "schema": {
               "$ref": "#/definitions/DBUserInfo"
             }
@@ -12067,7 +12109,7 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
@@ -12087,15 +12129,16 @@ func init() {
         ]
       },
       "post": {
+        "description": "Create a new user with the specified name. Returns an API key for the newly created user.",
         "tags": [
           "users"
         ],
-        "summary": "create new user",
+        "summary": "Create a new user",
         "operationId": "createUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -12103,7 +12146,7 @@ func init() {
         ],
         "responses": {
           "201": {
-            "description": "User created successfully",
+            "description": "User created successfully and API key returned.",
             "schema": {
               "$ref": "#/definitions/UserApiKey"
             }
@@ -12124,7 +12167,7 @@ func init() {
             }
           },
           "409": {
-            "description": "User already exists",
+            "description": "A user with the specified name already exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12147,15 +12190,16 @@ func init() {
         ]
       },
       "delete": {
+        "description": "Delete a DB user. You can't delete your current user.",
         "tags": [
           "users"
         ],
-        "summary": "Delete User",
+        "summary": "Delete a user",
         "operationId": "deleteUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user name",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -12181,7 +12225,7 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
@@ -12203,15 +12247,16 @@ func init() {
     },
     "/users/db/{user_id}/activate": {
       "post": {
+        "description": "Activate a deactivated user.",
         "tags": [
           "users"
         ],
-        "summary": "activate a deactivated user",
+        "summary": "Activate a user",
         "operationId": "activateUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -12219,7 +12264,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "User successfully activated"
+            "description": "User successfully activated."
           },
           "400": {
             "description": "Malformed request.",
@@ -12237,10 +12282,10 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "409": {
-            "description": "user already activated"
+            "description": "User already activated."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
@@ -12262,15 +12307,16 @@ func init() {
     },
     "/users/db/{user_id}/deactivate": {
       "post": {
+        "description": "Deactivate a user.",
         "tags": [
           "users"
         ],
-        "summary": "deactivate a user",
+        "summary": "Deactivate a user",
         "operationId": "deactivateUser",
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -12282,7 +12328,7 @@ func init() {
               "type": "object",
               "properties": {
                 "revoke_key": {
-                  "description": "if the key should be revoked when deactivating the user",
+                  "description": "Whether the API key should be revoked when deactivating the user.",
                   "type": "boolean",
                   "default": false
                 }
@@ -12292,7 +12338,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "users successfully deactivated"
+            "description": "User successfully deactivated."
           },
           "400": {
             "description": "Malformed request.",
@@ -12310,10 +12356,10 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "409": {
-            "description": "user already deactivated"
+            "description": "User already deactivated."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
@@ -12335,10 +12381,11 @@ func init() {
     },
     "/users/db/{user_id}/rotate-key": {
       "post": {
+        "description": "Revoke the current API key for the specified user and generate a new one.",
         "tags": [
           "users"
         ],
-        "summary": "rotate user api key",
+        "summary": "Rotate API key of a user",
         "operationId": "rotateUserApiKey",
         "parameters": [
           {
@@ -12351,7 +12398,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "ApiKey successfully changed",
+            "description": "API key successfully updated.",
             "schema": {
               "$ref": "#/definitions/UserApiKey"
             }
@@ -12372,7 +12419,7 @@ func init() {
             }
           },
           "404": {
-            "description": "user not found"
+            "description": "User not found."
           },
           "422": {
             "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
@@ -12394,14 +12441,15 @@ func init() {
     },
     "/users/own-info": {
       "get": {
+        "description": "Get information about the currently authenticated user, including username and assigned roles.",
         "tags": [
           "users"
         ],
-        "summary": "get info relevant to own user, e.g. username, roles",
+        "summary": "Get info relevant to own user",
         "operationId": "getOwnInfo",
         "responses": {
           "200": {
-            "description": "Info about the user",
+            "description": "Info about the user.",
             "schema": {
               "$ref": "#/definitions/UserOwnInfo"
             }
@@ -13466,7 +13514,7 @@ func init() {
           "format": "date-time"
         },
         "roles": {
-          "description": "The role names associated to the user",
+          "description": "The roles associated with the user.",
           "type": "array",
           "items": {
             "type": "string"
@@ -14173,14 +14221,14 @@ func init() {
       }
     },
     "Permission": {
-      "description": "permissions attached to a role.",
+      "description": "Permissions attached to a role.",
       "type": "object",
       "required": [
         "action"
       ],
       "properties": {
         "action": {
-          "description": "allowed actions in weaviate.",
+          "description": "Allowed actions in weaviate.",
           "type": "string",
           "enum": [
             "manage_backups",
@@ -14210,59 +14258,59 @@ func init() {
           ]
         },
         "backups": {
-          "description": "resources applicable for backup actions",
+          "description": "Resources applicable for backup actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collections.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "collections": {
-          "description": "resources applicable for collection and/or tenant actions",
+          "description": "Resources applicable for collection and/or tenant actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "data": {
-          "description": "resources applicable for data actions",
+          "description": "Resources applicable for data actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
               "type": "string",
               "default": "*"
             },
             "object": {
-              "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+              "description": "String or regex of a specific object ID. If left empty (or *) it will encompass ALL object IDs.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific tenant name. If left empty (or *) it will encompass ALL tenant names.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "nodes": {
-          "description": "resources applicable for cluster actions",
+          "description": "Resources applicable for cluster actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
               "type": "string",
               "default": "*"
             },
             "verbosity": {
-              "description": "whether to allow (verbose) returning shards and stats data in the response",
+              "description": "Whether to allow (verbose) returning shards and stats data in the response.",
               "type": "string",
               "default": "minimal",
               "enum": [
@@ -14273,16 +14321,16 @@ func init() {
           }
         },
         "roles": {
-          "description": "resources applicable for role actions",
+          "description": "Resources applicable for role actions.",
           "type": "object",
           "properties": {
             "role": {
-              "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific role name. If left empty (or *) it will encompass ALL role names.",
               "type": "string",
               "default": "*"
             },
             "scope": {
-              "description": "set the scope for the manage role permission",
+              "description": "Set the scope for the manage role permission.",
               "type": "string",
               "default": "match",
               "enum": [
@@ -14293,27 +14341,27 @@ func init() {
           }
         },
         "tenants": {
-          "description": "resources applicable for tenant actions",
+          "description": "Resources applicable for tenant actions.",
           "type": "object",
           "properties": {
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL tenant names.",
               "type": "string",
               "default": "*"
             }
           }
         },
         "users": {
-          "description": "resources applicable for user actions",
+          "description": "Resources applicable for user actions.",
           "type": "object",
           "properties": {
             "users": {
-              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "description": "String or regex of a specific user name. If left empty (or *) it will encompass ALL user names.",
               "type": "string",
               "default": "*"
             }
@@ -14322,59 +14370,59 @@ func init() {
       }
     },
     "PermissionBackups": {
-      "description": "resources applicable for backup actions",
+      "description": "Resources applicable for backup actions.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collections.",
           "type": "string",
           "default": "*"
         }
       }
     },
     "PermissionCollections": {
-      "description": "resources applicable for collection and/or tenant actions",
+      "description": "Resources applicable for collection and/or tenant actions.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
           "type": "string",
           "default": "*"
         }
       }
     },
     "PermissionData": {
-      "description": "resources applicable for data actions",
+      "description": "Resources applicable for data actions.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
           "type": "string",
           "default": "*"
         },
         "object": {
-          "description": "string or regex. if a specific object ID, if left empty it will be ALL or *",
+          "description": "String or regex of a specific object ID. If left empty (or *) it will encompass ALL object IDs.",
           "type": "string",
           "default": "*"
         },
         "tenant": {
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+          "description": "String or regex of a specific tenant name. If left empty (or *) it will encompass ALL tenant names.",
           "type": "string",
           "default": "*"
         }
       }
     },
     "PermissionNodes": {
-      "description": "resources applicable for cluster actions",
+      "description": "Resources applicable for cluster actions.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
           "type": "string",
           "default": "*"
         },
         "verbosity": {
-          "description": "whether to allow (verbose) returning shards and stats data in the response",
+          "description": "Whether to allow (verbose) returning shards and stats data in the response.",
           "type": "string",
           "default": "minimal",
           "enum": [
@@ -14385,16 +14433,16 @@ func init() {
       }
     },
     "PermissionRoles": {
-      "description": "resources applicable for role actions",
+      "description": "Resources applicable for role actions.",
       "type": "object",
       "properties": {
         "role": {
-          "description": "string or regex. if a specific role name, if left empty it will be ALL or *",
+          "description": "String or regex of a specific role name. If left empty (or *) it will encompass ALL role names.",
           "type": "string",
           "default": "*"
         },
         "scope": {
-          "description": "set the scope for the manage role permission",
+          "description": "Set the scope for the manage role permission.",
           "type": "string",
           "default": "match",
           "enum": [
@@ -14405,27 +14453,27 @@ func init() {
       }
     },
     "PermissionTenants": {
-      "description": "resources applicable for tenant actions",
+      "description": "Resources applicable for tenant actions.",
       "type": "object",
       "properties": {
         "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
           "type": "string",
           "default": "*"
         },
         "tenant": {
-          "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
+          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL tenant names.",
           "type": "string",
           "default": "*"
         }
       }
     },
     "PermissionUsers": {
-      "description": "resources applicable for user actions",
+      "description": "Resources applicable for user actions.",
       "type": "object",
       "properties": {
         "users": {
-          "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+          "description": "String or regex of a specific user name. If left empty (or *) it will encompass ALL user names.",
           "type": "string",
           "default": "*"
         }
@@ -15132,7 +15180,7 @@ func init() {
       ],
       "properties": {
         "groups": {
-          "description": "The groups associated to the user",
+          "description": "The groups associated with the user.",
           "type": "array",
           "items": {
             "type": "string"
@@ -15141,19 +15189,19 @@ func init() {
         "roles": {
           "type": "array",
           "items": {
-            "description": "The roles assigned to own user",
+            "description": "The roles assigned to the user.",
             "type": "object",
             "$ref": "#/definitions/Role"
           }
         },
         "username": {
-          "description": "The username associated with the provided key",
+          "description": "The name (ID) of the user.",
           "type": "string"
         }
       }
     },
     "UserTypeInput": {
-      "description": "the type of user",
+      "description": "The type of the user.",
       "type": "string",
       "enum": [
         "db",
@@ -15161,7 +15209,7 @@ func init() {
       ]
     },
     "UserTypeOutput": {
-      "description": "the type of user",
+      "description": "The type of the user",
       "type": "string",
       "enum": [
         "db_user",

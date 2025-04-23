@@ -52,7 +52,7 @@ type DBUserInfo struct {
 	// Format: date-time
 	LastUsedAt strfmt.DateTime `json:"lastUsedAt,omitempty"`
 
-	// The role names associated to the user
+	// The roles associated with the user.
 	// Required: true
 	Roles []string `json:"roles"`
 

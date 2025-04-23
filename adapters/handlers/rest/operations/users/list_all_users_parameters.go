@@ -50,7 +50,7 @@ type ListAllUsersParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*Whether to include the last used time of the users
+	/*Whether to include the last used time of the users.
 	  In: query
 	  Default: false
 	*/

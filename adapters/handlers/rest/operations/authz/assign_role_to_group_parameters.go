@@ -49,7 +49,7 @@ type AssignRoleToGroupParams struct {
 	  In: body
 	*/
 	Body AssignRoleToGroupBody
-	/*group name
+	/*The name of the group.
 	  Required: true
 	  In: path
 	*/

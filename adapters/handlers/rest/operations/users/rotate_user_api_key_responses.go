@@ -28,7 +28,7 @@ import (
 const RotateUserAPIKeyOKCode int = 200
 
 /*
-RotateUserAPIKeyOK ApiKey successfully changed
+RotateUserAPIKeyOK API key successfully updated.
 
 swagger:response rotateUserApiKeyOK
 */
@@ -188,7 +188,7 @@ func (o *RotateUserAPIKeyForbidden) WriteResponse(rw http.ResponseWriter, produc
 const RotateUserAPIKeyNotFoundCode int = 404
 
 /*
-RotateUserAPIKeyNotFound user not found
+RotateUserAPIKeyNotFound User not found.
 
 swagger:response rotateUserApiKeyNotFound
 */

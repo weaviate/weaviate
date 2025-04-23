@@ -28,7 +28,7 @@ import (
 const GetUserInfoOKCode int = 200
 
 /*
-GetUserInfoOK Info about the user
+GetUserInfoOK Info about the user.
 
 swagger:response getUserInfoOK
 */
@@ -143,7 +143,7 @@ func (o *GetUserInfoForbidden) WriteResponse(rw http.ResponseWriter, producer ru
 const GetUserInfoNotFoundCode int = 404
 
 /*
-GetUserInfoNotFound user not found
+GetUserInfoNotFound User not found.
 
 swagger:response getUserInfoNotFound
 */

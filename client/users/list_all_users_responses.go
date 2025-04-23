@@ -71,7 +71,7 @@ func NewListAllUsersOK() *ListAllUsersOK {
 /*
 ListAllUsersOK describes a response with status code 200, with default header values.
 
-Info about the users
+Info about the users.
 */
 type ListAllUsersOK struct {
 	Payload []*models.DBUserInfo

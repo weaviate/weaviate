@@ -45,7 +45,9 @@ func NewCreateUser(ctx *middleware.Context, handler CreateUserHandler) *CreateUs
 /*
 	CreateUser swagger:route POST /users/db/{user_id} users createUser
 
-create new user
+# Create a new user
+
+Create a new user with the specified name. Returns an API key for the newly created user.
 */
 type CreateUser struct {
 	Context *middleware.Context

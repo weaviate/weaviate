@@ -85,7 +85,7 @@ func NewRevokeRoleFromGroupOK() *RevokeRoleFromGroupOK {
 /*
 RevokeRoleFromGroupOK describes a response with status code 200, with default header values.
 
-Role revoked successfully
+Roles revoked successfully.
 */
 type RevokeRoleFromGroupOK struct {
 }
@@ -141,7 +141,7 @@ func NewRevokeRoleFromGroupBadRequest() *RevokeRoleFromGroupBadRequest {
 /*
 RevokeRoleFromGroupBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Bad request.
 */
 type RevokeRoleFromGroupBadRequest struct {
 	Payload *models.ErrorResponse
@@ -333,7 +333,7 @@ func NewRevokeRoleFromGroupNotFound() *RevokeRoleFromGroupNotFound {
 /*
 RevokeRoleFromGroupNotFound describes a response with status code 404, with default header values.
 
-role or group is not found.
+Role or group not found.
 */
 type RevokeRoleFromGroupNotFound struct {
 }
@@ -455,7 +455,7 @@ swagger:model RevokeRoleFromGroupBody
 */
 type RevokeRoleFromGroupBody struct {
 
-	// the roles that revoked from group
+	// The roles to revoke from the specified group.
 	Roles []string `json:"roles"`
 }
 

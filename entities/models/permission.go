@@ -26,12 +26,12 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// Permission permissions attached to a role.
+// Permission Permissions attached to a role.
 //
 // swagger:model Permission
 type Permission struct {
 
-	// allowed actions in weaviate.
+	// Allowed actions in weaviate.
 	// Required: true
 	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants]
 	Action *string `json:"action"`
@@ -510,12 +510,12 @@ func (m *Permission) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionBackups resources applicable for backup actions
+// PermissionBackups Resources applicable for backup actions.
 //
 // swagger:model PermissionBackups
 type PermissionBackups struct {
 
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL collections.
 	Collection *string `json:"collection,omitempty"`
 }
 
@@ -547,12 +547,12 @@ func (m *PermissionBackups) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionCollections resources applicable for collection and/or tenant actions
+// PermissionCollections Resources applicable for collection and/or tenant actions.
 //
 // swagger:model PermissionCollections
 type PermissionCollections struct {
 
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.
 	Collection *string `json:"collection,omitempty"`
 }
 
@@ -584,18 +584,18 @@ func (m *PermissionCollections) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionData resources applicable for data actions
+// PermissionData Resources applicable for data actions.
 //
 // swagger:model PermissionData
 type PermissionData struct {
 
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.
 	Collection *string `json:"collection,omitempty"`
 
-	// string or regex. if a specific object ID, if left empty it will be ALL or *
+	// String or regex of a specific object ID. If left empty (or *) it will encompass ALL object IDs.
 	Object *string `json:"object,omitempty"`
 
-	// string or regex. if a specific tenant name, if left empty it will be ALL or *
+	// String or regex of a specific tenant name. If left empty (or *) it will encompass ALL tenant names.
 	Tenant *string `json:"tenant,omitempty"`
 }
 
@@ -627,15 +627,15 @@ func (m *PermissionData) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionNodes resources applicable for cluster actions
+// PermissionNodes Resources applicable for cluster actions.
 //
 // swagger:model PermissionNodes
 type PermissionNodes struct {
 
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.
 	Collection *string `json:"collection,omitempty"`
 
-	// whether to allow (verbose) returning shards and stats data in the response
+	// Whether to allow (verbose) returning shards and stats data in the response.
 	// Enum: [verbose minimal]
 	Verbosity *string `json:"verbosity,omitempty"`
 }
@@ -719,15 +719,15 @@ func (m *PermissionNodes) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionRoles resources applicable for role actions
+// PermissionRoles Resources applicable for role actions.
 //
 // swagger:model PermissionRoles
 type PermissionRoles struct {
 
-	// string or regex. if a specific role name, if left empty it will be ALL or *
+	// String or regex of a specific role name. If left empty (or *) it will encompass ALL role names.
 	Role *string `json:"role,omitempty"`
 
-	// set the scope for the manage role permission
+	// Set the scope for the manage role permission.
 	// Enum: [all match]
 	Scope *string `json:"scope,omitempty"`
 }
@@ -811,15 +811,15 @@ func (m *PermissionRoles) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionTenants resources applicable for tenant actions
+// PermissionTenants Resources applicable for tenant actions.
 //
 // swagger:model PermissionTenants
 type PermissionTenants struct {
 
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.
 	Collection *string `json:"collection,omitempty"`
 
-	// string or regex. if a specific tenant name, if left empty it will be ALL or *
+	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL tenant names.
 	Tenant *string `json:"tenant,omitempty"`
 }
 
@@ -851,12 +851,12 @@ func (m *PermissionTenants) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionUsers resources applicable for user actions
+// PermissionUsers Resources applicable for user actions.
 //
 // swagger:model PermissionUsers
 type PermissionUsers struct {
 
-	// string or regex. if a specific name, if left empty it will be ALL or *
+	// String or regex of a specific user name. If left empty (or *) it will encompass ALL user names.
 	Users *string `json:"users,omitempty"`
 }
 

@@ -28,7 +28,7 @@ import (
 const CreateUserCreatedCode int = 201
 
 /*
-CreateUserCreated User created successfully
+CreateUserCreated User created successfully and API key returned.
 
 swagger:response createUserCreated
 */
@@ -188,7 +188,7 @@ func (o *CreateUserForbidden) WriteResponse(rw http.ResponseWriter, producer run
 const CreateUserConflictCode int = 409
 
 /*
-CreateUserConflict User already exists
+CreateUserConflict A user with the specified name already exists.
 
 swagger:response createUserConflict
 */

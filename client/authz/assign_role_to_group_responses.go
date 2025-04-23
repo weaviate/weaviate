@@ -85,7 +85,7 @@ func NewAssignRoleToGroupOK() *AssignRoleToGroupOK {
 /*
 AssignRoleToGroupOK describes a response with status code 200, with default header values.
 
-Role assigned successfully
+Roles assigned successfully.
 */
 type AssignRoleToGroupOK struct {
 }
@@ -141,7 +141,7 @@ func NewAssignRoleToGroupBadRequest() *AssignRoleToGroupBadRequest {
 /*
 AssignRoleToGroupBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Bad request.
 */
 type AssignRoleToGroupBadRequest struct {
 	Payload *models.ErrorResponse
@@ -333,7 +333,7 @@ func NewAssignRoleToGroupNotFound() *AssignRoleToGroupNotFound {
 /*
 AssignRoleToGroupNotFound describes a response with status code 404, with default header values.
 
-role or group is not found.
+Role or group not found.
 */
 type AssignRoleToGroupNotFound struct {
 }
@@ -455,7 +455,7 @@ swagger:model AssignRoleToGroupBody
 */
 type AssignRoleToGroupBody struct {
 
-	// the roles that assigned to group
+	// The roles to assign to the specified group.
 	Roles []string `json:"roles"`
 }
 

@@ -51,7 +51,9 @@ func NewAddPermissions(ctx *middleware.Context, handler AddPermissionsHandler) *
 /*
 	AddPermissions swagger:route POST /authz/roles/{id}/add-permissions authz addPermissions
 
-Add permission to a given role.
+# Add permissions to a role
+
+Remove specific permissions from a role. If all permissions are removed, the role itself will be deleted.
 */
 type AddPermissions struct {
 	Context *middleware.Context
@@ -92,7 +94,7 @@ func (o *AddPermissions) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // swagger:model AddPermissionsBody
 type AddPermissionsBody struct {
 
-	// permissions to be added to the role
+	// Permissions to be added to the role.
 	// Required: true
 	Permissions []*models.Permission `json:"permissions" yaml:"permissions"`
 }

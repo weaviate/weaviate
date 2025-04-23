@@ -74,7 +74,7 @@ type GetUsersForRoleParams struct {
 
 	/* ID.
 
-	   role name
+	   The name of the role.
 	*/
 	ID string
 

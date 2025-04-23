@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// UserTypeOutput the type of user
+// UserTypeOutput The type of the user
 //
 // swagger:model UserTypeOutput
 type UserTypeOutput string

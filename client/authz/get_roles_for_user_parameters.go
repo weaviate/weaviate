@@ -75,7 +75,7 @@ type GetRolesForUserParams struct {
 
 	/* ID.
 
-	   user name
+	   The name of the user.
 	*/
 	ID string
 
@@ -87,7 +87,7 @@ type GetRolesForUserParams struct {
 
 	/* UserType.
 
-	   The type of user
+	   The type of the user.
 	*/
 	UserType string
 

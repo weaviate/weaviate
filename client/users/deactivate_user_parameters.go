@@ -77,7 +77,7 @@ type DeactivateUserParams struct {
 
 	/* UserID.
 
-	   user id
+	   The name of the user.
 	*/
 	UserID string
 

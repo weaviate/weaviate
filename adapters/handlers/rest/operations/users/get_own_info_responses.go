@@ -28,7 +28,7 @@ import (
 const GetOwnInfoOKCode int = 200
 
 /*
-GetOwnInfoOK Info about the user
+GetOwnInfoOK Info about the user.
 
 swagger:response getOwnInfoOK
 */

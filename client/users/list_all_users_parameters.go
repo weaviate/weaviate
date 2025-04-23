@@ -75,7 +75,7 @@ type ListAllUsersParams struct {
 
 	/* IncludeLastUsedTime.
 
-	   Whether to include the last used time of the users
+	   Whether to include the last used time of the users.
 	*/
 	IncludeLastUsedTime *bool
 
