@@ -20,21 +20,18 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/build"
-
-	"github.com/weaviate/weaviate/usecases/config"
-
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	casbinutil "github.com/casbin/casbin/v2/util"
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/build"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const DEFAULT_POLICY_VERSION = "1.29.0"
