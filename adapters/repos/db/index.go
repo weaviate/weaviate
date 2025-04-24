@@ -61,7 +61,6 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
-	runtimeconfig "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -604,7 +603,7 @@ func (i *Index) updateInvertedIndexConfig(ctx context.Context,
 }
 
 func (i *Index) asyncReplicationGloballyDisabled() bool {
-	return runtimeconfig.GetOverrides(i.globalreplicationConfig.AsyncReplicationDisabled, i.globalreplicationConfig.AsyncReplicationDisabledFn)
+	return i.globalreplicationConfig.AsyncReplicationDisabled.Get()
 }
 
 func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.ReplicationConfig) error {
@@ -656,6 +655,7 @@ type IndexConfig struct {
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
+	IndexRangeableInMemory              bool
 	MaxSegmentSize                      int64
 	HNSWMaxLogSize                      int64
 	HNSWWaitForCachePrefill             bool
@@ -1545,7 +1545,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		}
 		objs := resultObjects
 		scores := resultScores
-		var results []resultSortable = make([]resultSortable, len(objs))
+		results := make([]resultSortable, len(objs))
 		for i := range objs {
 			results[i] = resultSortable{
 				object: objs[i],
@@ -1561,10 +1561,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			return results[i].score > results[j].score
 		})
 
-		var finalObjs []*storobj.Object = make([]*storobj.Object, len(results))
-		var finalScores []float32 = make([]float32, len(results))
+		finalObjs := make([]*storobj.Object, len(results))
+		finalScores := make([]float32, len(results))
 		for i, result := range results {
-
 			finalObjs[i] = result.object
 			finalScores[i] = result.score
 		}

@@ -19,10 +19,42 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 )
 
-func TestWhereFilter(t *testing.T) {
+func TestWhereFilter_SingleNode_Contains(t *testing.T) {
 	t.Run("ContainsAny / ContainsAll", testContainsAnyAll(t, "localhost:8080"))
 	t.Run("Contains Text", testContainsText(t, "localhost:8080"))
-	t.Run("Numerical filters", testNumericalFilters("localhost:8080"))
+}
+
+func TestWhereFilter_SingleNode_Numerical(t *testing.T) {
+	ctx := context.Background()
+
+	t.Run("with rangeable on disk", func(t *testing.T) {
+		compose, err := docker.New().
+			WithWeaviate().
+			Start(ctx)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, compose.Terminate(ctx))
+		}()
+
+		endpoint := compose.GetWeaviate().URI()
+
+		t.Run("numerical filters", testNumericalFilters(endpoint))
+	})
+
+	t.Run("with rangeable in memory", func(t *testing.T) {
+		compose, err := docker.New().
+			WithWeaviate().
+			WithWeaviateEnv("INDEX_RANGEABLE_IN_MEMORY", "true").
+			Start(ctx)
+		require.NoError(t, err)
+		defer func() {
+			require.NoError(t, compose.Terminate(ctx))
+		}()
+
+		endpoint := compose.GetWeaviate().URI()
+
+		t.Run("numerical filters", testNumericalFilters(endpoint))
+	})
 }
 
 func TestWhereFilter_Cluster(t *testing.T) {

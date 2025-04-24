@@ -21,6 +21,8 @@ function main() {
   run_unit_and_integration_tests=false
   run_unit_tests=false
   run_integration_tests=false
+  run_integration_tests_only_vector_package=false
+  run_integration_tests_without_vector_package=false
   run_benchmark=false
   run_module_only_backup_tests=false
   run_module_only_offload_tests=false
@@ -37,6 +39,8 @@ function main() {
           --unit-only|-u) run_all_tests=false; run_unit_tests=true;;
           --unit-and-integration-only|-ui) run_all_tests=false; run_unit_and_integration_tests=true;;
           --integration-only|-i) run_all_tests=false; run_integration_tests=true;;
+          --integration-vector-package-only|-ivpo) run_all_tests=false; run_integration_tests=true; run_integration_tests_only_vector_package=true;;
+          --integration-without-vector-package|-iwvp) run_all_tests=false; run_integration_tests=true; run_integration_tests_without_vector_package=true;;
           --acceptance-only|--e2e-only|-a) run_all_tests=false; run_acceptance_tests=true ;;
           --acceptance-only-fast|-aof) run_all_tests=false; run_acceptance_only_fast=true;;
           --acceptance-only-python|-aop) run_all_tests=false; run_acceptance_only_python=true;;
@@ -125,6 +129,7 @@ function main() {
     if $run_acceptance_only_authz || $run_acceptance_only_python
     then
       tools/test/run_ci_server.sh --with-auth
+      build_mockoidc_docker_image_for_tests
     else
       tools/test/run_ci_server.sh
     fi
@@ -200,6 +205,14 @@ function build_docker_image_for_tests() {
   export "TEST_WEAVIATE_IMAGE"=$module_test_image
 }
 
+function build_mockoidc_docker_image_for_tests() {
+  local mockoidc_test_image=mockoidc:module-tests
+  echo_green "Building MockOIDC image for module acceptance tests..."
+  docker build  -t $mockoidc_test_image test/docker/mockoidc
+  export "TEST_MOCKOIDC_IMAGE"=$mockoidc_test_image
+  echo_green "MockOIDC image successfully built"
+}
+
 function run_unit_tests() {
   if [[ "$*" == *--acceptance-only* ]]; then
     echo "Skipping unit test"
@@ -214,7 +227,13 @@ function run_integration_tests() {
     return
   fi
 
-  ./test/integration/run.sh --include-slow
+  if $run_integration_tests_only_vector_package; then
+    ./test/integration/run.sh --include-slow --only-vector-pkg
+  elif $run_integration_tests_without_vector_package; then
+    ./test/integration/run.sh --include-slow --without-vector-pkg
+  else
+    ./test/integration/run.sh --include-slow
+  fi
 }
 
 function run_acceptance_lsmkv() {
@@ -347,7 +366,7 @@ function run_acceptance_graphql_tests() {
 function run_acceptance_only_authz() {
   export TEST_WEAVIATE_IMAGE=weaviate/test-server
   for pkg in $(go list ./.../ | grep 'test/acceptance/authz'); do
-    if ! go test -count 1 -race "$pkg"; then
+    if ! go test -timeout=15m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi

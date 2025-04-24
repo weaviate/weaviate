@@ -14,6 +14,9 @@ package replication
 import (
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
@@ -22,49 +25,70 @@ type shardReplicationOpStatus struct {
 	state api.ShardReplicationState
 }
 
-type shardReplicationOp struct {
-	id uint64
+type ShardReplicationOp struct {
+	ID uint64
 
 	// Targeting information of the replication operation
 	sourceShard shardFQDN
 	targetShard shardFQDN
 }
 
-type ShardReplicationFSM struct {
-	opsLock sync.RWMutex
-
-	// opsByNode stores the array of shardReplicationOp for each "target" node
-	opsByNode map[string][]shardReplicationOp
-	// opsByCollection stores the array of shardReplicationOp for each collection
-	opsByCollection map[string][]shardReplicationOp
-	// opsByShard stores the array of shardReplicationOp for each shard
-	opsByShard map[string][]shardReplicationOp
-	// opsByTargetFQDN stores the registered shardReplicationOp (if any) for each destination replica
-	opsByTargetFQDN map[shardFQDN]shardReplicationOp
-	// opsByShard stores opId -> replicationOp
-	opsById map[uint64]shardReplicationOp
-	// opsStatus stores op -> opStatus
-	opsStatus map[shardReplicationOp]shardReplicationOpStatus
-}
-
-func newShardReplicationFSM() *ShardReplicationFSM {
-	return &ShardReplicationFSM{
-		opsByNode:       make(map[string][]shardReplicationOp),
-		opsByCollection: make(map[string][]shardReplicationOp),
-		opsByShard:      make(map[string][]shardReplicationOp),
-		opsByTargetFQDN: make(map[shardFQDN]shardReplicationOp),
-		opsById:         make(map[uint64]shardReplicationOp),
-		opsStatus:       make(map[shardReplicationOp]shardReplicationOpStatus),
+func NewShardReplicationOp(id uint64, sourceNode, targetNode, collectionId, shardId string) ShardReplicationOp {
+	return ShardReplicationOp{
+		ID:          id,
+		sourceShard: newShardFQDN(sourceNode, collectionId, shardId),
+		targetShard: newShardFQDN(targetNode, collectionId, shardId),
 	}
 }
 
-func (s *ShardReplicationFSM) GetOpsForNode(node string) []shardReplicationOp {
+type ShardReplicationFSM struct {
+	opsLock sync.RWMutex
+
+	// opsByNode stores the array of ShardReplicationOp for each "target" node
+	opsByNode map[string][]ShardReplicationOp
+	// opsByCollection stores the array of ShardReplicationOp for each collection
+	opsByCollection map[string][]ShardReplicationOp
+	// opsByShard stores the array of ShardReplicationOp for each shard
+	opsByShard map[string][]ShardReplicationOp
+	// opsByTargetFQDN stores the registered ShardReplicationOp (if any) for each destination replica
+	opsByTargetFQDN map[shardFQDN]ShardReplicationOp
+	// opsByShard stores opId -> replicationOp
+	opsById map[uint64]ShardReplicationOp
+	// opsStatus stores op -> opStatus
+	opsStatus       map[ShardReplicationOp]shardReplicationOpStatus
+	opsByStateGauge *prometheus.GaugeVec
+}
+
+func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
+	fsm := &ShardReplicationFSM{
+		opsByNode:       make(map[string][]ShardReplicationOp),
+		opsByCollection: make(map[string][]ShardReplicationOp),
+		opsByShard:      make(map[string][]ShardReplicationOp),
+		opsByTargetFQDN: make(map[shardFQDN]ShardReplicationOp),
+		opsById:         make(map[uint64]ShardReplicationOp),
+		opsStatus:       make(map[ShardReplicationOp]shardReplicationOpStatus),
+	}
+
+	fsm.opsByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
+		Namespace: "weaviate",
+		Name:      "replication_operation_fsm_ops_by_state",
+		Help:      "Current number of replication operations in each state of the FSM lifecycle",
+	}, []string{"state"})
+
+	return fsm
+}
+
+func (s *ShardReplicationFSM) GetOpsForNode(node string) []ShardReplicationOp {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 	return s.opsByNode[node]
 }
 
-func (s *ShardReplicationFSM) GetOpState(op shardReplicationOp) shardReplicationOpStatus {
+func (s shardReplicationOpStatus) ShouldRestartOp() bool {
+	return s.state == api.REGISTERED || s.state == api.HYDRATING
+}
+
+func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) shardReplicationOpStatus {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 	return s.opsStatus[op]

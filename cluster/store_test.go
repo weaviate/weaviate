@@ -674,7 +674,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			ConsistencyWaitTimeout: time.Millisecond * 50,
 		},
 	}
-	s := NewFSM(ms.cfg, prometheus.NewPedanticRegistry())
+	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry())
 	ms.store = &s
 	return ms
 }

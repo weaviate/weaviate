@@ -227,7 +227,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		// should update this to pass the global setting.
 		lsmkv.WithPread(false),
 	); err != nil {
-		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
+		return fmt.Errorf("create or load flat vectors bucket: %w", err)
 	}
 	if index.isBQ() {
 		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
@@ -245,7 +245,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 			// should update this to pass the global setting.
 			lsmkv.WithPread(false),
 		); err != nil {
-			return fmt.Errorf("Create or load flat compressed vectors bucket: %w", err)
+			return fmt.Errorf("create or load flat compressed vectors bucket: %w", err)
 		}
 	}
 	return nil

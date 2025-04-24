@@ -120,6 +120,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			SegmentsCleanupIntervalSeconds:      m.db.config.SegmentsCleanupIntervalSeconds,
 			SeparateObjectsCompactions:          m.db.config.SeparateObjectsCompactions,
 			CycleManagerRoutinesFactor:          m.db.config.CycleManagerRoutinesFactor,
+			IndexRangeableInMemory:              m.db.config.IndexRangeableInMemory,
 			MaxSegmentSize:                      m.db.config.MaxSegmentSize,
 			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill:             m.db.config.HNSWWaitForCachePrefill,
@@ -668,7 +669,7 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
 	}
-	return fmt.Errorf("Invalid index type: %s", old.IndexType())
+	return fmt.Errorf("invalid index type: %s", old.IndexType())
 }
 
 func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,

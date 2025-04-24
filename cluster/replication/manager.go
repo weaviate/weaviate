@@ -16,6 +16,8 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
@@ -29,8 +31,8 @@ type Manager struct {
 	schemaReader   schema.SchemaReader
 }
 
-func NewManager(logger *logrus.Logger, schemaReader schema.SchemaReader, replicaCopier types.ReplicaCopier) *Manager {
-	replicationFSM := newShardReplicationFSM()
+func NewManager(logger *logrus.Logger, schemaReader schema.SchemaReader, replicaCopier types.ReplicaCopier, reg prometheus.Registerer) *Manager {
+	replicationFSM := newShardReplicationFSM(reg)
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
@@ -78,11 +80,11 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 
 	status, ok := m.replicationFSM.opsStatus[op]
 	if !ok {
-		return nil, fmt.Errorf("unable to retrieve replication operation '%d' status", op.id)
+		return nil, fmt.Errorf("unable to retrieve replication operation '%d' status", op.ID)
 	}
 
 	response := cmd.ReplicationDetailsResponse{
-		Id:           op.id,
+		Id:           op.ID,
 		ShardId:      op.sourceShard.shardId,
 		Collection:   op.sourceShard.collectionId,
 		SourceNodeId: op.sourceShard.nodeId,
@@ -92,7 +94,7 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 
 	payload, err := json.Marshal(response)
 	if err != nil {
-		return nil, fmt.Errorf("could not marshal query response for replication operation '%d': %w", op.id, err)
+		return nil, fmt.Errorf("could not marshal query response for replication operation '%d': %w", op.ID, err)
 	}
 
 	return payload, nil

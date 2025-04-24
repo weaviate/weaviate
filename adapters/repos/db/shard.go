@@ -241,6 +241,7 @@ type Shard struct {
 
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
+	bitmapBufPool  roaringset.BitmapBufPool
 
 	activityTracker atomic.Int32
 

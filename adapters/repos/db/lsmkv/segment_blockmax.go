@@ -163,7 +163,7 @@ func generateSingleFilter(tombstones *sroar.Bitmap, filterDocIds helpers.AllowLi
 
 	var filterSroar *sroar.Bitmap
 	// if we don't have an allow list filter, tombstones are the only needed filter
-	if filterDocIds != nil && filterDocIds.Len() > 0 {
+	if filterDocIds != nil {
 		// the ok check should always succeed, but we keep it for safety
 		bm, ok := filterDocIds.(*helpers.BitmapAllowList)
 		// if we have a (allow list) filter and a (block list) tombstones filter, we can combine them into a single allowlist filter filter
@@ -184,6 +184,12 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 	}
 
 	tombstones, filterSroar := generateSingleFilter(tombstones, filterDocIds)
+
+	// if filter is empty after checking for tombstones,
+	// we can skip it and return nil for the segment
+	if filterSroar != nil && filterSroar.IsEmpty() {
+		return nil
+	}
 
 	codecs := s.invertedHeader.DataFields
 	decoders := make([]varenc.VarEncEncoder[uint64], len(codecs))
@@ -233,6 +239,12 @@ func NewSegmentBlockMaxTest(docCount uint64, blockEntries []*terms.BlockEntry, b
 	}
 
 	tombstones, filterSroar := generateSingleFilter(tombstones, filterDocIds)
+
+	// if filter is empty after checking for tombstones,
+	// we can skip it and return nil for the segment
+	if filterSroar != nil && filterSroar.IsEmpty() {
+		return nil
+	}
 
 	output := &SegmentBlockMax{
 		blockEntries:      blockEntries,

@@ -18,6 +18,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/file"
 )
 
 // TODO name
@@ -41,9 +42,16 @@ type ShardLoader interface {
 // RemoteIndex is a type that can interact with a remote index, this is used to avoid a circular
 // dependency between the copier and the db package.
 type RemoteIndex interface {
-	// PauseAndListFiles See adapters/clients.RemoteIndex.PauseAndListFiles
-	PauseAndListFiles(ctx context.Context,
+	// PauseFileActivity See adapters/clients.RemoteIndex.PauseFileActivity
+	PauseFileActivity(ctx context.Context, hostName, indexName, shardName string) error
+	// ResumeFileActivity See adapters/clients.RemoteIndex.ResumeFileActivity
+	ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error
+	// ListFiles See adapters/clients.RemoteIndex.ListFiles
+	ListFiles(ctx context.Context,
 		hostName, indexName, shardName string) ([]string, error)
+	// GetFileMetadata See adapters/clients.RemoteIndex.GetFileMetadata
+	GetFileMetadata(ctx context.Context,
+		hostName, indexName, shardName, fileName string) (file.FileMetadata, error)
 	// GetFile See adapters/clients.RemoteIndex.GetFile
 	GetFile(ctx context.Context,
 		hostName, indexName, shardName, fileName string) (io.ReadCloser, error)

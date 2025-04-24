@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -290,7 +291,7 @@ func Test_AddClass(t *testing.T) {
 					propName:       propName(dataType, tokenization),
 					dataType:       dataType.PropString(),
 					tokenization:   tokenization,
-					expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+					expectedErrMsg: fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 				})
 			}
 
@@ -317,7 +318,7 @@ func Test_AddClass(t *testing.T) {
 							propName:       propName(dataType, tokenization),
 							dataType:       dataType.PropString(),
 							tokenization:   tokenization,
-							expectedErrMsg: fmt.Sprintf("Tokenization is not allowed for data type '%s'", dataType),
+							expectedErrMsg: fmt.Sprintf("tokenization is not allowed for data type '%s'", dataType),
 						})
 					}
 				}
@@ -345,7 +346,7 @@ func Test_AddClass(t *testing.T) {
 						propName:       fmt.Sprintf("RefProp_%d_%s", i, tokenization),
 						dataType:       dataType,
 						tokenization:   tokenization,
-						expectedErrMsg: "Tokenization is not allowed for reference data type",
+						expectedErrMsg: "tokenization is not allowed for reference data type",
 						callReadOnly:   true,
 					})
 				}
@@ -379,7 +380,7 @@ func Test_AddClass(t *testing.T) {
 							propName:       propName(dataType, tokenization),
 							dataType:       dataType.PropString(),
 							tokenization:   tokenization,
-							expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+							expectedErrMsg: fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 						})
 					}
 				}
@@ -471,7 +472,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 				fakeSchemaManager.On("QueryCollectionsCount").Return(tt.existingCount, nil)
 
 				// Set the max collections limit in config
-				handler.schemaConfig.MaximumAllowedCollectionsCount = tt.maxAllowed
+				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.maxAllowed)
 
 				class := &models.Class{
 					Class:      "NewClass",
@@ -646,7 +647,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-			handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 		})
@@ -1097,7 +1098,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
-					handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+					handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					assert.Equal(t, test.valid, err == nil)
 					fakeSchemaManager.AssertExpectations(t)
@@ -1858,7 +1859,7 @@ func Test_UpdateClass(t *testing.T) {
 				if len(test.initial.Properties) > 0 {
 					fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				}
-				handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 				_, _, err := handler.AddClass(ctx, nil, test.initial)
 				assert.Nil(t, err)
 				store.AddClass(test.initial)
@@ -2145,7 +2146,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.False(t, schema.AutoTenantCreationEnabled(c))
@@ -2166,7 +2167,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.True(t, schema.AutoTenantCreationEnabled(c))
@@ -2183,7 +2184,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})
@@ -2198,7 +2199,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})

@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 	generativecomponents "github.com/weaviate/weaviate/usecases/modulecomponents/generative"
 
 	"github.com/pkg/errors"
@@ -60,7 +59,7 @@ func New(databricksToken string, timeout time.Duration, logger logrus.FieldLogge
 }
 
 func (v *databricks) GenerateSingleResult(ctx context.Context, properties *modulecapabilities.GenerateProperties, prompt string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forPrompt, err := generative.MakeSinglePrompt(generative.Text(properties), prompt)
+	forPrompt, err := generativecomponents.MakeSinglePrompt(generativecomponents.Text(properties), prompt)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +67,7 @@ func (v *databricks) GenerateSingleResult(ctx context.Context, properties *modul
 }
 
 func (v *databricks) GenerateAllResults(ctx context.Context, properties []*modulecapabilities.GenerateProperties, task string, options interface{}, debug bool, cfg moduletools.ClassConfig) (*modulecapabilities.GenerateResponse, error) {
-	forTask, err := generative.MakeTaskPrompt(generativecomponents.Texts(properties), task)
+	forTask, err := generativecomponents.MakeTaskPrompt(generativecomponents.Texts(properties), task)
 	if err != nil {
 		return nil, err
 	}

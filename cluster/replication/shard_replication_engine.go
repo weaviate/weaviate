@@ -13,242 +13,283 @@ package replication
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/cenkalti/backoff/v4"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/replication/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 const (
-	replicationEngineLogAction                = "replication_engine"
-	replicationEngineMaxConcurrentReplication = 5
+	replicationEngineLogAction = "replication_engine"
 )
 
+// TimeProvider abstracts time operations to enable testing without time dependencies.
+type TimeProvider interface {
+	Now() time.Time
+}
+
+// RealTimeProvider implements the TimeProvider interface using the standard time package
+type RealTimeProvider struct{}
+
+// Now returns the current time
+func (p RealTimeProvider) Now() time.Time {
+	return time.Now()
+}
+
+// ShardReplicationEngine coordinates the replication of shard data between nodes in a distributed system.
+//
+// It uses a producer-consumer pattern where replication operations are pulled from a source (e.g., FSM)
+// and dispatched to workers for execution, enabling parallel processing with built-in backpressure implemented by means
+// of a limited channel.
+//
+// The engine ensures that operations are processed concurrently, but with limits to avoid overloading the system. It also
+// provides mechanisms for graceful shutdown and error handling. The replication engine is responsible for managing the
+// lifecycle of both producer and consumer goroutines that work together to execute replication tasks.
+//
+// Key responsibilities of this engine include managing buffered channels for backpressure, starting and stopping
+// the replication operation lifecycle, and ensuring that the engine handles concurrent workers without resource exhaustion.
+//
+// This engine is expected to run in a single node within a cluster, where it processes replication operations relevant
+// to the node with a pull mechanism where an engine running on a certain node is responsible for running replication
+// operations with that node as a target.
 type ShardReplicationEngine struct {
-	node   string
+	// nodeId uniquely identifies the node on which this engine instance is running.
+	// It is used to filter replication operations that are relevant to this node, as each
+	// replication engine works in pull mode and is responsible for a subset of replication
+	// operations assigned to the node.
+	nodeId string
+
+	// logger provides structured logging throughout the lifecycle of the engine,
+	// including producer, consumer, and worker activity. The logger tracks operations,
+	// errors, and state transitions.
 	logger *logrus.Entry
 
-	replicationFSM         *ShardReplicationFSM
-	leaderClient           types.FSMUpdater
-	ongoingReplications    atomic.Int64
-	ongoingReplicationLock sync.RWMutex
-	ongoingReplicationOps  map[shardReplicationOp]struct{}
-	opChan                 chan shardReplicationOp
-	stopChan               chan bool
-	// replicaCopier does the "data tranfer" work
-	replicaCopier types.ReplicaCopier
+	// producer is responsible for generating replication operations that this node should execute.
+	// These operations are typically retrieved from the cluster’s FSM stored in RAFT.
+	// The producer pulls operations from the source and sends them to the opsChan for the consumer to process.
+	producer OpProducer
+
+	// consumer handles the execution of replication operations by processing them with a pool of workers.
+	// It ensures bounded concurrent execution of multiple workers, performing the actual data replication.
+	// The consumer listens on the opsChan and processes operations as they arrive.
+	consumer OpConsumer
+
+	// opBufferSize determines the size of the buffered channel between the producer and consumer.
+	// It controls how many operations can be in-flight or waiting for processing, enabling backpressure.
+	// If the channel is full, the producer will be blocked until space is available, resulting in proparagting
+	// backpressure from the consumer up to the producer.
+	opBufferSize int
+
+	// opsChan is the buffered channel used to pass operations from the producer to the consumer.
+	// A bounded channel ensures that backpressure is applied when the consumer is overwhelmed or when
+	// a certain number of concurrent workers are already busy processing replication operations.
+	opsChan chan ShardReplicationOp
+
+	// stopChan is a signal-only channel used to trigger graceful shutdown of the engine.
+	// It is closed when Stop() is invoked, prompting shutdown of producer and consumer goroutines.
+	// This allows for a controlled and graceful shutdown of all active components.
+	stopChan chan struct{}
+
+	// isRunning is a flag that indicates whether the engine is currently running.
+	// It prevents concurrent starts (multiple instances of the replication engine running simultaneously) or stops.
+	// Ensures that the engine runs only once per each node.
+	isRunning atomic.Bool
+
+	// wg is a wait group that tracks producer and consumer goroutines.
+	// It ensures graceful shutdown by waiting for all background goroutines to exit cleanly.
+	// The wait group helps ensure that the engine doesn't terminate prematurely before all goroutines have finished.
+	wg sync.WaitGroup
+
+	// cancel is a function that cancels the context associated with the replication engine's main execution loop.
+	// It is used to gracefully stop the operation of the engine by canceling the context passed to the producer
+	// and consumer goroutines. The context cancellation triggers the shutdown sequence for the engine, allowing
+	// the producer and consumer to stop gracefully.
+	cancel context.CancelFunc
+
+	// maxWorkers controls the maximum number of concurrent workers in the consumer pool.
+	// It is used to limit the parallelism of replication operations, preventing the system from being overwhelmed by
+	// too many concurrent tasks performing replication operations.
+	maxWorkers int
+
+	// shutdownTimeout is the maximum amount of time to wait for a graceful shutdown.
+	// If the engine takes longer than this timeout to shut down, a warning is logged, and the process is forcibly stopped.
+	// This ensures that the system doesn't hang indefinitely during shutdown.
+	shutdownTimeout time.Duration
 }
 
-func NewShardReplicationEngine(logger *logrus.Logger, node string, replicationFSM *ShardReplicationFSM, leaderClient types.FSMUpdater, replicaCopier types.ReplicaCopier) *ShardReplicationEngine {
+// NewShardReplicationEngine creates a new replication engine
+func NewShardReplicationEngine(
+	logger *logrus.Logger,
+	nodeId string,
+	producer OpProducer,
+	consumer OpConsumer,
+	opBufferSize int,
+	maxWorkers int,
+	shutdownTimeout time.Duration,
+) *ShardReplicationEngine {
 	return &ShardReplicationEngine{
-		node:                  node,
-		logger:                logger.WithFields(logrus.Fields{"action": replicationEngineLogAction, "node": node}),
-		replicationFSM:        replicationFSM,
-		leaderClient:          leaderClient,
-		ongoingReplicationOps: make(map[shardReplicationOp]struct{}),
-		opChan:                make(chan shardReplicationOp, 100),
-		stopChan:              make(chan bool),
-		replicaCopier:         replicaCopier,
+		nodeId:          nodeId,
+		logger:          logger.WithFields(logrus.Fields{"action": replicationEngineLogAction, "node": nodeId}),
+		producer:        producer,
+		consumer:        consumer,
+		opBufferSize:    opBufferSize,
+		maxWorkers:      maxWorkers,
+		shutdownTimeout: shutdownTimeout,
+		stopChan:        make(chan struct{}),
 	}
 }
 
-func (s *ShardReplicationEngine) Start() {
-	eg := enterrors.NewErrorGroupWrapper(s.logger)
-	eg.Go(func() error {
-		s.replicationFSMMonitor()
+// Start runs the replication engine's main loop, including the operation producer and consumer.
+//
+// It starts two goroutines: one for the OpProducer and one for the OpConsumer. These goroutines
+// communicate through a buffered channel, and the engine coordinates their lifecycle. This method
+// is safe to call only once; if the engine is already running, it logs a warning and returns.
+//
+// It returns an error if either the producer or consumer fails unexpectedly, or if the context is cancelled.
+//
+// It is, safe to restart the replication engin using this method, after it has been stopped.
+func (e *ShardReplicationEngine) Start(ctx context.Context) error {
+	if !e.isRunning.CompareAndSwap(false, true) {
+		e.logger.Warnf("replication engine already running: %v", e)
 		return nil
-	})
-	err := eg.Wait()
-	if err != nil {
-		s.logger.WithError(err).Errorf("failed to start replication engine")
 	}
-}
 
-func (s *ShardReplicationEngine) Stop() {
-	s.logger.Info("Stopping replication engine")
-	s.stopChan <- true
-}
+	// Channels are creating while starting the replication engine to allow start/stop.
+	e.opsChan = make(chan ShardReplicationOp, e.opBufferSize)
+	e.stopChan = make(chan struct{})
 
-func (s *ShardReplicationEngine) replicationFSMMonitor() {
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
+	engineCtx, engineCancel := context.WithCancel(ctx)
+	e.cancel = engineCancel
+	e.logger.WithFields(logrus.Fields{"engine": e}).Info("starting replication engine")
 
-	for {
-	LOOP_RESET:
-		select {
-		case <-s.stopChan:
-			return
-		case <-ticker.C:
+	// Channels for error reporting used by producer and consumer.
+	producerErrChan := make(chan error, 1)
+	consumerErrChan := make(chan error, 1)
 
-			ongoingShardReplicationOps, newShardReplicationOps := s.getShardReplicationOps()
-			if len(ongoingShardReplicationOps) == 0 && len(newShardReplicationOps) == 0 {
-				s.logger.Debug("No shard replication op found")
-				continue
-			}
-
-			s.logger.WithFields(logrus.Fields{
-				"ongoingShardReplicationOps": ongoingShardReplicationOps,
-				"newShardReplicationOps":     newShardReplicationOps,
-			}).Info("found shard replication ops to start/recover from FSM")
-
-			// First handle ongoing shard replication ops and check if need to recover from failure any of them
-			// The reason we do these first is that we want to prioritise unfinished shard replication operation vs new shard replication
-			// operation
-			for _, op := range ongoingShardReplicationOps {
-				// If we reach the maximum, break and backoff. We want to avoid overloading the engine with too many concurrent operation
-				if s.ongoingReplications.Load() > replicationEngineMaxConcurrentReplication {
-					goto LOOP_RESET
-				}
-
-				if _, ok := s.ongoingReplicationOps[op]; !ok {
-					s.recoverShardReplication(op)
-				}
-			}
-
-			for _, op := range newShardReplicationOps {
-				// If we reach the maximum, break and backoff. We want to avoid overloading the engine with too many concurrent operation
-				if s.ongoingReplications.Load() > replicationEngineMaxConcurrentReplication {
-					goto LOOP_RESET
-				}
-
-				s.startShardReplication(op)
-			}
+	// Start one replication operations producer.
+	e.wg.Add(1)
+	enterrors.GoWrapper(func() {
+		defer e.wg.Done()
+		e.logger.WithField("producer", e.producer).Info("starting replication engine producer")
+		err := e.producer.Produce(engineCtx, e.opsChan)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			e.logger.WithField("producer", e.producer).WithError(err).Error("stopping producer after failure")
+			producerErrChan <- err
 		}
-	}
-}
+		e.logger.WithField("producer", e.producer).Info("replication engine producer stopped")
+	}, e.logger)
 
-func (s *ShardReplicationEngine) registerStartShardReplication(op shardReplicationOp) {
-	s.ongoingReplicationLock.Lock()
-	defer s.ongoingReplicationLock.Unlock()
-
-	s.ongoingReplicationOps[op] = struct{}{}
-}
-
-func (s *ShardReplicationEngine) startShardReplication(op shardReplicationOp) {
-	s.ongoingReplications.Add(1)
-	s.registerStartShardReplication(op)
-
-	// TODO: Handle shutdown/abort related routine to stop all ongoing replica movement
-	eg := enterrors.NewErrorGroupWrapper(s.logger)
-	eg.Go(func() error {
-		defer s.ongoingReplications.Add(-1)
-		return backoff.Retry(func() error {
-			// TODO how to cancel this context if we need to stop (eg hook it up to stopChan?)
-			ctx, cancel := context.WithTimeout(context.Background(), 24*time.Hour)
-			defer cancel()
-			logger := s.logger.WithFields(logrus.Fields{
-				"opId":   op.id,
-				"source": op.sourceShard.String(),
-				"target": op.targetShard.String(),
-			})
-
-			logger.Info("starting replica replication")
-
-			// Update FSM that we are starting to hydrate this replica
-			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.HYDRATING); err != nil {
-				logger.WithError(err).Errorf("failed to update replica op state to %s", api.HYDRATING)
-			}
-
-			logger.Info("starting replica replication file copy")
-
-			// Copy the replica
-			// TODO change name to hydrate
-			if err := s.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
-				logger.WithError(err).Warn("failed to file copy replica")
-				// TODO: Handle failure and failure tracking in replicationFSM of replica ops
-				return err
-			}
-
-			logger.Info("completed replica replication file copy")
-
-			// Update FSM that we are done copying files and we can start final sync follower phase
-			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.FINALIZING); err != nil {
-				logger.WithError(err).Errorf("failed to update replica op state to %s", api.FINALIZING)
-			}
-
-			// Update schema to register the shard
-			logger.Info("starting to finalize replica copy")
-			// TODO make sure/test reads sent to target node do not use target node until op is ready/done
-			// TODO get the upper time bound for this movement from the source node (query/poll?)
-			// for now, just pick a time 100s in the future
-			upperTimeBoundUnixMillis := time.Now().Add(100 * time.Second).UnixMilli()
-			// TODO best effort writes
-			if _, err := s.leaderClient.StartFinalizingReplicaCopy(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.sourceShard.nodeId, op.targetShard.nodeId, upperTimeBoundUnixMillis); err != nil {
-				logger.WithError(err).Errorf("failed to add replica to shard")
-				return err
-			}
-
-			// TODO some kind of timer, stop, timeout, etc
-			finalizationSucceeded := false
-			for {
-				objectsPropagated, startDiffTimeUnixMillis, err := s.replicaCopier.AsyncReplicationStatus(ctx, op.sourceShard.nodeId, op.targetShard.nodeId, op.sourceShard.collectionId, op.sourceShard.shardId)
-				if err == nil && objectsPropagated == 0 {
-					if startDiffTimeUnixMillis >= upperTimeBoundUnixMillis {
-						finalizationSucceeded = true
-						break
-					}
-				}
-				time.Sleep(5 * time.Second)
-			}
-
-			if !finalizationSucceeded {
-				// TODO handle unhappy path
-			}
-
-			// TODO remove target node override from this movement
-			logger.Info("finalized replica copy")
-
-			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.READY); err != nil {
-				logger.WithError(err).Errorf("failed to update replica op state to %s", api.READY)
-			}
-
-			return nil
-		}, backoff.NewConstantBackOff(5*time.Second))
-	})
-	err := eg.Wait()
-	if err != nil {
-		s.logger.WithError(err).Errorf("failed to start shard replication")
-		// TODO any other handling that needs to be done here?
-	}
-}
-
-func (s *ShardReplicationEngine) recoverShardReplication(op shardReplicationOp) {
-	s.ongoingReplications.Add(1)
-	s.registerStartShardReplication(op)
-
-	eg := enterrors.NewErrorGroupWrapper(s.logger)
-	eg.Go(func() error {
-		defer s.ongoingReplications.Add(-1)
-		return nil
-	})
-	err := eg.Wait()
-	if err != nil {
-		s.logger.WithError(err).Errorf("failed to recover shard replication")
-	}
-}
-
-func (s *ShardReplicationEngine) getShardReplicationOps() ([]shardReplicationOp, []shardReplicationOp) {
-	var newShardReplicationOp []shardReplicationOp
-	var ongoingShardReplicationOp []shardReplicationOp
-	for _, op := range s.replicationFSM.GetOpsForNode(s.node) {
-		switch s.replicationFSM.GetOpState(op).state {
-		case api.REGISTERED:
-			newShardReplicationOp = append(newShardReplicationOp, op)
-		case api.HYDRATING:
-			s.ongoingReplicationLock.RLock()
-			_, ok := s.ongoingReplicationOps[op]
-			s.ongoingReplicationLock.RUnlock()
-			if !ok {
-				ongoingShardReplicationOp = append(ongoingShardReplicationOp, op)
-			}
-		default:
-			continue
+	// Start one replication operations consumer.
+	e.wg.Add(1)
+	enterrors.GoWrapper(func() {
+		defer e.wg.Done()
+		e.logger.WithField("consumer", e.consumer).Info("starting replication engine consumer")
+		err := e.consumer.Consume(engineCtx, e.opsChan)
+		if err != nil && !errors.Is(err, context.Canceled) {
+			e.logger.WithField("consumer", e.consumer).WithError(err).Error("stopping consumer after failure")
+			consumerErrChan <- err
 		}
+		e.logger.WithField("consumer", e.consumer).Info("replication engine consumer stopped")
+	}, e.logger)
+
+	// Coordinate replication engine execution with producer and consumer lifecycle.
+	var err error
+	select {
+	case <-ctx.Done():
+		e.logger.WithField("engine", e).Info("replication engine cancel request, shutting down")
+		err = ctx.Err()
+	case <-e.stopChan:
+		e.logger.WithField("engine", e).Info("replication engine stop request, shutting down")
+		// Graceful shutdown executed when stopping the replication engine
+	case producerErr := <-producerErrChan:
+		if !errors.Is(producerErr, context.Canceled) {
+			e.logger.WithField("engine", e).WithError(producerErr).Error("stopping replication engine producer after failure")
+			err = fmt.Errorf("replication engine producer failed with: %w", producerErr)
+		}
+	case consumerErr := <-consumerErrChan:
+		e.logger.WithField("engine", e).WithError(consumerErr).Error("stopping replication engine consumer after failure")
+		err = fmt.Errorf("replication engine consumer failed with: %w", consumerErr)
 	}
-	return ongoingShardReplicationOp, newShardReplicationOp
+
+	// Always cancel the replication engine context and wait for the producer and consumers to terminate to gracefully
+	// shut down the replication engine the both the producer and consumer.
+	engineCancel()
+	e.wg.Wait()
+	close(e.opsChan)
+	e.isRunning.Store(false)
+	return err
+}
+
+// Stop signals the replication engine to shut down gracefully.
+//
+// It safely transitions the engine's running state to false and closes the internal stop channel,
+// which unblocks the main loop in Start() and initiates the shutdown sequence.
+// Calling Stop multiple times is safe; only the first call has an effect.
+// Note that the ops channel is closed in the Start method after waiting for both the producer and consumers to
+// terminate.
+func (e *ShardReplicationEngine) Stop() {
+	if !e.isRunning.Load() {
+		return
+	}
+
+	// Closing the stop channel notifies both the producer and consumer to shut down gracefully coordinating with the
+	// replication engine.
+	close(e.stopChan)
+	e.cancel()
+
+	// We use a timeout mechanism to wait for the replication engine to shut down and prevent it from running
+	// indefinitely.
+	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), e.shutdownTimeout)
+	defer timeoutCancel()
+
+	done := make(chan struct{})
+	enterrors.GoWrapper(func() {
+		e.wg.Wait()
+		close(done)
+	}, e.logger)
+
+	select {
+	case <-done:
+		e.logger.WithField("engine", e).Info("replication engine shutdown completed successfully")
+	case <-timeoutCtx.Done():
+		e.logger.WithField("engine", e).WithField("timeout", e.shutdownTimeout).Warn("replication engine shutdown timed out")
+	}
+
+	e.isRunning.Store(false)
+}
+
+// IsRunning reports whether the replication engine is currently running.
+//
+// It returns true if the engine has been started and has not yet shut down.
+func (e *ShardReplicationEngine) IsRunning() bool {
+	return e.isRunning.Load()
+}
+
+// OpChannelCap returns the capacity of the internal operation channel.
+//
+// This reflects the total number of replication operations the channel can queue
+// before blocking the producer implementing a backpressure mechanism.
+func (e *ShardReplicationEngine) OpChannelCap() int {
+	return cap(e.opsChan)
+}
+
+// OpChannelLen returns the current number of operations buffered in the internal channel.
+//
+// This can be used to monitor the backpressure between the producer and the consumer.
+func (e *ShardReplicationEngine) OpChannelLen() int {
+	return len(e.opsChan)
+}
+
+// String returns a string representation of the ShardReplicationEngine,
+// including the node ID that uniquely identifies the engine for a specific node.
+//
+// The expectation is that each node runs one and only one replication engine,
+// so the string output is helpful for logging or diagnostics to easily identify
+// the engine associated with the node.
+func (e *ShardReplicationEngine) String() string {
+	return fmt.Sprintf("replication engine on node '%s'", e.nodeId)
 }
