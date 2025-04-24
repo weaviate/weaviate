@@ -18,17 +18,18 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
-
-	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 func Test_UpdateAction(t *testing.T) {
@@ -74,7 +75,8 @@ func Test_UpdateAction(t *testing.T) {
 		metrics := &fakeMetrics{}
 		modulesProvider = getFakeModulesProviderWithCustomExtenders(extender, projectorFake)
 		manager = NewManager(locks, schemaManager, cfg,
-			logger, authorizer, db, modulesProvider, metrics, nil)
+			logger, authorizer, db, modulesProvider, metrics, nil,
+			NewAutoSchemaManager(schemaManager, db, cfg, logger, prometheus.NewPedanticRegistry()))
 	}
 
 	t.Run("ensure creation timestamp persists", func(t *testing.T) {
