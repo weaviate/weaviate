@@ -35,21 +35,29 @@ const (
 	azureBackupJourneyClassName = "AzureBackup"
 )
 
-func Test_BackupJourney(t *testing.T) {
+func Test_BackupJourneySingle(t *testing.T) {
 	ctx := context.Background()
 
-	backupJourneyStart(t, ctx, false, "backups", "", "")
+	backupJourneyStartSingle(t, ctx, false, "backups", "", "")
 	t.Run("with override bucket and path", func(t *testing.T) {
-		backupJourneyStart(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+		backupJourneyStartSingle(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
 	})
 }
 
-func backupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+func Test_BackupJourneyMultiple(t *testing.T) {
+	ctx := context.Background()
+
+	backupJourneyStartMultiple(t, ctx, false, "backups", "", "")
+	t.Run("with override bucket and path", func(t *testing.T) {
+		backupJourneyStartMultiple(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+	})
+}
+
+func backupJourneyStartSingle(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
 	azureBackupJourneyContainerName := containerName
-	azureBackupJourneyBackupIDCluster := "azure-backup-cluster"
+
 	azureBackupJourneyBackupIDSingleNode := "azure-backup-single-node"
 	if override {
-		azureBackupJourneyBackupIDCluster = "azure-backup-cluster-override"
 		azureBackupJourneyBackupIDSingleNode = "azure-backup-single-node-override"
 	}
 
@@ -89,6 +97,24 @@ func backupJourneyStart(t *testing.T, ctx context.Context, override bool, contai
 			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstgazure.Name)
 		})
 	})
+
+
+}
+
+
+
+
+
+func backupJourneyStartMultiple(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+	azureBackupJourneyContainerName := containerName
+	azureBackupJourneyBackupIDCluster := "azure-backup-cluster"
+
+	if override {
+		azureBackupJourneyBackupIDCluster = "azure-backup-cluster-override"
+
+	}
+
+
 
 	t.Run("multiple node", func(t *testing.T) {
 		t.Log("pre-instance env setup")

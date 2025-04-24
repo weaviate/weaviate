@@ -40,16 +40,27 @@ const (
 	s3BackupJourneySecretKey          = "aws_secret_key"
 )
 
-func Test_BackupJourney(t *testing.T) {
+func Test_BackupJourneySingle(t *testing.T) {
 	ctx := context.Background()
 
-	runBackupJourney(t, ctx, false, "backups", "", "")
+	runBackupJourneySingle(t, ctx, false, "backups", "", "")
 	t.Run("with override bucket and path", func(t *testing.T) {
-		runBackupJourney(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+		runBackupJourneySingle(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
 	})
 }
 
-func runBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+func Test_BackupJourneyMultiple(t *testing.T) {
+	ctx := context.Background()
+
+	runBackupJourneyMultiple(t, ctx, false, "backups", "", "")
+	t.Run("with override bucket and path", func(t *testing.T) {
+		runBackupJourneyMultiple(t, ctx, true, "testbucketoverride", "testbucketoverride", "testBucketPathOverride")
+	})
+}
+
+
+
+func runBackupJourneySingle(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
 	s3BackupJourneyBucketName := containerName
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
@@ -85,6 +96,18 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstgs3.Name)
 		})
 	})
+
+}
+
+
+
+
+
+
+
+func runBackupJourneyMultiple(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
+	s3BackupJourneyBucketName := containerName
+
 
 	t.Run("multiple node", func(t *testing.T) {
 		ctx := context.Background()
