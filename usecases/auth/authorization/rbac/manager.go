@@ -19,8 +19,6 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/config"
-
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
 
@@ -28,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const (
