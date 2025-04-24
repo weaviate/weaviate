@@ -355,7 +355,7 @@ func (s *segment) markForDeletion() error {
 	})
 
 	if err := g.Wait(); err != nil {
-		return fmt.Errorf("%w", err)
+		return err
 	}
 
 	// for the segment itself, we're not accepting a NotExists error. If there
