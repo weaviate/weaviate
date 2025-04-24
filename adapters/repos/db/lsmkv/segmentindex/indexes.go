@@ -12,16 +12,11 @@
 package segmentindex
 
 import (
-	"bufio"
 	"bytes"
-	"encoding/binary"
-	"fmt"
 	"io"
-	"os"
-	"path/filepath"
 	"sort"
 
-	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 type Indexes struct {
@@ -35,122 +30,53 @@ func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 	if len(s.Keys) > 0 {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
 	}
-	var written int64
+	currentOffset += uint64(s.SecondaryIndexCount) * 8
 
-	if _, err := os.Stat(s.ScratchSpacePath); err == nil {
-		// exists, we need to delete
-		// This could be the case if Weaviate shut down unexpectedly (i.e. crashed)
-		// while a compaction was running. We can safely discard the contents of
-		// the scratch space.
+	primaryIndex := s.buildPrimary(s.Keys)
+	currentOffset += uint64(primaryIndex.Size())
 
-		if err := os.RemoveAll(s.ScratchSpacePath); err != nil {
-			return written, errors.Wrap(err, "clean up previous scratch space")
-		}
-	} else if os.IsNotExist(err) {
-		// does not exist yet, nothing to - will be created in the next step
-	} else {
-		return written, errors.Wrap(err, "check for scratch space directory")
-	}
-
-	if err := os.Mkdir(s.ScratchSpacePath, 0o777); err != nil {
-		return written, errors.Wrap(err, "create scratch space")
-	}
-
-	primaryFileName := filepath.Join(s.ScratchSpacePath, "primary")
-	primaryFD, err := os.Create(primaryFileName)
-	if err != nil {
-		return written, err
-	}
-
-	primaryFDBuffered := bufio.NewWriter(primaryFD)
-
-	n, err := s.buildAndMarshalPrimary(primaryFDBuffered, s.Keys)
-	if err != nil {
-		return written, err
-	}
-
-	if err := primaryFDBuffered.Flush(); err != nil {
-		return written, err
-	}
-
-	if _, err := primaryFD.Seek(0, io.SeekStart); err != nil {
-		return written, fmt.Errorf("seek to start of primary scratch space: %w", err)
-	}
-
-	// pretend that primary index was already written, then also account for the
-	// additional offset pointers (one for each secondary index)
-	currentOffset = currentOffset + uint64(n) +
-		uint64(s.SecondaryIndexCount)*8
-
-	secondaryFileName := filepath.Join(s.ScratchSpacePath, "secondary")
-	secondaryFD, err := os.Create(secondaryFileName)
-	if err != nil {
-		return written, err
-	}
-
-	secondaryFDBuffered := bufio.NewWriter(secondaryFD)
-
+	offsetSecondaryStart := currentOffset
+	var secondaryTrees []*Tree
 	if s.SecondaryIndexCount > 0 {
-		offsets := make([]uint64, s.SecondaryIndexCount)
-		for pos := range offsets {
-			n, err := s.buildAndMarshalSecondary(secondaryFDBuffered, pos, s.Keys)
+		secondaryTrees = make([]*Tree, s.SecondaryIndexCount)
+		for pos := range secondaryTrees {
+			secondary, err := s.buildSecondary(s.Keys, pos)
 			if err != nil {
-				return written, err
-			} else {
-				written += int64(n)
+				return 0, err
 			}
-
-			offsets[pos] = currentOffset
-			currentOffset = offsets[pos] + uint64(n)
+			secondaryTrees[pos] = &secondary
+			currentOffset += uint64(secondary.Size())
 		}
+	}
 
-		if err := binary.Write(w, binary.LittleEndian, &offsets); err != nil {
-			return written, err
+	buf := make([]byte, currentOffset)
+	rw := byteops.NewReadWriter(buf)
+
+	for _, secondary := range secondaryTrees {
+		rw.WriteUint64(offsetSecondaryStart)
+		offsetSecondaryStart += uint64(secondary.Size())
+	}
+
+	_, err := primaryIndex.MarshalBinaryInto(&rw)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, secondary := range secondaryTrees {
+		_, err := secondary.MarshalBinaryInto(&rw)
+		if err != nil {
+			return 0, err
 		}
-
-		written += int64(len(offsets)) * 8
+	}
+	written, err := w.Write(rw.Buffer)
+	if err != nil {
+		return 0, err
 	}
 
-	if err := secondaryFDBuffered.Flush(); err != nil {
-		return written, err
-	}
-
-	if _, err := secondaryFD.Seek(0, io.SeekStart); err != nil {
-		return written, fmt.Errorf("seek to start of secondary scratch space: %w", err)
-	}
-
-	if n, err := io.Copy(w, primaryFD); err != nil {
-		return written, err
-	} else {
-		written += int64(n)
-	}
-
-	if n, err := io.Copy(w, secondaryFD); err != nil {
-		return written, err
-	} else {
-		written += int64(n)
-	}
-
-	if err := primaryFD.Close(); err != nil {
-		return written, err
-	}
-
-	if err := secondaryFD.Close(); err != nil {
-		return written, err
-	}
-
-	if err := os.RemoveAll(s.ScratchSpacePath); err != nil {
-		return written, err
-	}
-
-	return written, nil
+	return int64(written), nil
 }
 
-// pos indicates the position of a secondary index, assumes unsorted keys and
-// sorts them
-func (s *Indexes) buildAndMarshalSecondary(w io.Writer, pos int,
-	keys []Key,
-) (int64, error) {
+func (s *Indexes) buildSecondary(keys []Key, pos int) (Tree, error) {
 	keyNodes := make([]Node, len(keys))
 	i := 0
 	for _, key := range keys {
@@ -175,16 +101,11 @@ func (s *Indexes) buildAndMarshalSecondary(w io.Writer, pos int,
 	})
 
 	index := NewBalanced(keyNodes)
-	n, err := index.MarshalBinaryInto(w)
-	if err != nil {
-		return 0, err
-	}
-
-	return n, nil
+	return index, nil
 }
 
 // assumes sorted keys and does NOT sort them again
-func (s *Indexes) buildAndMarshalPrimary(w io.Writer, keys []Key) (int64, error) {
+func (s *Indexes) buildPrimary(keys []Key) Tree {
 	keyNodes := make([]Node, len(keys))
 	for i, key := range keys {
 		keyNodes[i] = Node{
@@ -195,10 +116,5 @@ func (s *Indexes) buildAndMarshalPrimary(w io.Writer, keys []Key) (int64, error)
 	}
 	index := NewBalanced(keyNodes)
 
-	n, err := index.MarshalBinaryInto(w)
-	if err != nil {
-		return -1, err
-	}
-
-	return n, nil
+	return index
 }

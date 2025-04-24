@@ -1,0 +1,44 @@
+package segmentindex
+
+import (
+	"bufio"
+	"fmt"
+	"os"
+	"testing"
+
+	"github.com/stretchr/testify/require"
+)
+
+func BenchmarkIndexesWriteTo(b *testing.B) {
+	path := b.TempDir()
+	index := Indexes{SecondaryIndexCount: 10, ScratchSpacePath: path + "/scratch"}
+	start := HeaderSize
+	for i := 0; i < 10; i++ {
+		key := Key{Key: []byte(fmt.Sprintf("primary%d", i))}
+		secondaryLength := 0
+		for j := 0; j < 10; j++ {
+			secondary := []byte(fmt.Sprintf("secondary%d", j))
+			key.SecondaryKeys = append(key.SecondaryKeys, secondary)
+			secondaryLength += len(secondary)
+		}
+		key.ValueStart = start
+		key.ValueEnd = start + len(key.Key)*8 + secondaryLength*8
+		index.Keys = append(index.Keys, key)
+	}
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		f, err := os.Create(path + fmt.Sprintf("/test%d", i))
+		require.NoError(b, err)
+
+		w := bufio.NewWriter(f)
+
+		_, err = index.WriteTo(w)
+		require.NoError(b, err)
+
+		require.NoError(b, w.Flush())
+		require.NoError(b, f.Sync())
+		require.NoError(b, f.Close())
+	}
+}

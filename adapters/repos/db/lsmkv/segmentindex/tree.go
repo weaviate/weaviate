@@ -314,3 +314,12 @@ func (t *Tree) Height() int {
 
 	return int(math.Ceil(math.Log2(float64(highestElem))))
 }
+
+func (t *Tree) Size() int {
+	size := 0
+	for _, node := range t.nodes {
+		size += node.size()
+	}
+
+	return size
+}
