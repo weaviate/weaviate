@@ -232,6 +232,46 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 			return err
 		}
 
+		// Update FSM that we are done copying files and we can start final sync follower phase
+		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.FINALIZING); err != nil {
+			logger.WithError(err).Errorf("failed to update replica op state to %s", api.FINALIZING)
+		}
+
+		// Update schema to register the shard
+		logger.Info("starting to finalize replica copy")
+		// TODO make sure/test reads sent to target node do not use target node until op is ready/done
+		// TODO get the upper time bound for this movement from the source node (query/poll?)
+		// for now, just pick a time 100s in the future
+		upperTimeBoundUnixMillis := time.Now().Add(100 * time.Second).UnixMilli()
+		// TODO best effort writes
+		if _, err := c.leaderClient.StartFinalizingReplicaCopy(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.sourceShard.nodeId, op.targetShard.nodeId, upperTimeBoundUnixMillis); err != nil {
+			logger.WithError(err).Errorf("failed to add replica to shard")
+			return err
+		}
+
+		// TODO some kind of timer, stop, timeout, etc
+		finalizationSucceeded := false
+		for {
+			objectsPropagated, startDiffTimeUnixMillis, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.sourceShard.nodeId, op.targetShard.nodeId, op.sourceShard.collectionId, op.sourceShard.shardId)
+			if err == nil && objectsPropagated == 0 {
+				if startDiffTimeUnixMillis >= upperTimeBoundUnixMillis {
+					finalizationSucceeded = true
+					break
+				}
+			}
+			time.Sleep(5 * time.Second)
+		}
+
+		if !finalizationSucceeded {
+			// TODO handle unhappy path
+		}
+
+		// TODO remove target node override from this movement
+
+		if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.READY); err != nil {
+			logger.WithError(err).Errorf("failed to update replica op state to %s", api.READY)
+		}
+
 		c.logCompletedReplicationOp(workerId, startTime, c.timeProvider.Now(), op)
 
 		return nil
