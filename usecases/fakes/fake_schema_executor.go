@@ -43,8 +43,8 @@ func (m *MockSchemaExecutor) UpdateClass(req cmd.UpdateClassRequest) error {
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) AddReplicaToShard(class string, shard string, replica string) error {
-	args := m.Called(class, shard, replica)
+func (m *MockSchemaExecutor) StartFinalizingReplicaCopy(class string, shard string, sourceNode string, targetNode string, upperTimeBound int64) error {
+	args := m.Called(class, shard, sourceNode, targetNode, upperTimeBound)
 	return args.Error(0)
 }
 

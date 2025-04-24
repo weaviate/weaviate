@@ -157,6 +157,7 @@ func (s *ShardReplicationEngine) startShardReplication(op shardReplicationOp) {
 			logger.Info("starting replica replication file copy")
 
 			// Copy the replica
+			// TODO change name to hydrate
 			if err := s.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
 				logger.WithError(err).Warn("failed to file copy replica")
 				// TODO: Handle failure and failure tracking in replicationFSM of replica ops
@@ -170,29 +171,41 @@ func (s *ShardReplicationEngine) startShardReplication(op shardReplicationOp) {
 				logger.WithError(err).Errorf("failed to update replica op state to %s", api.FINALIZING)
 			}
 
-			// TODO: Sync follower + async replication
-
 			// Update schema to register the shard
-			// TODO: We should handle recovering the FINALIZING state and re-add to the sharding state of necessary
-			if _, err := s.leaderClient.AddReplicaToShard(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.targetShard.nodeId); err != nil {
+			logger.Info("starting to finalize replica copy")
+			// TODO make sure/test reads sent to target node do not use target node until op is ready/done
+			// TODO get the upper time bound for this movement from the source node (query/poll?)
+			// for now, just pick a time 100s in the future
+			upperTimeBoundUnixMillis := time.Now().Add(100 * time.Second).UnixMilli()
+			// TODO best effort writes
+			if _, err := s.leaderClient.StartFinalizingReplicaCopy(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.sourceShard.nodeId, op.targetShard.nodeId, upperTimeBoundUnixMillis); err != nil {
 				logger.WithError(err).Errorf("failed to add replica to shard")
 				return err
 			}
 
-			logger.Info("added replica to sharding state")
+			// TODO some kind of timer, stop, timeout, etc
+			finalizationSucceeded := false
+			for {
+				objectsPropagated, startDiffTimeUnixMillis, err := s.replicaCopier.AsyncReplicationStatus(ctx, op.sourceShard.nodeId, op.targetShard.nodeId, op.sourceShard.collectionId, op.sourceShard.shardId)
+				if err == nil && objectsPropagated == 0 {
+					if startDiffTimeUnixMillis >= upperTimeBoundUnixMillis {
+						finalizationSucceeded = true
+						break
+					}
+				}
+				time.Sleep(5 * time.Second)
+			}
 
-			logger.Info("replica replication state updated")
+			if !finalizationSucceeded {
+				// TODO handle unhappy path
+			}
 
-			// TODO Handle finalizing step for replica movement
-			// add the target node as a best effort write (raft)
-			// get the upper time bound for this movement from the source node (query/poll?)
-			// set the target node override async replication config for this movement (raft)
-			// poll source until async replication "done"
-			// stats = hashBeatInfo() // send network req, is this the info for my shard replica copy (copy id, infer from equal)
-			// if len(stats.objsProp) == 0 && stats.startDiffTime > upperTimeBound {
-			// 	done
-			// }
-			// TODO update replica op status to READY?
+			// TODO remove target node override from this movement
+			logger.Info("finalized replica copy")
+
+			if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.READY); err != nil {
+				logger.WithError(err).Errorf("failed to update replica op state to %s", api.READY)
+			}
 
 			return nil
 		}, backoff.NewConstantBackOff(5*time.Second))

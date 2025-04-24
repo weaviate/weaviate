@@ -161,6 +161,8 @@ type ShardLike interface {
 	updateAsyncReplicationConfig(ctx context.Context, enabled bool) error
 	// addTargetNodeOverride adds a target node override to the shard.
 	addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
+	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
 
 	Metrics() *Metrics
 

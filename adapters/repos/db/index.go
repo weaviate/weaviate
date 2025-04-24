@@ -909,6 +909,8 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		pos     []int
 	}
 	out := make([]error, len(objects))
+	// TODO this check causes problems because i think we'll write only write locally (no best effort)
+	// when rf=1, address in best effort pr
 	if i.replicationEnabled() && replProps == nil {
 		replProps = defaultConsistency()
 	}

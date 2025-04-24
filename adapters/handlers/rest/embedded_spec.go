@@ -4776,6 +4776,25 @@ func init() {
         "type": "object"
       }
     },
+    "AsyncReplicationStatus": {
+      "description": "TODO",
+      "properties": {
+        "objectsPropagated": {
+          "description": "The number of objects propagated.",
+          "type": "number",
+          "format": "uint64"
+        },
+        "startDiffTimeUnixMillis": {
+          "description": "The start time of the replication.",
+          "type": "number",
+          "format": "int64"
+        },
+        "targetNode": {
+          "description": "The target node of the replication.",
+          "type": "string"
+        }
+      }
+    },
     "BM25Config": {
       "description": "tuning parameters for the BM25 algorithm",
       "type": "object",
@@ -5994,6 +6013,13 @@ func init() {
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
+        "asyncReplicationStatus": {
+          "description": "The status of the async replication.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AsyncReplicationStatus"
+          }
+        },
         "class": {
           "description": "The name of shard's class.",
           "type": "string",
@@ -12390,6 +12416,25 @@ func init() {
         "type": "object"
       }
     },
+    "AsyncReplicationStatus": {
+      "description": "TODO",
+      "properties": {
+        "objectsPropagated": {
+          "description": "The number of objects propagated.",
+          "type": "number",
+          "format": "uint64"
+        },
+        "startDiffTimeUnixMillis": {
+          "description": "The start time of the replication.",
+          "type": "number",
+          "format": "int64"
+        },
+        "targetNode": {
+          "description": "The target node of the replication.",
+          "type": "string"
+        }
+      }
+    },
     "BM25Config": {
       "description": "tuning parameters for the BM25 algorithm",
       "type": "object",
@@ -13784,6 +13829,13 @@ func init() {
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
+        "asyncReplicationStatus": {
+          "description": "The status of the async replication.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AsyncReplicationStatus"
+          }
+        },
         "class": {
           "description": "The name of shard's class.",
           "type": "string",

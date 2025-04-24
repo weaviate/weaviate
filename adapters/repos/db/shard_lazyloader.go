@@ -287,6 +287,13 @@ func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOve
 	return nil
 }
 
+func (l *LazyLoadShard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
+	if err := l.Load(ctx); err != nil {
+		return nil
+	}
+	return l.shard.getAsyncReplicationStats(ctx)
+}
+
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
 	if err := l.Load(ctx); err != nil {
 		return []error{err}

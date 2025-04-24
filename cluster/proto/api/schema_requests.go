@@ -40,9 +40,10 @@ type UpdateShardStatusRequest struct {
 	SchemaVersion        uint64
 }
 
-type AddReplicaToShardRequest struct {
-	Class, Shard, Replica string
-	SchemaVersion         uint64
+type StartFinalizingReplicaCopyRequest struct {
+	Class, Shard, SourceNode, TargetNode string
+	UpperTimeBound                       int64
+	SchemaVersion                        uint64
 }
 
 type QueryReadOnlyClassesRequest struct {

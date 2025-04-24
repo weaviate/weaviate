@@ -302,8 +302,8 @@ func (s *SchemaManager) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly 
 	)
 }
 
-func (s *SchemaManager) AddReplicaToShard(cmd *command.ApplyRequest, schemaOnly bool) error {
-	req := command.AddReplicaToShardRequest{}
+func (s *SchemaManager) StartFinalizingReplicaCopy(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.StartFinalizingReplicaCopyRequest{}
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
@@ -311,10 +311,10 @@ func (s *SchemaManager) AddReplicaToShard(cmd *command.ApplyRequest, schemaOnly 
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.Replica) },
+			updateSchema: func() error { return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode) },
 			updateStore: func() error {
-				if req.Replica == s.schema.nodeID {
-					return s.db.AddReplicaToShard(req.Class, req.Shard, req.Replica)
+				if req.SourceNode == s.schema.nodeID || req.TargetNode == s.schema.nodeID {
+					return s.db.StartFinalizingReplicaCopy(req.Class, req.Shard, req.SourceNode, req.TargetNode, req.UpperTimeBound)
 				}
 				return nil
 			},

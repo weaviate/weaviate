@@ -104,14 +104,14 @@ func (e *executor) AddClass(pl api.AddClassRequest) error {
 	return nil
 }
 
-func (e *executor) AddReplicaToShard(class string, shard string, replica string) error {
+func (e *executor) StartFinalizingReplicaCopy(class string, shard string, sourceNode string, targetNode string, upperTimeBound int64) error {
 	ctx := context.Background()
 	if replicas, err := e.schemaReader.ShardReplicas(class, shard); err != nil {
 		return fmt.Errorf("error reading replicas for collection %s shard %s: %w", class, shard, err)
-	} else if !slices.Contains(replicas, replica) {
-		return fmt.Errorf("replica %s does not exists for collection %s shard %s", replica, class, shard)
+	} else if !slices.Contains(replicas, targetNode) {
+		return fmt.Errorf("replica %s does not exists for collection %s shard %s", targetNode, class, shard)
 	}
-	return e.migrator.AddReplicaToShard(ctx, class, shard)
+	return e.migrator.StartFinalizingReplicaCopy(ctx, class, shard, sourceNode, targetNode, upperTimeBound)
 }
 
 // RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.

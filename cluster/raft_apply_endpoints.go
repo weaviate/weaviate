@@ -110,17 +110,23 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 	return s.Execute(ctx, command)
 }
 
-func (s *Raft) AddReplicaToShard(ctx context.Context, class, shard, replica string) (uint64, error) {
-	if class == "" || shard == "" || replica == "" {
-		return 0, fmt.Errorf("empty class or shard or replica : %w", schema.ErrBadRequest)
+func (s *Raft) StartFinalizingReplicaCopy(ctx context.Context, class, shard, sourceNode, targetNode string, upperTimeBound int64) (uint64, error) {
+	if class == "" || shard == "" || sourceNode == "" || targetNode == "" {
+		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode : %w", schema.ErrBadRequest)
 	}
-	req := cmd.AddReplicaToShardRequest{Class: class, Shard: shard, Replica: replica}
+	req := cmd.StartFinalizingReplicaCopyRequest{
+		Class:          class,
+		Shard:          shard,
+		SourceNode:     sourceNode,
+		TargetNode:     targetNode,
+		UpperTimeBound: upperTimeBound,
+	}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
 		return 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.ApplyRequest{
-		Type:       cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD,
+		Type:       cmd.ApplyRequest_TYPE_START_FINALIZING_REPLICA_COPY,
 		Class:      req.Class,
 		SubCommand: subCommand,
 	}

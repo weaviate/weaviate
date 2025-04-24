@@ -16,14 +16,19 @@ import (
 	"io"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-// IndexGetter is a type that can get an index, this is used to avoid a circular
+// TODO name
+// DbInt is a type that hides a db.DB, this is used to avoid a circular
 // dependency between the copier and the db package.
-type IndexGetter interface {
+type DbInt interface {
 	// GetIndex See adapters/repos/db.Index.GetIndex
 	GetIndex(name schema.ClassName) *db.Index
+
+	// GetOneNodeStatus See adapters/repos/db.DB.GetOneNodeStatus
+	GetOneNodeStatus(ctx context.Context, nodeName string, className, output string) (*models.NodeStatus, error)
 }
 
 // ShardLoader is a type that can load a shard from disk files, this is used to avoid a circular

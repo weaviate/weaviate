@@ -38,7 +38,7 @@ type Indexer interface {
 	DeleteTenants(class string, tenants []*models.Tenant) error
 	UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
-	AddReplicaToShard(class, shard, replica string) error
+	StartFinalizingReplicaCopy(class, shard, sourceNode, targetNode string, upperTimeBound int64) error
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error
 

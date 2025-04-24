@@ -356,7 +356,10 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}
 
 		if diff.SetCount() == 0 {
-			return nil, ErrNoDiffFound
+			return &ShardDifferenceReader{
+				TargetNodeName:    targetNodeName,
+				TargetNodeAddress: targetNodeAddress,
+			}, ErrNoDiffFound
 		}
 
 		return &ShardDifferenceReader{
@@ -373,18 +376,21 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	localNodeName := f.LocalNodeName()
 	targetNodesToUse := slices.Clone(routingPlan.Replicas)
 	if len(targetNodeOverrides) > 0 {
+		targetNodesToUse = make([]string, 0, len(targetNodeOverrides))
 		for _, override := range targetNodeOverrides {
 			if override.SourceNode == localNodeName && override.CollectionID == f.class && override.ShardID == shardName {
 				targetNodesToUse = append(targetNodesToUse, override.TargetNode)
 			}
 		}
 	}
+
 	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas))
 	replicasHostAddrs := make([]string, 0, len(routingPlan.ReplicasHostAddrs))
-	for i, replica := range routingPlan.Replicas {
-		if slices.Contains(targetNodesToUse, replica) {
-			replicaNodeNames = append(replicaNodeNames, replica)
-			replicasHostAddrs = append(replicasHostAddrs, routingPlan.ReplicasHostAddrs[i])
+	for _, replica := range targetNodesToUse {
+		replicaNodeNames = append(replicaNodeNames, replica)
+		replicaHostAddr, ok := f.router.NodeHostname(replica)
+		if ok {
+			replicasHostAddrs = append(replicasHostAddrs, replicaHostAddr)
 		}
 	}
 	localHostAddr, _ := f.router.NodeHostname(localNodeName)
@@ -410,7 +416,10 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, err
 	}
 
-	return nil, ErrNoDiffFound
+	// TODO comment that some fields not set if errnodifffound returned?
+	return &ShardDifferenceReader{
+		TargetNodeName: targetNodeOverrides[0].TargetNode,
+	}, ErrNoDiffFound
 }
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,

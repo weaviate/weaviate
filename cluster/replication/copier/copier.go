@@ -36,11 +36,12 @@ type Copier struct {
 	rootDataPath string
 	// indexGetter is used to load the index for the collection so that we can create/interact
 	// with the shard on this node
-	indexGetter types.IndexGetter
+	indexGetter types.DbInt
 }
 
+// TODO indexGetter name
 // New creates a new shard replica Copier.
-func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string, indexGetter types.IndexGetter) *Copier {
+func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string, indexGetter types.DbInt) *Copier {
 	return &Copier{
 		remoteIndex:  t,
 		nodeSelector: nodeSelector,
@@ -59,6 +60,10 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 	if err != nil {
 		return err
 	}
+	// TODO remove
+	// fmt.Println("NATEE copy replica starting sleep")
+	// time.Sleep(25 * time.Second)
+	// fmt.Println("NATEE copy replica sleep done")
 	for _, relativeFilePath := range relativeFilePaths {
 		reader, err := c.remoteIndex.GetFile(ctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
 		if err != nil {
@@ -90,4 +95,25 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 	}
 
 	return nil
+}
+
+// TODO objects propagated, start diff time, err
+func (c *Copier) AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (uint64, int64, error) {
+	// TODO can this blow up if node has many shards/tenants? i could add a new method to get only one shard?
+	status, err := c.indexGetter.GetOneNodeStatus(ctx, srcNodeId, collectionName, "verbose")
+	if err != nil {
+		return 0, 0, err
+	}
+
+	for _, shard := range status.Shards {
+		if shard.Name == shardName && shard.Class == collectionName {
+			for _, asyncReplicationStatus := range shard.AsyncReplicationStatus {
+				if asyncReplicationStatus.TargetNode == targetNodeId {
+					return asyncReplicationStatus.ObjectsPropagated, asyncReplicationStatus.StartDiffTimeUnixMillis, nil
+				}
+			}
+		}
+	}
+
+	return 0, 0, fmt.Errorf("shard %s or collection %s not found in node %s or stats are nil", shardName, collectionName, srcNodeId)
 }

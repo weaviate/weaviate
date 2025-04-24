@@ -32,7 +32,7 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity str
 	for i, nodeName := range db.schemaGetter.Nodes() {
 		i, nodeName := i, nodeName
 		eg.Go(func() error {
-			status, err := db.getNodeStatus(ctx, nodeName, className, verbosity)
+			status, err := db.GetOneNodeStatus(ctx, nodeName, className, verbosity)
 			if err != nil {
 				return fmt.Errorf("node: %v: %w", nodeName, err)
 			}
@@ -56,7 +56,7 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity str
 	return nodeStatuses, nil
 }
 
-func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className, output string) (*models.NodeStatus, error) {
+func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName string, className, output string) (*models.NodeStatus, error) {
 	if db.schemaGetter.NodeName() == nodeName {
 		return db.LocalNodeStatus(ctx, className, output), nil
 	}
@@ -203,13 +203,14 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		})
 
 		shardStatus := &models.NodeShardStatus{
-			Name:                 name,
-			Class:                shard.Index().Config.ClassName.String(),
-			ObjectCount:          objectCount,
-			VectorIndexingStatus: shard.GetStatus().String(),
-			VectorQueueLength:    queueLen,
-			Compressed:           compressed,
-			Loaded:               true,
+			Name:                   name,
+			Class:                  shard.Index().Config.ClassName.String(),
+			ObjectCount:            objectCount,
+			VectorIndexingStatus:   shard.GetStatus().String(),
+			VectorQueueLength:      queueLen,
+			Compressed:             compressed,
+			Loaded:                 true,
+			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
 		}
 		*status = append(*status, shardStatus)
 		shardCount++

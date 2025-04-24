@@ -17,4 +17,7 @@ import "context"
 type ReplicaCopier interface {
 	// CopyReplica see cluster/replication/copier.Copier.CopyReplica
 	CopyReplica(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string) error
+
+	// AsyncReplicationStats see cluster/replication/copier.Copier.AsyncReplicationStatus
+	AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (uint64, int64, error)
 }

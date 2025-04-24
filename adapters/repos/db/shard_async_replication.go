@@ -96,6 +96,9 @@ type asyncReplicationConfig struct {
 }
 
 func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
+	// preserve the target node overrides from the previous config
+	config.targetNodeOverrides = s.asyncReplicationConfig.targetNodeOverrides
+
 	config.hashtreeHeight, err = optParseInt(
 		os.Getenv("ASYNC_REPLICATION_HASHTREE_HEIGHT"), defaultHashtreeHeight, minHashtreeHeight, maxHashtreeHeight)
 	if err != nil {
@@ -466,8 +469,25 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
 
+	// TODO how to handle duplicates here? also, what if same source/target node shard movement op is sent twice?
 	s.asyncReplicationConfig.targetNodeOverrides = append(s.asyncReplicationConfig.targetNodeOverrides, targetNodeOverride)
 	return nil
+}
+
+func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	asyncReplicationStatsToReturn := make([]*models.AsyncReplicationStatus, 0, len(s.asyncReplicationStatsByTargetNode))
+	for targetNodeName, asyncReplicationStats := range s.asyncReplicationStatsByTargetNode {
+		asyncReplicationStatsToReturn = append(asyncReplicationStatsToReturn, &models.AsyncReplicationStatus{
+			ObjectsPropagated:       uint64(asyncReplicationStats.objectsPropagated),
+			StartDiffTimeUnixMillis: asyncReplicationStats.diffStartTime.UnixMilli(),
+			TargetNode:              targetNodeName,
+		})
+	}
+
+	return asyncReplicationStatsToReturn
 }
 
 func (s *Shard) dumpHashTree() error {
@@ -566,10 +586,11 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				func() {
 					s.asyncReplicationRWMux.Lock()
 					defer s.asyncReplicationRWMux.Unlock()
+
 					if s.asyncReplicationStatsByTargetNode == nil {
 						s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
 					}
-					if stats != nil {
+					if (err == nil || errors.Is(err, replica.ErrNoDiffFound)) && stats != nil {
 						s.asyncReplicationStatsByTargetNode[stats.targetNodeName] = stats
 					}
 				}()
@@ -625,7 +646,6 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 						WithField("class_name", s.class.Class).
 						WithField("shard_name", s.name).
 						WithField("target_node_name", stats.targetNodeName).
-						WithField("target_node_address", stats.targetNodeAddress).
 						WithField("diff_calculation_took", stats.diffCalculationTook.String()).
 						WithField("local_objects", stats.localObjects).
 						WithField("remote_objects", stats.remoteObjects).
@@ -700,7 +720,6 @@ func (s *Shard) allAliveHostnames() []string {
 
 type hashBeatHostStats struct {
 	targetNodeName      string
-	targetNodeAddress   string
 	diffStartTime       time.Time
 	diffCalculationTook time.Duration
 	localObjects        int
@@ -725,6 +744,13 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 
 	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, config.targetNodeOverrides)
 	if err != nil {
+		if errors.Is(err, replica.ErrNoDiffFound) && len(config.targetNodeOverrides) > 0 {
+			return &hashBeatHostStats{
+				targetNodeName:    shardDiffReader.TargetNodeName,
+				diffStartTime:     diffCalculationStart,
+				objectsPropagated: 0,
+			}, err
+		}
 		return nil, fmt.Errorf("collecting differences: %w", err)
 	}
 
@@ -804,7 +830,6 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 
 	return &hashBeatHostStats{
 		targetNodeName:      shardDiffReader.TargetNodeName,
-		targetNodeAddress:   shardDiffReader.TargetNodeAddress,
 		diffStartTime:       diffCalculationStart,
 		diffCalculationTook: diffCalculationTook,
 		localObjects:        localObjectsCount,

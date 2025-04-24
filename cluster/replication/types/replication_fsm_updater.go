@@ -18,6 +18,6 @@ import (
 )
 
 type FSMUpdater interface {
-	AddReplicaToShard(context.Context, string, string, string) (uint64, error)
+	StartFinalizingReplicaCopy(context.Context, string, string, string, string, int64) (uint64, error)
 	ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplicationState) error
 }
