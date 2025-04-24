@@ -92,7 +92,7 @@ func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
 
 	if !ok {
 		// this is a new commit log, initialize with the current time stamp
-		fileName = fmt.Sprintf("%d", time.Now().UnixMilli())
+		fileName = fmt.Sprintf("%d", time.Now().Unix())
 	}
 
 	fd, err := os.OpenFile(commitLogFileName(rootPath, name, fileName),
