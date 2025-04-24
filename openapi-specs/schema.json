@@ -127,7 +127,7 @@
             "collection": {
               "type": "string",
               "default": "*",
-              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections."
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections."
             }
           }
         },
@@ -138,17 +138,17 @@
             "collection": {
               "type": "string",
               "default": "*",
-              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections."
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections."
             },
             "tenant": {
               "type": "string",
               "default": "*",
-              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants."
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value `*` applies the permission to all tenants."
             },
             "object": {
               "type": "string",
               "default": "*",
-              "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value '*' applies the permission to all objects."
+              "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value `*` applies the permission to all objects."
             }
           }
         },
@@ -168,7 +168,7 @@
             "collection": {
               "type": "string",
               "default": "*",
-              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections."
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections."
             }
           }
         },
@@ -179,7 +179,7 @@
             "users": {
               "type": "string",
               "default": "*",
-              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value '*' applies the permission to all users."
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value `*` applies the permission to all users."
             }
           }
         },
@@ -190,12 +190,12 @@
             "collection": {
               "type": "string",
               "default": "*",
-              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections."
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections."
             },
             "tenant": {
               "type": "string",
               "default": "*",
-              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants."
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value `*` applies the permission to all tenants."
             }
           }
         },
@@ -206,7 +206,7 @@
             "role": {
               "type": "string",
               "default": "*",
-              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value '*' applies the permission to all roles."
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value `*` applies the permission to all roles."
             },
             "scope": {
               "enum": [
@@ -226,7 +226,7 @@
             "collection": {
               "type": "string",
               "default": "*",
-              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections."
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections."
             }
           }
         },
@@ -3718,7 +3718,7 @@
               "description": "Successfully deleted."
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3839,7 +3839,7 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3905,7 +3905,7 @@
             }
           },
           "400": {
-            "description": "Bad request.",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3960,7 +3960,7 @@
             }
           },
           "400": {
-            "description": "Bad request.",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4036,7 +4036,7 @@
             }
           },
           "400": {
-            "description": "Bad request",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4113,7 +4113,7 @@
             "description": "Role assigned successfully."
           },
           "400": {
-            "description": "Bad request.",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4187,7 +4187,7 @@
             "description": "Roles revoked successfully."
           },
           "400": {
-            "description": "Bad request.",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4258,7 +4258,7 @@
             "description": "Roles assigned successfully."
           },
           "400": {
-            "description": "Bad request.",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4326,7 +4326,7 @@
             "description": "Roles revoked successfully."
           },
           "400": {
-            "description": "Bad request.",
+            "description": "Malformed request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
