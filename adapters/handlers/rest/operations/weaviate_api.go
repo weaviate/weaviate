@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/batch"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/classifications"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/cluster"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/distributed_tasks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/meta"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/nodes"
@@ -135,6 +136,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		}),
 		UsersDeleteUserHandler: users.DeleteUserHandlerFunc(func(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.DeleteUser has not yet been implemented")
+		}),
+		DistributedTasksDistributedTasksGetHandler: distributed_tasks.DistributedTasksGetHandlerFunc(func(params distributed_tasks.DistributedTasksGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation distributed_tasks.DistributedTasksGet has not yet been implemented")
 		}),
 		UsersGetOwnInfoHandler: users.GetOwnInfoHandlerFunc(func(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetOwnInfo has not yet been implemented")
@@ -418,6 +422,8 @@ type WeaviateAPI struct {
 	AuthzDeleteRoleHandler authz.DeleteRoleHandler
 	// UsersDeleteUserHandler sets the operation handler for the delete user operation
 	UsersDeleteUserHandler users.DeleteUserHandler
+	// DistributedTasksDistributedTasksGetHandler sets the operation handler for the distributed tasks get operation
+	DistributedTasksDistributedTasksGetHandler distributed_tasks.DistributedTasksGetHandler
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
 	UsersGetOwnInfoHandler users.GetOwnInfoHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
@@ -681,6 +687,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.UsersDeleteUserHandler == nil {
 		unregistered = append(unregistered, "users.DeleteUserHandler")
+	}
+	if o.DistributedTasksDistributedTasksGetHandler == nil {
+		unregistered = append(unregistered, "distributed_tasks.DistributedTasksGetHandler")
 	}
 	if o.UsersGetOwnInfoHandler == nil {
 		unregistered = append(unregistered, "users.GetOwnInfoHandler")
@@ -1041,6 +1050,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/users/db/{user_id}"] = users.NewDeleteUser(o.context, o.UsersDeleteUserHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/tasks"] = distributed_tasks.NewDistributedTasksGet(o.context, o.DistributedTasksDistributedTasksGetHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
