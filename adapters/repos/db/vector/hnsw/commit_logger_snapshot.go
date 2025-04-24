@@ -107,6 +107,8 @@ func (l *hnswCommitLogger) createOrLoadSnapshot(load bool) (*DeserializationResu
 	if len(immutableFiles) == 0 {
 		// no commit log files to load, just return the snapshot state
 		if state == nil {
+			// if the state is nil, the snapshot was most probably corrupted
+			// or empty. force loading the commit log instead by setting from to 0.
 			return nil, 0, nil
 		}
 
