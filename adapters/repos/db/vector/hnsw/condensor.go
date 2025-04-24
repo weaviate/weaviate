@@ -332,7 +332,7 @@ func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
 	binary.LittleEndian.PutUint32(toWrite[13:17], data.DProjections) // 4
 	binary.LittleEndian.PutUint32(toWrite[17:21], data.Repetitions)  // 4
 
-	buffer := make([]byte, 4*data.Repetitions*data.NumClusters*data.Dimensions)
+	buffer := make([]byte, 4*data.Repetitions*data.KSim*data.Dimensions)
 	i := 0
 	for _, gaussian := range data.Gaussians {
 		for _, cluster := range gaussian {

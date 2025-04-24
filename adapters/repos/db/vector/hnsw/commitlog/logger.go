@@ -119,8 +119,7 @@ func (l *Logger) AddMuvera(data multivector.MuveraData) error {
 	binary.LittleEndian.PutUint32(toWrite[13:17], data.DProjections)
 	binary.LittleEndian.PutUint32(toWrite[17:21], data.Repetitions)
 
-	length := 4 * data.Repetitions * data.KSim * data.Dimensions
-	buffer := make([]byte, length)
+	buffer := make([]byte, 4*data.Repetitions*data.KSim*data.Dimensions)
 
 	i := 0
 	for _, gaussian := range data.Gaussians {
