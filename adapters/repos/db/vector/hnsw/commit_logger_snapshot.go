@@ -345,33 +345,48 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	}
 	defer snap.Close()
 
-	w := bufio.NewWriter(snap)
+	// compute the checksum of the snapshot file
+	hasher := crc32.NewIEEE()
+	w := bufio.NewWriter(io.MultiWriter(snap, hasher))
 
+	// write the snapshot to the file
 	checkpoints, err := writeStateTo(state, w)
 	if err != nil {
 		return errors.Wrapf(err, "writing snapshot file %q", tmpSnapshotFileName)
 	}
 
+	// flush the buffered writer
 	err = w.Flush()
 	if err != nil {
 		return errors.Wrapf(err, "flushing snapshot file %q", tmpSnapshotFileName)
 	}
 
+	// write the checksum to the file
+	checksum := hasher.Sum32()
+	err = binary.Write(snap, binary.LittleEndian, checksum)
+	if err != nil {
+		return errors.Wrapf(err, "write checksum to snapshot file %q", tmpSnapshotFileName)
+	}
+
+	// sync the file to disk
 	err = snap.Sync()
 	if err != nil {
 		return errors.Wrapf(err, "fsync snapshot file %q", tmpSnapshotFileName)
 	}
 
+	// close the file
 	err = snap.Close()
 	if err != nil {
 		return errors.Wrapf(err, "close snapshot file %q", tmpSnapshotFileName)
 	}
 
+	// write the checkpoints to a separate file
 	err = writeCheckpoints(checkPointsFileName, checkpoints)
 	if err != nil {
 		return errors.Wrap(err, "write checkpoints file")
 	}
 
+	// rename the temporary snapshot file to the final name
 	err = os.Rename(tmpSnapshotFileName, filename)
 	if err != nil {
 		return errors.Wrapf(err, "rename snapshot file %q", tmpSnapshotFileName)
