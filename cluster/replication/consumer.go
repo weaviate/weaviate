@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -70,6 +72,10 @@ type CopyOpConsumer struct {
 
 	// nodeId uniquely identifies the node on which this consumer instance is running.
 	nodeId string
+
+	// engineOpCallbacks defines hooks invoked at various stages of a replication operation's lifecycle
+	// (e.g., pending, start, complete, failure) to support metrics or custom observability logic.
+	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks
 }
 
 // String returns a string representation of the CopyOpConsumer,
@@ -94,17 +100,19 @@ func NewCopyOpConsumer(
 	backoffPolicy backoff.BackOff,
 	opTimeout time.Duration,
 	maxWorkers int,
+	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks,
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
-		logger:        logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),
-		leaderClient:  leaderClient,
-		replicaCopier: replicaCopier,
-		backoffPolicy: backoffPolicy,
-		opTimeout:     opTimeout,
-		maxWorkers:    maxWorkers,
-		nodeId:        nodeId,
-		timeProvider:  timeProvider,
-		tokens:        make(chan struct{}, maxWorkers),
+		logger:            logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),
+		leaderClient:      leaderClient,
+		replicaCopier:     replicaCopier,
+		backoffPolicy:     backoffPolicy,
+		opTimeout:         opTimeout,
+		maxWorkers:        maxWorkers,
+		nodeId:            nodeId,
+		timeProvider:      timeProvider,
+		tokens:            make(chan struct{}, maxWorkers),
+		engineOpCallbacks: engineOpCallbacks,
 	}
 	return c
 }
@@ -133,6 +141,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 				return nil
 			}
 
+			c.engineOpCallbacks.OnOpPending(c.nodeId)
 			select {
 			// The 'tokens' channel limits the number of concurrent workers (`maxWorkers`).
 			// Each worker acquires a token before processing an operation. If no tokens are available,
@@ -142,6 +151,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			case c.tokens <- struct{}{}:
 
 				wg.Add(1)
+				c.engineOpCallbacks.OnOpStart(c.nodeId)
 
 				// Here we capture the op argument used by the func below as the enterrors.GoWrapper requires calling
 				// a function without arguments.
@@ -173,9 +183,13 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 					err := c.processReplicationOp(opCtx, operation.ID, operation)
 					if err != nil && errors.Is(err, context.DeadlineExceeded) {
+						c.engineOpCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation timed out")
 					} else if err != nil {
+						c.engineOpCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation failed")
+					} else {
+						c.engineOpCallbacks.OnOpComplete(c.nodeId)
 					}
 				}, c.logger)
 
