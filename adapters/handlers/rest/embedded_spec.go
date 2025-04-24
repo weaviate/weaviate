@@ -489,7 +489,7 @@ func init() {
     },
     "/authz/roles/{id}/add-permissions": {
       "post": {
-        "description": "Remove specific permissions from a role. If all permissions are removed, the role itself will be deleted.",
+        "description": "Add new permissions to an existing role without affecting current permissions.",
         "tags": [
           "authz"
         ],
@@ -779,7 +779,7 @@ func init() {
     },
     "/authz/roles/{id}/users": {
       "get": {
-        "description": "Get all the users (db + OIDC) who have been assigned a specific role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "description": "Get all the users (` + "`" + `db` + "`" + ` + ` + "`" + `oidc` + "`" + `) who have been assigned a specific role. Deprecated, will be removed when v1.29 is not supported anymore.",
         "tags": [
           "authz"
         ],
@@ -985,7 +985,7 @@ func init() {
     },
     "/authz/users/{id}/roles": {
       "get": {
-        "description": "Retrieve the roles assigned to a specific user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "description": "Retrieve the roles assigned to a specific user (` + "`" + `db` + "`" + ` + ` + "`" + `oidc` + "`" + `). Deprecated, will be removed when 1.29 is not supported anymore",
         "tags": [
           "authz"
         ],
@@ -1046,7 +1046,7 @@ func init() {
     },
     "/authz/users/{id}/roles/{userType}": {
       "get": {
-        "description": "Get all the roles for a specific user (DB or OIDC).",
+        "description": "Get all the roles for a specific user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `).",
         "tags": [
           "authz"
         ],
@@ -1074,7 +1074,7 @@ func init() {
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include detailed role information needed the roles permission",
+            "description": "Whether to include detailed role information required for the roles permission.",
             "name": "includeFullRoles",
             "in": "query"
           }
@@ -4360,17 +4360,17 @@ func init() {
     },
     "/users/db": {
       "get": {
-        "description": "Retrieves a list of all database users with their roles and status information.",
+        "description": "Retrieves a list of all database (` + "`" + `db` + "`" + ` user type) users with their roles and status information.",
         "tags": [
           "users"
         ],
-        "summary": "List all DB users",
+        "summary": "List all users",
         "operationId": "listAllUsers",
         "parameters": [
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include the last used time of the users.",
+            "description": "Whether to include the last time the users were utilized.",
             "name": "includeLastUsedTime",
             "in": "query"
           }
@@ -4408,7 +4408,7 @@ func init() {
     },
     "/users/db/{user_id}": {
       "get": {
-        "description": "Retrieve detailed information about a specific database user, including their roles, status, and type.",
+        "description": "Retrieve detailed information about a specific database user (` + "`" + `db` + "`" + ` user type), including their roles, status, and type.",
         "tags": [
           "users"
         ],
@@ -4467,7 +4467,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Create a new user with the specified name. Returns an API key for the newly created user.",
+        "description": "Create a new database (` + "`" + `db` + "`" + ` user type) user with the specified name. Returns an API key for the newly created user.",
         "tags": [
           "users"
         ],
@@ -4528,7 +4528,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete a DB user. You can't delete your current user.",
+        "description": "Delete a database user. You can't delete your current user.",
         "tags": [
           "users"
         ],
@@ -4585,7 +4585,7 @@ func init() {
     },
     "/users/db/{user_id}/activate": {
       "post": {
-        "description": "Activate a deactivated user.",
+        "description": "Activate a deactivated database user (` + "`" + `db` + "`" + ` user type).",
         "tags": [
           "users"
         ],
@@ -4645,7 +4645,7 @@ func init() {
     },
     "/users/db/{user_id}/deactivate": {
       "post": {
-        "description": "Deactivate a user.",
+        "description": "Deactivate a database user (` + "`" + `db` + "`" + ` user type).",
         "tags": [
           "users"
         ],
@@ -4719,7 +4719,7 @@ func init() {
     },
     "/users/db/{user_id}/rotate-key": {
       "post": {
-        "description": "Revoke the current API key for the specified user and generate a new one.",
+        "description": "Revoke the current API key for the specified database user (` + "`" + `db` + "`" + ` user type) and generate a new one.",
         "tags": [
           "users"
         ],
@@ -4728,7 +4728,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -4783,7 +4783,7 @@ func init() {
         "tags": [
           "users"
         ],
-        "summary": "Get info relevant to own user",
+        "summary": "Get current user info",
         "operationId": "getOwnInfo",
         "responses": {
           "200": {
@@ -5661,11 +5661,11 @@ func init() {
       ],
       "properties": {
         "active": {
-          "description": "activity status of the returned user",
+          "description": "Activity status of the returned user.",
           "type": "boolean"
         },
         "apiKeyFirstLetters": {
-          "description": "First 3 letters of the associated API-key",
+          "description": "First 3 letters of the associated API key.",
           "type": [
             "string",
             "null"
@@ -5673,7 +5673,7 @@ func init() {
           "maxLength": 3
         },
         "createdAt": {
-          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
           "type": [
             "string",
             "null"
@@ -5681,7 +5681,7 @@ func init() {
           "format": "date-time"
         },
         "dbUserType": {
-          "description": "type of the returned user",
+          "description": "Type of the returned user.",
           "type": "string",
           "enum": [
             "db_user",
@@ -5689,7 +5689,7 @@ func init() {
           ]
         },
         "lastUsedAt": {
-          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
           "type": [
             "string",
             "null"
@@ -5704,7 +5704,7 @@ func init() {
           }
         },
         "userId": {
-          "description": "The user id of the given user",
+          "description": "The name (ID) of the user.",
           "type": "string"
         }
       }
@@ -6407,7 +6407,7 @@ func init() {
           "type": "object",
           "properties": {
             "collection": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collections.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
               "type": "string",
               "default": "*"
             }
@@ -6418,7 +6418,7 @@ func init() {
           "type": "object",
           "properties": {
             "collection": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
               "type": "string",
               "default": "*"
             }
@@ -6429,17 +6429,17 @@ func init() {
           "type": "object",
           "properties": {
             "collection": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
             "object": {
-              "description": "String or regex of a specific object ID. If left empty (or *) it will encompass ALL object IDs.",
+              "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value '*' applies the permission to all objects.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "String or regex of a specific tenant name. If left empty (or *) it will encompass ALL tenant names.",
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants.",
               "type": "string",
               "default": "*"
             }
@@ -6450,7 +6450,7 @@ func init() {
           "type": "object",
           "properties": {
             "collection": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
@@ -6470,7 +6470,7 @@ func init() {
           "type": "object",
           "properties": {
             "role": {
-              "description": "String or regex of a specific role name. If left empty (or *) it will encompass ALL role names.",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value '*' applies the permission to all roles.",
               "type": "string",
               "default": "*"
             },
@@ -6490,12 +6490,12 @@ func init() {
           "type": "object",
           "properties": {
             "collection": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL tenant names.",
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants.",
               "type": "string",
               "default": "*"
             }
@@ -6506,7 +6506,7 @@ func init() {
           "type": "object",
           "properties": {
             "users": {
-              "description": "String or regex of a specific user name. If left empty (or *) it will encompass ALL user names.",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value '*' applies the permission to all users.",
               "type": "string",
               "default": "*"
             }
@@ -6932,13 +6932,13 @@ func init() {
       ],
       "properties": {
         "name": {
-          "description": "role name",
+          "description": "The name (ID) of the role.",
           "type": "string"
         },
         "permissions": {
           "type": "array",
           "items": {
-            "description": "list of permissions (level, action, resource)",
+            "description": "The list of permissions assigned to this role (level, action, resource).",
             "type": "object",
             "$ref": "#/definitions/Permission"
           }
@@ -6946,7 +6946,7 @@ func init() {
       }
     },
     "RolesListResponse": {
-      "description": "list of roles",
+      "description": "List of roles.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/Role"
@@ -7203,7 +7203,7 @@ func init() {
       ],
       "properties": {
         "apikey": {
-          "description": "The apikey",
+          "description": "The API key associated with the user.",
           "type": "string"
         }
       }
@@ -7236,7 +7236,7 @@ func init() {
       }
     },
     "UserTypeInput": {
-      "description": "The type of the user.",
+      "description": "The type of the user. ` + "`" + `db` + "`" + ` users are managed by Weaviate, ` + "`" + `oidc` + "`" + ` users are managed by an external OIDC provider.",
       "type": "string",
       "enum": [
         "db",
@@ -7244,7 +7244,7 @@ func init() {
       ]
     },
     "UserTypeOutput": {
-      "description": "The type of the user",
+      "description": "The type of the user. ` + "`" + `db_user` + "`" + ` users are created through the ` + "`" + `users` + "`" + ` API, ` + "`" + `db_env_user` + "`" + ` users are created through environment variables, and ` + "`" + `oidc` + "`" + ` users are managed by an external OIDC provider.",
       "type": "string",
       "enum": [
         "db_user",
@@ -8041,7 +8041,7 @@ func init() {
     },
     "/authz/roles/{id}/add-permissions": {
       "post": {
-        "description": "Remove specific permissions from a role. If all permissions are removed, the role itself will be deleted.",
+        "description": "Add new permissions to an existing role without affecting current permissions.",
         "tags": [
           "authz"
         ],
@@ -8319,7 +8319,7 @@ func init() {
     },
     "/authz/roles/{id}/users": {
       "get": {
-        "description": "Get all the users (db + OIDC) who have been assigned a specific role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "description": "Get all the users (` + "`" + `db` + "`" + ` + ` + "`" + `oidc` + "`" + `) who have been assigned a specific role. Deprecated, will be removed when v1.29 is not supported anymore.",
         "tags": [
           "authz"
         ],
@@ -8525,7 +8525,7 @@ func init() {
     },
     "/authz/users/{id}/roles": {
       "get": {
-        "description": "Retrieve the roles assigned to a specific user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "description": "Retrieve the roles assigned to a specific user (` + "`" + `db` + "`" + ` + ` + "`" + `oidc` + "`" + `). Deprecated, will be removed when 1.29 is not supported anymore",
         "tags": [
           "authz"
         ],
@@ -8586,7 +8586,7 @@ func init() {
     },
     "/authz/users/{id}/roles/{userType}": {
       "get": {
-        "description": "Get all the roles for a specific user (DB or OIDC).",
+        "description": "Get all the roles for a specific user (` + "`" + `db` + "`" + ` or ` + "`" + `oidc` + "`" + `).",
         "tags": [
           "authz"
         ],
@@ -8614,7 +8614,7 @@ func init() {
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include detailed role information needed the roles permission",
+            "description": "Whether to include detailed role information required for the roles permission.",
             "name": "includeFullRoles",
             "in": "query"
           }
@@ -12022,17 +12022,17 @@ func init() {
     },
     "/users/db": {
       "get": {
-        "description": "Retrieves a list of all database users with their roles and status information.",
+        "description": "Retrieves a list of all database (` + "`" + `db` + "`" + ` user type) users with their roles and status information.",
         "tags": [
           "users"
         ],
-        "summary": "List all DB users",
+        "summary": "List all users",
         "operationId": "listAllUsers",
         "parameters": [
           {
             "type": "boolean",
             "default": false,
-            "description": "Whether to include the last used time of the users.",
+            "description": "Whether to include the last time the users were utilized.",
             "name": "includeLastUsedTime",
             "in": "query"
           }
@@ -12070,7 +12070,7 @@ func init() {
     },
     "/users/db/{user_id}": {
       "get": {
-        "description": "Retrieve detailed information about a specific database user, including their roles, status, and type.",
+        "description": "Retrieve detailed information about a specific database user (` + "`" + `db` + "`" + ` user type), including their roles, status, and type.",
         "tags": [
           "users"
         ],
@@ -12129,7 +12129,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Create a new user with the specified name. Returns an API key for the newly created user.",
+        "description": "Create a new database (` + "`" + `db` + "`" + ` user type) user with the specified name. Returns an API key for the newly created user.",
         "tags": [
           "users"
         ],
@@ -12190,7 +12190,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete a DB user. You can't delete your current user.",
+        "description": "Delete a database user. You can't delete your current user.",
         "tags": [
           "users"
         ],
@@ -12247,7 +12247,7 @@ func init() {
     },
     "/users/db/{user_id}/activate": {
       "post": {
-        "description": "Activate a deactivated user.",
+        "description": "Activate a deactivated database user (` + "`" + `db` + "`" + ` user type).",
         "tags": [
           "users"
         ],
@@ -12307,7 +12307,7 @@ func init() {
     },
     "/users/db/{user_id}/deactivate": {
       "post": {
-        "description": "Deactivate a user.",
+        "description": "Deactivate a database user (` + "`" + `db` + "`" + ` user type).",
         "tags": [
           "users"
         ],
@@ -12381,7 +12381,7 @@ func init() {
     },
     "/users/db/{user_id}/rotate-key": {
       "post": {
-        "description": "Revoke the current API key for the specified user and generate a new one.",
+        "description": "Revoke the current API key for the specified database user (` + "`" + `db` + "`" + ` user type) and generate a new one.",
         "tags": [
           "users"
         ],
@@ -12390,7 +12390,7 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "user id",
+            "description": "The name of the user.",
             "name": "user_id",
             "in": "path",
             "required": true
@@ -12445,7 +12445,7 @@ func init() {
         "tags": [
           "users"
         ],
-        "summary": "Get info relevant to own user",
+        "summary": "Get current user info",
         "operationId": "getOwnInfo",
         "responses": {
           "200": {
@@ -13478,11 +13478,11 @@ func init() {
       ],
       "properties": {
         "active": {
-          "description": "activity status of the returned user",
+          "description": "Activity status of the returned user.",
           "type": "boolean"
         },
         "apiKeyFirstLetters": {
-          "description": "First 3 letters of the associated API-key",
+          "description": "First 3 letters of the associated API key.",
           "type": [
             "string",
             "null"
@@ -13490,7 +13490,7 @@ func init() {
           "maxLength": 3
         },
         "createdAt": {
-          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
           "type": [
             "string",
             "null"
@@ -13498,7 +13498,7 @@ func init() {
           "format": "date-time"
         },
         "dbUserType": {
-          "description": "type of the returned user",
+          "description": "Type of the returned user.",
           "type": "string",
           "enum": [
             "db_user",
@@ -13506,7 +13506,7 @@ func init() {
           ]
         },
         "lastUsedAt": {
-          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)",
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ.",
           "type": [
             "string",
             "null"
@@ -13521,7 +13521,7 @@ func init() {
           }
         },
         "userId": {
-          "description": "The user id of the given user",
+          "description": "The name (ID) of the user.",
           "type": "string"
         }
       }
@@ -14262,7 +14262,7 @@ func init() {
           "type": "object",
           "properties": {
             "collection": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collections.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
               "type": "string",
               "default": "*"
             }
@@ -14273,7 +14273,7 @@ func init() {
           "type": "object",
           "properties": {
             "collection": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
               "type": "string",
               "default": "*"
             }
@@ -14284,17 +14284,17 @@ func init() {
           "type": "object",
           "properties": {
             "collection": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
             "object": {
-              "description": "String or regex of a specific object ID. If left empty (or *) it will encompass ALL object IDs.",
+              "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value '*' applies the permission to all objects.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "String or regex of a specific tenant name. If left empty (or *) it will encompass ALL tenant names.",
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants.",
               "type": "string",
               "default": "*"
             }
@@ -14305,7 +14305,7 @@ func init() {
           "type": "object",
           "properties": {
             "collection": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
@@ -14325,7 +14325,7 @@ func init() {
           "type": "object",
           "properties": {
             "role": {
-              "description": "String or regex of a specific role name. If left empty (or *) it will encompass ALL role names.",
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value '*' applies the permission to all roles.",
               "type": "string",
               "default": "*"
             },
@@ -14345,12 +14345,12 @@ func init() {
           "type": "object",
           "properties": {
             "collection": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
               "type": "string",
               "default": "*"
             },
             "tenant": {
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL tenant names.",
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants.",
               "type": "string",
               "default": "*"
             }
@@ -14361,7 +14361,7 @@ func init() {
           "type": "object",
           "properties": {
             "users": {
-              "description": "String or regex of a specific user name. If left empty (or *) it will encompass ALL user names.",
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value '*' applies the permission to all users.",
               "type": "string",
               "default": "*"
             }
@@ -14374,7 +14374,7 @@ func init() {
       "type": "object",
       "properties": {
         "collection": {
-          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collections.",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
           "type": "string",
           "default": "*"
         }
@@ -14385,7 +14385,7 @@ func init() {
       "type": "object",
       "properties": {
         "collection": {
-          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
           "type": "string",
           "default": "*"
         }
@@ -14396,17 +14396,17 @@ func init() {
       "type": "object",
       "properties": {
         "collection": {
-          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
           "type": "string",
           "default": "*"
         },
         "object": {
-          "description": "String or regex of a specific object ID. If left empty (or *) it will encompass ALL object IDs.",
+          "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value '*' applies the permission to all objects.",
           "type": "string",
           "default": "*"
         },
         "tenant": {
-          "description": "String or regex of a specific tenant name. If left empty (or *) it will encompass ALL tenant names.",
+          "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants.",
           "type": "string",
           "default": "*"
         }
@@ -14417,7 +14417,7 @@ func init() {
       "type": "object",
       "properties": {
         "collection": {
-          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
           "type": "string",
           "default": "*"
         },
@@ -14437,7 +14437,7 @@ func init() {
       "type": "object",
       "properties": {
         "role": {
-          "description": "String or regex of a specific role name. If left empty (or *) it will encompass ALL role names.",
+          "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value '*' applies the permission to all roles.",
           "type": "string",
           "default": "*"
         },
@@ -14457,12 +14457,12 @@ func init() {
       "type": "object",
       "properties": {
         "collection": {
-          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.",
           "type": "string",
           "default": "*"
         },
         "tenant": {
-          "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL tenant names.",
+          "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants.",
           "type": "string",
           "default": "*"
         }
@@ -14473,7 +14473,7 @@ func init() {
       "type": "object",
       "properties": {
         "users": {
-          "description": "String or regex of a specific user name. If left empty (or *) it will encompass ALL user names.",
+          "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value '*' applies the permission to all users.",
           "type": "string",
           "default": "*"
         }
@@ -14897,13 +14897,13 @@ func init() {
       ],
       "properties": {
         "name": {
-          "description": "role name",
+          "description": "The name (ID) of the role.",
           "type": "string"
         },
         "permissions": {
           "type": "array",
           "items": {
-            "description": "list of permissions (level, action, resource)",
+            "description": "The list of permissions assigned to this role (level, action, resource).",
             "type": "object",
             "$ref": "#/definitions/Permission"
           }
@@ -14911,7 +14911,7 @@ func init() {
       }
     },
     "RolesListResponse": {
-      "description": "list of roles",
+      "description": "List of roles.",
       "type": "array",
       "items": {
         "$ref": "#/definitions/Role"
@@ -15168,7 +15168,7 @@ func init() {
       ],
       "properties": {
         "apikey": {
-          "description": "The apikey",
+          "description": "The API key associated with the user.",
           "type": "string"
         }
       }
@@ -15201,7 +15201,7 @@ func init() {
       }
     },
     "UserTypeInput": {
-      "description": "The type of the user.",
+      "description": "The type of the user. ` + "`" + `db` + "`" + ` users are managed by Weaviate, ` + "`" + `oidc` + "`" + ` users are managed by an external OIDC provider.",
       "type": "string",
       "enum": [
         "db",
@@ -15209,7 +15209,7 @@ func init() {
       ]
     },
     "UserTypeOutput": {
-      "description": "The type of the user",
+      "description": "The type of the user. ` + "`" + `db_user` + "`" + ` users are created through the ` + "`" + `users` + "`" + ` API, ` + "`" + `db_env_user` + "`" + ` users are created through environment variables, and ` + "`" + `oidc` + "`" + ` users are managed by an external OIDC provider.",
       "type": "string",
       "enum": [
         "db_user",

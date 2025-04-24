@@ -47,7 +47,7 @@ func NewGetRolesForUser(ctx *middleware.Context, handler GetRolesForUserHandler)
 
 # Get roles assigned to a user
 
-Get all the roles for a specific user (DB or OIDC).
+Get all the roles for a specific user (`db` or `oidc`).
 */
 type GetRolesForUser struct {
 	Context *middleware.Context

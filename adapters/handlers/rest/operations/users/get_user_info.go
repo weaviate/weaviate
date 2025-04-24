@@ -47,7 +47,7 @@ func NewGetUserInfo(ctx *middleware.Context, handler GetUserInfoHandler) *GetUse
 
 # Get user info
 
-Retrieve detailed information about a specific database user, including their roles, status, and type.
+Retrieve detailed information about a specific database user (`db` user type), including their roles, status, and type.
 */
 type GetUserInfo struct {
 	Context *middleware.Context

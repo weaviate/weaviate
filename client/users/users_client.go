@@ -63,7 +63,7 @@ type ClientService interface {
 /*
 ActivateUser activates a user
 
-Activate a deactivated user.
+Activate a deactivated database user (`db` user type).
 */
 func (a *Client) ActivateUser(params *ActivateUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ActivateUserOK, error) {
 	// TODO: Validate the params before sending
@@ -104,7 +104,7 @@ func (a *Client) ActivateUser(params *ActivateUserParams, authInfo runtime.Clien
 /*
 CreateUser creates a new user
 
-Create a new user with the specified name. Returns an API key for the newly created user.
+Create a new database (`db` user type) user with the specified name. Returns an API key for the newly created user.
 */
 func (a *Client) CreateUser(params *CreateUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CreateUserCreated, error) {
 	// TODO: Validate the params before sending
@@ -145,7 +145,7 @@ func (a *Client) CreateUser(params *CreateUserParams, authInfo runtime.ClientAut
 /*
 DeactivateUser deactivates a user
 
-Deactivate a user.
+Deactivate a database user (`db` user type).
 */
 func (a *Client) DeactivateUser(params *DeactivateUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeactivateUserOK, error) {
 	// TODO: Validate the params before sending
@@ -186,7 +186,7 @@ func (a *Client) DeactivateUser(params *DeactivateUserParams, authInfo runtime.C
 /*
 DeleteUser deletes a user
 
-Delete a DB user. You can't delete your current user.
+Delete a database user. You can't delete your current user.
 */
 func (a *Client) DeleteUser(params *DeleteUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteUserNoContent, error) {
 	// TODO: Validate the params before sending
@@ -225,7 +225,7 @@ func (a *Client) DeleteUser(params *DeleteUserParams, authInfo runtime.ClientAut
 }
 
 /*
-GetOwnInfo gets info relevant to own user
+GetOwnInfo gets current user info
 
 Get information about the currently authenticated user, including username and assigned roles.
 */
@@ -268,7 +268,7 @@ func (a *Client) GetOwnInfo(params *GetOwnInfoParams, authInfo runtime.ClientAut
 /*
 GetUserInfo gets user info
 
-Retrieve detailed information about a specific database user, including their roles, status, and type.
+Retrieve detailed information about a specific database user (`db` user type), including their roles, status, and type.
 */
 func (a *Client) GetUserInfo(params *GetUserInfoParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUserInfoOK, error) {
 	// TODO: Validate the params before sending
@@ -307,9 +307,9 @@ func (a *Client) GetUserInfo(params *GetUserInfoParams, authInfo runtime.ClientA
 }
 
 /*
-ListAllUsers lists all d b users
+ListAllUsers lists all users
 
-Retrieves a list of all database users with their roles and status information.
+Retrieves a list of all database (`db` user type) users with their roles and status information.
 */
 func (a *Client) ListAllUsers(params *ListAllUsersParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListAllUsersOK, error) {
 	// TODO: Validate the params before sending
@@ -350,7 +350,7 @@ func (a *Client) ListAllUsers(params *ListAllUsersParams, authInfo runtime.Clien
 /*
 RotateUserAPIKey rotates API key of a user
 
-Revoke the current API key for the specified user and generate a new one.
+Revoke the current API key for the specified database user (`db` user type) and generate a new one.
 */
 func (a *Client) RotateUserAPIKey(params *RotateUserAPIKeyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*RotateUserAPIKeyOK, error) {
 	// TODO: Validate the params before sending

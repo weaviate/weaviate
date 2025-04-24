@@ -56,7 +56,7 @@ type GetRolesForUserParams struct {
 	  In: path
 	*/
 	ID string
-	/*Whether to include detailed role information needed the roles permission
+	/*Whether to include detailed role information required for the roles permission.
 	  In: query
 	  Default: false
 	*/

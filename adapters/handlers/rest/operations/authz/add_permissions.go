@@ -53,7 +53,7 @@ func NewAddPermissions(ctx *middleware.Context, handler AddPermissionsHandler) *
 
 # Add permissions to a role
 
-Remove specific permissions from a role. If all permissions are removed, the role itself will be deleted.
+Add new permissions to an existing role without affecting current permissions.
 */
 type AddPermissions struct {
 	Context *middleware.Context

@@ -47,7 +47,7 @@ func NewRotateUserAPIKey(ctx *middleware.Context, handler RotateUserAPIKeyHandle
 
 # Rotate API key of a user
 
-Revoke the current API key for the specified user and generate a new one.
+Revoke the current API key for the specified database user (`db` user type) and generate a new one.
 */
 type RotateUserAPIKey struct {
 	Context *middleware.Context

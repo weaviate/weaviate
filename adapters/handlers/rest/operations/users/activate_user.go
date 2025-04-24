@@ -47,7 +47,7 @@ func NewActivateUser(ctx *middleware.Context, handler ActivateUserHandler) *Acti
 
 # Activate a user
 
-Activate a deactivated user.
+Activate a deactivated database user (`db` user type).
 */
 type ActivateUser struct {
 	Context *middleware.Context

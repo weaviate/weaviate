@@ -8,12 +8,12 @@
     "UserTypeInput": {
       "type": "string",
       "enum": ["db", "oidc"],
-      "description": "The type of the user."
+      "description": "The type of the user. `db` users are managed by Weaviate, `oidc` users are managed by an external OIDC provider."
     },
     "UserTypeOutput": {
       "type": "string",
       "enum": ["db_user", "db_env_user", "oidc"],
-      "description": "The type of the user"
+      "description": "The type of the user. `db_user` users are created through the `users` API, `db_env_user` users are created through environment variables, and `oidc` users are managed by an external OIDC provider."
     },
     "UserOwnInfo": {
       "type": "object",
@@ -52,7 +52,7 @@
         },
         "userId": {
           "type": "string",
-          "description": "The user id of the given user"
+          "description": "The name (ID) of the user."
         },
         "dbUserType":{
           "type": "string",
@@ -60,16 +60,16 @@
             "db_user",
             "db_env_user"
           ],
-          "description": "type of the returned user"
+          "description": "Type of the returned user."
         },
         "active":{
           "type": "boolean",
-          "description": "activity status of the returned user"
+          "description": "Activity status of the returned user."
         },
         "createdAt": {
           "type": ["string", "null"],
           "format": "date-time",
-          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)"
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ."
         },
         "apiKeyFirstLetters": {
           "type": [
@@ -77,12 +77,12 @@
             "null"
           ],
           "maxLength": 3,
-          "description": "First 3 letters of the associated API-key"
+          "description": "First 3 letters of the associated API key."
         },
         "lastUsedAt": {
           "type": ["string", "null"],
           "format": "date-time",
-          "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)"
+          "description": "Date and time in ISO 8601 format: YYYY-MM-DDTHH:MM:SSZ."
         }
       },
       "required": [
@@ -93,7 +93,7 @@
       "properties": {
         "apikey": {
           "type": "string",
-          "description": "The apikey"
+          "description": "The API key associated with the user."
         }
       },
       "required": ["apikey"]
@@ -103,13 +103,13 @@
       "properties": {
         "name": {
           "type": "string",
-          "description": "role name"
+          "description": "The name (ID) of the role."
         },
         "permissions" : {
           "type": "array",
           "items": {
             "type": "object",
-            "description": "list of permissions (level, action, resource)",
+            "description": "The list of permissions assigned to this role (level, action, resource).",
             "$ref": "#/definitions/Permission"
           }
         }
@@ -127,7 +127,7 @@
             "collection": {
               "type": "string",
               "default": "*",
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collections."
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections."
             }
           }
         },
@@ -138,17 +138,17 @@
             "collection": {
               "type": "string",
               "default": "*",
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names."
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections."
             },
             "tenant": {
               "type": "string",
               "default": "*",
-              "description": "String or regex of a specific tenant name. If left empty (or *) it will encompass ALL tenant names."
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants."
             },
             "object": {
               "type": "string",
               "default": "*",
-              "description": "String or regex of a specific object ID. If left empty (or *) it will encompass ALL object IDs."
+              "description": "A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value '*' applies the permission to all objects."
             }
           }
         },
@@ -168,7 +168,7 @@
             "collection": {
               "type": "string",
               "default": "*",
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names."
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections."
             }
           }
         },
@@ -179,7 +179,7 @@
             "users": {
               "type": "string",
               "default": "*",
-              "description": "String or regex of a specific user name. If left empty (or *) it will encompass ALL user names."
+              "description": "A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value '*' applies the permission to all users."
             }
           }
         },
@@ -190,12 +190,12 @@
             "collection": {
               "type": "string",
               "default": "*",
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names."
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections."
             },
             "tenant": {
               "type": "string",
               "default": "*",
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL tenant names."
+              "description": "A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants."
             }
           }
         },
@@ -206,7 +206,7 @@
             "role": {
               "type": "string",
               "default": "*",
-              "description": "String or regex of a specific role name. If left empty (or *) it will encompass ALL role names."
+              "description": "A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value '*' applies the permission to all roles."
             },
             "scope": {
               "enum": [
@@ -226,7 +226,7 @@
             "collection": {
               "type": "string",
               "default": "*",
-              "description": "String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names."
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections."
             }
           }
         },
@@ -272,7 +272,7 @@
     },
     "RolesListResponse": {
       "type": "array",
-      "description": "list of roles",
+      "description": "List of roles.",
       "items": {
         "$ref": "#/definitions/Role"
       }
@@ -2939,7 +2939,7 @@
     },
     "/users/own-info": {
       "get": {
-        "summary": "Get info relevant to own user",
+        "summary": "Get current user info",
         "description": "Get information about the currently authenticated user, including username and assigned roles.",
         "operationId": "getOwnInfo",
         "x-serviceIds": [
@@ -2969,8 +2969,8 @@
     },
     "/users/db": {
       "get": {
-        "summary": "List all DB users",
-        "description": "Retrieves a list of all database users with their roles and status information.",
+        "summary": "List all users",
+        "description": "Retrieves a list of all database (`db` user type) users with their roles and status information.",
         "operationId": "listAllUsers",
         "x-serviceIds": [
           "weaviate.users.db.list_all"
@@ -2980,7 +2980,7 @@
         ],
         "parameters": [
           {
-            "description": "Whether to include the last used time of the users.",
+            "description": "Whether to include the last time the users were utilized.",
             "in": "query",
             "name": "includeLastUsedTime",
             "required": false,
@@ -3019,7 +3019,7 @@
     "/users/db/{user_id}": {
       "get": {
         "summary": "Get user info",
-        "description": "Retrieve detailed information about a specific database user, including their roles, status, and type.",
+        "description": "Retrieve detailed information about a specific database user (`db` user type), including their roles, status, and type.",
         "operationId": "getUserInfo",
         "x-serviceIds": [
           "weaviate.users.db.get"
@@ -3079,7 +3079,7 @@
       },
       "post": {
         "summary": "Create a new user",
-        "description": "Create a new user with the specified name. Returns an API key for the newly created user.",
+        "description": "Create a new database (`db` user type) user with the specified name. Returns an API key for the newly created user.",
         "operationId": "createUser",
         "x-serviceIds": [
           "weaviate.users.db.create"
@@ -3140,7 +3140,7 @@
       },
       "delete": {
         "summary": "Delete a user",
-        "description": "Delete a DB user. You can't delete your current user.",
+        "description": "Delete a database user. You can't delete your current user.",
         "operationId": "deleteUser",
         "x-serviceIds": [
           "weaviate.users.db.delete"
@@ -3197,7 +3197,7 @@
     "/users/db/{user_id}/rotate-key": {
       "post": {
         "summary": "Rotate API key of a user",
-        "description": "Revoke the current API key for the specified user and generate a new one.",
+        "description": "Revoke the current API key for the specified database user (`db` user type) and generate a new one.",
         "operationId": "rotateUserApiKey",
         "x-serviceIds": [
           "weaviate.users.db.rotateApiKey"
@@ -3207,7 +3207,7 @@
         ],
         "parameters": [
           {
-            "description": "user id",
+            "description": "The name of the user.",
             "in": "path",
             "name": "user_id",
             "required": true,
@@ -3257,7 +3257,7 @@
     "/users/db/{user_id}/activate": {
       "post": {
         "summary": "Activate a user",
-        "description": "Activate a deactivated user.",
+        "description": "Activate a deactivated database user (`db` user type).",
         "operationId": "activateUser",
         "x-serviceIds": [
           "weaviate.users.db.activateUser"
@@ -3317,7 +3317,7 @@
     "/users/db/{user_id}/deactivate": {
       "post": {
         "summary": "Deactivate a user",
-        "description": "Deactivate a user.",
+        "description": "Deactivate a database user (`db` user type).",
         "operationId": "deactivateUser",
         "x-serviceIds": [
           "weaviate.users.db.deactivateUser"
@@ -3493,7 +3493,7 @@
     "/authz/roles/{id}/add-permissions":{
       "post": {
         "summary": "Add permissions to a role",
-        "description": "Remove specific permissions from a role. If all permissions are removed, the role itself will be deleted.",
+        "description": "Add new permissions to an existing role without affecting current permissions.",
         "operationId": "addPermissions",
         "x-serviceIds": [
           "weaviate.authz.add.role.permissions"
@@ -3811,7 +3811,7 @@
       "get": {
         "deprecated": true,
         "summary": "Get users assigned to a role",
-        "description": "Get all the users (db + OIDC) who have been assigned a specific role. Deprecated, will be removed when 1.29 is not supported anymore",
+        "description": "Get all the users (`db` + `oidc`) who have been assigned a specific role. Deprecated, will be removed when v1.29 is not supported anymore.",
         "operationId": "getUsersForRoleDeprecated",
         "x-serviceIds": [
           "weaviate.authz.get.roles.users"
@@ -3935,7 +3935,7 @@
       "get": {
         "deprecated": true,
         "summary": "Get roles assigned to a user",
-        "description": "Retrieve the roles assigned to a specific user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore",
+        "description": "Retrieve the roles assigned to a specific user (`db` + `oidc`). Deprecated, will be removed when 1.29 is not supported anymore",
         "operationId": "getRolesForUserDeprecated",
         "x-serviceIds": [
           "weaviate.authz.get.users.roles"
@@ -3995,7 +3995,7 @@
     "/authz/users/{id}/roles/{userType}": {
       "get": {
         "summary": "Get roles assigned to a user",
-        "description": "Get all the roles for a specific user (DB or OIDC).",
+        "description": "Get all the roles for a specific user (`db` or `oidc`).",
         "operationId": "getRolesForUser",
         "x-serviceIds": [
           "weaviate.authz.get.users.roles"
@@ -4025,7 +4025,7 @@
             "required": false,
             "type": "boolean",
             "default": false,
-            "description": "Whether to include detailed role information needed the roles permission"
+            "description": "Whether to include detailed role information required for the roles permission."
           }
         ],
         "responses": {

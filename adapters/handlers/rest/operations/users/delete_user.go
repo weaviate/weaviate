@@ -47,7 +47,7 @@ func NewDeleteUser(ctx *middleware.Context, handler DeleteUserHandler) *DeleteUs
 
 # Delete a user
 
-Delete a DB user. You can't delete your current user.
+Delete a database user. You can't delete your current user.
 */
 type DeleteUser struct {
 	Context *middleware.Context

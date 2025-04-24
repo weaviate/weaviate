@@ -45,9 +45,9 @@ func NewListAllUsers(ctx *middleware.Context, handler ListAllUsersHandler) *List
 /*
 	ListAllUsers swagger:route GET /users/db users listAllUsers
 
-# List all DB users
+# List all users
 
-Retrieves a list of all database users with their roles and status information.
+Retrieves a list of all database (`db` user type) users with their roles and status information.
 */
 type ListAllUsers struct {
 	Context *middleware.Context

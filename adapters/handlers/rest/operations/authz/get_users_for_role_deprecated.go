@@ -47,7 +47,7 @@ func NewGetUsersForRoleDeprecated(ctx *middleware.Context, handler GetUsersForRo
 
 # Get users assigned to a role
 
-Get all the users (db + OIDC) who have been assigned a specific role. Deprecated, will be removed when 1.29 is not supported anymore
+Get all the users (`db` + `oidc`) who have been assigned a specific role. Deprecated, will be removed when v1.29 is not supported anymore.
 */
 type GetUsersForRoleDeprecated struct {
 	Context *middleware.Context

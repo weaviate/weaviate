@@ -77,7 +77,7 @@ type ClientService interface {
 /*
 AddPermissions adds permissions to a role
 
-Remove specific permissions from a role. If all permissions are removed, the role itself will be deleted.
+Add new permissions to an existing role without affecting current permissions.
 */
 func (a *Client) AddPermissions(params *AddPermissionsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AddPermissionsOK, error) {
 	// TODO: Validate the params before sending
@@ -364,7 +364,7 @@ func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInf
 /*
 GetRolesForUser gets roles assigned to a user
 
-Get all the roles for a specific user (DB or OIDC).
+Get all the roles for a specific user (`db` or `oidc`).
 */
 func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error) {
 	// TODO: Validate the params before sending
@@ -405,7 +405,7 @@ func (a *Client) GetRolesForUser(params *GetRolesForUserParams, authInfo runtime
 /*
 GetRolesForUserDeprecated gets roles assigned to a user
 
-Retrieve the roles assigned to a specific user (DB + OIDC). Deprecated, will be removed when 1.29 is not supported anymore
+Retrieve the roles assigned to a specific user (`db` + `oidc`). Deprecated, will be removed when 1.29 is not supported anymore
 */
 func (a *Client) GetRolesForUserDeprecated(params *GetRolesForUserDeprecatedParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserDeprecatedOK, error) {
 	// TODO: Validate the params before sending
@@ -487,7 +487,7 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 /*
 GetUsersForRoleDeprecated gets users assigned to a role
 
-Get all the users (db + OIDC) who have been assigned a specific role. Deprecated, will be removed when 1.29 is not supported anymore
+Get all the users (`db` + `oidc`) who have been assigned a specific role. Deprecated, will be removed when v1.29 is not supported anymore.
 */
 func (a *Client) GetUsersForRoleDeprecated(params *GetUsersForRoleDeprecatedParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleDeprecatedOK, error) {
 	// TODO: Validate the params before sending

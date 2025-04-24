@@ -50,7 +50,7 @@ func NewDeactivateUser(ctx *middleware.Context, handler DeactivateUserHandler) *
 
 # Deactivate a user
 
-Deactivate a user.
+Deactivate a database user (`db` user type).
 */
 type DeactivateUser struct {
 	Context *middleware.Context

@@ -515,7 +515,7 @@ func (m *Permission) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionBackups
 type PermissionBackups struct {
 
-	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL collections.
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 }
 
@@ -552,7 +552,7 @@ func (m *PermissionBackups) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionCollections
 type PermissionCollections struct {
 
-	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 }
 
@@ -589,13 +589,13 @@ func (m *PermissionCollections) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionData
 type PermissionData struct {
 
-	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 
-	// String or regex of a specific object ID. If left empty (or *) it will encompass ALL object IDs.
+	// A string that specifies which objects this permission applies to. Can be an exact object ID or a regex pattern. The default value '*' applies the permission to all objects.
 	Object *string `json:"object,omitempty"`
 
-	// String or regex of a specific tenant name. If left empty (or *) it will encompass ALL tenant names.
+	// A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants.
 	Tenant *string `json:"tenant,omitempty"`
 }
 
@@ -632,7 +632,7 @@ func (m *PermissionData) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionNodes
 type PermissionNodes struct {
 
-	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 
 	// Whether to allow (verbose) returning shards and stats data in the response.
@@ -724,7 +724,7 @@ func (m *PermissionNodes) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionRoles
 type PermissionRoles struct {
 
-	// String or regex of a specific role name. If left empty (or *) it will encompass ALL role names.
+	// A string that specifies which roles this permission applies to. Can be an exact role name or a regex pattern. The default value '*' applies the permission to all roles.
 	Role *string `json:"role,omitempty"`
 
 	// Set the scope for the manage role permission.
@@ -816,10 +816,10 @@ func (m *PermissionRoles) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionTenants
 type PermissionTenants struct {
 
-	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL collection names.
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value '*' applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 
-	// String or regex of a specific collection name. If left empty (or *) it will encompass ALL tenant names.
+	// A string that specifies which tenants this permission applies to. Can be an exact tenant name or a regex pattern. The default value '*' applies the permission to all tenants.
 	Tenant *string `json:"tenant,omitempty"`
 }
 
@@ -856,7 +856,7 @@ func (m *PermissionTenants) UnmarshalBinary(b []byte) error {
 // swagger:model PermissionUsers
 type PermissionUsers struct {
 
-	// String or regex of a specific user name. If left empty (or *) it will encompass ALL user names.
+	// A string that specifies which users this permission applies to. Can be an exact user name or a regex pattern. The default value '*' applies the permission to all users.
 	Users *string `json:"users,omitempty"`
 }
 
