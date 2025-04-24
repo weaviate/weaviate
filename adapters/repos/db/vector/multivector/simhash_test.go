@@ -26,7 +26,7 @@ func TestSimHashTest(t *testing.T) {
 		Repetitions:  20,
 	}
 
-	encoder := NewMuveraEncoder(config)
+	encoder := NewMuveraEncoder(config, nil)
 	encoder.InitEncoder(64)
 
 	// Test case 1: Similar vectors should produce similar hashes
