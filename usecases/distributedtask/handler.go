@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"sort"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
@@ -52,6 +53,8 @@ func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (m
 			for node := range task.FinishedNodes {
 				finishedNodes = append(finishedNodes, node)
 			}
+			// sort so it would be more deterministic and easier to test
+			sort.Strings(finishedNodes)
 
 			// Try to unmarshal the raw payload into a generic JSON object.
 			// If we introduce sensitive information to the payload, we can
