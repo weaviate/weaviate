@@ -677,7 +677,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		migrator.RecountProperties(ctx)
 	}
 
-	scheduler := distributedtask.NewScheduler(distributedtask.SchedulerParams{
+	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
 		TasksLister:        appState.ClusterService.Raft,
 		Providers:          map[string]distributedtask.Provider{},
@@ -698,7 +698,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		if !errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
 			return
 		}
-		if err = scheduler.Start(ctx); err != nil {
+		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
 			appState.Logger.WithError(err).WithField("action", "startup").
 				Error("failed to start distributed task scheduler")
 		}
