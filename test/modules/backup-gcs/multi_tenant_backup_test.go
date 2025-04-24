@@ -1,14 +1,3 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
-//
-//  CONTACT: hello@weaviate.io
-//
-
 package test
 
 import (
@@ -25,126 +14,84 @@ import (
 
 const numTenants = 50
 
-func Test_MultiTenantBackupJourney(t *testing.T) {
-	// Set up a context with a 30-minute timeout to manage test duration
-	ctx := context.Background()
-
-	// Define test cases using a table-driven approach
-	tests := []struct {
-		name               string // Name for the subtest
-		override           bool   // Whether to override bucket/path
-		bucket             string // Bucket name
-		overrideBucket     string // Override bucket name (if any)
-		overrideBucketPath string // Override path for bucket (if any)
-	}{
-		{
-			name:               "default backup journey",
-			override:           false,
-			bucket:             "backups",
-			overrideBucket:     "",
-			overrideBucketPath: "",
-		},
-		{
-			name:               "with override bucket and path",
-			override:           true,
-			bucket:             "backups",
-			overrideBucket:     "gcsmbjtestbucketoverride",
-			overrideBucketPath: "testBucketPathOverride",
-		},
-	}
-
-	// Run each test case as a subtest
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			// Execute the multi-tenant backup journey with the specified parameters
-			multiTenantBackupJourneyStart(
-				t,
-				ctx,
-				tt.override,           // Apply override if true
-				tt.bucket,             // Primary bucket name
-				tt.overrideBucket,     // Override bucket name, if set
-				tt.overrideBucketPath, // Override path, if set
-			)
-		})
-	}
+func Test_MultiTenantBackupJourney_SingleNode_Default(t *testing.T) {
+	runMultiTenantBackupSingleNode(t, false, "backups", "", "")
 }
 
-func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-	gcsBackupJourneyBucketName := containerName
+func Test_MultiTenantBackupJourney_SingleNode_Override(t *testing.T) {
+	runMultiTenantBackupSingleNode(t, true, "backups", "gcsmbjtestbucketoverride", "testBucketPathOverride")
+}
+
+func Test_MultiTenantBackupJourney_MultiNode_Default(t *testing.T) {
+	runMultiTenantBackupMultiNode(t, false, "backups", "", "")
+}
+
+func Test_MultiTenantBackupJourney_MultiNode_Override(t *testing.T) {
+	runMultiTenantBackupMultiNode(t, true, "backups", "gcsmbjtestbucketoverride", "testBucketPathOverride")
+}
+
+func runMultiTenantBackupSingleNode(t *testing.T, override bool, bucket, overrideBucket, overridePath string) {
+	ctx := context.Background()
+	gcsBackupJourneyBucketName := bucket
 	tenantNames := make([]string, numTenants)
 	for i := range tenantNames {
 		tenantNames[i] = fmt.Sprintf("Tenant%d", i)
 	}
 
-	t.Run("single node", func(t *testing.T) {
-		t.Log("pre-instance env setup")
-		t.Setenv(envGCSCredentials, "")
-		t.Setenv(envGCSProjectID, gcsBackupJourneyProjectID)
-		t.Setenv(envGCSBucket, gcsBackupJourneyBucketName)
+	compose, err := docker.New().
+		WithBackendGCS(gcsBackupJourneyBucketName).
+		WithText2VecContextionary().
+		WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
+		WithWeaviateEnv(envGCSCredentials, "").
+		WithWeaviateEnv(envGCSProjectID, gcsBackupJourneyProjectID).
+		WithWeaviateEnv(envGCSBucket, gcsBackupJourneyBucketName).
+		WithWeaviate().
+		Start(ctx)
+	require.Nil(t, err)
+	defer compose.Terminate(ctx)
 
-		compose, err := docker.New().
-			WithBackendGCS(gcsBackupJourneyBucketName).
-			WithText2VecContextionary().
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
-			WithWeaviate().
-			Start(ctx)
-		require.Nil(t, err)
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminate test containers: %s", err.Error())
-			}
-		}()
+	t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
+	t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
+	moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+	moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsmbjtestbucketoverride")
+	defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+	defer moduleshelper.DeleteGCSBucket(ctx, t, "gcsmbjtestbucketoverride")
 
-		t.Log("post-instance env setup")
-		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
-		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
-		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
-		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsmbjtestbucketoverride")
-		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
-		defer moduleshelper.DeleteGCSBucket(ctx, t, "gcsmbjtestbucketoverride")
+	helper.SetupClient(compose.GetWeaviate().URI())
+	journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
+		"gcs", gcsBackupJourneyClassName,
+		gcsBackupJourneyBackupIDSingleNode, tenantNames, override, overrideBucket, overridePath)
+}
 
-		helper.SetupClient(compose.GetWeaviate().URI())
+func runMultiTenantBackupMultiNode(t *testing.T, override bool, bucket, overrideBucket, overridePath string) {
+	ctx := context.Background()
+	gcsBackupJourneyBucketName := bucket
+	tenantNames := make([]string, numTenants)
+	for i := range tenantNames {
+		tenantNames[i] = fmt.Sprintf("Tenant%d", i)
+	}
 
-		t.Run("backup-gcs", func(t *testing.T) {
-			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
-				"gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDSingleNode, tenantNames, override, overrideBucket, overridePath)
-		})
-	})
+	compose, err := docker.New().
+		WithBackendGCS(gcsBackupJourneyBucketName).
+		WithText2VecContextionary().
+		WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
+		WithWeaviateEnv(envGCSCredentials, "").
+		WithWeaviateEnv(envGCSProjectID, gcsBackupJourneyProjectID).
+		WithWeaviateEnv(envGCSBucket, gcsBackupJourneyBucketName).
+		WithWeaviateCluster(3).
+		Start(ctx)
+	require.Nil(t, err)
+	defer compose.Terminate(ctx)
 
-	t.Run("multiple node", func(t *testing.T) {
-		t.Log("pre-instance env setup")
-		t.Setenv(envGCSCredentials, "")
-		t.Setenv(envGCSProjectID, gcsBackupJourneyProjectID)
-		t.Setenv(envGCSBucket, gcsBackupJourneyBucketName)
+	t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
+	t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
+	moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
+	moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsmbjtestbucketoverride")
+	defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+	defer moduleshelper.DeleteGCSBucket(ctx, t, "gcsmbjtestbucketoverride")
 
-		compose, err := docker.New().
-			WithBackendGCS(gcsBackupJourneyBucketName).
-			WithText2VecContextionary().
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
-			WithWeaviateCluster(3).
-			Start(ctx)
-		require.Nil(t, err)
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminate test containers: %s", err.Error())
-			}
-		}()
-
-		t.Log("post-instance env setup")
-		t.Setenv(envGCSEndpoint, compose.GetGCS().URI())
-		t.Setenv(envGCSStorageEmulatorHost, compose.GetGCS().URI())
-		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
-		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsmbjtestbucketoverride")
-		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
-		defer moduleshelper.DeleteGCSBucket(ctx, t, "gcsmbjtestbucketoverride")
-
-		helper.SetupClient(compose.GetWeaviate().URI())
-
-		t.Run("backup-gcs", func(t *testing.T) {
-			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDCluster+overrideBucket, tenantNames, override, overrideBucket, overridePath,
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
-		})
-	})
+	helper.SetupClient(compose.GetWeaviate().URI())
+	journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
+		gcsBackupJourneyBackupIDCluster+overrideBucket, tenantNames, override, overrideBucket, overridePath,
+		compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
 }
