@@ -102,20 +102,12 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 				presencePenalty:  grpchelper.ToPtr(0.5),
 			},
 			{
-				name:            "gemini-1.0-pro-002",
-				generativeModel: "gemini-1.0-pro-002",
-			},
-			{
-				name:            "gemini-1.0-pro-001",
-				generativeModel: "gemini-1.0-pro-001",
-			},
-			{
-				name:            "gemini-1.0-pro",
-				generativeModel: "gemini-1.0-pro",
+				name:            "gemini-1.5-pro-002",
+				generativeModel: "gemini-1.5-pro-002",
 			},
 			{
 				name:               "absent module config",
-				generativeModel:    "gemini-1.0-pro",
+				generativeModel:    "gemini-1.5-pro-002",
 				absentModuleConfig: true,
 			},
 			{
