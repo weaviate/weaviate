@@ -21,6 +21,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 )
 
 type Deserializer struct {
@@ -39,6 +40,8 @@ type DeserializationResult struct {
 	EntrypointChanged bool
 	CompressionPQData *compressionhelpers.PQData
 	CompressionSQData *compressionhelpers.SQData
+	MuveraEnabled     bool
+	EncoderMuvera     *multivector.MuveraData
 	Compressed        bool
 
 	// If there is no entry for the links at a level to be replaced, we must
@@ -151,6 +154,10 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		case AddSQ:
 			err = d.ReadSQ(fd, out)
 			readThisRound = 10
+		case AddMuvera:
+			var totalRead int
+			totalRead, err = d.ReadMuvera(fd, out)
+			readThisRound = 11 + totalRead
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -623,6 +630,73 @@ func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
 	return nil
 }
 
+func (d *Deserializer) ReadMuvera(r io.Reader, res *DeserializationResult) (int, error) {
+	kSim, err := d.readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	numClusters, err := d.readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	dimensions, err := d.readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	dProjections, err := d.readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	repetitions, err := d.readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	var totalRead int
+
+	totalRead = int(repetitions)*int(kSim)*int(dimensions)*4 +
+		int(repetitions)*int(dProjections)*int(dimensions)*4
+
+	gaussians := make([][][]float32, repetitions)
+	for i := uint32(0); i < repetitions; i++ {
+		gaussians[i] = make([][]float32, kSim)
+		for j := uint32(0); j < kSim; j++ {
+			gaussians[i][j] = make([]float32, dimensions)
+			for k := uint32(0); k < dimensions; k++ {
+				gaussians[i][j][k], err = d.readFloat32(r)
+				if err != nil {
+					return 0, err
+				}
+			}
+		}
+	}
+
+	s := make([][][]float32, repetitions)
+	for i := uint32(0); i < repetitions; i++ {
+		s[i] = make([][]float32, dProjections)
+		for j := uint32(0); j < dProjections; j++ {
+			s[i][j] = make([]float32, dimensions)
+			for k := uint32(0); k < dimensions; k++ {
+				s[i][j][k], err = d.readFloat32(r)
+				if err != nil {
+					return 0, err
+				}
+			}
+		}
+	}
+	muveraData := multivector.MuveraData{
+		KSim:         kSim,
+		NumClusters:  numClusters,
+		Dimensions:   dimensions,
+		DProjections: dProjections,
+		Repetitions:  repetitions,
+		Gaussians:    gaussians,
+		S:            s,
+	}
+	res.EncoderMuvera = &muveraData
+	res.MuveraEnabled = true
+	return totalRead, nil
+}
+
 func (d *Deserializer) readUint64(r io.Reader) (uint64, error) {
 	var value uint64
 	d.resetResusableBuffer(8)
@@ -673,6 +747,19 @@ func (d *Deserializer) readUint16(r io.Reader) (uint16, error) {
 	}
 
 	value = binary.LittleEndian.Uint16(d.reusableBuffer)
+
+	return value, nil
+}
+
+func (d *Deserializer) readUint32(r io.Reader) (uint32, error) {
+	var value uint32
+	d.resetResusableBuffer(4)
+	_, err := io.ReadFull(r, d.reusableBuffer)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read uint32")
+	}
+
+	value = binary.LittleEndian.Uint32(d.reusableBuffer)
 
 	return value, nil
 }

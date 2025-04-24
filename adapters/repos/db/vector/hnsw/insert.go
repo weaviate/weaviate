@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 )
 
 func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
@@ -155,14 +156,6 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	return nil
 }
 
-func MuveraBytesFromFloat32(vec []float32) []byte {
-	slice := make([]byte, len(vec)*4)
-	for i := range vec {
-		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vec[i]))
-	}
-	return slice
-}
-
 func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -180,6 +173,9 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	if h.muvera.Load() {
 		h.trackMuveraOnce.Do(func() {
 			h.muveraEncoder.InitEncoder(len(vectors[0][0]))
+			h.Lock()
+			h.muveraEncoder.PersistMuvera(h.commitLog)
+			h.Unlock()
 		})
 		// Process all vectors
 		processedVectors := make([][]float32, len(vectors))
@@ -187,7 +183,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 			processedVectors[i] = h.muveraEncoder.EncodeDoc(v)
 			docIDBytes := make([]byte, 8)
 			binary.BigEndian.PutUint64(docIDBytes, docIDs[i])
-			muveraBytes := MuveraBytesFromFloat32(processedVectors[i])
+			muveraBytes := multivector.MuveraBytesFromFloat32(processedVectors[i])
 			h.store.Bucket(h.id+"_muvera_vectors").Put(docIDBytes, muveraBytes)
 		}
 		// Replace original vectors with processed ones

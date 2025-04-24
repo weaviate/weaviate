@@ -132,9 +132,13 @@ func (h *hnsw) restoreFromDisk() error {
 	h.tombstones = state.Tombstones
 	h.tombstoneLock.Unlock()
 
-	if h.multivector.Load() && !h.muvera.Load() {
-		if err := h.restoreDocMappings(); err != nil {
-			return errors.Wrapf(err, "restore doc mappings %q", h.id)
+	if h.multivector.Load() {
+		if !h.muvera.Load() {
+			if err := h.restoreDocMappings(); err != nil {
+				return errors.Wrapf(err, "restore doc mappings %q", h.id)
+			}
+		} else {
+			h.muveraEncoder.LoadMuveraConfig(*state.EncoderMuvera)
 		}
 	}
 

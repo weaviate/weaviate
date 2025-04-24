@@ -21,6 +21,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
@@ -67,6 +68,11 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			}
 		} else {
 			return errors.Wrap(err, "unavailable compression data")
+		}
+	}
+	if res.MuveraEnabled {
+		if err := c.AddMuvera(*res.EncoderMuvera); err != nil {
+			return fmt.Errorf("write muvera data: %w", err)
 		}
 	}
 
@@ -313,6 +319,43 @@ func (c *MemoryCondensor) AddSQCompression(data compressionhelpers.SQData) error
 	binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
 	binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
 	binary.LittleEndian.PutUint16(toWrite[9:], data.Dimensions)
+	_, err := c.newLog.Write(toWrite)
+	return err
+}
+
+func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
+	toWrite := make([]byte, 21)
+	toWrite[0] = byte(AddMuvera)                                     // 1
+	binary.LittleEndian.PutUint32(toWrite[1:5], data.KSim)           // 4
+	binary.LittleEndian.PutUint32(toWrite[5:9], data.NumClusters)    // 4
+	binary.LittleEndian.PutUint32(toWrite[9:13], data.Dimensions)    // 4
+	binary.LittleEndian.PutUint32(toWrite[13:17], data.DProjections) // 4
+	binary.LittleEndian.PutUint32(toWrite[17:21], data.Repetitions)  // 4
+
+	buffer := make([]byte, 4*data.Repetitions*data.NumClusters*data.Dimensions)
+	i := 0
+	for _, gaussian := range data.Gaussians {
+		for _, cluster := range gaussian {
+			for _, el := range cluster {
+				binary.LittleEndian.PutUint32(buffer[i*4:(i+1)*4], math.Float32bits(el))
+				i++
+			}
+		}
+	}
+	toWrite = append(toWrite, buffer...)
+
+	buffer = make([]byte, 4*data.Repetitions*data.DProjections*data.Dimensions)
+	i = 0
+	for _, matrix := range data.S {
+		for _, vector := range matrix {
+			for _, el := range vector {
+				binary.LittleEndian.PutUint32(buffer[i*4:(i+1)*4], math.Float32bits(el))
+				i++
+			}
+		}
+	}
+	toWrite = append(toWrite, buffer...)
+
 	_, err := c.newLog.Write(toWrite)
 	return err
 }

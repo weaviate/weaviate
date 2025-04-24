@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 )
 
 type Logger struct {
@@ -43,6 +44,7 @@ const (
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
 	AddPQ
 	AddSQ
+	AddMuvera
 )
 
 func NewLogger(fileName string) *Logger {
@@ -103,6 +105,46 @@ func (l *Logger) AddSQCompression(data compressionhelpers.SQData) error {
 	binary.LittleEndian.PutUint32(toWrite[1:], math.Float32bits(data.A))
 	binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
 	binary.LittleEndian.PutUint16(toWrite[9:], data.Dimensions)
+	_, err := l.bufw.Write(toWrite)
+	return err
+}
+
+func (l *Logger) AddMuvera(data multivector.MuveraData) error {
+
+	toWrite := make([]byte, 21)
+	toWrite[0] = byte(AddMuvera)
+	binary.LittleEndian.PutUint32(toWrite[1:5], data.KSim)
+	binary.LittleEndian.PutUint32(toWrite[5:9], data.NumClusters)
+	binary.LittleEndian.PutUint32(toWrite[9:13], data.Dimensions)
+	binary.LittleEndian.PutUint32(toWrite[13:17], data.DProjections)
+	binary.LittleEndian.PutUint32(toWrite[17:21], data.Repetitions)
+
+	length := 4 * data.Repetitions * data.KSim * data.Dimensions
+	buffer := make([]byte, length)
+
+	i := 0
+	for _, gaussian := range data.Gaussians {
+		for _, cluster := range gaussian {
+			for _, el := range cluster {
+				binary.LittleEndian.PutUint32(buffer[i*4:(i+1)*4], math.Float32bits(el))
+				i++
+			}
+		}
+	}
+	toWrite = append(toWrite, buffer...)
+
+	buffer = make([]byte, 4*data.Repetitions*data.DProjections*data.Dimensions)
+	i = 0
+	for _, matrix := range data.S {
+		for _, vector := range matrix {
+			for _, el := range vector {
+				binary.LittleEndian.PutUint32(buffer[i*4:(i+1)*4], math.Float32bits(el))
+				i++
+			}
+		}
+	}
+
+	toWrite = append(toWrite, buffer...)
 	_, err := l.bufw.Write(toWrite)
 	return err
 }

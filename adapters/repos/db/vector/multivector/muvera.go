@@ -12,9 +12,12 @@
 package multivector
 
 import (
+	"encoding/binary"
+	"fmt"
 	"math"
 	"math/rand"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
@@ -22,10 +25,10 @@ import (
 type MuveraConfig struct {
 	KSim         int
 	NumClusters  int // Number of clusters for K-means or number of bits for SimHash
-	Dimensions   int // Dimensions of each vector (128 in the Python implementation)
+	Dimensions   int // Dimensions of each vector
 	DProjections int // Number of projections for D-Projections
 	DFinal       int // Number of projections for final projection
-	Repetitions  int // Number of repetitions (20 in the Python implementation)
+	Repetitions  int // Number of repetitions
 }
 
 type MuveraEncoder struct {
@@ -34,9 +37,12 @@ type MuveraEncoder struct {
 	S                    [][][]float32 // Random projection matrix with ±1 entries
 	Sfinal               [][]float32   // Random projection matrix with ±1 entries
 	dotDistancerProvider distancer.Provider
+	muveraStore          *lsmkv.Store
+	storeId              func([]byte, uint64)
+	loadId               func([]byte) uint64
 }
 
-func NewMuveraEncoder(config ent.MuveraConfig) *MuveraEncoder {
+func NewMuveraEncoder(config ent.MuveraConfig, muveraStore *lsmkv.Store) *MuveraEncoder {
 	encoder := &MuveraEncoder{
 		config: MuveraConfig{
 			KSim:         config.KSim,
@@ -45,6 +51,9 @@ func NewMuveraEncoder(config ent.MuveraConfig) *MuveraEncoder {
 			Repetitions:  config.Repetitions,
 		},
 		dotDistancerProvider: distancer.NewDotProductProvider(),
+		muveraStore:          muveraStore,
+		storeId:              binary.BigEndian.PutUint64,
+		loadId:               binary.BigEndian.Uint64,
 	}
 
 	return encoder
@@ -69,7 +78,6 @@ func (encoder *MuveraEncoder) InitEncoder(dimensions int) {
 		encoder.S[rep] = initProjectionMatrix(encoder.config.DProjections, encoder.config.Dimensions)
 	}
 
-	// encoder.Sfinal = initProjectionMatrix(config.DFinal, config.DProjections*config.NumClusters*config.Repetitions)
 }
 
 func initProjectionMatrix(rows int, cols int) [][]float32 {
@@ -200,4 +208,70 @@ func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
 	projectedDoc := e.encode(fullDoc, true)
 
 	return projectedDoc
+}
+
+func MuveraBytesFromFloat32(vec []float32) []byte {
+	slice := make([]byte, len(vec)*4)
+	for i := range vec {
+		binary.LittleEndian.PutUint32(slice[i*4:], math.Float32bits(vec[i]))
+	}
+	return slice
+}
+
+func MuveraFromBytes(bytes []byte) []float32 {
+	vec := make([]float32, len(bytes)/4)
+	for i := range vec {
+		vec[i] = math.Float32frombits(binary.LittleEndian.Uint32(bytes[i*4 : (i+1)*4]))
+	}
+	return vec
+}
+
+func (e *MuveraEncoder) GetMuveraVectorForID(id uint64, bucket string) ([]float32, error) {
+	idBytes := make([]byte, 8)
+	e.storeId(idBytes, id)
+	muveraBytes, err := e.muveraStore.Bucket(bucket).Get(idBytes)
+	if err != nil {
+		return nil, fmt.Errorf("getting vector for id: %w", err)
+	}
+	if len(muveraBytes) == 0 {
+		return nil, fmt.Errorf("vector not found for id %d", id)
+	}
+
+	return MuveraFromBytes(muveraBytes), nil
+}
+
+type MuveraData struct {
+	KSim         uint32        // 4 bytes
+	NumClusters  uint32        // 4 bytes
+	Dimensions   uint32        // 4 bytes
+	DProjections uint32        // 4 bytes
+	Repetitions  uint32        // 4 bytes
+	Gaussians    [][][]float32 // 4 bytes -> (repetitions, numClusters, dimensions)
+	S            [][][]float32 // 4 bytes -> (repetitions, dProjections, dimensions)
+}
+
+type CommitLogger interface {
+	AddMuvera(MuveraData) error
+}
+
+func (e *MuveraEncoder) PersistMuvera(logger CommitLogger) {
+	logger.AddMuvera(MuveraData{
+		KSim:         uint32(e.config.KSim),
+		NumClusters:  uint32(e.config.NumClusters),
+		Dimensions:   uint32(e.config.Dimensions),
+		DProjections: uint32(e.config.DProjections),
+		Repetitions:  uint32(e.config.Repetitions),
+		Gaussians:    e.gaussians,
+		S:            e.S,
+	})
+}
+
+func (e *MuveraEncoder) LoadMuveraConfig(data MuveraData) {
+	e.config.KSim = int(data.KSim)
+	e.config.NumClusters = int(data.NumClusters)
+	e.config.Dimensions = int(data.Dimensions)
+	e.config.DProjections = int(data.DProjections)
+	e.config.Repetitions = int(data.Repetitions)
+	e.gaussians = data.Gaussians
+	e.S = data.S
 }
