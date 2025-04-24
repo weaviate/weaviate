@@ -25,7 +25,6 @@ import (
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/jonboulle/clockwork"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
@@ -775,16 +774,17 @@ func (st *Store) recoverSingleNode(force bool) error {
 	recoveryConfig.MetadataOnlyVoters = true
 	recoveryConfig.DB = nil
 	if err := raft.RecoverCluster(st.raftConfig(), &Store{
-		cfg:           recoveryConfig,
-		log:           st.log,
-		raftResolver:  st.raftResolver,
-		raftTransport: st.raftTransport,
-		applyTimeout:  st.applyTimeout,
-		snapshotStore: st.snapshotStore,
-		schemaManager: st.schemaManager,
-		authZManager:  st.authZManager,
-		logStore:      st.logStore,
-		logCache:      st.logCache,
+		cfg:                     recoveryConfig,
+		log:                     st.log,
+		raftResolver:            st.raftResolver,
+		raftTransport:           st.raftTransport,
+		applyTimeout:            st.applyTimeout,
+		snapshotStore:           st.snapshotStore,
+		schemaManager:           st.schemaManager,
+		authZManager:            st.authZManager,
+		distributedTasksManager: st.distributedTasksManager,
+		logStore:                st.logStore,
+		logCache:                st.logCache,
 	}, st.logCache,
 		st.logStore,
 		st.snapshotStore,
