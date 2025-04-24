@@ -53,7 +53,7 @@ func (o *AssignRoleToUserOK) WriteResponse(rw http.ResponseWriter, producer runt
 const AssignRoleToUserBadRequestCode int = 400
 
 /*
-AssignRoleToUserBadRequest Bad request.
+AssignRoleToUserBadRequest Malformed request.
 
 swagger:response assignRoleToUserBadRequest
 */

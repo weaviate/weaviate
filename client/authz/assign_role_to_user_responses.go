@@ -142,7 +142,7 @@ func NewAssignRoleToUserBadRequest() *AssignRoleToUserBadRequest {
 /*
 AssignRoleToUserBadRequest describes a response with status code 400, with default header values.
 
-Bad request.
+Malformed request.
 */
 type AssignRoleToUserBadRequest struct {
 	Payload *models.ErrorResponse

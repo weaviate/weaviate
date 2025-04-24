@@ -53,7 +53,7 @@ func (o *RevokeRoleFromUserOK) WriteResponse(rw http.ResponseWriter, producer ru
 const RevokeRoleFromUserBadRequestCode int = 400
 
 /*
-RevokeRoleFromUserBadRequest Bad request.
+RevokeRoleFromUserBadRequest Malformed request.
 
 swagger:response revokeRoleFromUserBadRequest
 */

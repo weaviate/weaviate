@@ -142,7 +142,7 @@ func NewRevokeRoleFromUserBadRequest() *RevokeRoleFromUserBadRequest {
 /*
 RevokeRoleFromUserBadRequest describes a response with status code 400, with default header values.
 
-Bad request.
+Malformed request.
 */
 type RevokeRoleFromUserBadRequest struct {
 	Payload *models.ErrorResponse

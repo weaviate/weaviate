@@ -76,7 +76,7 @@ func (o *GetRolesForUserDeprecatedOK) WriteResponse(rw http.ResponseWriter, prod
 const GetRolesForUserDeprecatedBadRequestCode int = 400
 
 /*
-GetRolesForUserDeprecatedBadRequest Bad request.
+GetRolesForUserDeprecatedBadRequest Malformed request.
 
 swagger:response getRolesForUserDeprecatedBadRequest
 */

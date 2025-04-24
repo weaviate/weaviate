@@ -155,7 +155,7 @@ func NewGetRolesForUserBadRequest() *GetRolesForUserBadRequest {
 /*
 GetRolesForUserBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Malformed request.
 */
 type GetRolesForUserBadRequest struct {
 	Payload *models.ErrorResponse

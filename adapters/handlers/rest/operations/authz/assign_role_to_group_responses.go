@@ -53,7 +53,7 @@ func (o *AssignRoleToGroupOK) WriteResponse(rw http.ResponseWriter, producer run
 const AssignRoleToGroupBadRequestCode int = 400
 
 /*
-AssignRoleToGroupBadRequest Bad request.
+AssignRoleToGroupBadRequest Malformed request.
 
 swagger:response assignRoleToGroupBadRequest
 */

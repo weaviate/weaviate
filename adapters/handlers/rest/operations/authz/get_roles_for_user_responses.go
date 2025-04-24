@@ -76,7 +76,7 @@ func (o *GetRolesForUserOK) WriteResponse(rw http.ResponseWriter, producer runti
 const GetRolesForUserBadRequestCode int = 400
 
 /*
-GetRolesForUserBadRequest Bad request
+GetRolesForUserBadRequest Malformed request.
 
 swagger:response getRolesForUserBadRequest
 */

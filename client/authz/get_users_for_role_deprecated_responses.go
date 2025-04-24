@@ -149,7 +149,7 @@ func NewGetUsersForRoleDeprecatedBadRequest() *GetUsersForRoleDeprecatedBadReque
 /*
 GetUsersForRoleDeprecatedBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Malformed request.
 */
 type GetUsersForRoleDeprecatedBadRequest struct {
 	Payload *models.ErrorResponse
