@@ -364,8 +364,6 @@ func New(cfg Config, uc ent.UserConfig,
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
 			}
-		} else {
-
 		}
 	}
 

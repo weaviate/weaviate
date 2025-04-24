@@ -110,7 +110,6 @@ func (l *Logger) AddSQCompression(data compressionhelpers.SQData) error {
 }
 
 func (l *Logger) AddMuvera(data multivector.MuveraData) error {
-
 	toWrite := make([]byte, 21)
 	toWrite[0] = byte(AddMuvera)
 	binary.LittleEndian.PutUint32(toWrite[1:5], data.KSim)

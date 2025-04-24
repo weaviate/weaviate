@@ -77,7 +77,6 @@ func (encoder *MuveraEncoder) InitEncoder(dimensions int) {
 
 		encoder.S[rep] = initProjectionMatrix(encoder.config.DProjections, encoder.config.Dimensions)
 	}
-
 }
 
 func initProjectionMatrix(rows int, cols int) [][]float32 {

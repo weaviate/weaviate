@@ -651,9 +651,8 @@ func (d *Deserializer) ReadMuvera(r io.Reader, res *DeserializationResult) (int,
 	if err != nil {
 		return 0, err
 	}
-	var totalRead int
 
-	totalRead = int(repetitions)*int(kSim)*int(dimensions)*4 +
+	totalRead := int(repetitions)*int(kSim)*int(dimensions)*4 +
 		int(repetitions)*int(dProjections)*int(dimensions)*4
 
 	gaussians := make([][][]float32, repetitions)
