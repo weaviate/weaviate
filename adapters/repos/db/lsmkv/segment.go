@@ -216,18 +216,34 @@ func (s *segment) dropImmediately() error {
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := os.RemoveAll(s.bloomFilterPath()); err != nil {
-		return fmt.Errorf("drop bloom filter: %w", err)
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i)); err != nil {
+	g := enterrors.NewErrorGroupWrapper(s.logger)
+	g.SetLimit(_NUMCPU)
+	g.Go(func() error {
+		if err := os.RemoveAll(s.bloomFilterPath()); err != nil {
 			return fmt.Errorf("drop bloom filter: %w", err)
 		}
+		return nil
+	})
+
+	for i := 0; i < int(s.secondaryIndexCount); i++ {
+		i := i // capture loop var
+		g.Go(func() error {
+			if err := os.RemoveAll(s.bloomFilterSecondaryPath(i)); err != nil {
+				return fmt.Errorf("drop bloom filter: %w", err)
+			}
+			return nil
+		})
 	}
 
-	if err := os.RemoveAll(s.countNetPath()); err != nil {
-		return fmt.Errorf("drop count net additions file: %w", err)
+	g.Go(func() error {
+		if err := os.RemoveAll(s.countNetPath()); err != nil {
+			return fmt.Errorf("drop count net additions file: %w", err)
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
@@ -245,18 +261,34 @@ func (s *segment) dropMarked() error {
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := os.RemoveAll(s.bloomFilterPath() + DeleteMarkerSuffix); err != nil {
-		return fmt.Errorf("drop previously marked bloom filter: %w", err)
-	}
+	g := enterrors.NewErrorGroupWrapper(s.logger)
+	g.SetLimit(_NUMCPU)
+	g.Go(func() error {
+		if err := os.RemoveAll(s.bloomFilterPath() + DeleteMarkerSuffix); err != nil {
+			return fmt.Errorf("drop previously marked bloom filter: %w", err)
+		}
+		return nil
+	})
 
 	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i) + DeleteMarkerSuffix); err != nil {
-			return fmt.Errorf("drop previously marked secondary bloom filter: %w", err)
-		}
+		i := i // capture loop var
+		g.Go(func() error {
+			if err := os.RemoveAll(s.bloomFilterSecondaryPath(i) + DeleteMarkerSuffix); err != nil {
+				return fmt.Errorf("drop previously marked secondary bloom filter: %w", err)
+			}
+			return nil
+		})
 	}
 
-	if err := os.RemoveAll(s.countNetPath() + DeleteMarkerSuffix); err != nil {
-		return fmt.Errorf("drop previously marked count net additions file: %w", err)
+	g.Go(func() error {
+		if err := os.RemoveAll(s.countNetPath() + DeleteMarkerSuffix); err != nil {
+			return fmt.Errorf("drop previously marked count net additions file: %w", err)
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return err
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
@@ -280,7 +312,6 @@ func (s *segment) markForDeletion() error {
 	// therefore the files may not be present on segments created with previous
 	// versions. If we get a not exist error, we ignore it.
 	g := enterrors.NewErrorGroupWrapper(s.logger)
-
 	g.SetLimit(_NUMCPU)
 
 	// Mark bloom filter
@@ -306,7 +337,6 @@ func (s *segment) markForDeletion() error {
 		})
 	}
 
-	// Mark count net file
 	g.Go(func() error {
 		if err := markDeleted(s.countNetPath()); err != nil {
 			if !os.IsNotExist(err) {
