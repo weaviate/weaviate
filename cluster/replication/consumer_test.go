@@ -88,6 +88,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
+			func(op replication.ShardReplicationOp) bool {
+				return false
+			},
 			mockFSMUpdater,
 			mockReplicaCopier,
 			mockTimeProvider,
@@ -185,6 +188,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
+			func(op replication.ShardReplicationOp) bool {
+				return false
+			},
 			mockFSMUpdater,
 			mockReplicaCopier,
 			mockTimeProvider,
@@ -282,8 +288,18 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			}).Build()
 
 		consumer := replication.NewCopyOpConsumer(
-			logger, mockFSMUpdater, mockReplicaCopier, mockTimeProvider,
-			"node2", &backoff.StopBackOff{}, time.Second*10, 1, metricsCallbacks,
+			logger,
+			func(op replication.ShardReplicationOp) bool {
+				return false
+			},
+			mockFSMUpdater,
+			mockReplicaCopier,
+			mockTimeProvider,
+			"node2",
+			&backoff.StopBackOff{},
+			time.Second*10,
+			1,
+			metricsCallbacks,
 		)
 
 		ctx, cancel := context.WithCancel(context.Background())

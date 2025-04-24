@@ -43,6 +43,12 @@ type CopyOpConsumer struct {
 	// It provides detailed logs for each replication operation and any errors encountered.
 	logger *logrus.Entry
 
+	// shouldSkipOp is a function that determines whether a given replication operation
+	// should be skipped before attempting execution. This is typically used to prevent
+	// reprocessing of operations that are already running, completed, or not in a valid
+	// state to be picked up.
+	shouldSkipOp func(ShardReplicationOp) bool
+
 	// leaderClient is responsible for interacting with the FSM to update the state of replication operations.
 	// It is used to update the status of operations during the replication process (e.g. update to HYDRATING state).
 	leaderClient types.FSMUpdater
@@ -93,6 +99,7 @@ func (c *CopyOpConsumer) String() string {
 // It uses a ReplicaCopier to perform the actual data copy.
 func NewCopyOpConsumer(
 	logger *logrus.Logger,
+	shouldSkipOp func(ShardReplicationOp) bool,
 	leaderClient types.FSMUpdater,
 	replicaCopier types.ReplicaCopier,
 	timeProvider TimeProvider,
@@ -104,6 +111,7 @@ func NewCopyOpConsumer(
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
 		logger:            logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),
+		shouldSkipOp:      shouldSkipOp,
 		leaderClient:      leaderClient,
 		replicaCopier:     replicaCopier,
 		backoffPolicy:     backoffPolicy,
@@ -149,6 +157,15 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			// allowing another worker to proceed. This ensures only a limited number of workers is concurrently
 			// running replication operations and avoids overloading the system.
 			case c.tokens <- struct{}{}:
+
+				// Avoid scheduling unnecessary work or incorrectly counting metrics
+				// for operations that are already in progress or completed.
+				if c.shouldSkipOp(op) {
+					c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("replication op skipped as already running or completed")
+					// Need to release the token to let other consumers process queued replication operations.
+					<-c.tokens
+					continue
+				}
 
 				wg.Add(1)
 				c.engineOpCallbacks.OnOpStart(c.nodeId)
@@ -202,13 +219,15 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 // processReplicationOp performs the full replication flow for a single operation.
 //
-// It performs of the following steps:
-//  1. Updates the operation status to HYDRATING using the leader FSM updater.
-//  2. Initiates the copy of replica data from the source node to the target shard.
-//  3. Once the copy succeeds, updates the sharding state to reflect the added replica.
+// It executes the following steps:
+//  1. Skips processing if the operation is not in a runnable state (i.e., not REGISTERED or HYDRATING).
+//  2. Updates the operation status to HYDRATING using the leader FSM updater.
+//  3. Initiates the copy of replica data from the source node to the target shard.
+//  4. Once the copy succeeds, updates the sharding state to reflect the added replica.
 //
-// If any step fails, the operation is retried using the configured backoff policy.
-// Errors are logged and wrapped using the structured error group wrapper.
+// If transient failures occur, the operation is retried using the configured backoff policy.
+// Returns:
+//   - err: non-nil only if an error occurred during processing or the context was canceled.
 func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint64, op ShardReplicationOp) error {
 	logger := c.logger.WithFields(logrus.Fields{
 		"consumer":          c,
