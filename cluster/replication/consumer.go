@@ -149,7 +149,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 				return nil
 			}
 
-			c.engineOpCallbacks.OnOpPending(c.nodeId)
+			c.engineOpCallbacks.OnOpReceived(c.nodeId)
 			select {
 			// The 'tokens' channel limits the number of concurrent workers (`maxWorkers`).
 			// Each worker acquires a token before processing an operation. If no tokens are available,
@@ -161,6 +161,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 				// Avoid scheduling unnecessary work or incorrectly counting metrics
 				// for operations that are already in progress or completed.
 				if c.shouldSkipOp(op) {
+					c.engineOpCallbacks.OnOpSkipped(c.nodeId)
 					c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("replication op skipped as already running or completed")
 					// Need to release the token to let other consumers process queued replication operations.
 					<-c.tokens

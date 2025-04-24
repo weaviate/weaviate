@@ -24,7 +24,9 @@ import (
 func TestOpCallbacks(t *testing.T) {
 	t.Run("default callbacks should be no-op", func(t *testing.T) {
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().Build()
-		callbacks.OnOpPending("node1")
+		callbacks.OnOpReceived("node1")
+		callbacks.OnOpReceived("node1")
+		callbacks.OnOpSkipped("node1")
 		callbacks.OnOpStart("node1")
 		callbacks.OnOpComplete("node1")
 		callbacks.OnOpFailed("node1")
@@ -33,15 +35,19 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("custom callbacks should be called with correct parameters", func(t *testing.T) {
 		// GIVEN
 		var (
-			pendingNode  string
+			receivedNode string
+			skippedNode  string
 			startNode    string
 			completeNode string
 			failedNode   string
 		)
 
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
-			WithOpPendingCallback(func(node string) {
-				pendingNode = node
+			WithOpReceivedCallback(func(node string) {
+				receivedNode = node
+			}).
+			WithOpSkippedCallback(func(node string) {
+				skippedNode = node
 			}).
 			WithOpStartCallback(func(node string) {
 				startNode = node
@@ -56,32 +62,49 @@ func TestOpCallbacks(t *testing.T) {
 
 		// WHEN
 		expectedNode := "test-node"
-		callbacks.OnOpPending(expectedNode)
+		callbacks.OnOpReceived(expectedNode)
 		callbacks.OnOpStart(expectedNode)
 		callbacks.OnOpComplete(expectedNode)
 		callbacks.OnOpFailed(expectedNode)
 
 		// THEN
-		require.Equal(t, expectedNode, pendingNode, "invalid pending callback node")
+		require.Equal(t, expectedNode, receivedNode, "invalid received callback node")
+		require.Equal(t, "", skippedNode, "invalid skipped callback node")
 		require.Equal(t, expectedNode, startNode, "invalid start callback node")
 		require.Equal(t, expectedNode, completeNode, "invalid complete callback node")
 		require.Equal(t, expectedNode, failedNode, "invalid failed callback node")
 	})
 
-	t.Run("only op pending", func(t *testing.T) {
+	t.Run("only op received", func(t *testing.T) {
 		// GIVEN
-		pendingCalled := false
+		receivedCalled := false
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
-			WithOpPendingCallback(func(node string) {
-				pendingCalled = true
+			WithOpReceivedCallback(func(node string) {
+				receivedCalled = true
 			}).
 			Build()
 
 		// WHEN
-		callbacks.OnOpPending("node1")
+		callbacks.OnOpReceived("node1")
 
 		// THEN
-		require.True(t, pendingCalled, "expected pending callback to be called")
+		require.True(t, receivedCalled, "expected received callback to be called")
+	})
+
+	t.Run("only op skipped", func(t *testing.T) {
+		// GIVEN
+		skippedCalled := false
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithOpSkippedCallback(func(node string) {
+				skippedCalled = true
+			}).
+			Build()
+
+		// WHEN
+		callbacks.OnOpSkipped("node1")
+
+		// THEN
+		require.True(t, skippedCalled, "expected skipped callback to be called")
 	})
 
 	t.Run("only op start", func(t *testing.T) {
@@ -141,21 +164,22 @@ func TestMetricsCollection(t *testing.T) {
 		node := "test-node"
 
 		// Process first operation completing successfully
-		callbacks.OnOpPending(node)
+		callbacks.OnOpReceived(node)
 		callbacks.OnOpStart(node)
 		callbacks.OnOpComplete(node)
 
 		// Process second operation completing with a failure
-		callbacks.OnOpPending(node)
+		callbacks.OnOpReceived(node)
 		callbacks.OnOpStart(node)
 		callbacks.OnOpFailed(node) // This one fails
 
 		// Start a third operation but leave it running
-		callbacks.OnOpPending(node)
+		callbacks.OnOpReceived(node)
 		callbacks.OnOpStart(node)
 
-		// Start a fourth operation but leave it pending
-		callbacks.OnOpPending(node)
+		// Start a fourth operation but leave it received
+		callbacks.OnOpReceived(node)
+		callbacks.OnOpSkipped(node)
 
 		// WHEN
 		metricFamilies, err := reg.Gather()
@@ -167,7 +191,8 @@ func TestMetricsCollection(t *testing.T) {
 		}
 
 		// THEN
-		require.Equal(t, float64(1), metricsByName["weaviate_replication_pending_operations"].GetMetric()[0].GetGauge().GetValue())
+		require.Equal(t, float64(4), metricsByName["weaviate_replication_received_operations"].GetMetric()[0].GetCounter().GetValue())
+		require.Equal(t, float64(1), metricsByName["weaviate_replication_skipped_operations"].GetMetric()[0].GetCounter().GetValue())
 		require.Equal(t, float64(1), metricsByName["weaviate_replication_ongoing_operations"].GetMetric()[0].GetGauge().GetValue())
 		require.Equal(t, float64(1), metricsByName["weaviate_replication_complete_operations"].GetMetric()[0].GetCounter().GetValue())
 		require.Equal(t, float64(1), metricsByName["weaviate_replication_failed_operations"].GetMetric()[0].GetCounter().GetValue())
@@ -181,31 +206,33 @@ func TestMetricsCollection(t *testing.T) {
 		node2 := "node-2"
 
 		// Node 1 ops
-		callbacks.OnOpPending(node1)
+		callbacks.OnOpReceived(node1)
 		callbacks.OnOpStart(node1)
 		callbacks.OnOpComplete(node1)
 
-		callbacks.OnOpPending(node1)
+		callbacks.OnOpReceived(node1)
 		callbacks.OnOpStart(node1)
 		callbacks.OnOpFailed(node1)
 
 		// Node 2 ops
-		callbacks.OnOpPending(node2)
+		callbacks.OnOpReceived(node2)
 		callbacks.OnOpStart(node2)
 		callbacks.OnOpComplete(node2)
 
-		callbacks.OnOpPending(node2)
+		callbacks.OnOpReceived(node2)
 		callbacks.OnOpStart(node2)
 		callbacks.OnOpComplete(node2)
 
-		// Pending operation for node 2
-		callbacks.OnOpPending(node2)
+		// Received operation for node 2
+		callbacks.OnOpReceived(node2)
+		callbacks.OnOpSkipped(node2)
 
 		// WHEN
 		metricFamilies, err := reg.Gather()
 		require.NoError(t, err)
 
-		pendingByNode := make(map[string]float64)
+		receivedByNode := make(map[string]float64)
+		skippedByNode := make(map[string]float64)
 		ongoingByNode := make(map[string]float64)
 		completeByNode := make(map[string]float64)
 		failedByNode := make(map[string]float64)
@@ -221,8 +248,10 @@ func TestMetricsCollection(t *testing.T) {
 				}
 
 				switch mf.GetName() {
-				case "weaviate_replication_pending_operations":
-					pendingByNode[nodeLabel] = m.GetGauge().GetValue()
+				case "weaviate_replication_received_operations":
+					receivedByNode[nodeLabel] = m.GetCounter().GetValue()
+				case "weaviate_replication_skipped_operations":
+					skippedByNode[nodeLabel] = m.GetCounter().GetValue()
 				case "weaviate_replication_ongoing_operations":
 					ongoingByNode[nodeLabel] = m.GetGauge().GetValue()
 				case "weaviate_replication_complete_operations":
@@ -234,13 +263,15 @@ func TestMetricsCollection(t *testing.T) {
 		}
 
 		// THEN (for node1)
-		require.Equal(t, float64(0), pendingByNode[node1], "invalid pending callback node")
+		require.Equal(t, float64(2), receivedByNode[node1], "invalid received callback node")
+		require.Equal(t, float64(1), skippedByNode[node2], "invalid skipped callback node")
 		require.Equal(t, float64(0), ongoingByNode[node1], "invalid ongoing callback node")
 		require.Equal(t, float64(1), completeByNode[node1], "invalid complete callback node")
 		require.Equal(t, float64(1), failedByNode[node1], "invalid failed callback node")
 
 		// THEN (for node2)
-		require.Equal(t, float64(1), pendingByNode[node2], "invalid pending callback node")
+		require.Equal(t, float64(3), receivedByNode[node2], "invalid received callback node")
+		require.Equal(t, float64(0), skippedByNode[node1], "invalid skipped callback node")
 		require.Equal(t, float64(0), ongoingByNode[node2], "invalid ongoing callback node")
 		require.Equal(t, float64(2), completeByNode[node2], "invalid complete callback node")
 		require.Equal(t, float64(0), failedByNode[node2], "invalid failed callback node")

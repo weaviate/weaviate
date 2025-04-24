@@ -58,7 +58,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockTimeProvider.On("Now").Return(time.Now())
 
 		var (
-			pendingCallbacksCounter   int
+			receivedCallbacksCounter  int
+			skippedCallbacksCounter   int
 			startedCallbacksCounter   int
 			completedCallbacksCounter int
 			failedCallbacksCounter    int
@@ -67,9 +68,13 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		completionWg.Add(1)
 
 		metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
-			WithOpPendingCallback(func(node string) {
-				require.Equal(t, "node2", node, "invalid node in pending op callback")
-				pendingCallbacksCounter++
+			WithOpReceivedCallback(func(node string) {
+				require.Equal(t, "node2", node, "invalid node in received op callback")
+				receivedCallbacksCounter++
+			}).
+			WithOpSkippedCallback(func(node string) {
+				require.Equal(t, "node2", node, "invalid node in skipped callback")
+				skippedCallbacksCounter++
 			}).
 			WithOpStartCallback(func(node string) {
 				require.Equal(t, "node2", node, "invalid node in start op callback")
@@ -131,7 +136,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		// THEN
 		require.NoError(t, err, "expected operation completing successfully")
-		assert.Equal(t, 1, pendingCallbacksCounter, "Pending callback should be called")
+		assert.Equal(t, 1, receivedCallbacksCounter, "Received callback should be called")
+		assert.Equal(t, 0, skippedCallbacksCounter, "Skipped callback should not be called")
 		assert.Equal(t, 1, startedCallbacksCounter, "Start callback should be called")
 		assert.Equal(t, 1, completedCallbacksCounter, "Complete callback should be called")
 		assert.Equal(t, 0, failedCallbacksCounter, "Failed callback should be called for failed operation")
@@ -159,7 +165,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockTimeProvider.On("Now").Return(time.Now())
 
 		var (
-			pendingCallbacksCounter   int
+			receivedCallbacksCounter  int
+			skippedCallbacksCounter   int
 			startedCallbacksCounter   int
 			completedCallbacksCounter int
 			failedCallbacksCounter    int
@@ -168,20 +175,24 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		completionWg.Add(1)
 
 		metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
-			WithOpPendingCallback(func(node string) {
-				assert.Equal(t, "node2", node)
-				pendingCallbacksCounter++
+			WithOpReceivedCallback(func(node string) {
+				require.Equal(t, "node2", node, "invalid node in received op callback")
+				receivedCallbacksCounter++
+			}).
+			WithOpSkippedCallback(func(node string) {
+				require.Equal(t, "node2", node, "invalid node in skipped callback")
+				skippedCallbacksCounter++
 			}).
 			WithOpStartCallback(func(node string) {
-				assert.Equal(t, "node2", node)
+				require.Equal(t, "node2", node, "invalid node in start op callback")
 				startedCallbacksCounter++
 			}).
 			WithOpCompleteCallback(func(node string) {
-				assert.Equal(t, "node2", node)
+				require.Equal(t, "node2", node, "invalid node in complete op callback")
 				completedCallbacksCounter++
 			}).
 			WithOpFailedCallback(func(node string) {
-				assert.Equal(t, "node2", node)
+				require.Equal(t, "node2", node, "invalid node in failed op callback")
 				failedCallbacksCounter++
 				completionWg.Done()
 			}).Build()
@@ -231,7 +242,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		// THEN
 		require.NoError(t, err, "expected consumer to stop without error")
-		assert.Equal(t, 1, pendingCallbacksCounter, "Pending callback should be called")
+		assert.Equal(t, 1, receivedCallbacksCounter, "Received callback should be called")
+		assert.Equal(t, 0, skippedCallbacksCounter, "Skipped callback should not be called")
 		assert.Equal(t, 1, startedCallbacksCounter, "Start callback should be called")
 		assert.Equal(t, 0, completedCallbacksCounter, "Complete callback should not be called for failed operation")
 		assert.Equal(t, 1, failedCallbacksCounter, "Failed callback should be called for failed operation")
@@ -262,7 +274,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		var (
 			mutex         sync.Mutex
-			pendingCount  int
+			receivedCount int
+			skippedCount  int
 			startCount    int
 			completeCount int
 			completionWg  sync.WaitGroup
@@ -270,9 +283,14 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		completionWg.Add(randomNumberOfOps)
 
 		metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
-			WithOpPendingCallback(func(node string) {
+			WithOpReceivedCallback(func(node string) {
 				mutex.Lock()
-				pendingCount++
+				receivedCount++
+				mutex.Unlock()
+			}).
+			WithOpSkippedCallback(func(node string) {
+				mutex.Lock()
+				skippedCount++
 				mutex.Unlock()
 			}).
 			WithOpStartCallback(func(node string) {
@@ -338,9 +356,109 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		// THEN
 		require.NoError(t, err)
 		mutex.Lock()
-		assert.Equal(t, randomNumberOfOps, pendingCount, "Pending callback should be called for each operation")
+		assert.Equal(t, randomNumberOfOps, receivedCount, "Received callback should be called for each operation")
 		assert.Equal(t, randomNumberOfOps, startCount, "Start callback should be called for each operation")
 		assert.Equal(t, randomNumberOfOps, completeCount, "Complete callback should be called for each operation")
 		mutex.Unlock()
+	})
+
+	t.Run("skipped operation should trigger skipped callback", func(t *testing.T) {
+		// GIVEN
+		logger, _ := logrustest.NewNullLogger()
+		mockFSMUpdater := types.NewMockFSMUpdater(t)
+		mockReplicaCopier := types.NewMockReplicaCopier(t)
+
+		opId, err := randInt(t, 100, 200)
+		require.NoError(t, err, "error generating random operation id")
+
+		var (
+			receivedCallbacksCounter  int
+			skippedCallbacksCounter   int
+			startedCallbacksCounter   int
+			completedCallbacksCounter int
+			failedCallbacksCounter    int
+			skippedWg                 sync.WaitGroup
+		)
+		skippedWg.Add(1)
+
+		metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithOpReceivedCallback(func(node string) {
+				require.Equal(t, "node2", node, "invalid node in received op callback")
+				receivedCallbacksCounter++
+			}).
+			WithOpSkippedCallback(func(node string) {
+				require.Equal(t, "node2", node, "invalid node in skipped callback")
+				skippedCallbacksCounter++
+				skippedWg.Done()
+			}).
+			WithOpStartCallback(func(node string) {
+				require.Equal(t, "node2", node, "invalid node in start op callback")
+				startedCallbacksCounter++
+				t.Error("Start callback should not be called for skipped operation")
+			}).
+			WithOpCompleteCallback(func(node string) {
+				require.Equal(t, "node2", node, "invalid node in complete op callback")
+				completedCallbacksCounter++
+				t.Error("Complete callback should not be called for skipped operation")
+			}).
+			WithOpFailedCallback(func(node string) {
+				require.Equal(t, "node2", node, "invalid node in failed op callback")
+				failedCallbacksCounter++
+				t.Error("Failed callback should not be called for skipped operation")
+			}).
+			Build()
+
+		consumer := replication.NewCopyOpConsumer(
+			logger,
+			func(op replication.ShardReplicationOp) bool {
+				return true // Always skip operations
+			},
+			mockFSMUpdater,
+			mockReplicaCopier,
+			nil, // not used
+			"node2",
+			&backoff.StopBackOff{},
+			time.Second*10,
+			1,
+			metricsCallbacks,
+		)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		opsChan := make(chan replication.ShardReplicationOp, 1)
+		doneChan := make(chan error, 1)
+
+		// WHEN
+		go func() {
+			doneChan <- consumer.Consume(ctx, opsChan)
+		}()
+
+		opsChan <- replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard")
+		waitChan := make(chan struct{})
+		go func() {
+			skippedWg.Wait()
+			waitChan <- struct{}{}
+		}()
+
+		select {
+		case <-waitChan:
+			// Operation was correctly skipped
+		case <-time.After(5 * time.Second):
+			t.Fatal("Test timed out waiting for operation to be skipped")
+		}
+
+		close(opsChan)
+		err = <-doneChan
+
+		// THEN
+		require.NoError(t, err, "expected consumer to stop without error")
+		require.Equal(t, 1, receivedCallbacksCounter, "Received callback should be called")
+		require.Equal(t, 1, skippedCallbacksCounter, "Skipped callback should be called")
+		require.Equal(t, 0, startedCallbacksCounter, "Start callback should not be called for skipped operation")
+		require.Equal(t, 0, completedCallbacksCounter, "Complete callback should not be called for skipped operation")
+		require.Equal(t, 0, failedCallbacksCounter, "Complete callback should not be called for complete operation")
+		mockFSMUpdater.AssertExpectations(t)
+		mockReplicaCopier.AssertExpectations(t)
 	})
 }
