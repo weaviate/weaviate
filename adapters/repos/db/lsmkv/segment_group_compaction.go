@@ -22,10 +22,12 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -405,20 +407,42 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 	leftSegment := sg.segments[old1]
 	rightSegment := sg.segments[old2]
 
-	if err := leftSegment.close(); err != nil {
-		return nil, nil, errors.Wrap(err, "close disk segment")
+	g := enterrors.NewErrorGroupWrapper(sg.logger)
+	g.Go(func() error {
+		if err := leftSegment.close(); err != nil {
+			return errors.Wrap(err, "close left disk segment")
+		}
+		return nil
+	})
+
+	g.Go(func() error {
+		if err := rightSegment.close(); err != nil {
+			return errors.Wrap(err, "close right disk segment")
+		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return nil, nil, err
 	}
 
-	if err := rightSegment.close(); err != nil {
-		return nil, nil, errors.Wrap(err, "close disk segment")
-	}
+	g = enterrors.NewErrorGroupWrapper(sg.logger)
+	g.Go(func() error {
+		if err := leftSegment.markForDeletion(); err != nil {
+			return errors.Wrap(err, "drop left disk segment")
+		}
+		return nil
+	})
 
-	if err := leftSegment.markForDeletion(); err != nil {
-		return nil, nil, errors.Wrap(err, "drop disk segment")
-	}
+	g.Go(func() error {
+		if err := rightSegment.markForDeletion(); err != nil {
+			return errors.Wrap(err, "drop right disk segment")
+		}
+		return nil
+	})
 
-	if err := rightSegment.markForDeletion(); err != nil {
-		return nil, nil, errors.Wrap(err, "drop disk segment")
+	if err := g.Wait(); err != nil {
+		return nil, nil, err
 	}
 
 	err := fsync(sg.dir)

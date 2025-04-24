@@ -23,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 )
@@ -278,24 +279,45 @@ func (s *segment) markForDeletion() error {
 	// support for persisting bloom filters and cnas was added in v1.17,
 	// therefore the files may not be present on segments created with previous
 	// versions. If we get a not exist error, we ignore it.
-	if err := markDeleted(s.bloomFilterPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark bloom filter deleted: %w", err)
-		}
-	}
+	g := enterrors.NewErrorGroupWrapper(s.logger)
 
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := markDeleted(s.bloomFilterSecondaryPath(i)); err != nil {
+	g.SetLimit(_NUMCPU)
+
+	// Mark bloom filter
+	g.Go(func() error {
+		if err := markDeleted(s.bloomFilterPath()); err != nil {
 			if !os.IsNotExist(err) {
-				return fmt.Errorf("mark secondary bloom filter deleted: %w", err)
+				return fmt.Errorf("mark bloom filter deleted: %w", err)
 			}
 		}
+		return nil
+	})
+
+	// Mark secondary bloom filters concurrently
+	for i := 0; i < int(s.secondaryIndexCount); i++ {
+		i := i // capture loop var
+		g.Go(func() error {
+			if err := markDeleted(s.bloomFilterSecondaryPath(i)); err != nil {
+				if !os.IsNotExist(err) {
+					return fmt.Errorf("mark secondary bloom filter deleted: %w", err)
+				}
+			}
+			return nil
+		})
 	}
 
-	if err := markDeleted(s.countNetPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark count net additions file deleted: %w", err)
+	// Mark count net file
+	g.Go(func() error {
+		if err := markDeleted(s.countNetPath()); err != nil {
+			if !os.IsNotExist(err) {
+				return fmt.Errorf("mark count net additions file deleted: %w", err)
+			}
 		}
+		return nil
+	})
+
+	if err := g.Wait(); err != nil {
+		return fmt.Errorf("%w", err)
 	}
 
 	// for the segment itself, we're not accepting a NotExists error. If there
