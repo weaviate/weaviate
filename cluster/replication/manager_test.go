@@ -164,6 +164,184 @@ func TestManager_Replicate(t *testing.T) {
 	}
 }
 
+func TestManager_SnapshotRestore(t *testing.T) {
+	tests := []struct {
+		name                   string
+		schemaSetup            func(*testing.T, *schema.SchemaManager) error
+		checkState             func(*testing.T, *replication.Manager)
+		snapshotRequests       []*api.ReplicationReplicateShardRequest
+		nonSnapshottedRequests []*api.ReplicationReplicateShardRequest
+	}{
+		{
+			name: "snapshot and restore data with non snapshotted data",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{
+								"shard1": {BelongsToNodes: []string{"node1"}},
+								"shard2": {BelongsToNodes: []string{"node1"}},
+							},
+						},
+					}), "node1", true, false)
+			},
+			snapshotRequests: []*api.ReplicationReplicateShardRequest{
+				{
+					SourceCollection: "TestCollection",
+					SourceShard:      "shard1",
+					SourceNode:       "node1",
+					TargetNode:       "node2",
+				},
+			},
+			nonSnapshottedRequests: []*api.ReplicationReplicateShardRequest{
+				{
+					SourceCollection: "TestCollection",
+					SourceShard:      "shard2",
+					SourceNode:       "node1",
+					TargetNode:       "node2",
+				},
+			},
+		},
+		{
+			name: "snapshot and restore no data",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{
+								"shard1": {BelongsToNodes: []string{"node1"}},
+								"shard2": {BelongsToNodes: []string{"node1"}},
+							},
+						},
+					}), "node1", true, false)
+			},
+			snapshotRequests:       []*api.ReplicationReplicateShardRequest{},
+			nonSnapshottedRequests: []*api.ReplicationReplicateShardRequest{},
+		},
+		{
+			name: "snapshot and restore latest data",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{
+								"shard1": {BelongsToNodes: []string{"node1"}},
+								"shard2": {BelongsToNodes: []string{"node1"}},
+							},
+						},
+					}), "node1", true, false)
+			},
+			snapshotRequests: []*api.ReplicationReplicateShardRequest{
+				{
+					SourceCollection: "TestCollection",
+					SourceShard:      "shard1",
+					SourceNode:       "node1",
+					TargetNode:       "node2",
+				},
+			},
+			nonSnapshottedRequests: []*api.ReplicationReplicateShardRequest{},
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			reg := prometheus.NewPedanticRegistry()
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaReader := schemaManager.NewSchemaReader()
+			// TODO mock copier
+			manager := replication.NewManager(logrus.New(), schemaReader, nil, reg)
+			if tt.schemaSetup != nil {
+				tt.schemaSetup(t, schemaManager)
+			}
+
+			var logIndex uint64
+			// Write data
+			for _, req := range tt.snapshotRequests {
+				// Create ApplyRequest
+				subCommand, _ := json.Marshal(req)
+				applyRequest := &api.ApplyRequest{
+					SubCommand: subCommand,
+				}
+
+				// Execute
+				err := manager.Replicate(logIndex, applyRequest)
+				assert.NoError(t, err)
+				logIndex++
+			}
+
+			// Do the snapshot/restore routine
+			bytes, err := manager.Snapshot()
+			require.NoError(t, err)
+			require.NotNil(t, bytes)
+
+			// Write data that will not be snapshotted
+			for _, req := range tt.nonSnapshottedRequests {
+				// Create ApplyRequest
+				subCommand, _ := json.Marshal(req)
+				applyRequest := &api.ApplyRequest{
+					SubCommand: subCommand,
+				}
+
+				// Execute
+				err := manager.Replicate(logIndex, applyRequest)
+				assert.NoError(t, err)
+				logIndex++
+			}
+
+			err = manager.Restore(bytes)
+			require.NoError(t, err)
+
+			// Ensure snapshotted data is here
+			logIndex = 0
+			for _, req := range tt.snapshotRequests {
+				// Create QueryRequest
+				subCommand, _ := json.Marshal(&api.ReplicationDetailsRequest{Id: logIndex})
+				queryRequest := &api.QueryRequest{
+					Type:       api.QueryRequest_TYPE_GET_REPLICATION_DETAILS,
+					SubCommand: subCommand,
+				}
+
+				// Execute
+				bytes, err := manager.GetReplicationDetailsByReplicationId(queryRequest)
+				require.NoError(t, err)
+				require.NotNil(t, bytes)
+
+				var resp api.ReplicationDetailsResponse
+				err = json.Unmarshal(bytes, &resp)
+				require.NoError(t, err)
+				require.Equal(t, resp.Id, logIndex)
+				require.Equal(t, resp.Collection, req.SourceCollection)
+				require.Equal(t, resp.ShardId, req.SourceShard)
+				require.Equal(t, resp.SourceNodeId, req.SourceNode)
+				require.Equal(t, resp.TargetNodeId, req.TargetNode)
+				logIndex++
+			}
+
+			// Ensure non snapshotted data is absent
+			for range tt.nonSnapshottedRequests {
+				// Create QueryRequest
+				subCommand, _ := json.Marshal(&api.ReplicationDetailsRequest{Id: logIndex})
+				queryRequest := &api.QueryRequest{
+					Type:       api.QueryRequest_TYPE_GET_REPLICATION_DETAILS,
+					SubCommand: subCommand,
+				}
+
+				// Execute
+				_, err := manager.GetReplicationDetailsByReplicationId(queryRequest)
+				require.Error(t, err)
+				logIndex++
+			}
+		})
+	}
+}
+
 func TestManager_MetricsTracking(t *testing.T) {
 	const metricName = "weaviate_replication_operation_fsm_ops_by_state"
 	t.Run("one replication operation with two state transitions", func(t *testing.T) {

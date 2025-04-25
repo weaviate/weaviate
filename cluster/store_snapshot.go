@@ -43,12 +43,18 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 		return fmt.Errorf("tasks snapshot: %w", err)
 	}
 
+	replicationSnapshot, err := s.replicationManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("replication snapshot: %w", err)
+	}
+
 	snap := fsm.Snapshot{
 		NodeID:           s.cfg.NodeID,
 		SnapshotID:       sink.ID(),
 		Schema:           schemaSnapshot,
 		RBAC:             rbacSnapshot,
 		DistributedTasks: tasksSnapshot,
+		ReplicationOps:   replicationSnapshot,
 	}
 	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
 		return fmt.Errorf("encode: %w", err)
@@ -127,6 +133,13 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			if err := st.distributedTasksManager.Restore(snap.DistributedTasks); err != nil {
 				st.log.WithError(err).Error("restoring distributed tasks from snapshot")
 				return fmt.Errorf("restore distributed tasks from snapshot: %w", err)
+			}
+		}
+
+		if snap.ReplicationOps != nil {
+			if err := st.replicationManager.Restore(snap.ReplicationOps); err != nil {
+				st.log.WithError(err).Error("restoring replication ops from snapshot")
+				return fmt.Errorf("restore replication ops from snapshot: %w", err)
 			}
 		}
 
