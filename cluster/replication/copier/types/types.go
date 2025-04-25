@@ -21,10 +21,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/file"
 )
 
-// TODO name
-// DbInt is a type that hides a db.DB, this is used to avoid a circular
+// DbWrapper is a type that hides a db.DB, this is used to avoid a circular
 // dependency between the copier and the db package.
-type DbInt interface {
+type DbWrapper interface {
 	// GetIndex See adapters/repos/db.Index.GetIndex
 	GetIndex(name schema.ClassName) *db.Index
 

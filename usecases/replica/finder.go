@@ -310,6 +310,11 @@ type ShardDifferenceReader struct {
 	RangeReader       hashtree.AggregatedHashTreeRangeReader
 }
 
+// CollectShardDifferences collects the differences between the local node and the target nodes.
+// It returns a ShardDifferenceReader that contains the differences and the target node name/address.
+// If no differences are found, it returns ErrNoDiffFound.
+// When ErrNoDiffFound is returned as the error, the returned *ShardDifferenceReader may exist
+// and have some (but not all) of its fields set.
 func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
@@ -416,7 +421,6 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, err
 	}
 
-	// TODO comment that some fields not set if errnodifffound returned?
 	var targetNodeName string
 	// TODO how to get rid of len == 1 check?
 	if len(targetNodeOverrides) == 1 {

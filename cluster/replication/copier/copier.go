@@ -36,19 +36,18 @@ type Copier struct {
 	// rootDataPath is the local path to the root data directory for the shard, we'll copy files
 	// to this path
 	rootDataPath string
-	// indexGetter is used to load the index for the collection so that we can create/interact
+	// dbWrapper is used to load the index for the collection so that we can create/interact
 	// with the shard on this node
-	indexGetter types.DbInt
+	dbWrapper types.DbWrapper
 }
 
-// TODO indexGetter name
 // New creates a new shard replica Copier.
-func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string, indexGetter types.DbInt) *Copier {
+func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string, dbWrapper types.DbWrapper) *Copier {
 	return &Copier{
 		remoteIndex:  t,
 		nodeSelector: nodeSelector,
 		rootDataPath: rootPath,
-		indexGetter:  indexGetter,
+		dbWrapper:    dbWrapper,
 	}
 }
 
@@ -132,7 +131,7 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 		}
 	}
 
-	err = c.indexGetter.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
+	err = c.dbWrapper.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
 	if err != nil {
 		return err
 	}
@@ -140,10 +139,11 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 	return nil
 }
 
-// TODO objects propagated, start diff time, err
+// AsyncReplicationStatus returns the async replication status for a shard.
+// The first two return values are the number of objects propagated and the start diff time in unix milliseconds.
 func (c *Copier) AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (uint64, int64, error) {
-	// TODO can this blow up if node has many shards/tenants? i could add a new method to get only one shard?
-	status, err := c.indexGetter.GetOneNodeStatus(ctx, srcNodeId, collectionName, "verbose")
+	// TODO can using verbose here blow up if the node has many shards/tenants? i could add a new method to get only one shard?
+	status, err := c.dbWrapper.GetOneNodeStatus(ctx, srcNodeId, collectionName, "verbose")
 	if err != nil {
 		return 0, 0, err
 	}

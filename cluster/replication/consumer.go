@@ -259,23 +259,23 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 		}
 
 		// TODO some kind of timer, stop, timeout, etc
-		finalizationSucceeded := false
 		for {
 			objectsPropagated, startDiffTimeUnixMillis, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.sourceShard.nodeId, op.targetShard.nodeId, op.sourceShard.collectionId, op.sourceShard.shardId)
 			if err == nil && objectsPropagated == 0 {
 				if startDiffTimeUnixMillis >= upperTimeBoundUnixMillis {
-					finalizationSucceeded = true
 					break
 				}
+			}
+			// Check if the context has been canceled or timed out
+			if ctx.Err() != nil {
+				break
 			}
 			time.Sleep(5 * time.Second)
 		}
 
-		if !finalizationSucceeded {
-			// TODO handle unhappy path
-		}
+		// TODO handle unhappy path
 
-		// TODO remove target node override from this movement
+		// TODO remove target node override from this movement and reset async replication config
 
 		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.ID, api.READY); err != nil {
 			logger.WithError(err).Errorf("failed to update replica op state to %s", api.READY)
