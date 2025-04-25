@@ -63,10 +63,6 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 	if err != nil {
 		return err
 	}
-	// TODO remove
-	// fmt.Println("NATEE copy replica starting sleep")
-	// time.Sleep(25 * time.Second)
-	// fmt.Println("NATEE copy replica sleep done")
 	defer c.remoteIndex.ResumeFileActivity(ctx, sourceNodeHostname, collectionName, shardName)
 
 	relativeFilePaths, err := c.remoteIndex.ListFiles(ctx, sourceNodeHostname, collectionName, shardName)

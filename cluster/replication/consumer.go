@@ -241,13 +241,8 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 			return err
 		}
 
-		if _, err := c.leaderClient.AddReplicaToShard(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.targetShard.nodeId); err != nil {
-			logger.WithField("consumer", c).WithError(err).Error("failure while updating sharding state")
-			return err
-		}
-
 		// Update FSM that we are done copying files and we can start final sync follower phase
-		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.FINALIZING); err != nil {
+		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.ID, api.FINALIZING); err != nil {
 			logger.WithError(err).Errorf("failed to update replica op state to %s", api.FINALIZING)
 		}
 
@@ -282,7 +277,7 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 
 		// TODO remove target node override from this movement
 
-		if err := s.leaderClient.ReplicationUpdateReplicaOpStatus(op.id, api.READY); err != nil {
+		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.ID, api.READY); err != nil {
 			logger.WithError(err).Errorf("failed to update replica op state to %s", api.READY)
 		}
 
