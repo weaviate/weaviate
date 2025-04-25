@@ -73,14 +73,12 @@ VectorizationStartParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type VectorizationStartParams struct {
+
 	// Body.
 	Body *models.CollectionVectorizationRequest
 
 	// CollectionName.
 	CollectionName string
-
-	// TargetVector.
-	TargetVector string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -157,19 +155,9 @@ func (o *VectorizationStartParams) SetCollectionName(collectionName string) {
 	o.CollectionName = collectionName
 }
 
-// WithTargetVector adds the targetVector to the vectorization start params
-func (o *VectorizationStartParams) WithTargetVector(targetVector string) *VectorizationStartParams {
-	o.SetTargetVector(targetVector)
-	return o
-}
-
-// SetTargetVector adds the targetVector to the vectorization start params
-func (o *VectorizationStartParams) SetTargetVector(targetVector string) {
-	o.TargetVector = targetVector
-}
-
 // WriteToRequest writes these params to a swagger request
 func (o *VectorizationStartParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
+
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
@@ -182,11 +170,6 @@ func (o *VectorizationStartParams) WriteToRequest(r runtime.ClientRequest, reg s
 
 	// path param collectionName
 	if err := r.SetPathParam("collectionName", o.CollectionName); err != nil {
-		return err
-	}
-
-	// path param targetVector
-	if err := r.SetPathParam("targetVector", o.TargetVector); err != nil {
 		return err
 	}
 

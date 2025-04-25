@@ -61,7 +61,7 @@ func (a *Client) VectorizationCancel(params *VectorizationCancelParams, authInfo
 	op := &runtime.ClientOperation{
 		ID:                 "vectorization.cancel",
 		Method:             "DELETE",
-		PathPattern:        "/schema/{collectionName}/vectorize/{targetVector}",
+		PathPattern:        "/schema/{collectionName}/revectorize",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -100,7 +100,7 @@ func (a *Client) VectorizationGetStatus(params *VectorizationGetStatusParams, au
 	op := &runtime.ClientOperation{
 		ID:                 "vectorization.getStatus",
 		Method:             "GET",
-		PathPattern:        "/schema/{collectionName}/vectorize/{targetVector}",
+		PathPattern:        "/schema/{collectionName}/revectorize",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -139,7 +139,7 @@ func (a *Client) VectorizationStart(params *VectorizationStartParams, authInfo r
 	op := &runtime.ClientOperation{
 		ID:                 "vectorization.start",
 		Method:             "POST",
-		PathPattern:        "/schema/{collectionName}/vectorize/{targetVector}",
+		PathPattern:        "/schema/{collectionName}/revectorize",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

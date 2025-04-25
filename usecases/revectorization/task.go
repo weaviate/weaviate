@@ -136,7 +136,7 @@ func (t *executableTask) processNextShard() (bool, error) {
 				return false, err
 			}
 
-			if len(object.Vectors[t.payload.TargetVector]) > 0 {
+			if t.payload.TargetVector != "" && len(object.Vectors[t.payload.TargetVector]) > 0 {
 				continue
 			}
 

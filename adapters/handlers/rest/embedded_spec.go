@@ -4342,7 +4342,7 @@ func init() {
         }
       }
     },
-    "/schema/{collectionName}/vectorize/{targetVector}": {
+    "/schema/{collectionName}/revectorize": {
       "get": {
         "tags": [
           "vectorization"
@@ -4353,12 +4353,6 @@ func init() {
           {
             "type": "string",
             "name": "collectionName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "targetVector",
             "in": "path",
             "required": true
           }
@@ -4415,12 +4409,6 @@ func init() {
           {
             "type": "string",
             "name": "collectionName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "targetVector",
             "in": "path",
             "required": true
           },
@@ -4482,12 +4470,6 @@ func init() {
           {
             "type": "string",
             "name": "collectionName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "targetVector",
             "in": "path",
             "required": true
           }
@@ -5823,6 +5805,11 @@ func init() {
     "CollectionVectorizationRequest": {
       "description": "Request body for vectorizing target vector of a collection",
       "properties": {
+        "targetVector": {
+          "description": "Optional filter to check whether an object has this target vector present. Improves batching and speeds up the process",
+          "type": "string",
+          "x-nullable": true
+        },
         "tenantFilter": {
           "description": "Optional filter to scope the vectorization to a subset of tenants",
           "type": "string",
@@ -12183,7 +12170,7 @@ func init() {
         }
       }
     },
-    "/schema/{collectionName}/vectorize/{targetVector}": {
+    "/schema/{collectionName}/revectorize": {
       "get": {
         "tags": [
           "vectorization"
@@ -12194,12 +12181,6 @@ func init() {
           {
             "type": "string",
             "name": "collectionName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "targetVector",
             "in": "path",
             "required": true
           }
@@ -12256,12 +12237,6 @@ func init() {
           {
             "type": "string",
             "name": "collectionName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "targetVector",
             "in": "path",
             "required": true
           },
@@ -12323,12 +12298,6 @@ func init() {
           {
             "type": "string",
             "name": "collectionName",
-            "in": "path",
-            "required": true
-          },
-          {
-            "type": "string",
-            "name": "targetVector",
             "in": "path",
             "required": true
           }
@@ -13819,6 +13788,11 @@ func init() {
     "CollectionVectorizationRequest": {
       "description": "Request body for vectorizing target vector of a collection",
       "properties": {
+        "targetVector": {
+          "description": "Optional filter to check whether an object has this target vector present. Improves batching and speeds up the process",
+          "type": "string",
+          "x-nullable": true
+        },
         "tenantFilter": {
           "description": "Optional filter to scope the vectorization to a subset of tenants",
           "type": "string",

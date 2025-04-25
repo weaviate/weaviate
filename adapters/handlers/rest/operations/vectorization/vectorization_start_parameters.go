@@ -33,6 +33,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewVectorizationStartParams() VectorizationStartParams {
+
 	return VectorizationStartParams{}
 }
 
@@ -41,6 +42,7 @@ func NewVectorizationStartParams() VectorizationStartParams {
 //
 // swagger:parameters vectorization.start
 type VectorizationStartParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -54,11 +56,6 @@ type VectorizationStartParams struct {
 	  In: path
 	*/
 	CollectionName string
-	/*
-	  Required: true
-	  In: path
-	*/
-	TargetVector string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -102,11 +99,6 @@ func (o *VectorizationStartParams) BindRequest(r *http.Request, route *middlewar
 	if err := o.bindCollectionName(rCollectionName, rhkCollectionName, route.Formats); err != nil {
 		res = append(res, err)
 	}
-
-	rTargetVector, rhkTargetVector, _ := route.Params.GetOK("targetVector")
-	if err := o.bindTargetVector(rTargetVector, rhkTargetVector, route.Formats); err != nil {
-		res = append(res, err)
-	}
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
@@ -123,20 +115,6 @@ func (o *VectorizationStartParams) bindCollectionName(rawData []string, hasKey b
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.CollectionName = raw
-
-	return nil
-}
-
-// bindTargetVector binds and validates parameter TargetVector from path.
-func (o *VectorizationStartParams) bindTargetVector(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: true
-	// Parameter is provided by construction from the route
-	o.TargetVector = raw
 
 	return nil
 }

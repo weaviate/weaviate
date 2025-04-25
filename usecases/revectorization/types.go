@@ -24,8 +24,8 @@ const (
 
 type TaskPayload struct {
 	CollectionName       string `json:"collectionName"`
-	TargetVector         string `json:"targetVector"`
-	TenantFilter         string `json:"tenantFilter"`
+	TargetVector         string `json:"targetVector,omitempty"`
+	TenantFilter         string `json:"tenantFilter,omitempty"`
 	MaximumErrorsPerNode int    `json:"maximumErrorsPerNode"`
 }
 

@@ -1279,6 +1279,11 @@
           "description": "Optional filter to scope the vectorization to a subset of tenants",
           "type": "string",
           "x-nullable": true
+        },
+        "targetVector": {
+          "description": "Optional filter to check whether an object has this target vector present. Improves batching and speeds up the process",
+          "type": "string",
+          "x-nullable": true
         }
       }
     },
@@ -6829,7 +6834,7 @@
         }
       }
     },
-    "/schema/{collectionName}/vectorize/{targetVector}": {
+    "/schema/{collectionName}/revectorize": {
       "get": {
         "summary": "Get the status of the vectorization task",
         "operationId": "vectorization.getStatus",
@@ -6842,12 +6847,6 @@
         "parameters": [
           {
             "name": "collectionName",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "targetVector",
             "in": "path",
             "required": true,
             "type": "string"
@@ -6909,12 +6908,6 @@
             "type": "string"
           },
           {
-            "name": "targetVector",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
             "in": "body",
             "name": "body",
             "required": true,
@@ -6971,12 +6964,6 @@
         "parameters": [
           {
             "name": "collectionName",
-            "in": "path",
-            "required": true,
-            "type": "string"
-          },
-          {
-            "name": "targetVector",
             "in": "path",
             "required": true,
             "type": "string"

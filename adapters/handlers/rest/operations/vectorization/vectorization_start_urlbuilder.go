@@ -26,7 +26,6 @@ import (
 // VectorizationStartURL generates an URL for the vectorization start operation
 type VectorizationStartURL struct {
 	CollectionName string
-	TargetVector   string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -52,20 +51,13 @@ func (o *VectorizationStartURL) SetBasePath(bp string) {
 func (o *VectorizationStartURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/schema/{collectionName}/vectorize/{targetVector}"
+	var _path = "/schema/{collectionName}/revectorize"
 
 	collectionName := o.CollectionName
 	if collectionName != "" {
 		_path = strings.Replace(_path, "{collectionName}", collectionName, -1)
 	} else {
 		return nil, errors.New("collectionName is required on VectorizationStartURL")
-	}
-
-	targetVector := o.TargetVector
-	if targetVector != "" {
-		_path = strings.Replace(_path, "{targetVector}", targetVector, -1)
-	} else {
-		return nil, errors.New("targetVector is required on VectorizationStartURL")
 	}
 
 	_basePath := o._basePath

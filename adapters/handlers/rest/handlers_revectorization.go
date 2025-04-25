@@ -1,8 +1,18 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package rest
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/go-openapi/runtime/middleware"
@@ -46,16 +56,11 @@ func (h *vectorizationHandlers) start(params vectorization.VectorizationStartPar
 		return vectorization.NewVectorizationStartBadRequest()
 	}
 
-	tenantFilter := ""
-	if params.Body.TenantFilter != nil {
-		tenantFilter = *params.Body.TenantFilter
-	}
-
-	taskID := fmt.Sprintf("%s/%s", params.CollectionName, params.TargetVector)
+	taskID := params.CollectionName
 	err = h.raft.AddDistributedTask(params.HTTPRequest.Context(), revectorization.DistributedTasksNamespace, taskID, revectorization.TaskPayload{
 		CollectionName:       params.CollectionName,
-		TargetVector:         params.TargetVector,
-		TenantFilter:         tenantFilter,
+		TargetVector:         nilToEmpty(params.Body.TargetVector),
+		TenantFilter:         nilToEmpty(params.Body.TenantFilter),
 		MaximumErrorsPerNode: 50,
 	})
 	if err != nil {
@@ -76,7 +81,7 @@ type dummyVectorizationStatusResponse struct {
 }
 
 func (h *vectorizationHandlers) getStatus(params vectorization.VectorizationGetStatusParams, principal *models.Principal) middleware.Responder {
-	taskID := fmt.Sprintf("%s/%s", params.CollectionName, params.TargetVector)
+	taskID := params.CollectionName
 	task, ok, err := h.findTask(params.HTTPRequest.Context(), taskID)
 	if err != nil {
 		return vectorization.NewVectorizationGetStatusInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -104,7 +109,7 @@ func (h *vectorizationHandlers) getStatus(params vectorization.VectorizationGetS
 }
 
 func (h *vectorizationHandlers) cancel(params vectorization.VectorizationCancelParams, principal *models.Principal) middleware.Responder {
-	taskID := fmt.Sprintf("%s/%s", params.CollectionName, params.TargetVector)
+	taskID := params.CollectionName
 	task, ok, err := h.findTask(params.HTTPRequest.Context(), taskID)
 	if err != nil {
 		return vectorization.NewVectorizationCancelInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -139,4 +144,12 @@ func (h *vectorizationHandlers) findTask(ctx context.Context, taskID string) (*d
 	}
 
 	return nil, false, nil
+}
+
+func nilToEmpty[T any](item *T) T {
+	if item == nil {
+		var zero T
+		return zero
+	}
+	return *item
 }

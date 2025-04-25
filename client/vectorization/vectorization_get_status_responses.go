@@ -91,7 +91,8 @@ VectorizationGetStatusOK describes a response with status code 200, with default
 
 The status of the vectorization task
 */
-type VectorizationGetStatusOK struct{}
+type VectorizationGetStatusOK struct {
+}
 
 // IsSuccess returns true when this vectorization get status o k response has a 2xx status code
 func (o *VectorizationGetStatusOK) IsSuccess() bool {
@@ -124,14 +125,15 @@ func (o *VectorizationGetStatusOK) Code() int {
 }
 
 func (o *VectorizationGetStatusOK) Error() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusOK ", 200)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusOK ", 200)
 }
 
 func (o *VectorizationGetStatusOK) String() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusOK ", 200)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusOK ", 200)
 }
 
 func (o *VectorizationGetStatusOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -180,11 +182,11 @@ func (o *VectorizationGetStatusBadRequest) Code() int {
 }
 
 func (o *VectorizationGetStatusBadRequest) Error() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *VectorizationGetStatusBadRequest) String() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *VectorizationGetStatusBadRequest) GetPayload() *models.ErrorResponse {
@@ -192,6 +194,7 @@ func (o *VectorizationGetStatusBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationGetStatusBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,7 +215,8 @@ VectorizationGetStatusUnauthorized describes a response with status code 401, wi
 
 Unauthorized or invalid credentials.
 */
-type VectorizationGetStatusUnauthorized struct{}
+type VectorizationGetStatusUnauthorized struct {
+}
 
 // IsSuccess returns true when this vectorization get status unauthorized response has a 2xx status code
 func (o *VectorizationGetStatusUnauthorized) IsSuccess() bool {
@@ -245,14 +249,15 @@ func (o *VectorizationGetStatusUnauthorized) Code() int {
 }
 
 func (o *VectorizationGetStatusUnauthorized) Error() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusUnauthorized ", 401)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusUnauthorized ", 401)
 }
 
 func (o *VectorizationGetStatusUnauthorized) String() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusUnauthorized ", 401)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusUnauthorized ", 401)
 }
 
 func (o *VectorizationGetStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -301,11 +306,11 @@ func (o *VectorizationGetStatusForbidden) Code() int {
 }
 
 func (o *VectorizationGetStatusForbidden) Error() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusForbidden  %+v", 403, o.Payload)
 }
 
 func (o *VectorizationGetStatusForbidden) String() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusForbidden  %+v", 403, o.Payload)
 }
 
 func (o *VectorizationGetStatusForbidden) GetPayload() *models.ErrorResponse {
@@ -313,6 +318,7 @@ func (o *VectorizationGetStatusForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationGetStatusForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -368,11 +374,11 @@ func (o *VectorizationGetStatusNotFound) Code() int {
 }
 
 func (o *VectorizationGetStatusNotFound) Error() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusNotFound  %+v", 404, o.Payload)
 }
 
 func (o *VectorizationGetStatusNotFound) String() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusNotFound  %+v", 404, o.Payload)
 }
 
 func (o *VectorizationGetStatusNotFound) GetPayload() *models.ErrorResponse {
@@ -380,6 +386,7 @@ func (o *VectorizationGetStatusNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationGetStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -435,11 +442,11 @@ func (o *VectorizationGetStatusUnprocessableEntity) Code() int {
 }
 
 func (o *VectorizationGetStatusUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *VectorizationGetStatusUnprocessableEntity) String() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *VectorizationGetStatusUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -447,6 +454,7 @@ func (o *VectorizationGetStatusUnprocessableEntity) GetPayload() *models.ErrorRe
 }
 
 func (o *VectorizationGetStatusUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -502,11 +510,11 @@ func (o *VectorizationGetStatusInternalServerError) Code() int {
 }
 
 func (o *VectorizationGetStatusInternalServerError) Error() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *VectorizationGetStatusInternalServerError) String() string {
-	return fmt.Sprintf("[GET /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationGetStatusInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[GET /schema/{collectionName}/revectorize][%d] vectorizationGetStatusInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *VectorizationGetStatusInternalServerError) GetPayload() *models.ErrorResponse {
@@ -514,6 +522,7 @@ func (o *VectorizationGetStatusInternalServerError) GetPayload() *models.ErrorRe
 }
 
 func (o *VectorizationGetStatusInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

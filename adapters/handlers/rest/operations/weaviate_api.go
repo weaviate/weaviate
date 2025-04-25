@@ -900,6 +900,7 @@ func (o *WeaviateAPI) AuthenticatorsFor(schemes map[string]spec.SecurityScheme) 
 			result[name] = o.BearerAuthenticator(name, func(token string, scopes []string) (interface{}, error) {
 				return o.OidcAuth(token, scopes)
 			})
+
 		}
 	}
 	return result
@@ -1284,15 +1285,15 @@ func (o *WeaviateAPI) initHandlerCache() {
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/schema/{collectionName}/vectorize/{targetVector}"] = vectorization.NewVectorizationCancel(o.context, o.VectorizationVectorizationCancelHandler)
+	o.handlers["DELETE"]["/schema/{collectionName}/revectorize"] = vectorization.NewVectorizationCancel(o.context, o.VectorizationVectorizationCancelHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
-	o.handlers["GET"]["/schema/{collectionName}/vectorize/{targetVector}"] = vectorization.NewVectorizationGetStatus(o.context, o.VectorizationVectorizationGetStatusHandler)
+	o.handlers["GET"]["/schema/{collectionName}/revectorize"] = vectorization.NewVectorizationGetStatus(o.context, o.VectorizationVectorizationGetStatusHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["POST"]["/schema/{collectionName}/vectorize/{targetVector}"] = vectorization.NewVectorizationStart(o.context, o.VectorizationVectorizationStartHandler)
+	o.handlers["POST"]["/schema/{collectionName}/revectorize"] = vectorization.NewVectorizationStart(o.context, o.VectorizationVectorizationStartHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

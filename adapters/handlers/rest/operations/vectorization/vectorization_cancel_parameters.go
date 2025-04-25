@@ -28,6 +28,7 @@ import (
 //
 // There are no default values defined in the spec.
 func NewVectorizationCancelParams() VectorizationCancelParams {
+
 	return VectorizationCancelParams{}
 }
 
@@ -36,6 +37,7 @@ func NewVectorizationCancelParams() VectorizationCancelParams {
 //
 // swagger:parameters vectorization.cancel
 type VectorizationCancelParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
@@ -44,11 +46,6 @@ type VectorizationCancelParams struct {
 	  In: path
 	*/
 	CollectionName string
-	/*
-	  Required: true
-	  In: path
-	*/
-	TargetVector string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -62,11 +59,6 @@ func (o *VectorizationCancelParams) BindRequest(r *http.Request, route *middlewa
 
 	rCollectionName, rhkCollectionName, _ := route.Params.GetOK("collectionName")
 	if err := o.bindCollectionName(rCollectionName, rhkCollectionName, route.Formats); err != nil {
-		res = append(res, err)
-	}
-
-	rTargetVector, rhkTargetVector, _ := route.Params.GetOK("targetVector")
-	if err := o.bindTargetVector(rTargetVector, rhkTargetVector, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -85,20 +77,6 @@ func (o *VectorizationCancelParams) bindCollectionName(rawData []string, hasKey 
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.CollectionName = raw
-
-	return nil
-}
-
-// bindTargetVector binds and validates parameter TargetVector from path.
-func (o *VectorizationCancelParams) bindTargetVector(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: true
-	// Parameter is provided by construction from the route
-	o.TargetVector = raw
 
 	return nil
 }

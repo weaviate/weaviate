@@ -27,6 +27,10 @@ import (
 //
 // swagger:model CollectionVectorizationRequest
 type CollectionVectorizationRequest struct {
+
+	// Optional filter to check whether an object has this target vector present. Improves batching and speeds up the process
+	TargetVector *string `json:"targetVector,omitempty"`
+
 	// Optional filter to scope the vectorization to a subset of tenants
 	TenantFilter *string `json:"tenantFilter,omitempty"`
 }

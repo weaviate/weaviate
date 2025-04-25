@@ -91,7 +91,8 @@ VectorizationStartOK describes a response with status code 200, with default hea
 
 The task was successfully started
 */
-type VectorizationStartOK struct{}
+type VectorizationStartOK struct {
+}
 
 // IsSuccess returns true when this vectorization start o k response has a 2xx status code
 func (o *VectorizationStartOK) IsSuccess() bool {
@@ -124,14 +125,15 @@ func (o *VectorizationStartOK) Code() int {
 }
 
 func (o *VectorizationStartOK) Error() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartOK ", 200)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartOK ", 200)
 }
 
 func (o *VectorizationStartOK) String() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartOK ", 200)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartOK ", 200)
 }
 
 func (o *VectorizationStartOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -180,11 +182,11 @@ func (o *VectorizationStartBadRequest) Code() int {
 }
 
 func (o *VectorizationStartBadRequest) Error() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *VectorizationStartBadRequest) String() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *VectorizationStartBadRequest) GetPayload() *models.ErrorResponse {
@@ -192,6 +194,7 @@ func (o *VectorizationStartBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationStartBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,7 +215,8 @@ VectorizationStartUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type VectorizationStartUnauthorized struct{}
+type VectorizationStartUnauthorized struct {
+}
 
 // IsSuccess returns true when this vectorization start unauthorized response has a 2xx status code
 func (o *VectorizationStartUnauthorized) IsSuccess() bool {
@@ -245,14 +249,15 @@ func (o *VectorizationStartUnauthorized) Code() int {
 }
 
 func (o *VectorizationStartUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartUnauthorized ", 401)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartUnauthorized ", 401)
 }
 
 func (o *VectorizationStartUnauthorized) String() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartUnauthorized ", 401)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartUnauthorized ", 401)
 }
 
 func (o *VectorizationStartUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -301,11 +306,11 @@ func (o *VectorizationStartForbidden) Code() int {
 }
 
 func (o *VectorizationStartForbidden) Error() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartForbidden  %+v", 403, o.Payload)
 }
 
 func (o *VectorizationStartForbidden) String() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartForbidden  %+v", 403, o.Payload)
 }
 
 func (o *VectorizationStartForbidden) GetPayload() *models.ErrorResponse {
@@ -313,6 +318,7 @@ func (o *VectorizationStartForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationStartForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -333,7 +339,8 @@ VectorizationStartConflict describes a response with status code 409, with defau
 
 Task already exists
 */
-type VectorizationStartConflict struct{}
+type VectorizationStartConflict struct {
+}
 
 // IsSuccess returns true when this vectorization start conflict response has a 2xx status code
 func (o *VectorizationStartConflict) IsSuccess() bool {
@@ -366,14 +373,15 @@ func (o *VectorizationStartConflict) Code() int {
 }
 
 func (o *VectorizationStartConflict) Error() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartConflict ", 409)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartConflict ", 409)
 }
 
 func (o *VectorizationStartConflict) String() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartConflict ", 409)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartConflict ", 409)
 }
 
 func (o *VectorizationStartConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -422,11 +430,11 @@ func (o *VectorizationStartUnprocessableEntity) Code() int {
 }
 
 func (o *VectorizationStartUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *VectorizationStartUnprocessableEntity) String() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *VectorizationStartUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -434,6 +442,7 @@ func (o *VectorizationStartUnprocessableEntity) GetPayload() *models.ErrorRespon
 }
 
 func (o *VectorizationStartUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -489,11 +498,11 @@ func (o *VectorizationStartInternalServerError) Code() int {
 }
 
 func (o *VectorizationStartInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *VectorizationStartInternalServerError) String() string {
-	return fmt.Sprintf("[POST /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationStartInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[POST /schema/{collectionName}/revectorize][%d] vectorizationStartInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *VectorizationStartInternalServerError) GetPayload() *models.ErrorResponse {
@@ -501,6 +510,7 @@ func (o *VectorizationStartInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *VectorizationStartInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

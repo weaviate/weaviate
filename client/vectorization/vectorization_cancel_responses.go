@@ -91,7 +91,8 @@ VectorizationCancelOK describes a response with status code 200, with default he
 
 The task was successfully cancelled
 */
-type VectorizationCancelOK struct{}
+type VectorizationCancelOK struct {
+}
 
 // IsSuccess returns true when this vectorization cancel o k response has a 2xx status code
 func (o *VectorizationCancelOK) IsSuccess() bool {
@@ -124,14 +125,15 @@ func (o *VectorizationCancelOK) Code() int {
 }
 
 func (o *VectorizationCancelOK) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelOK ", 200)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelOK ", 200)
 }
 
 func (o *VectorizationCancelOK) String() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelOK ", 200)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelOK ", 200)
 }
 
 func (o *VectorizationCancelOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -180,11 +182,11 @@ func (o *VectorizationCancelBadRequest) Code() int {
 }
 
 func (o *VectorizationCancelBadRequest) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *VectorizationCancelBadRequest) String() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelBadRequest  %+v", 400, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelBadRequest  %+v", 400, o.Payload)
 }
 
 func (o *VectorizationCancelBadRequest) GetPayload() *models.ErrorResponse {
@@ -192,6 +194,7 @@ func (o *VectorizationCancelBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationCancelBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -212,7 +215,8 @@ VectorizationCancelUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type VectorizationCancelUnauthorized struct{}
+type VectorizationCancelUnauthorized struct {
+}
 
 // IsSuccess returns true when this vectorization cancel unauthorized response has a 2xx status code
 func (o *VectorizationCancelUnauthorized) IsSuccess() bool {
@@ -245,14 +249,15 @@ func (o *VectorizationCancelUnauthorized) Code() int {
 }
 
 func (o *VectorizationCancelUnauthorized) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelUnauthorized ", 401)
 }
 
 func (o *VectorizationCancelUnauthorized) String() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelUnauthorized ", 401)
 }
 
 func (o *VectorizationCancelUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -301,11 +306,11 @@ func (o *VectorizationCancelForbidden) Code() int {
 }
 
 func (o *VectorizationCancelForbidden) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelForbidden  %+v", 403, o.Payload)
 }
 
 func (o *VectorizationCancelForbidden) String() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelForbidden  %+v", 403, o.Payload)
 }
 
 func (o *VectorizationCancelForbidden) GetPayload() *models.ErrorResponse {
@@ -313,6 +318,7 @@ func (o *VectorizationCancelForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationCancelForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -368,11 +374,11 @@ func (o *VectorizationCancelNotFound) Code() int {
 }
 
 func (o *VectorizationCancelNotFound) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelNotFound  %+v", 404, o.Payload)
 }
 
 func (o *VectorizationCancelNotFound) String() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelNotFound  %+v", 404, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelNotFound  %+v", 404, o.Payload)
 }
 
 func (o *VectorizationCancelNotFound) GetPayload() *models.ErrorResponse {
@@ -380,6 +386,7 @@ func (o *VectorizationCancelNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationCancelNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -435,11 +442,11 @@ func (o *VectorizationCancelUnprocessableEntity) Code() int {
 }
 
 func (o *VectorizationCancelUnprocessableEntity) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *VectorizationCancelUnprocessableEntity) String() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelUnprocessableEntity  %+v", 422, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelUnprocessableEntity  %+v", 422, o.Payload)
 }
 
 func (o *VectorizationCancelUnprocessableEntity) GetPayload() *models.ErrorResponse {
@@ -447,6 +454,7 @@ func (o *VectorizationCancelUnprocessableEntity) GetPayload() *models.ErrorRespo
 }
 
 func (o *VectorizationCancelUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -502,11 +510,11 @@ func (o *VectorizationCancelInternalServerError) Code() int {
 }
 
 func (o *VectorizationCancelInternalServerError) Error() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *VectorizationCancelInternalServerError) String() string {
-	return fmt.Sprintf("[DELETE /schema/{collectionName}/vectorize/{targetVector}][%d] vectorizationCancelInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /schema/{collectionName}/revectorize][%d] vectorizationCancelInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *VectorizationCancelInternalServerError) GetPayload() *models.ErrorResponse {
@@ -514,6 +522,7 @@ func (o *VectorizationCancelInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *VectorizationCancelInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

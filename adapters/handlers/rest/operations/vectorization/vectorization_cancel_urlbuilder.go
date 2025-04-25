@@ -26,7 +26,6 @@ import (
 // VectorizationCancelURL generates an URL for the vectorization cancel operation
 type VectorizationCancelURL struct {
 	CollectionName string
-	TargetVector   string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -52,20 +51,13 @@ func (o *VectorizationCancelURL) SetBasePath(bp string) {
 func (o *VectorizationCancelURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	_path := "/schema/{collectionName}/vectorize/{targetVector}"
+	var _path = "/schema/{collectionName}/revectorize"
 
 	collectionName := o.CollectionName
 	if collectionName != "" {
 		_path = strings.Replace(_path, "{collectionName}", collectionName, -1)
 	} else {
 		return nil, errors.New("collectionName is required on VectorizationCancelURL")
-	}
-
-	targetVector := o.TargetVector
-	if targetVector != "" {
-		_path = strings.Replace(_path, "{targetVector}", targetVector, -1)
-	} else {
-		return nil, errors.New("targetVector is required on VectorizationCancelURL")
 	}
 
 	_basePath := o._basePath

@@ -32,16 +32,19 @@ VectorizationCancelOK The task was successfully cancelled
 
 swagger:response vectorizationCancelOK
 */
-type VectorizationCancelOK struct{}
+type VectorizationCancelOK struct {
+}
 
 // NewVectorizationCancelOK creates VectorizationCancelOK with default headers values
 func NewVectorizationCancelOK() *VectorizationCancelOK {
+
 	return &VectorizationCancelOK{}
 }
 
 // WriteResponse to the client
 func (o *VectorizationCancelOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -55,6 +58,7 @@ VectorizationCancelBadRequest Malformed request.
 swagger:response vectorizationCancelBadRequest
 */
 type VectorizationCancelBadRequest struct {
+
 	/*
 	  In: Body
 	*/
@@ -63,6 +67,7 @@ type VectorizationCancelBadRequest struct {
 
 // NewVectorizationCancelBadRequest creates VectorizationCancelBadRequest with default headers values
 func NewVectorizationCancelBadRequest() *VectorizationCancelBadRequest {
+
 	return &VectorizationCancelBadRequest{}
 }
 
@@ -79,6 +84,7 @@ func (o *VectorizationCancelBadRequest) SetPayload(payload *models.ErrorResponse
 
 // WriteResponse to the client
 func (o *VectorizationCancelBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -96,16 +102,19 @@ VectorizationCancelUnauthorized Unauthorized or invalid credentials.
 
 swagger:response vectorizationCancelUnauthorized
 */
-type VectorizationCancelUnauthorized struct{}
+type VectorizationCancelUnauthorized struct {
+}
 
 // NewVectorizationCancelUnauthorized creates VectorizationCancelUnauthorized with default headers values
 func NewVectorizationCancelUnauthorized() *VectorizationCancelUnauthorized {
+
 	return &VectorizationCancelUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *VectorizationCancelUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
+
+	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -119,6 +128,7 @@ VectorizationCancelForbidden Forbidden
 swagger:response vectorizationCancelForbidden
 */
 type VectorizationCancelForbidden struct {
+
 	/*
 	  In: Body
 	*/
@@ -127,6 +137,7 @@ type VectorizationCancelForbidden struct {
 
 // NewVectorizationCancelForbidden creates VectorizationCancelForbidden with default headers values
 func NewVectorizationCancelForbidden() *VectorizationCancelForbidden {
+
 	return &VectorizationCancelForbidden{}
 }
 
@@ -143,6 +154,7 @@ func (o *VectorizationCancelForbidden) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *VectorizationCancelForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -161,6 +173,7 @@ VectorizationCancelNotFound Vectorization task not found
 swagger:response vectorizationCancelNotFound
 */
 type VectorizationCancelNotFound struct {
+
 	/*
 	  In: Body
 	*/
@@ -169,6 +182,7 @@ type VectorizationCancelNotFound struct {
 
 // NewVectorizationCancelNotFound creates VectorizationCancelNotFound with default headers values
 func NewVectorizationCancelNotFound() *VectorizationCancelNotFound {
+
 	return &VectorizationCancelNotFound{}
 }
 
@@ -185,6 +199,7 @@ func (o *VectorizationCancelNotFound) SetPayload(payload *models.ErrorResponse) 
 
 // WriteResponse to the client
 func (o *VectorizationCancelNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -203,6 +218,7 @@ VectorizationCancelUnprocessableEntity Request body is well-formed (i.e., syntac
 swagger:response vectorizationCancelUnprocessableEntity
 */
 type VectorizationCancelUnprocessableEntity struct {
+
 	/*
 	  In: Body
 	*/
@@ -211,6 +227,7 @@ type VectorizationCancelUnprocessableEntity struct {
 
 // NewVectorizationCancelUnprocessableEntity creates VectorizationCancelUnprocessableEntity with default headers values
 func NewVectorizationCancelUnprocessableEntity() *VectorizationCancelUnprocessableEntity {
+
 	return &VectorizationCancelUnprocessableEntity{}
 }
 
@@ -227,6 +244,7 @@ func (o *VectorizationCancelUnprocessableEntity) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *VectorizationCancelUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -245,6 +263,7 @@ VectorizationCancelInternalServerError An error has occurred while trying to ful
 swagger:response vectorizationCancelInternalServerError
 */
 type VectorizationCancelInternalServerError struct {
+
 	/*
 	  In: Body
 	*/
@@ -253,6 +272,7 @@ type VectorizationCancelInternalServerError struct {
 
 // NewVectorizationCancelInternalServerError creates VectorizationCancelInternalServerError with default headers values
 func NewVectorizationCancelInternalServerError() *VectorizationCancelInternalServerError {
+
 	return &VectorizationCancelInternalServerError{}
 }
 
@@ -269,6 +289,7 @@ func (o *VectorizationCancelInternalServerError) SetPayload(payload *models.Erro
 
 // WriteResponse to the client
 func (o *VectorizationCancelInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

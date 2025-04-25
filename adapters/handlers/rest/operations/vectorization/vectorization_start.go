@@ -43,7 +43,7 @@ func NewVectorizationStart(ctx *middleware.Context, handler VectorizationStartHa
 }
 
 /*
-	VectorizationStart swagger:route POST /schema/{collectionName}/vectorize/{targetVector} vectorization vectorizationStart
+	VectorizationStart swagger:route POST /schema/{collectionName}/revectorize vectorization vectorizationStart
 
 Start the vectorization task
 */
@@ -57,7 +57,7 @@ func (o *VectorizationStart) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewVectorizationStartParams()
+	var Params = NewVectorizationStartParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -78,4 +78,5 @@ func (o *VectorizationStart) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }
