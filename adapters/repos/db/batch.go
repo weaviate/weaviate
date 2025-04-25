@@ -94,7 +94,7 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects,
 
 	for class, index := range indexByClass {
 		queue := objectByClass[class]
-		errs := index.putObjectBatch(ctx, queue.objects, repl, schemaVersion)
+		errs := index.PutObjectBatch(ctx, queue.objects, repl, schemaVersion)
 		index.metrics.BatchCount(len(queue.objects))
 		index.metrics.BatchCountBytes(estimateStorBatchMemory(queue.objects))
 

@@ -13,6 +13,7 @@ package distributedtask
 
 import (
 	"context"
+	"fmt"
 	"maps"
 	"time"
 )
@@ -49,13 +50,16 @@ type Provider interface {
 	SetCompletionRecorder(recorder TaskCompletionRecorder)
 
 	// GetLocalTasks returns a list of tasks that provider is aware of from the local node state.
-	GetLocalTasks() []TaskDescriptor
+	GetLocalTasks() ([]TaskDescriptor, error)
 
 	// CleanupTask is a signal to clean up the task local state.
 	CleanupTask(desc TaskDescriptor) error
 
 	// StartTask is a signal to start executing the task in the background.
 	StartTask(task *Task) (TaskHandle, error)
+
+	// Close is a signal to close the provider and release all resources.
+	Close() error
 }
 
 type TaskStatus string
@@ -84,6 +88,10 @@ type TaskDescriptor struct {
 	// Version is the version of the task with task ID.
 	// It is used to differentiate between multiple runs of the same task.
 	Version uint64 `json:"version"`
+}
+
+func (d TaskDescriptor) String() string {
+	return fmt.Sprintf("%s/%d", d.ID, d.Version)
 }
 
 type Task struct {

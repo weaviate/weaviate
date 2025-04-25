@@ -118,10 +118,14 @@ func (s *Scheduler) Start(ctx context.Context) error {
 	for namespace, provider := range s.providers {
 		provider.SetCompletionRecorder(s.completionRecorder)
 
+		localTaskDesc, err := provider.GetLocalTasks()
+		if err != nil {
+			return fmt.Errorf("getting local tasks for %s: %w", namespace, err)
+		}
+
 		var (
-			tasks         = tasksByNamespace[namespace]
-			startedTasks  = s.filterStartedTasks(tasks)
-			localTaskDesc = provider.GetLocalTasks()
+			tasks        = tasksByNamespace[namespace]
+			startedTasks = s.filterStartedTasks(tasks)
 		)
 		for _, taskDesc := range localTaskDesc {
 			if _, ok := startedTasks[taskDesc]; ok {
@@ -254,7 +258,7 @@ func (s *Scheduler) tick() {
 			if err != nil {
 				s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
 					s.loggerWithTask(namespace, task.TaskDescriptor).WithError(err).
-						Error("failed to clean up distributed task")
+						Error("failed to submit request to clean up distributed task")
 				})
 				continue
 			}
@@ -263,8 +267,16 @@ func (s *Scheduler) tick() {
 				Info("successfully submitted request to clean up distributed task")
 		}
 
-		// Check that tasks that can be cleaned up locally
-		localTasks := provider.GetLocalTasks()
+		// Check tasks that can be cleaned up locally
+		localTasks, err := provider.GetLocalTasks()
+		if err != nil {
+			s.sampledLogger.WithSampling(func(l logrus.FieldLogger) {
+				l.WithError(err).WithField("namespace", namespace).
+					Error("failed to get local tasks")
+			})
+			continue
+		}
+
 		for _, desc := range localTasks {
 			if _, ok := tasks[desc]; ok {
 				// task still present in the list
@@ -313,6 +325,13 @@ func (s *Scheduler) Close() {
 	for _, tasks := range s.runningTasks {
 		for _, task := range tasks {
 			task.Terminate()
+		}
+	}
+
+	for namespace, provider := range s.providers {
+		if err := provider.Close(); err != nil {
+			s.logger.WithError(err).WithField("namespace", namespace).
+				Error("failed to close provider")
 		}
 	}
 }

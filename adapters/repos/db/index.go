@@ -901,7 +901,7 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 
 // return value []error gives the error for the index with the positions
 // matching the inputs
-func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
+func (i *Index) PutObjectBatch(ctx context.Context, objects []*storobj.Object,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
 	type objsAndPos struct {

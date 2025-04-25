@@ -436,6 +436,11 @@ func (l *LazyLoadShard) MergeObject(ctx context.Context, object objects.MergeDoc
 	return l.shard.MergeObject(ctx, object)
 }
 
+func (l *LazyLoadShard) CursorReplace() *lsmkv.CursorReplace {
+	l.mustLoad()
+	return l.shard.CursorReplace()
+}
+
 func (l *LazyLoadShard) GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool) {
 	l.mustLoad()
 	return l.shard.GetVectorIndexQueue(targetVector)

@@ -42,6 +42,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/usecases/revectorization"
 	"google.golang.org/grpc"
 
 	"github.com/weaviate/fgprof"
@@ -677,14 +678,23 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		migrator.RecountProperties(ctx)
 	}
 
-	scheduler := distributedtask.NewScheduler(distributedtask.SchedulerParams{
+	revectorizationProvider, err := revectorization.NewProvider(revectorization.ProviderParams{
+		MetadataPath: dataPath + "/revectorization.db",
+	})
+	if err != nil {
+		panic(err) // TODO: handle appropriately
+	}
+
+	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
 		TasksLister:        appState.ClusterService.Raft,
-		Providers:          map[string]distributedtask.Provider{},
-		Logger:             appState.Logger,
-		MetricsRegisterer:  metricsRegisterer,
-		LocalNode:          appState.Cluster.LocalName(),
-		TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+		Providers: map[string]distributedtask.Provider{
+			revectorization.DistributedTasksNamespace: revectorizationProvider,
+		},
+		Logger:            appState.Logger,
+		MetricsRegisterer: metricsRegisterer,
+		LocalNode:         appState.Cluster.LocalName(),
+		TickInterval:      appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
 
 		// Using a single global value for now to keep it simple. If there is a need
 		// this can be changed to provide a value per provider.
@@ -698,7 +708,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		if !errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
 			return
 		}
-		if err = scheduler.Start(ctx); err != nil {
+		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
 			appState.Logger.WithError(err).WithField("action", "startup").
 				Error("failed to start distributed task scheduler")
 		}
@@ -813,6 +823,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
+	setupVectorizationHandlers(api, appState.ClusterService.Raft)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.DB, appState.Modules,
 		objects.NewMetrics(appState.Metrics), appState.MemWatch)

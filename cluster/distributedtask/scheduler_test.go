@@ -765,11 +765,11 @@ func (p *testTaskProvider) SetCompletionRecorder(recorder TaskCompletionRecorder
 	p.recorder = recorder
 }
 
-func (p *testTaskProvider) GetLocalTasks() []TaskDescriptor {
+func (p *testTaskProvider) GetLocalTasks() ([]TaskDescriptor, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	return p.localTaskIds
+	return p.localTaskIds, nil
 }
 
 func (p *testTaskProvider) CleanupTask(desc TaskDescriptor) error {
@@ -783,6 +783,10 @@ func (p *testTaskProvider) StartTask(task *Task) (TaskHandle, error) {
 
 	p.localTaskIds = append(p.localTaskIds, task.TaskDescriptor)
 	return newTestTask(task, p), nil
+}
+
+func (p *testTaskProvider) Close() error {
+	return nil
 }
 
 func collectChToSet[T comparable](t *testing.T, expectCount int, ch chan T) map[T]struct{} {

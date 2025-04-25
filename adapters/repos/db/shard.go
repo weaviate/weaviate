@@ -74,6 +74,7 @@ type ShardLike interface {
 	ObjectCountAsync() int
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
+	CursorReplace() *lsmkv.CursorReplace
 	PutObject(context.Context, *storobj.Object) error
 	PutObjectBatch(context.Context, []*storobj.Object) []error
 	ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error)
@@ -361,6 +362,17 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 	enterrors.GoWrapper(f, s.index.logger)
 
 	return err
+}
+
+func (s *Shard) CursorReplace() *lsmkv.CursorReplace {
+	// TODO: make sure that the shard is not closed while we are iterating
+	//  we probably need some kind of 'release()' mechanism
+	b := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return nil
+	}
+
+	return b.Cursor()
 }
 
 // ObjectCount returns the exact count at any moment
