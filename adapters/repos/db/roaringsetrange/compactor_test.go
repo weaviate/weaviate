@@ -457,7 +457,10 @@ func Test_Compactor(t *testing.T) {
 				f, err = os.Open(segmentFile)
 				require.NoError(t, err)
 
-				header, err := segmentindex.ParseHeader(f)
+				data, err := io.ReadAll(f)
+				require.NoError(t, err)
+
+				header, err := segmentindex.ParseHeader(data)
 				require.NoError(t, err)
 
 				segmentBytes, err := io.ReadAll(f)
@@ -503,7 +506,10 @@ func Test_Compactor(t *testing.T) {
 				f, err = os.Open(segmentFile)
 				require.NoError(t, err)
 
-				header, err := segmentindex.ParseHeader(f)
+				data, err := io.ReadAll(f)
+				require.NoError(t, err)
+
+				header, err := segmentindex.ParseHeader(data)
 				require.NoError(t, err)
 
 				segmentBytes, err := io.ReadAll(f)
