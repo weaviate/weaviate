@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// AsyncReplicationStatus TODO
+// AsyncReplicationStatus The status of the async replication.
 //
 // swagger:model AsyncReplicationStatus
 type AsyncReplicationStatus struct {

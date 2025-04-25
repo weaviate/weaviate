@@ -4825,7 +4825,7 @@ func init() {
       }
     },
     "AsyncReplicationStatus": {
-      "description": "TODO",
+      "description": "The status of the async replication.",
       "properties": {
         "objectsPropagated": {
           "description": "The number of objects propagated.",
@@ -12575,7 +12575,7 @@ func init() {
       }
     },
     "AsyncReplicationStatus": {
-      "description": "TODO",
+      "description": "The status of the async replication.",
       "properties": {
         "objectsPropagated": {
           "description": "The number of objects propagated.",
