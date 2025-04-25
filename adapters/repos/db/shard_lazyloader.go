@@ -570,21 +570,21 @@ func (l *LazyLoadShard) preparePutObject(ctx context.Context, shardID string, ob
 
 func (l *LazyLoadShard) preparePutObjects(ctx context.Context, shardID string, objects []*storobj.Object) replica.SimpleResponse {
 	if err := l.mustLoad(ctx); err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{replica.Error{Err: err}}}
+		return replica.SimpleResponse{Errors: []replica.Error{{Err: err}}}
 	}
 	return l.shard.preparePutObjects(ctx, shardID, objects)
 }
 
 func (l *LazyLoadShard) prepareMergeObject(ctx context.Context, shardID string, object *objects.MergeDocument) replica.SimpleResponse {
 	if err := l.mustLoad(ctx); err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{replica.Error{Err: err}}}
+		return replica.SimpleResponse{Errors: []replica.Error{{Err: err}}}
 	}
 	return l.shard.prepareMergeObject(ctx, shardID, object)
 }
 
 func (l *LazyLoadShard) prepareDeleteObject(ctx context.Context, shardID string, id strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
 	if err := l.mustLoad(ctx); err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{replica.Error{Err: err}}}
+		return replica.SimpleResponse{Errors: []replica.Error{{Err: err}}}
 	}
 	return l.shard.prepareDeleteObject(ctx, shardID, id, deletionTime)
 }
@@ -593,14 +593,14 @@ func (l *LazyLoadShard) prepareDeleteObjects(ctx context.Context, shardID string
 	ids []strfmt.UUID, deletionTime time.Time, dryRun bool,
 ) replica.SimpleResponse {
 	if err := l.mustLoad(ctx); err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{replica.Error{Err: err}}}
+		return replica.SimpleResponse{Errors: []replica.Error{{Err: err}}}
 	}
 	return l.shard.prepareDeleteObjects(ctx, shardID, ids, deletionTime, dryRun)
 }
 
 func (l *LazyLoadShard) prepareAddReferences(ctx context.Context, shardID string, refs []objects.BatchReference) replica.SimpleResponse {
 	if err := l.mustLoad(ctx); err != nil {
-		return replica.SimpleResponse{Errors: []replica.Error{replica.Error{Err: err}}}
+		return replica.SimpleResponse{Errors: []replica.Error{{Err: err}}}
 	}
 	return l.shard.prepareAddReferences(ctx, shardID, refs)
 }
