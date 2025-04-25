@@ -15,6 +15,7 @@ import (
 	"bufio"
 	"encoding/binary"
 	"fmt"
+	"hash"
 	"hash/crc32"
 	"io"
 	"math"
@@ -347,7 +348,7 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 
 	// compute the checksum of the snapshot file
 	hasher := crc32.NewIEEE()
-	w := bufio.NewWriter(io.MultiWriter(snap, hasher))
+	w := bufio.NewWriter(snap)
 
 	// write the snapshot to the file
 	checkpoints, err := writeStateTo(state, w)
@@ -518,108 +519,20 @@ func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) *Deseria
 }
 
 // returns checkpoints which can be used as parallelizatio hints
-func writeStateTo(state *DeserializationResult, w io.Writer) ([]Checkpoint, error) {
-	// version
-	offset := 0
-	if err := writeByte(w, 0); err != nil {
+func writeStateTo(state *DeserializationResult, wr io.Writer) ([]Checkpoint, error) {
+	offset, err := writeMetadataTo(state, wr)
+	if err != nil {
 		return nil, err
 	}
-	offset += writeByteSize
-
-	if err := writeUint64(w, state.Entrypoint); err != nil {
-		return nil, err
-	}
-	offset += writeUint64Size
-
-	if err := writeUint16(w, state.Level); err != nil {
-		return nil, err
-	}
-	offset += writeUint16Size
-
-	if err := writeBool(w, state.Compressed); err != nil {
-		return nil, err
-	}
-	offset += writeByteSize
-
-	if state.Compressed {
-		if state.CompressionPQData != nil { // PQ
-			// first byte is the compression type
-			if err := writeByte(w, byte(SnapshotCompressionTypePQ)); err != nil {
-				return nil, err
-			}
-			offset += writeByteSize
-
-			if err := writeUint16(w, state.CompressionPQData.Dimensions); err != nil {
-				return nil, err
-			}
-			offset += writeUint16Size
-
-			if err := writeUint16(w, state.CompressionPQData.Ks); err != nil {
-				return nil, err
-			}
-			offset += writeUint16Size
-
-			if err := writeUint16(w, state.CompressionPQData.M); err != nil {
-				return nil, err
-			}
-			offset += writeUint16Size
-
-			if err := writeByte(w, byte(state.CompressionPQData.EncoderType)); err != nil {
-				return nil, err
-			}
-			offset += writeByteSize
-
-			if err := writeByte(w, state.CompressionPQData.EncoderDistribution); err != nil {
-				return nil, err
-			}
-			offset += writeByteSize
-
-			if err := writeBool(w, state.CompressionPQData.UseBitsEncoding); err != nil {
-				return nil, err
-			}
-			offset += writeByteSize
-
-			for _, encoder := range state.CompressionPQData.Encoders {
-				if n, err := w.Write(encoder.ExposeDataForRestore()); err != nil {
-					return nil, err
-				} else {
-					offset += n
-				}
-			}
-		} else if state.CompressionSQData != nil { // SQ
-			// first byte is the compression type
-			if err := writeByte(w, byte(SnapshotCompressionTypeSQ)); err != nil {
-				return nil, err
-			}
-			offset += writeByteSize
-
-			if err := writeUint16(w, state.CompressionSQData.Dimensions); err != nil {
-				return nil, err
-			}
-			offset += writeUint16Size
-
-			if err := writeUint32(w, math.Float32bits(state.CompressionSQData.A)); err != nil {
-				return nil, err
-			}
-			offset += writeUint32Size
-
-			if err := writeUint32(w, math.Float32bits(state.CompressionSQData.B)); err != nil {
-				return nil, err
-			}
-			offset += writeUint32Size
-		}
-	}
-
-	if err := writeUint32(w, uint32(len(state.Nodes))); err != nil {
-		return nil, err
-	}
-	offset += writeUint32Size
 
 	var checkpoints []Checkpoint
 	// start at the very first node
 	checkpoints = append(checkpoints, Checkpoint{NodeID: 0, Offset: uint64(offset)})
 
 	nonNilNodes := 0
+
+	hasher := crc32.NewIEEE()
+	w := io.MultiWriter(wr, hasher)
 
 	for i, n := range state.Nodes {
 		if n == nil {
@@ -645,6 +558,8 @@ func writeStateTo(state *DeserializationResult, w io.Writer) ([]Checkpoint, erro
 		}
 
 		if nonNilNodes%checkpointChunkSize == 0 && nonNilNodes > 0 {
+			checkpoints[len(checkpoints)-1].Hash = hasher.Sum32()
+			hasher.Reset()
 			checkpoints = append(checkpoints, Checkpoint{NodeID: uint64(i), Offset: uint64(offset)})
 		}
 
@@ -686,9 +601,123 @@ func writeStateTo(state *DeserializationResult, w io.Writer) ([]Checkpoint, erro
 		nonNilNodes++
 	}
 
-	// note that we are not adding an end checkpoint, so the implicit contract
-	// here is that the reader must read from the last checkpoint to EOF.
+	// compute last checkpoint hash
+	checkpoints[len(checkpoints)-1].Hash = hasher.Sum32()
+
+	// add a dummy checkpoint to mark the end of the file
+	checkpoints = append(checkpoints, Checkpoint{NodeID: math.MaxInt64, Offset: uint64(offset)})
+
 	return checkpoints, nil
+}
+
+// returns checkpoints which can be used as parallelizatio hints
+func writeMetadataTo(state *DeserializationResult, w io.Writer) (offset int, err error) {
+	hasher := crc32.NewIEEE()
+	w = io.MultiWriter(w, hasher)
+
+	// version
+	offset = 0
+	if err := writeByte(w, 0); err != nil {
+		return 0, err
+	}
+	offset += writeByteSize
+
+	if err := writeUint64(w, state.Entrypoint); err != nil {
+		return 0, err
+	}
+	offset += writeUint64Size
+
+	if err := writeUint16(w, state.Level); err != nil {
+		return 0, err
+	}
+	offset += writeUint16Size
+
+	if err := writeBool(w, state.Compressed); err != nil {
+		return 0, err
+	}
+	offset += writeByteSize
+
+	if state.Compressed {
+		if state.CompressionPQData != nil { // PQ
+			// first byte is the compression type
+			if err := writeByte(w, byte(SnapshotCompressionTypePQ)); err != nil {
+				return 0, err
+			}
+			offset += writeByteSize
+
+			if err := writeUint16(w, state.CompressionPQData.Dimensions); err != nil {
+				return 0, err
+			}
+			offset += writeUint16Size
+
+			if err := writeUint16(w, state.CompressionPQData.Ks); err != nil {
+				return 0, err
+			}
+			offset += writeUint16Size
+
+			if err := writeUint16(w, state.CompressionPQData.M); err != nil {
+				return 0, err
+			}
+			offset += writeUint16Size
+
+			if err := writeByte(w, byte(state.CompressionPQData.EncoderType)); err != nil {
+				return 0, err
+			}
+			offset += writeByteSize
+
+			if err := writeByte(w, state.CompressionPQData.EncoderDistribution); err != nil {
+				return 0, err
+			}
+			offset += writeByteSize
+
+			if err := writeBool(w, state.CompressionPQData.UseBitsEncoding); err != nil {
+				return 0, err
+			}
+			offset += writeByteSize
+
+			for _, encoder := range state.CompressionPQData.Encoders {
+				if n, err := w.Write(encoder.ExposeDataForRestore()); err != nil {
+					return 0, err
+				} else {
+					offset += n
+				}
+			}
+		} else if state.CompressionSQData != nil { // SQ
+			// first byte is the compression type
+			if err := writeByte(w, byte(SnapshotCompressionTypeSQ)); err != nil {
+				return 0, err
+			}
+			offset += writeByteSize
+
+			if err := writeUint16(w, state.CompressionSQData.Dimensions); err != nil {
+				return 0, err
+			}
+			offset += writeUint16Size
+
+			if err := writeUint32(w, math.Float32bits(state.CompressionSQData.A)); err != nil {
+				return 0, err
+			}
+			offset += writeUint32Size
+
+			if err := writeUint32(w, math.Float32bits(state.CompressionSQData.B)); err != nil {
+				return 0, err
+			}
+			offset += writeUint32Size
+		}
+	}
+
+	if err := writeUint32(w, uint32(len(state.Nodes))); err != nil {
+		return 0, err
+	}
+	offset += writeUint32Size
+
+	// write checksum of the metadata
+	if err := binary.Write(w, binary.LittleEndian, hasher.Sum32()); err != nil {
+		return 0, err
+	}
+	offset += writeUint32Size
+
+	return offset, nil
 }
 
 func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
@@ -707,12 +736,13 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 	}
 	defer f.Close()
 
+	hasher := crc32.NewIEEE()
 	// start with a single-threaded reader until we make it the nodes section
 	r := bufio.NewReader(f)
 
 	var b [8]byte
 
-	_, err = io.ReadFull(r, b[:1]) // version
+	_, err = ReadAndHash(r, hasher, b[:1]) // version
 	if err != nil {
 		return nil, errors.Wrapf(err, "read version")
 	}
@@ -720,19 +750,19 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 		return nil, fmt.Errorf("unsupported version %d", b[0])
 	}
 
-	_, err = io.ReadFull(r, b[:8]) // entrypoint
+	_, err = ReadAndHash(r, hasher, b[:8]) // entrypoint
 	if err != nil {
 		return nil, errors.Wrapf(err, "read entrypoint")
 	}
 	res.Entrypoint = binary.LittleEndian.Uint64(b[:8])
 
-	_, err = io.ReadFull(r, b[:2]) // level
+	_, err = ReadAndHash(r, hasher, b[:2]) // level
 	if err != nil {
 		return nil, errors.Wrapf(err, "read level")
 	}
 	res.Level = binary.LittleEndian.Uint16(b[:2])
 
-	_, err = io.ReadFull(r, b[:1]) // compressed
+	_, err = ReadAndHash(r, hasher, b[:1]) // compressed
 	if err != nil {
 		return nil, errors.Wrapf(err, "read compressed")
 	}
@@ -740,44 +770,44 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 
 	// Compressed data
 	if res.Compressed {
-		_, err = io.ReadFull(r, b[:1]) // compression type
+		_, err = ReadAndHash(r, hasher, b[:1]) // compression type
 		if err != nil {
 			return nil, errors.Wrapf(err, "read compressed")
 		}
 
 		switch b[0] {
 		case SnapshotCompressionTypePQ:
-			_, err = io.ReadFull(r, b[:2]) // PQData.Dimensions
+			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.Dimensions
 			if err != nil {
 				return nil, errors.Wrapf(err, "read PQData.Dimensions")
 			}
 			dims := binary.LittleEndian.Uint16(b[:2])
 
-			_, err = io.ReadFull(r, b[:2]) // PQData.Ks
+			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.Ks
 			if err != nil {
 				return nil, errors.Wrapf(err, "read PQData.Ks")
 			}
 			ks := binary.LittleEndian.Uint16(b[:2])
 
-			_, err = io.ReadFull(r, b[:2]) // PQData.M
+			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.M
 			if err != nil {
 				return nil, errors.Wrapf(err, "read PQData.M")
 			}
 			m := binary.LittleEndian.Uint16(b[:2])
 
-			_, err = io.ReadFull(r, b[:1]) // PQData.EncoderType
+			_, err = ReadAndHash(r, hasher, b[:1]) // PQData.EncoderType
 			if err != nil {
 				return nil, errors.Wrapf(err, "read PQData.EncoderType")
 			}
 			encoderType := compressionhelpers.Encoder(b[0])
 
-			_, err = io.ReadFull(r, b[:1]) // PQData.EncoderDistribution
+			_, err = ReadAndHash(r, hasher, b[:1]) // PQData.EncoderDistribution
 			if err != nil {
 				return nil, errors.Wrapf(err, "read PQData.EncoderDistribution")
 			}
 			dist := b[0]
 
-			_, err = io.ReadFull(r, b[:1]) // PQData.UseBitsEncoding
+			_, err = ReadAndHash(r, hasher, b[:1]) // PQData.UseBitsEncoding
 			if err != nil {
 				return nil, errors.Wrapf(err, "read PQData.UseBitsEncoding")
 			}
@@ -813,19 +843,19 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 				res.CompressionPQData.Encoders = append(res.CompressionPQData.Encoders, encoder)
 			}
 		case SnapshotCompressionTypeSQ:
-			_, err = io.ReadFull(r, b[:2]) // SQData.Dimensions
+			_, err = ReadAndHash(r, hasher, b[:2]) // SQData.Dimensions
 			if err != nil {
 				return nil, errors.Wrapf(err, "read SQData.Dimensions")
 			}
 			dims := binary.LittleEndian.Uint16(b[:2])
 
-			_, err = io.ReadFull(r, b[:4]) // SQData.A
+			_, err = ReadAndHash(r, hasher, b[:4]) // SQData.A
 			if err != nil {
 				return nil, errors.Wrapf(err, "read SQData.A")
 			}
 			a := math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
 
-			_, err = io.ReadFull(r, b[:4]) // SQData.B
+			_, err = ReadAndHash(r, hasher, b[:4]) // SQData.B
 			if err != nil {
 				return nil, errors.Wrapf(err, "read SQData.B")
 			}
@@ -841,7 +871,7 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 		}
 	}
 
-	_, err = io.ReadFull(r, b[:4]) // nodes
+	_, err = ReadAndHash(r, hasher, b[:4]) // nodes
 	if err != nil {
 		return nil, errors.Wrapf(err, "read nodes count")
 	}
@@ -849,23 +879,31 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 
 	res.Nodes = make([]*vertex, nodesCount)
 
+	// read metadata checksum
+	_, err = io.ReadFull(r, b[:4]) // checksum
+	if err != nil {
+		return nil, errors.Wrapf(err, "read checksum")
+	}
+
+	// check checksum
+	checksum := binary.LittleEndian.Uint32(b[:4])
+	actualChecksum := hasher.Sum32()
+	if checksum != actualChecksum {
+		return nil, fmt.Errorf("invalid checksum: expected %d, got %d", checksum, actualChecksum)
+	}
+
 	var mu sync.Mutex
 
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(concurrency)
 	for cpPos, cp := range checkpoints {
-		start := int(cp.Offset)
-		var end int
-		if cpPos != len(checkpoints)-1 {
-			end = int(checkpoints[cpPos+1].Offset)
-		} else {
-			st, err := f.Stat()
-			if err != nil {
-				return nil, errors.Wrapf(err, "get file stat")
-			}
-
-			end = int(st.Size())
+		if cpPos == len(checkpoints)-1 {
+			// last checkpoint, no need to read
+			break
 		}
+
+		start := int(cp.Offset)
+		end := int(checkpoints[cpPos+1].Offset)
 
 		eg.Go(func() error {
 			var b [8]byte
@@ -873,7 +911,8 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 
 			currNodeID := cp.NodeID
 			sr := io.NewSectionReader(f, int64(start), int64(end-start))
-			r := bufio.NewReader(sr)
+			hasher := crc32.NewIEEE()
+			r := bufio.NewReader(io.TeeReader(sr, hasher))
 
 			for read < end-start {
 				n, err := io.ReadFull(r, b[:1]) // node existence
@@ -944,6 +983,11 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 				currNodeID++
 			}
 
+			// check checksum of checkpoint
+			if cp.Hash != hasher.Sum32() {
+				return fmt.Errorf("invalid checksum for checkpoint %d: expected %d, got %d", cpPos, cp.Hash, hasher.Sum32())
+			}
+
 			return nil
 		})
 	}
@@ -956,9 +1000,22 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 	return res, nil
 }
 
+func ReadAndHash(r io.Reader, hasher hash.Hash, buf []byte) (int, error) {
+	n, err := io.ReadFull(r, buf)
+	if err != nil {
+		return n, err
+	}
+	_, err = hasher.Write(buf)
+	if err != nil {
+		return n, err
+	}
+	return n, nil
+}
+
 type Checkpoint struct {
 	NodeID uint64
 	Offset uint64
+	Hash   uint32
 }
 
 func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
@@ -969,8 +1026,8 @@ func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
 	defer checkpointFile.Close()
 
 	// 0-4: checksum
-	// 4+: checkpoints (16 bytes each)
-	buffer := make([]byte, 4+len(checkpoints)*16)
+	// 4+: checkpoints (20 bytes each)
+	buffer := make([]byte, 4+len(checkpoints)*20)
 	offset := 4
 
 	for _, cp := range checkpoints {
@@ -978,6 +1035,8 @@ func writeCheckpoints(fileName string, checkpoints []Checkpoint) error {
 		offset += 8
 		binary.LittleEndian.PutUint64(buffer[offset:offset+8], cp.Offset)
 		offset += 8
+		binary.LittleEndian.PutUint32(buffer[offset:offset+4], cp.Hash)
+		offset += 4
 	}
 
 	checksum := crc32.ChecksumIEEE(buffer[4:])
@@ -1014,11 +1073,12 @@ func readCheckpoints(snapshotFileName string) (checkpoints []Checkpoint, err err
 		return nil, fmt.Errorf("corrupted checkpoint file %q, checksum mismatch", cpfn)
 	}
 
-	checkpoints = make([]Checkpoint, 0, len(buf[4:])/16)
-	for i := 4; i < len(buf); i += 16 {
+	checkpoints = make([]Checkpoint, 0, len(buf[4:])/20)
+	for i := 4; i < len(buf); i += 20 {
 		id := binary.LittleEndian.Uint64(buf[i : i+8])
 		offset := binary.LittleEndian.Uint64(buf[i+8 : i+16])
-		checkpoints = append(checkpoints, Checkpoint{NodeID: id, Offset: offset})
+		hash := binary.LittleEndian.Uint32(buf[i+16 : i+20])
+		checkpoints = append(checkpoints, Checkpoint{NodeID: id, Offset: offset, Hash: hash})
 	}
 
 	return checkpoints, nil
