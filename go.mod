@@ -226,4 +226,4 @@ require (
 
 go 1.24
 
-replace golang.org/x/sys => github.com/weaviate/go-sys-fork v0.0.0-20250425062428-f30deb3649f4
+replace golang.org/x/sys => github.com/weaviate/go-sys-fork v0.0.0-20250425064251-3cc1c1906260
