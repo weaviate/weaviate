@@ -11,7 +11,10 @@
 
 package additional
 
-import "github.com/go-openapi/strfmt"
+import (
+	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/entities/models"
+)
 
 type Group struct {
 	ID          int                      `json:"id"`
@@ -28,7 +31,8 @@ type GroupedBy struct {
 }
 
 type GroupHitAdditional struct {
-	ID       strfmt.UUID `json:"id"`
-	Vector   []float32   `json:"vector"`
-	Distance float32     `json:"distance"`
+	ID       strfmt.UUID    `json:"id"`
+	Vector   []float32      `json:"vector"`
+	Vectors  models.Vectors `json:"vectors"`
+	Distance float32        `json:"distance"`
 }
