@@ -457,18 +457,15 @@ func Test_Compactor(t *testing.T) {
 				f, err = os.Open(segmentFile)
 				require.NoError(t, err)
 
-				data, err := io.ReadAll(f)
-				require.NoError(t, err)
-
-				header, err := segmentindex.ParseHeader(data)
-				require.NoError(t, err)
-
 				segmentBytes, err := io.ReadAll(f)
+				require.NoError(t, err)
+
+				header, err := segmentindex.ParseHeader(segmentBytes[:segmentindex.HeaderSize])
 				require.NoError(t, err)
 
 				require.NoError(t, f.Close())
 
-				cu := NewSegmentCursorMmap(segmentBytes[:header.IndexStart-segmentindex.HeaderSize])
+				cu := NewSegmentCursorMmap(segmentBytes[segmentindex.HeaderSize:header.IndexStart])
 
 				i := 0
 				for k, l, ok := cu.First(); ok; k, l, ok = cu.Next() {
@@ -506,18 +503,15 @@ func Test_Compactor(t *testing.T) {
 				f, err = os.Open(segmentFile)
 				require.NoError(t, err)
 
-				data, err := io.ReadAll(f)
-				require.NoError(t, err)
-
-				header, err := segmentindex.ParseHeader(data)
-				require.NoError(t, err)
-
 				segmentBytes, err := io.ReadAll(f)
+				require.NoError(t, err)
+
+				header, err := segmentindex.ParseHeader(segmentBytes[:segmentindex.HeaderSize])
 				require.NoError(t, err)
 
 				require.NoError(t, f.Close())
 
-				cu := NewSegmentCursorMmap(segmentBytes[:header.IndexStart-segmentindex.HeaderSize])
+				cu := NewSegmentCursorMmap(segmentBytes[segmentindex.HeaderSize:header.IndexStart])
 
 				i := 0
 				for k, l, ok := cu.First(); ok; k, l, ok = cu.Next() {
