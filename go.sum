@@ -647,8 +647,7 @@ github.com/weaviate/contextionary v1.2.1 h1:mmxHVc1mWpqivLHEA/ITHUiAOZziIDluYfKy
 github.com/weaviate/contextionary v1.2.1/go.mod h1:nIEM3Gq1BzTZLuY+Pl7t8hD3eR6VAU43fRdZTEZ9LRY=
 github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa h1:yavIOSoUOUfmYlESRiyT4mqVI/thhNm10pS9LDdf62c=
 github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa/go.mod h1:2REGzzHg/U0Olsn/1ok6QfqAE/vDuKvb/j2eLrOIP8A=
-github.com/weaviate/go-sys-fork v0.0.0-20250425062428-f30deb3649f4 h1:5l/jgmz2JUV5SGHuHZyADbPcSkdpWoaZzx3Pab+OpKY=
-github.com/weaviate/go-sys-fork v0.0.0-20250425062428-f30deb3649f4/go.mod h1:BJP2sWEmIv4KK5OTEluFJCKSidICx8ciO85XgH3Ak8k=
+github.com/weaviate/go-sys-fork v0.0.0-20250425064251-3cc1c1906260 h1:eEPuWrCJD8ApHI5ce+x39TVAkE+t2qFUO9AVZ4CbQ8Q=
 github.com/weaviate/go-sys-fork v0.0.0-20250425064251-3cc1c1906260/go.mod h1:BJP2sWEmIv4KK5OTEluFJCKSidICx8ciO85XgH3Ak8k=
 github.com/weaviate/s5cmd/v2 v2.0.1 h1:NLsBemDEeUa1pcqVAGl5Y2quKH8EFpkz/Z8n4s620hg=
 github.com/weaviate/s5cmd/v2 v2.0.1/go.mod h1:JEoBF8SXVwK8qoaRKi0fPA4qi4OFmr+iVgc4XO3l/Zs=
