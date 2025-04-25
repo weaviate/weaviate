@@ -177,7 +177,9 @@ func (l *hnswCommitLogger) shouldSnapshot() (string, int64, []string, error) {
 	}
 
 	if len(fileNames) < 2 {
-		// not enough commit log files
+		// not enough commit log files.
+		// The combiner requires two files minimum.
+		// Also a snapshot is not needed if there is only one file.
 		return name, from, nil, nil
 	}
 
