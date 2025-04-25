@@ -17,6 +17,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
 
@@ -101,6 +102,7 @@ func (o *nodeWideMetricsObserver) observeUnlocked() {
 	o.db.promMetrics.ObjectCount.With(prometheus.Labels{
 		"class_name": "n/a",
 		"shard_name": "n/a",
+		"node_id":    o.db.config.NodeID,
 	}).Set(float64(totalObjectCount))
 
 	took := time.Since(start)

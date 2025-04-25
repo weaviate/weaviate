@@ -408,7 +408,7 @@ func newPrometheusMetrics() *PrometheusMetrics {
 		ObjectCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "object_count",
 			Help: "Number of currently ongoing async operations",
-		}, []string{"class_name", "shard_name"}),
+		}, []string{"class_name", "shard_name", "node_id"}),
 
 		QueriesCount: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "concurrent_queries_count",

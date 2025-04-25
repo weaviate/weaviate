@@ -23,6 +23,7 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -181,6 +182,8 @@ func New(logger logrus.FieldLogger, config Config,
 }
 
 type Config struct {
+	// needed for metric purposes
+	NodeID                              string
 	RootPath                            string
 	QueryLimit                          int64
 	QueryMaximumResults                 int64

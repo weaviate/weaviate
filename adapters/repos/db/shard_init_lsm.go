@@ -17,9 +17,8 @@ import (
 	"path"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/schema"
-
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -27,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 )
 
 func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
@@ -117,7 +117,7 @@ func (s *Shard) initLSMStore() error {
 	})
 	var metrics *lsmkv.Metrics
 	if s.promMetrics != nil {
-		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
+		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name, s.index.Config.NodeID)
 	}
 
 	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,

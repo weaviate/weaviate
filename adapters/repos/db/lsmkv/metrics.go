@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -49,7 +50,7 @@ type Metrics struct {
 }
 
 func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
-	shardName string,
+	shardName, nodeID string,
 ) *Metrics {
 	if promMetrics.Group {
 		className = "n/a"
@@ -133,6 +134,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		objectCount: promMetrics.ObjectCount.With(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
+			"node_id":    nodeID,
 		}),
 		memtableDurations: promMetrics.LSMMemtableDurations.MustCurryWith(prometheus.Labels{
 			"class_name": className,
