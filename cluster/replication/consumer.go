@@ -221,7 +221,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 // processReplicationOp performs the full replication flow for a single operation.
 //
 // It executes the following steps:
-//  1. Skips processing if the operation is not in a runnable state (i.e., not REGISTERED or HYDRATING).
+//  1. Skips processing if the operation is already running or completed.
 //  2. Updates the operation status to HYDRATING using the leader FSM updater.
 //  3. Initiates the copy of replica data from the source node to the target shard.
 //  4. Once the copy succeeds, updates the sharding state to reflect the added replica.
