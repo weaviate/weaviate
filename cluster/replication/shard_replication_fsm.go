@@ -148,15 +148,7 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	return readOk, writeOk
 }
 
-// ShouldSkipReplicationOp determines whether the given replication operation
-// should be skipped before starting it in the OpConsumer.
-//
-// An operation is considered eligible for skipping if it is not in the REGISTERED state,
-// which means it has already started, completed, successfully or not.
-//
-// Returns:
-//   - true if the operation should be skipped
-//   - false if the operation is in the REGISTERED state and ready to run
-func (s *ShardReplicationFSM) ShouldSkipReplicationOp(op ShardReplicationOp) bool {
+// IsOpCompletedOrInProgress returns true if the given replication operation has started or completed execution.
+func (s *ShardReplicationFSM) IsOpCompletedOrInProgress(op ShardReplicationOp) bool {
 	return api.REGISTERED != s.GetOpState(op).state
 }
