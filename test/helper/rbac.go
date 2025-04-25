@@ -107,6 +107,15 @@ func GetUser(t *testing.T, userId, key string) *models.DBUserInfo {
 	return resp.Payload
 }
 
+func GetUserWithLastUsedTime(t *testing.T, userId, key string, lastUsedTime bool) *models.DBUserInfo {
+	t.Helper()
+	resp, err := Client(t).Users.GetUserInfo(users.NewGetUserInfoParams().WithUserID(userId).WithIncludeLastUsedTime(&lastUsedTime), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp.Payload)
+	return resp.Payload
+}
+
 func CreateUser(t *testing.T, userId, key string) string {
 	t.Helper()
 	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId), CreateAuth(key))
@@ -146,6 +155,14 @@ func ActivateUser(t *testing.T, key, userId string) {
 func ListAllUsers(t *testing.T, key string) []*models.DBUserInfo {
 	t.Helper()
 	resp, err := Client(t).Users.ListAllUsers(users.NewListAllUsersParams(), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
+func ListAllUsersWithIncludeTime(t *testing.T, key string, includeLastUsedTime bool) []*models.DBUserInfo {
+	t.Helper()
+	resp, err := Client(t).Users.ListAllUsers(users.NewListAllUsersParams().WithIncludeLastUsedTime(&includeLastUsedTime), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload

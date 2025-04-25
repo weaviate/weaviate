@@ -94,6 +94,7 @@ func (db *DB) init(ctx context.Context) error {
 				SegmentsCleanupIntervalSeconds:      db.config.SegmentsCleanupIntervalSeconds,
 				SeparateObjectsCompactions:          db.config.SeparateObjectsCompactions,
 				CycleManagerRoutinesFactor:          db.config.CycleManagerRoutinesFactor,
+				IndexRangeableInMemory:              db.config.IndexRangeableInMemory,
 				MaxSegmentSize:                      db.config.MaxSegmentSize,
 				HNSWMaxLogSize:                      db.config.HNSWMaxLogSize,
 				HNSWWaitForCachePrefill:             db.config.HNSWWaitForCachePrefill,

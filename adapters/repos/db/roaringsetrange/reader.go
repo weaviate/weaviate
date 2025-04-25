@@ -13,17 +13,21 @@ package roaringsetrange
 
 import (
 	"context"
+	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 )
 
 type InnerReader interface {
-	Read(ctx context.Context, value uint64, operator filters.Operator) (roaringset.BitmapLayer, error)
+	Read(ctx context.Context, value uint64, operator filters.Operator) (layer roaringset.BitmapLayer, release func(), err error)
 }
 
 type CombinedReader struct {
@@ -45,18 +49,47 @@ func NewCombinedReader(readers []InnerReader, releaseReaders func(), concurrency
 }
 
 func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filters.Operator,
-) (*sroar.Bitmap, error) {
+) (*sroar.Bitmap, func(), error) {
+	before := time.Now()
 	count := len(r.readers)
+
+	var subresultsReadSum time.Duration
+	var mergingSum time.Duration
+
+	defer func() {
+		took := time.Since(before)
+		vals := map[string]any{
+			"readers":                         count,
+			"subresults_read_sum_took":        subresultsReadSum,
+			"subresults_read_sum_took_string": subresultsReadSum.String(),
+			"merging_sum_took":                mergingSum,
+			"merging_sum_took_string":         mergingSum.String(),
+			"took":                            took,
+			"took_string":                     took.String(),
+		}
+
+		helpers.AnnotateSlowQueryLogAppend(ctx, "build_allow_list_doc_bitmap_rangeable", vals)
+	}()
 
 	switch count {
 	case 0:
-		return sroar.NewBitmap(), nil
+		return sroar.NewBitmap(), noopRelease, nil
 	case 1:
-		layer, err := r.readers[0].Read(ctx, value, operator)
+		t := time.Now()
+		layer, release, err := r.readers[0].Read(ctx, value, operator)
+		subresultsReadSum = time.Since(t)
+
 		if err != nil {
-			return nil, err
+			return nil, noopRelease, err
 		}
-		return layer.Additions, nil
+		return layer.Additions, release, nil
+	}
+
+	lock := new(sync.Mutex)
+	addReadTime := func(d time.Duration) {
+		lock.Lock()
+		subresultsReadSum += d
+		lock.Unlock()
 	}
 
 	// all readers but last one. it will be processed by current goroutine
@@ -75,29 +108,41 @@ func (r *CombinedReader) Read(ctx context.Context, value uint64, operator filter
 		for i := 1; i < count; i++ {
 			i := i
 			eg.Go(func() error {
-				layer, err := r.readers[i].Read(gctx, value, operator)
-				responseChans[i-1] <- &readerResponse{layer, err}
+				t := time.Now()
+				layer, release, err := r.readers[i].Read(gctx, value, operator)
+				addReadTime(time.Since(t))
+				responseChans[i-1] <- &readerResponse{layer, release, err}
 				return err
 			})
 		}
 	}, r.logger)
 
-	layer, err := r.readers[0].Read(ctx, value, operator)
-	if err != nil {
-		return nil, err
-	}
+	t := time.Now()
+	layer, release, err := r.readers[0].Read(ctx, value, operator)
+	addReadTime(time.Since(t))
+
+	ec := errorcompounder.New()
+	ec.Add(err)
 
 	for i := 1; i < count; i++ {
 		response := <-responseChans[i-1]
-		if response.err != nil {
-			return nil, response.err
-		}
+		ec.Add(response.err)
 
-		layer.Additions.AndNotConc(response.layer.Deletions, concurrency.SROAR_MERGE)
-		layer.Additions.OrConc(response.layer.Additions, concurrency.SROAR_MERGE)
+		if ec.Len() == 0 {
+			t := time.Now()
+			layer.Additions.AndNotConc(response.layer.Deletions, concurrency.SROAR_MERGE)
+			layer.Additions.OrConc(response.layer.Additions, concurrency.SROAR_MERGE)
+			mergingSum += time.Since(t)
+		}
+		response.release()
 	}
 
-	return layer.Additions, nil
+	if ec.Len() > 0 {
+		release()
+		return nil, noopRelease, ec.ToError()
+	}
+
+	return layer.Additions, release, nil
 }
 
 func (r *CombinedReader) Close() {
@@ -105,6 +150,7 @@ func (r *CombinedReader) Close() {
 }
 
 type readerResponse struct {
-	layer roaringset.BitmapLayer
-	err   error
+	layer   roaringset.BitmapLayer
+	release func()
+	err     error
 }

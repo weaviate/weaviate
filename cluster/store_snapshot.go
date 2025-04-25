@@ -12,14 +12,55 @@
 package cluster
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"sync"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/fsm"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
+
+// Persist should dump all necessary state to the WriteCloser 'sink',
+// and call sink.Close() when finished or call sink.Cancel() on error.
+func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
+	defer sink.Close()
+	schemaSnapshot, err := s.schemaManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("schema snapshot: %w", err)
+	}
+
+	rbacSnapshot, err := s.authZManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("rbac snapshot: %w", err)
+	}
+
+	tasksSnapshot, err := s.distributedTasksManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("tasks snapshot: %w", err)
+	}
+
+	snap := fsm.Snapshot{
+		NodeID:           s.cfg.NodeID,
+		SnapshotID:       sink.ID(),
+		Schema:           schemaSnapshot,
+		RBAC:             rbacSnapshot,
+		DistributedTasks: tasksSnapshot,
+	}
+	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
+		return fmt.Errorf("encode: %w", err)
+	}
+
+	return nil
+}
+
+// Release is invoked when we are finished with the snapshot.
+// Satisfy the interface for raft.FSMSnapshot
+func (s *Store) Release() {
+}
 
 // Snapshot returns an FSMSnapshot used to: support log compaction, to
 // restore the FSM to a previous state, or to bring out-of-date followers up
@@ -35,7 +76,7 @@ import (
 // be implemented to allow for concurrent updates while a snapshot is happening.
 func (st *Store) Snapshot() (raft.FSMSnapshot, error) {
 	st.log.Info("persisting snapshot")
-	return st.schemaManager.Snapshot(), nil
+	return st, nil
 }
 
 // Restore is used to restore an FSM from a snapshot. It is not called
@@ -50,11 +91,44 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			}
 		}()
 
-		if err := st.schemaManager.Restore(rc, st.cfg.Parser); err != nil {
-			st.log.WithError(err).Error("restoring schema from snapshot")
-			return fmt.Errorf("restore schema from snapshot: %w", err)
+		snap := fsm.Snapshot{}
+		if err := json.NewDecoder(rc).Decode(&snap); err != nil {
+			return fmt.Errorf("restore snapshot: decode json: %w", err)
 		}
+
+		if snap.Schema != nil {
+			if err := st.schemaManager.Restore(snap.Schema, st.cfg.Parser); err != nil {
+				st.log.WithError(err).Error("restoring schema from snapshot")
+				return fmt.Errorf("restore schema from snapshot: %w", err)
+			}
+		} else {
+			// old snapshot format
+			jsonBytes, err := json.Marshal(snap)
+			if err != nil {
+				return fmt.Errorf("restore snapshot: marshal json: %w", err)
+			}
+
+			if err := st.schemaManager.RestoreLegacy(jsonBytes, st.cfg.Parser); err != nil {
+				st.log.WithError(err).Error("restoring schema from snapshot")
+				return fmt.Errorf("restore schema from snapshot: %w", err)
+			}
+		}
+
 		st.log.Info("successfully restored schema from snapshot")
+
+		if snap.RBAC != nil {
+			if err := st.authZManager.Restore(snap.RBAC); err != nil {
+				st.log.WithError(err).Error("restoring rbac from snapshot")
+				return fmt.Errorf("restore rbac from snapshot: %w", err)
+			}
+		}
+
+		if snap.DistributedTasks != nil {
+			if err := st.distributedTasksManager.Restore(snap.DistributedTasks); err != nil {
+				st.log.WithError(err).Error("restoring distributed tasks from snapshot")
+				return fmt.Errorf("restore distributed tasks from snapshot: %w", err)
+			}
+		}
 
 		if st.cfg.MetadataOnlyVoters {
 			return nil

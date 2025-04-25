@@ -363,3 +363,28 @@ func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
 	err = revoke(tokenAdmin)
 	require.NoError(t, err)
 }
+
+func TestOidcRootAndDynamicUsers(t *testing.T) {
+	ctx := context.Background()
+
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithDbUsers().Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
+
+	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+	// description for details
+	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+
+	helper.DeleteUser(t, "dynamic1", tokenAdmin)
+	apiKey := helper.CreateUser(t, "dynamic1", tokenAdmin)
+
+	info := helper.GetInfoForOwnUser(t, apiKey)
+	require.Equal(t, *info.Username, "dynamic1")
+}

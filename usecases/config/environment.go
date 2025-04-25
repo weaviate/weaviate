@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -41,6 +42,9 @@ const (
 	DefaultHNSWAcornFilterRatio = 0.4
 
 	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
+
+	DefaultDistributedTasksSchedulerTickInterval = time.Minute
+	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -295,6 +299,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
 	}
 
+	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
+		config.Persistence.IndexRangeableInMemory = true
+	}
+
 	if err := parseInt(
 		"HNSW_VISITED_LIST_POOL_MAX_SIZE",
 		func(size int) { config.HNSWVisitedListPoolMaxSize = size },
@@ -348,8 +356,14 @@ func FromEnv(config *Config) error {
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS", clusterCfg.Hostname) {
 			config.ReindexMapToBlockmaxConfig.TidyBuckets = true
 		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_RELOAD_SHARDS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.ReloadShards = true
+		}
 		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", clusterCfg.Hostname) {
 			config.ReindexMapToBlockmaxConfig.Rollback = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_CONDITIONAL_START", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.ConditionalStart = true
 		}
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PROCESSING_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds = val },
@@ -357,11 +371,11 @@ func FromEnv(config *Config) error {
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
 			DefaultMapToBlockmaxPauseDurationSeconds)
-		cpts, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
+		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
 		if err != nil {
 			return err
 		}
-		config.ReindexMapToBlockmaxConfig.CollectionsPropsTenants = cpts
+		config.ReindexMapToBlockmaxConfig.Selected = cptSelected
 	}
 
 	if err := config.parseMemtableConfig(); err != nil {
@@ -469,10 +483,12 @@ func FromEnv(config *Config) error {
 		config.EnableApiBasedModules = true
 	}
 
-	config.AutoSchema.Enabled = true
+	autoSchemaEnabled := true
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
-		config.AutoSchema.Enabled = !(strings.ToLower(v) == "false")
+		autoSchemaEnabled = !(strings.ToLower(v) == "false")
 	}
+	config.AutoSchema.Enabled = runtime.NewDynamicValue(autoSchemaEnabled)
+
 	config.AutoSchema.DefaultString = schema.DataTypeText.String()
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_STRING"); v != "" {
 		config.AutoSchema.DefaultString = v
@@ -565,7 +581,7 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	config.Replication.AsyncReplicationDisabled = entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED"))
+	config.Replication.AsyncReplicationDisabled = runtime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
 
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
@@ -582,7 +598,9 @@ func FromEnv(config *Config) error {
 
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
-		func(val int) { config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = val },
+		func(val int) {
+			config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(val)
+		},
 		DefaultMaximumAllowedCollectionsCount,
 	); err != nil {
 		return err
@@ -617,12 +635,29 @@ func FromEnv(config *Config) error {
 		config.RuntimeOverrides.Path = v
 	}
 
+	config.RuntimeOverrides.LoadInterval = DefaultRuntimeOverridesLoadInterval
 	if v := os.Getenv("RUNTIME_OVERRIDES_LOAD_INTERVAL"); v != "" {
 		interval, err := time.ParseDuration(v)
 		if err != nil {
 			return fmt.Errorf("parse RUNTIME_OVERRIDES_LOAD_INTERVAL as time.Duration: %w", err)
 		}
 		config.RuntimeOverrides.LoadInterval = interval
+	}
+
+	if err = parsePositiveInt(
+		"DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
+		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
+		int(DefaultDistributedTasksSchedulerTickInterval.Seconds()),
+	); err != nil {
+		return err
+	}
+
+	if err = parsePositiveInt(
+		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
+		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
+	); err != nil {
+		return err
 	}
 
 	return nil
@@ -709,6 +744,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		"RAFT_SNAPSHOT_THRESHOLD",
 		func(val int) { cfg.SnapshotThreshold = uint64(val) },
 		8192, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_TRAILING_LOGS",
+		func(val int) { cfg.TrailingLogs = uint64(val) },
+		10240, // raft default
 	); err != nil {
 		return cfg, err
 	}

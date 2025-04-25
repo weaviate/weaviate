@@ -400,6 +400,25 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 		},
 	}
 
+	filterEmpty := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "asdasdas",
+						Type:  schema.DataType("text"),
+					},
+				},
+			},
+		},
+	}
+
 	for _, location := range []string{"memory", "disk"} {
 		t.Run("bm25f with filter "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
@@ -409,6 +428,15 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 			require.Nil(t, err)
 			require.True(t, len(res) == 1)
 			require.Equal(t, uint64(2), res[0].DocID)
+		})
+
+		t.Run("bm25f with filter matching no docs "+location, func(t *testing.T) {
+			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
+			addit := additional.Properties{}
+			res, _, err := idx.objectSearch(context.TODO(), 1000, filterEmpty, kwr, nil, nil, addit, nil, "", 0, props)
+
+			require.Nil(t, err)
+			require.True(t, len(res) == 0)
 		})
 
 		for _, index := range repo.indices {

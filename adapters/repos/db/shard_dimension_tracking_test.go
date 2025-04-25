@@ -442,6 +442,13 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			expectDimensions: multiVecCard * dimensionsPerVector * objectCount,
 		},
 		{
+			name:              "mixed",
+			vectorConfig:      enthnsw.NewDefaultUserConfig,
+			namedVectorConfig: enthnsw.NewDefaultUserConfig,
+
+			expectDimensions: 2 * dimensionsPerVector * objectCount,
+		},
+		{
 			name: "named_with_bq",
 			namedVectorConfig: func() enthnsw.UserConfig {
 				cfg := enthnsw.NewDefaultUserConfig()
@@ -482,8 +489,6 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			expectDimensions:  multiVecCard * dimensionsPerVector * objectCount,
 			expectSegments:    (dimensionsPerVector / 8) * objectCount,
 		},
-
-		// TODO(faustas): add mixed vectors cases when support is added
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			var (
@@ -577,12 +582,15 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 }
 
 func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
+	metrics := monitoring.GetMetrics()
+	metrics.Registerer = monitoring.NoopRegisterer
+
 	db, err := New(logrus.New(), Config{
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, monitoring.GetMetrics(), memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, metrics, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 
 	db.SetSchemaGetter(&fakeSchemaGetter{

@@ -32,6 +32,7 @@ import (
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -91,8 +92,7 @@ type Flags struct {
 }
 
 type SchemaHandlerConfig struct {
-	MaximumAllowedCollectionsCount   int         `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
-	MaximumAllowedCollectionsCountFn func() *int `json:"-" yaml:"-"`
+	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 }
 
 type RuntimeOverrides struct {
@@ -151,6 +151,7 @@ type Config struct {
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
+	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
@@ -166,10 +167,12 @@ type MapToBlockamaxConfig struct {
 	SwapBuckets               bool                     `json:"swap_buckets" yaml:"swap_buckets"`
 	UnswapBuckets             bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
 	TidyBuckets               bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
+	ReloadShards              bool                     `json:"reload_shards" yaml:"reload_shards"`
 	Rollback                  bool                     `json:"rollback" yaml:"rollback"`
+	ConditionalStart          bool                     `json:"conditional_start" yaml:"conditional_start"`
 	ProcessingDurationSeconds int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
 	PauseDurationSeconds      int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
-	CollectionsPropsTenants   []CollectionPropsTenants `json:"collections_props_tenants" yaml:"collections_props_tenants"`
+	Selected                  []CollectionPropsTenants `json:"selected" yaml:"selected"`
 }
 
 type CollectionPropsTenants struct {
@@ -247,12 +250,10 @@ func (c *Config) validateDefaultVectorDistanceMetric() error {
 }
 
 type AutoSchema struct {
-	Enabled   bool         `json:"enabled" yaml:"enabled"`
-	EnabledFn func() *bool `json:"-" yaml:"-"`
-
-	DefaultString string `json:"defaultString" yaml:"defaultString"`
-	DefaultNumber string `json:"defaultNumber" yaml:"defaultNumber"`
-	DefaultDate   string `json:"defaultDate" yaml:"defaultDate"`
+	Enabled       *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
+	DefaultString string                      `json:"defaultString" yaml:"defaultString"`
+	DefaultNumber string                      `json:"defaultNumber" yaml:"defaultNumber"`
+	DefaultDate   string                      `json:"defaultDate" yaml:"defaultDate"`
 }
 
 func (a AutoSchema) Validate() error {
@@ -299,6 +300,11 @@ type Profiling struct {
 	Port                 int  `json:"port" yaml:"port"`
 }
 
+type DistributedTasksConfig struct {
+	CompletedTaskTTL      time.Duration `json:"completedTaskTTL" yaml:"completedTaskTTL"`
+	SchedulerTickInterval time.Duration `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
+}
+
 type Persistence struct {
 	DataPath                            string `json:"dataPath" yaml:"dataPath"`
 	MemtablesFlushDirtyAfter            int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
@@ -311,6 +317,7 @@ type Persistence struct {
 	LSMEnableSegmentsChecksumValidation bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
 	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	HNSWMaxLogSize                      int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
+	IndexRangeableInMemory              bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
@@ -428,14 +435,17 @@ func (r ResourceUsage) Validate() error {
 }
 
 type Raft struct {
-	Port                   int
-	InternalRPCPort        int
-	RPCMessageMaxSize      int
-	Join                   []string
-	SnapshotThreshold      uint64
+	Port              int
+	InternalRPCPort   int
+	RPCMessageMaxSize int
+	Join              []string
+
+	SnapshotInterval  time.Duration
+	SnapshotThreshold uint64
+	TrailingLogs      uint64
+
 	HeartbeatTimeout       time.Duration
 	ElectionTimeout        time.Duration
-	SnapshotInterval       time.Duration
 	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration
