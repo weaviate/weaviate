@@ -25,6 +25,7 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("default callbacks should be no-op", func(t *testing.T) {
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().Build()
 		callbacks.OnOpPending("node1")
+		callbacks.OnOpSkipped("node1")
 		callbacks.OnOpStart("node1")
 		callbacks.OnOpComplete("node1")
 		callbacks.OnOpFailed("node1")
@@ -34,6 +35,7 @@ func TestOpCallbacks(t *testing.T) {
 		// GIVEN
 		var (
 			pendingNode  string
+			skippedNode  string
 			startNode    string
 			completeNode string
 			failedNode   string
@@ -42,6 +44,9 @@ func TestOpCallbacks(t *testing.T) {
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
 			WithOpPendingCallback(func(node string) {
 				pendingNode = node
+			}).
+			WithOpSkippedCallback(func(node string) {
+				skippedNode = node
 			}).
 			WithOpStartCallback(func(node string) {
 				startNode = node
@@ -57,12 +62,14 @@ func TestOpCallbacks(t *testing.T) {
 		// WHEN
 		expectedNode := "test-node"
 		callbacks.OnOpPending(expectedNode)
+		callbacks.OnOpSkipped(expectedNode)
 		callbacks.OnOpStart(expectedNode)
 		callbacks.OnOpComplete(expectedNode)
 		callbacks.OnOpFailed(expectedNode)
 
 		// THEN
 		require.Equal(t, expectedNode, pendingNode, "invalid pending callback node")
+		require.Equal(t, expectedNode, skippedNode, "invalid skipped callback node")
 		require.Equal(t, expectedNode, startNode, "invalid start callback node")
 		require.Equal(t, expectedNode, completeNode, "invalid complete callback node")
 		require.Equal(t, expectedNode, failedNode, "invalid failed callback node")
@@ -82,6 +89,22 @@ func TestOpCallbacks(t *testing.T) {
 
 		// THEN
 		require.True(t, pendingCalled, "expected pending callback to be called")
+	})
+
+	t.Run("only op skipped", func(t *testing.T) {
+		// GIVEN
+		skippedCalled := false
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithOpSkippedCallback(func(node string) {
+				skippedCalled = true
+			}).
+			Build()
+
+		// WHEN
+		callbacks.OnOpSkipped("node1")
+
+		// THEN
+		require.True(t, skippedCalled, "expected skipped callback to be called")
 	})
 
 	t.Run("only op start", func(t *testing.T) {
@@ -157,6 +180,10 @@ func TestMetricsCollection(t *testing.T) {
 		// Start a fourth operation but leave it pending
 		callbacks.OnOpPending(node)
 
+		// Start a fifth operation but skip it
+		callbacks.OnOpPending(node)
+		callbacks.OnOpSkipped(node)
+
 		// WHEN
 		metricFamilies, err := reg.Gather()
 		require.NoError(t, err)
@@ -200,6 +227,10 @@ func TestMetricsCollection(t *testing.T) {
 
 		// Pending operation for node 2
 		callbacks.OnOpPending(node2)
+
+		// Pending operation for node 2 then skipped
+		callbacks.OnOpPending(node2)
+		callbacks.OnOpSkipped(node2)
 
 		// WHEN
 		metricFamilies, err := reg.Gather()

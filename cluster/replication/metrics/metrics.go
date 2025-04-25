@@ -20,6 +20,7 @@ import (
 // on different stages of a replication operation's lifecycle.
 type ReplicationEngineOpsCallbacks struct {
 	onOpPending  func(node string)
+	onOpSkipped  func(node string)
 	onOpStart    func(node string)
 	onOpComplete func(node string)
 	onOpFailed   func(node string)
@@ -37,6 +38,7 @@ func NewReplicationEngineOpsCallbacksBuilder() *ReplicationEngineOpsCallbacksBui
 	return &ReplicationEngineOpsCallbacksBuilder{
 		callbacks: ReplicationEngineOpsCallbacks{
 			onOpPending:  func(node string) {},
+			onOpSkipped:  func(node string) {},
 			onOpStart:    func(node string) {},
 			onOpComplete: func(node string) {},
 			onOpFailed:   func(node string) {},
@@ -48,6 +50,13 @@ func NewReplicationEngineOpsCallbacksBuilder() *ReplicationEngineOpsCallbacksBui
 // operation becomes pending for the given node.
 func (b *ReplicationEngineOpsCallbacksBuilder) WithOpPendingCallback(callback func(node string)) *ReplicationEngineOpsCallbacksBuilder {
 	b.callbacks.onOpPending = callback
+	return b
+}
+
+// WithOpSkippedCallback sets a callback to be executed when a replication
+// operation is skipped because already running or completed execution (successfully or with a failure)
+func (b *ReplicationEngineOpsCallbacksBuilder) WithOpSkippedCallback(callback func(node string)) *ReplicationEngineOpsCallbacksBuilder {
+	b.callbacks.onOpSkipped = callback
 	return b
 }
 
@@ -82,6 +91,11 @@ func (m *ReplicationEngineOpsCallbacks) OnOpPending(node string) {
 	m.onOpPending(node)
 }
 
+// OnOpSkipped invokes the configured callback when a replication operation is skipped
+func (m *ReplicationEngineOpsCallbacks) OnOpSkipped(node string) {
+	m.onOpSkipped(node)
+}
+
 // OnOpStart invokes the configured callback for when a replication operation starts.
 func (m *ReplicationEngineOpsCallbacks) OnOpStart(node string) {
 	m.onOpStart(node)
@@ -98,7 +112,7 @@ func (m *ReplicationEngineOpsCallbacks) OnOpFailed(node string) {
 }
 
 // NewReplicationEngineOpsCallbacks creates and registers Prometheus metrics for tracking
-// replication operations and returns an ReplicationEngineOpsCallbacks instance configured to update those metrics.
+// replication operations and returns a ReplicationEngineOpsCallbacks instance configured to update those metrics.
 //
 // The following metrics are registered with the provided registerer:
 // - weaviate_replication_pending_operations (GaugeVec)
@@ -107,6 +121,16 @@ func (m *ReplicationEngineOpsCallbacks) OnOpFailed(node string) {
 // - weaviate_replication_failed_operations (CounterVec)
 //
 // All metrics are labeled by node and automatically updated through the callback lifecycle.
+//
+// The operation lifecycle and corresponding metric updates are as follows:
+// 1. When an operation is **registered as pending**, increment `replication_pending_operations`.
+// 2. When (and if) an operations is **skipped** (cancelled before starting), decrement `replication_pending_operations`.
+// 3. When an operation **starts**, decrement `replication_pending_operations` and increment `replication_ongoing_operations`.
+// 4. When an operation **completes successfully**, decrement `replication_ongoing_operations` and increment `replication_complete_operations`.
+// 5. When an operation **fails**, decrement `replication_ongoing_operations` and increment `replication_failed_operations`.
+//
+// This ensures that gauges (`pending`, `ongoing`) reflect the current number of active operations,
+// while counters (`complete`, `failed`) accumulate totals over time.
 func NewReplicationEngineOpsCallbacks(reg prometheus.Registerer) *ReplicationEngineOpsCallbacks {
 	pendingOps := promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
 		Namespace: "weaviate",
@@ -132,24 +156,12 @@ func NewReplicationEngineOpsCallbacks(reg prometheus.Registerer) *ReplicationEng
 		Help:      "Number of failed replication operations",
 	}, []string{"node"})
 
-	// Here we define how replication operation metrics are updated during the operation lifecycle:
-	//
-	// 1. When an operation is **registered as pending**, we increment `replication_pending_operations`.
-	// 2. When the operation **starts**, we:
-	//    - Decrement `replication_pending_operations` because the op is no longer waiting.
-	//    - Increment `replication_ongoing_operations` to reflect that it is now in progress.
-	// 3. When the operation **completes successfully**, we:
-	//    - Decrement `replication_ongoing_operations` as it’s no longer running.
-	//    - Increment `replication_complete_operations` to track the total number of successful ops.
-	// 4. When the operation **fails**, we:
-	//    - Decrement `replication_ongoing_operations` as the op is no longer running.
-	//    - Increment `replication_failed_operations` to track the total number of failures.
-	//
-	// This ensures that gauges (`pending`, `ongoing`) reflect the current state,
-	// while counters (`complete`, `failed`) accumulate totals over time.
 	return NewReplicationEngineOpsCallbacksBuilder().
 		WithOpPendingCallback(func(node string) {
 			pendingOps.WithLabelValues(node).Inc()
+		}).
+		WithOpSkippedCallback(func(node string) {
+			pendingOps.WithLabelValues(node).Dec()
 		}).
 		WithOpStartCallback(func(node string) {
 			pendingOps.WithLabelValues(node).Dec()

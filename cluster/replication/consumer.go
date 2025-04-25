@@ -164,6 +164,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("replication op skipped as already running or completed")
 					// Need to release the token to let other consumers process queued replication operations.
 					<-c.tokens
+					c.engineOpCallbacks.OnOpSkipped(c.nodeId)
 					continue
 				}
 
