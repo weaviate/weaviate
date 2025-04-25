@@ -43,6 +43,14 @@ func (m *Manager) GetReplicationFSM() *ShardReplicationFSM {
 	return m.replicationFSM
 }
 
+func (m *Manager) Snapshot() ([]byte, error) {
+	return m.replicationFSM.Snapshot()
+}
+
+func (m *Manager) Restore(bytes []byte) error {
+	return m.replicationFSM.Restore(bytes)
+}
+
 func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
 	req := &cmd.ReplicationReplicateShardRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
@@ -80,21 +88,21 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 
 	status, ok := m.replicationFSM.opsStatus[op]
 	if !ok {
-		return nil, fmt.Errorf("unable to retrieve replication operation '%d' status", op.id)
+		return nil, fmt.Errorf("unable to retrieve replication operation '%d' status", op.ID)
 	}
 
 	response := cmd.ReplicationDetailsResponse{
-		Id:           op.id,
-		ShardId:      op.sourceShard.shardId,
-		Collection:   op.sourceShard.collectionId,
-		SourceNodeId: op.sourceShard.nodeId,
-		TargetNodeId: op.targetShard.nodeId,
+		Id:           op.ID,
+		ShardId:      op.SourceShard.ShardId,
+		Collection:   op.SourceShard.CollectionId,
+		SourceNodeId: op.SourceShard.NodeId,
+		TargetNodeId: op.TargetShard.NodeId,
 		Status:       status.state.String(),
 	}
 
 	payload, err := json.Marshal(response)
 	if err != nil {
-		return nil, fmt.Errorf("could not marshal query response for replication operation '%d': %w", op.id, err)
+		return nil, fmt.Errorf("could not marshal query response for replication operation '%d': %w", op.ID, err)
 	}
 
 	return payload, nil

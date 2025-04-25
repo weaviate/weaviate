@@ -23,14 +23,11 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users/mocks"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/users"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-	authzMocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 func TestCreateUnprocessableEntity(t *testing.T) {
@@ -45,8 +42,8 @@ func TestCreateUnprocessableEntity(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authzMocks.NewAuthorizer(t)
-			dynUser := mocks.NewDbUserAndRolesGetter(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			dynUser := NewMockDbUserAndRolesGetter(t)
 
 			h := dynUserHandler{
 				dbUsers:    dynUser,
@@ -78,10 +75,10 @@ func TestCreateInternalServerError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authzMocks.NewAuthorizer(t)
+			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 
-			dynUser := mocks.NewDbUserAndRolesGetter(t)
+			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(nil, tt.GetUserReturn)
 			if tt.GetUserReturn == nil {
 				dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(tt.CheckUserIdentifierExistsValueReturn, tt.CheckUserIdentifierExistsErrorReturn)
@@ -116,8 +113,8 @@ func TestCreateConflict(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			principal := &models.Principal{}
 
-			authorizer := authzMocks.NewAuthorizer(t)
-			dynUser := mocks.NewDbUserAndRolesGetter(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			dynUser := NewMockDbUserAndRolesGetter(t)
 			authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 			if !tt.rbacConf.Enabled {
 				dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
@@ -140,11 +137,11 @@ func TestCreateConflict(t *testing.T) {
 
 func TestCreateSuccess(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	user := "user@weaviate.io"
 	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
 
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{}, nil)
 	dynUser.On("CheckUserIdentifierExists", mock.Anything).Return(false, nil)
 	dynUser.On("CreateUser", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -162,10 +159,10 @@ func TestCreateSuccess(t *testing.T) {
 
 func TestCreateForbidden(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(errors.New("some error"))
 
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -179,10 +176,10 @@ func TestCreateForbidden(t *testing.T) {
 
 func TestCreateUnprocessableEntityCreatingRootUser(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user-root")[0]).Return(nil)
 
-	dynUser := mocks.NewDbUserAndRolesGetter(t)
+	dynUser := NewMockDbUserAndRolesGetter(t)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,
@@ -208,8 +205,8 @@ func TestCreateUnprocessableEntityCreatingAdminlistUser(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			principal := &models.Principal{}
 
-			authorizer := authzMocks.NewAuthorizer(t)
-			dynUser := mocks.NewDbUserAndRolesGetter(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			dynUser := NewMockDbUserAndRolesGetter(t)
 			authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 
 			h := dynUserHandler{
@@ -229,11 +226,11 @@ func TestCreateUnprocessableEntityCreatingAdminlistUser(t *testing.T) {
 
 func TestCreateNoDynamic(t *testing.T) {
 	principal := &models.Principal{}
-	authorizer := authzMocks.NewAuthorizer(t)
+	authorizer := authorization.NewMockAuthorizer(t)
 	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
-		dbUsers:       mocks.NewDbUserAndRolesGetter(t),
+		dbUsers:       NewMockDbUserAndRolesGetter(t),
 		authorizer:    authorizer,
 		dbUserEnabled: false,
 	}

@@ -24,9 +24,13 @@ import (
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
 	"github.com/weaviate/weaviate/cluster/replication"
@@ -156,6 +160,9 @@ type Config struct {
 
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier
+
+	// DistributedTasks is the configuration for the distributed task manager.
+	DistributedTasks config.DistributedTasksConfig
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -208,13 +215,16 @@ type Store struct {
 	// replicationManager is responsible for applying/querying the replication FSM used to handle replication operations
 	replicationManager *replication.Manager
 
+	// distributedTaskManager is responsible for applying/querying the distributed task FSM used to handle distributed tasks.
+	distributedTasksManager *distributedtask.Manager
+
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
 }
 
-func NewFSM(cfg Config, reg prometheus.Registerer) Store {
+func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
 
 	return Store{
@@ -229,9 +239,13 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 			NodeNameToPortMap:  cfg.NodeNameToPortMap,
 		}),
 		schemaManager:      schemaManager,
-		authZManager:       rbacRaft.NewManager(cfg.AuthzController, cfg.AuthNConfig, cfg.Logger),
+		authZManager:       rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
 		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader(), cfg.ReplicaCopier, reg),
+		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
+			Clock:            clockwork.NewRealClock(),
+			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
+		}),
 	}
 }
 
@@ -760,15 +774,17 @@ func (st *Store) recoverSingleNode(force bool) error {
 	recoveryConfig.MetadataOnlyVoters = true
 	recoveryConfig.DB = nil
 	if err := raft.RecoverCluster(st.raftConfig(), &Store{
-		cfg:           recoveryConfig,
-		log:           st.log,
-		raftResolver:  st.raftResolver,
-		raftTransport: st.raftTransport,
-		applyTimeout:  st.applyTimeout,
-		snapshotStore: st.snapshotStore,
-		schemaManager: st.schemaManager,
-		logStore:      st.logStore,
-		logCache:      st.logCache,
+		cfg:                     recoveryConfig,
+		log:                     st.log,
+		raftResolver:            st.raftResolver,
+		raftTransport:           st.raftTransport,
+		applyTimeout:            st.applyTimeout,
+		snapshotStore:           st.snapshotStore,
+		schemaManager:           st.schemaManager,
+		authZManager:            st.authZManager,
+		distributedTasksManager: st.distributedTasksManager,
+		logStore:                st.logStore,
+		logCache:                st.logCache,
 	}, st.logCache,
 		st.logStore,
 		st.snapshotStore,

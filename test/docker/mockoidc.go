@@ -39,31 +39,35 @@ const (
 
 const MockOIDC = "mock-oidc"
 
-func startMockOIDC(ctx context.Context, networkName string) (*DockerContainer, error) {
-	path, err := os.Getwd()
-	if err != nil {
-		return nil, err
-	}
-	getContextPath := func(path string) string {
-		if strings.Contains(path, "test/acceptance_with_go_client") {
-			return path[:strings.Index(path, "/test/acceptance_with_go_client")]
+func startMockOIDC(ctx context.Context, networkName, mockoidcImage string) (*DockerContainer, error) {
+	fromDockerFile := testcontainers.FromDockerfile{}
+	if mockoidcImage == "" {
+		path, err := os.Getwd()
+		if err != nil {
+			return nil, err
 		}
-		if strings.Contains(path, "test/acceptance") {
-			return path[:strings.Index(path, "/test/acceptance")]
+		getContextPath := func(path string) string {
+			if strings.Contains(path, "test/acceptance_with_go_client") {
+				return path[:strings.Index(path, "/test/acceptance_with_go_client")]
+			}
+			if strings.Contains(path, "test/acceptance") {
+				return path[:strings.Index(path, "/test/acceptance")]
+			}
+			return path[:strings.Index(path, "/test/modules")]
 		}
-		return path[:strings.Index(path, "/test/modules")]
-	}
-	contextPath := fmt.Sprintf("%s/test/docker/mockoidc", getContextPath(path))
-	fromDockerFile := testcontainers.FromDockerfile{
-		Context:       contextPath,
-		Dockerfile:    "Dockerfile",
-		PrintBuildLog: true,
-		KeepImage:     false,
+		contextPath := fmt.Sprintf("%s/test/docker/mockoidc", getContextPath(path))
+		fromDockerFile = testcontainers.FromDockerfile{
+			Context:       contextPath,
+			Dockerfile:    "Dockerfile",
+			PrintBuildLog: true,
+			KeepImage:     false,
+		}
 	}
 	port := nat.Port("48001/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
 		ContainerRequest: testcontainers.ContainerRequest{
 			FromDockerfile: fromDockerFile,
+			Image:          mockoidcImage,
 			ExposedPorts:   []string{"48001/tcp"},
 			Name:           MockOIDC,
 			Hostname:       MockOIDC,
