@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -388,8 +389,7 @@ func publishDimensionMetricsFromRepo(ctx context.Context, repo *DB, className st
 	}
 	index := repo.GetIndex(schema.ClassName(className))
 	index.ForEachShard(func(name string, shard ShardLike) error {
-		shard.publishDimensionMetrics(ctx)
-		return nil
+		return shard.publishDimensionMetrics(ctx)
 	})
 }
 
