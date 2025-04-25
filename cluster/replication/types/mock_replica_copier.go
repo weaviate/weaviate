@@ -32,6 +32,73 @@ func (_m *MockReplicaCopier) EXPECT() *MockReplicaCopier_Expecter {
 	return &MockReplicaCopier_Expecter{mock: &_m.Mock}
 }
 
+// AsyncReplicationStatus provides a mock function with given fields: ctx, srcNodeId, targetNodeId, collectionName, shardName
+func (_m *MockReplicaCopier) AsyncReplicationStatus(ctx context.Context, srcNodeId string, targetNodeId string, collectionName string, shardName string) (uint64, int64, error) {
+	ret := _m.Called(ctx, srcNodeId, targetNodeId, collectionName, shardName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AsyncReplicationStatus")
+	}
+
+	var r0 uint64
+	var r1 int64
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) (uint64, int64, error)); ok {
+		return rf(ctx, srcNodeId, targetNodeId, collectionName, shardName)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string) uint64); ok {
+		r0 = rf(ctx, srcNodeId, targetNodeId, collectionName, shardName)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string) int64); ok {
+		r1 = rf(ctx, srcNodeId, targetNodeId, collectionName, shardName)
+	} else {
+		r1 = ret.Get(1).(int64)
+	}
+
+	if rf, ok := ret.Get(2).(func(context.Context, string, string, string, string) error); ok {
+		r2 = rf(ctx, srcNodeId, targetNodeId, collectionName, shardName)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
+}
+
+// MockReplicaCopier_AsyncReplicationStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AsyncReplicationStatus'
+type MockReplicaCopier_AsyncReplicationStatus_Call struct {
+	*mock.Call
+}
+
+// AsyncReplicationStatus is a helper method to define mock.On call
+//   - ctx context.Context
+//   - srcNodeId string
+//   - targetNodeId string
+//   - collectionName string
+//   - shardName string
+func (_e *MockReplicaCopier_Expecter) AsyncReplicationStatus(ctx interface{}, srcNodeId interface{}, targetNodeId interface{}, collectionName interface{}, shardName interface{}) *MockReplicaCopier_AsyncReplicationStatus_Call {
+	return &MockReplicaCopier_AsyncReplicationStatus_Call{Call: _e.mock.On("AsyncReplicationStatus", ctx, srcNodeId, targetNodeId, collectionName, shardName)}
+}
+
+func (_c *MockReplicaCopier_AsyncReplicationStatus_Call) Run(run func(ctx context.Context, srcNodeId string, targetNodeId string, collectionName string, shardName string)) *MockReplicaCopier_AsyncReplicationStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_AsyncReplicationStatus_Call) Return(_a0 uint64, _a1 int64, _a2 error) *MockReplicaCopier_AsyncReplicationStatus_Call {
+	_c.Call.Return(_a0, _a1, _a2)
+	return _c
+}
+
+func (_c *MockReplicaCopier_AsyncReplicationStatus_Call) RunAndReturn(run func(context.Context, string, string, string, string) (uint64, int64, error)) *MockReplicaCopier_AsyncReplicationStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // CopyReplica provides a mock function with given fields: ctx, sourceNode, sourceCollection, sourceShard
 func (_m *MockReplicaCopier) CopyReplica(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string) error {
 	ret := _m.Called(ctx, sourceNode, sourceCollection, sourceShard)
@@ -86,8 +153,7 @@ func (_c *MockReplicaCopier_CopyReplica_Call) RunAndReturn(run func(context.Cont
 func NewMockReplicaCopier(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockReplicaCopier {
+}) *MockReplicaCopier {
 	mock := &MockReplicaCopier{}
 	mock.Mock.Test(t)
 
