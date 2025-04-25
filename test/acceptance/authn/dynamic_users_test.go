@@ -30,6 +30,7 @@ func TestCreateUser(t *testing.T) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
+		WithRBAC().WithRbacAdmins(adminUser).
 		Start(ctx)
 	require.Nil(t, err)
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -75,6 +76,8 @@ func TestCreateUser(t *testing.T) {
 		// login works after user creation
 		info := helper.GetInfoForOwnUser(t, oldKey)
 		require.Equal(t, userName, *info.Username)
+		user := helper.GetUser(t, userName, adminKey)
+		require.Equal(t, user.APIKeyFirstLetters, oldKey[:3])
 
 		// rotate key and test that old key is not working anymore
 		newKey := helper.RotateKey(t, userName, adminKey)
@@ -84,6 +87,8 @@ func TestCreateUser(t *testing.T) {
 		infoNew := helper.GetInfoForOwnUser(t, newKey)
 		require.Equal(t, userName, *infoNew.Username)
 
+		user = helper.GetUser(t, userName, adminKey)
+		require.Equal(t, user.APIKeyFirstLetters, newKey[:3])
 		require.NotEqual(t, newKey, oldKey)
 		require.NotEqual(t, newKey[:10], oldKey[:10])
 
