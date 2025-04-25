@@ -57,7 +57,7 @@ func (o *VectorizationGetStatus) ServeHTTP(rw http.ResponseWriter, r *http.Reque
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewVectorizationGetStatusParams()
+	Params := NewVectorizationGetStatusParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -78,5 +78,4 @@ func (o *VectorizationGetStatus) ServeHTTP(rw http.ResponseWriter, r *http.Reque
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
-
 }

@@ -33,7 +33,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewVectorizationStartParams() VectorizationStartParams {
-
 	return VectorizationStartParams{}
 }
 
@@ -42,7 +41,6 @@ func NewVectorizationStartParams() VectorizationStartParams {
 //
 // swagger:parameters vectorization.start
 type VectorizationStartParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

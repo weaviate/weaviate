@@ -91,8 +91,7 @@ VectorizationStartOK describes a response with status code 200, with default hea
 
 The task was successfully started
 */
-type VectorizationStartOK struct {
-}
+type VectorizationStartOK struct{}
 
 // IsSuccess returns true when this vectorization start o k response has a 2xx status code
 func (o *VectorizationStartOK) IsSuccess() bool {
@@ -133,7 +132,6 @@ func (o *VectorizationStartOK) String() string {
 }
 
 func (o *VectorizationStartOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -194,7 +192,6 @@ func (o *VectorizationStartBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationStartBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -215,8 +212,7 @@ VectorizationStartUnauthorized describes a response with status code 401, with d
 
 Unauthorized or invalid credentials.
 */
-type VectorizationStartUnauthorized struct {
-}
+type VectorizationStartUnauthorized struct{}
 
 // IsSuccess returns true when this vectorization start unauthorized response has a 2xx status code
 func (o *VectorizationStartUnauthorized) IsSuccess() bool {
@@ -257,7 +253,6 @@ func (o *VectorizationStartUnauthorized) String() string {
 }
 
 func (o *VectorizationStartUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -318,7 +313,6 @@ func (o *VectorizationStartForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationStartForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -339,8 +333,7 @@ VectorizationStartConflict describes a response with status code 409, with defau
 
 Task already exists
 */
-type VectorizationStartConflict struct {
-}
+type VectorizationStartConflict struct{}
 
 // IsSuccess returns true when this vectorization start conflict response has a 2xx status code
 func (o *VectorizationStartConflict) IsSuccess() bool {
@@ -381,7 +374,6 @@ func (o *VectorizationStartConflict) String() string {
 }
 
 func (o *VectorizationStartConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -442,7 +434,6 @@ func (o *VectorizationStartUnprocessableEntity) GetPayload() *models.ErrorRespon
 }
 
 func (o *VectorizationStartUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -510,7 +501,6 @@ func (o *VectorizationStartInternalServerError) GetPayload() *models.ErrorRespon
 }
 
 func (o *VectorizationStartInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

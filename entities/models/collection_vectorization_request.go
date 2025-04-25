@@ -27,7 +27,6 @@ import (
 //
 // swagger:model CollectionVectorizationRequest
 type CollectionVectorizationRequest struct {
-
 	// Optional filter to scope the vectorization to a subset of tenants
 	TenantFilter *string `json:"tenantFilter,omitempty"`
 }

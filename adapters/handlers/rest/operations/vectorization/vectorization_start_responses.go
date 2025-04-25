@@ -32,19 +32,16 @@ VectorizationStartOK The task was successfully started
 
 swagger:response vectorizationStartOK
 */
-type VectorizationStartOK struct {
-}
+type VectorizationStartOK struct{}
 
 // NewVectorizationStartOK creates VectorizationStartOK with default headers values
 func NewVectorizationStartOK() *VectorizationStartOK {
-
 	return &VectorizationStartOK{}
 }
 
 // WriteResponse to the client
 func (o *VectorizationStartOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -58,7 +55,6 @@ VectorizationStartBadRequest Malformed request.
 swagger:response vectorizationStartBadRequest
 */
 type VectorizationStartBadRequest struct {
-
 	/*
 	  In: Body
 	*/
@@ -67,7 +63,6 @@ type VectorizationStartBadRequest struct {
 
 // NewVectorizationStartBadRequest creates VectorizationStartBadRequest with default headers values
 func NewVectorizationStartBadRequest() *VectorizationStartBadRequest {
-
 	return &VectorizationStartBadRequest{}
 }
 
@@ -84,7 +79,6 @@ func (o *VectorizationStartBadRequest) SetPayload(payload *models.ErrorResponse)
 
 // WriteResponse to the client
 func (o *VectorizationStartBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -102,19 +96,16 @@ VectorizationStartUnauthorized Unauthorized or invalid credentials.
 
 swagger:response vectorizationStartUnauthorized
 */
-type VectorizationStartUnauthorized struct {
-}
+type VectorizationStartUnauthorized struct{}
 
 // NewVectorizationStartUnauthorized creates VectorizationStartUnauthorized with default headers values
 func NewVectorizationStartUnauthorized() *VectorizationStartUnauthorized {
-
 	return &VectorizationStartUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *VectorizationStartUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -128,7 +119,6 @@ VectorizationStartForbidden Forbidden
 swagger:response vectorizationStartForbidden
 */
 type VectorizationStartForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -137,7 +127,6 @@ type VectorizationStartForbidden struct {
 
 // NewVectorizationStartForbidden creates VectorizationStartForbidden with default headers values
 func NewVectorizationStartForbidden() *VectorizationStartForbidden {
-
 	return &VectorizationStartForbidden{}
 }
 
@@ -154,7 +143,6 @@ func (o *VectorizationStartForbidden) SetPayload(payload *models.ErrorResponse) 
 
 // WriteResponse to the client
 func (o *VectorizationStartForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -172,19 +160,16 @@ VectorizationStartConflict Task already exists
 
 swagger:response vectorizationStartConflict
 */
-type VectorizationStartConflict struct {
-}
+type VectorizationStartConflict struct{}
 
 // NewVectorizationStartConflict creates VectorizationStartConflict with default headers values
 func NewVectorizationStartConflict() *VectorizationStartConflict {
-
 	return &VectorizationStartConflict{}
 }
 
 // WriteResponse to the client
 func (o *VectorizationStartConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(409)
 }
@@ -198,7 +183,6 @@ VectorizationStartUnprocessableEntity Request body is well-formed (i.e., syntact
 swagger:response vectorizationStartUnprocessableEntity
 */
 type VectorizationStartUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -207,7 +191,6 @@ type VectorizationStartUnprocessableEntity struct {
 
 // NewVectorizationStartUnprocessableEntity creates VectorizationStartUnprocessableEntity with default headers values
 func NewVectorizationStartUnprocessableEntity() *VectorizationStartUnprocessableEntity {
-
 	return &VectorizationStartUnprocessableEntity{}
 }
 
@@ -224,7 +207,6 @@ func (o *VectorizationStartUnprocessableEntity) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *VectorizationStartUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -243,7 +225,6 @@ VectorizationStartInternalServerError An error has occurred while trying to fulf
 swagger:response vectorizationStartInternalServerError
 */
 type VectorizationStartInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -252,7 +233,6 @@ type VectorizationStartInternalServerError struct {
 
 // NewVectorizationStartInternalServerError creates VectorizationStartInternalServerError with default headers values
 func NewVectorizationStartInternalServerError() *VectorizationStartInternalServerError {
-
 	return &VectorizationStartInternalServerError{}
 }
 
@@ -269,7 +249,6 @@ func (o *VectorizationStartInternalServerError) SetPayload(payload *models.Error
 
 // WriteResponse to the client
 func (o *VectorizationStartInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

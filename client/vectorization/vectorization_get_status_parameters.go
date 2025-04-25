@@ -71,7 +71,6 @@ VectorizationGetStatusParams contains all the parameters to send to the API endp
 	Typically these are written to a http.Request.
 */
 type VectorizationGetStatusParams struct {
-
 	// CollectionName.
 	CollectionName string
 
@@ -155,7 +154,6 @@ func (o *VectorizationGetStatusParams) SetTargetVector(targetVector string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *VectorizationGetStatusParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}

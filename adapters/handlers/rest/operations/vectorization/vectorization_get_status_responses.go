@@ -32,19 +32,16 @@ VectorizationGetStatusOK The status of the vectorization task
 
 swagger:response vectorizationGetStatusOK
 */
-type VectorizationGetStatusOK struct {
-}
+type VectorizationGetStatusOK struct{}
 
 // NewVectorizationGetStatusOK creates VectorizationGetStatusOK with default headers values
 func NewVectorizationGetStatusOK() *VectorizationGetStatusOK {
-
 	return &VectorizationGetStatusOK{}
 }
 
 // WriteResponse to the client
 func (o *VectorizationGetStatusOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(200)
 }
@@ -58,7 +55,6 @@ VectorizationGetStatusBadRequest Malformed request.
 swagger:response vectorizationGetStatusBadRequest
 */
 type VectorizationGetStatusBadRequest struct {
-
 	/*
 	  In: Body
 	*/
@@ -67,7 +63,6 @@ type VectorizationGetStatusBadRequest struct {
 
 // NewVectorizationGetStatusBadRequest creates VectorizationGetStatusBadRequest with default headers values
 func NewVectorizationGetStatusBadRequest() *VectorizationGetStatusBadRequest {
-
 	return &VectorizationGetStatusBadRequest{}
 }
 
@@ -84,7 +79,6 @@ func (o *VectorizationGetStatusBadRequest) SetPayload(payload *models.ErrorRespo
 
 // WriteResponse to the client
 func (o *VectorizationGetStatusBadRequest) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(400)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -102,19 +96,16 @@ VectorizationGetStatusUnauthorized Unauthorized or invalid credentials.
 
 swagger:response vectorizationGetStatusUnauthorized
 */
-type VectorizationGetStatusUnauthorized struct {
-}
+type VectorizationGetStatusUnauthorized struct{}
 
 // NewVectorizationGetStatusUnauthorized creates VectorizationGetStatusUnauthorized with default headers values
 func NewVectorizationGetStatusUnauthorized() *VectorizationGetStatusUnauthorized {
-
 	return &VectorizationGetStatusUnauthorized{}
 }
 
 // WriteResponse to the client
 func (o *VectorizationGetStatusUnauthorized) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
+	rw.Header().Del(runtime.HeaderContentType) // Remove Content-Type on empty responses
 
 	rw.WriteHeader(401)
 }
@@ -128,7 +119,6 @@ VectorizationGetStatusForbidden Forbidden
 swagger:response vectorizationGetStatusForbidden
 */
 type VectorizationGetStatusForbidden struct {
-
 	/*
 	  In: Body
 	*/
@@ -137,7 +127,6 @@ type VectorizationGetStatusForbidden struct {
 
 // NewVectorizationGetStatusForbidden creates VectorizationGetStatusForbidden with default headers values
 func NewVectorizationGetStatusForbidden() *VectorizationGetStatusForbidden {
-
 	return &VectorizationGetStatusForbidden{}
 }
 
@@ -154,7 +143,6 @@ func (o *VectorizationGetStatusForbidden) SetPayload(payload *models.ErrorRespon
 
 // WriteResponse to the client
 func (o *VectorizationGetStatusForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(403)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -173,7 +161,6 @@ VectorizationGetStatusNotFound Vectorization task not found
 swagger:response vectorizationGetStatusNotFound
 */
 type VectorizationGetStatusNotFound struct {
-
 	/*
 	  In: Body
 	*/
@@ -182,7 +169,6 @@ type VectorizationGetStatusNotFound struct {
 
 // NewVectorizationGetStatusNotFound creates VectorizationGetStatusNotFound with default headers values
 func NewVectorizationGetStatusNotFound() *VectorizationGetStatusNotFound {
-
 	return &VectorizationGetStatusNotFound{}
 }
 
@@ -199,7 +185,6 @@ func (o *VectorizationGetStatusNotFound) SetPayload(payload *models.ErrorRespons
 
 // WriteResponse to the client
 func (o *VectorizationGetStatusNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -218,7 +203,6 @@ VectorizationGetStatusUnprocessableEntity Request body is well-formed (i.e., syn
 swagger:response vectorizationGetStatusUnprocessableEntity
 */
 type VectorizationGetStatusUnprocessableEntity struct {
-
 	/*
 	  In: Body
 	*/
@@ -227,7 +211,6 @@ type VectorizationGetStatusUnprocessableEntity struct {
 
 // NewVectorizationGetStatusUnprocessableEntity creates VectorizationGetStatusUnprocessableEntity with default headers values
 func NewVectorizationGetStatusUnprocessableEntity() *VectorizationGetStatusUnprocessableEntity {
-
 	return &VectorizationGetStatusUnprocessableEntity{}
 }
 
@@ -244,7 +227,6 @@ func (o *VectorizationGetStatusUnprocessableEntity) SetPayload(payload *models.E
 
 // WriteResponse to the client
 func (o *VectorizationGetStatusUnprocessableEntity) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(422)
 	if o.Payload != nil {
 		payload := o.Payload
@@ -263,7 +245,6 @@ VectorizationGetStatusInternalServerError An error has occurred while trying to 
 swagger:response vectorizationGetStatusInternalServerError
 */
 type VectorizationGetStatusInternalServerError struct {
-
 	/*
 	  In: Body
 	*/
@@ -272,7 +253,6 @@ type VectorizationGetStatusInternalServerError struct {
 
 // NewVectorizationGetStatusInternalServerError creates VectorizationGetStatusInternalServerError with default headers values
 func NewVectorizationGetStatusInternalServerError() *VectorizationGetStatusInternalServerError {
-
 	return &VectorizationGetStatusInternalServerError{}
 }
 
@@ -289,7 +269,6 @@ func (o *VectorizationGetStatusInternalServerError) SetPayload(payload *models.E
 
 // WriteResponse to the client
 func (o *VectorizationGetStatusInternalServerError) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
 	rw.WriteHeader(500)
 	if o.Payload != nil {
 		payload := o.Payload

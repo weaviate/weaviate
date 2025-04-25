@@ -91,8 +91,7 @@ VectorizationCancelOK describes a response with status code 200, with default he
 
 The task was successfully cancelled
 */
-type VectorizationCancelOK struct {
-}
+type VectorizationCancelOK struct{}
 
 // IsSuccess returns true when this vectorization cancel o k response has a 2xx status code
 func (o *VectorizationCancelOK) IsSuccess() bool {
@@ -133,7 +132,6 @@ func (o *VectorizationCancelOK) String() string {
 }
 
 func (o *VectorizationCancelOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -194,7 +192,6 @@ func (o *VectorizationCancelBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationCancelBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -215,8 +212,7 @@ VectorizationCancelUnauthorized describes a response with status code 401, with 
 
 Unauthorized or invalid credentials.
 */
-type VectorizationCancelUnauthorized struct {
-}
+type VectorizationCancelUnauthorized struct{}
 
 // IsSuccess returns true when this vectorization cancel unauthorized response has a 2xx status code
 func (o *VectorizationCancelUnauthorized) IsSuccess() bool {
@@ -257,7 +253,6 @@ func (o *VectorizationCancelUnauthorized) String() string {
 }
 
 func (o *VectorizationCancelUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -318,7 +313,6 @@ func (o *VectorizationCancelForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationCancelForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -386,7 +380,6 @@ func (o *VectorizationCancelNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationCancelNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,7 +447,6 @@ func (o *VectorizationCancelUnprocessableEntity) GetPayload() *models.ErrorRespo
 }
 
 func (o *VectorizationCancelUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -522,7 +514,6 @@ func (o *VectorizationCancelInternalServerError) GetPayload() *models.ErrorRespo
 }
 
 func (o *VectorizationCancelInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

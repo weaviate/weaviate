@@ -28,7 +28,6 @@ import (
 //
 // There are no default values defined in the spec.
 func NewVectorizationGetStatusParams() VectorizationGetStatusParams {
-
 	return VectorizationGetStatusParams{}
 }
 
@@ -37,7 +36,6 @@ func NewVectorizationGetStatusParams() VectorizationGetStatusParams {
 //
 // swagger:parameters vectorization.getStatus
 type VectorizationGetStatusParams struct {
-
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 

@@ -91,8 +91,7 @@ VectorizationGetStatusOK describes a response with status code 200, with default
 
 The status of the vectorization task
 */
-type VectorizationGetStatusOK struct {
-}
+type VectorizationGetStatusOK struct{}
 
 // IsSuccess returns true when this vectorization get status o k response has a 2xx status code
 func (o *VectorizationGetStatusOK) IsSuccess() bool {
@@ -133,7 +132,6 @@ func (o *VectorizationGetStatusOK) String() string {
 }
 
 func (o *VectorizationGetStatusOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -194,7 +192,6 @@ func (o *VectorizationGetStatusBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationGetStatusBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -215,8 +212,7 @@ VectorizationGetStatusUnauthorized describes a response with status code 401, wi
 
 Unauthorized or invalid credentials.
 */
-type VectorizationGetStatusUnauthorized struct {
-}
+type VectorizationGetStatusUnauthorized struct{}
 
 // IsSuccess returns true when this vectorization get status unauthorized response has a 2xx status code
 func (o *VectorizationGetStatusUnauthorized) IsSuccess() bool {
@@ -257,7 +253,6 @@ func (o *VectorizationGetStatusUnauthorized) String() string {
 }
 
 func (o *VectorizationGetStatusUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -318,7 +313,6 @@ func (o *VectorizationGetStatusForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationGetStatusForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -386,7 +380,6 @@ func (o *VectorizationGetStatusNotFound) GetPayload() *models.ErrorResponse {
 }
 
 func (o *VectorizationGetStatusNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -454,7 +447,6 @@ func (o *VectorizationGetStatusUnprocessableEntity) GetPayload() *models.ErrorRe
 }
 
 func (o *VectorizationGetStatusUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -522,7 +514,6 @@ func (o *VectorizationGetStatusInternalServerError) GetPayload() *models.ErrorRe
 }
 
 func (o *VectorizationGetStatusInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload

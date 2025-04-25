@@ -52,7 +52,7 @@ func (o *VectorizationStartURL) SetBasePath(bp string) {
 func (o *VectorizationStartURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/schema/{collectionName}/vectorize/{targetVector}"
+	_path := "/schema/{collectionName}/vectorize/{targetVector}"
 
 	collectionName := o.CollectionName
 	if collectionName != "" {

@@ -23,9 +23,7 @@ import (
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-var (
-	bucketName = []byte("tasks")
-)
+var bucketName = []byte("tasks")
 
 type Provider struct {
 	recorder           distributedtask.TaskCompletionRecorder
@@ -43,7 +41,7 @@ type ProviderParams struct {
 }
 
 func NewProvider(params ProviderParams) (*Provider, error) {
-	metadataDB, err := bolt.Open(params.MetadataPath, 0600, &bolt.Options{})
+	metadataDB, err := bolt.Open(params.MetadataPath, 0o600, &bolt.Options{})
 	if err != nil {
 		return nil, fmt.Errorf("opening boltdb: %v", err)
 	}
