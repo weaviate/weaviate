@@ -76,6 +76,7 @@ type State struct {
 	BackupManager      *backup.Handler
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
+	AutoSchemaManager  *objects.AutoSchemaManager
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
