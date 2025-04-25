@@ -417,8 +417,13 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	}
 
 	// TODO comment that some fields not set if errnodifffound returned?
+	var targetNodeName string
+	// TODO how to get rid of len == 1 check?
+	if len(targetNodeOverrides) == 1 {
+		targetNodeName = targetNodeOverrides[0].TargetNode
+	}
 	return &ShardDifferenceReader{
-		TargetNodeName: targetNodeOverrides[0].TargetNode,
+		TargetNodeName: targetNodeName,
 	}, ErrNoDiffFound
 }
 
