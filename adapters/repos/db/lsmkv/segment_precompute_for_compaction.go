@@ -12,7 +12,6 @@
 package lsmkv
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"strings"
@@ -64,7 +63,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	defer contents.Unmap()
 
-	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
+	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
