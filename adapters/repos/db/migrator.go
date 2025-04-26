@@ -499,13 +499,14 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				idx.shardCreateLocks.Lock(name)
 				defer idx.shardCreateLocks.Unlock(name)
 
-				shard, ok := idx.shards.LoadAndDelete(name)
-				if !ok {
+				shard := idx.shards.Load(name)
+				if shard == nil {
 					return nil // shard already does not exist or inactive
 				}
 
 				if err := shard.Shutdown(ctx); err != nil {
 					if errors.Is(err, errAlreadyShutdown) {
+						idx.shards.LoadAndDelete(name)
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {
 						ec.Add(err)
@@ -515,6 +516,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 							WithField("shard", shard.ID()).
 							Error(err)
 					}
+				} else {
+					idx.shards.LoadAndDelete(name)
 				}
 
 				return nil
