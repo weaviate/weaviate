@@ -109,33 +109,39 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	fileInfo, err := file.Stat()
 	if err != nil {
+		file.Close()
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 	size := fileInfo.Size()
 
 	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 	if err != nil {
+		file.Close()
 		return nil, fmt.Errorf("mmap file: %w", err)
 	}
 
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
+		file.Close()
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
 	if err := segmentindex.CheckExpectedStrategy(header.Strategy); err != nil {
+		file.Close()
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
 	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation {
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
+			file.Close()
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
 		}
 	}
 
 	primaryIndex, err := header.PrimaryIndex(contents)
 	if err != nil {
+		file.Close()
 		return nil, fmt.Errorf("extract primary index position: %w", err)
 	}
 
@@ -173,6 +179,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		for i := range seg.secondaryIndices {
 			secondary, err := header.SecondaryIndex(contents, uint16(i))
 			if err != nil {
+				file.Close()
 				return nil, fmt.Errorf("get position for secondary index at %d: %w", i, err)
 			}
 			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
@@ -181,11 +188,13 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	if seg.useBloomFilter {
 		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived); err != nil {
+			file.Close()
 			return nil, err
 		}
 	}
 	if seg.calcCountNetAdditions {
 		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived); err != nil {
+			file.Close()
 			return nil, err
 		}
 	}
