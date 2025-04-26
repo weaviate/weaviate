@@ -71,11 +71,12 @@ func TestLSMKV_ChecksumsCatchCorruptedFiles(t *testing.T) {
 	bucket, err := newTestBucket(dataDir, true)
 	require.NoError(t, err)
 	require.NoError(t, bucket.Put(key, val))
+	require.NoError(t, bucket.FlushMemtable())
 	require.NoError(t, bucket.Shutdown(context.Background()))
 
 	entries, err := os.ReadDir(dataDir)
 	require.NoError(t, err)
-	require.Len(t, entries, 1, "single segment file should be created")
+	require.Len(t, entries, 2, "one segment and one wal file should be created")
 
 	segmentPath := path.Join(dataDir, entries[0].Name())
 	fileContent, err := os.ReadFile(segmentPath)

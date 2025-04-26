@@ -64,19 +64,23 @@ func (b *Bucket) mayRecoverFromCommitLogs() error {
 		logOnceWhenRecoveringFromWAL.Do(func() {
 			b.logger.WithField("action", "lsm_recover_from_active_wal").
 				WithField("path", b.dir).
-				Warning("active write-ahead-log found. Did weaviate crash prior to this?")
+				Warning("active write-ahead-log found")
 		})
 	}
 
 	// recover from each log
-	for _, fname := range walFileNames {
+	for i, fname := range walFileNames {
+		walForActiveMemtable := i == len(walFileNames)-1
+
 		path := filepath.Join(b.dir, strings.TrimSuffix(fname, ".wal"))
 
 		cl, err := newCommitLogger(path)
 		if err != nil {
 			return errors.Wrap(err, "init commit logger")
 		}
-		defer cl.close()
+		if !walForActiveMemtable {
+			defer cl.close()
+		}
 
 		cl.pause()
 		defer cl.unpause()
@@ -96,8 +100,12 @@ func (b *Bucket) mayRecoverFromCommitLogs() error {
 				Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))
 		}
 
-		if err := mt.flush(); err != nil {
-			return errors.Wrap(err, "flush memtable after WAL recovery")
+		if walForActiveMemtable {
+			b.active = mt
+		} else {
+			if err := mt.flush(); err != nil {
+				return errors.Wrap(err, "flush memtable after WAL recovery")
+			}
 		}
 
 		b.logger.WithField("action", "lsm_recover_from_active_wal_success").

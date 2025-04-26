@@ -207,9 +207,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		}
 	}
 
-	err := b.setNewActiveMemtable()
-	if err != nil {
-		return nil, err
+	if b.active == nil {
+		err := b.setNewActiveMemtable()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	id := "bucket/flush/" + b.dir
@@ -1088,10 +1090,20 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 
 	b.flushLock.Lock()
-	if err := b.active.flush(); err != nil {
-		b.flushLock.Unlock()
-		return err
+
+	if b.shouldFlush() {
+		if err := b.active.flush(); err != nil {
+			b.flushLock.Unlock()
+			return err
+		}
+	} else {
+		err := b.active.commitlog.close()
+		if err != nil {
+			b.flushLock.Unlock()
+			return err
+		}
 	}
+
 	if b.flushing == nil {
 		b.flushLock.Unlock()
 		// active has flushing, no one else was currently flushing, it's safe to
@@ -1118,14 +1130,18 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-// flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
-func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	b.flushLock.RLock()
+func (b *Bucket) shouldFlush() bool {
 	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
 	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
-	shouldSwitch := memtableTooLarge || walTooLarge || dirtyTooLong
+	return memtableTooLarge || walTooLarge || dirtyTooLong
+}
+
+// flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
+func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	b.flushLock.RLock()
+	shouldSwitch := b.shouldFlush()
 
 	// If true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
