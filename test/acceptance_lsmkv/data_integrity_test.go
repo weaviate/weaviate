@@ -69,6 +69,7 @@ func TestLSMKV_ChecksumsCatchCorruptedFiles(t *testing.T) {
 
 	// create a bucket with checksums enabled and flush some data to disk
 	bucket, err := newTestBucket(dataDir, true)
+
 	require.NoError(t, err)
 	require.NoError(t, bucket.Put(key, val))
 	require.NoError(t, bucket.Shutdown(context.Background()))
@@ -77,12 +78,12 @@ func TestLSMKV_ChecksumsCatchCorruptedFiles(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "single segment file should be created")
 
-	segmentPath := path.Join(dataDir, entries[0].Name())
+	segmentPath := path.Join(dataDir, entries[0].Name()) // db file
 	fileContent, err := os.ReadFile(segmentPath)
 	require.NoError(t, err)
 
 	valueOffset := bytes.Index(fileContent, val)
-	require.NotEqual(t, -1, valueOffset, "value was not find in the segment file")
+	require.NotEqual(t, -1, valueOffset, "value was not found in the segment file")
 
 	// corrupt the file contents
 	fileContent[valueOffset] = 0xFF

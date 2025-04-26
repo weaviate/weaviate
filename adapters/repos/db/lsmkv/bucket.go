@@ -34,7 +34,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-const FlushAfterDirtyDefault = 60 * time.Second
+const (
+	FlushAfterDirtyDefault = 60 * time.Second
+	PageSize               = 4096
+)
 
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
@@ -228,13 +231,16 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	b.disk = sg
 
-	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
+	if err := b.mayRecoverMtFromCommitLogs(ctx); err != nil {
 		return nil, err
 	}
 
-	err = b.setNewActiveMemtable()
-	if err != nil {
-		return nil, err
+	// if .wal was present, we will reuse its memtable
+	if b.active == nil {
+		err = b.setNewActiveMemtable()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	id := "bucket/flush/" + b.dir
@@ -993,6 +999,7 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 func (b *Bucket) Shutdown(ctx context.Context) error {
 	defer GlobalBucketRegistry.Remove(b.dir)
 
+	numSegments := len(b.disk.segments)
 	if err := b.disk.shutdown(ctx); err != nil {
 		return err
 	}
@@ -1001,9 +1008,21 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 		return fmt.Errorf("long-running flush in progress: %w", ctx.Err())
 	}
 
+	// only flush and create a new segment if we reach the size limit. If we don't flush we will load the .wal again
+	// when this shard is loaded the next time and recreate the mt out of it.
+	// If there are no segments, flush in any case, so we can get the strategy from the segment
 	b.flushLock.Lock()
-	if err := b.active.flush(); err != nil {
-		return err
+	if b.shouldFlush(true) || numSegments == 0 {
+		if err := b.active.flush(); err != nil {
+			b.flushLock.Unlock()
+			return err
+		}
+	} else {
+		err := b.active.commitlog.close()
+		if err != nil {
+			b.flushLock.Unlock()
+			return err
+		}
 	}
 	b.flushLock.Unlock()
 
@@ -1028,14 +1047,21 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-// flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
-func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	b.flushLock.RLock()
+func (b *Bucket) shouldFlush(closing bool) bool {
 	commitLogSize := b.active.commitlog.Size()
+	if closing && commitLogSize > PageSize {
+		return true
+	}
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
 	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
-	shouldSwitch := memtableTooLarge || walTooLarge || dirtyTooLong
+	return memtableTooLarge || walTooLarge || dirtyTooLong
+}
+
+// flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
+func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	b.flushLock.RLock()
+	shouldSwitch := b.shouldFlush(false)
 
 	// If true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
