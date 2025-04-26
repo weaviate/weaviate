@@ -67,6 +67,10 @@ func createCNAOnFlush(ctx context.Context, t *testing.T, opts []BucketOption) {
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
 
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
+
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
 
@@ -88,6 +92,10 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
+
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -111,6 +119,10 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
+	// just to ensure segments are loaded
+	cursor = b2.Cursor()
+	cursor.Close()
+
 	files, err = os.ReadDir(dirName)
 	require.Nil(t, err)
 	_, ok = findFileWithExt(files, ".cna")
@@ -131,6 +143,10 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
+
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)

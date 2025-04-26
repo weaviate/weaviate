@@ -64,6 +64,10 @@ func precomputeSegmentMeta_Replace(ctx context.Context, t *testing.T, opts []Buc
 		WithSecondaryKey(0, []byte("bonjour"))))
 	require.Nil(t, b.FlushMemtable())
 
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
+
 	for _, ext := range []string{".secondary.0.bloom", ".bloom", ".cna"} {
 		files, err := os.ReadDir(dirName)
 		require.Nil(t, err)
@@ -123,6 +127,10 @@ func precomputeSegmentMeta_Set(ctx context.Context, t *testing.T, opts []BucketO
 	err = b.SetAdd([]byte("greetings"), [][]byte{[]byte("hello"), []byte("hola")})
 	require.Nil(t, err)
 	require.Nil(t, b.FlushMemtable())
+
+	// just to ensure segments are loaded
+	cursor := b.MapCursor()
+	cursor.Close()
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)

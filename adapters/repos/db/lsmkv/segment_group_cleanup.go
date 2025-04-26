@@ -202,13 +202,13 @@ func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error)
 		sizes = make([]int64, count)
 
 		for i, seg := range c.sg.segments {
-			idStr := segmentID(seg.path)
+			idStr := segmentID(seg.getPath())
 			id, err := strconv.ParseInt(idStr, 10, 64)
 			if err != nil {
 				return nil, nil, fmt.Errorf("parse segment id %q: %w", idStr, err)
 			}
 			ids[i] = id
-			sizes[i] = seg.size
+			sizes[i] = seg.getSize()
 		}
 	}
 
@@ -461,9 +461,9 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	}
 
 	oldSegment := c.sg.segmentAtPos(candidateIdx)
-	segmentId := segmentID(oldSegment.path)
+	segmentId := segmentID(oldSegment.getPath())
 	tmpSegmentPath := filepath.Join(c.sg.dir, "segment-"+segmentId+".db.tmp")
-	scratchSpacePath := oldSegment.path + "cleanup.scratch.d"
+	scratchSpacePath := oldSegment.getPath() + "cleanup.scratch.d"
 
 	start := time.Now()
 	c.sg.logger.WithFields(logrus.Fields{
@@ -496,8 +496,8 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 	switch c.sg.strategy {
 	case StrategyReplace:
 		c := newSegmentCleanerReplace(file, oldSegment.newCursor(),
-			c.sg.makeKeyExistsOnUpperSegments(startIdx, lastIdx), oldSegment.level,
-			oldSegment.secondaryIndexCount, scratchSpacePath, c.sg.enableChecksumValidation)
+			c.sg.makeKeyExistsOnUpperSegments(startIdx, lastIdx), oldSegment.getLevel(),
+			uint16(oldSegment.getSecondaryIndexCount()), scratchSpacePath, c.sg.enableChecksumValidation)
 		if err = c.do(shouldAbort); err != nil {
 			return false, err
 		}
@@ -520,7 +520,7 @@ func (c *segmentCleanerCommon) cleanupOnce(shouldAbort cyclemanager.ShouldAbortC
 		err = fmt.Errorf("replace compacted segments: %w", err)
 		return false, err
 	}
-	if err = onCompleted(segment.size); err != nil {
+	if err = onCompleted(segment.getSize()); err != nil {
 		err = fmt.Errorf("callback cleaned segment file: %w", err)
 		return false, err
 	}
@@ -545,7 +545,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 			updateI = func() { i-- }
 		}
 
-		segAtPos := func() *segment {
+		segAtPos := func() Segment {
 			sg.maintenanceLock.RLock()
 			defer sg.maintenanceLock.RUnlock()
 
@@ -569,9 +569,9 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 }
 
 func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
-) (*segment, error) {
+) (Segment, error) {
 	oldSegment := sg.segmentAtPos(segmentIdx)
-	countNetAdditions := oldSegment.countNetAdditions
+	countNetAdditions := oldSegment.getCountNetAdditions()
 
 	precomputedFiles, err := preComputeSegmentMeta(tmpSegmentPath, countNetAdditions,
 		sg.logger, sg.useBloomFilter, sg.calcCountNetAdditions, sg.enableChecksumValidation)
@@ -590,7 +590,7 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 		// compaction itself was successful.
 		sg.logger.WithError(err).WithFields(logrus.Fields{
 			"action": "lsm_replace_segments_delete_file",
-			"file":   oldSegment.path,
+			"file":   oldSegment.getPath(),
 		}).Error("failed to delete file already marked for deletion")
 	}
 
@@ -598,24 +598,24 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 }
 
 func (sg *SegmentGroup) replaceSegmentBlocking(
-	segmentIdx int, oldSegment *segment, precomputedFiles []string,
-) (*segment, error) {
+	segmentIdx int, oldSegment Segment, precomputedFiles []string,
+) (Segment, error) {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
 	start := time.Now()
 
 	if err := oldSegment.close(); err != nil {
-		return nil, fmt.Errorf("close disk segment %q: %w", oldSegment.path, err)
+		return nil, fmt.Errorf("close disk segment %q: %w", oldSegment.getPath(), err)
 	}
 	if err := oldSegment.markForDeletion(); err != nil {
-		return nil, fmt.Errorf("drop disk segment %q: %w", oldSegment.path, err)
+		return nil, fmt.Errorf("drop disk segment %q: %w", oldSegment.getPath(), err)
 	}
 	if err := fsync(sg.dir); err != nil {
 		return nil, fmt.Errorf("fsync segment directory %q: %w", sg.dir, err)
 	}
 
-	segmentId := segmentID(oldSegment.path)
+	segmentId := segmentID(oldSegment.getPath())
 	var segmentPath string
 
 	// the old segment have been deleted, we can now safely remove the .tmp
@@ -631,7 +631,7 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 		}
 	}
 
-	newSegment, err := newSegment(segmentPath, sg.logger, sg.metrics, nil,
+	newSegment, err := newLazySegment(segmentPath, sg.logger, sg.metrics, nil,
 		segmentConfig{
 			mmapContents:             sg.mmapContents,
 			useBloomFilter:           sg.useBloomFilter,
@@ -650,15 +650,15 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 }
 
 func (sg *SegmentGroup) observeReplaceDuration(
-	start time.Time, segmentIdx int, oldSegment, newSegment *segment,
+	start time.Time, segmentIdx int, oldSegment, newSegment Segment,
 ) {
 	// observe duration - warn if it took too long
 	took := time.Since(start)
 	fields := sg.logger.WithFields(logrus.Fields{
 		"action":        "lsm_replace_segment_blocking",
 		"segment_index": segmentIdx,
-		"path_old":      oldSegment.path,
-		"path_new":      newSegment.path,
+		"path_old":      oldSegment.getPath(),
+		"path_new":      newSegment.getPath(),
 		"took":          took,
 	})
 	msg := fmt.Sprintf("replacing segment took %s", took)

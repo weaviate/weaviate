@@ -13,7 +13,7 @@ package lsmkv
 
 import "fmt"
 
-func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, error) {
+func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (Segment, error) {
 	// During this entire operation we need to make sure that no compaction
 	// happens, otherwise we get a race between the existsOnLower func and
 	// the meta count init.
@@ -37,7 +37,7 @@ func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, erro
 
 	newSegmentIndex := len(sg.segments)
 
-	segment, err := newSegment(path, sg.logger,
+	segment, err := newLazySegment(path, sg.logger,
 		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
 		segmentConfig{
 			mmapContents:             sg.mmapContents,

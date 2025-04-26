@@ -73,6 +73,10 @@ func TestLSMKV_ChecksumsCatchCorruptedFiles(t *testing.T) {
 	require.NoError(t, bucket.Put(key, val))
 	require.NoError(t, bucket.Shutdown(context.Background()))
 
+	// just to ensure segments are loaded
+	cursor := bucket.Cursor()
+	cursor.Close()
+
 	entries, err := os.ReadDir(dataDir)
 	require.NoError(t, err)
 	require.Len(t, entries, 1, "single segment file should be created")
@@ -88,8 +92,10 @@ func TestLSMKV_ChecksumsCatchCorruptedFiles(t *testing.T) {
 	fileContent[valueOffset] = 0xFF
 	require.NoError(t, os.WriteFile(segmentPath, fileContent, os.ModePerm))
 
-	_, err = newTestBucket(dataDir, true)
-	require.ErrorContains(t, err, "invalid checksum")
+	bucket, err = newTestBucket(dataDir, true)
+	require.NoError(t, err)
+
+	require.Panics(t, func() { bucket.Cursor() })
 }
 
 func newTestBucket(dataPath string, checkSumEnabled bool) (*lsmkv.Bucket, error) {

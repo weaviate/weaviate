@@ -89,21 +89,21 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 	for leftId := len(sg.segments) - 2; leftId >= 0; leftId-- {
 		left, right := sg.segments[leftId], sg.segments[leftId+1]
 
-		if left.secondaryIndexCount != right.secondaryIndexCount {
+		if left.getSecondaryIndexCount() != right.getSecondaryIndexCount() {
 			// only pair of segments with the same secondary indexes are compacted
 			continue
 		}
 
-		if left.level == right.level {
+		if left.getLevel() == right.getLevel() {
 			if sg.compactionFitsSizeLimit(left, right) {
 				// max size not exceeded
 				matchingPairFound = true
 				matchingLeftId = leftId
-				matchingLevel = left.level + 1
+				matchingLevel = left.getLevel() + 1
 			} else if matchingPairFound {
 				// older segment of same level as pair's level exist.
 				// keep unchanged level
-				matchingLevel = left.level
+				matchingLevel = left.getLevel()
 			}
 		} else {
 			if matchingPairFound {
@@ -113,11 +113,11 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 			}
 			if sg.compactLeftOverSegments && !leftoverPairFound {
 				// eftover segments enabled, none leftover pair found yet
-				if sg.compactionFitsSizeLimit(left, right) && isSimilarSegmentSizes(left.size, right.size) {
+				if sg.compactionFitsSizeLimit(left, right) && isSimilarSegmentSizes(left.getSize(), right.getSize()) {
 					// max size not exceeded, segment sizes similar despite different levels
 					leftoverPairFound = true
 					leftoverLeftId = leftId
-					leftoverLevel = left.level
+					leftoverLevel = left.getLevel()
 				}
 			}
 		}
@@ -173,7 +173,7 @@ func isSimilarSegmentSizes(leftSize, rightSize int64) bool {
 }
 
 // segmentAtPos retrieves the segment for the given position using a read-lock
-func (sg *SegmentGroup) segmentAtPos(pos int) *segment {
+func (sg *SegmentGroup) segmentAtPos(pos int) Segment {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
@@ -222,17 +222,17 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
 
-	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
+	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.getPath())+"_"+segmentID(rightSegment.getPath())+".db.tmp")
 
 	f, err := os.Create(path)
 	if err != nil {
 		return false, err
 	}
 
-	scratchSpacePath := rightSegment.path + "compaction.scratch.d"
+	scratchSpacePath := rightSegment.getPath() + "compaction.scratch.d"
 
-	strategy := leftSegment.strategy
-	secondaryIndices := leftSegment.secondaryIndexCount
+	strategy := leftSegment.getStrategy()
+	secondaryIndices := leftSegment.getSecondaryIndexCount()
 	cleanupTombstones := !sg.keepTombstones && pair[0] == 0
 
 	pathLabel := "n/a"
@@ -341,8 +341,8 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	newPathTmp string,
 ) error {
 	sg.maintenanceLock.RLock()
-	updatedCountNetAdditions := sg.segments[old1].countNetAdditions +
-		sg.segments[old2].countNetAdditions
+	updatedCountNetAdditions := sg.segments[old1].getCountNetAdditions() +
+		sg.segments[old2].getCountNetAdditions()
 	sg.maintenanceLock.RUnlock()
 
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
@@ -364,8 +364,8 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 		// compaction itself was successful.
 		sg.logger.WithError(err).WithFields(logrus.Fields{
 			"action":     "lsm_replace_compacted_segments_delete_files",
-			"file_left":  oldL.path,
-			"file_right": oldR.path,
+			"file_left":  oldL.getPath(),
+			"file_right": oldR.getPath(),
 		}).Error("failed to delete file already marked for deletion")
 	}
 
@@ -376,7 +376,7 @@ const replaceSegmentWarnThreshold = 300 * time.Millisecond
 
 func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 	old1, old2 int, precomputedFiles []string,
-) (*segment, *segment, error) {
+) (Segment, Segment, error) {
 	// We need a maintenanceLock.Lock() to switch segments, however, we can't
 	// simply call Lock(). Due to the write-preferring nature of the RWMutex this
 	// would mean that if any RLock() holder still holds the lock, all future
@@ -434,7 +434,7 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 	// extension from the new segment itself and the pre-computed files which
 	// carried the name of the second old segment
 	for i, path := range precomputedFiles {
-		updated, err := sg.stripTmpExtension(path, segmentID(leftSegment.path), segmentID(rightSegment.path))
+		updated, err := sg.stripTmpExtension(path, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
 		}
@@ -445,7 +445,7 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 		}
 	}
 
-	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil,
+	seg, err := newLazySegment(newPath, sg.logger, sg.metrics, nil,
 		segmentConfig{
 			mmapContents:             sg.mmapContents,
 			useBloomFilter:           sg.useBloomFilter,
@@ -466,15 +466,15 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 }
 
 func (sg *SegmentGroup) observeReplaceCompactedDuration(
-	start time.Time, segmentIdx int, left, right *segment,
+	start time.Time, segmentIdx int, left, right Segment,
 ) {
 	// observe duration - warn if it took too long
 	took := time.Since(start)
 	fields := sg.logger.WithFields(logrus.Fields{
 		"action":        "lsm_replace_compacted_segments_blocking",
 		"segment_index": segmentIdx,
-		"path_left":     left.path,
-		"path_right":    right.path,
+		"path_left":     left.getPath(),
+		"path_right":    right.getPath(),
 		"took":          took,
 	})
 	msg := fmt.Sprintf("replacing compacted segments took %s", took)
@@ -485,7 +485,7 @@ func (sg *SegmentGroup) observeReplaceCompactedDuration(
 	}
 }
 
-func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...*segment) error {
+func (sg *SegmentGroup) deleteOldSegmentsNonBlocking(segments ...Segment) error {
 	// At this point those segments are no longer used, so we can drop them
 	// without holding the maintenance lock and therefore not block readers.
 
@@ -577,15 +577,15 @@ func (sg *SegmentGroup) segmentLevelStats() segmentLevelStats {
 	stats := newSegmentLevelStats()
 
 	for _, seg := range sg.segments {
-		stats.count[seg.level]++
+		stats.count[seg.getLevel()]++
 
-		cur := stats.indexes[seg.level]
-		cur += seg.index.Size()
-		stats.indexes[seg.level] = cur
+		cur := stats.indexes[seg.getLevel()]
+		cur += seg.getIndexSize()
+		stats.indexes[seg.getLevel()] = cur
 
-		cur = stats.payloads[seg.level]
+		cur = stats.payloads[seg.getLevel()]
 		cur += seg.PayloadSize()
-		stats.payloads[seg.level] = cur
+		stats.payloads[seg.getLevel()] = cur
 	}
 
 	return stats
@@ -651,12 +651,12 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 	}
 }
 
-func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {
+func (sg *SegmentGroup) compactionFitsSizeLimit(left, right Segment) bool {
 	if sg.maxSegmentSize == 0 {
 		// no limit is set, always return true
 		return true
 	}
 
-	totalSize := left.size + right.size
+	totalSize := left.getSize() + right.getSize()
 	return totalSize <= sg.maxSegmentSize
 }

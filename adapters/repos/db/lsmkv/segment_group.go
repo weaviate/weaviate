@@ -31,7 +31,7 @@ import (
 )
 
 type SegmentGroup struct {
-	segments []*segment
+	segments []Segment
 
 	// Lock() for changing the currently active segments, RLock() for normal
 	// operation
@@ -105,7 +105,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 	now := time.Now()
 	sg := &SegmentGroup{
-		segments:                 make([]*segment, len(list)),
+		segments:                 make([]Segment, len(list)),
 		dir:                      cfg.dir,
 		logger:                   logger,
 		metrics:                  metrics,
@@ -193,7 +193,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		if !leftSegmentFound && rightSegmentFound {
 			// segment is initialized just to be erased
 			// there is no need of bloom filters nor net addition counter re-calculation
-			rightSegment, err := newSegment(rightSegmentPath, logger,
+			rightSegment, err := newLazySegment(rightSegmentPath, logger,
 				metrics, sg.makeExistsOnLower(segmentIndex),
 				segmentConfig{
 					mmapContents:             sg.mmapContents,
@@ -241,7 +241,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry.Name(), rightSegmentFilename, err)
 		}
 
-		segment, err := newSegment(rightSegmentPath, logger,
+		segment, err := newLazySegment(rightSegmentPath, logger,
 			metrics, sg.makeExistsOnLower(segmentIndex),
 			segmentConfig{
 				mmapContents:             sg.mmapContents,
@@ -312,7 +312,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			continue
 		}
 
-		segment, err := newSegment(filepath.Join(sg.dir, entry.Name()), logger,
+		segment, err := newLazySegment(filepath.Join(sg.dir, entry.Name()), logger,
 			metrics, sg.makeExistsOnLower(segmentIndex),
 			segmentConfig{
 				mmapContents:             sg.mmapContents,
@@ -371,7 +371,7 @@ func (sg *SegmentGroup) add(path string) error {
 	defer sg.maintenanceLock.Unlock()
 
 	newSegmentIndex := len(sg.segments)
-	segment, err := newSegment(path, sg.logger,
+	segment, err := newLazySegment(path, sg.logger,
 		sg.metrics, sg.makeExistsOnLower(newSegmentIndex),
 		segmentConfig{
 			mmapContents:             sg.mmapContents,
@@ -388,7 +388,7 @@ func (sg *SegmentGroup) add(path string) error {
 	return nil
 }
 
-func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
+func (sg *SegmentGroup) addInitializedSegment(segment Segment) error {
 	sg.maintenanceLock.Lock()
 	defer sg.maintenanceLock.Unlock()
 
@@ -585,7 +585,7 @@ func (sg *SegmentGroup) count() int {
 
 	count := 0
 	for _, seg := range sg.segments {
-		count += seg.countNetAdditions
+		count += seg.getCountNetAdditions()
 	}
 
 	return count

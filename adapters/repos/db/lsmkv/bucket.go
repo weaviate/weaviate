@@ -207,7 +207,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	// (memtables will be created later on, with already modified strategy)
 	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
 	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategySetCollection {
+		sg.segments[0].getStrategy() == segmentindex.StrategySetCollection {
 		b.strategy = StrategySetCollection
 		b.desiredStrategy = StrategyRoaringSet
 		sg.strategy = StrategySetCollection
@@ -220,7 +220,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	// renamed on startup by migrator. Here actual strategy is set based on
 	// data found in segment files
 	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+		sg.segments[0].getStrategy() == segmentindex.StrategyMapCollection {
 		b.strategy = StrategyMapCollection
 		b.desiredStrategy = StrategyRoaringSet
 		sg.strategy = StrategyMapCollection
@@ -1177,7 +1177,7 @@ func (b *Bucket) FlushAndSwitch() error {
 	return nil
 }
 
-func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
+func (b *Bucket) initAndPrecomputeNewSegment() (Segment, error) {
 	// Note that this operation does not require the flush lock, i.e. it can
 	// happen in the background and we can accept new writes will this
 	// pre-compute is happening.
@@ -1190,7 +1190,7 @@ func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
 	return segment, nil
 }
 
-func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg *segment) error {
+func (b *Bucket) atomicallyAddDiskSegmentAndRemoveFlushing(seg Segment) error {
 	b.flushLock.Lock()
 	defer b.flushLock.Unlock()
 

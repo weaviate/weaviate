@@ -183,6 +183,10 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 		WithSecondaryKey(0, []byte("bonjour"))))
 	require.Nil(t, b.FlushMemtable())
 
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
+
 	files, err := os.ReadDir(b.dir)
 	require.Nil(t, err)
 

@@ -84,6 +84,10 @@ func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOpti
 	require.NoError(t, os.MkdirAll(leftoverDir, 0o755))
 	require.NoError(t, os.WriteFile(path.Join(leftoverDir, "partial_segment.db"), []byte("some data"), 0o644))
 
+	// just to ensure segments are loaded as files are compared at the fs level
+	cursor := b.Cursor()
+	cursor.Close()
+
 	files, err := b.ListFiles(ctx, dirName)
 	assert.NoError(t, err)
 	assert.Len(t, files, 3)

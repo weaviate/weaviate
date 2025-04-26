@@ -99,7 +99,7 @@ func (sg *SegmentGroup) newCursorsWith(desiredSecondaryIndexCount int) ([]innerC
 	out := make([]innerCursorReplace, 0, len(sg.segments))
 
 	for _, segment := range sg.segments {
-		if int(segment.secondaryIndexCount) != desiredSecondaryIndexCount {
+		if int(segment.getSecondaryIndexCount()) != desiredSecondaryIndexCount {
 			continue
 		}
 		out = append(out, segment.newCursor())
@@ -113,7 +113,7 @@ func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorRepl
 	out := make([]innerCursorReplace, 0, len(sg.segments))
 
 	for _, segment := range sg.segments {
-		if int(segment.secondaryIndexCount) <= pos {
+		if int(segment.getSecondaryIndexCount()) <= pos {
 			continue
 		}
 		out = append(out, segment.newCursorWithSecondaryIndex(pos))

@@ -43,6 +43,10 @@ func TestCreateBloomOnFlush(t *testing.T) {
 		WithSecondaryKey(0, []byte("bonjour"))))
 	require.Nil(t, b.FlushMemtable())
 
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
+
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
 
@@ -87,6 +91,10 @@ func TestCreateBloomInit(t *testing.T) {
 		WithSecondaryKey(0, []byte("bonjour"))))
 	require.Nil(t, b.FlushMemtable())
 
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
+
 	for _, ext := range []string{".secondary.0.bloom", ".bloom"} {
 		files, err := os.ReadDir(dirName)
 		require.Nil(t, err)
@@ -111,6 +119,10 @@ func TestCreateBloomInit(t *testing.T) {
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
+	// just to ensure segments are loaded
+	cursor = b2.Cursor()
+	cursor.Close()
+
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
 	_, ok := findFileWithExt(files, ".bloom")
@@ -132,6 +144,10 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
+
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -170,6 +186,10 @@ func TestRepairTooShortBloomOnInit(t *testing.T) {
 	require.Nil(t, b.Put([]byte("hello"), []byte("world")))
 	require.Nil(t, b.FlushMemtable())
 
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
+
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
 	fname, ok := findFileWithExt(files, ".bloom")
@@ -206,6 +226,10 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
 	require.Nil(t, b.FlushMemtable())
+
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
@@ -257,6 +281,10 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 		WithSecondaryKey(0, []byte("bonjour"))))
 	require.Nil(t, b.FlushMemtable())
 
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
+
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
 	fname, ok := findFileWithExt(files, "secondary.0.bloom")
@@ -294,6 +322,10 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 	require.Nil(t, b.Put([]byte("hello"), []byte("world"),
 		WithSecondaryKey(0, []byte("bonjour"))))
 	require.Nil(t, b.FlushMemtable())
+
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
