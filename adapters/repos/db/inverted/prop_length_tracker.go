@@ -75,10 +75,12 @@ func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
 		// can read the entire contents into memory
 		existingPages, err := io.ReadAll(f)
 		if err != nil {
+			f.Close()
 			return nil, errors.Wrap(err, "read initial count from file")
 		}
 
 		if len(existingPages)%4096 != 0 {
+			f.Close()
 			return nil, errors.Errorf(
 				"failed sanity check, prop len tracker file %s has length %d", path,
 				len(existingPages))

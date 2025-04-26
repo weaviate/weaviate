@@ -43,6 +43,7 @@ func New(shardPath string) (*Counter, error) {
 		// the file has existed before, we need to initialize with its content
 		err := binary.Read(f, binary.LittleEndian, &initialCount)
 		if err != nil {
+			f.Close()
 			return nil, errors.Wrap(err, "read initial count from file")
 		}
 
