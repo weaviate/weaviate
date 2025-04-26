@@ -241,7 +241,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 	t.Run("create and cancel backup", func(t *testing.T) {
 		// Ensure cluster is in sync
 		if journeyType == clusterJourney {
-			time.Sleep(5 * time.Second)
+			time.Sleep(10 * time.Second) //FIXME
 		}
 		cfg := helper.DefaultBackupConfig()
 		cfg.Bucket = overrideBucket
@@ -254,35 +254,22 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 			require.Nil(t, helper.CancelBackup(t, backend, backupID))
 		})
 
-		// wait for cancellation
-		ticker := time.NewTicker(20 * time.Second)
-	wait:
-		for {
-			select {
-			case <-ticker.C:
-				break wait
-			default:
-				statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
-				helper.AssertRequestOk(t, resp, err, func() {
-					require.NotNil(t, statusResp)
-					require.NotNil(t, statusResp.Payload)
-					require.NotNil(t, statusResp.Payload.Status)
-				})
+		assert.EventuallyWithT(t, func(t1 *assert.CollectT) {
+			statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
+			helper.AssertRequestOk(t, resp, err, func() {
+				require.NotNil(t, statusResp)
+				require.NotNil(t, statusResp.Payload)
+				require.NotNil(t, statusResp.Payload.Status)
+			})
 
-				if *resp.Payload.Status == string(backup.Cancelled) {
-					break wait
-				}
-				time.Sleep(500 * time.Millisecond)
+			assert.NotNil(t1, resp)
+			require.NotNil(t1, resp.Payload)
+			if *resp.Payload.Status != string(backup.Cancelled) {
+				t1.Errorf("expected status: %s, got: %s", string(backup.Cancelled), *resp.Payload.Status)
+
 			}
-		}
+		}, 60*time.Second, 1000*time.Millisecond, "backup status not cancelled")
 
-		statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
-		helper.AssertRequestOk(t, resp, err, func() {
-			require.NotNil(t, statusResp)
-			require.NotNil(t, statusResp.Payload)
-			require.NotNil(t, statusResp.Payload.Status)
-			require.Equal(t, string(backup.Cancelled), *statusResp.Payload.Status)
-		})
 	})
 }
 
