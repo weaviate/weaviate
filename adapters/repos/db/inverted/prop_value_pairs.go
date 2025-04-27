@@ -17,7 +17,6 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -45,14 +44,13 @@ type propValuePair struct {
 	hasSearchableIndex bool
 	hasRangeableIndex  bool
 	Class              *models.Class // The schema
-	logger             logrus.FieldLogger
 }
 
-func newPropValuePair(class *models.Class, logger logrus.FieldLogger) (*propValuePair, error) {
+func newPropValuePair(class *models.Class) (*propValuePair, error) {
 	if class == nil {
 		return nil, errors.Errorf("class must not be nil")
 	}
-	return &propValuePair{logger: logger, docIDs: newDocBitmap(), Class: class}, nil
+	return &propValuePair{docIDs: newDocBitmap(), Class: class}, nil
 }
 
 func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int) error {
@@ -94,7 +92,7 @@ func (pv *propValuePair) fetchDocIDs(ctx context.Context, s *Searcher, limit int
 		}
 		pv.docIDs = dbm
 	} else {
-		eg := enterrors.NewErrorGroupWrapper(pv.logger)
+		eg := enterrors.NewErrorGroupWrapper(s.logger)
 		// prevent unbounded concurrency, see
 		// https://github.com/weaviate/weaviate/issues/3179 for details
 		eg.SetLimit(2 * _NUMCPU)
