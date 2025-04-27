@@ -233,7 +233,7 @@ func (r *Resolver) resolveRef(item *models.SingleRef, desiredClass string,
 		nested["vector"] = res.Vector
 	}
 	if len(additionalProperties.Vectors) > 0 {
-		vectors := make(map[string][]float32)
+		vectors := make(map[string]models.Vector)
 		for _, targetVector := range additionalProperties.Vectors {
 			vectors[targetVector] = res.Vectors[targetVector]
 		}

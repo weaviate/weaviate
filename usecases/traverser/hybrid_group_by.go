@@ -66,6 +66,7 @@ func (e *Explorer) groupSearchResults(ctx context.Context, sr search.Results, gr
 				ID:       groupMember.ID,
 				Distance: groupMember.Dist,
 				Vector:   groupMember.Vector,
+				Vectors:  groupMember.Vectors,
 			}
 			hits[j] = props
 		}

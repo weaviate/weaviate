@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -494,7 +495,7 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 		}
 
 		if len(params.AdditionalProperties.Vectors) > 0 {
-			vectors := make(map[string][]float32)
+			vectors := make(map[string]models.Vector)
 			for _, targetVector := range params.AdditionalProperties.Vectors {
 				vectors[targetVector] = res.Vectors[targetVector]
 			}
