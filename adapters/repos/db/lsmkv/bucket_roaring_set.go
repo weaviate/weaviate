@@ -12,10 +12,8 @@
 package lsmkv
 
 import (
-	"errors"
-
 	"github.com/weaviate/sroar"
-	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/theOneTrueFileStore"
 )
 
 func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
@@ -26,7 +24,18 @@ func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	return b.active.roaringSetAddOne(key, value)
+	set, _ := b.RoaringSetGet(key)
+	if set == nil {
+		return nil
+	}
+
+	bm := sroar.FromSortedList([]uint64{value})
+	set.Or(bm)
+	out := set.ToBuffer()
+
+
+	theOneTrueFileStore.TheOneTrueFileStore().Put(b.KeyPath(key), out)
+	return nil
 }
 
 func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
@@ -37,7 +46,17 @@ func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	return b.active.roaringSetRemoveOne(key, value)
+	set, _ := b.RoaringSetGet(key)
+	if set == nil {
+		return nil
+	}
+
+	bm := sroar.FromSortedList([]uint64{value})
+	set.AndNot(bm)
+	out := set.ToBuffer()
+
+	theOneTrueFileStore.TheOneTrueFileStore().Put(b.KeyPath(key), out)
+	return nil
 }
 
 func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
@@ -48,7 +67,22 @@ func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	return b.active.roaringSetAddList(key, values)
+	set, err := b.RoaringSetGet(key)
+	if set == nil {
+		return nil
+	}
+
+
+	bm := sroar.FromSortedList(values)
+
+	set.Or(bm)
+	if err != nil {
+		return err
+	}
+
+	out := set.ToBuffer()
+	theOneTrueFileStore.TheOneTrueFileStore().Put(b.KeyPath(key), out)
+	return nil
 }
 
 func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
@@ -59,7 +93,18 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	return b.active.roaringSetAddBitmap(key, bm)
+	set, _ := b.RoaringSetGet(key)
+	if set == nil {
+		return nil
+	}
+
+
+	set.Or(bm)
+
+	out := set.ToBuffer()
+
+	theOneTrueFileStore.TheOneTrueFileStore().Put(b.KeyPath(key), out)
+	return nil
 }
 
 func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
@@ -70,30 +115,12 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	layers, err := b.disk.roaringSetGet(key)
+	data, err := theOneTrueFileStore.TheOneTrueFileStore().Get(b.KeyPath(key))
 	if err != nil {
-		return nil, err
+		return sroar.NewBitmap(), nil
 	}
 
-	if b.flushing != nil {
-		flushing, err := b.flushing.roaringSetGet(key)
-		if err != nil {
-			if !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
-			}
-		} else {
-			layers = append(layers, flushing)
-		}
-	}
+	out := sroar.FromBufferWithCopy(data)
+	return out, nil
 
-	active, err := b.active.roaringSetGet(key)
-	if err != nil {
-		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
-		}
-	} else {
-		layers = append(layers, active)
-	}
-
-	return layers.Flatten(false), nil
 }

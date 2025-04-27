@@ -19,7 +19,6 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/debug"
-	"strings"
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -459,34 +458,9 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 }
 
 func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, string, error) {
-	replacementBucket.disk.maintenanceLock.Lock()
-	defer replacementBucket.disk.maintenanceLock.Unlock()
 
-	currBucketDir := bucket.dir
-	newBucketDir := bucket.dir + "___del"
-	currReplacementBucketDir := replacementBucket.dir
-	newReplacementBucketDir := currBucketDir
 
-	if err := bucket.Shutdown(ctx); err != nil {
-		return "", "", "", "", errors.Wrapf(err, "failed shutting down bucket old '%s'", bucketName)
-	}
-
-	s.logger.WithField("action", "lsm_replace_bucket").
-		WithField("bucket", bucketName).
-		WithField("replacement_bucket", replacementBucketName).
-		WithField("dir", s.dir).
-		Info("replacing bucket")
-
-	replacementBucket.flushLock.Lock()
-	defer replacementBucket.flushLock.Unlock()
-	if err := os.Rename(currBucketDir, newBucketDir); err != nil {
-		return "", "", "", "", errors.Wrapf(err, "failed moving orig bucket dir '%s'", currBucketDir)
-	}
-	if err := os.Rename(currReplacementBucketDir, newReplacementBucketDir); err != nil {
-		return "", "", "", "", errors.Wrapf(err, "failed moving replacement bucket dir '%s'", currReplacementBucketDir)
-	}
-
-	return currBucketDir, newBucketDir, currReplacementBucketDir, newReplacementBucketDir, nil
+	return "","","","",nil
 }
 
 // Replaces 1st bucket with 2nd one. Both buckets have to registered in bucketsByName.
@@ -528,10 +502,6 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 
 	replacementBucket.flushLock.Lock()
 	defer replacementBucket.flushLock.Unlock()
-
-	if replacementBucket.flushing != nil {
-		return fmt.Errorf("bucket '%s' can not be renamed before flushing", replacementBucketName)
-	}
 
 	replacementBucket.dir = newReplacementBucketDir
 
@@ -580,9 +550,6 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	currBucket.flushLock.Lock()
 	defer currBucket.flushLock.Unlock()
 
-	if currBucket.flushing != nil {
-		return fmt.Errorf("bucket '%s' can not be renamed before flushing", bucketName)
-	}
 
 	currBucket.dir = newBucketDir
 
@@ -604,15 +571,7 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 }
 
 func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) {
-	updatePath := func(src string) string {
-		return strings.Replace(src, bucketDir, newBucketDir, 1)
-	}
 
-	segments, release := bucket.disk.getAndLockSegments()
-	defer release()
 
-	bucket.disk.dir = newBucketDir
-	for _, segment := range segments {
-		segment.path = updatePath(segment.path)
-	}
+
 }

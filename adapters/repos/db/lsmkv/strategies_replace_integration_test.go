@@ -24,6 +24,28 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
+type bucketIntegrationTest struct {
+	       name string
+	       f    func(context.Context, *testing.T, []BucketOption)
+	       opts []BucketOption
+	}
+
+type bucketIntegrationTests []bucketIntegrationTest
+func (tests bucketIntegrationTests) run(ctx context.Context, t *testing.T) {
+       for _, test := range tests {
+               t.Run(test.name, func(t *testing.T) {
+                       test.opts = append(test.opts, WithSegmentsChecksumValidationEnabled(false))
+                       t.Run("mmap", func(t *testing.T) {
+                               test.f(ctx, t, test.opts)
+                       })
+                       t.Run("pread", func(t *testing.T) {
+                               test.f(ctx, t, append([]BucketOption{WithPread(true)}, test.opts...))
+                       })
+               })
+       }
+}
+
+
 func TestReplaceStrategy(t *testing.T) {
 	ctx := testCtx()
 	tests := bucketIntegrationTests{

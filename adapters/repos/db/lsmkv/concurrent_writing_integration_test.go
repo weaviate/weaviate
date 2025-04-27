@@ -25,11 +25,21 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
 )
+
+func nullLogger() logrus.FieldLogger {
+	       log := logrus.New()
+	       return log
+	}
+
+func testCtx() context.Context {
+	return context.Background()
+}
 
 // This test continuously writes into a bucket with a small memtable threshold,
 // so that a lot of flushing is happening while writing. This is to ensure that
@@ -233,7 +243,7 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 	cyclemanager.NewManager(
 		cyclemanager.NewFixedTicker(5*time.Millisecond),
 		flushGroup.CycleCallback,
-		logger).Start()
+		nil).Start()
 	bucket, err := NewBucketCreator().NewBucket(testCtx(), dirName, "", nullLogger(), nil,
 		cyclemanager.NewCallbackGroupNoop(), flushGroup,
 		WithStrategy(StrategyRoaringSet),

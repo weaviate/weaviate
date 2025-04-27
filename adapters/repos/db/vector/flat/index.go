@@ -22,7 +22,6 @@ import (
 	"runtime"
 	"sync"
 	"sync/atomic"
-	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -796,62 +795,7 @@ func (i *flat) ValidateMultiBeforeInsert(vector [][]float32) error {
 }
 
 func (index *flat) PostStartup() {
-	if !index.isBQCached() {
-		return
-	}
 
-	// The idea here is to first read everything from disk in one go, then grow
-	// the cache just once before inserting all vectors. A previous iteration
-	// would grow the cache as part of the cursor loop and this ended up making
-	// up 75% of the CPU time needed. This new implementation with two loops is
-	// much more efficient and only ever-so-slightly more memory-consuming (about
-	// one additional struct per vector while loading. Should be negligible)
-
-	// The initial size of 10k is chosen fairly arbitrarily. The cost of growing
-	// this slice dynamically should be quite cheap compared to other operations
-	// involved here, e.g. disk reads.
-	vecs := make([]compressionhelpers.VecAndID[uint64], 0, 10_000)
-	maxID := uint64(0)
-
-	before := time.Now()
-	bucket := index.store.Bucket(index.getCompressedBucketName())
-	// we expect to be IO-bound, so more goroutines than CPUs is fine, we do
-	// however want some kind of relationship to the machine size, so
-	// 2*GOMAXPROCS seems like a good default.
-	it := compressionhelpers.NewParallelIterator[uint64](bucket, 2*runtime.GOMAXPROCS(0),
-		binary.BigEndian.Uint64, index.bq.FromCompressedBytesWithSubsliceBuffer, index.logger)
-	channel := it.IterateAll()
-	if channel == nil {
-		return // nothing to do
-	}
-	for v := range channel {
-		vecs = append(vecs, v...)
-	}
-
-	count := 0
-	for i := range vecs {
-		count++
-		if vecs[i].Id > maxID {
-			maxID = vecs[i].Id
-		}
-	}
-
-	// Grow cache just once
-	index.bqCache.LockAll()
-	defer index.bqCache.UnlockAll()
-
-	index.bqCache.SetSizeAndGrowNoLock(maxID)
-	for _, vec := range vecs {
-		index.bqCache.PreloadNoLock(vec.Id, vec.Vec)
-	}
-
-	took := time.Since(before)
-	index.logger.WithFields(logrus.Fields{
-		"action":   "preload_bq_cache",
-		"count":    count,
-		"took":     took,
-		"index_id": index.id,
-	}).Debugf("pre-loaded %d vectors in %s", count, took)
 }
 
 func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {

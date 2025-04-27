@@ -44,20 +44,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 
 	docCount := binary.LittleEndian.Uint64(buf)
 
-	if docCount <= uint64(terms.ENCODE_AS_FULL_BYTES) {
-		data := convertFixedLengthFromMemory(buf, int(docCount))
-		entries := make([]*terms.BlockEntry, 1)
-		propLength := s.invertedData.propertyLengths[data.DocIds[0]]
-		tf := data.Tfs[0]
-		entries[0] = &terms.BlockEntry{
-			Offset:              0,
-			MaxId:               data.DocIds[len(data.DocIds)-1],
-			MaxImpactTf:         uint32(tf),
-			MaxImpactPropLength: uint32(propLength),
-		}
 
-		return entries, docCount, data, nil
-	}
 
 	blockCount := (docCount + uint64(terms.BLOCK_SIZE-1)) / uint64(terms.BLOCK_SIZE)
 
@@ -333,35 +320,7 @@ func (s *SegmentBlockMax) advanceOnTombstoneOrFilter() {
 }
 
 func (s *SegmentBlockMax) reset() error {
-	var err error
-
-	s.propLengths, err = s.segment.GetPropertyLengths()
-	if err != nil {
-		return err
-	}
-
-	s.blockEntries, s.docCount, s.blockDataDecoded, err = s.segment.loadBlockEntries(s.node)
-	if err != nil {
-		return err
-	}
-
-	if s.blockDataDecoded == nil {
-		s.blockDataBuffer = make([]byte, terms.BLOCK_SIZE*8+terms.BLOCK_SIZE*4+terms.BLOCK_SIZE*4)
-		s.blockDataDecoded = &terms.BlockDataDecoded{
-			DocIds: make([]uint64, terms.BLOCK_SIZE),
-			Tfs:    make([]uint64, terms.BLOCK_SIZE),
-		}
-		s.blockDataEncoded = &terms.BlockData{}
-	}
-
-	s.blockEntryIdx = 0
-	s.blockDataIdx = 0
-	s.blockDataStartOffset = s.node.Start + 16 + uint64(len(s.blockEntries)*20)
-	s.blockDataEndOffset = s.node.End - uint64(len(s.node.Key)+4)
-
-	s.decodeBlock()
-
-	s.advanceOnTombstoneOrFilter()
+	
 
 	return nil
 }

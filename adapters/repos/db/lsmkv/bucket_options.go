@@ -78,15 +78,6 @@ func WithDynamicMemtableSizing(
 	initialMB, maxMB, minActiveSeconds, maxActiveSeconds int,
 ) BucketOption {
 	return func(b *Bucket) error {
-		mb := 1024 * 1024
-		cfg := memtableSizeAdvisorCfg{
-			initial:     initialMB * mb,
-			stepSize:    10 * mb,
-			maxSize:     maxMB * mb,
-			minDuration: time.Duration(minActiveSeconds) * time.Second,
-			maxDuration: time.Duration(maxActiveSeconds) * time.Second,
-		}
-		b.memtableResizer = newMemtableSizeAdvisor(cfg)
 		return nil
 	}
 }

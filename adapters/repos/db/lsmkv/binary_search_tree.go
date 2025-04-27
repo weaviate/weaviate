@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"bytes"
+	"fmt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/rbtree"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -293,7 +294,7 @@ func (n *binarySearchNode) getNode(key []byte) (*binarySearchNode, error) {
 		if !n.tombstone {
 			return n, nil
 		} else {
-			return nil, errorFromTombstonedValue(n.value)
+			return nil, fmt.Errorf(	"entity not found")
 		}
 	}
 

@@ -73,10 +73,10 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 
 	bytes, err := s.store.Bucket(helpers.ObjectsBucketLSM).Get(idBytes)
 	if err != nil {
-		return nil, err
+		return nil, nil
 	}
 
-	if bytes == nil {
+	if len(bytes) == 0 {
 		return nil, nil
 	}
 

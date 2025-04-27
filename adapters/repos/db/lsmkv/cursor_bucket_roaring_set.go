@@ -57,23 +57,11 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 
 	b.flushLock.RLock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newRoaringSetCursors()
 
-	// we have a flush-RLock, so we have the guarantee that the flushing state
-	// will not change for the lifetime of the cursor, thus there can only be two
-	// states: either a flushing memtable currently exists - or it doesn't
-	if b.flushing != nil {
-		innerCursors = append(innerCursors, b.flushing.newRoaringSetCursor())
-	}
-	innerCursors = append(innerCursors, b.active.newRoaringSetCursor())
+
 
 	// cursors are in order from oldest to newest, with the memtable cursor
 	// being at the very top
 	return &cursorRoaringSet{
-		combinedCursor: roaringset.NewCombinedCursor(innerCursors, keyOnly),
-		unlock: func() {
-			unlockSegmentGroup()
-			b.flushLock.RUnlock()
-		},
 	}
 }

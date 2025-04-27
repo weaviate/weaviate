@@ -28,7 +28,7 @@ func (b *Bucket) RoaringSetRangeAdd(key uint64, values ...uint64) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	return b.active.roaringSetRangeAdd(key, values...)
+	return nil
 }
 
 func (b *Bucket) RoaringSetRangeRemove(key uint64, values ...uint64) error {
@@ -39,7 +39,9 @@ func (b *Bucket) RoaringSetRangeRemove(key uint64, values ...uint64) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	return b.active.roaringSetRangeRemove(key, values...)
+
+
+	return nil
 }
 
 type ReaderRoaringSetRange interface {
@@ -54,20 +56,7 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 
 	var release func()
 	var readers []roaringsetrange.InnerReader
-	if b.keepSegmentsInMemory {
-		reader, releaseInt := roaringsetrange.NewSegmentInMemoryReader(b.disk.roaringSetRangeSegmentInMemory, b.bitmapBufPool)
-		readers, release = []roaringsetrange.InnerReader{reader}, releaseInt
-	} else {
-		readers, release = b.disk.newRoaringSetRangeReaders()
-	}
 
-	// we have a flush-RLock, so we have the guarantee that the flushing state
-	// will not change for the lifetime of the cursor, thus there can only be two
-	// states: either a flushing memtable currently exists - or it doesn't
-	if b.flushing != nil {
-		readers = append(readers, b.flushing.newRoaringSetRangeReader())
-	}
-	readers = append(readers, b.active.newRoaringSetRangeReader())
 
 	return roaringsetrange.NewCombinedReader(readers, func() {
 		release()

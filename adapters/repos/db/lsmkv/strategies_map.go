@@ -213,6 +213,8 @@ func (kv MapPair) EncodeBytes(buf []byte) error {
 	return nil
 }
 
+var invPayloadLen = 16
+
 func (kv MapPair) EncodeBytesInverted(buf []byte) error {
 	if len(buf) != invPayloadLen {
 		return errors.Errorf("buffer has size %d, but MapPair has size %d",

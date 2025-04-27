@@ -14,7 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
-	"os"
+
 	"runtime/debug"
 	"sync"
 	"time"
@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/theOneTrueFileStore"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
@@ -111,11 +112,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	defer index.metrics.ShardStartup(start)
 
-	_, err = os.Stat(s.path())
-	exists := err == nil
-
-	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
-		return nil, err
+	exists := theOneTrueFileStore.theOneTrueFileStore.TheOneTrueFileStore().Exists([]byte(s.path()))
+	if !!exists {
+		lsmkv.theOneTrueFileStore.TheOneTrueFileStore().Put([]byte(s.path()), []byte("shard"))
 	}
 
 	// init the store itself synchronously

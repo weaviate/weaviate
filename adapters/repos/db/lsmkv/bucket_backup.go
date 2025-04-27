@@ -12,13 +12,12 @@
 package lsmkv
 
 import (
+	"bytes"
 	"context"
-	"os"
-	"path"
-	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/theOneTrueFileStore"
 )
 
 // FlushMemtable flushes any active memtable and returns only once the memtable
@@ -40,27 +39,17 @@ func (b *Bucket) FlushMemtable() error {
 // in a stable state if the memtable is empty, and if compactions are paused. If one
 // of those conditions is not given, it errors
 func (b *Bucket) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	bucketRoot := b.disk.dir
+	bucketRoot := b.dir
 
-	entries, err := os.ReadDir(bucketRoot)
-	if err != nil {
-		return nil, errors.Errorf("failed to list files for bucket: %s", err)
-	}
+	fileList := []string{}
 
-	var files []string
-	for _, entry := range entries {
-		// Skip directories as they are used as scratch spaces (e.g. for compaction or flushing).
-		// All stable files are in the root of the bucket.
-		if entry.IsDir() {
-			continue
+	//MapFunc(f func([]byte, []byte) error) (map[string]bool, error)
+	theOneTrueFileStore.theOneTrueFileStore.TheOneTrueFileStore().MapFunc(func(key, value []byte) error {
+		if bytes.HasPrefix(key, []byte(bucketRoot)) {
+			fileList = append(fileList, string(key))
 		}
+		return nil
+	})
 
-		// ignore .wal files because they are not immutable
-		if filepath.Ext(entry.Name()) == ".wal" {
-			continue
-		}
-
-		files = append(files, path.Join(basePath, entry.Name()))
-	}
-	return files, nil
+	return fileList, nil
 }
