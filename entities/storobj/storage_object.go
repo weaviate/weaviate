@@ -535,6 +535,10 @@ func (ko *Object) asVectors(in map[string][]float32) models.Vectors {
 	return nil
 }
 
+func (ko *Object) GetVectors() models.Vectors {
+	return ko.asVectors(ko.Vectors)
+}
+
 func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
 	res := ko.SearchResult(addl, "")
 	res.Dist = dist
