@@ -17,6 +17,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -70,6 +72,10 @@ type CopyOpConsumer struct {
 
 	// nodeId uniquely identifies the node on which this consumer instance is running.
 	nodeId string
+
+	// engineOpCallbacks defines hooks invoked at various stages of a replication operation's lifecycle
+	// (e.g., pending, start, complete, failure) to support metrics or custom observability logic.
+	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks
 }
 
 // String returns a string representation of the CopyOpConsumer,
@@ -94,17 +100,19 @@ func NewCopyOpConsumer(
 	backoffPolicy backoff.BackOff,
 	opTimeout time.Duration,
 	maxWorkers int,
+	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks,
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
-		logger:        logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),
-		leaderClient:  leaderClient,
-		replicaCopier: replicaCopier,
-		backoffPolicy: backoffPolicy,
-		opTimeout:     opTimeout,
-		maxWorkers:    maxWorkers,
-		nodeId:        nodeId,
-		timeProvider:  timeProvider,
-		tokens:        make(chan struct{}, maxWorkers),
+		logger:            logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),
+		leaderClient:      leaderClient,
+		replicaCopier:     replicaCopier,
+		backoffPolicy:     backoffPolicy,
+		opTimeout:         opTimeout,
+		maxWorkers:        maxWorkers,
+		nodeId:            nodeId,
+		timeProvider:      timeProvider,
+		tokens:            make(chan struct{}, maxWorkers),
+		engineOpCallbacks: engineOpCallbacks,
 	}
 	return c
 }
@@ -133,6 +141,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 				return nil
 			}
 
+			c.engineOpCallbacks.OnOpPending(c.nodeId)
 			select {
 			// The 'tokens' channel limits the number of concurrent workers (`maxWorkers`).
 			// Each worker acquires a token before processing an operation. If no tokens are available,
@@ -142,6 +151,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			case c.tokens <- struct{}{}:
 
 				wg.Add(1)
+				c.engineOpCallbacks.OnOpStart(c.nodeId)
 
 				// Here we capture the op argument used by the func below as the enterrors.GoWrapper requires calling
 				// a function without arguments.
@@ -156,12 +166,12 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					opLogger := c.logger.WithFields(logrus.Fields{
 						"consumer":          c,
 						"op":                operation.ID,
-						"source_node":       operation.sourceShard.nodeId,
-						"target_node":       operation.targetShard.nodeId,
-						"source_shard":      operation.sourceShard.shardId,
-						"target_shard":      operation.targetShard.shardId,
-						"source_collection": operation.sourceShard.collectionId,
-						"target_collection": operation.targetShard.collectionId,
+						"source_node":       operation.SourceShard.NodeId,
+						"target_node":       operation.TargetShard.NodeId,
+						"source_shard":      operation.SourceShard.ShardId,
+						"target_shard":      operation.TargetShard.ShardId,
+						"source_collection": operation.SourceShard.CollectionId,
+						"target_collection": operation.TargetShard.CollectionId,
 					})
 
 					opLogger.Info("worker processing replication operation")
@@ -173,9 +183,13 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 					err := c.processReplicationOp(opCtx, operation.ID, operation)
 					if err != nil && errors.Is(err, context.DeadlineExceeded) {
+						c.engineOpCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation timed out")
 					} else if err != nil {
+						c.engineOpCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation failed")
+					} else {
+						c.engineOpCallbacks.OnOpComplete(c.nodeId)
 					}
 				}, c.logger)
 
@@ -199,12 +213,12 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 	logger := c.logger.WithFields(logrus.Fields{
 		"consumer":          c,
 		"op":                op.ID,
-		"source_node":       op.sourceShard.nodeId,
-		"target_node":       op.targetShard.nodeId,
-		"source_shard":      op.sourceShard.shardId,
-		"target_shard":      op.targetShard.shardId,
-		"source_collection": op.sourceShard.collectionId,
-		"target_collection": op.targetShard.collectionId,
+		"source_node":       op.SourceShard.NodeId,
+		"target_node":       op.TargetShard.NodeId,
+		"source_shard":      op.SourceShard.ShardId,
+		"target_shard":      op.TargetShard.ShardId,
+		"source_collection": op.SourceShard.CollectionId,
+		"target_collection": op.TargetShard.CollectionId,
 	})
 
 	startTime := c.timeProvider.Now()
@@ -222,12 +236,12 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 
 		logger.WithField("consumer", c).Info("starting replication copy operation")
 
-		if err := c.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
+		if err := c.replicaCopier.CopyReplica(ctx, op.SourceShard.NodeId, op.SourceShard.CollectionId, op.TargetShard.ShardId); err != nil {
 			logger.WithField("consumer", c).WithError(err).Error("failure while copying replica shard")
 			return err
 		}
 
-		if _, err := c.leaderClient.AddReplicaToShard(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.targetShard.nodeId); err != nil {
+		if _, err := c.leaderClient.AddReplicaToShard(ctx, op.TargetShard.CollectionId, op.TargetShard.ShardId, op.TargetShard.NodeId); err != nil {
 			logger.WithField("consumer", c).WithError(err).Error("failure while updating sharding state")
 			return err
 		}
@@ -247,11 +261,11 @@ func (c *CopyOpConsumer) logCompletedReplicationOp(workerId uint64, startTime ti
 		"duration":          duration.String(),
 		"start_time":        startTime.Format(time.RFC1123),
 		"completed_since":   c.timeProvider.Now().Sub(endTime),
-		"source_node":       op.sourceShard.nodeId,
-		"target_node":       op.targetShard.nodeId,
-		"source_shard":      op.sourceShard.shardId,
-		"target_shard":      op.targetShard.shardId,
-		"source_collection": op.sourceShard.collectionId,
-		"target_collection": op.targetShard.collectionId,
+		"source_node":       op.SourceShard.NodeId,
+		"target_node":       op.TargetShard.NodeId,
+		"source_shard":      op.SourceShard.ShardId,
+		"target_shard":      op.TargetShard.ShardId,
+		"source_collection": op.SourceShard.CollectionId,
+		"target_collection": op.TargetShard.CollectionId,
 	}).Info("Replication operation completed successfully")
 }

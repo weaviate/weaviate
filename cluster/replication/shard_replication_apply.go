@@ -29,23 +29,27 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
-	srcFQDN := newShardFQDN(c.SourceNode, c.SourceCollection, c.SourceShard)
-	targetFQDN := newShardFQDN(c.TargetNode, c.SourceCollection, c.SourceShard)
-	if _, ok := s.opsByTargetFQDN[targetFQDN]; ok {
+	op := ShardReplicationOp{
+		ID:          id,
+		SourceShard: newShardFQDN(c.SourceNode, c.SourceCollection, c.SourceShard),
+		TargetShard: newShardFQDN(c.TargetNode, c.SourceCollection, c.SourceShard),
+	}
+	return s.writeOpIntoFSM(op, shardReplicationOpStatus{state: api.REGISTERED})
+}
+
+// writeOpIntoFSM writes the op with status into the FSM. It *does* not holds the lock onto the maps so the callee must make sure the lock
+// is held
+func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status shardReplicationOpStatus) error {
+	if _, ok := s.opsByTargetFQDN[op.TargetShard]; ok {
 		return ErrShardAlreadyReplicating
 	}
 
-	op := ShardReplicationOp{
-		ID:          id,
-		sourceShard: srcFQDN,
-		targetShard: targetFQDN,
-	}
-	s.opsByNode[c.TargetNode] = append(s.opsByNode[c.TargetNode], op)
-	s.opsByShard[c.SourceShard] = append(s.opsByShard[c.SourceShard], op)
-	s.opsByCollection[c.SourceCollection] = append(s.opsByCollection[c.SourceCollection], op)
-	s.opsByTargetFQDN[targetFQDN] = op
+	s.opsByNode[op.TargetShard.NodeId] = append(s.opsByNode[op.TargetShard.NodeId], op)
+	s.opsByShard[op.SourceShard.CollectionId] = append(s.opsByShard[op.SourceShard.ShardId], op)
+	s.opsByCollection[op.SourceShard.CollectionId] = append(s.opsByCollection[op.SourceShard.CollectionId], op)
+	s.opsByTargetFQDN[op.TargetShard] = op
 	s.opsById[op.ID] = op
-	s.opsStatus[op] = shardReplicationOpStatus{state: api.REGISTERED}
+	s.opsStatus[op] = status
 
 	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].state.String()).Inc()
 
@@ -82,36 +86,36 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 		return ErrReplicationOpNotFound
 	}
 
-	ops, ok := s.opsByNode[op.sourceShard.nodeId]
+	ops, ok := s.opsByNode[op.SourceShard.NodeId]
 	if !ok {
 		err = multierror.Append(err, fmt.Errorf("could not find op in ops by node, this should not happen"))
 	}
 	opsReplace, ok := findAndDeleteOp(op.ID, ops)
 	if ok {
-		s.opsByNode[op.sourceShard.nodeId] = opsReplace
+		s.opsByNode[op.SourceShard.NodeId] = opsReplace
 	}
 
-	ops, ok = s.opsByCollection[op.sourceShard.collectionId]
+	ops, ok = s.opsByCollection[op.SourceShard.CollectionId]
 	if !ok {
 		err = multierror.Append(err, fmt.Errorf("could not find op in ops by collection, this should not happen"))
 	}
 	opsReplace, ok = findAndDeleteOp(op.ID, ops)
 	if ok {
-		s.opsByCollection[op.sourceShard.collectionId] = opsReplace
+		s.opsByCollection[op.SourceShard.CollectionId] = opsReplace
 	}
 
-	ops, ok = s.opsByShard[op.sourceShard.shardId]
+	ops, ok = s.opsByShard[op.SourceShard.ShardId]
 	if !ok {
 		err = multierror.Append(err, fmt.Errorf("could not find op in ops by shard, this should not happen"))
 	}
 	opsReplace, ok = findAndDeleteOp(op.ID, ops)
 	if ok {
-		s.opsByShard[op.sourceShard.shardId] = opsReplace
+		s.opsByShard[op.SourceShard.ShardId] = opsReplace
 	}
 
 	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].state.String()).Dec()
 
-	delete(s.opsByTargetFQDN, op.targetShard)
+	delete(s.opsByTargetFQDN, op.TargetShard)
 	delete(s.opsById, op.ID)
 	delete(s.opsStatus, op)
 

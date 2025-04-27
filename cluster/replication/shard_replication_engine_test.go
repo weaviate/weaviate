@@ -19,12 +19,13 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/replication"
-
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
 )
 
 func TestShardReplicationEngine(t *testing.T) {
@@ -54,7 +55,15 @@ func TestShardReplicationEngine(t *testing.T) {
 
 		logger, _ := logrustest.NewNullLogger()
 
-		engine := replication.NewShardReplicationEngine(logger, "node1", mockProducer, mockConsumer, 1, 1, 1*time.Minute)
+		engine := replication.NewShardReplicationEngine(
+			logger,
+			"node1",
+			mockProducer,
+			mockConsumer,
+			1,
+			1, 1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
+		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -105,7 +114,15 @@ func TestShardReplicationEngine(t *testing.T) {
 
 		logger, _ := logrustest.NewNullLogger()
 
-		engine := replication.NewShardReplicationEngine(logger, "node1", mockProducer, mockConsumer, 1, 1, 1*time.Minute)
+		engine := replication.NewShardReplicationEngine(logger,
+			"node1",
+			mockProducer,
+			mockConsumer,
+			1,
+			1,
+			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
+		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
 		var wg sync.WaitGroup
@@ -149,7 +166,15 @@ func TestShardReplicationEngine(t *testing.T) {
 
 		logger, _ := logrustest.NewNullLogger()
 
-		engine := replication.NewShardReplicationEngine(logger, "node1", mockProducer, mockConsumer, 1, 1, 1*time.Minute)
+		engine := replication.NewShardReplicationEngine(
+			logger,
+			"node1",
+			mockProducer,
+			mockConsumer,
+			1,
+			1,
+			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()))
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
 		var wg sync.WaitGroup
@@ -206,6 +231,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
@@ -268,6 +294,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
@@ -342,8 +369,24 @@ func TestShardReplicationEngine(t *testing.T) {
 			}).Once().Return(context.Canceled)
 
 		logger, _ := logrustest.NewNullLogger()
-		engine1 := replication.NewShardReplicationEngine(logger, "node1", mockProducer1, mockConsumer1, 1, 1, 1*time.Minute)
-		engine2 := replication.NewShardReplicationEngine(logger, "node2", mockProducer2, mockConsumer2, 1, 1, 1*time.Minute)
+		engine1 := replication.NewShardReplicationEngine(logger,
+			"node1",
+			mockProducer1,
+			mockConsumer1,
+			1,
+			1,
+			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
+		)
+		engine2 := replication.NewShardReplicationEngine(logger,
+			"node2",
+			mockProducer2,
+			mockConsumer2,
+			1,
+			1,
+			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
+		)
 		require.False(t, engine1.IsRunning(), "engine1 should not be running before start")
 		require.False(t, engine2.IsRunning(), "engine2 should not be running before start")
 
@@ -422,6 +465,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		require.False(t, engine.IsRunning(), "engine should not be running before start")
 
@@ -507,6 +551,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		require.False(t, engine.IsRunning(), "engine should not be running before start")
@@ -580,6 +625,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		require.False(t, engine.IsRunning(), "engine should not be running before start")
@@ -652,6 +698,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		require.False(t, engine.IsRunning(), "engine should not be running initially")
@@ -700,6 +747,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			randomOpBufferSize,
 			1,
 			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
@@ -811,6 +859,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			opsCount,
 			1,
 			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -926,6 +975,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			randomBufferSize,
 			randomWorkers,
 			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		// WHEN - First attempt fails due to producer facing an unexpected error
@@ -1067,6 +1117,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			randomBufferSize,
 			randomWorkers,
 			1*time.Minute,
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
 
 		// WHEN - First attempt fails due to consumer error
@@ -1117,6 +1168,137 @@ func TestShardReplicationEngine(t *testing.T) {
 
 		mockProducer.AssertExpectations(t)
 		mockConsumer.AssertExpectations(t)
+	})
+}
+
+func TestEngineWithCallbacks(t *testing.T) {
+	t.Run("should trigger engine/producer/consumer start and stop callbacks", func(t *testing.T) {
+		// GIVEN
+		logger, _ := logrustest.NewNullLogger()
+		mockProducer := replication.NewMockOpProducer(t)
+		mockConsumer := replication.NewMockOpConsumer(t)
+
+		// Use channels to track callback execution
+		engineStarted := make(chan struct{}, 1)
+		engineStopped := make(chan struct{}, 1)
+		producerStarted := make(chan struct{}, 1)
+		producerStopped := make(chan struct{}, 1)
+		consumerStarted := make(chan struct{}, 1)
+		consumerStopped := make(chan struct{}, 1)
+
+		engineStartCount := 0
+		engineStopCount := 0
+		producerStartCount := 0
+		producerStopCount := 0
+		consumerStartCount := 0
+		consumerStopCount := 0
+
+		callbacks := metrics.NewReplicationEngineCallbacksBuilder().
+			WithEngineStartCallback(func(node string) {
+				require.Equal(t, "node1", node)
+				engineStartCount++
+				engineStarted <- struct{}{}
+			}).
+			WithEngineStopCallback(func(node string) {
+				require.Equal(t, "node1", node)
+				engineStopCount++
+				engineStopped <- struct{}{}
+			}).
+			WithProducerStartCallback(func(node string) {
+				require.Equal(t, "node1", node)
+				producerStartCount++
+				producerStarted <- struct{}{}
+			}).
+			WithProducerStopCallback(func(node string) {
+				require.Equal(t, "node1", node)
+				producerStopCount++
+				producerStopped <- struct{}{}
+			}).
+			WithConsumerStartCallback(func(node string) {
+				consumerStartCount++
+				require.Equal(t, "node1", node)
+				consumerStarted <- struct{}{}
+			}).
+			WithConsumerStopCallback(func(node string) {
+				consumerStopCount++
+				require.Equal(t, "node1", node)
+				consumerStopped <- struct{}{}
+			}).
+			Build()
+
+		mockProducer.On("Produce", mock.Anything, mock.Anything).Return(nil).Maybe()
+		mockConsumer.On("Consume", mock.Anything, mock.Anything).Return(nil).Maybe()
+
+		engine := replication.NewShardReplicationEngine(
+			logger,
+			"node1",
+			mockProducer,
+			mockConsumer,
+			1,
+			1,
+			1*time.Second,
+			callbacks,
+		)
+
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		var engineStartErr error
+		var engineStartWG sync.WaitGroup
+		engineStartWG.Add(1)
+
+		// WHEN
+		go func() {
+			defer engineStartWG.Done()
+			engineStartErr = engine.Start(ctx)
+		}()
+
+		// Wait for all start callbacks
+		select {
+		case <-engineStarted:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timeout waiting for engine start callback")
+		}
+		select {
+		case <-producerStarted:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timeout waiting for producer start callback")
+		}
+		select {
+		case <-consumerStarted:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timeout waiting for consumer start callback")
+		}
+
+		engine.Stop()
+
+		// Wait for all stop callbacks
+		select {
+		case <-engineStopped:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timeout waiting for engine stop callback")
+		}
+		select {
+		case <-producerStopped:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timeout waiting for producer stop callback")
+		}
+		select {
+		case <-consumerStopped:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timeout waiting for consumer stop callback")
+		}
+
+		engineStartWG.Wait()
+
+		// THEN
+		require.NoErrorf(t, engineStartErr, "engine start should not return error")
+		require.Equal(t, engineStartCount, 1, "engine start count should be 1")
+		require.Equal(t, engineStopCount, 1, "engine stop count should be 1")
+		require.Equal(t, producerStartCount, 1, "producer start count should be 1")
+		require.Equal(t, producerStopCount, 1, "producer stop count should be 1")
+		require.Equal(t, consumerStartCount, 1, "consumer start count should be 1")
+		require.Equal(t, consumerStopCount, 1, "consumer stop count should be 1")
 	})
 }
 

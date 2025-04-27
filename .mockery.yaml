@@ -42,6 +42,8 @@ packages:
     interfaces:
       ReplicationFSMReader:
       Manager:
+      FSMUpdater:
+      ReplicaCopier:
   github.com/weaviate/weaviate/cluster/distributedtask:
     interfaces:
       TaskCleaner:

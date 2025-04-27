@@ -490,5 +490,5 @@ func setupTestManager(t *testing.T, logger *logrus.Logger) (*manager, error) {
 		Enabled: true,
 	}
 
-	return New(policyPath, conf, config.Authentication{OIDC: config.OIDC{Enabled: true}}, logger)
+	return New(policyPath, conf, config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"test-user"}}}, logger)
 }
