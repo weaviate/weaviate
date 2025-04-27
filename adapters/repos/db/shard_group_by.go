@@ -167,7 +167,9 @@ DOCS_LOOP:
 				ID:       docIDObject[docID].ID(),
 				Distance: docIDDistance[docID],
 				Vector:   docIDObject[docID].Vector,
+				Vectors:  docIDObject[docID].GetVectors(),
 			}
+
 			hits[j] = props
 		}
 		group := &additional.Group{
