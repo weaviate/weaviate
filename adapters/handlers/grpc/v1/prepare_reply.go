@@ -194,6 +194,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 		additionalPropertiesMap = make(map[string]interface{}, 3)
 		additionalPropertiesMap["id"] = addPropertiesGroup.ID
 		additionalPropertiesMap["vector"] = addPropertiesGroup.Vector
+		additionalPropertiesMap["vectors"] = addPropertiesGroup.Vectors
 		additionalPropertiesMap["distance"] = addPropertiesGroup.Distance
 	}
 	// id is part of the _additional map in case of generative search, group, & rerank - don't aks me why
@@ -250,13 +251,22 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 	if len(additionalPropsParams.Vectors) > 0 {
 		vectors, ok := additionalPropertiesMap["vectors"]
 		if ok {
-			vectorfmt, ok2 := vectors.(map[string][]float32)
+			vectorfmt, ok2 := vectors.(map[string]models.Vector)
+			if !ok2 {
+				// needed even though the types are identical, may have been created differently in core behind the interface{}
+				// e.g. for group hits
+				vectorfmt, ok2 = vectors.(models.Vectors)
+			}
 			if ok2 {
-				addProps.Metadata.Vectors = make([]*pb.Vectors, 0, len(vectorfmt))
-				for name, vector := range vectorfmt {
+				addProps.Metadata.Vectors = make([]*pb.Vectors, 0, len(additionalPropsParams.Vectors))
+				for _, vector := range additionalPropsParams.Vectors {
+					vec := vectorfmt[vector]
+					if len(vec) == 0 {
+						continue
+					}
 					addProps.Metadata.Vectors = append(addProps.Metadata.Vectors, &pb.Vectors{
-						VectorBytes: byteops.Float32ToByteVector(vector),
-						Name:        name,
+						VectorBytes: byteops.Float32ToByteVector(vec),
+						Name:        vector,
 					})
 				}
 			}
@@ -434,6 +444,7 @@ func (r *Replier) extractGroup(raw any, searchParams dto.GetParams, scheme schem
 	searchParams.AdditionalProperties = additional.Properties{
 		ID:       searchParams.AdditionalProperties.ID,
 		Vector:   searchParams.AdditionalProperties.Vector,
+		Vectors:  searchParams.AdditionalProperties.Vectors,
 		Distance: searchParams.AdditionalProperties.Distance,
 	}
 
