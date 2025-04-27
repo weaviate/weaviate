@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
