@@ -15,12 +15,15 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-func (m *Memtable) flush() error {
+func (m *Memtable) flush() (rerr error) {
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
 	// only be deleted at the very end, if the flush was successful
@@ -41,10 +44,19 @@ func (m *Memtable) flush() error {
 		return nil
 	}
 
-	f, err := os.OpenFile(m.path+".db", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
+	tmpSegmentPath := m.path + ".db.tmp"
+
+	f, err := os.OpenFile(tmpSegmentPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 	if err != nil {
 		return err
 	}
+	defer func() {
+		if rerr != nil {
+			f.Close()
+			os.Remove(tmpSegmentPath)
+		}
+	}()
+
 	bufw := bufio.NewWriter(f)
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(bufw),
@@ -123,6 +135,17 @@ func (m *Memtable) flush() error {
 	}
 
 	if err := f.Close(); err != nil {
+		return err
+	}
+
+	err = os.Rename(tmpSegmentPath, strings.TrimSuffix(tmpSegmentPath, ".tmp"))
+	if err != nil {
+		return err
+	}
+
+	// fsync parent directory
+	err = diskio.Fsync(filepath.Dir(m.path))
+	if err != nil {
 		return err
 	}
 

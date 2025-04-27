@@ -224,7 +224,7 @@ func (s *Searcher) extractPropValuePair(filter *filters.Clause,
 	if class == nil {
 		return nil, fmt.Errorf("class %q not found", className)
 	}
-	out, err := newPropValuePair(class, s.logger)
+	out, err := newPropValuePair(class)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
@@ -703,7 +703,7 @@ func (s *Searcher) extractContains(path *filters.Path, propType schema.DataType,
 	if err != nil {
 		return nil, err
 	}
-	out, err := newPropValuePair(class, s.logger)
+	out, err := newPropValuePair(class)
 	if err != nil {
 		return nil, fmt.Errorf("new prop value pair: %w", err)
 	}
