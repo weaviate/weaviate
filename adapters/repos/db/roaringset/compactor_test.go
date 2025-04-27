@@ -421,15 +421,15 @@ func Test_Compactor(t *testing.T) {
 			f, err = os.Open(segmentFile)
 			require.NoError(t, err)
 
-			header, err := segmentindex.ParseHeader(f)
+			segmentBytes, err := io.ReadAll(f)
 			require.NoError(t, err)
 
-			segmentBytes, err := io.ReadAll(f)
+			header, err := segmentindex.ParseHeader(segmentBytes[:segmentindex.HeaderSize])
 			require.NoError(t, err)
 
 			require.NoError(t, f.Close())
 
-			cu := NewSegmentCursor(segmentBytes[:header.IndexStart-segmentindex.HeaderSize], nil)
+			cu := NewSegmentCursor(segmentBytes[segmentindex.HeaderSize:header.IndexStart], nil)
 
 			i := 0
 			for k, v, _ := cu.First(); k != nil; k, v, _ = cu.Next() {
@@ -462,15 +462,15 @@ func Test_Compactor(t *testing.T) {
 			f, err = os.Open(segmentFile)
 			require.NoError(t, err)
 
-			header, err := segmentindex.ParseHeader(f)
+			segmentBytes, err := io.ReadAll(f)
 			require.NoError(t, err)
 
-			segmentBytes, err := io.ReadAll(f)
+			header, err := segmentindex.ParseHeader(segmentBytes[:segmentindex.HeaderSize])
 			require.NoError(t, err)
 
 			require.NoError(t, f.Close())
 
-			cu := NewSegmentCursor(segmentBytes[:header.IndexStart-segmentindex.HeaderSize], nil)
+			cu := NewSegmentCursor(segmentBytes[segmentindex.HeaderSize:header.IndexStart], nil)
 
 			i := 0
 			for k, v, _ := cu.First(); k != nil; k, v, _ = cu.Next() {
