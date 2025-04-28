@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
@@ -47,6 +48,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
 )
+
+var errMemoryPressure = errors.New("memory pressure: cannot load shard")
 
 type LazyLoadShard struct {
 	shardOpts        *deferredShardOpts
@@ -90,10 +93,28 @@ type deferredShardOpts struct {
 }
 
 func (l *LazyLoadShard) mustLoad(ctx context.Context) error {
-	if err := l.Load(ctx); err != nil {
-		return err
-	}
-	return nil
+	eb := backoff.NewExponentialBackOff()
+	eb.InitialInterval = 1 * time.Second
+	eb.MaxInterval = 30 * time.Second
+	eb.MaxElapsedTime = 60 * time.Second
+	eb.RandomizationFactor = 0.5
+	eb.Multiplier = 2.0
+
+	return backoff.Retry(func() error {
+		err := l.Load(ctx)
+		if err == nil {
+			return nil
+		}
+
+		// Check if it's a memory pressure error
+		if errors.Is(err, errMemoryPressure) {
+			// Return the error to trigger retry
+			return err
+		}
+
+		// For any other error, make it permanent to fail fast
+		return backoff.Permanent(err)
+	}, eb)
 }
 
 func (l *LazyLoadShard) Load(ctx context.Context) error {
@@ -105,7 +126,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	}
 
 	if err := l.memMonitor.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
-		return errors.Wrap(err, "memory pressure: cannot load shard")
+		return errors.Wrap(err, errMemoryPressure.Error())
 	}
 
 	if err := l.shardLoadLimiter.Acquire(ctx); err != nil {
