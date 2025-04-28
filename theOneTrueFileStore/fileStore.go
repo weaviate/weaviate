@@ -18,10 +18,10 @@ func init() {
 	var err error
 
 	// Use multiple bbolt databases to store all data
-	//theOneTrueFileStore, err = ensemblekv.NewEnsembleKv("/tmp/ensemblekv", 200, 999999999, 999999999, 9999999999, ensemblekv.BoltDbCreator)
+	theOneTrueFileStore, err = ensemblekv.NewEnsembleKv("/tmp/ensemblekv", 200, 999999999, 999999999, 9999999999, ensemblekv.BoltDbCreator)
 
 	// Use S3 as the backend (or minio)
-	theOneTrueFileStore, err = ensemblekv.NewS3Shim("http://localhost:55096", "minioadmin", "minioadmin", "defaultRegion", "weaviatebucket", "")
+	//theOneTrueFileStore, err = ensemblekv.NewS3Shim("http://localhost:55096", "minioadmin", "minioadmin", "defaultRegion", "weaviatebucket", "")
 
 	if err != nil {
 		panic(err)
