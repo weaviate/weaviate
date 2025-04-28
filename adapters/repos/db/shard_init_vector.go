@@ -120,12 +120,14 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		vecIdxID := s.vectorIndexID(targetVector)
 
 		vi, err := flat.New(flat.Config{
-			ID:               vecIdxID,
-			TargetVector:     targetVector,
-			RootPath:         s.path(),
-			Logger:           s.index.logger,
-			DistanceProvider: distProv,
-			AllocChecker:     s.index.allocChecker,
+			ID:                        vecIdxID,
+			TargetVector:              targetVector,
+			RootPath:                  s.path(),
+			Logger:                    s.index.logger,
+			DistanceProvider:          distProv,
+			AllocChecker:              s.index.allocChecker,
+			RescoreAgainstObjectStore: s.index.Config.FlatSearchRescoreAgainstObjectStore,
+			VectorForIDThunk:          hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
@@ -162,6 +164,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 			},
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+
+			FlatIndexRescoreAgainstObjectStore: s.index.Config.FlatSearchRescoreAgainstObjectStore,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())

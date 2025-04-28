@@ -39,6 +39,7 @@ import (
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
 	bolt "go.etcd.io/bbolt"
 )
@@ -71,6 +72,9 @@ type flat struct {
 	bqCache              cache.Cache[uint64]
 	count                uint64
 	concurrentCacheReads int
+
+	rescoreAgainstObjectStore *configRuntime.FeatureFlag[bool]
+	vectorForIDThunk          common.VectorForID[float32]
 }
 
 type distanceCalc func(vecAsBytes []byte) (float32, error)
@@ -88,18 +92,20 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 	}
 
 	index := &flat{
-		id:                   cfg.ID,
-		targetVector:         cfg.TargetVector,
-		rootPath:             cfg.RootPath,
-		logger:               logger,
-		distancerProvider:    cfg.DistanceProvider,
-		metadataLock:         &sync.RWMutex{},
-		rescore:              extractCompressionRescore(uc),
-		pqResults:            common.NewPqMaxPool(100),
-		compression:          extractCompression(uc),
-		pool:                 newPools(),
-		store:                store,
-		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
+		id:                        cfg.ID,
+		targetVector:              cfg.TargetVector,
+		rootPath:                  cfg.RootPath,
+		logger:                    logger,
+		distancerProvider:         cfg.DistanceProvider,
+		metadataLock:              &sync.RWMutex{},
+		rescore:                   extractCompressionRescore(uc),
+		pqResults:                 common.NewPqMaxPool(100),
+		compression:               extractCompression(uc),
+		pool:                      newPools(),
+		store:                     store,
+		concurrentCacheReads:      runtime.GOMAXPROCS(0) * 2,
+		rescoreAgainstObjectStore: cfg.RescoreAgainstObjectStore,
+		vectorForIDThunk:          cfg.VectorForIDThunk,
 	}
 	if err := index.initBuckets(context.Background()); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
@@ -405,7 +411,12 @@ func (index *flat) createDistanceCalc(vector []float32) distanceCalc {
 		defer index.pool.float32SlicePool.Put(vecSlice)
 
 		candidate := float32SliceFromByteSlice(vecAsBytes, vecSlice.slice)
-		return index.distancerProvider.SingleDist(vector, candidate)
+		dist, err := index.distancerProvider.SingleDist(vector, candidate)
+		if err != nil {
+			return dist, err
+		}
+
+		return dist, nil
 	}
 }
 
@@ -420,14 +431,14 @@ func (index *flat) searchByVectorBQ(ctx context.Context, vector []float32, k int
 
 	if index.isBQCached() {
 		if err := index.findTopVectorsCached(heap, allow, rescore, vectorBQ); err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("bq cached search: %w", err)
 		}
 	} else {
 		if err := index.findTopVectors(heap, allow, rescore,
 			index.store.Bucket(index.getCompressedBucketName()).Cursor,
 			index.createDistanceCalcBQ(vectorBQ),
 		); err != nil {
-			return nil, nil, err
+			return nil, nil, fmt.Errorf("uncached search: %w", err)
 		}
 	}
 
@@ -439,8 +450,16 @@ func (index *flat) searchByVectorBQ(ctx context.Context, vector []float32, k int
 		idsSlice.slice[i] = heap.Pop().ID
 	}
 
+	// rescore
+
 	// we expect to be mostly IO-bound, so more goroutines than CPUs is fine
 	distancesUncompressedVectors := make([]float32, len(idsSlice.slice))
+
+	// use consistent setting for entire rescore – only get feature flag once
+	rescoreAgainstObjectStore := false
+	if index.rescoreAgainstObjectStore != nil {
+		rescoreAgainstObjectStore = index.rescoreAgainstObjectStore.Get()
+	}
 
 	eg := enterrors.NewErrorGroupWrapper(index.logger)
 	for workerID := 0; workerID < index.concurrentCacheReads; workerID++ {
@@ -448,19 +467,37 @@ func (index *flat) searchByVectorBQ(ctx context.Context, vector []float32, k int
 		eg.Go(func() error {
 			for idPos := workerID; idPos < len(idsSlice.slice); idPos += index.concurrentCacheReads {
 				id := idsSlice.slice[idPos]
-				candidateAsBytes, err := index.vectorById(id)
-				if err != nil {
-					return err
-				}
-				if len(candidateAsBytes) == 0 {
-					continue
-				}
-				distance, err := distanceCalc(candidateAsBytes)
-				if err != nil {
-					return err
-				}
+				if !rescoreAgainstObjectStore {
+					candidateAsBytes, err := index.vectorById(id)
+					if err != nil {
+						return fmt.Errorf("rescore: retrieve vector: %w", err)
+					}
+					if len(candidateAsBytes) == 0 {
+						continue
+					}
+					distance, err := distanceCalc(candidateAsBytes)
+					if err != nil {
+						return fmt.Errorf("rescore: distance calc: %w", err)
+					}
 
-				distancesUncompressedVectors[idPos] = distance
+					distancesUncompressedVectors[idPos] = distance
+				} else {
+					// this part is experimental, but may end up being better than the
+					// "standard" way, see
+					// usecases/config/runtime/flat_index_rescore_strategy.go for details
+
+					candidate, err := index.vectorForIDThunk(ctx, id)
+					if err != nil {
+						return fmt.Errorf("rescore (object store): retrieve vector: %w", err)
+					}
+
+					distance, err := index.distancerProvider.SingleDist(vector, candidate)
+					if err != nil {
+						return fmt.Errorf("rescore (object store): distance calc: %w", err)
+					}
+
+					distancesUncompressedVectors[idPos] = distance
+				}
 			}
 
 			return nil
@@ -494,6 +531,7 @@ func (index *flat) vectorById(id uint64) ([]byte, error) {
 	defer index.pool.byteSlicePool.Put(idSlice)
 
 	binary.BigEndian.PutUint64(idSlice.slice, id)
+
 	return index.store.Bucket(index.getBucketName()).Get(idSlice.slice)
 }
 
@@ -633,7 +671,7 @@ func (index *flat) SearchByVectorDistance(ctx context.Context, vector []float32,
 		totalLimit := searchParams.TotalLimit()
 		ids, dist, err := index.SearchByVector(ctx, vector, totalLimit, allow)
 		if err != nil {
-			return false, errors.Wrap(err, "vector search")
+			return false, errors.Wrap(err, "recursive vector search")
 		}
 
 		// if there is less results than given limit search can be stopped
@@ -803,7 +841,12 @@ func (index *flat) PostStartup() {
 }
 
 func (index *flat) DistanceBetweenVectors(x, y []float32) (float32, error) {
-	return index.distancerProvider.SingleDist(x, y)
+	dist, err := index.distancerProvider.SingleDist(x, y)
+	if err != nil {
+		return dist, fmt.Errorf("dist between vecs: %w", err)
+	}
+
+	return dist, nil
 }
 
 func (index *flat) ContainsNode(id uint64) bool {
