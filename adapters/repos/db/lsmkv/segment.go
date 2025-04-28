@@ -92,14 +92,14 @@ type segmentConfig struct {
 // subtle differences.
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, cfg segmentConfig,
-) (_ *segment, err error) {
+) (_ *segment, rerr error) {
 	defer func() {
 		p := recover()
 		if p == nil {
 			return
 		}
 		entsentry.Recover(p)
-		err = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
+		rerr = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
 	}()
 
 	file, err := os.Open(path)
@@ -107,27 +107,32 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("open file: %w", err)
 	}
 
+	// The lifetime of the `file` exceeds this constructor as we store the open file for later use in `contentFile`.
+	// invariant: We close **only** if any error happend after successfully opening the file. To avoid leaking open file descriptor.
+	// NOTE: This `defer` works even with `err` being shadowed in the whole function because defer checks for named `rerr` return value.
+	defer func() {
+		if rerr != nil {
+			file.Close()
+		}
+	}()
+
 	fileInfo, err := file.Stat()
 	if err != nil {
-		file.Close()
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 	size := fileInfo.Size()
 
 	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 	if err != nil {
-		file.Close()
 		return nil, fmt.Errorf("mmap file: %w", err)
 	}
 
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
-		file.Close()
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
 	if err := segmentindex.CheckExpectedStrategy(header.Strategy); err != nil {
-		file.Close()
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
@@ -141,7 +146,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	primaryIndex, err := header.PrimaryIndex(contents)
 	if err != nil {
-		file.Close()
 		return nil, fmt.Errorf("extract primary index position: %w", err)
 	}
 
@@ -179,7 +183,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		for i := range seg.secondaryIndices {
 			secondary, err := header.SecondaryIndex(contents, uint16(i))
 			if err != nil {
-				file.Close()
 				return nil, fmt.Errorf("get position for secondary index at %d: %w", i, err)
 			}
 			seg.secondaryIndices[i] = segmentindex.NewDiskTree(secondary)
@@ -188,13 +191,11 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	if seg.useBloomFilter {
 		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived); err != nil {
-			file.Close()
 			return nil, err
 		}
 	}
 	if seg.calcCountNetAdditions {
 		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived); err != nil {
-			file.Close()
 			return nil, err
 		}
 	}
