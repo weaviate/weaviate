@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -21,6 +22,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/usecases/mmap"
 )
+
+const PageSize = 4096
 
 // preComputeSegmentMeta has no side-effects for an already running store. As a
 // result this can be run without the need to obtain any locks. All files
@@ -56,12 +59,23 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	}
 	size := fileInfo.Size()
 
-	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
-	if err != nil {
-		return nil, fmt.Errorf("mmap file: %w", err)
-	}
+	var contents []byte
 
-	defer contents.Unmap()
+	// mmap has some overhead, we can read small files directly to memory
+	if size > int64(PageSize) {
+		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
+		if err != nil {
+			return nil, fmt.Errorf("mmap file: %w", err)
+		}
+		contents = contents2
+
+		defer contents2.Unmap()
+	} else {
+		contents, err = io.ReadAll(file)
+		if err != nil {
+			return nil, fmt.Errorf("read file: %w", err)
+		}
+	}
 
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
