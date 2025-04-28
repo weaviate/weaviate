@@ -92,20 +92,29 @@ type segmentConfig struct {
 // subtle differences.
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, cfg segmentConfig,
-) (_ *segment, err error) {
+) (_ *segment, rerr error) {
 	defer func() {
 		p := recover()
 		if p == nil {
 			return
 		}
 		entsentry.Recover(p)
-		err = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
+		rerr = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
 	}()
 
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, fmt.Errorf("open file: %w", err)
 	}
+
+	// The lifetime of the `file` exceeds this constructor as we store the open file for later use in `contentFile`.
+	// invariant: We close **only** if any error happened after successfully opening the file. To avoid leaking open file descriptor.
+	// NOTE: This `defer` works even with `err` being shadowed in the whole function because defer checks for named `rerr` return value.
+	defer func() {
+		if rerr != nil {
+			file.Close()
+		}
+	}()
 
 	fileInfo, err := file.Stat()
 	if err != nil {
