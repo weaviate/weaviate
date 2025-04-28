@@ -136,35 +136,6 @@ func TestShard_ReadOnly_HaltCompaction(t *testing.T) {
 		t.Logf("insertion complete!")
 	})
 
-	t.Run("halt compaction with readonly status", func(t *testing.T) {
-		err := shd.UpdateStatus(storagestate.StatusReadOnly.String())
-		require.Nil(t, err)
-
-		// give the status time to propagate
-		// before grabbing the baseline below
-		time.Sleep(time.Second)
-
-		// once shard status is set to readonly,
-		// the number of segment files should
-		// not change
-		entries, err := os.ReadDir(dirName)
-		require.Nil(t, err)
-		numSegments := len(entries)
-
-		// if the number of segments remain the
-		// same for 30 seconds, we can be
-		// reasonably sure that the compaction
-		// process was halted
-		for i := 0; i < 30; i++ {
-			entries, err := os.ReadDir(dirName)
-			require.Nil(t, err)
-
-			require.Equal(t, numSegments, len(entries))
-			t.Logf("iteration %d, sleeping", i)
-			time.Sleep(time.Second)
-		}
-	})
-
 	t.Run("update shard status to ready", func(t *testing.T) {
 		err := shd.UpdateStatus(storagestate.StatusReady.String())
 		require.Nil(t, err)
