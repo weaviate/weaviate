@@ -1,6 +1,9 @@
 package theOneTrueFileStore
 
 import (
+	"encoding/json"
+	"fmt"
+
 	"github.com/donomii/ensemblekv"
 
 	"bytes"
@@ -14,16 +17,30 @@ var theOneTrueFileStore ensemblekv.KvLike
 func init() {
 	var err error
 
-	theOneTrueFileStore, err = ensemblekv.NewEnsembleKv("/tmp/ensemblekv", 200, 999999999, 999999999, 9999999999, ensemblekv.BoltDbCreator)
-	//theOneTrueFileStore, err = ensemblekv.NewEnsembleKv("/tmp/ensemblekv", 100, 999999999, 999999999, 9999999999, ensemblekv.ExtentCreator)
+	// Use multiple bbolt databases to store all data
+	//theOneTrueFileStore, err = ensemblekv.NewEnsembleKv("/tmp/ensemblekv", 200, 999999999, 999999999, 9999999999, ensemblekv.BoltDbCreator)
+
+	// Use S3 as the backend (or minio)
+	theOneTrueFileStore, err = ensemblekv.NewS3Shim("http://localhost:55096", "minioadmin", "minioadmin", "defaultRegion", "weaviatebucket", "")
+
 	if err != nil {
 		panic(err)
 	}
 }
 
-func theOneTrueFileStore.TheOneTrueFileStore() ensemblekv.KvLike {
+func TheOneTrueFileStore() ensemblekv.KvLike {
 	return theOneTrueFileStore
 }
+
+func JsonPrintf(format string, args ...interface{}) {
+	jsonArgs := make([]interface{}, len(args))
+	for i, arg := range args {
+		jsonData, _ := json.Marshal(arg)
+		jsonArgs[i] = string(jsonData)
+	}
+	fmt.Printf(format, jsonArgs...)
+}
+
 
 type StreamingCursor struct {
 	stream  chan kvPair
@@ -49,6 +66,7 @@ type kvPair struct {
 func NewStreamingCursor(ctx context.Context, prefix string, keyOnly bool) *StreamingCursor {
 	ctx, cancel := context.WithCancel(ctx)
 
+	fmt.Printf("Creating streaming cursor with prefix: %s\n", prefix)
 
 
 	return &StreamingCursor{
@@ -63,7 +81,7 @@ func NewStreamingCursor(ctx context.Context, prefix string, keyOnly bool) *Strea
 
 func (c *StreamingCursor) run() {
 	defer close(c.done)
-	theOneTrueFileStore.TheOneTrueFileStore().MapFunc(func(k, v []byte) error {
+	TheOneTrueFileStore().MapFunc(func(k, v []byte) error {
 		select {
 		case <-c.ctx.Done():
 			return c.ctx.Err()
