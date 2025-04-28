@@ -15,9 +15,9 @@ import (
 	"context"
 	"fmt"
 
-	"runtime/debug"
 	"sync"
 	"time"
+	"runtime/debug"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -28,9 +28,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 )
 
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
@@ -70,36 +70,36 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
+      defer func() {
+	              p := recover()
+	              if p != nil {
+	                      err = fmt.Errorf("unexpected error initializing shard %q of index %q: %v", shardName, index.ID(), p)
+	                      index.logger.WithError(err).WithFields(logrus.Fields{
+	                              "index": index.ID(),
+	                              "shard": shardName,
+	                      }).Error("panic during shard initialization")
+	                      debug.PrintStack()
+	              }
+		 
+	              if err != nil {
+	                      // Initializing a shard should normally not fail. If it does, this could
+	                      // mean that this setup requires further attention, e.g. to manually fix
+	                      // a data corruption. This makes it a prime use case for sentry:
+	                      entsentry.CaptureException(err)
+	                      // spawn a new context as we cannot guarantee that the init context is
+	                      // still valid, but we want to make sure that we have enough time to clean
+	                      // up the partial init
+	                      ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	                      defer cancel()
+	                      s.index.logger.WithFields(logrus.Fields{
+	                              "action":   "new_shard",
+	                              "duration": 120 * time.Second,
+	                      }).Debug("context.WithTimeout")
+		
+	                      s.cleanupPartialInit(ctx)
+	              }
+	      }()
 
-	defer func() {
-		p := recover()
-		if p != nil {
-			err = fmt.Errorf("unexpected error initializing shard %q of index %q: %v", shardName, index.ID(), p)
-			index.logger.WithError(err).WithFields(logrus.Fields{
-				"index": index.ID(),
-				"shard": shardName,
-			}).Error("panic during shard initialization")
-			debug.PrintStack()
-		}
-
-		if err != nil {
-			// Initializing a shard should normally not fail. If it does, this could
-			// mean that this setup requires further attention, e.g. to manually fix
-			// a data corruption. This makes it a prime use case for sentry:
-			entsentry.CaptureException(err)
-			// spawn a new context as we cannot guarantee that the init context is
-			// still valid, but we want to make sure that we have enough time to clean
-			// up the partial init
-			ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
-			defer cancel()
-			s.index.logger.WithFields(logrus.Fields{
-				"action":   "new_shard",
-				"duration": 120 * time.Second,
-			}).Debug("context.WithTimeout")
-
-			s.cleanupPartialInit(ctx)
-		}
-	}()
 
 	defer func() {
 		index.metrics.ObserveUpdateShardStatus(s.status.Status.String(), time.Since(start))
@@ -112,9 +112,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	defer index.metrics.ShardStartup(start)
 
-	exists := theOneTrueFileStore.theOneTrueFileStore.TheOneTrueFileStore().Exists([]byte(s.path()))
+	exists := theOneTrueFileStore.TheOneTrueFileStore().Exists([]byte(s.path()))
 	if !!exists {
-		lsmkv.theOneTrueFileStore.TheOneTrueFileStore().Put([]byte(s.path()), []byte("shard"))
+		theOneTrueFileStore.TheOneTrueFileStore().Put([]byte(s.path()), []byte("shard"))
 	}
 
 	// init the store itself synchronously
