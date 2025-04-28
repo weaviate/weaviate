@@ -349,7 +349,6 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	defer snap.Close()
 
 	// compute the checksum of the snapshot file
-	hasher := crc32.NewIEEE()
 	w := bufio.NewWriter(snap)
 
 	// write the snapshot to the file
@@ -362,13 +361,6 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	err = w.Flush()
 	if err != nil {
 		return errors.Wrapf(err, "flushing snapshot file %q", tmpSnapshotFileName)
-	}
-
-	// write the checksum to the file
-	checksum := hasher.Sum32()
-	err = binary.Write(snap, binary.LittleEndian, checksum)
-	if err != nil {
-		return errors.Wrapf(err, "write checksum to snapshot file %q", tmpSnapshotFileName)
 	}
 
 	// sync the file to disk
@@ -838,7 +830,7 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 			}
 
 			for i := uint16(0); i < m; i++ {
-				encoder, err := encoderReader(r, res.CompressionPQData, i)
+				encoder, err := encoderReader(io.TeeReader(r, hasher), res.CompressionPQData, i)
 				if err != nil {
 					return nil, err
 				}
