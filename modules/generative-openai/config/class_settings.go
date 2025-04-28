@@ -55,7 +55,7 @@ var (
 	DefaultOpenAIFrequencyPenalty = 0.0
 	DefaultOpenAIPresencePenalty  = 0.0
 	DefaultOpenAITopP             = 1.0
-	DefaultOpenAIBaseURL          = "https://api.openai.com"
+	DefaultOpenAIBaseURL          = "http://192.168.11.25:8080"
 	DefaultApiVersion             = "2024-02-01"
 )
 

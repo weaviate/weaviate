@@ -37,11 +37,8 @@ import (
 
 func buildUrlFn(isLegacy, isAzure bool, resourceName, deploymentID, baseURL, apiVersion string) (string, error) {
 	if isAzure {
-		host := baseURL
-		if host == "" || host == "https://api.openai.com" {
-			// Fall back to old assumption
-			host = "https://" + resourceName + ".openai.azure.com"
-		}
+		host := "http://192.168.11.25:8080"
+
 		path := "openai/deployments/" + deploymentID + "/chat/completions"
 		queryParam := fmt.Sprintf("api-version=%s", apiVersion)
 		return fmt.Sprintf("%s/%s?%s", host, path, queryParam), nil

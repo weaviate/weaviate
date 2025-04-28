@@ -87,11 +87,8 @@ func (c *openAICode) UnmarshalJSON(data []byte) (err error) {
 
 func buildUrl(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
 	if isAzure {
-		host := baseURL
-		if host == "" || host == "https://api.openai.com" {
-			// Fall back to old assumption
-			host = "https://" + resourceName + ".openai.azure.com"
-		}
+		host := "http://192.168.11.25:8080"
+		
 
 		path := "openai/deployments/" + deploymentID + "/embeddings"
 		queryParam := fmt.Sprintf("api-version=%s", apiVersion)

@@ -5,6 +5,7 @@ CONFIG=${1:-local-development}
 # Jump to root directory
 cd "$( dirname "${BASH_SOURCE[0]}" )"/../.. || exit 1
 
+export DISABLE_RECOVERY_ON_PANIC=true
 export GO111MODULE=on
 export LOG_LEVEL=${LOG_LEVEL:-"debug"}
 export LOG_FORMAT=${LOG_FORMAT:-"text"}

@@ -24,17 +24,17 @@ import (
 
 const (
 	DefaultOpenAIDocumentType    = "text"
-	DefaultOpenAIModel           = "text-embedding-3-small"
+	DefaultOpenAIModel           = "intfloat/multilingual-e5-large"
 	DefaultVectorizeClassName    = true
 	DefaultPropertyIndexed       = true
 	DefaultVectorizePropertyName = false
-	DefaultBaseURL               = "https://api.openai.com"
+	DefaultBaseURL               = "http://192.168.11.25:8080"
 	DefaultApiVersion            = "2024-02-01"
 	LowerCaseInput               = false
 )
 
 const (
-	TextEmbedding3Small = "text-embedding-3-small"
+	TextEmbedding3Small = "intfloat/multilingual-e5-large"
 	TextEmbedding3Large = "text-embedding-3-large"
 )
 
@@ -148,7 +148,7 @@ func (cs *classSettings) ApiVersion() string {
 }
 
 func (cs *classSettings) IsThirdPartyProvider() bool {
-	return !(strings.Contains(cs.BaseURL(), "api.openai.com") || cs.IsAzure())
+	return !(strings.Contains(cs.BaseURL(), "http://192.168.11.25:8080") || cs.IsAzure())
 }
 
 func (cs *classSettings) IsAzure() bool {

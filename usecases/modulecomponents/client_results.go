@@ -84,6 +84,12 @@ func (rl *RateLimits) CanSendFullBatch(numRequests int, batchTokens int, addMetr
 
 func (rl *RateLimits) UpdateWithRateLimit(other *RateLimits) {
 	if other.UpdateWithMissingValues {
+		rl.LimitRequests = 9999999999
+		rl.LimitTokens = 9999999999
+
+
+		rl.RemainingRequests =9999999999
+		rl.RemainingTokens = 9999999999
 		return
 	}
 	rl.LimitRequests = other.LimitRequests

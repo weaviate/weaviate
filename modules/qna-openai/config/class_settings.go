@@ -37,7 +37,7 @@ var (
 	DefaultOpenAIFrequencyPenalty float64 = 0.0
 	DefaultOpenAIPresencePenalty  float64 = 0.0
 	DefaultOpenAITopP             float64 = 1.0
-	DefaultOpenAIBaseURL                  = "https://api.openai.com"
+	DefaultOpenAIBaseURL                  = "http://192.168.11.25:8080"
 )
 
 var maxTokensForModel = map[string]float64{
