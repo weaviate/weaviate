@@ -43,6 +43,12 @@ type CopyOpConsumer struct {
 	// It provides detailed logs for each replication operation and any errors encountered.
 	logger *logrus.Entry
 
+	// shouldSkipOp is a function that determines whether a given replication operation
+	// should be skipped before attempting execution. This is typically used to prevent
+	// reprocessing of operations that are already running, completed, or not in a valid
+	// state to be picked up.
+	shouldSkipOp func(ShardReplicationOp) bool
+
 	// leaderClient is responsible for interacting with the FSM to update the state of replication operations.
 	// It is used to update the status of operations during the replication process (e.g. update to HYDRATING state).
 	leaderClient types.FSMUpdater
@@ -93,6 +99,7 @@ func (c *CopyOpConsumer) String() string {
 // It uses a ReplicaCopier to perform the actual data copy.
 func NewCopyOpConsumer(
 	logger *logrus.Logger,
+	shouldSkipOp func(ShardReplicationOp) bool,
 	leaderClient types.FSMUpdater,
 	replicaCopier types.ReplicaCopier,
 	timeProvider TimeProvider,
@@ -104,6 +111,7 @@ func NewCopyOpConsumer(
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
 		logger:            logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),
+		shouldSkipOp:      shouldSkipOp,
 		leaderClient:      leaderClient,
 		replicaCopier:     replicaCopier,
 		backoffPolicy:     backoffPolicy,
@@ -124,6 +132,8 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
+
+	c.engineOpCallbacks.OnPrepareProcessing(c.nodeId)
 
 	var wg sync.WaitGroup
 
@@ -150,6 +160,16 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			// running replication operations and avoids overloading the system.
 			case c.tokens <- struct{}{}:
 
+				// Avoid scheduling unnecessary work or incorrectly counting metrics
+				// for operations that are already in progress or completed.
+				if c.shouldSkipOp(op) {
+					c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("replication op skipped as already running or completed")
+					// Need to release the token to let other consumers process queued replication operations.
+					<-c.tokens
+					c.engineOpCallbacks.OnOpSkipped(c.nodeId)
+					continue
+				}
+
 				wg.Add(1)
 				c.engineOpCallbacks.OnOpStart(c.nodeId)
 
@@ -166,12 +186,12 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					opLogger := c.logger.WithFields(logrus.Fields{
 						"consumer":          c,
 						"op":                operation.ID,
-						"source_node":       operation.sourceShard.nodeId,
-						"target_node":       operation.targetShard.nodeId,
-						"source_shard":      operation.sourceShard.shardId,
-						"target_shard":      operation.targetShard.shardId,
-						"source_collection": operation.sourceShard.collectionId,
-						"target_collection": operation.targetShard.collectionId,
+						"source_node":       operation.SourceShard.NodeId,
+						"target_node":       operation.TargetShard.NodeId,
+						"source_shard":      operation.SourceShard.ShardId,
+						"target_shard":      operation.TargetShard.ShardId,
+						"source_collection": operation.SourceShard.CollectionId,
+						"target_collection": operation.TargetShard.CollectionId,
 					})
 
 					opLogger.Info("worker processing replication operation")
@@ -202,23 +222,24 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 // processReplicationOp performs the full replication flow for a single operation.
 //
-// It performs of the following steps:
-//  1. Updates the operation status to HYDRATING using the leader FSM updater.
-//  2. Initiates the copy of replica data from the source node to the target shard.
-//  3. Once the copy succeeds, updates the sharding state to reflect the added replica.
+// It executes the following steps:
+//  1. Skips processing if the operation is already running or completed.
+//  2. Updates the operation status to HYDRATING using the leader FSM updater.
+//  3. Initiates the copy of replica data from the source node to the target shard.
+//  4. Once the copy succeeds, updates the sharding state to reflect the added replica.
 //
-// If any step fails, the operation is retried using the configured backoff policy.
-// Errors are logged and wrapped using the structured error group wrapper.
+// If transient failures occur, the operation is retried using the configured backoff policy.
+// It returns non-nil only if an error occurred during processing or the context was canceled.
 func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint64, op ShardReplicationOp) error {
 	logger := c.logger.WithFields(logrus.Fields{
 		"consumer":          c,
 		"op":                op.ID,
-		"source_node":       op.sourceShard.nodeId,
-		"target_node":       op.targetShard.nodeId,
-		"source_shard":      op.sourceShard.shardId,
-		"target_shard":      op.targetShard.shardId,
-		"source_collection": op.sourceShard.collectionId,
-		"target_collection": op.targetShard.collectionId,
+		"source_node":       op.SourceShard.NodeId,
+		"target_node":       op.TargetShard.NodeId,
+		"source_shard":      op.SourceShard.ShardId,
+		"target_shard":      op.TargetShard.ShardId,
+		"source_collection": op.SourceShard.CollectionId,
+		"target_collection": op.TargetShard.CollectionId,
 	})
 
 	startTime := c.timeProvider.Now()
@@ -236,7 +257,7 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 
 		logger.WithField("consumer", c).Info("starting replication copy operation")
 
-		if err := c.replicaCopier.CopyReplica(ctx, op.sourceShard.nodeId, op.sourceShard.collectionId, op.targetShard.shardId); err != nil {
+		if err := c.replicaCopier.CopyReplica(ctx, op.SourceShard.NodeId, op.SourceShard.CollectionId, op.TargetShard.ShardId); err != nil {
 			logger.WithField("consumer", c).WithError(err).Error("failure while copying replica shard")
 			return err
 		}
@@ -253,14 +274,14 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 		// for now, just pick a time 100s in the future
 		upperTimeBoundUnixMillis := time.Now().Add(100 * time.Second).UnixMilli()
 		// TODO best effort writes
-		if _, err := c.leaderClient.StartFinalizingReplicaCopy(ctx, op.targetShard.collectionId, op.targetShard.shardId, op.sourceShard.nodeId, op.targetShard.nodeId, upperTimeBoundUnixMillis); err != nil {
-			logger.WithError(err).Errorf("failed to add replica to shard")
+		if _, err := c.leaderClient.StartFinalizingReplicaCopy(ctx, op.TargetShard.CollectionId, op.TargetShard.ShardId, op.SourceShard.NodeId, op.TargetShard.NodeId, upperTimeBoundUnixMillis); err != nil {
+			logger.WithField("consumer", c).WithError(err).Error("failure while starting to finalize replica copy")
 			return err
 		}
 
 		// TODO some kind of timer, stop, timeout, etc
 		for {
-			objectsPropagated, startDiffTimeUnixMillis, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.sourceShard.nodeId, op.targetShard.nodeId, op.sourceShard.collectionId, op.sourceShard.shardId)
+			objectsPropagated, startDiffTimeUnixMillis, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.SourceShard.NodeId, op.TargetShard.NodeId, op.SourceShard.CollectionId, op.SourceShard.ShardId)
 			if err == nil && objectsPropagated == 0 {
 				if startDiffTimeUnixMillis >= upperTimeBoundUnixMillis {
 					break
@@ -296,11 +317,11 @@ func (c *CopyOpConsumer) logCompletedReplicationOp(workerId uint64, startTime ti
 		"duration":          duration.String(),
 		"start_time":        startTime.Format(time.RFC1123),
 		"completed_since":   c.timeProvider.Now().Sub(endTime),
-		"source_node":       op.sourceShard.nodeId,
-		"target_node":       op.targetShard.nodeId,
-		"source_shard":      op.sourceShard.shardId,
-		"target_shard":      op.targetShard.shardId,
-		"source_collection": op.sourceShard.collectionId,
-		"target_collection": op.targetShard.collectionId,
+		"source_node":       op.SourceShard.NodeId,
+		"target_node":       op.TargetShard.NodeId,
+		"source_shard":      op.SourceShard.ShardId,
+		"target_shard":      op.TargetShard.ShardId,
+		"source_collection": op.SourceShard.CollectionId,
+		"target_collection": op.TargetShard.CollectionId,
 	}).Info("Replication operation completed successfully")
 }

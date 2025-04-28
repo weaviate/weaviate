@@ -24,7 +24,9 @@ import (
 func TestOpCallbacks(t *testing.T) {
 	t.Run("default callbacks should be no-op", func(t *testing.T) {
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().Build()
+		callbacks.OnPrepareProcessing("node1")
 		callbacks.OnOpPending("node1")
+		callbacks.OnOpSkipped("node1")
 		callbacks.OnOpStart("node1")
 		callbacks.OnOpComplete("node1")
 		callbacks.OnOpFailed("node1")
@@ -33,15 +35,23 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("custom callbacks should be called with correct parameters", func(t *testing.T) {
 		// GIVEN
 		var (
-			pendingNode  string
-			startNode    string
-			completeNode string
-			failedNode   string
+			prepareProcessingNode string
+			pendingNode           string
+			skippedNode           string
+			startNode             string
+			completeNode          string
+			failedNode            string
 		)
 
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithPrepareProcessing(func(node string) {
+				prepareProcessingNode = node
+			}).
 			WithOpPendingCallback(func(node string) {
 				pendingNode = node
+			}).
+			WithOpSkippedCallback(func(node string) {
+				skippedNode = node
 			}).
 			WithOpStartCallback(func(node string) {
 				startNode = node
@@ -56,16 +66,36 @@ func TestOpCallbacks(t *testing.T) {
 
 		// WHEN
 		expectedNode := "test-node"
+		callbacks.OnPrepareProcessing(expectedNode)
 		callbacks.OnOpPending(expectedNode)
+		callbacks.OnOpSkipped(expectedNode)
 		callbacks.OnOpStart(expectedNode)
 		callbacks.OnOpComplete(expectedNode)
 		callbacks.OnOpFailed(expectedNode)
 
 		// THEN
+		require.Equal(t, expectedNode, prepareProcessingNode, "invalid prepare processing callback node")
 		require.Equal(t, expectedNode, pendingNode, "invalid pending callback node")
+		require.Equal(t, expectedNode, skippedNode, "invalid skipped callback node")
 		require.Equal(t, expectedNode, startNode, "invalid start callback node")
 		require.Equal(t, expectedNode, completeNode, "invalid complete callback node")
 		require.Equal(t, expectedNode, failedNode, "invalid failed callback node")
+	})
+
+	t.Run("only prepare processing", func(t *testing.T) {
+		// GIVEN
+		prepareProcessingCalled := false
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithPrepareProcessing(func(node string) {
+				prepareProcessingCalled = true
+			}).
+			Build()
+
+		// WHEN
+		callbacks.OnPrepareProcessing("node1")
+
+		// THEN
+		require.True(t, prepareProcessingCalled, "expected prepare processing callback to be called")
 	})
 
 	t.Run("only op pending", func(t *testing.T) {
@@ -82,6 +112,22 @@ func TestOpCallbacks(t *testing.T) {
 
 		// THEN
 		require.True(t, pendingCalled, "expected pending callback to be called")
+	})
+
+	t.Run("only op skipped", func(t *testing.T) {
+		// GIVEN
+		skippedCalled := false
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithOpSkippedCallback(func(node string) {
+				skippedCalled = true
+			}).
+			Build()
+
+		// WHEN
+		callbacks.OnOpSkipped("node1")
+
+		// THEN
+		require.True(t, skippedCalled, "expected skipped callback to be called")
 	})
 
 	t.Run("only op start", func(t *testing.T) {
@@ -140,6 +186,8 @@ func TestMetricsCollection(t *testing.T) {
 		callbacks := metrics.NewReplicationEngineOpsCallbacks(reg)
 		node := "test-node"
 
+		callbacks.OnPrepareProcessing(node)
+
 		// Process first operation completing successfully
 		callbacks.OnOpPending(node)
 		callbacks.OnOpStart(node)
@@ -156,6 +204,10 @@ func TestMetricsCollection(t *testing.T) {
 
 		// Start a fourth operation but leave it pending
 		callbacks.OnOpPending(node)
+
+		// Start a fifth operation but skip it
+		callbacks.OnOpPending(node)
+		callbacks.OnOpSkipped(node)
 
 		// WHEN
 		metricFamilies, err := reg.Gather()
@@ -180,6 +232,9 @@ func TestMetricsCollection(t *testing.T) {
 		node1 := "node-1"
 		node2 := "node-2"
 
+		callbacks.OnPrepareProcessing(node1)
+		callbacks.OnPrepareProcessing(node2)
+
 		// Node 1 ops
 		callbacks.OnOpPending(node1)
 		callbacks.OnOpStart(node1)
@@ -200,6 +255,10 @@ func TestMetricsCollection(t *testing.T) {
 
 		// Pending operation for node 2
 		callbacks.OnOpPending(node2)
+
+		// Pending operation for node 2 then skipped
+		callbacks.OnOpPending(node2)
+		callbacks.OnOpSkipped(node2)
 
 		// WHEN
 		metricFamilies, err := reg.Gather()

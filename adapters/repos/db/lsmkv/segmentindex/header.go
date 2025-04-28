@@ -114,15 +114,9 @@ func (h *Header) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
 	return source[start:end], nil
 }
 
-func ParseHeader(r io.Reader) (*Header, error) {
-	data := make([]byte, HeaderSize)
-
-	full, err := io.ReadFull(r, data)
-	if err != nil {
-		return nil, err
-	}
-	if full != HeaderSize {
-		return nil, fmt.Errorf("expected %d bytes, got %d", HeaderSize, full)
+func ParseHeader(data []byte) (*Header, error) {
+	if len(data) != HeaderSize {
+		return nil, fmt.Errorf("expected %d bytes, got %d", HeaderSize, len(data))
 	}
 	rw := byteops.NewReadWriter(data)
 	out := &Header{}

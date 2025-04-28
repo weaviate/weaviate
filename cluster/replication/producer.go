@@ -120,7 +120,7 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 //
 // Returns only operations that should be actively processed by this node.
 func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOp {
-	allNodeOps := p.fsm.GetOpsForNode(nodeId)
+	allNodeOps := p.fsm.GetOpsForTarget(nodeId)
 
 	nodeOpsSubset := make([]ShardReplicationOp, 0, len(allNodeOps))
 	for _, op := range allNodeOps {
@@ -129,15 +129,15 @@ func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOp {
 		if opState.ShouldRestartOp() {
 			nodeOpsSubset = append(nodeOpsSubset, ShardReplicationOp{
 				ID: op.ID,
-				sourceShard: shardFQDN{
-					nodeId:       op.sourceShard.nodeId,
-					collectionId: op.sourceShard.collectionId,
-					shardId:      op.sourceShard.shardId,
+				SourceShard: shardFQDN{
+					NodeId:       op.SourceShard.NodeId,
+					CollectionId: op.SourceShard.CollectionId,
+					ShardId:      op.SourceShard.ShardId,
 				},
-				targetShard: shardFQDN{
-					nodeId:       op.targetShard.nodeId,
-					collectionId: op.targetShard.collectionId,
-					shardId:      op.targetShard.shardId,
+				TargetShard: shardFQDN{
+					NodeId:       op.TargetShard.NodeId,
+					CollectionId: op.TargetShard.CollectionId,
+					ShardId:      op.TargetShard.ShardId,
 				},
 			})
 		}

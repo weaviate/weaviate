@@ -82,6 +82,9 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	realTimeProvider := replication.RealTimeProvider{}
 	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
 		cfg.Logger,
+		func(op replication.ShardReplicationOp) bool {
+			return fsm.replicationManager.GetReplicationFSM().IsOpCompletedOrInProgress(op)
+		},
 		raft,
 		cfg.ReplicaCopier,
 		realTimeProvider,

@@ -149,7 +149,7 @@ func TestUpdateUser(t *testing.T) {
 	// update key and check that original key does not work, but new one does
 	apiKeyNew, hashNew, newIdentifier, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers.RotateKey(userId, hashNew, oldIdentifier, newIdentifier))
+	require.NoError(t, dynUsers.RotateKey(userId, apiKeyNew[:3], hashNew, oldIdentifier, newIdentifier))
 
 	randomKeyNew, _, err := keys.DecodeApiKey(apiKeyNew)
 	require.NoError(t, err)
@@ -241,7 +241,7 @@ func TestSnapShotAndRestore(t *testing.T) {
 
 	apiKey3, hash3, identifier3, err := keys.CreateApiKeyAndHash()
 	require.NoError(t, err)
-	require.NoError(t, dynUsers2.RotateKey(userId2, hash3, identifier2, identifier3))
+	require.NoError(t, dynUsers2.RotateKey(userId2, apiKey3[:3], hash3, identifier2, identifier3))
 
 	login3, _, err := keys.DecodeApiKey(apiKey3)
 	require.NoError(t, err)
@@ -268,7 +268,7 @@ func TestSuspendAfterDelete(t *testing.T) {
 
 	require.Error(t, dynUsers.DeactivateUser(userId, false))
 	require.Error(t, dynUsers.ActivateUser(userId))
-	require.Error(t, dynUsers.RotateKey(userId, "", "", ""))
+	require.Error(t, dynUsers.RotateKey(userId, "", "", "", ""))
 	require.Error(t, dynUsers.ActivateUser(userId))
 }
 

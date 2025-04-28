@@ -1329,3 +1329,13 @@ func randInt(t *testing.T, min, max int) (int, error) {
 	}
 	return min + int(randValue[0])%(max-min+1), nil
 }
+
+func randomBoolean(t *testing.T) bool {
+	t.Helper()
+	var b [1]byte
+	_, err := rand.Read(b[:])
+	if err != nil {
+		t.Fatalf("failed to generate random boolean: %v", err)
+	}
+	return b[0]%2 == 0
+}
