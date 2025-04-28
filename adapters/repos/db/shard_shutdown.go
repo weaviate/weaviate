@@ -104,7 +104,9 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 			})
 		}
 
-		_ = eg.Wait()
+		if err = eg.Wait(); err != nil {
+			return err
+		}
 	} else {
 		err = s.queue.Close()
 		ec.AddWrap(err, "shut down vector index queue")
