@@ -69,7 +69,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	s.mayCloseAndStoreHashTree()
 
 	if s.hasTargetVectors() {
-		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(s.Index().logger, ctx)
+		eg := enterrors.NewErrorGroupWrapper(s.Index().logger)
 		eg.SetLimit(_NUMCPU)
 		for targetVector, queue := range s.queues {
 			targetVector, queue := targetVector, queue // capture loop variables
