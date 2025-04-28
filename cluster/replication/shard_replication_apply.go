@@ -44,7 +44,8 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status shard
 		return ErrShardAlreadyReplicating
 	}
 
-	s.opsByNode[op.TargetShard.NodeId] = append(s.opsByNode[op.TargetShard.NodeId], op)
+	s.opsBySource[op.SourceShard.NodeId] = append(s.opsBySource[op.SourceShard.NodeId], op)
+	s.opsByTarget[op.TargetShard.NodeId] = append(s.opsByTarget[op.TargetShard.NodeId], op)
 	s.opsByShard[op.SourceShard.CollectionId] = append(s.opsByShard[op.SourceShard.ShardId], op)
 	s.opsByCollection[op.SourceShard.CollectionId] = append(s.opsByCollection[op.SourceShard.CollectionId], op)
 	s.opsByTargetFQDN[op.TargetShard] = op
@@ -86,13 +87,22 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 		return ErrReplicationOpNotFound
 	}
 
-	ops, ok := s.opsByNode[op.SourceShard.NodeId]
+	ops, ok := s.opsByTarget[op.SourceShard.NodeId]
 	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op in ops by node, this should not happen"))
+		err = multierror.Append(err, fmt.Errorf("could not find op in ops by target, this should not happen"))
 	}
 	opsReplace, ok := findAndDeleteOp(op.ID, ops)
 	if ok {
-		s.opsByNode[op.SourceShard.NodeId] = opsReplace
+		s.opsByTarget[op.SourceShard.NodeId] = opsReplace
+	}
+
+	ops, ok = s.opsBySource[op.TargetShard.NodeId]
+	if !ok {
+		err = multierror.Append(err, fmt.Errorf("could not find op in ops by target, this should not happen"))
+	}
+	opsReplace, ok = findAndDeleteOp(op.ID, ops)
+	if ok {
+		s.opsBySource[op.SourceShard.NodeId] = opsReplace
 	}
 
 	ops, ok = s.opsByCollection[op.SourceShard.CollectionId]
