@@ -101,7 +101,7 @@ require (
 	github.com/OneOfOne/xxhash v1.2.8 // indirect
 	github.com/VividCortex/ewma v1.2.0 // indirect
 	github.com/asaskevich/govalidator v0.0.0-20230301143203-a9d515a09cc2 // indirect
-	github.com/aws/aws-sdk-go v1.44.298 // indirect
+	github.com/aws/aws-sdk-go v1.55.7 // indirect
 	github.com/aws/aws-sdk-go-v2/aws/protocol/eventstream v1.6.8 // indirect
 	github.com/aws/aws-sdk-go-v2/feature/ec2/imds v1.16.30 // indirect
 	github.com/aws/aws-sdk-go-v2/internal/configsources v1.3.34 // indirect
@@ -127,7 +127,7 @@ require (
 	github.com/dlclark/regexp2 v1.10.0 // indirect
 	github.com/docker/docker v27.4.0+incompatible // indirect
 	github.com/docker/go-units v0.5.0 // indirect
-	github.com/donomii/ensemblekv v0.0.0-20250426210443-19d219764e83 // indirect
+	github.com/donomii/ensemblekv v0.0.0-20250427181959-74bb6dcf7c35 // indirect
 	github.com/donomii/goof v0.0.0-20241124064022-84f417f466df // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/fatih/color v1.17.0 // indirect
