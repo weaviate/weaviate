@@ -784,7 +784,9 @@ func (st *Store) recoverSingleNode(force bool) error {
 	// we don't use actual registry here, because we don't want to register metrics, it's already registered
 	// in actually FSM and this is FSM is temporary for recovery.
 	tempFSM := NewFSM(recoveryConfig, st.authZController, st.snapshotter, prometheus.NewPedanticRegistry())
-	if err := raft.RecoverCluster(st.raftConfig(), &tempFSM, st.logCache,
+	if err := raft.RecoverCluster(st.raftConfig(),
+		&tempFSM,
+		st.logCache,
 		st.logStore,
 		st.snapshotStore,
 		st.raftTransport,
