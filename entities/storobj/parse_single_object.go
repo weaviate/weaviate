@@ -19,6 +19,7 @@ import (
 	"github.com/buger/jsonparser"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 )
 
 func ParseAndExtractProperty(data []byte, propName string) ([]string, bool, error) {
@@ -152,6 +153,7 @@ func extractTimeUnix(data []byte, propertyName string) ([]string, bool, error) {
 func extractPropsBytes(data []byte) ([]byte, error) {
 	version := uint8(data[0])
 	if version != 1 {
+		logrus.Panicf("unsupported binary marshaller version %d", version)
 		return nil, errors.Errorf("unsupported binary marshaller version %d", version)
 	}
 
