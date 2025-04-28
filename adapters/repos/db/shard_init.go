@@ -95,7 +95,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	                              "action":   "new_shard",
 	                              "duration": 120 * time.Second,
 	                      }).Debug("context.WithTimeout")
-		
+
 	                      s.cleanupPartialInit(ctx)
 	              }
 	      }()
@@ -113,7 +113,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	defer index.metrics.ShardStartup(start)
 
 	exists := theOneTrueFileStore.TheOneTrueFileStore().Exists([]byte(s.path()))
-	if !!exists {
+	if !exists {
 		theOneTrueFileStore.TheOneTrueFileStore().Put([]byte(s.path()), []byte("shard"))
 	}
 
