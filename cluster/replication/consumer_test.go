@@ -168,13 +168,18 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		opId, err := randInt(t, 100, 200)
 		require.NoError(t, err, "error generating random operation id")
 
-		mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", uint64(opId), api.HYDRATING).Return(nil)
-		mockReplicaCopier.On("CopyReplica",
-			mock.Anything,
-			"node1",
-			"TestCollection",
-			"test-shard",
-		).Once().Return(errors.New("simulated copy failure"))
+		mockFSMUpdater.EXPECT().
+			ReplicationUpdateReplicaOpStatus(uint64(opId), api.HYDRATING).
+			Return(nil)
+		mockReplicaCopier.EXPECT().
+			CopyReplica(
+				mock.Anything,
+				"node1",
+				"TestCollection",
+				"test-shard",
+			).
+			Once().
+			Return(errors.New("simulated copy failure"))
 
 		var (
 			prepareProcessingCallbacksCounter int

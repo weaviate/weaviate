@@ -38,19 +38,23 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerStartedChan := make(chan struct{})
 		consumerStartedChan := make(chan struct{})
 
-		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerStartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumerStartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		logger, _ := logrustest.NewNullLogger()
 
@@ -101,13 +105,17 @@ func TestShardReplicationEngine(t *testing.T) {
 
 		producerStartedChan := make(chan struct{})
 
-		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerStartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Return(context.Canceled)
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).Return(errors.New("unexpected consumer error"))
+			}).
+			Return(context.Canceled)
+
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Return(errors.New("unexpected consumer error"))
 
 		logger, _ := logrustest.NewNullLogger()
 
@@ -151,13 +159,17 @@ func TestShardReplicationEngine(t *testing.T) {
 
 		consumerStartedChan := make(chan struct{})
 
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumerStartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Return(context.Canceled)
-		mockProducer.On("Produce", mock.Anything, mock.Anything).Return(errors.New("unexpected producer error"))
+			}).
+			Return(context.Canceled)
+
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Return(errors.New("unexpected producer error"))
 
 		logger, _ := logrustest.NewNullLogger()
 
@@ -188,7 +200,7 @@ func TestShardReplicationEngine(t *testing.T) {
 		// THEN
 		require.Error(t, engineStartErr)
 		require.Contains(t, engineStartErr.Error(), "unexpected producer error")
-		require.False(t, engine.IsRunning(), "engine should report not running after consumer error")
+		require.False(t, engine.IsRunning(), "engine should not be running after consumer error")
 		mockProducer.AssertExpectations(t)
 		mockConsumer.AssertExpectations(t)
 	})
@@ -201,19 +213,23 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerStartedChan := make(chan struct{})
 		consumerStartedChan := make(chan struct{})
 
-		mockProducer.On("Produce", mock.Anything, mock.Anything).
-			Run(func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerStartedChan <- struct{}{} // producer started event
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).
-			Run(func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumerStartedChan <- struct{}{} // consumer started event
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		logger, _ := logrustest.NewNullLogger()
 		engine := replication.NewShardReplicationEngine(
@@ -262,19 +278,23 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerStarted := make(chan struct{})
 		consumerStarted := make(chan struct{})
 
-		mockProducer.On("Produce", mock.Anything, mock.Anything).
-			Run(func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerStarted <- struct{}{} // producer started event
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).
-			Run(func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumerStarted <- struct{}{} // consumer started event
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		logger, _ := logrustest.NewNullLogger()
 		engine := replication.NewShardReplicationEngine(
@@ -287,7 +307,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			1*time.Minute,
 			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
 		)
-		require.False(t, engine.IsRunning(), "engine should report not running before start")
+		require.False(t, engine.IsRunning(), "engine should not be running before start")
 
 		var wg sync.WaitGroup
 		wg.Add(1)
@@ -331,31 +351,41 @@ func TestShardReplicationEngine(t *testing.T) {
 		producer2StartedChan := make(chan struct{})
 		consumer2StartedChan := make(chan struct{})
 
-		mockProducer1.On("Produce", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockProducer1.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producer1StartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
-		mockConsumer1.On("Consume", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockConsumer1.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumer1StartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
-		mockProducer2.On("Produce", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+			}).
+			Once().
+			Return(context.Canceled)
+
+		mockProducer2.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producer2StartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
-		mockConsumer2.On("Consume", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+			}).
+			Once().
+			Return(context.Canceled)
+
+		mockConsumer2.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumer2StartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		logger, _ := logrustest.NewNullLogger()
 		engine1 := replication.NewShardReplicationEngine(logger,
@@ -429,19 +459,23 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerStarted := make(chan struct{})
 		consumerStarted := make(chan struct{})
 
-		mockProducer.On("Produce", mock.Anything, mock.Anything).
-			Run(func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerStarted <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).
-			Run(func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumerStarted <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		logger, _ := logrustest.NewNullLogger()
 		engine := replication.NewShardReplicationEngine(
@@ -492,37 +526,45 @@ func TestShardReplicationEngine(t *testing.T) {
 		producer1StartedChan := make(chan struct{})
 		consumer1StartedChan := make(chan struct{})
 
-		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producer1StartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumer1StartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		// Second start/stop cycle
 		producer2StartedChan := make(chan struct{})
 		consumer2StartedChan := make(chan struct{})
 
-		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producer2StartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumer2StartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		logger, _ := logrustest.NewNullLogger()
 
@@ -619,19 +661,23 @@ func TestShardReplicationEngine(t *testing.T) {
 			producerStartedChan := make(chan struct{})
 			consumerStartedChan := make(chan struct{})
 
-			mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
-				func(args mock.Arguments) {
-					ctx := args.Get(0).(context.Context)
+			mockProducer.EXPECT().
+				Produce(mock.Anything, mock.Anything).
+				Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 					producerStartedChan <- struct{}{}
 					<-ctx.Done()
-				}).Once().Return(context.Canceled)
+				}).
+				Once().
+				Return(context.Canceled)
 
-			mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
-				func(args mock.Arguments) {
-					ctx := args.Get(0).(context.Context)
+			mockConsumer.EXPECT().
+				Consume(mock.Anything, mock.Anything).
+				Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 					consumerStartedChan <- struct{}{}
 					<-ctx.Done()
-				}).Once().Return(context.Canceled)
+				}).
+				Once().
+				Return(context.Canceled)
 
 			var wg sync.WaitGroup
 			wg.Add(1)
@@ -699,19 +745,23 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerStartedChan := make(chan struct{})
 		consumerStartedChan := make(chan struct{})
 
-		mockProducer.On("Produce", mock.Anything, mock.Anything).
-			Run(func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerStartedChan <- struct{}{} // producer started event
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).
-			Run(func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumerStartedChan <- struct{}{} // consumer started event
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		logger, _ := logrustest.NewNullLogger()
 		randomOpBufferSize, err := randInt(t, 16, 128)
@@ -772,12 +822,10 @@ func TestShardReplicationEngine(t *testing.T) {
 		producerWg.Add(1)
 
 		mockProducer := replication.NewMockOpProducer(t)
-		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				defer producerWg.Done()
-				ctx := args.Get(0).(context.Context)
-				opsChan := args.Get(1).(chan<- replication.ShardReplicationOpAndStatus)
-
 				for _, opId := range opIds {
 					randomSleepTime, e := randInt(t, 10, 50)
 					require.NoErrorf(t, e, "error generating random sleep time")
@@ -785,26 +833,25 @@ func TestShardReplicationEngine(t *testing.T) {
 					op := replication.NewShardReplicationOp(opId, "node1", "node2", "TestCollection", "shard1")
 
 					select {
-					case opsChan <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.REGISTERED)):
+					case out <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.REGISTERED)):
 						producedOpsChan <- op
 					case <-ctx.Done():
 						return
 					}
 				}
-			}).Return(nil)
+			}).
+			Return(nil)
 
 		mockConsumer := replication.NewMockOpConsumer(t)
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
-				opsChan := args.Get(1).(<-chan replication.ShardReplicationOpAndStatus)
-
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				processedOps := 0
 				for {
 					select {
 					case <-ctx.Done():
 						return
-					case op, ok := <-opsChan:
+					case op, ok := <-in:
 						if !ok {
 							return
 						}
@@ -823,7 +870,8 @@ func TestShardReplicationEngine(t *testing.T) {
 						}
 					}
 				}
-			}).Return(nil)
+			}).
+			Return(nil)
 
 		engine := replication.NewShardReplicationEngine(
 			logger,
@@ -901,39 +949,43 @@ func TestShardReplicationEngine(t *testing.T) {
 
 		// First attempt - producer sends one operation then errors
 		mockProducer := replication.NewMockOpProducer(t)
-		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
-				opsChan := args.Get(1).(chan<- replication.ShardReplicationOpAndStatus)
-
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerStartedChan <- struct{}{}
 
 				op := replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "collection1", "shard1")
 				select {
 				case <-ctx.Done():
 					return
-				case opsChan <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.REGISTERED)):
+				case out <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.REGISTERED)):
 					// Error after sending a valid op
 					producerErrorChan <- struct{}{}
 				}
-			}).Once().Return(expectedErr)
+			}).
+			Once().
+			Return(expectedErr)
 
 		// Second attempt - producer runs normally until canceled
-		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerRestartChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		// Consumer runs normally processing operations
 		mockConsumer := replication.NewMockOpConsumer(t)
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumerStartedChan <- struct{}{}
 				<-ctx.Done()
-			}).Return(context.Canceled).Twice()
+			}).
+			Return(context.Canceled).
+			Twice()
 
 		randomBufferSize, err := randInt(t, 10, 20)
 		require.NoErrorf(t, err, "error generating random buffer size")
@@ -1023,59 +1075,63 @@ func TestShardReplicationEngine(t *testing.T) {
 		mockProducer := replication.NewMockOpProducer(t)
 
 		// First attempt - producer sends operation and waits for cancellation
-		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
-				opsChan := args.Get(1).(chan<- replication.ShardReplicationOpAndStatus)
-
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerStartedChan <- struct{}{}
 
 				op := replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "collection1", "shard1")
 				select {
 				case <-ctx.Done():
 					return
-				case opsChan <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.REGISTERED)):
+				case out <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.REGISTERED)):
 				}
 
 				// Wait for cancellation
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		// Second attempt - producer runs normally again after restarting the engine
-		mockProducer.On("Produce", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerRestartChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		mockConsumer := replication.NewMockOpConsumer(t)
 
 		// First consumer attempt - fails with error
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
-				opsChan := args.Get(1).(<-chan replication.ShardReplicationOpAndStatus)
-
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumerStartedChan <- struct{}{}
 
 				// Process one operation then fail
 				select {
 				case <-ctx.Done():
 					return
-				case <-opsChan:
+				case <-in:
 					consumerErrorChan <- struct{}{}
 					return
 				}
-			}).Once().Return(expectedErr)
+			}).
+			Once().
+			Return(expectedErr)
 
 		// Second consumer attempt - succeeds after restarting the engine
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).Run(
-			func(args mock.Arguments) {
-				ctx := args.Get(0).(context.Context)
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Run(func(ctx context.Context, in <-chan replication.ShardReplicationOpAndStatus) {
 				consumerRestartChan <- struct{}{}
 				<-ctx.Done()
-			}).Once().Return(context.Canceled)
+			}).
+			Once().
+			Return(context.Canceled)
 
 		randomBufferSize, err := randInt(t, 10, 20)
 		require.NoErrorf(t, err, "error generating random buffer size")
@@ -1200,8 +1256,12 @@ func TestEngineWithCallbacks(t *testing.T) {
 			}).
 			Build()
 
-		mockProducer.On("Produce", mock.Anything, mock.Anything).Return(nil).Maybe()
-		mockConsumer.On("Consume", mock.Anything, mock.Anything).Return(nil).Maybe()
+		mockProducer.EXPECT().
+			Produce(mock.Anything, mock.Anything).
+			Return(nil).Maybe()
+		mockConsumer.EXPECT().
+			Consume(mock.Anything, mock.Anything).
+			Return(nil).Maybe()
 
 		engine := replication.NewShardReplicationEngine(
 			logger,
