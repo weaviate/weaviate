@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/tenantactivity"
+	"github.com/weaviate/weaviate/theOneTrueFileStore"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/replica"
 	migratefs "github.com/weaviate/weaviate/usecases/schema/migrate/fs"
@@ -39,6 +40,8 @@ func (db *DB) init(ctx context.Context) error {
 	if err := os.MkdirAll(db.config.RootPath, 0o777); err != nil {
 		return fmt.Errorf("create root path directory at %s: %w", db.config.RootPath, err)
 	}
+
+	fmt.Printf("Initialising Db in Weaviate DB root path: %s\n", db.config.RootPath)
 
 	// As of v1.22, db files are stored in a hierarchical structure
 	// rather than a flat one. If weaviate is started with files
@@ -58,6 +61,7 @@ func (db *DB) init(ctx context.Context) error {
 	}
 
 	objects := db.schemaGetter.GetSchemaSkipAuth().Objects
+	theOneTrueFileStore.JsonPrintf("Schema: %v", objects)
 	if objects != nil {
 		for _, class := range objects.Classes {
 			invertedConfig := class.InvertedIndexConfig
