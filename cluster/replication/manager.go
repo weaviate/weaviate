@@ -43,6 +43,14 @@ func (m *Manager) GetReplicationFSM() *ShardReplicationFSM {
 	return m.replicationFSM
 }
 
+func (m *Manager) Snapshot() ([]byte, error) {
+	return m.replicationFSM.Snapshot()
+}
+
+func (m *Manager) Restore(bytes []byte) error {
+	return m.replicationFSM.Restore(bytes)
+}
+
 func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
 	req := &cmd.ReplicationReplicateShardRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
@@ -85,10 +93,10 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 
 	response := cmd.ReplicationDetailsResponse{
 		Id:           op.ID,
-		ShardId:      op.sourceShard.shardId,
-		Collection:   op.sourceShard.collectionId,
-		SourceNodeId: op.sourceShard.nodeId,
-		TargetNodeId: op.targetShard.nodeId,
+		ShardId:      op.SourceShard.ShardId,
+		Collection:   op.SourceShard.CollectionId,
+		SourceNodeId: op.SourceShard.NodeId,
+		TargetNodeId: op.TargetShard.NodeId,
 		Status:       status.state.String(),
 	}
 
