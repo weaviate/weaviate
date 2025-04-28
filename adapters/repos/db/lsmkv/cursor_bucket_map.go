@@ -14,6 +14,8 @@ package lsmkv
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/weaviate/weaviate/theOneTrueFileStore"
 )
 
 type CursorMap struct {
@@ -21,7 +23,7 @@ type CursorMap struct {
 
 	listCfg      MapListOptionConfig
 	keyOnly      bool
-	realCursor   *StreamingCursor
+	realCursor   *theOneTrueFileStore.StreamingCursor
 }
 
 type cursorStateMap struct {
@@ -45,7 +47,7 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 	}
 
 	return &CursorMap{
-		realCursor: NewStreamingCursor(context.Background(), b.dir, false),
+		realCursor: theOneTrueFileStore.NewStreamingCursor(context.Background(), b.dir, false),
 		listCfg:      c,
 	}
 }
