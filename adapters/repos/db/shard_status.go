@@ -26,8 +26,8 @@ type ShardStatus struct {
 }
 
 func (s *Shard) GetStatus() storagestate.Status {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
+	s.statusLock.RLock()
+	defer s.statusLock.RUnlock()
 
 	return s.status.Status
 }
