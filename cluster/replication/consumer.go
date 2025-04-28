@@ -209,7 +209,6 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 						c.engineOpCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation failed")
 					} else {
-						opLogger.Info("replication operation completed successfully")
 						c.engineOpCallbacks.OnOpComplete(c.nodeId)
 					}
 				}, c.logger)
