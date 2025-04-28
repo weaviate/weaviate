@@ -188,6 +188,7 @@ func (h *hnsw) restoreFromDisk() error {
 			}
 		}
 	}
+	h.resetTombstoneMetric()
 
 	// make sure the visited list pool fits the current size
 	h.pools.visitedLists.Destroy()
@@ -227,6 +228,17 @@ func (h *hnsw) tombstoneCleanup(shouldAbort cyclemanager.ShouldAbortCallback) bo
 			WithError(err).Error("tombstone cleanup errord")
 	}
 	return executed
+}
+
+// The vector_index_tombstones metric is represented as a counter so on
+// restart we need to reset it to the current number of tombstones read from
+// the commit log.
+func (h *hnsw) resetTombstoneMetric() {
+	h.tombstoneLock.Lock()
+	defer h.tombstoneLock.Unlock()
+	if len(h.tombstones) > 0 {
+		h.metrics.SetTombstone(len(h.tombstones))
+	}
 }
 
 // PostStartup triggers routines that should happen after startup. The startup
