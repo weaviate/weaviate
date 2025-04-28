@@ -19,11 +19,12 @@ import (
 // ReplicationEngineOpsCallbacks contains a set of callback functions that are invoked
 // on different stages of a replication operation's lifecycle.
 type ReplicationEngineOpsCallbacks struct {
-	onOpPending  func(node string)
-	onOpSkipped  func(node string)
-	onOpStart    func(node string)
-	onOpComplete func(node string)
-	onOpFailed   func(node string)
+	onPrepareProcessing func(node string)
+	onOpPending         func(node string)
+	onOpSkipped         func(node string)
+	onOpStart           func(node string)
+	onOpComplete        func(node string)
+	onOpFailed          func(node string)
 }
 
 // ReplicationEngineOpsCallbacksBuilder helps construct an ReplicationEngineOpsCallbacks instance with
@@ -37,13 +38,22 @@ type ReplicationEngineOpsCallbacksBuilder struct {
 func NewReplicationEngineOpsCallbacksBuilder() *ReplicationEngineOpsCallbacksBuilder {
 	return &ReplicationEngineOpsCallbacksBuilder{
 		callbacks: ReplicationEngineOpsCallbacks{
-			onOpPending:  func(node string) {},
-			onOpSkipped:  func(node string) {},
-			onOpStart:    func(node string) {},
-			onOpComplete: func(node string) {},
-			onOpFailed:   func(node string) {},
+			onPrepareProcessing: func(node string) {},
+			onOpPending:         func(node string) {},
+			onOpSkipped:         func(node string) {},
+			onOpStart:           func(node string) {},
+			onOpComplete:        func(node string) {},
+			onOpFailed:          func(node string) {},
 		},
 	}
+}
+
+// WithPrepareProcessing sets a callback to be executed before starting to process replication operations
+// for a given node. This can be used to initialize metrics like counters and gauges to ensure they are
+// exposed with an initial value, avoiding gaps when the engine starts.
+func (b *ReplicationEngineOpsCallbacksBuilder) WithPrepareProcessing(callback func(node string)) *ReplicationEngineOpsCallbacksBuilder {
+	b.callbacks.onPrepareProcessing = callback
+	return b
 }
 
 // WithOpPendingCallback sets a callback to be executed when a replication
@@ -84,6 +94,10 @@ func (b *ReplicationEngineOpsCallbacksBuilder) WithOpFailedCallback(callback fun
 // Build finalizes the configuration and returns the ReplicationEngineOpsCallbacks instance.
 func (b *ReplicationEngineOpsCallbacksBuilder) Build() *ReplicationEngineOpsCallbacks {
 	return &b.callbacks
+}
+
+func (m *ReplicationEngineOpsCallbacks) OnPrepareProcessing(node string) {
+	m.onPrepareProcessing(node)
 }
 
 // OnOpPending invokes the configured callback for when a replication operation becomes pending.
@@ -157,6 +171,16 @@ func NewReplicationEngineOpsCallbacks(reg prometheus.Registerer) *ReplicationEng
 	}, []string{"node"})
 
 	return NewReplicationEngineOpsCallbacksBuilder().
+		WithPrepareProcessing(func(node string) {
+			// Add(0) is used to ensure that the metric exists for the given node label
+			// and will be scraped by Prometheus even before any real increment happens.
+			// This avoids gaps and allows queries like increase() and rate() to work correctly
+			// from startup.
+			pendingOps.WithLabelValues(node).Add(0)
+			ongoingOps.WithLabelValues(node).Add(0)
+			completeOps.WithLabelValues(node).Add(0)
+			failedOps.WithLabelValues(node).Add(0)
+		}).
 		WithOpPendingCallback(func(node string) {
 			pendingOps.WithLabelValues(node).Inc()
 		}).

@@ -133,6 +133,8 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 	workerCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 
+	c.engineOpCallbacks.OnPrepareProcessing(c.nodeId)
+
 	var wg sync.WaitGroup
 
 	for {
@@ -207,6 +209,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 						c.engineOpCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation failed")
 					} else {
+						opLogger.Info("replication operation completed successfully")
 						c.engineOpCallbacks.OnOpComplete(c.nodeId)
 					}
 				}, c.logger)
@@ -227,8 +230,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 //  4. Once the copy succeeds, updates the sharding state to reflect the added replica.
 //
 // If transient failures occur, the operation is retried using the configured backoff policy.
-// Returns:
-//   - err: non-nil only if an error occurred during processing or the context was canceled.
+// It returns non-nil only if an error occurred during processing or the context was canceled.
 func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint64, op ShardReplicationOp) error {
 	logger := c.logger.WithFields(logrus.Fields{
 		"consumer":          c,

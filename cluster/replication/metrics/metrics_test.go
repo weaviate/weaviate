@@ -24,6 +24,7 @@ import (
 func TestOpCallbacks(t *testing.T) {
 	t.Run("default callbacks should be no-op", func(t *testing.T) {
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().Build()
+		callbacks.OnPrepareProcessing("node1")
 		callbacks.OnOpPending("node1")
 		callbacks.OnOpSkipped("node1")
 		callbacks.OnOpStart("node1")
@@ -34,14 +35,18 @@ func TestOpCallbacks(t *testing.T) {
 	t.Run("custom callbacks should be called with correct parameters", func(t *testing.T) {
 		// GIVEN
 		var (
-			pendingNode  string
-			skippedNode  string
-			startNode    string
-			completeNode string
-			failedNode   string
+			prepareProcessingNode string
+			pendingNode           string
+			skippedNode           string
+			startNode             string
+			completeNode          string
+			failedNode            string
 		)
 
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithPrepareProcessing(func(node string) {
+				prepareProcessingNode = node
+			}).
 			WithOpPendingCallback(func(node string) {
 				pendingNode = node
 			}).
@@ -61,6 +66,7 @@ func TestOpCallbacks(t *testing.T) {
 
 		// WHEN
 		expectedNode := "test-node"
+		callbacks.OnPrepareProcessing(expectedNode)
 		callbacks.OnOpPending(expectedNode)
 		callbacks.OnOpSkipped(expectedNode)
 		callbacks.OnOpStart(expectedNode)
@@ -68,11 +74,28 @@ func TestOpCallbacks(t *testing.T) {
 		callbacks.OnOpFailed(expectedNode)
 
 		// THEN
+		require.Equal(t, expectedNode, prepareProcessingNode, "invalid prepare processing callback node")
 		require.Equal(t, expectedNode, pendingNode, "invalid pending callback node")
 		require.Equal(t, expectedNode, skippedNode, "invalid skipped callback node")
 		require.Equal(t, expectedNode, startNode, "invalid start callback node")
 		require.Equal(t, expectedNode, completeNode, "invalid complete callback node")
 		require.Equal(t, expectedNode, failedNode, "invalid failed callback node")
+	})
+
+	t.Run("only prepare processing", func(t *testing.T) {
+		// GIVEN
+		prepareProcessingCalled := false
+		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithPrepareProcessing(func(node string) {
+				prepareProcessingCalled = true
+			}).
+			Build()
+
+		// WHEN
+		callbacks.OnPrepareProcessing("node1")
+
+		// THEN
+		require.True(t, prepareProcessingCalled, "expected prepare processing callback to be called")
 	})
 
 	t.Run("only op pending", func(t *testing.T) {
@@ -163,6 +186,8 @@ func TestMetricsCollection(t *testing.T) {
 		callbacks := metrics.NewReplicationEngineOpsCallbacks(reg)
 		node := "test-node"
 
+		callbacks.OnPrepareProcessing(node)
+
 		// Process first operation completing successfully
 		callbacks.OnOpPending(node)
 		callbacks.OnOpStart(node)
@@ -206,6 +231,9 @@ func TestMetricsCollection(t *testing.T) {
 		callbacks := metrics.NewReplicationEngineOpsCallbacks(reg)
 		node1 := "node-1"
 		node2 := "node-2"
+
+		callbacks.OnPrepareProcessing(node1)
+		callbacks.OnPrepareProcessing(node2)
 
 		// Node 1 ops
 		callbacks.OnOpPending(node1)

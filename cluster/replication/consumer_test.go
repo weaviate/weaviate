@@ -57,16 +57,21 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockTimeProvider.On("Now").Return(time.Now())
 
 		var (
-			pendingCallbacksCounter   int
-			skippedCallbacksCounter   int
-			startedCallbacksCounter   int
-			completedCallbacksCounter int
-			failedCallbacksCounter    int
-			completionWg              sync.WaitGroup
+			prepareProcessingCallbacksCounter int
+			pendingCallbacksCounter           int
+			skippedCallbacksCounter           int
+			startedCallbacksCounter           int
+			completedCallbacksCounter         int
+			failedCallbacksCounter            int
+			completionWg                      sync.WaitGroup
 		)
 		completionWg.Add(1)
 
 		metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithPrepareProcessing(func(node string) {
+				require.Equal(t, "node2", node, "invalid node in prepare processing callback")
+				prepareProcessingCallbacksCounter++
+			}).
 			WithOpPendingCallback(func(node string) {
 				require.Equal(t, "node2", node, "invalid node in pending op callback")
 				pendingCallbacksCounter++
@@ -135,6 +140,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		// THEN
 		require.NoError(t, err, "expected operation completing successfully")
+		require.Equal(t, 1, prepareProcessingCallbacksCounter, "expected prepare processing callback to be called once")
 		require.Equal(t, 1, pendingCallbacksCounter, "Pending callback should be called")
 		require.Equal(t, 0, skippedCallbacksCounter, "Skipped callback should be called")
 		require.Equal(t, 1, startedCallbacksCounter, "Start callback should be called")
@@ -164,16 +170,21 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockTimeProvider.On("Now").Return(time.Now())
 
 		var (
-			pendingCallbacksCounter   int
-			skippedCallbacksCounter   int
-			startedCallbacksCounter   int
-			completedCallbacksCounter int
-			failedCallbacksCounter    int
-			completionWg              sync.WaitGroup
+			prepareProcessingCallbacksCounter int
+			pendingCallbacksCounter           int
+			skippedCallbacksCounter           int
+			startedCallbacksCounter           int
+			completedCallbacksCounter         int
+			failedCallbacksCounter            int
+			completionWg                      sync.WaitGroup
 		)
 		completionWg.Add(1)
 
 		metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithPrepareProcessing(func(node string) {
+				require.Equal(t, "node2", node, "invalid node in prepare processing callback")
+				prepareProcessingCallbacksCounter++
+			}).
 			WithOpPendingCallback(func(node string) {
 				require.Equal(t, "node2", node, "invalid node in pending op callback")
 				pendingCallbacksCounter++
@@ -241,6 +252,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		// THEN
 		require.NoError(t, err, "expected consumer to stop without error")
+		require.Equal(t, 1, prepareProcessingCallbacksCounter, "Prepare processing callback should be called")
 		require.Equal(t, 1, pendingCallbacksCounter, "Pending callback should be called")
 		require.Equal(t, 0, skippedCallbacksCounter, "Skipped callback should be called")
 		require.Equal(t, 1, startedCallbacksCounter, "Start callback should be called")
@@ -272,16 +284,22 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockTimeProvider.On("Now").Return(time.Now())
 
 		var (
-			mutex         sync.Mutex
-			pendingCount  int
-			skippedCount  int
-			startCount    int
-			completeCount int
-			completionWg  sync.WaitGroup
+			mutex                  sync.Mutex
+			prepareProcessingCount int
+			pendingCount           int
+			skippedCount           int
+			startCount             int
+			completeCount          int
+			completionWg           sync.WaitGroup
 		)
 		completionWg.Add(randomNumberOfOps)
 
 		metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithPrepareProcessing(func(node string) {
+				mutex.Lock()
+				prepareProcessingCount++
+				mutex.Unlock()
+			}).
 			WithOpPendingCallback(func(node string) {
 				mutex.Lock()
 				pendingCount++
@@ -355,6 +373,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		// THEN
 		require.NoError(t, err, "expected consumer to stop without error")
 		mutex.Lock()
+		require.Equal(t, 1, prepareProcessingCount, "Prepare processing callback should be called once")
 		require.Equal(t, randomNumberOfOps, pendingCount, "Pending callback should be called for each operation")
 		require.Equal(t, randomNumberOfOps, startCount, "Start callback should be called for each operation")
 		require.Equal(t, randomNumberOfOps, completeCount, "Complete callback should be called for each operation")
@@ -374,15 +393,21 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockTimeProvider.On("Now").Return(time.Now()).Maybe()
 
 		var (
-			mutex         sync.Mutex
-			pendingCount  int
-			skippedCount  int
-			startCount    int
-			completeCount int
-			failedCount   int
+			mutex                  sync.Mutex
+			prepareProcessingCount int
+			pendingCount           int
+			skippedCount           int
+			startCount             int
+			completeCount          int
+			failedCount            int
 		)
 
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithPrepareProcessing(func(node string) {
+				mutex.Lock()
+				prepareProcessingCount++
+				mutex.Unlock()
+			}).
 			WithOpPendingCallback(func(node string) {
 				mutex.Lock()
 				pendingCount++
@@ -454,6 +479,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "expected consumer to stop without error")
 
 		mutex.Lock()
+		require.Equal(t, 1, prepareProcessingCount, "Prepare processing callback should be called once")
 		require.Equal(t, totalOps, pendingCount, "Pending should be called for each op")
 		require.Equal(t, totalOps, skippedCount, "Skipped should be called for each op")
 		require.Equal(t, 0, startCount, "Start should not be called when all ops are skipped")
@@ -478,13 +504,14 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockTimeProvider.On("Now").Return(time.Now()).Maybe()
 
 		var (
-			mutex         sync.Mutex
-			pendingCount  int
-			skippedCount  int
-			startCount    int
-			completeCount int
-			failedCount   int
-			completionWg  sync.WaitGroup
+			mutex                  sync.Mutex
+			prepareProcessingCount int
+			pendingCount           int
+			skippedCount           int
+			startCount             int
+			completeCount          int
+			failedCount            int
+			completionWg           sync.WaitGroup
 		)
 
 		skipMap := make(map[uint64]bool)
@@ -505,6 +532,11 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		}
 
 		callbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+			WithPrepareProcessing(func(node string) {
+				mutex.Lock()
+				prepareProcessingCount++
+				mutex.Unlock()
+			}).
 			WithOpPendingCallback(func(node string) {
 				mutex.Lock()
 				pendingCount++
@@ -596,6 +628,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		}
 
 		mutex.Lock()
+		require.Equal(t, 1, prepareProcessingCount, "Prepare processing should be called once")
 		require.Equal(t, totalOps, pendingCount, "Pending should be called for each op")
 		require.Equal(t, expectedSkipped, skippedCount, "Skipped count should match")
 		require.Equal(t, expectedStarted, startCount, "Started count should match non-skipped ops")
