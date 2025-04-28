@@ -84,6 +84,7 @@ func Search(ctx context.Context, params *Params, logger logrus.FieldLogger, spar
 		weights []float64
 		names   []string
 	)
+	fmt.Println("Starting hybrid search with query: %s, alpha: %f, class: %s", params.Query, params.Alpha, params.Class)
 
 	alpha := params.Alpha
 	var belowCutoffSet map[strfmt.UUID]struct{}
