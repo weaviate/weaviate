@@ -89,7 +89,7 @@ func (m *Manager) RotateKey(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.RotateKey(req.UserId, req.SecureHash, req.OldIdentifier, req.NewIdentifier)
+	return m.dynUser.RotateKey(req.UserId, req.ApiKeyFirstLetters, req.SecureHash, req.OldIdentifier, req.NewIdentifier)
 }
 
 func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
