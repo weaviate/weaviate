@@ -211,3 +211,8 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	}
 	return readOk, writeOk
 }
+
+// IsOpCompletedOrInProgress returns true if the given replication operation has started or completed execution.
+func (s *ShardReplicationFSM) IsOpCompletedOrInProgress(op ShardReplicationOp) bool {
+	return api.REGISTERED != s.GetOpState(op).state
+}
