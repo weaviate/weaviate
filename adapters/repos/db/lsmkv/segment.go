@@ -139,7 +139,6 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation {
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
-			file.Close()
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
 		}
 	}
