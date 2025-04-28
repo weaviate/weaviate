@@ -18,12 +18,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
-	"runtime/debug"
 	"sync"
 	"time"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/theOneTrueFileStore"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -249,23 +247,30 @@ func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
 	return b.flushCallbackCtrl
 }
 
-func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
-	cursor := b.Cursor()
-	defer cursor.Close()
-
-	i := 0
-
-	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		obj, err := storobj.FromBinary(v)
-		if err != nil {
-			return fmt.Errorf("cannot unmarshal object %d, %w", i, err)
+func (b *Bucket) MapFunc(f func([]byte, []byte) error) (map[string]bool, error) {
+	mf := func(key, val []byte) error {
+		if bytes.HasPrefix(key, b.KeyPath(nil)) {
+			bkey := bytes.TrimPrefix(key, b.KeyPath(nil))
+			f(bkey, val)
 		}
-		if err := f(obj); err != nil {
-			return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
-		}
-
-		i++
+		return nil
 	}
+	return theOneTrueFileStore.TheOneTrueFileStore().MapFunc(mf)
+}
+
+func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
+
+	fmt.Printf("Iterating objects\n")
+	b.MapFunc(func(key, val []byte) error {
+		fmt.Printf("Iterating value: %v\n", string(val))
+		obj, err := storobj.FromBinary(val)
+		if err != nil {
+			fmt.Printf("Problem unpacking binary to object: %v, %v\n", err, string(val))
+		}
+		f(obj)
+		return nil
+
+	})
 
 	return nil
 }
@@ -347,7 +352,6 @@ func (b *Bucket) Get(key []byte) ([]byte, error) {
 
 func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 
-
 	val, err := theOneTrueFileStore.TheOneTrueFileStore().Get(b.KeyPath(key))
 	if err != nil {
 		return nil, lsmkv.NotFound //FIXME, check if err is notfound or other
@@ -368,8 +372,8 @@ func (b *Bucket) GetErrDeleted(key []byte) ([]byte, error) {
 // equivalent exists for Set and Map, as those do not support secondary
 // indexes.
 func (b *Bucket) GetBySecondary(pos int, key []byte) ([]byte, error) {
-	bytes, _, err := b.GetBySecondaryIntoMemory(pos, key, nil)
-	return bytes, err
+	_, val, err := b.GetBySecondaryIntoMemory(pos, key, nil)
+	return val, err
 }
 
 // GetBySecondaryWithBuffer is like [Bucket.GetBySecondary], but also takes a
@@ -396,9 +400,8 @@ func (b *Bucket) GetBySecondaryWithBuffer(pos int, key []byte, buf []byte) ([]by
 // indexes.
 func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, error) {
 
-
 	// I guess we're meant to return the primary key and the value?
-	v, err := theOneTrueFileStore.TheOneTrueFileStore().Get(b.KeyPath(key))
+	v, err := theOneTrueFileStore.TheOneTrueFileStore().Get(b.KeyPathSecondary(key))
 
 	return key, v, err
 }
@@ -408,7 +411,6 @@ func (b *Bucket) GetBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([
 // SetList is specific to the Set Strategy, for Map use [Bucket.MapList], and
 // for Replace use [Bucket.Get].
 func (b *Bucket) SetList(key []byte) ([][]byte, error) {
-
 
 	var out []value
 
@@ -466,7 +468,11 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 // [Bucket.MapSet] and [Bucket.MapSetMulti].
 func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
 	fmt.Printf("Bucket Put key %v\n", string(b.KeyPath([]byte(BytesToHex(key)))))
-
+	if len(opts) > 0 {
+		//The only opt is secondary key and there is only one key ever defined
+		//FIXME needs to be a real secondary index, but this will do for now I guess
+		theOneTrueFileStore.TheOneTrueFileStore().Put(b.KeyPathSecondary(key), value)
+	}
 
 	return theOneTrueFileStore.TheOneTrueFileStore().Put(b.KeyPath(key), value)
 }
@@ -487,7 +493,6 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
 // SetAdd is specific to the Set strategy. For Replace, use [Bucket.Put], for
 // Map use either [Bucket.MapSet] or [Bucket.MapSetMulti].
 func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
-
 
 	set := map[string]bool{}
 	setData, err := theOneTrueFileStore.TheOneTrueFileStore().Get(b.KeyPath(key))
@@ -524,7 +529,6 @@ func (b *Bucket) SetAdd(key []byte, values [][]byte) error {
 // to delete a single map entry.
 func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 
-
 	set := map[string]bool{}
 	setData, err := theOneTrueFileStore.TheOneTrueFileStore().Get(b.KeyPath(key))
 	if err == nil {
@@ -549,7 +553,6 @@ func (b *Bucket) SetDeleteSingle(key []byte, valueToDelete []byte) error {
 // in this order: active memtable, flushing memtable, and disk
 // segment
 func (b *Bucket) WasDeleted(key []byte) (bool, time.Time, error) {
-
 
 	_, err := theOneTrueFileStore.TheOneTrueFileStore().Get(b.KeyPath(key))
 	if err != nil {
@@ -589,7 +592,6 @@ func MapListLegacySortingRequired() MapListOption {
 func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption) ([]MapPair, error) {
 	fmt.Printf("Bucket MapList key %v\n", string(b.KeyPath([]byte(BytesToHex(key)))))
 
-
 	data, err := theOneTrueFileStore.TheOneTrueFileStore().Get(b.KeyPath(key))
 
 	var out []MapPair
@@ -600,6 +602,12 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 func (b *Bucket) KeyPath(key []byte) []byte {
 	path := []byte(b.dir)
 	path = bytes.Join([][]byte{path, key}, []byte("/"))
+	return path
+}
+
+func (b *Bucket) KeyPathSecondary(key []byte) []byte {
+	path := []byte(b.dir)
+	path = bytes.Join([][]byte{path, []byte("secondary"), key}, []byte("/"))
 	return path
 }
 
@@ -620,12 +628,11 @@ func (b *Bucket) KeyPath(key []byte) []byte {
 func (b *Bucket) MapSet(rowKey []byte, kv MapPair) error {
 	fmt.Printf("Bucket MapSet key %v\n", string(b.KeyPath([]byte(BytesToHex(rowKey)))))
 
-
 	var list []MapPair
 	var err error
 	if theOneTrueFileStore.TheOneTrueFileStore().Exists(b.KeyPath(rowKey)) {
 
-	list, err = b.MapList(context.Background(), rowKey)
+		list, err = b.MapList(context.Background(), rowKey)
 	}
 	list = append(list, kv)
 
@@ -664,7 +671,6 @@ func (b *Bucket) MapSetMulti(rowKey []byte, kvs []MapPair) error {
 func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 	fmt.Printf("Bucket MapDelete key %v\n", string(b.KeyPath([]byte(BytesToHex(rowKey)))))
 
-
 	data, err := theOneTrueFileStore.TheOneTrueFileStore().Get(b.KeyPath(rowKey))
 	if err != nil {
 		return err
@@ -702,12 +708,14 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 // [Bucket.SetDeleteSingle] to delete a single set element.
 func (b *Bucket) Delete(key []byte, opts ...SecondaryKeyOption) error {
 
+	if len(opts) > 0 {
+
+	}
 
 	return theOneTrueFileStore.TheOneTrueFileStore().Delete(b.KeyPath(key))
 }
 
 func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...SecondaryKeyOption) error {
-
 
 	return theOneTrueFileStore.TheOneTrueFileStore().Delete(b.KeyPath(key))
 }
@@ -720,7 +728,6 @@ func (b *Bucket) setNewActiveMemtable() error {
 }
 
 func (b *Bucket) Count() int {
-
 
 	return -1
 }
@@ -884,30 +891,16 @@ func (b *Bucket) DesiredStrategy() string {
 // user.
 func (b *Bucket) WriteWAL() error {
 
-
 	return nil
 }
 
 func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBoost float32, cfgs ...MapListOption) ([]terms.DocPointerWithScore, error) {
-
 
 	return []terms.DocPointerWithScore{}, nil
 }
 
 func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
 	release := func() {}
-
-	defer func() {
-		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
-			if r := recover(); r != nil {
-				b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
-				debug.PrintStack()
-				release()
-			}
-		}
-	}()
-
-
 
 	return [][]*SegmentBlockMax{}, nil, release, nil
 }
