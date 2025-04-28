@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -49,10 +51,10 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		return
 	}
 
-	ec := errorcompounder.New()
+	ec := errorcompounder.NewSafe()
 
 	err = s.GetPropertyLengthTracker().Close()
-	ec.AddWrap(err, "close prop length tracker")
+	ec.Add(errors.Wrap(err, "close prop length tracker"))
 
 	// unregister all callbacks at once, in parallel
 	err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
@@ -109,7 +111,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		}
 	} else {
 		err = s.queue.Close()
-		ec.AddWrap(err, "shut down vector index queue")
+		ec.Add(errors.Wrap(err, "shut down vector index queue"))
 
 		if s.vectorIndex != nil {
 			// a nil-vector index during shutdown would indicate that the shard was not
@@ -121,10 +123,10 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 			// resulting in perpetually attempting to remove a tombstone
 			// which doesn't actually exist anymore
 			err = s.vectorIndex.Flush()
-			ec.AddWrap(err, "flush vector index commitlog")
+			ec.Add(errors.Wrap(err, "flush vector index commitlog"))
 
 			err = s.vectorIndex.Shutdown(ctx)
-			ec.AddWrap(err, "shut down vector index")
+			ec.Add(errors.Wrap(err, "shut down vector index"))
 		}
 	}
 
@@ -132,7 +134,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)
-		ec.AddWrap(err, "stop lsmkv store")
+		ec.Add(errors.Wrap(err, "stop lsmkv store"))
 	}
 
 	if s.dimensionTrackingInitialized.Load() {
