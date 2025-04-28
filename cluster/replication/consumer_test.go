@@ -539,8 +539,11 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			skipMap[opID] = skip
 			if !skip {
 				mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opID, api.HYDRATING).Return(nil)
+				mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opID, api.FINALIZING).Return(nil).Maybe()
+				mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opID, api.READY).Return(nil).Maybe()
 				mockReplicaCopier.On("CopyReplica", mock.Anything, "node1", "TestCollection", mock.Anything).Return(nil)
-				mockFSMUpdater.On("AddReplicaToShard", mock.Anything, "TestCollection", mock.Anything, "node2").Return(uint64(i), nil)
+				mockFSMUpdater.On("StartFinalizingReplicaCopy", mock.Anything, "TestCollection", mock.Anything, "node1", "node2", mock.Anything).Return(uint64(0), nil)
+				mockReplicaCopier.On("AsyncReplicationStatus", mock.Anything, "node1", "node2", "TestCollection", mock.Anything).Return(uint64(0), time.Now().Add(200*time.Second).UnixMilli(), nil)
 				completionWg.Add(1)
 			}
 		}
