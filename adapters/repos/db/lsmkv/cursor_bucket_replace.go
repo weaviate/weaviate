@@ -13,10 +13,12 @@ package lsmkv
 
 import (
 	"context"
+
+	"github.com/weaviate/weaviate/theOneTrueFileStore"
 )
 
 type CursorReplace struct {
-	realCursor *StreamingCursor
+	realCursor *theOneTrueFileStore.StreamingCursor
 	innerCursors []innerCursorReplace
 	state        []cursorStateReplace
 	unlock       func()
@@ -49,7 +51,7 @@ func (b *Bucket) Cursor() *CursorReplace {
 
 
 	return &CursorReplace{
-		realCursor: NewStreamingCursor(context.Background(), b.dir, false),
+		realCursor: theOneTrueFileStore.NewStreamingCursor(context.Background(), b.dir, false),
 	}
 }
 
@@ -70,7 +72,7 @@ func (b *Bucket) CursorOnDisk() *CursorReplace {
 	}
 
 	return &CursorReplace{
-		realCursor: NewStreamingCursor(context.Background(), b.dir, false),
+		realCursor: theOneTrueFileStore.NewStreamingCursor(context.Background(), b.dir, false),
 	}
 }
 
@@ -91,7 +93,7 @@ func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
 
 	return &CursorReplace{
 		// cursor are in order from oldest to newest, with the memtable cursor
-		realCursor: NewStreamingCursor(context.Background(), b.dir, false),
+		realCursor: theOneTrueFileStore.NewStreamingCursor(context.Background(), b.dir, false),
 
 	}
 }
