@@ -222,6 +222,12 @@ type Store struct {
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
+
+	// snapshotter is the snapshotter for the store
+	snapshotter fsm.Snapshotter
+
+	// authZController is the authz controller for the store
+	authZController authorization.Controller
 }
 
 func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
@@ -239,6 +245,8 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 			NodeNameToPortMap:  cfg.NodeNameToPortMap,
 		}),
 		schemaManager:      schemaManager,
+		snapshotter:        snapshotter,
+		authZController:    authZController,
 		authZManager:       rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
 		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader(), cfg.ReplicaCopier, reg),
@@ -773,19 +781,8 @@ func (st *Store) recoverSingleNode(force bool) error {
 	// the restore to avoid any data change.
 	recoveryConfig.MetadataOnlyVoters = true
 	recoveryConfig.DB = nil
-	if err := raft.RecoverCluster(st.raftConfig(), &Store{
-		cfg:                     recoveryConfig,
-		log:                     st.log,
-		raftResolver:            st.raftResolver,
-		raftTransport:           st.raftTransport,
-		applyTimeout:            st.applyTimeout,
-		snapshotStore:           st.snapshotStore,
-		schemaManager:           st.schemaManager,
-		authZManager:            st.authZManager,
-		distributedTasksManager: st.distributedTasksManager,
-		logStore:                st.logStore,
-		logCache:                st.logCache,
-	}, st.logCache,
+	tempFSM := NewFSM(recoveryConfig, st.authZController, st.snapshotter, prometheus.DefaultRegisterer)
+	if err := raft.RecoverCluster(st.raftConfig(), &tempFSM, st.logCache,
 		st.logStore,
 		st.snapshotStore,
 		st.raftTransport,
