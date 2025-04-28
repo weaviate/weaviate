@@ -101,6 +101,11 @@ func (s *Shard) drop() (err error) {
 			})
 		}
 
+		// we have to close queue before index for versions before 1.28
+		if err = eg.Wait(); err != nil {
+			return err
+		}
+
 		for targetVector, vectorIndex := range s.vectorIndexes {
 			targetVector, vectorIndex := targetVector, vectorIndex // capture loop variables
 			eg.Go(func() error {

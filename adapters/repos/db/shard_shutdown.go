@@ -79,6 +79,11 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 			})
 		}
 
+		// we have to close queue before index for versions before 1.28
+		if err = eg.Wait(); err != nil {
+			return err
+		}
+
 		for targetVector, vectorIndex := range s.vectorIndexes {
 			if vectorIndex == nil {
 				// a nil-vector index during shutdown would indicate that the shard was not

@@ -2234,7 +2234,6 @@ func (i *Index) Shutdown(ctx context.Context) error {
 // stopCycleManagers stops all cycle managers concurrently
 func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
 	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
-	eg.SetLimit(_NUMCPU)
 
 	eg.Go(func() error {
 		if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
