@@ -44,7 +44,7 @@ func (b *Bucket) ListFiles(ctx context.Context, basePath string) ([]string, erro
 	fileList := []string{}
 
 	//MapFunc(f func([]byte, []byte) error) (map[string]bool, error)
-	theOneTrueFileStore.theOneTrueFileStore.TheOneTrueFileStore().MapFunc(func(key, value []byte) error {
+	theOneTrueFileStore.TheOneTrueFileStore().MapFunc(func(key, value []byte) error {
 		if bytes.HasPrefix(key, []byte(bucketRoot)) {
 			fileList = append(fileList, string(key))
 		}
