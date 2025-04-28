@@ -36,7 +36,6 @@ packages:
     interfaces:
       OpProducer:
       OpConsumer:
-      TimeProvider:
       Timer:
   github.com/weaviate/weaviate/cluster/replication/types:
     interfaces:

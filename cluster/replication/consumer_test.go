@@ -22,7 +22,6 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -34,29 +33,40 @@ import (
 func TestConsumerWithCallbacks(t *testing.T) {
 	t.Run("successful operation should trigger expected callbacks", func(t *testing.T) {
 		// GIVEN
-		logger := logrus.New()
+		logger, _ := logrustest.NewNullLogger()
 		mockFSMUpdater := types.NewMockFSMUpdater(t)
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
-		mockTimeProvider := replication.NewMockTimeProvider(t)
 
 		opId, err := randInt(t, 100, 200)
 		require.NoError(t, err, "error generating random operation id")
 
-		mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", uint64(opId), api.HYDRATING).Return(nil)
-		mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", uint64(opId), api.FINALIZING).Return(nil)
-		mockReplicaCopier.On("CopyReplica",
-			mock.Anything,
-			"node1",
-			"TestCollection",
-			mock.Anything,
-		).Once().Return(nil)
-		mockFSMUpdater.On("AddReplicaToShard",
-			mock.Anything,
-			"TestCollection",
-			mock.Anything,
-			"node2",
-		).Once().Return(uint64(0), nil)
-		mockTimeProvider.On("Now").Return(time.Now())
+		mockFSMUpdater.EXPECT().
+			ReplicationUpdateReplicaOpStatus(uint64(opId), api.HYDRATING).
+			Return(nil)
+		mockFSMUpdater.EXPECT().
+			ReplicationUpdateReplicaOpStatus(uint64(opId), api.FINALIZING).
+			Return(nil)
+		mockFSMUpdater.EXPECT().
+			ReplicationUpdateReplicaOpStatus(uint64(opId), api.READY).
+			Return(nil)
+		mockReplicaCopier.EXPECT().
+			CopyReplica(
+				mock.Anything,
+				"node1",
+				"TestCollection",
+				mock.Anything,
+			).
+			Once().
+			Return(nil)
+		mockFSMUpdater.EXPECT().
+			AddReplicaToShard(
+				mock.Anything,
+				"TestCollection",
+				mock.Anything,
+				"node2",
+			).
+			Once().
+			Return(uint64(0), nil)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -99,14 +109,11 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
-			func(op replication.ShardReplicationOpAndStatus) bool {
-				return false
-			},
 			mockFSMUpdater,
 			mockReplicaCopier,
-			mockTimeProvider,
 			"node2",
 			&backoff.StopBackOff{},
+			replication.NewOpsCache(),
 			time.Second*10,
 			1,
 			metricsCallbacks,
@@ -124,8 +131,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		}()
 
 		opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard"), replication.NewShardReplicationStatus(api.REGISTERED))
-		opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard"), replication.NewShardReplicationStatus(api.HYDRATING))
-		opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard"), replication.NewShardReplicationStatus(api.FINALIZING))
 		waitChan := make(chan struct{})
 		go func() {
 			completionWg.Wait()
@@ -159,7 +164,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
 		mockFSMUpdater := types.NewMockFSMUpdater(t)
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
-		mockTimeProvider := replication.NewMockTimeProvider(t)
 
 		opId, err := randInt(t, 100, 200)
 		require.NoError(t, err, "error generating random operation id")
@@ -171,7 +175,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			"TestCollection",
 			"test-shard",
 		).Once().Return(errors.New("simulated copy failure"))
-		mockTimeProvider.On("Now").Return(time.Now())
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -213,14 +216,11 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
-			func(op replication.ShardReplicationOpAndStatus) bool {
-				return false
-			},
 			mockFSMUpdater,
 			mockReplicaCopier,
-			mockTimeProvider,
 			"node2",
 			&backoff.StopBackOff{}, // No retries for test
+			replication.NewOpsCache(),
 			time.Second*10,
 			1,
 			metricsCallbacks,
@@ -260,7 +260,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.Equal(t, 1, pendingCallbacksCounter, "Pending callback should be called")
 		require.Equal(t, 0, skippedCallbacksCounter, "Skipped callback should be called")
 		require.Equal(t, 1, startedCallbacksCounter, "Start callback should be called")
-		require.Equal(t, 0, completedCallbacksCounter, "Complete callback should not be called for failed operation")
+		require.Equal(t, 0, completedCallbacksCounter, "Complete callback should be called once")
 		require.Equal(t, 1, failedCallbacksCounter, "Failed callback should be called for failed operation")
 		mockFSMUpdater.AssertExpectations(t)
 		mockReplicaCopier.AssertExpectations(t)
@@ -271,7 +271,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
 		mockFSMUpdater := types.NewMockFSMUpdater(t)
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
-		mockTimeProvider := replication.NewMockTimeProvider(t)
 
 		randomNumberOfOps, err := randInt(t, 10, 20)
 		require.NoError(t, err, "error while generating random number of operations")
@@ -280,12 +279,22 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "error while generating random op id start")
 		for i := 0; i < randomNumberOfOps; i++ {
 			opId := uint64(randomStartOpId + i)
-			mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opId, api.HYDRATING).Return(nil)
-			mockReplicaCopier.On("CopyReplica", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			mockFSMUpdater.On("AddReplicaToShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
+			mockFSMUpdater.EXPECT().
+				ReplicationUpdateReplicaOpStatus(opId, api.HYDRATING).
+				Return(nil)
+			mockFSMUpdater.EXPECT().
+				ReplicationUpdateReplicaOpStatus(opId, api.FINALIZING).
+				Return(nil)
+			mockFSMUpdater.EXPECT().
+				ReplicationUpdateReplicaOpStatus(opId, api.READY).
+				Return(nil)
+			mockReplicaCopier.EXPECT().
+				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(nil)
+			mockFSMUpdater.EXPECT().
+				AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(uint64(i), nil)
 		}
-
-		mockTimeProvider.On("Now").Return(time.Now())
 
 		var (
 			mutex                  sync.Mutex
@@ -328,14 +337,11 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
-			func(op replication.ShardReplicationOpAndStatus) bool {
-				return false
-			},
 			mockFSMUpdater,
 			mockReplicaCopier,
-			mockTimeProvider,
 			"node2",
 			&backoff.StopBackOff{},
+			replication.NewOpsCache(),
 			time.Second*10,
 			1,
 			metricsCallbacks,
@@ -389,12 +395,17 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
 		mockFSMUpdater := types.NewMockFSMUpdater(t)
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
-		mockTimeProvider := replication.NewMockTimeProvider(t)
 
 		totalOps, err := randInt(t, 10, 20)
 		require.NoError(t, err, "error while generating random number of operations")
+		randomStartOpId, err := randInt(t, 1000, 2000)
+		require.NoError(t, err, "error while generating random number of operations")
+		opsCache := replication.NewOpsCache()
 
-		mockTimeProvider.On("Now").Return(time.Now()).Maybe()
+		for i := 0; i < totalOps; i++ {
+			opId := uint64(randomStartOpId + i)
+			opsCache.LoadOrStore(opId)
+		}
 
 		var (
 			mutex                  sync.Mutex
@@ -443,15 +454,11 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
-			func(op replication.ShardReplicationOpAndStatus) bool {
-				// Skip all operations
-				return true
-			},
 			mockFSMUpdater,
 			mockReplicaCopier,
-			mockTimeProvider,
 			"node2",
 			&backoff.StopBackOff{},
+			opsCache,
 			time.Second*10,
 			1,
 			callbacks,
@@ -468,7 +475,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			doneChan <- consumer.Consume(ctx, opsChan)
 		}()
 
-		randomStartOpId, err := randInt(t, 1000, 2000)
 		require.NoError(t, err, "error while generating random op id start")
 
 		for i := 0; i < totalOps; i++ {
@@ -500,12 +506,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
 		mockFSMUpdater := types.NewMockFSMUpdater(t)
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
-		mockTimeProvider := replication.NewMockTimeProvider(t)
 
 		totalOps, err := randInt(t, 10, 20)
 		require.NoError(t, err, "error while generating random number of operations")
-
-		mockTimeProvider.On("Now").Return(time.Now()).Maybe()
 
 		var (
 			mutex                  sync.Mutex
@@ -518,20 +521,40 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			completionWg           sync.WaitGroup
 		)
 
-		skipMap := make(map[uint64]bool)
+		opsCache := replication.NewOpsCache()
 
 		randomStartOpId, err := randInt(t, 1000, 2000)
 		require.NoError(t, err, "error while generating random op id start")
 
+		expectedSkipped := 0
+		expectedStarted := 0
+		expectedCompleted := 0
+
 		for i := 0; i < totalOps; i++ {
 			opID := uint64(randomStartOpId + i)
 			skip := randomBoolean(t)
-			skipMap[opID] = skip
 			if !skip {
-				mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opID, api.HYDRATING).Return(nil)
-				mockReplicaCopier.On("CopyReplica", mock.Anything, "node1", "TestCollection", mock.Anything).Return(nil)
-				mockFSMUpdater.On("AddReplicaToShard", mock.Anything, "TestCollection", mock.Anything, "node2").Return(uint64(i), nil)
+				expectedStarted++
+				expectedCompleted++
+				mockFSMUpdater.EXPECT().
+					ReplicationUpdateReplicaOpStatus(opID, api.HYDRATING).
+					Return(nil)
+				mockFSMUpdater.EXPECT().
+					ReplicationUpdateReplicaOpStatus(opID, api.FINALIZING).
+					Return(nil)
+				mockFSMUpdater.EXPECT().
+					ReplicationUpdateReplicaOpStatus(opID, api.READY).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					CopyReplica(mock.Anything, "node1", "TestCollection", mock.Anything).
+					Return(nil)
+				mockFSMUpdater.EXPECT().
+					AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, "node2").
+					Return(uint64(i), nil)
 				completionWg.Add(1)
+			} else {
+				require.False(t, opsCache.LoadOrStore(opID), "operation should not be stored twice in cache")
+				expectedSkipped++
 			}
 		}
 
@@ -571,14 +594,11 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
-			func(op replication.ShardReplicationOpAndStatus) bool {
-				return skipMap[op.Op.ID]
-			},
 			mockFSMUpdater,
 			mockReplicaCopier,
-			mockTimeProvider,
 			"node2",
 			&backoff.StopBackOff{},
+			opsCache,
 			time.Second*10,
 			1,
 			callbacks,
@@ -617,19 +637,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		// THEN
 		require.NoError(t, err, "expected consumer to stop without error")
-
-		expectedSkipped := 0
-		expectedStarted := 0
-		expectedCompleted := 0
-
-		for _, skipped := range skipMap {
-			if skipped {
-				expectedSkipped++
-			} else {
-				expectedStarted++
-				expectedCompleted++
-			}
-		}
 
 		mutex.Lock()
 		require.Equal(t, 1, prepareProcessingCount, "Prepare processing should be called once")

@@ -43,11 +43,9 @@ type CopyOpConsumer struct {
 	// It provides detailed logs for each replication operation and any errors encountered.
 	logger *logrus.Entry
 
-	// shouldSkipOp is a function that determines whether a given replication operation
-	// should be skipped before attempting execution. This is typically used to prevent
-	// reprocessing of operations that are already running, completed, or not in a valid
-	// state to be picked up.
-	shouldSkipOp func(ShardReplicationOpAndStatus) bool
+	// ongoingOps is a cache of ongoing operations.
+	// It is used to prevent duplicate operations from being processed.
+	ongoingOps *OpsCache
 
 	// leaderClient is responsible for interacting with the FSM to update the state of replication operations.
 	// It is used to update the status of operations during the replication process (e.g. update to HYDRATING state).
@@ -69,9 +67,6 @@ type CopyOpConsumer struct {
 	// opTimeout defines the timeout duration for each replication operation.
 	// It ensures that operations do not hang indefinitely and are retried or terminated after the timeout period.
 	opTimeout time.Duration
-
-	// timeProvider abstracts time operations, allowing for easier testing and mocking of time-related functions.
-	timeProvider TimeProvider
 
 	// tokens controls the maximum number of concurrently running consumers
 	tokens chan struct{}
@@ -99,26 +94,24 @@ func (c *CopyOpConsumer) String() string {
 // It uses a ReplicaCopier to perform the actual data copy.
 func NewCopyOpConsumer(
 	logger *logrus.Logger,
-	shouldSkipOp func(ShardReplicationOpAndStatus) bool,
 	leaderClient types.FSMUpdater,
 	replicaCopier types.ReplicaCopier,
-	timeProvider TimeProvider,
 	nodeId string,
 	backoffPolicy backoff.BackOff,
+	ongoingOps *OpsCache,
 	opTimeout time.Duration,
 	maxWorkers int,
 	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks,
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
 		logger:            logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),
-		shouldSkipOp:      shouldSkipOp,
 		leaderClient:      leaderClient,
 		replicaCopier:     replicaCopier,
 		backoffPolicy:     backoffPolicy,
+		ongoingOps:        ongoingOps,
 		opTimeout:         opTimeout,
 		maxWorkers:        maxWorkers,
 		nodeId:            nodeId,
-		timeProvider:      timeProvider,
 		tokens:            make(chan struct{}, maxWorkers),
 		engineOpCallbacks: engineOpCallbacks,
 	}
@@ -160,10 +153,11 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			// running replication operations and avoids overloading the system.
 			case c.tokens <- struct{}{}:
 
-				// Avoid scheduling unnecessary work or incorrectly counting metrics
-				// for operations that are already in progress or completed.
-				if c.shouldSkipOp(op) {
-					c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("replication op skipped as already running or completed")
+				// Check if the operation is already in progress
+				if c.ongoingOps.LoadOrStore(op.Op.ID) {
+					// Avoid scheduling unnecessary work or incorrectly counting metrics
+					// for operations that are already in progress or completed.
+					c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("replication op skipped as already running")
 					// Need to release the token to let other consumers process queued replication operations.
 					<-c.tokens
 					c.engineOpCallbacks.OnOpSkipped(c.nodeId)
@@ -180,6 +174,8 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 				enterrors.GoWrapper(func() {
 					defer func() {
 						<-c.tokens // Release token when completed
+						// Delete the operation from the ongoingOps map when the operation processing is complete
+						c.ongoingOps.Remove(op.Op.ID)
 						wg.Done()
 					}()
 
@@ -220,94 +216,112 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 	}
 }
 
+// dispatchReplicationOp dispatches the replication operation to the appropriate state handler
+// based on the current state of the operation.
+// If the state handler returns success and a valid next state, the operation is transitioned to the next state.
+// If the state handler returns an error, the operation is not transitioned and the error is returned.
 func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardReplicationOpAndStatus) error {
 	switch op.Status.State {
 	case api.REGISTERED:
-		return c.processRegisteredOp(ctx, op)
+		return c.processStateAndTransition(ctx, op, c.processRegisteredOp)
 	case api.HYDRATING:
-		return c.processHydratingOp(ctx, op)
+		return c.processStateAndTransition(ctx, op, c.processHydratingOp)
 	case api.DEHYDRATING:
-		return c.processDehydratingOp(ctx, op)
+		return c.processStateAndTransition(ctx, op, c.processDehydratingOp)
 	case api.FINALIZING:
-		return c.processFinalizingOp(ctx, op)
+		return c.processStateAndTransition(ctx, op, c.processFinalizingOp)
 	case api.ABORTED:
-		return c.processAbortedOp(ctx, op)
+		// TODO: In the future we should handle cleaning up aborted operations, for now just keep it in the FSM
+		return nil
+	case api.READY:
+		// TODO: In the future we should handle cleaning up completed operations, for now just keep it in the FSM
+		return nil
 	default:
 		getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c, "op_status": op.Status.State}).Error("unknown replication operation state")
 		return fmt.Errorf("unknown replication operation state: %s", op.Status.State)
 	}
 }
 
-func (c *CopyOpConsumer) processRegisteredOp(ctx context.Context, op ShardReplicationOpAndStatus) error {
+// stateFuncHandler is a function that processes a replication operation and returns the next state and an error.
+type stateFuncHandler func(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error)
+
+// processStateAndTransition processes a replication operation and transitions it to the next state.
+// It retries the operation using a backoff policy if it returns an error.
+// If the operation is successful, the operation is transitioned to the next state.
+// Otherwise, the operation is transitioned to the next state and the process continues.
+func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op ShardReplicationOpAndStatus, stateFuncHandler stateFuncHandler) error {
+	nextState, err := backoff.RetryWithData(func() (api.ShardReplicationState, error) {
+		logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
+		if ctx.Err() != nil {
+			logger.WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
+			return api.ShardReplicationState(""), backoff.Permanent(ctx.Err())
+		}
+		return stateFuncHandler(ctx, op)
+	}, c.backoffPolicy)
+	if err != nil {
+		return err
+	}
+
+	op.Status.State = nextState
+	return c.dispatchReplicationOp(ctx, op)
+}
+
+// processRegisteredOp is the state handler for the REGISTERED state.
+func (c *CopyOpConsumer) processRegisteredOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
 	logger.Info("processing registered replication operation")
 
-	return backoff.Retry(func() error {
-		if ctx.Err() != nil {
-			logger.WithField("consumer", c).WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
-			return backoff.Permanent(ctx.Err())
-		}
+	nextState := api.HYDRATING
+	if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, nextState); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'HYDRATING'")
+		return api.ShardReplicationState(""), err
+	}
 
-		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, api.HYDRATING); err != nil {
-			logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'HYDRATING'")
-			return err
-		}
-		return nil
-	}, c.backoffPolicy)
+	return nextState, nil
 }
 
-func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) error {
+// processHydratingOp is the state handler for the HYDRATING state.
+// It copies the replica shard from the source node to the target node using file copy opetaitons and then transitions the operation to the FINALIZING state.
+func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
 	logger.Info("processing hydrating replication operation")
 
-	return backoff.Retry(func() error {
-		if ctx.Err() != nil {
-			logger.WithField("consumer", c).WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
-			return backoff.Permanent(ctx.Err())
-		}
+	if err := c.replicaCopier.CopyReplica(ctx, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failure while copying replica shard")
+		return api.ShardReplicationState(""), err
+	}
 
-		if err := c.replicaCopier.CopyReplica(ctx, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
-			logger.WithField("consumer", c).WithError(err).Error("failure while copying replica shard")
-			return err
-		}
+	nextState := api.FINALIZING
+	if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, nextState); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'FINALIZING'")
+		return api.ShardReplicationState(""), err
+	}
 
-		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, api.FINALIZING); err != nil {
-			logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'FINALIZING'")
-			return err
-		}
-		return nil
-	}, c.backoffPolicy)
+	return nextState, nil
 }
 
-func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) error {
-	// TODO: Implement
-	return nil
-}
-
-func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplicationOpAndStatus) error {
+// processFinalizingOp is the state handler for the FINALIZING state.
+// It updates the sharding state and then transitions the operation to the READY state.
+func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
 	logger.Info("processing finalizing replication operation")
 
-	return backoff.Retry(func() error {
-		if ctx.Err() != nil {
-			logger.WithField("consumer", c).WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
-			return backoff.Permanent(ctx.Err())
-		}
+	if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failure while updating sharding state")
+		return api.ShardReplicationState(""), err
+	}
 
-		if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
-			logger.WithField("consumer", c).WithError(err).Error("failure while updating sharding state")
-			return err
-		}
+	nextState := api.READY
+	if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, nextState); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'READY'")
+		return api.ShardReplicationState(""), err
+	}
 
-		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, api.FINALIZING); err != nil {
-			logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'FINALIZING'")
-			return err
-		}
-		return nil
-	}, c.backoffPolicy)
+	return nextState, nil
 }
 
-func (c *CopyOpConsumer) processAbortedOp(ctx context.Context, op ShardReplicationOpAndStatus) error {
+// processDehydratingOp is the state handler for the DEHYDRATING state.
+func (c *CopyOpConsumer) processDehydratingOp(context.Context, ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	// TODO: Implement
-	return nil
+	return api.ShardReplicationState(""), nil
 }

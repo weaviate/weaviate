@@ -171,7 +171,7 @@ func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp 
 }
 
 func (s ShardReplicationOpStatus) ShouldRestartOp() bool {
-	return s.State == api.REGISTERED || s.State == api.HYDRATING
+	return s.State == api.REGISTERED || s.State == api.HYDRATING || s.State == api.FINALIZING
 }
 
 func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) ShardReplicationOpStatus {
@@ -232,9 +232,4 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	default:
 	}
 	return readOk, writeOk
-}
-
-// IsOpCompletedOrInProgress returns true if the given replication operation has started or completed execution.
-func (s *ShardReplicationFSM) IsOpCompletedOrInProgress(op ShardReplicationOp) bool {
-	return api.REGISTERED != s.GetOpState(op).State
 }

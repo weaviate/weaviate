@@ -29,19 +29,6 @@ const (
 	replicationEngineLogAction = "replication_engine"
 )
 
-// TimeProvider abstracts time operations to enable testing without time dependencies.
-type TimeProvider interface {
-	Now() time.Time
-}
-
-// RealTimeProvider implements the TimeProvider interface using the standard time package
-type RealTimeProvider struct{}
-
-// Now returns the current time
-func (p RealTimeProvider) Now() time.Time {
-	return time.Now()
-}
-
 // ShardReplicationEngine coordinates the replication of shard data between nodes in a distributed system.
 //
 // It uses a producer-consumer pattern where replication operations are pulled from a source (e.g., FSM)
