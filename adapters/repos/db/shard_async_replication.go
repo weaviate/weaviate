@@ -446,10 +446,7 @@ func (s *Shard) mayStopAsyncReplication() {
 	s.hashtreeFullyInitialized = false
 }
 
-func (s *Shard) updateAsyncReplicationConfig(
-	_ context.Context,
-	enabled bool,
-) error {
+func (s *Shard) updateAsyncReplicationConfig(_ context.Context, enabled bool) error {
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
 
@@ -927,16 +924,6 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 			return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("fetching local object digests: %w", err)
 		}
 
-		// filter out too recent local digests to avoid object propagation when all the nodes may be alive
-		localDigests := make([]types.RepairResponse, 0, len(allLocalDigests))
-
-		for _, d := range allLocalDigests {
-			if d.UpdateTime <= s.getHashBeatMaxUpdateTime(config, targetNodeName) {
-				// TODO do i need to use/update allLocalDigests after change below on main?
-				localDigests = append(localDigests, d)
-			}
-		}
-
 		if len(allLocalDigests) == 0 {
 			// no more local objects need to be propagated in this iteration
 			break
@@ -956,12 +943,17 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 		localDigestsByUUID := make(map[string]types.RepairResponse, len(allLocalDigests))
 
 		// filter out too recent local digests to avoid object propagation when all the nodes may be alive
-		maxUpdateTime := time.Now().Add(-config.propagationDelay).UnixMilli()
+		// or if an upper time bound is configured for shard replica movement
+		maxUpdateTime := s.getHashBeatMaxUpdateTime(config, targetNodeName)
 
 		for _, d := range allLocalDigests {
 			if d.UpdateTime <= maxUpdateTime {
 				localDigestsByUUID[d.ID] = d
 			}
+		}
+		if len(localDigestsByUUID) == 0 {
+			// local digests are all too recent, so we can stop now
+			break
 		}
 
 		remoteStaleUpdateTime := make(map[string]int64, len(localDigestsByUUID))
