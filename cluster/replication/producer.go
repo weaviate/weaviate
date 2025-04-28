@@ -24,7 +24,7 @@ type OpProducer interface {
 	// Produce starts producing replication operations and sends them to the provided channel.
 	// A buffered channel is typically used for backpressure, but an unbounded channel may cause
 	// memory growth if the consumer falls behind. Errors during production should be returned.
-	Produce(ctx context.Context, out chan<- ShardReplicationOp) error
+	Produce(ctx context.Context, out chan<- ShardReplicationOpAndStatus) error
 }
 
 // FSMOpProducer is an implementation of the OpProducer interface that reads replication
@@ -74,7 +74,7 @@ func NewFSMOpProducer(logger *logrus.Logger, fsm *ShardReplicationFSM, pollingIn
 // This behavior is intentional: the producer only generates new work when the system has capacity
 // to process it. Missing some ticks during backpressure is acceptable and avoids accumulating
 // unprocessed work or overloading the system.
-func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplicationOp) error {
+func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplicationOpAndStatus) error {
 	p.logger.WithField("producer", p).Info("starting replication engine FSM producer")
 
 	ticker := time.NewTicker(p.pollingInterval)
@@ -87,15 +87,17 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 			return ctx.Err()
 		case <-ticker.C:
 			ops := p.allOpsForNode(p.nodeId)
-			if len(ops) > 0 {
-				p.logger.WithFields(logrus.Fields{"producer": p, "number_of_ops": len(ops)}).Debug("preparing op replication")
+			if len(ops) <= 0 {
+				continue
+			}
 
-				for _, op := range ops {
-					select {
-					case <-ctx.Done():
-						return ctx.Err()
-					case out <- op: // Write replication operation to channel.
-					}
+			p.logger.WithFields(logrus.Fields{"producer": p, "number_of_ops": len(ops)}).Debug("preparing op replication")
+
+			for _, op := range ops {
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case out <- op: // Write replication operation to channel.
 				}
 			}
 		}
@@ -119,27 +121,15 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 //   - **all other states**: Not reprocessed, require a new operation
 //
 // Returns only operations that should be actively processed by this node.
-func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOp {
+func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOpAndStatus {
 	allNodeOps := p.fsm.GetOpsForTarget(nodeId)
 
-	nodeOpsSubset := make([]ShardReplicationOp, 0, len(allNodeOps))
+	nodeOpsSubset := make([]ShardReplicationOpAndStatus, 0, len(allNodeOps))
 	for _, op := range allNodeOps {
 		opState := p.fsm.GetOpState(op)
 
 		if opState.ShouldRestartOp() {
-			nodeOpsSubset = append(nodeOpsSubset, ShardReplicationOp{
-				ID: op.ID,
-				SourceShard: shardFQDN{
-					NodeId:       op.SourceShard.NodeId,
-					CollectionId: op.SourceShard.CollectionId,
-					ShardId:      op.SourceShard.ShardId,
-				},
-				TargetShard: shardFQDN{
-					NodeId:       op.TargetShard.NodeId,
-					CollectionId: op.TargetShard.CollectionId,
-					ShardId:      op.TargetShard.ShardId,
-				},
-			})
+			nodeOpsSubset = append(nodeOpsSubset, NewShardReplicationOpAndStatus(op, opState))
 		}
 	}
 

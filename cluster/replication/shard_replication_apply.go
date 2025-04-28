@@ -34,12 +34,12 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 		SourceShard: newShardFQDN(c.SourceNode, c.SourceCollection, c.SourceShard),
 		TargetShard: newShardFQDN(c.TargetNode, c.SourceCollection, c.SourceShard),
 	}
-	return s.writeOpIntoFSM(op, shardReplicationOpStatus{state: api.REGISTERED})
+	return s.writeOpIntoFSM(op, ShardReplicationOpStatus{State: api.REGISTERED})
 }
 
 // writeOpIntoFSM writes the op with status into the FSM. It *does* not holds the lock onto the maps so the callee must make sure the lock
 // is held
-func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status shardReplicationOpStatus) error {
+func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status ShardReplicationOpStatus) error {
 	if _, ok := s.opsByTargetFQDN[op.TargetShard]; ok {
 		return ErrShardAlreadyReplicating
 	}
@@ -52,7 +52,7 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status shard
 	s.opsById[op.ID] = op
 	s.opsStatus[op] = status
 
-	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].state.String()).Inc()
+	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].State.String()).Inc()
 
 	return nil
 }
@@ -65,9 +65,9 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	if !ok {
 		return ErrReplicationOpNotFound
 	}
-	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].state.String()).Dec()
-	s.opsStatus[op] = shardReplicationOpStatus{state: c.State}
-	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].state.String()).Inc()
+	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].State.String()).Dec()
+	s.opsStatus[op] = ShardReplicationOpStatus{State: c.State}
+	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].State.String()).Inc()
 
 	return nil
 }
@@ -123,7 +123,7 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 		s.opsByShard[op.SourceShard.ShardId] = opsReplace
 	}
 
-	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].state.String()).Dec()
+	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].State.String()).Dec()
 
 	delete(s.opsByTargetFQDN, op.TargetShard)
 	delete(s.opsById, op.ID)

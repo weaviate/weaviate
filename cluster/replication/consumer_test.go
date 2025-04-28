@@ -22,6 +22,7 @@ import (
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -33,7 +34,7 @@ import (
 func TestConsumerWithCallbacks(t *testing.T) {
 	t.Run("successful operation should trigger expected callbacks", func(t *testing.T) {
 		// GIVEN
-		logger, _ := logrustest.NewNullLogger()
+		logger := logrus.New()
 		mockFSMUpdater := types.NewMockFSMUpdater(t)
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
 		mockTimeProvider := replication.NewMockTimeProvider(t)
@@ -42,6 +43,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "error generating random operation id")
 
 		mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", uint64(opId), api.HYDRATING).Return(nil)
+		mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", uint64(opId), api.FINALIZING).Return(nil)
 		mockReplicaCopier.On("CopyReplica",
 			mock.Anything,
 			"node1",
@@ -97,7 +99,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
-			func(op replication.ShardReplicationOp) bool {
+			func(op replication.ShardReplicationOpAndStatus) bool {
 				return false
 			},
 			mockFSMUpdater,
@@ -113,7 +115,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		opsChan := make(chan replication.ShardReplicationOp, 1)
+		opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
 		doneChan := make(chan error, 1)
 
 		// WHEN
@@ -121,7 +123,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			doneChan <- consumer.Consume(ctx, opsChan)
 		}()
 
-		opsChan <- replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard")
+		opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard"), replication.NewShardReplicationStatus(api.REGISTERED))
+		opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard"), replication.NewShardReplicationStatus(api.HYDRATING))
+		opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard"), replication.NewShardReplicationStatus(api.FINALIZING))
 		waitChan := make(chan struct{})
 		go func() {
 			completionWg.Wait()
@@ -209,7 +213,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
-			func(op replication.ShardReplicationOp) bool {
+			func(op replication.ShardReplicationOpAndStatus) bool {
 				return false
 			},
 			mockFSMUpdater,
@@ -225,7 +229,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		opsChan := make(chan replication.ShardReplicationOp, 1)
+		opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
 		doneChan := make(chan error, 1)
 
 		// WHEN
@@ -233,7 +237,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			doneChan <- consumer.Consume(ctx, opsChan)
 		}()
 
-		opsChan <- replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard")
+		opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard"), replication.NewShardReplicationStatus(api.REGISTERED))
 		waitChan := make(chan struct{})
 		go func() {
 			completionWg.Wait()
@@ -324,7 +328,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
-			func(op replication.ShardReplicationOp) bool {
+			func(op replication.ShardReplicationOpAndStatus) bool {
 				return false
 			},
 			mockFSMUpdater,
@@ -340,7 +344,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		opsChan := make(chan replication.ShardReplicationOp, randomNumberOfOps)
+		opsChan := make(chan replication.ShardReplicationOpAndStatus, randomNumberOfOps)
 		doneChan := make(chan error, 1)
 
 		// WHEN
@@ -350,7 +354,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		for i := 0; i < randomNumberOfOps; i++ {
 			shard := fmt.Sprintf("shard-%d", i)
-			opsChan <- replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", "node2", "TestCollection", shard)
+			opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", "node2", "TestCollection", shard), replication.NewShardReplicationStatus(api.REGISTERED))
 		}
 
 		waitChan := make(chan struct{})
@@ -439,7 +443,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
-			func(op replication.ShardReplicationOp) bool {
+			func(op replication.ShardReplicationOpAndStatus) bool {
 				// Skip all operations
 				return true
 			},
@@ -456,7 +460,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		opsChan := make(chan replication.ShardReplicationOp, totalOps)
+		opsChan := make(chan replication.ShardReplicationOpAndStatus, totalOps)
 		doneChan := make(chan error, 1)
 
 		// WHEN
@@ -469,7 +473,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		for i := 0; i < totalOps; i++ {
 			shard := fmt.Sprintf("shard-%d", i)
-			opsChan <- replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", "node2", "TestCollection", shard)
+			opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", "node2", "TestCollection", shard), replication.NewShardReplicationStatus(api.REGISTERED))
 		}
 
 		close(opsChan)
@@ -567,8 +571,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		consumer := replication.NewCopyOpConsumer(
 			logger,
-			func(op replication.ShardReplicationOp) bool {
-				return skipMap[op.ID]
+			func(op replication.ShardReplicationOpAndStatus) bool {
+				return skipMap[op.Op.ID]
 			},
 			mockFSMUpdater,
 			mockReplicaCopier,
@@ -583,7 +587,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		opsChan := make(chan replication.ShardReplicationOp, totalOps)
+		opsChan := make(chan replication.ShardReplicationOpAndStatus, totalOps)
 		doneChan := make(chan error, 1)
 
 		// WHEN
@@ -593,7 +597,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 
 		for i := 0; i < totalOps; i++ {
 			shard := fmt.Sprintf("shard-%d", i)
-			opsChan <- replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", "node2", "TestCollection", shard)
+			opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", "node2", "TestCollection", shard), replication.NewShardReplicationStatus(api.REGISTERED))
 		}
 
 		waitChan := make(chan struct{})
