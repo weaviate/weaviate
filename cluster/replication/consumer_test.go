@@ -65,7 +65,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			"node2",
 			"TestCollection",
 			mock.Anything,
-		).Return(uint64(0), int64(0), nil)
+		).Return(uint64(0), time.Now().Add(200*time.Second).UnixMilli(), nil)
 		mockTimeProvider.On("Now").Return(time.Now())
 
 		var (
@@ -158,8 +158,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "error generating random operation id")
 
 		mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", uint64(opId), api.HYDRATING).Return(nil)
-		mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", uint64(opId), api.FINALIZING).Return(nil)
-		mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", uint64(opId), api.READY).Return(nil)
 		mockReplicaCopier.On("CopyReplica",
 			mock.Anything,
 			"node1",
@@ -265,7 +263,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opId, api.READY).Return(nil)
 			mockReplicaCopier.On("CopyReplica", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			mockFSMUpdater.On("StartFinalizingReplicaCopy", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
-			mockReplicaCopier.On("AsyncReplicationStatus", mock.Anything, "node1", "node2", "TestCollection", mock.Anything).Return(uint64(0), int64(0), nil)
+			mockReplicaCopier.On("AsyncReplicationStatus", mock.Anything, "node1", "node2", "TestCollection", mock.Anything).Return(uint64(0), time.Now().Add(200*time.Second).UnixMilli(), nil)
 		}
 
 		mockTimeProvider.On("Now").Return(time.Now())
