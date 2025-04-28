@@ -384,3 +384,58 @@ func TestBucketWalReload(t *testing.T) {
 	require.Equal(t, fileTypes[".db"], 2, "single segment file")
 	require.Equal(t, fileTypes[".wal"], 0, "single wal file")
 }
+
+func TestRecoverFromWalOverwrite(t *testing.T) {
+	ctx := context.Background()
+	dirName := t.TempDir()
+
+	logger, _ := test.NewNullLogger()
+
+	// initial bucket, always create segment, even if it is just a single entry
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+
+	require.NoError(t, b.Put([]byte("hello"), []byte("world"), WithSecondaryKey(0, []byte("bonjour"))))
+	require.NoError(t, b.Shutdown(ctx))
+
+	// same key, different value
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("hello"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour"))))
+
+	// this shutdown/restart fails the test
+	require.NoError(t, b.Shutdown(ctx))
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+
+	require.NoError(t, b.Put([]byte("hello"), []byte("world3"), WithSecondaryKey(0, []byte("bonjour"))))
+
+	valuePrimary, err := b.Get([]byte("hello"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world3"), valuePrimary)
+	require.NoError(t, b.Shutdown(ctx))
+
+	entries, err := os.ReadDir(dirName)
+	require.NoError(t, err)
+	fileTypes := map[string]int{}
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	require.Equal(t, fileTypes[".db"], 1, "no segments yet")
+	require.Equal(t, fileTypes[".wal"], 1, "single wal file")
+
+	// create new memtable without flushing the old one => recover from wal
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+	valuePrimary, err = b2.Get([]byte("hello"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world3"), valuePrimary)
+}
