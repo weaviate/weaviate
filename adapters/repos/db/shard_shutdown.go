@@ -83,7 +83,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 
 		// we have to close queue before index for versions before 1.28
 		if err = eg.Wait(); err != nil {
-			return err
+			ec.Add(err)
 		}
 
 		for targetVector, vectorIndex := range s.vectorIndexes {
@@ -107,7 +107,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		}
 
 		if err = eg.Wait(); err != nil {
-			return err
+			ec.Add(err)
 		}
 	} else {
 		err = s.queue.Close()
