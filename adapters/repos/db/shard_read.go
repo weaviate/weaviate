@@ -553,18 +553,19 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
 	s.activityTracker.Add(1)
-	if len(sort) > 0 {
-		docIDs, err := s.sortedObjectList(ctx, limit, sort, className)
-		if err != nil {
-			return nil, err
-		}
-		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
-	}
+	fmt.Printf("Objectlist\n")
 
-	if cursor == nil {
-		cursor = &filters.Cursor{After: "", Limit: limit}
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	var out []*storobj.Object
+	bucket.MapFunc(func (key, value []byte) error {
+		obj, err := storobj.FromBinary(value) //FIXME
+	if err != nil {
+		fmt.Printf("Error unpacking %v\n", string(value))
 	}
+		out = append(out, obj)
+		return nil
+	})
+
 	return s.cursorObjectList(ctx, cursor, additional, className)
 }
 
@@ -594,6 +595,7 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	out := make([]*storobj.Object, c.Limit)
 
 	for ; key != nil && i < c.Limit; key, val = cursor.Next() {
+		fmt.Printf("Unpacking %v\n", string(val))
 		obj, err := storobj.FromBinary(val)
 		if err != nil {
 			return nil, errors.Wrapf(err, "unmarhsal item %d", i)
