@@ -446,7 +446,7 @@ func (s *SchemaManager) apply(op applyOp) error {
 		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
 	}
 
-	if op.enableSchemaCallback {
+	if op.enableSchemaCallback && s.db != nil {
 		// TriggerSchemaUpdateCallbacks is concurrent and at
 		// this point of time schema shall be up to date.
 		s.db.TriggerSchemaUpdateCallbacks()
