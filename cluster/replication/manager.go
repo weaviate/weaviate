@@ -18,9 +18,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 )
 
@@ -31,7 +29,7 @@ type Manager struct {
 	schemaReader   schema.SchemaReader
 }
 
-func NewManager(logger *logrus.Logger, schemaReader schema.SchemaReader, replicaCopier types.ReplicaCopier, reg prometheus.Registerer) *Manager {
+func NewManager(schemaReader schema.SchemaReader, reg prometheus.Registerer) *Manager {
 	replicationFSM := newShardReplicationFSM(reg)
 	return &Manager{
 		replicationFSM: replicationFSM,
@@ -113,6 +111,7 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 		Collection:    op.SourceShard.CollectionId,
 		SourceNodeId:  op.SourceShard.NodeId,
 		TargetNodeId:  op.TargetShard.NodeId,
+		TransferType:  op.TransferType.String(),
 		Status:        status.GetCurrent().ToAPIFormat(),
 		StatusHistory: status.GetHistory().ToAPIFormat(),
 	}

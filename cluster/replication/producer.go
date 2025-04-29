@@ -13,7 +13,6 @@ package replication
 
 import (
 	"context"
-	"fmt"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -36,15 +35,6 @@ type FSMOpProducer struct {
 	nodeId          string
 }
 
-// String returns a string representation of the FSMOpProducer,
-// including the node ID that uniquely identifies the producer.
-//
-// The assumption is that each node runs one and only one replication engine,
-// which means there is one producer per node.
-func (p *FSMOpProducer) String() string {
-	return fmt.Sprintf("replication engine FSM producer on node '%s'", p.nodeId)
-}
-
 // NewFSMOpProducer creates a new FSMOpProducer instance, which periodically polls the
 // ShardReplicationFSM for operations assigned to the given node and pushes them to
 // a channel for consumption by the replication engine.The polling interval controls
@@ -53,7 +43,7 @@ func (p *FSMOpProducer) String() string {
 // Additional configuration can be applied using optional FSMProducerOption functions.
 func NewFSMOpProducer(logger *logrus.Logger, fsm *ShardReplicationFSM, pollingInterval time.Duration, nodeId string) *FSMOpProducer {
 	return &FSMOpProducer{
-		logger:          logger.WithFields(logrus.Fields{"component": "replication_producer", "action": replicationEngineLogAction, "node": nodeId, "polling_interval": pollingInterval}),
+		logger:          logger.WithFields(logrus.Fields{"component": "replication_producer", "action": replicationEngineLogAction}),
 		fsm:             fsm,
 		pollingInterval: pollingInterval,
 		nodeId:          nodeId,
@@ -75,7 +65,7 @@ func NewFSMOpProducer(logger *logrus.Logger, fsm *ShardReplicationFSM, pollingIn
 // to process it. Missing some ticks during backpressure is acceptable and avoids accumulating
 // unprocessed work or overloading the system.
 func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplicationOpAndStatus) error {
-	p.logger.WithField("producer", p).Info("starting replication engine FSM producer")
+	p.logger.WithFields(logrus.Fields{"node": p.nodeId, "polling_interval": p.pollingInterval}).Info("starting replication engine FSM producer")
 
 	ticker := time.NewTicker(p.pollingInterval)
 	defer ticker.Stop()
@@ -83,7 +73,7 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 	for {
 		select {
 		case <-ctx.Done():
-			p.logger.WithField("producer", p).Info("replication engine producer cancel request, stopping FSM producer")
+			p.logger.Info("replication engine producer cancel request, stopping FSM producer")
 			return ctx.Err()
 		case <-ticker.C:
 			ops := p.allOpsForNode(p.nodeId)
@@ -91,7 +81,7 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 				continue
 			}
 
-			p.logger.WithFields(logrus.Fields{"producer": p, "number_of_ops": len(ops)}).Debug("preparing op replication")
+			p.logger.WithFields(logrus.Fields{"number_of_ops": len(ops)}).Debug("preparing op replication")
 
 			for _, op := range ops {
 				select {
@@ -115,20 +105,19 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 //   - Source node: Only handles DEHYDRATING operations as that state needs data to be deleted
 //
 // 3. Operation States:
-//   - All states except for ABORTED are processes
+//   - All states except for ABORTED and READY are processes
 //
 // Returns only operations that should be actively processed by this node.
 func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOpAndStatus {
-	allNodeOps := p.fsm.GetOpsForTarget(nodeId)
+	allNodeAsTargetOps := p.fsm.GetOpsForTarget(nodeId)
 
-	nodeOpsSubset := make([]ShardReplicationOpAndStatus, 0, len(allNodeOps))
-	for _, op := range allNodeOps {
+	nodeOpsSubset := make([]ShardReplicationOpAndStatus, 0, len(allNodeAsTargetOps))
+	for _, op := range allNodeAsTargetOps {
 		if opState, ok := p.fsm.GetOpState(op); ok && opState.ShouldConsumeOps() {
 			nodeOpsSubset = append(nodeOpsSubset, NewShardReplicationOpAndStatus(op, opState))
 		} else if !ok {
-			p.logger.WithField("producer", p).WithField("op", op).Warn("skipping op as it has no state stored in FSM. This should never happen.")
+			p.logger.WithField("op", op).Warn("skipping op as it has no state stored in FSM. This should never happen.")
 		}
 	}
-
 	return nodeOpsSubset
 }

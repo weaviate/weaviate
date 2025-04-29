@@ -168,6 +168,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.schemaManager.AddReplicaToShard(&cmd, schemaOnly)
 		}
+	case api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.DeleteReplicaFromShard(&cmd, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_ADD_TENANT:
 		f = func() {
