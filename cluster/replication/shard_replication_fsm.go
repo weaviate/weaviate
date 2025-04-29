@@ -23,35 +23,12 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-type ShardReplicationOpStatus struct {
-	// state is the current state of the shard replication operation
-	State api.ShardReplicationState
-}
-
 type ShardReplicationOp struct {
 	ID uint64
 
 	// Targeting information of the replication operation
 	SourceShard shardFQDN
 	TargetShard shardFQDN
-}
-
-type ShardReplicationOpAndStatus struct {
-	Op     ShardReplicationOp
-	Status ShardReplicationOpStatus
-}
-
-func NewShardReplicationOpAndStatus(op ShardReplicationOp, status ShardReplicationOpStatus) ShardReplicationOpAndStatus {
-	return ShardReplicationOpAndStatus{
-		Op:     op,
-		Status: status,
-	}
-}
-
-func NewShardReplicationStatus(state api.ShardReplicationState) ShardReplicationOpStatus {
-	return ShardReplicationOpStatus{
-		State: state,
-	}
 }
 
 func (s ShardReplicationOp) MarshalText() (text []byte, err error) {
@@ -171,7 +148,7 @@ func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp 
 }
 
 func (s ShardReplicationOpStatus) ShouldConsumeOps() bool {
-	return s.State != api.ABORTED
+	return s.GetCurrentState() != api.ABORTED
 }
 
 func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicationOpStatus, bool) {
@@ -224,7 +201,7 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	// Filter read/write based on the state of the replica
 	readOk := false
 	writeOk := false
-	switch opState.State {
+	switch opState.GetCurrentState() {
 	case api.FINALIZING:
 		writeOk = true
 	case api.READY:

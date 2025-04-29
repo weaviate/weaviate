@@ -72,18 +72,39 @@ func (h *replicationHandler) getReplicationDetailsByReplicationId(params replica
 		return h.handleInternalServerError(params.ID, err)
 	}
 
-	return h.handleReplicationDetailsResponse(response)
+	includeHistory := false
+	if params.IncludeHistory != nil {
+		includeHistory = *params.IncludeHistory
+	}
+	return h.handleReplicationDetailsResponse(includeHistory, response)
 }
 
-func (h *replicationHandler) handleReplicationDetailsResponse(response api.ReplicationDetailsResponse) *replication.ReplicationDetailsOK {
+func (h *replicationHandler) handleReplicationDetailsResponse(withHistory bool, response api.ReplicationDetailsResponse) *replication.ReplicationDetailsOK {
 	idAsString := strconv.FormatUint(response.Id, 10)
+
+	// Compute history only if requested
+	var history []*models.ReplicationReplicateDetailsReplicaStatus
+	if withHistory {
+		history = make([]*models.ReplicationReplicateDetailsReplicaStatus, len(response.StatusHistory))
+		for i, status := range response.StatusHistory {
+			history[i] = &models.ReplicationReplicateDetailsReplicaStatus{
+				State:  status.State,
+				Errors: status.Errors,
+			}
+		}
+	}
+
 	return replication.NewReplicationDetailsOK().WithPayload(&models.ReplicationReplicateDetailsReplicaResponse{
 		ID:           &idAsString,
 		Collection:   &response.Collection,
 		ShardID:      &response.ShardId,
 		SourceNodeID: &response.SourceNodeId,
 		TargetNodeID: &response.TargetNodeId,
-		Status:       &response.Status,
+		Status: &models.ReplicationReplicateDetailsReplicaStatus{
+			State:  response.Status.State,
+			Errors: response.Status.Errors,
+		},
+		StatusHistory: history,
 	})
 }
 

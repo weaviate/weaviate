@@ -21,11 +21,15 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/swag"
 )
 
 // ReplicationDetailsURL generates an URL for the replication details operation
 type ReplicationDetailsURL struct {
 	ID string
+
+	IncludeHistory *bool
 
 	_basePath string
 	// avoid unkeyed usage
@@ -65,6 +69,18 @@ func (o *ReplicationDetailsURL) Build() (*url.URL, error) {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var includeHistoryQ string
+	if o.IncludeHistory != nil {
+		includeHistoryQ = swag.FormatBool(*o.IncludeHistory)
+	}
+	if includeHistoryQ != "" {
+		qs.Set("includeHistory", includeHistoryQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }
