@@ -157,7 +157,7 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		case AddMuvera:
 			var totalRead int
 			totalRead, err = d.ReadMuvera(fd, out)
-			readThisRound = 11 + totalRead
+			readThisRound = 20 + totalRead
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
