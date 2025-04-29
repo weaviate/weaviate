@@ -611,7 +611,7 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 	offset += writeByteSize
 
 	// store the max size of commit logs to ensure that value doesn't change
-	// between reboots. A changed value means that the snapshot can accidently skip
+	// between reboots. A changed value means that the snapshot can accidentally skip
 	// some logs because an immutable commit log can suddently because mutable again.
 	if err := writeUint64(w, uint64(l.maxSizeIndividual)); err != nil {
 		return 0, err
