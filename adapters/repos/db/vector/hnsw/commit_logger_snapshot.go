@@ -90,7 +90,7 @@ func (l *hnswCommitLogger) createOrLoadSnapshot(load bool) (*DeserializationResu
 		l.logger.WithField("action", "hnsw_load_snapshot").
 			Info("loading snapshot")
 
-		state = readLastSnapshot(l.rootPath, l.id, l.logger)
+		state = l.readLastSnapshot(l.rootPath, l.id, l.logger)
 
 		if state != nil {
 			l.logger.WithField("action", "hnsw_load_snapshot").
@@ -346,7 +346,7 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 	w := bufio.NewWriter(snap)
 
 	// write the snapshot to the file
-	checkpoints, err := writeStateTo(state, w)
+	checkpoints, err := l.writeStateTo(state, w)
 	if err != nil {
 		return errors.Wrapf(err, "writing snapshot file %q", tmpSnapshotFileName)
 	}
@@ -430,7 +430,7 @@ func (l *hnswCommitLogger) getImmutableCondensedFiles(fileNames []string) ([]str
 	return immutable, nil
 }
 
-func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) *DeserializationResult {
+func (l *hnswCommitLogger) readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) *DeserializationResult {
 	dir := snapshotDirectory(rootPath, name)
 
 	files, err := os.ReadDir(dir)
@@ -484,7 +484,7 @@ func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) *Deseria
 			return nil
 		}
 
-		snap, err := readStateFrom(path, 8, checkpoints, logger)
+		snap, err := l.readStateFrom(path, 8, checkpoints, logger)
 		if err != nil {
 			// if for any reason the snapshot file is not found or corrupted
 			// we need to remove the snapshot file and create a new one from the commit log.
@@ -507,8 +507,8 @@ func readLastSnapshot(rootPath, name string, logger logrus.FieldLogger) *Deseria
 }
 
 // returns checkpoints which can be used as parallelizatio hints
-func writeStateTo(state *DeserializationResult, wr io.Writer) ([]Checkpoint, error) {
-	offset, err := writeMetadataTo(state, wr)
+func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writer) ([]Checkpoint, error) {
+	offset, err := l.writeMetadataTo(state, wr)
 	if err != nil {
 		return nil, err
 	}
@@ -599,7 +599,7 @@ func writeStateTo(state *DeserializationResult, wr io.Writer) ([]Checkpoint, err
 }
 
 // returns checkpoints which can be used as parallelizatio hints
-func writeMetadataTo(state *DeserializationResult, w io.Writer) (offset int, err error) {
+func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Writer) (offset int, err error) {
 	hasher := crc32.NewIEEE()
 	w = io.MultiWriter(w, hasher)
 
@@ -609,6 +609,14 @@ func writeMetadataTo(state *DeserializationResult, w io.Writer) (offset int, err
 		return 0, err
 	}
 	offset += writeByteSize
+
+	// store the max size of commit logs to ensure that value doesn't change
+	// between reboots. A changed value means that the snapshot can accidently skip
+	// some logs because an immutable commit log can suddently because mutable again.
+	if err := writeUint64(w, uint64(l.maxSizeIndividual)); err != nil {
+		return 0, err
+	}
+	offset += writeUint64Size
 
 	if err := writeUint64(w, state.Entrypoint); err != nil {
 		return 0, err
@@ -708,7 +716,7 @@ func writeMetadataTo(state *DeserializationResult, w io.Writer) (offset int, err
 	return offset, nil
 }
 
-func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
+func (l *hnswCommitLogger) readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 	logger logrus.FieldLogger,
 ) (*DeserializationResult, error) {
 	res := &DeserializationResult{
@@ -736,6 +744,15 @@ func readStateFrom(filename string, concurrency int, checkpoints []Checkpoint,
 	}
 	if b[0] != 0 {
 		return nil, fmt.Errorf("unsupported version %d", b[0])
+	}
+
+	_, err = ReadAndHash(r, hasher, b[:8]) // max commit log size
+	if err != nil {
+		return nil, errors.Wrapf(err, "")
+	}
+	storedMaxCommitLogSize := binary.LittleEndian.Uint64(b[:8])
+	if storedMaxCommitLogSize != uint64(l.maxSizeIndividual) {
+		return nil, fmt.Errorf("commit log size changed from %d to %d", l.maxSizeIndividual, storedMaxCommitLogSize)
 	}
 
 	_, err = ReadAndHash(r, hasher, b[:8]) // entrypoint
