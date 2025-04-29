@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
@@ -223,7 +224,7 @@ func (e *MuveraEncoder) GetMuveraVectorForID(id uint64, bucket string) ([]float3
 		return nil, fmt.Errorf("getting vector for id: %w", err)
 	}
 	if len(muveraBytes) == 0 {
-		return nil, fmt.Errorf("vector not found for id %d", id)
+		return nil, storobj.NewErrNotFoundf(id, "GetMuveraVectorForID")
 	}
 
 	return MuveraFromBytes(muveraBytes), nil
@@ -243,8 +244,8 @@ type CommitLogger interface {
 	AddMuvera(MuveraData) error
 }
 
-func (e *MuveraEncoder) PersistMuvera(logger CommitLogger) {
-	logger.AddMuvera(MuveraData{
+func (e *MuveraEncoder) PersistMuvera(logger CommitLogger) error {
+	return logger.AddMuvera(MuveraData{
 		KSim:         uint32(e.config.KSim),
 		NumClusters:  uint32(e.config.NumClusters),
 		Dimensions:   uint32(e.config.Dimensions),
