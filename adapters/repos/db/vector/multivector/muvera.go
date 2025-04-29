@@ -191,16 +191,12 @@ func (e *MuveraEncoder) encode(fullVec [][]float32, isDoc bool) []float32 {
 
 // EncodeQuery encodes a query vector using Muvera
 func (e *MuveraEncoder) EncodeQuery(query [][]float32) []float32 {
-	projectedQuery := e.encode(query, false)
-
-	return projectedQuery
+	return e.encode(query, false)
 }
 
 // EncodeDoc encodes a document vector using Muvera
 func (e *MuveraEncoder) EncodeDoc(fullDoc [][]float32) []float32 {
-	projectedDoc := e.encode(fullDoc, true)
-
-	return projectedDoc
+	return e.encode(fullDoc, true)
 }
 
 func MuveraBytesFromFloat32(vec []float32) []byte {
