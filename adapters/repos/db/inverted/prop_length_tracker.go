@@ -53,11 +53,20 @@ type PropertyLengthTracker struct {
 	sync.Mutex
 }
 
-func NewPropertyLengthTracker(path string) (*PropertyLengthTracker, error) {
+func NewPropertyLengthTracker(path string) (pt *PropertyLengthTracker, rerr error) {
 	f, err := os.OpenFile(path, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
 		return nil, err
 	}
+
+	// The lifetime of the `f` exceeds this constructor as we store the open file for later use in PropertyLengthTracker.
+	// invariant: We close `f`  **only** if any error happened after successfully opening the file. To avoid leaking open file descriptor.
+	// NOTE: This `defer` works even with `err` being shadowed in the whole function because defer checks for named `rerr` return value.
+	defer func() {
+		if rerr != nil {
+			f.Close()
+		}
+	}()
 
 	stat, err := f.Stat()
 	if err != nil {
