@@ -529,7 +529,7 @@ func (l *hnswCommitLogger) switchCommitLogs(force bool) (bool, error) {
 	}
 
 	// this is a new commit log, initialize with the current time stamp
-	fileName := fmt.Sprintf("%d", time.Now().UnixMilli())
+	fileName := fmt.Sprintf("%d", time.Now().Unix())
 
 	if force {
 		l.logger.WithField("action", "commit_log_file_switched").
