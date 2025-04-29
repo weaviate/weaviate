@@ -59,6 +59,7 @@ type Bucket struct {
 	walThreshold      uint64
 	flushDirtyAfter   time.Duration
 	memtableThreshold uint64
+	minMMapSize       int64
 	memtableResizer   *memtableSizeAdvisor
 	strategy          string
 	// Strategy inverted index is supposed to be created with, but existing
@@ -196,6 +197,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			maxSegmentSize:           b.maxSegmentSize,
 			cleanupInterval:          b.segmentsCleanupInterval,
 			enableChecksumValidation: b.enableChecksumValidation,
+			MinMMapSize:              b.minMMapSize,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)

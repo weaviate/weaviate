@@ -82,6 +82,7 @@ type segmentConfig struct {
 	calcCountNetAdditions    bool
 	overwriteDerived         bool
 	enableChecksumValidation bool
+	MinMMapSize              int64
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -123,10 +124,10 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 	size := fileInfo.Size()
 
+	// mmap has some overhead, we can read small files directly to memory
 	var contents []byte
 	var unMapContents bool
-	// mmap has some overhead, we can read small files directly to memory
-	if size > int64(PageSize) {
+	if size > cfg.MinMMapSize {
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)

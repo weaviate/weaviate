@@ -237,6 +237,17 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMEnableSegmentsChecksumValidation = true
 	}
 
+	if v := os.Getenv("PERSISTENCE_MIN_MMAP_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_MIN_MMAP_SIZE: %w", err)
+		}
+
+		config.Persistence.MinMMapSize = parsed
+	} else {
+		config.Persistence.MinMMapSize = DefaultMinMMapSize
+	}
+
 	if err := parseInt(
 		"PERSISTENCE_LSM_CYCLEMANAGER_ROUTINES_FACTOR",
 		func(factor int) { config.Persistence.LSMCycleManagerRoutinesFactor = factor },

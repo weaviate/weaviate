@@ -23,8 +23,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/mmap"
 )
 
-const PageSize = 4096
-
 // preComputeSegmentMeta has no side-effects for an already running store. As a
 // result this can be run without the need to obtain any locks. All files
 // created will have a .tmp suffix so they don't interfere with existing
@@ -36,7 +34,7 @@ const PageSize = 4096
 // able to find a way to unify the two -- there are subtle differences.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
-	enableChecksumValidation bool,
+	enableChecksumValidation bool, minMMapSize int64,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -62,7 +60,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	var contents []byte
 
 	// mmap has some overhead, we can read small files directly to memory
-	if size > int64(PageSize) {
+	if size > minMMapSize {
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
@@ -87,6 +85,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	}
 
 	if header.Version >= segmentindex.SegmentV1 && enableChecksumValidation {
+		file.Seek(0, io.SeekStart)
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)

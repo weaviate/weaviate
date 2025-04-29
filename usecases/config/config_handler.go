@@ -233,6 +233,7 @@ type Persistence struct {
 	LSMEnableSegmentsChecksumValidation bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
 	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	HNSWMaxLogSize                      int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
+	MinMMapSize                         int64  `json:"minMMapSize" yaml:"minMMapSize"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
@@ -256,6 +257,8 @@ const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward
 const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibility
 
 const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
+
+const DefaultMinMMapSize = 4096
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
