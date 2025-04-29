@@ -86,8 +86,7 @@ func (_c *MockTaskCleaner_CleanUpDistributedTask_Call) RunAndReturn(run func(con
 func NewMockTaskCleaner(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockTaskCleaner {
+}) *MockTaskCleaner {
 	mock := &MockTaskCleaner{}
 	mock.Mock.Test(t)
 
