@@ -60,8 +60,10 @@ func NewShardReplicationOp(id uint64, sourceNode, targetNode, collectionId, shar
 type ShardReplicationFSM struct {
 	opsLock sync.RWMutex
 
-	// opsByNode stores the array of ShardReplicationOp for each "target" node
-	opsByNode map[string][]ShardReplicationOp
+	// opsByTarget stores the array of ShardReplicationOp for each "target" node
+	opsByTarget map[string][]ShardReplicationOp
+	// opsBySource stores the array of ShardReplicationOp for each "source" node
+	opsBySource map[string][]ShardReplicationOp
 	// opsByCollection stores the array of ShardReplicationOp for each collection
 	opsByCollection map[string][]ShardReplicationOp
 	// opsByShard stores the array of ShardReplicationOp for each shard
@@ -78,7 +80,8 @@ type ShardReplicationFSM struct {
 
 func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 	fsm := &ShardReplicationFSM{
-		opsByNode:       make(map[string][]ShardReplicationOp),
+		opsByTarget:     make(map[string][]ShardReplicationOp),
+		opsBySource:     make(map[string][]ShardReplicationOp),
 		opsByCollection: make(map[string][]ShardReplicationOp),
 		opsByShard:      make(map[string][]ShardReplicationOp),
 		opsByTargetFQDN: make(map[shardFQDN]ShardReplicationOp),
@@ -132,7 +135,8 @@ func (s *ShardReplicationFSM) Restore(bytes []byte) error {
 // The lock onto the underlying data is *not acquired* by this function the callee must ensure the lock is held
 func (s *ShardReplicationFSM) resetState() {
 	// Reset data
-	maps.Clear(s.opsByNode)
+	maps.Clear(s.opsByTarget)
+	maps.Clear(s.opsBySource)
 	maps.Clear(s.opsByCollection)
 	maps.Clear(s.opsByShard)
 	maps.Clear(s.opsByTargetFQDN)
@@ -142,10 +146,10 @@ func (s *ShardReplicationFSM) resetState() {
 	s.opsByStateGauge.Reset()
 }
 
-func (s *ShardReplicationFSM) GetOpsForNode(node string) []ShardReplicationOp {
+func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	return s.opsByNode[node]
+	return s.opsByTarget[node]
 }
 
 func (s shardReplicationOpStatus) ShouldRestartOp() bool {
@@ -210,4 +214,9 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	default:
 	}
 	return readOk, writeOk
+}
+
+// IsOpCompletedOrInProgress returns true if the given replication operation has started or completed execution.
+func (s *ShardReplicationFSM) IsOpCompletedOrInProgress(op ShardReplicationOp) bool {
+	return api.REGISTERED != s.GetOpState(op).state
 }

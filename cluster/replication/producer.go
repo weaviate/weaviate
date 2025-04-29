@@ -120,7 +120,7 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 //
 // Returns only operations that should be actively processed by this node.
 func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOp {
-	allNodeOps := p.fsm.GetOpsForNode(nodeId)
+	allNodeOps := p.fsm.GetOpsForTarget(nodeId)
 
 	nodeOpsSubset := make([]ShardReplicationOp, 0, len(allNodeOps))
 	for _, op := range allNodeOps {
