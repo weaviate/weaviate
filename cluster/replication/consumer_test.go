@@ -656,3 +656,183 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier.AssertExpectations(t)
 	})
 }
+
+func TestConsumerBackoffPolicyRetriesOnStateChangeFailure(t *testing.T) {
+	opId := uint64(1)
+	op := replication.NewShardReplicationOp(opId, "node1", "node2", "TestCollection", "test-shard")
+	testCases := []struct {
+		testFrom api.ShardReplicationState
+		testTo   api.ShardReplicationState
+	}{
+		{api.REGISTERED, api.HYDRATING},
+		{api.HYDRATING, api.FINALIZING},
+		{api.FINALIZING, api.READY},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(fmt.Sprintf("consumer retry state if state change fail: %s -> %s", tc.testFrom, tc.testTo), func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			mockFSMUpdater := types.NewMockFSMUpdater(t)
+			mockReplicaCopier := types.NewMockReplicaCopier(t)
+
+			var wg sync.WaitGroup
+			wg.Add(5)
+
+			// First state change fails, second success to ensure we retry
+			mockFSMUpdater.EXPECT().
+				ReplicationUpdateReplicaOpStatus(uint64(opId), tc.testTo).
+				Return(fmt.Errorf("simulated state change failure")).
+				Run(func(id uint64, state api.ShardReplicationState) {
+					wg.Done()
+				}).
+				Times(5)
+
+			mockFSMUpdater.EXPECT().AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
+			mockReplicaCopier.EXPECT().CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+			consumer := replication.NewCopyOpConsumer(
+				logger,
+				mockFSMUpdater,
+				mockReplicaCopier,
+				op.TargetShard.NodeId,
+				backoff.WithMaxRetries(backoff.NewConstantBackOff(time.Millisecond*1), 4),
+				replication.NewOpsCache(),
+				time.Second*10,
+				1,
+				metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
+			)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
+			doneChan := make(chan error, 1)
+
+			// WHEN
+			go func() {
+				doneChan <- consumer.Consume(ctx, opsChan)
+			}()
+
+			opsChan <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(tc.testFrom))
+			waitChan := make(chan struct{})
+			go func() {
+				wg.Wait()
+				waitChan <- struct{}{}
+			}()
+
+			select {
+			case <-waitChan:
+				// This is here just to make sure the test does not run indefinitely
+			case <-time.After(5 * time.Second):
+				t.Fatal("Test timed out waiting for operation completion")
+			}
+
+			close(opsChan)
+			err := <-doneChan
+			require.NoError(t, err, "expected consumer to stop without error")
+
+			mockFSMUpdater.AssertExpectations(t)
+			mockReplicaCopier.AssertExpectations(t)
+		})
+	}
+}
+
+func TestConsumerResumingConsumeOnStateChangeFailure(t *testing.T) {
+	opId := uint64(1)
+	op := replication.NewShardReplicationOp(opId, "node1", "node2", "TestCollection", "test-shard")
+	testCases := []struct {
+		testFrom api.ShardReplicationState
+		testTo   api.ShardReplicationState
+	}{
+		{api.REGISTERED, api.HYDRATING},
+		{api.HYDRATING, api.FINALIZING},
+		{api.FINALIZING, api.READY},
+	}
+
+	for _, tc := range testCases {
+		tc := tc
+		t.Run(fmt.Sprintf("consumer retry state if state change fail: %s -> %s", tc.testFrom, tc.testTo), func(t *testing.T) {
+			logger, _ := logrustest.NewNullLogger()
+			mockFSMUpdater := types.NewMockFSMUpdater(t)
+			mockReplicaCopier := types.NewMockReplicaCopier(t)
+
+			var wg sync.WaitGroup
+			wg.Add(1)
+
+			// First state change fails, second success to ensure we retry
+			mockFSMUpdater.EXPECT().
+				ReplicationUpdateReplicaOpStatus(uint64(opId), tc.testTo).
+				Return(fmt.Errorf("simulated state change failure")).
+				Times(1)
+			mockFSMUpdater.EXPECT().
+				ReplicationUpdateReplicaOpStatus(uint64(opId), mock.Anything).
+				RunAndReturn(func(id uint64, state api.ShardReplicationState) error {
+					// Success
+					if state == tc.testTo {
+						// If we're at the final state, we're done, stop the test here
+						if state == api.READY {
+							wg.Done()
+						}
+						return nil
+					}
+
+					// If we're not at the final state ensure we stop the test here by returning an error
+					if state != tc.testTo {
+						wg.Done()
+						return fmt.Errorf("simulated state change failure")
+					}
+					return nil
+				})
+
+			mockFSMUpdater.EXPECT().AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
+			mockReplicaCopier.EXPECT().CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+			consumer := replication.NewCopyOpConsumer(
+				logger,
+				mockFSMUpdater,
+				mockReplicaCopier,
+				op.TargetShard.NodeId,
+				&backoff.StopBackOff{},
+				replication.NewOpsCache(),
+				time.Second*10,
+				1,
+				metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
+			)
+
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+
+			opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
+			doneChan := make(chan error, 1)
+
+			// WHEN
+			go func() {
+				doneChan <- consumer.Consume(ctx, opsChan)
+			}()
+
+			opsChan <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(tc.testFrom))
+			// Simulate a produce retry by re-sending the same operation in the same state
+			opsChan <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(tc.testFrom))
+			waitChan := make(chan struct{})
+			go func() {
+				wg.Wait()
+				waitChan <- struct{}{}
+			}()
+
+			select {
+			case <-waitChan:
+				// This is here just to make sure the test does not run indefinitely
+			case <-time.After(5 * time.Second):
+				t.Fatal("Test timed out waiting for operation completion")
+			}
+
+			close(opsChan)
+			err := <-doneChan
+			require.NoError(t, err, "expected consumer to stop without error")
+
+			mockFSMUpdater.AssertExpectations(t)
+			mockReplicaCopier.AssertExpectations(t)
+		})
+	}
+}
