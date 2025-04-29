@@ -245,7 +245,7 @@ type MuveraData struct {
 	Dimensions   uint32        // 4 bytes
 	DProjections uint32        // 4 bytes
 	Repetitions  uint32        // 4 bytes
-	Gaussians    [][][]float32 // 4 bytes -> (repetitions, numClusters, dimensions)
+	Gaussians    [][][]float32 // 4 bytes -> (repetitions, kSim, dimensions)
 	S            [][][]float32 // 4 bytes -> (repetitions, dProjections, dimensions)
 }
 
