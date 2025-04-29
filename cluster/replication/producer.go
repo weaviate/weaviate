@@ -115,10 +115,7 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 //   - Source node: Only handles DEHYDRATING operations as that state needs data to be deleted
 //
 // 3. Operation States:
-//   - REGISTERED: Initial state, operation waiting to start
-//   - HYDRATING: Operation in progress, target node is pulling data
-//   - DEHYDRATING: The only state handled by source node, for cleanup after successful replication
-//   - **all other states**: Not reprocessed, require a new operation
+//   - All states except for ABORTED are processes
 //
 // Returns only operations that should be actively processed by this node.
 func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOpAndStatus {
@@ -126,10 +123,10 @@ func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOpAndStat
 
 	nodeOpsSubset := make([]ShardReplicationOpAndStatus, 0, len(allNodeOps))
 	for _, op := range allNodeOps {
-		opState := p.fsm.GetOpState(op)
-
-		if opState.ShouldRestartOp() {
+		if opState, ok := p.fsm.GetOpState(op); ok && opState.ShouldConsumeOps() {
 			nodeOpsSubset = append(nodeOpsSubset, NewShardReplicationOpAndStatus(op, opState))
+		} else if !ok {
+			p.logger.WithField("producer", p).WithField("op", op).Warn("skipping op as it has no state stored in FSM. This should never happen.")
 		}
 	}
 

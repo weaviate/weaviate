@@ -170,14 +170,15 @@ func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp 
 	return s.opsByTarget[node]
 }
 
-func (s ShardReplicationOpStatus) ShouldRestartOp() bool {
-	return s.State == api.REGISTERED || s.State == api.HYDRATING || s.State == api.FINALIZING
+func (s ShardReplicationOpStatus) ShouldConsumeOps() bool {
+	return s.State != api.ABORTED
 }
 
-func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) ShardReplicationOpStatus {
+func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicationOpStatus, bool) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	return s.opsStatus[op]
+	v, ok := s.opsStatus[op]
+	return v, ok
 }
 
 func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
