@@ -103,7 +103,7 @@ func (s *Shard) drop() (err error) {
 			})
 		}
 
-		// we have to close queue before index for versions before 1.28
+		// we have to close queue before index because the index is using the queue in case of drop
 		if err = eg.Wait(); err != nil {
 			return err
 		}

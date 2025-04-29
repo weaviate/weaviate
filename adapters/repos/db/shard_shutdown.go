@@ -86,22 +86,15 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		for targetVector, queue := range s.queues {
 			targetVector, queue := targetVector, queue // capture loop variables
 			eg.Go(func() error {
-				err = queue.Flush()
-				if err != nil {
+				if err := queue.Flush(); err != nil {
 					ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
 				}
 
-				err := queue.Close()
-				if err != nil {
+				if err := queue.Close(); err != nil {
 					ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
 				}
 				return nil
 			})
-		}
-
-		// we have to close queue before index for versions before 1.28
-		if err = eg.Wait(); err != nil {
-			ec.Add(err)
 		}
 
 		for targetVector, vectorIndex := range s.vectorIndexes {
