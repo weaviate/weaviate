@@ -38,8 +38,6 @@ type MuveraEncoder struct {
 	Sfinal               [][]float32   // Random projection matrix with ±1 entries
 	dotDistancerProvider distancer.Provider
 	muveraStore          *lsmkv.Store
-	storeId              func([]byte, uint64)
-	loadId               func([]byte) uint64
 }
 
 func NewMuveraEncoder(config ent.MuveraConfig, muveraStore *lsmkv.Store) *MuveraEncoder {
@@ -52,8 +50,6 @@ func NewMuveraEncoder(config ent.MuveraConfig, muveraStore *lsmkv.Store) *Muvera
 		},
 		dotDistancerProvider: distancer.NewDotProductProvider(),
 		muveraStore:          muveraStore,
-		storeId:              binary.BigEndian.PutUint64,
-		loadId:               binary.BigEndian.Uint64,
 	}
 
 	return encoder
@@ -187,9 +183,7 @@ func (e *MuveraEncoder) encode(fullVec [][]float32, isDoc bool) []float32 {
 		}
 
 		// Reset tmpVec, this is needed only for query encoding
-		for i := range tmpVec {
-			tmpVec[i] = 0
-		}
+		clear(tmpVec)
 	}
 
 	return encodedVec
@@ -227,7 +221,7 @@ func MuveraFromBytes(bytes []byte) []float32 {
 
 func (e *MuveraEncoder) GetMuveraVectorForID(id uint64, bucket string) ([]float32, error) {
 	idBytes := make([]byte, 8)
-	e.storeId(idBytes, id)
+	binary.BigEndian.PutUint64(idBytes, id)
 	muveraBytes, err := e.muveraStore.Bucket(bucket).Get(idBytes)
 	if err != nil {
 		return nil, fmt.Errorf("getting vector for id: %w", err)
