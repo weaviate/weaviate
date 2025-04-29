@@ -29,7 +29,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
@@ -40,11 +39,6 @@ const (
 	SnapshotCompressionTypePQ = iota + 1
 	SnapshotCompressionTypeSQ
 )
-
-// feature flag to disable snapshots
-func snapshotsDisabled() bool {
-	return entcfg.Enabled(os.Getenv("DISABLE_SNAPSHOTS"))
-}
 
 func snapshotTimestamp(path string) (int64, error) {
 	return asTimeStamp(strings.TrimSuffix(filepath.Base(path), ".snapshot"))

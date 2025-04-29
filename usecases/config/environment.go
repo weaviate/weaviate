@@ -299,6 +299,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_HNSW_DISABLE_SNAPSHOTS")) {
+		config.Persistence.HNSWDisableSnapshots = true
+	}
+
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
 	}

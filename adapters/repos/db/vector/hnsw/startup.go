@@ -65,7 +65,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	var stateTimestamp int64
 	var err error
 
-	if !snapshotsDisabled() {
+	if !h.disableSnapshots {
 		// This will opportunistically create a snapshot if it does not exist yet,
 		// as we are loading state from disk. Otherwise, it simply loads
 		// the last snapshot.

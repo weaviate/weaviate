@@ -97,6 +97,7 @@ func (db *DB) init(ctx context.Context) error {
 				IndexRangeableInMemory:              db.config.IndexRangeableInMemory,
 				MaxSegmentSize:                      db.config.MaxSegmentSize,
 				HNSWMaxLogSize:                      db.config.HNSWMaxLogSize,
+				HNSWDisableSnapshots:                db.config.HNSWDisableSnapshots,
 				HNSWWaitForCachePrefill:             db.config.HNSWWaitForCachePrefill,
 				HNSWFlatSearchConcurrency:           db.config.HNSWFlatSearchConcurrency,
 				HNSWAcornFilterRatio:                db.config.HNSWAcornFilterRatio,
