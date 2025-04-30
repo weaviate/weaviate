@@ -25,6 +25,74 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+type compactorWriter interface {
+	segmentindex.SegmentWriter
+	Reset(io.Writer)
+}
+
+type memoryWriter struct {
+	buffer *[]byte
+	pos    *int
+	maxPos *int
+	writer io.WriteSeeker
+}
+
+// NewMemoryWriterWrapper creates a new memoryWriter with initialized pointers
+func newMemoryWriterWrapper(initialCapacity int64, writer io.WriteSeeker) *memoryWriter {
+	buf := make([]byte, initialCapacity)
+	pos := 0
+	maxPos := 0
+	return &memoryWriter{
+		buffer: &buf,
+		pos:    &pos,
+		maxPos: &maxPos,
+		writer: writer,
+	}
+}
+
+func (mw memoryWriter) Write(p []byte) (n int, err error) {
+	lenCopyBytes := len(p)
+
+	requiredSize := *mw.pos + lenCopyBytes
+	if requiredSize > len(*mw.buffer) {
+		return 0, io.ErrShortWrite
+	}
+
+	numCopiedBytes := copy((*mw.buffer)[*mw.pos:], p)
+
+	*mw.pos += numCopiedBytes
+	if *mw.pos >= *mw.maxPos {
+		*mw.maxPos = *mw.pos
+	}
+
+	if numCopiedBytes != lenCopyBytes {
+		return numCopiedBytes, errors.New("could not copy all data into buffer")
+	}
+
+	return numCopiedBytes, nil
+}
+
+func (mw memoryWriter) Flush() error {
+	buf := *mw.buffer
+	_, err := mw.writer.Write(buf[:*mw.maxPos])
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// Reset needs to be present to fulfill interface
+func (mw memoryWriter) Reset(writer io.Writer) {}
+
+func (mw memoryWriter) ResetWritePositionToZero() {
+	*mw.pos = 0
+}
+
+func (mw memoryWriter) ResetWritePositionToMax() {
+	*mw.pos = *mw.maxPos
+}
+
 // Compactor takes in a left and a right segment and merges them into a single
 // segment. The input segments are represented by cursors without their
 // respective segmentindexes. A new segmentindex is built from the merged nodes
@@ -80,77 +148,6 @@ type Compactor struct {
 	enableChecksumValidation bool
 }
 
-type compactorWriter interface {
-	segmentindex.SegmentWriter
-	Reset(io.Writer)
-}
-
-type memoryWriter struct {
-	buffer *[]byte
-	pos    *int
-	maxPos *int
-	writer io.WriteSeeker
-}
-
-// NewMemoryWriterWrapper creates a new memoryWriter with initialized pointers
-func newMemoryWriterWrapper(initialCapacity int64, writer io.WriteSeeker) *memoryWriter {
-	buf := make([]byte, initialCapacity)
-	pos := 0
-	maxPos := 0
-	return &memoryWriter{
-		buffer: &buf,
-		pos:    &pos,
-		maxPos: &maxPos,
-		writer: writer,
-	}
-}
-
-func (mw memoryWriter) Write(p []byte) (n int, err error) {
-	// Get the length of the incoming data
-	lenCopyBytes := len(p)
-
-	// Check if we need to grow the buffer
-	requiredSize := *mw.pos + lenCopyBytes
-	if requiredSize > len(*mw.buffer) {
-		return 0, io.ErrShortWrite
-	}
-
-	// Copy the data into the buffer at the current position
-	numCopiedBytes := copy((*mw.buffer)[*mw.pos:], p)
-
-	// Update the position
-	*mw.pos += numCopiedBytes
-	if *mw.pos >= *mw.maxPos {
-		*mw.maxPos = *mw.pos
-	}
-
-	if numCopiedBytes != lenCopyBytes {
-		return numCopiedBytes, errors.New("could not copy all data into buffer")
-	}
-
-	return numCopiedBytes, nil
-}
-
-func (mw memoryWriter) Flush() error {
-	buf := *mw.buffer
-	_, err := mw.writer.Write(buf[:*mw.maxPos])
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func (mw memoryWriter) Reset(writer io.Writer) {}
-
-func (mw memoryWriter) ResetWritePositionToZero() {
-	*mw.pos = 0
-}
-
-func (mw memoryWriter) ResetWritePositionToMax() {
-	*mw.pos = *mw.maxPos
-}
-
 // NewCompactor from left (older) and right (newer) seeker. See [Compactor] for
 // an explanation of what goes on under the hood, and why the input
 // requirements are the way they are.
@@ -159,6 +156,24 @@ func NewCompactor(w io.WriteSeeker,
 	scratchSpacePath string, cleanupDeletions bool,
 	enableChecksumValidation bool, maxNewFileSize int64,
 ) *Compactor {
+	// The layout of the segment is
+	//  header
+	//  data
+	//  check-sum
+	//
+	// However, it is challenging to calculate the length of the data (which is part of the header) before writing the
+	// file:
+	//
+	// big files (overhead is not that relevant)
+	// - write empty header
+	// - write data
+	// - seek back to start
+	// - write real header
+	// - seek to original position (after data)
+	// - write checksum
+	//
+	// For small files we use a dummy writer, that writes everything to memory before actually writing the file
+
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
 		"strategy":  "roaringset",
@@ -166,6 +181,7 @@ func NewCompactor(w io.WriteSeeker,
 	writeCB := func(written int64) {
 		observeWrite.Observe(float64(written))
 	}
+
 	var writer compactorWriter
 	var mw *memoryWriter
 	if maxNewFileSize < 4096 {
