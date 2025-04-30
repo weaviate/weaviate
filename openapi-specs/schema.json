@@ -916,6 +916,28 @@
             "shardId"
         ]
     },
+    "ReplicationReplicateDetailsReplicaStatus": {
+      "description": "The status of a replication operation",
+      "type": "object",
+      "properties": {
+        "state": {
+          "type": "string",
+          "enum": [
+            "READY",
+            "INDEXING",
+            "REPLICATION_FINALIZING",
+            "REPLICATION_HYDRATING",
+            "REPLICATION_DEHYDRATING"
+          ]
+        },
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
     "ReplicationReplicateDetailsReplicaResponse": {
       "description": "The current status and details of a replication operation, including information about the resources involved in the replication process.",
       "properties": {
@@ -940,15 +962,16 @@
           "type": "string"
         },
         "status": {
-          "type": "string",
-          "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
-          "enum": [
-            "READY",
-            "INDEXING",
-            "REPLICATION_FINALIZING",
-            "REPLICATION_HYDRATING",
-            "REPLICATION_DEHYDRATING"
-          ]
+          "description": "The current status of the replication operation",
+          "type": "object",
+          "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
+        },
+        "statusHistory": {
+          "description": "The history of the replication operation",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
+          }
         }
       },
       "required": ["id", "shardId", "sourceNodeId", "targetNodeId", "collection", "status"]
@@ -2955,6 +2978,13 @@
             "description": "The replication operation id to get details for.",
             "required": true,
             "type": "string"
+          },
+          {
+            "name": "includeHistory",
+            "in": "query",
+            "description": "Whether to include the history of the replication operation.",
+            "required": false,
+            "type": "boolean"
           }
         ],
         "responses": {

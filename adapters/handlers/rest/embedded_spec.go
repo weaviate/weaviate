@@ -3518,6 +3518,12 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "description": "Whether to include the history of the replication operation.",
+            "name": "includeHistory",
+            "in": "query"
           }
         ],
         "responses": {
@@ -6916,7 +6922,34 @@ func init() {
           "type": "string"
         },
         "status": {
-          "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
+          "description": "The current status of the replication operation",
+          "type": "object",
+          "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
+        },
+        "statusHistory": {
+          "description": "The history of the replication operation",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
+          }
+        },
+        "targetNodeId": {
+          "description": "The id of the node where the target replica is allocated.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaStatus": {
+      "description": "The status of a replication operation",
+      "type": "object",
+      "properties": {
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
           "type": "string",
           "enum": [
             "READY",
@@ -6925,10 +6958,6 @@ func init() {
             "REPLICATION_HYDRATING",
             "REPLICATION_DEHYDRATING"
           ]
-        },
-        "targetNodeId": {
-          "description": "The id of the node where the target replica is allocated.",
-          "type": "string"
         }
       }
     },
@@ -11242,6 +11271,12 @@ func init() {
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "description": "Whether to include the history of the replication operation.",
+            "name": "includeHistory",
+            "in": "query"
           }
         ],
         "responses": {
@@ -14943,7 +14978,34 @@ func init() {
           "type": "string"
         },
         "status": {
-          "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
+          "description": "The current status of the replication operation",
+          "type": "object",
+          "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
+        },
+        "statusHistory": {
+          "description": "The history of the replication operation",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
+          }
+        },
+        "targetNodeId": {
+          "description": "The id of the node where the target replica is allocated.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaStatus": {
+      "description": "The status of a replication operation",
+      "type": "object",
+      "properties": {
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
           "type": "string",
           "enum": [
             "READY",
@@ -14952,10 +15014,6 @@ func init() {
             "REPLICATION_HYDRATING",
             "REPLICATION_DEHYDRATING"
           ]
-        },
-        "targetNodeId": {
-          "description": "The id of the node where the target replica is allocated.",
-          "type": "string"
         }
       }
     },

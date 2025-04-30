@@ -20,8 +20,10 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewReplicationDetailsParams creates a new ReplicationDetailsParams object
@@ -46,6 +48,10 @@ type ReplicationDetailsParams struct {
 	  In: path
 	*/
 	ID string
+	/*Whether to include the history of the replication operation.
+	  In: query
+	*/
+	IncludeHistory *bool
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -57,8 +63,15 @@ func (o *ReplicationDetailsParams) BindRequest(r *http.Request, route *middlewar
 
 	o.HTTPRequest = r
 
+	qs := runtime.Values(r.URL.Query())
+
 	rID, rhkID, _ := route.Params.GetOK("id")
 	if err := o.bindID(rID, rhkID, route.Formats); err != nil {
+		res = append(res, err)
+	}
+
+	qIncludeHistory, qhkIncludeHistory, _ := qs.GetOK("includeHistory")
+	if err := o.bindIncludeHistory(qIncludeHistory, qhkIncludeHistory, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -77,6 +90,29 @@ func (o *ReplicationDetailsParams) bindID(rawData []string, hasKey bool, formats
 	// Required: true
 	// Parameter is provided by construction from the route
 	o.ID = raw
+
+	return nil
+}
+
+// bindIncludeHistory binds and validates parameter IncludeHistory from query.
+func (o *ReplicationDetailsParams) bindIncludeHistory(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+
+	value, err := swag.ConvertBool(raw)
+	if err != nil {
+		return errors.InvalidType("includeHistory", "query", "bool", raw)
+	}
+	o.IncludeHistory = &value
 
 	return nil
 }
