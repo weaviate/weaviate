@@ -659,12 +659,6 @@ type IndexConfig struct {
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
 	MaxSegmentSize                      int64
-	HNSWMaxLogSize                      int64
-	HNSWDisableSnapshots                bool
-	HNSWWaitForCachePrefill             bool
-	HNSWFlatSearchConcurrency           int
-	HNSWAcornFilterRatio                float64
-	VisitedListPoolMaxSize              int
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
 	AsyncReplicationEnabled             bool
@@ -675,6 +669,17 @@ type IndexConfig struct {
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 	ShardLoadLimiter                    ShardLoadLimiter
+
+	HNSWMaxLogSize                               int64
+	HNSWDisableSnapshots                         bool
+	HNSWSnapshotIntervalSeconds                  int
+	HNSWSnapshotOnStartup                        bool
+	HNSWSnapshotMinDeltaCommitlogsNumber         int
+	HNSWSnapshotMinDeltaCommitlogsSizePercentage int
+	HNSWWaitForCachePrefill                      bool
+	HNSWFlatSearchConcurrency                    int
+	HNSWAcornFilterRatio                         float64
+	VisitedListPoolMaxSize                       int
 }
 
 func indexID(class schema.ClassName) string {

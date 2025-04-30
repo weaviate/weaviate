@@ -59,7 +59,7 @@ func TestRemoveTmpScratchOrHiddenFiles(t *testing.T) {
 		MockDirEntry{name: "1682473161.condensed", isDir: false},
 	}
 
-	result := removeTmpScratchOrHiddenFiles(entries)
+	result := skipTmpScratchOrHiddenFiles(entries)
 
 	if len(result) != len(expected) {
 		t.Errorf("Expected %d entries, got %d", len(expected), len(result))

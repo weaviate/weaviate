@@ -325,9 +325,40 @@ func FromEnv(config *Config) error {
 		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
 	}
 
+	// ---- HNSW snapshots ----
 	if entcfg.Enabled(os.Getenv("PERSISTENCE_HNSW_DISABLE_SNAPSHOTS")) {
 		config.Persistence.HNSWDisableSnapshots = true
 	}
+
+	if err := parsePositiveInt(
+		"PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS",
+		func(seconds int) { config.Persistence.HNSWSnapshotIntervalSeconds = seconds },
+		DefaultHNSWSnapshotIntervalSeconds,
+	); err != nil {
+		return err
+	}
+
+	config.Persistence.HNSWSnapshotOnStartup = DefaultHNSWSnapshotOnStartup
+	if v := os.Getenv("PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP"); v != "" {
+		config.Persistence.HNSWSnapshotOnStartup = entcfg.Enabled(v)
+	}
+
+	if err := parsePositiveInt(
+		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_NUMBER",
+		func(number int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber = number },
+		DefaultHNSWSnapshotMinDeltaCommitlogsNumber,
+	); err != nil {
+		return err
+	}
+
+	if err := parseNonNegativeInt(
+		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_SIZE_PERCENTAGE",
+		func(percentage int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage = percentage },
+		DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage,
+	); err != nil {
+		return err
+	}
+	// ---- HNSW snapshots ----
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
@@ -924,11 +955,11 @@ func parseFloat64(envName string, defaultValue float64, verify func(val float64)
 }
 
 func parseInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int) error { return nil })
+	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error { return nil })
 }
 
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
+	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
 		if val <= 0 {
 			return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
 		}
@@ -937,7 +968,7 @@ func parsePositiveInt(envName string, cb func(val int), defaultValue int) error 
 }
 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
+	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
 		if val < 0 {
 			return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
 		}
@@ -945,7 +976,7 @@ func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) err
 	})
 }
 
-func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int) error) error {
+func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int, envName string) error) error {
 	var err error
 	asInt := defaultValue
 
@@ -954,7 +985,7 @@ func parseIntVerify(envName string, defaultValue int, cb func(val int), verify f
 		if err != nil {
 			return fmt.Errorf("parse %s as int: %w", envName, err)
 		}
-		if err = verify(asInt); err != nil {
+		if err = verify(asInt, envName); err != nil {
 			return err
 		}
 	}
