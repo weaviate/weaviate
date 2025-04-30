@@ -50,6 +50,7 @@ type Memtable struct {
 	tombstones *sroar.Bitmap
 
 	enableChecksumValidation bool
+	lockTimeout 			time.Duration
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
@@ -71,6 +72,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		createdAt:                time.Now(),
 		metrics:                  newMemtableMetrics(metrics, filepath.Dir(path), strategy),
 		enableChecksumValidation: enableChecksumValidation,
+		lockTimeout:              30 * time.Second,
 	}
 
 	m.CtxRWLocation("memtable")
