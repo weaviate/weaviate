@@ -36,7 +36,7 @@ func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 		defer close(done)
 		m.rwlock.Lock()
 		done <- true
-		time.Sleep(1000 * time.Millisecond) // Simulate work
+		time.Sleep(1000 * time.Millisecond)
 	}()
 
 	select {
@@ -46,6 +46,15 @@ func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 	case <-ctx.Done():
 		return context.DeadlineExceeded // Timeout or cancellation occurred
 	}
+}
+
+func (m *CtxRWMutex) LockContextWithTimeout(ctx context.Context, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	go func ()  {
+		time.Sleep(timeout)
+		cancel()
+	}()
+	return m.LockContext(ctx)
 }
 
 func (m *CtxRWMutex) Lock() {
@@ -79,7 +88,7 @@ func (m *CtxRWMutex) RLockContext(ctx context.Context) error {
 		defer close(done)
 		m.rwlock.RLock()
 		done <- true
-		time.Sleep(1000 * time.Millisecond) // Simulate work
+		time.Sleep(1000 * time.Millisecond)
 	}()
 
 	select {
@@ -89,6 +98,15 @@ func (m *CtxRWMutex) RLockContext(ctx context.Context) error {
 	case <-ctx.Done():
 		return context.DeadlineExceeded // Timeout or cancellation occurred
 	}
+}
+
+func (m *CtxRWMutex) RLockContextWithTimeout(ctx context.Context, timeout time.Duration) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	go func ()  {
+		time.Sleep(timeout)
+		cancel()
+	}()
+	return m.RLockContext(ctx)
 }
 
 func (m *CtxRWMutex) RLock() {
