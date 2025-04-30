@@ -403,17 +403,18 @@ func Test_Compactor(t *testing.T) {
 	}
 
 	for _, test := range tests {
+		leftCursor := NewSegmentCursor(test.left, nil)
+		rightCursor := NewSegmentCursor(test.right, nil)
+		maxNewFileSize := int64(len(leftCursor.data)+len(rightCursor.data)) + segmentindex.HeaderSize + 156 // for checksum
+
 		t.Run("[keep]"+test.name, func(t *testing.T) {
 			dir := t.TempDir()
-
-			leftCursor := NewSegmentCursor(test.left, nil)
-			rightCursor := NewSegmentCursor(test.right, nil)
 
 			segmentFile := filepath.Join(dir, "result.db")
 			f, err := os.Create(segmentFile)
 			require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", false, false)
+			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", false, false, maxNewFileSize)
 			require.NoError(t, c.Do())
 
 			require.NoError(t, f.Close())
@@ -450,11 +451,13 @@ func Test_Compactor(t *testing.T) {
 			leftCursor := NewSegmentCursor(test.left, nil)
 			rightCursor := NewSegmentCursor(test.right, nil)
 
+			maxNewFileSize := int64(len(leftCursor.data)+len(rightCursor.data)) + segmentindex.HeaderSize + 156 // for checksum
+
 			segmentFile := filepath.Join(dir, "result.db")
 			f, err := os.Create(segmentFile)
 			require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", true, false)
+			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", true, false, maxNewFileSize)
 			require.NoError(t, c.Do())
 
 			require.NoError(t, f.Close())
