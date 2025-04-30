@@ -15,7 +15,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path/filepath"
-	"sync"
+
 	"time"
 
 	"github.com/pkg/errors"
@@ -24,10 +24,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/ctxlock"
+
 )
 
 type Memtable struct {
-	sync.RWMutex
+	ctxlock.CtxRWMutex
 	key                *binarySearchTree
 	keyMulti           *binarySearchTreeMulti
 	keyMap             *binarySearchTreeMap

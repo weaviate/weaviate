@@ -1,121 +1,183 @@
 package ctxlock
 
+
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
+
 )
 
-func TestCtxLock_LockUnlock(t *testing.T) {
-	lock := NewCtxLock(0)
+func TestCtxRWMutex_LockUnlock(t *testing.T) {
+	m := NewCtxRWMutex()
 
-	if err := lock.Lock(context.Background()); err != nil {
-		t.Fatalf("unexpected error acquiring lock: %v", err)
-	}
-	lock.Unlock()
+	m.Lock()
+	m.Unlock()
 
-	// Try again after unlock
-	if err := lock.Lock(context.Background()); err != nil {
-		t.Fatalf("unexpected error on re-acquire: %v", err)
-	}
-	lock.Unlock()
+	m.Lock()
+	m.Unlock()
 }
 
-func TestCtxLock_ContextTimeout(t *testing.T) {
-	lock := NewCtxLock(0)
+func TestCtxRWMutex_RLockRUnlock(t *testing.T) {
+	m := NewCtxRWMutex()
 
-	// Acquire lock to block the next goroutine
-	if err := lock.Lock(context.Background()); err != nil {
-		t.Fatal(err)
+	m.RLock()
+	m.RUnlock()
+
+	m.RLock()
+	m.RUnlock()
+}
+
+func TestCtxRWMutex_TryLock(t *testing.T) {
+	m := NewCtxRWMutex()
+
+	ok := m.TryLock()
+	if !ok {
+		t.Fatal("expected TryLock to succeed")
 	}
+	defer m.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	ok = m.TryLock()
+	if ok {
+		t.Fatal("expected second TryLock to fail while locked")
+	}
+}
+
+func TestCtxRWMutex_TryRLock(t *testing.T) {
+	m := NewCtxRWMutex()
+
+	ok := m.TryRLock()
+	if !ok {
+		t.Fatal("expected TryRLock to succeed")
+	}
+	defer m.RUnlock()
+
+	ok = m.TryRLock()
+	if ok {
+		t.Fatal("expected second TryRLock to fail (single-reader channel limit)")
+	}
+}
+
+func TestCtxRWMutex_LockContext_Timeout(t *testing.T) {
+	m := NewCtxRWMutex()
+	m.Lock()
+	defer m.Unlock()
+
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 	defer cancel()
 
-	err := lock.Lock(ctx)
-	if !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected context deadline exceeded, got: %v", err)
-	}
-
-	lock.Unlock()
-}
-
-func TestCtxLock_DefaultTimeout(t *testing.T) {
-	lock := NewCtxLock(100) // 100ms default timeout
-
-	// First goroutine locks and holds
-	if err := lock.Lock(context.Background()); err != nil {
-		t.Fatal(err)
-	}
-
 	start := time.Now()
-	err := lock.Lock(context.Background())
+	err := m.LockContext(ctx)
 	elapsed := time.Since(start)
 
-	if err == nil {
-		t.Fatal("expected error due to timeout, got none")
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
 	}
-	if elapsed < 90*time.Millisecond || elapsed > 200*time.Millisecond {
-		t.Fatalf("expected ~100ms wait, got %v", elapsed)
+	if elapsed < 50*time.Millisecond {
+		t.Fatalf("expected context timeout wait, got %v", elapsed)
 	}
-
-	lock.Unlock()
 }
 
-func TestCtxLock_UpdateTimeoutThreadSafe(t *testing.T) {
-	lock := NewCtxLock(50)
+func TestCtxRWMutex_RLockContext_Timeout(t *testing.T) {
+	m := NewCtxRWMutex()
+	m.RLock()
+	defer m.RUnlock()
 
-	// Acquire lock so next goroutine has to wait
-	if err := lock.Lock(context.Background()); err != nil {
-		t.Fatal(err)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	err := m.RLockContext(ctx)
+	elapsed := time.Since(start)
+
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("expected deadline exceeded, got %v", err)
+	}
+	if elapsed < 50*time.Millisecond {
+		t.Fatalf("expected context timeout wait, got %v", elapsed)
+	}
+}
+
+func TestCtxRWMutex_ParallelReaders(t *testing.T) {
+	m := NewCtxRWMutex()
+	var wg sync.WaitGroup
+	numReaders := 5
+	started := make(chan struct{}, numReaders)
+
+	wg.Add(numReaders)
+	for i := 0; i < numReaders; i++ {
+		go func(id int) {
+			defer wg.Done()
+
+			if err := m.RLockContext(context.Background()); err != nil {
+				t.Errorf("reader %d failed to acquire lock: %v", id, err)
+				return
+			}
+			started <- struct{}{} // signal this reader got the lock
+			time.Sleep(50 * time.Millisecond) // simulate work
+			m.RUnlock()
+		}(i)
 	}
 
-	ready := make(chan struct{})
-	done := make(chan struct{})
-
-	go func() {
-		<-ready // wait until main signals to proceed
-		err := lock.Lock(context.Background())
-		if err == nil {
-			t.Error("expected timeout error but got none")
+	// Wait for all readers to start
+	for i := 0; i < numReaders; i++ {
+		select {
+		case <-started:
+			// good
+		case <-time.After(100 * time.Millisecond):
+			t.Fatalf("reader %d did not start in time", i)
 		}
-		close(done)
+	}
+
+	wg.Wait()
+}
+
+func TestCtxRWMutex_WriterBlocksReader(t *testing.T) {
+	m := NewCtxRWMutex()
+	m.Lock()
+
+	var got string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+
+		if err := m.RLockContext(ctx); err != nil {
+			got = err.Error()
+		} else {
+			got = "acquired"
+			m.RUnlock()
+		}
 	}()
 
-	// Increase timeout *before* the goroutine starts waiting
-	lock.SetTimeout(500)
-	if newTimeout := lock.Timeout(); newTimeout != 500*time.Millisecond {
-		t.Errorf("expected timeout to be 500ms, got %v", newTimeout)
-	}
-
-	close(ready) // allow goroutine to try locking (after timeout is updated)
-
-	// Sleep past original timeout but not past new one
-	time.Sleep(100 * time.Millisecond)
-	lock.Unlock() // allow other goroutine to try
-
+	time.Sleep(150 * time.Millisecond)
+	m.Unlock()
 	<-done
+
+	if got == "acquired" {
+		t.Fatal("reader should have timed out while writer held the lock")
+	}
 }
 
-func TestCtxLock_ContextOverridesDefaultTimeout(t *testing.T) {
-	lock := NewCtxLock(500) // Should be overridden by context
+func TestCtxRWMutex_WritersBlockEachOther(t *testing.T) {
+	m := NewCtxRWMutex()
+	m.Lock()
 
-	lock.Lock(context.Background()) // Block lock
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		defer cancel()
+		err := m.LockContext(ctx)
+		if !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("expected deadline exceeded, got: %v", err)
+		}
+	}()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
-	defer cancel()
-
-	start := time.Now()
-	err := lock.Lock(ctx)
-	elapsed := time.Since(start)
-
-	if err == nil || !errors.Is(err, context.DeadlineExceeded) {
-		t.Fatalf("expected context deadline exceeded, got: %v", err)
-	}
-	if elapsed < 90*time.Millisecond || elapsed > 200*time.Millisecond {
-		t.Fatalf("context deadline not respected, waited: %v", elapsed)
-	}
-
-	lock.Unlock()
+	time.Sleep(100 * time.Millisecond)
+	m.Unlock()
+	<-done
 }
