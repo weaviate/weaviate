@@ -1521,7 +1521,7 @@
       }
     },
     "BackupRestoreRequest": {
-      "description": "Request body for restoring a backup for a set of classes",
+      "description": "Request body for restoring a backup for a set of collections (classes)",
       "properties": {
         "config": {
           "description": "Custom configuration for the backup restoration process",
@@ -1529,14 +1529,14 @@
           "$ref": "#/definitions/RestoreConfig"
         },
         "include": {
-          "description": "List of classes to include in the backup restoration process",
+          "description": "List of collections (classes) to include in the backup restoration process",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "exclude": {
-          "description": "List of classes to exclude from the backup restoration process",
+          "description": "List of collections (classes) to exclude from the backup restoration process",
           "type": "array",
           "items": {
             "type": "string"
@@ -1552,14 +1552,14 @@
       }
     },
     "BackupRestoreResponse": {
-      "description": "The definition of a backup restore response body",
+      "description": "The definition of a backup restore response body.",
       "properties": {
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
           "type": "string"
         },
         "classes": {
-          "description": "The list of classes for which the backup restoration process was started",
+          "description": "The list of colletions (classes) for which the backup restoration process was started.",
           "type": "array",
           "items": {
             "type": "string"
@@ -1570,15 +1570,15 @@
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backend",
+          "description": "Destination path of backup files proper to selected backend.",
           "type": "string"
         },
         "error": {
-          "description": "error message if restoration failed",
+          "description": "Error message if restoration failed.",
           "type": "string"
         },
         "status": {
-          "description": "phase of backup restoration process",
+          "description": "Phase of backup restoration process.",
           "type": "string",
           "default": "STARTED",
           "enum": [
@@ -2107,7 +2107,7 @@
     "Object": {
       "properties": {
         "class": {
-          "description": "Class of the Object, defined in the schema.",
+          "description": "Name of the collection (class) the object belongs to.",
           "type": "string"
         },
         "vectorWeights": {
@@ -2117,7 +2117,7 @@
           "$ref": "#/definitions/PropertySchema"
         },
         "id": {
-          "description": "ID of the Object.",
+          "description": "The UUID of the object.",
           "format": "uuid",
           "type": "string"
         },
@@ -2132,15 +2132,15 @@
           "type": "integer"
         },
         "vector": {
-          "description": "This field returns vectors associated with the Object. C11yVector, Vector or Vectors values are possible.",
+          "description": "This field returns vectors associated with the object. C11yVector, Vector or Vectors values are possible.",
           "$ref": "#/definitions/C11yVector"
         },
         "vectors": {
-          "description": "This field returns vectors associated with the Object.",
+          "description": "This field returns vectors associated with the object.",
           "$ref": "#/definitions/Vectors"
         },
         "tenant": {
-          "description": "Name of the Objects tenant.",
+          "description": "The name of the tenant the object belongs to.",
           "type": "string"
         },
         "additional": {
@@ -2167,7 +2167,7 @@
         {
           "properties": {
             "result": {
-              "description": "Results for this specific Object.",
+              "description": "Results for this specific object.",
               "format": "object",
               "properties": {
                 "status": {
@@ -2196,7 +2196,7 @@
           "type": "object",
           "properties": {
             "class": {
-              "description": "Class (name) which objects will be deleted.",
+              "description": "The name of the collection (class) from which to delete objects.",
               "type": "string",
               "example": "City"
             },
@@ -2234,7 +2234,7 @@
           "type": "object",
           "properties": {
             "class": {
-              "description": "Class (name) which objects will be deleted.",
+              "description": "The name of the collection (class) from which to delete objects.",
               "type": "string",
               "example": "City"
             },
@@ -2296,7 +2296,7 @@
                 "format": "object",
                 "properties": {
                   "id": {
-                    "description": "ID of the Object.",
+                    "description": "The UUID of the object.",
                     "format": "uuid",
                     "type": "string"
                   },
@@ -2320,10 +2320,10 @@
       }
     },
     "ObjectsListResponse": {
-      "description": "List of Objects.",
+      "description": "List of objects.",
       "properties": {
         "objects": {
-          "description": "The actual list of Objects.",
+          "description": "The actual list of objects.",
           "items": {
             "$ref": "#/definitions/Object"
           },
@@ -2336,7 +2336,7 @@
           }
         },
         "totalResults": {
-          "description": "The total number of Objects for the query. The number of items in a response may be smaller due to paging.",
+          "description": "The total number of objects for the query. The number of items in a response may be smaller due to paging.",
           "format": "int64",
           "type": "integer"
         }
@@ -2347,18 +2347,18 @@
       "description": "Manage classifications, trigger them and view status of past classifications.",
       "properties": {
         "id": {
-          "description": "ID to uniquely identify this classification run",
+          "description": "ID to uniquely identify this classification run.",
           "format": "uuid",
           "type": "string",
           "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
         },
         "class": {
-          "description": "class (name) which is used in this classification",
+          "description": "The name of the collection (class) which is used in this classification",
           "type": "string",
           "example": "City"
         },
         "classifyProperties": {
-          "description": "which ref-property to set as part of the classification",
+          "description": "Which ref-property to set as part of the classification",
           "type": "array",
           "items": {
             "type": "string"
@@ -2368,7 +2368,7 @@
           ]
         },
         "basedOnProperties": {
-          "description": "base the text-based classification on these fields (of type text)",
+          "description": "Base the text-based classification on these fields (of type text).",
           "type": "array",
           "items": {
             "type": "string"
@@ -2378,7 +2378,7 @@
           ]
         },
         "status": {
-          "description": "status of this classification",
+          "description": "Status of this classification.",
           "type": "string",
           "enum": [
             "running",
@@ -2388,20 +2388,20 @@
           "example": "running"
         },
         "meta": {
-          "description": "additional meta information about the classification",
+          "description": "Additional meta information about the classification.",
           "type": "object",
           "$ref": "#/definitions/ClassificationMeta"
         },
         "type": {
-          "description": "which algorithm to use for classifications",
+          "description": "Which algorithm to use for classifications.",
           "type": "string"
         },
         "settings": {
-          "description": "classification-type specific settings",
+          "description": "Classification-type specific settings.",
           "type": "object"
         },
         "error": {
-          "description": "error message if status == failed",
+          "description": "Error message if status == failed.",
           "type": "string",
           "default": "",
           "example": "classify xzy: something went wrong"
@@ -2410,17 +2410,17 @@
           "type": "object",
           "properties": {
             "sourceWhere": {
-              "description": "limit the objects to be classified",
+              "description": "Limit the objects to be classified.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             },
             "trainingSetWhere": {
-              "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'",
+              "description": "Limit the training objects to be considered during the classification. Can only be used on types with explicit training sets, such as 'knn'.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             },
             "targetWhere": {
-              "description": "Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead",
+              "description": "Limit the possible sources when using an algorithm which doesn't really on training data, e.g. 'contextual'. When using an algorithm with a training set, such as 'knn', limit the training set instead.",
               "type": "object",
               "$ref": "#/definitions/WhereFilter"
             }
@@ -2430,7 +2430,7 @@
       "type": "object"
     },
     "ClassificationMeta": {
-      "description": "Additional information to a specific classification",
+      "description": "Additional information to a specific classification.",
       "properties": {
         "started": {
           "description": "time when this classification was started",
@@ -2727,28 +2727,28 @@
       "type": "integer"
     },
     "CommonIncludeParameterQuery": {
-      "description": "Include additional information, such as classification infos. Allowed values include: classification, vector, interpretation",
+      "description": "Include additional information, such as classification information. Allowed values include: `classification`, `vector` and `interpretation`.",
       "in": "query",
       "name": "include",
       "required": false,
       "type": "string"
     },
     "CommonConsistencyLevelParameterQuery": {
-      "description": "Determines how many replicas must acknowledge a request before it is considered successful",
+      "description": "Determines how many replicas must acknowledge a request before it is considered successful.",
       "in": "query",
       "name": "consistency_level",
       "required": false,
       "type": "string"
     },
     "CommonTenantParameterQuery": {
-      "description": "Specifies the tenant in a request targeting a multi-tenant class",
+      "description": "Specifies the tenant in a request targeting a multi-tenant class.",
       "in": "query",
       "name": "tenant",
       "required": false,
       "type": "string"
     },
     "CommonNodeNameParameterQuery": {
-      "description": "The target node which should fulfill the request",
+      "description": "The target node which should fulfill the request.",
       "in": "query",
       "name": "node_name",
       "required": false,
@@ -2787,12 +2787,12 @@
   "paths": {
     "/": {
       "get": {
-        "description": "Get links to other endpoints to help discover the REST API",
+        "description": "Get links to other endpoints to help discover the REST API.",
         "summary": "List available endpoints",
         "operationId": "weaviate.root",
         "responses": {
           "200": {
-            "description": "Weaviate is alive and ready to serve content",
+            "description": "Weaviate is alive and ready.",
             "schema": {
               "type": "object",
               "properties": {
@@ -2810,50 +2810,51 @@
     },
     "/.well-known/live": {
       "get": {
-        "summary": "Get application liveness.",
-        "description": "Determines whether the application is alive. Can be used for kubernetes liveness probe",
+        "summary": "Check application liveness",
+        "description": "Indicates if the Weaviate instance is running and responsive to basic HTTP requests. Primarily used for health checks, such as Kubernetes liveness probes.",
         "operationId": "weaviate.wellknown.liveness",
         "responses": {
           "200": {
-            "description": "The application is able to respond to HTTP requests"
+            "description": "The application is alive and responding to HTTP requests."
           }
         }
       }
     },
     "/.well-known/ready": {
       "get": {
-        "summary": "Get application readiness.",
-        "description": "Determines whether the application is ready to receive traffic. Can be used for kubernetes readiness probe.",
+        "summary": "Check application readiness",
+        "description": "Indicates if the Weaviate instance has completed its startup routines and is prepared to accept user traffic (data import, queries, etc.). Used for readiness checks, such as Kubernetes readiness probes.",
         "operationId": "weaviate.wellknown.readiness",
         "responses": {
           "200": {
-            "description": "The application has completed its start-up routine and is ready to accept traffic."
+            "description": "The application is ready to serve traffic."
           },
           "503": {
-            "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
+            "description": "The application is not ready to serve traffic. Traffic should be directed to other available replicas if applicable."
           }
         }
       }
     },
     "/.well-known/openid-configuration": {
       "get": {
-        "description": "OIDC Discovery page, redirects to the token issuer if one is configured",
+        "summary": "Get OIDC configuration",
+        "description": "Provides OpenID Connect (OIDC) discovery information if OIDC authentication is configured for Weaviate. Returns details like the token issuer URL, client ID, and required scopes.",
         "responses": {
           "200": {
-            "description": "Successful response, inspect body",
+            "description": "OIDC configuration details returned successfully.",
             "schema": {
               "type": "object",
               "properties": {
                 "href": {
-                  "description": "The Location to redirect to",
+                  "description": "The OIDC issuer URL to redirect to for authentication.",
                   "type": "string"
                 },
                 "clientId": {
-                  "description": "OAuth Client ID",
+                  "description": "The OAuth Client ID configured for Weaviate.",
                   "type": "string"
                 },
                 "scopes": {
-                  "description": "OAuth Scopes",
+                  "description": "The required OAuth scopes for authentication.",
                   "type": "array",
                   "items": {
                     "type": "string"
@@ -2864,16 +2865,15 @@
             }
           },
           "404": {
-            "description": "Not found, no oidc provider present"
+            "description": "OIDC provider is not configured for this Weaviate instance."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving OIDC configuration. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
         },
-        "summary": "OIDC discovery information if OIDC auth is enabled",
         "tags": [
           "well-known",
           "oidc",
@@ -4441,7 +4441,7 @@
             "description": "Successful query result but no matching objects were found."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the specified class exists.",
+            "description": "Request body is well-formed but semantically erroneous. Ensure the specified collection exists.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4461,7 +4461,7 @@
         "x-available-in-websocket": false
       },
       "post": {
-        "description": "Registers a new data object. The object's metadata and schema values are validated before creation.\n\n**Note: Use `/batch` for importing many objects**:\nIf you plan on importing a large number of objects, using the `/batch/objects` endpoint is significantly more efficient than sending multiple single requests.\n\n**Note: idempotence**:\nThis operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.",
+        "description": "Creates a new data object. The object's metadata and schema values are validated before creation.\n\n**Note (batch import)**:\nIf you plan on importing a large number of objects, using the `/batch/objects` endpoint is significantly more efficient than sending multiple single requests.\n\n**Note (idempotence)**:\nThis operation (POST) fails if an object with the provided ID already exists. To update an existing object, use the PUT or PATCH methods.",
         "operationId": "objects.create",
         "x-serviceIds": [
           "weaviate.local.add"
@@ -4833,7 +4833,7 @@
         "parameters": [
           {
             "name": "className",
-            "description": "Name of the collection the object belongs to.",
+            "description": "Name of the collection (class) the object belongs to.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -4905,7 +4905,7 @@
         "x-available-in-websocket": false
       },
       "delete": {
-        "description": "Removes a data object from a specific collection (class), identified by its collection name (`className`) and UUID (`id`).\n\n**Note on Deleting References (Legacy Format):**\nFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.",
+        "description": "Removes a data object from a specific collection (class), identified by its collection name (`className`) and UUID (`id`).\n\n**Note on deleting references (legacy format):**\nFor backward compatibility with older beacon formats (lacking a collection name), deleting a reference requires the beacon in the request to exactly match the stored format. Beacons always use `localhost` as the host, indicating the target is within the same Weaviate instance.",
         "operationId": "objects.class.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5127,14 +5127,14 @@
         "x-available-in-websocket": false
       },
       "head": {
-        "description": "Verifies the existence of a specific data object within a collection (class), identified by `className` and `id`, without returning the object itself.\n\nThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
+        "description": "Verifies the existence of a specific data object within a collection (class), identified by its collection name (`className`) and UUID (`id`), without returning the object itself.\n\nThis is faster than a GET request as it avoids retrieving and processing object data. Existence is confirmed by a 204 No Content status code, while non-existence results in a 404 Not Found.",
         "operationId": "objects.class.head",
         "x-serviceIds": [
           "weaviate.local.manipulate"
         ],
         "parameters": [
           {
-            "description": "Name of the collection the object belongs to.",
+            "description": "Name of the collection (class) the object belongs to.",
             "name": "className",
             "in": "path",
             "required": true,
@@ -5584,7 +5584,7 @@
         ],
         "parameters": [
           {
-            "description": "Name of the collection the source object belongs to.",
+            "description": "Name of the collection (class) the source object belongs to.",
             "name": "className",
             "in": "path",
             "required": true,
@@ -5721,7 +5721,7 @@
     },
     "/batch/objects": {
       "post": {
-        "description": "Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.\n\n**Note: idempotence**:\nThis operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).",
+        "description": "Registers multiple data objects in a single request for efficiency. Metadata and schema values for each object are validated.\n\n**Note (idempotence)**:\nThis operation is idempotent based on the object UUIDs provided. If an object with a given UUID already exists, it will be overwritten (similar to a PUT operation for that specific object within the batch).",
         "operationId": "batch.objects.create",
         "x-serviceIds": [
           "weaviate.local.add"
@@ -6918,8 +6918,8 @@
     },
     "/backups/{backend}": {
       "post": {
-        "summary": "Start a backup process",
-        "description": "Start creating a backup for a set of collections. <br/><br/>Notes: <br/>- Weaviate uses gzip compression by default. <br/>- Weaviate stays usable while a backup process is ongoing.",
+        "summary": "Create a backup",
+        "description": "Initiates the creation of a backup for specified collections on a designated backend storage.\n\nNotes:\n- Backups are compressed using gzip by default.\n- Weaviate remains operational during the backup process.",
         "operationId": "backups.create",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -6933,11 +6933,12 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Backup backend name e.g. `filesystem`, `gcs`, `s3`, `azure`."
+            "description": "Specifies the backend storage system where the backup will be stored (e.g., 'filesystem', 'gcs', 's3', 'azure')."
           },
           {
             "in": "body",
             "name": "body",
+            "description": "Details of the backup request, including the backup ID and collections to include or exclude.",
             "required": true,
             "schema": {
               "$ref": "#/definitions/BackupCreateRequest"
@@ -6946,7 +6947,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Backup create process successfully started.",
+            "description": "Backup creation process initiated successfully. Check the status endpoint for progress.",
             "schema": {
               "$ref": "#/definitions/BackupCreateResponse"
             }
@@ -6961,13 +6962,13 @@
             }
           },
           "422": {
-            "description": "Invalid backup creation attempt.",
+            "description": "Invalid backup creation request. Check the request body and backend configuration.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during backup initiation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6990,12 +6991,12 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Backup backend name e.g. filesystem, gcs, s3."
+            "description": "Specifies the backend storage system to list backups from (e.g., 'filesystem', 'gcs', 's3', 'azure')."
           }
         ],
         "responses": {
           "200": {
-            "description": "Existed backups",
+            "description": "Successfully retrieved the list of backups in progress.",
             "schema": {
               "$ref": "#/definitions/BackupListResponse"
             }
@@ -7010,13 +7011,13 @@
             }
           },
           "422": {
-            "description": "Invalid backup list.",
+            "description": "Invalid request to list backups.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while listing backups. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7026,8 +7027,8 @@
     },
     "/backups/{backend}/{id}": {
       "get": {
-        "summary": "Get backup process status",
-        "description": "Returns status of backup creation attempt for a set of collections. <br/><br/>All client implementations have a `wait for completion` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the `wait for completion` option to false, you can also check the status yourself using this endpoint.",
+        "summary": "Get backup creation status",
+        "description": "Checks the status of a specific backup creation process identified by its ID on the specified backend.\n\nClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "operationId": "backups.create.status",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -7041,33 +7042,33 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Backup backend name e.g. filesystem, gcs, s3."
+            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure')."
           },
           {
             "name": "id",
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
+            "description": "The unique identifier of the backup. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed)."
           },
           {
             "name": "bucket",
             "in": "query",
             "required": false,
             "type": "string",
-            "description": "Name of the bucket, container, volume, etc"
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend."
           },
           {
             "name": "path",
             "in": "query",
             "required": false,
             "type": "string",
-            "description": "The path within the bucket"
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root."
           }
         ],
         "responses": {
           "200": {
-            "description": "Backup creation status successfully returned",
+            "description": "Successfully retrieved the status of the backup creation process.",
             "schema": {
               "$ref": "#/definitions/BackupCreateStatusResponse"
             }
@@ -7082,19 +7083,19 @@
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Backup not found on the specified backend with the given ID.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request to check backup creation status.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while checking backup status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7102,8 +7103,8 @@
         }
       },
       "delete": {
-        "summary": "Cancel backup",
-        "description": "Cancel created backup with specified ID",
+        "summary": "Delete a backup",
+        "description": "Deletes a backup identified by its ID from the specified backend storage.",
         "operationId": "backups.cancel",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -7117,33 +7118,33 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Backup backend name e.g. filesystem, gcs, s3."
+            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure')."
           },
           {
             "name": "id",
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
+            "description": "The unique identifier of the backup to delete. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed)."
           },
           {
             "name": "bucket",
             "in": "query",
             "required": false,
             "type": "string",
-            "description": "Name of the bucket, container, volume, etc"
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend."
           },
           {
             "name": "path",
             "in": "query",
             "required": false,
             "type": "string",
-            "description": "The path within the bucket"
+            "description": "Optional: Specifies the path within the bucket/container/volume if the backup is not at the root."
           }
         ],
         "responses": {
           "204": {
-            "description": "Successfully deleted."
+            "description": "Backup deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -7155,13 +7156,13 @@
             }
           },
           "422": {
-            "description": "Invalid backup cancellation attempt.",
+            "description": "Invalid backup deletion request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during backup deletion. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7171,8 +7172,8 @@
     },
     "/backups/{backend}/{id}/restore": {
       "post": {
-        "summary": "Start a restoration process",
-        "description": "Starts a process of restoring a backup for a set of collections. <br/><br/>Any backup can be restored to any machine, as long as the number of nodes between source and target are identical.<br/><br/>Requrements:<br/><br/>- None of the collections to be restored already exist on the target restoration node(s).<br/>- The node names of the backed-up collections' must match those of the target restoration node(s).",
+        "summary": "Restore from a backup",
+        "description": "Initiates the restoration of collections from a specified backup located on a designated backend.\n\nRequirements:\n- Target cluster must have the same number of nodes as the source cluster where the backup was created.\n- Collections included in the restore must not already exist on the target cluster.\n- Node names must match between the backup and the target cluster.",
         "operationId": "backups.restore",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -7186,18 +7187,19 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Backup backend name e.g. `filesystem`, `gcs`, `s3`, `azure`."
+            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure')."
           },
           {
             "name": "id",
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
+            "description": "The unique identifier of the backup to restore from. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed)."
           },
           {
             "in": "body",
             "name": "body",
+            "description": "Details of the restore request, including collections to include or exclude and node mapping if necessary.",
             "required": true,
             "schema": {
               "$ref": "#/definitions/BackupRestoreRequest"
@@ -7206,7 +7208,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Backup restoration process successfully started.",
+            "description": "Backup restoration process initiated successfully. Check the status endpoint for progress.",
             "schema": {
               "$ref": "#/definitions/BackupRestoreResponse"
             }
@@ -7221,19 +7223,19 @@
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Backup not found on the specified backend with the given ID.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration attempt.",
+            "description": "Invalid backup restoration request. Check requirements and request body.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during restore initiation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7241,8 +7243,8 @@
         }
       },
       "get": {
-        "summary": "Get restore process status",
-        "description": "Returns status of a backup restoration attempt for a set of classes. <br/><br/>All client implementations have a `wait for completion` option which will poll the backup status in the background and only return once the backup has completed (successfully or unsuccessfully). If you set the `wait for completion` option to false, you can also check the status yourself using the this endpoint.",
+        "summary": "Get backup restoration status",
+        "description": "Checks the status of a specific backup restoration process identified by the backup ID on the specified backend.\n\nClient libraries often provide a 'wait for completion' feature that polls this endpoint automatically. Use this endpoint for manual status checks or if 'wait for completion' is disabled.",
         "operationId": "backups.restore.status",
         "x-serviceIds": [
           "weaviate.local.backup"
@@ -7256,33 +7258,33 @@
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "Backup backend name e.g. `filesystem`, `gcs`, `s3`, `azure`."
+            "description": "Specifies the backend storage system where the backup resides (e.g., 'filesystem', 'gcs', 's3', 'azure')."
           },
           {
             "name": "id",
             "in": "path",
             "required": true,
             "type": "string",
-            "description": "The ID of a backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed."
+            "description": "The unique identifier of the backup being restored. Must be URL-safe and compatible with filesystem paths (only lowercase, numbers, underscore, minus characters allowed)."
           },
           {
             "name": "bucket",
             "in": "query",
             "required": false,
             "type": "string",
-            "description": "Name of the bucket, container, volume, etc"
+            "description": "Optional: Specifies the bucket, container, or volume name if required by the backend."
           },
           {
             "name": "path",
             "in": "query",
             "required": false,
             "type": "string",
-            "description": "The path within the bucket"
+            "description": "Optional: Specifies the path within the bucket."
           }
         ],
         "responses": {
           "200": {
-            "description": "Backup restoration status successfully returned",
+            "description": "Successfully retrieved the status of the backup restoration process.",
             "schema": {
               "$ref": "#/definitions/BackupRestoreStatusResponse"
             }
@@ -7297,13 +7299,13 @@
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Backup not found on the specified backend with the given ID.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while checking restore status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7622,11 +7624,12 @@
   "swagger": "2.0",
   "tags": [
     {
-      "name": "objects"
+      "name": "objects",
+      "description": "Operations for managing individual data objects. Objects are the primary units of data stored within Weaviate collections. Each object conforms to the data schema definition of its parent collection, containing specific properties (data fields). Objects have one or multiple associated vector embeddings and can link to other objects via cross-references. These endpoints allow you to perform CRUD (Create, Read, Update, Delete) operations on individual data objects."
     },
     {
       "name": "batch",
-      "description": "These operations allow to execute batch requests for Objects and Objects. Mostly used for importing large datasets."
+      "description": "Operations for performing actions on multiple data items (objects or references) in a single API request. Batch operations significantly improve performance and efficiency, especially for bulk data imports or large-scale deletions, by reducing network overhead compared to sending individual requests. These endpoints allow for creating multiple objects or deleting objects based on filters."
     },
     {
       "name": "graphql"
@@ -7643,7 +7646,11 @@
     },
     {
       "name": "schema",
-      "description": "Operations related to managing collection schemas. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://weaviate.io/developers/weaviate/manage-data/collections](https://weaviate.io/developers/weaviate/manage-data/collections)."
+      "description": "Operations related to managing collections. In Weaviate, 'collections' (formerly called 'classes') store your data objects. Each collection has a definition that specifies its data structure (properties and their data types), vectorizer settings (how vectors are generated or managed), and indexing configuration (how data is indexed for efficient search). These endpoints allow you to create, retrieve, update, and delete collection definitions. For detailed usage and code examples on interacting with collections, see the documentation: [https://weaviate.io/developers/weaviate/manage-data/collections](https://weaviate.io/developers/weaviate/manage-data/collections)."
+    },
+    {
+      "name": "backups",
+      "description": "Operations related to creating and managing backups of Weaviate data. This feature allows you to create snapshots of your collections and store them on external storage backends such as cloud object storage (S3, GCS, Azure) or a shared filesystem. These endpoints enable you to initiate backup and restore processes, monitor their status, list available backups on a backend, and delete unwanted backups. Backups are essential for disaster recovery, data migration, and maintaining point-in-time copies of your vector database."
     }
   ]
 }
