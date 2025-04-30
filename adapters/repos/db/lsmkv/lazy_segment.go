@@ -144,7 +144,13 @@ func (s *lazySegment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
 }
 
 func (s *lazySegment) close() error {
-	s.mustLoad()
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	if s.segment == nil {
+		return nil
+	}
+
 	return s.segment.close()
 }
 
