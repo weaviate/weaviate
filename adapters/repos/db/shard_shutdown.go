@@ -90,24 +90,14 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 				if err := queue.Close(); err != nil {
 					ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
 				}
-				return nil
-			})
-		}
 
-		// we have to close queue before index for versions before 1.28
-		if err = eg.Wait(); err != nil {
-			ec.Add(err)
-		}
+				vectorIndex := s.vectorIndexes[targetVector]
+				if vectorIndex == nil {
+					// a nil-vector index during shutdown would indicate that the shard was not
+					// fully initialized, the vector index shutdown becomes a no-op
+					return nil
+				}
 
-		for targetVector, vectorIndex := range s.vectorIndexes {
-			if vectorIndex == nil {
-				// a nil-vector index during shutdown would indicate that the shard was not
-				// fully initialized, the vector index shutdown becomes a no-op
-				continue
-			}
-
-			targetVector, vectorIndex := targetVector, vectorIndex // capture loop variables
-			eg.Go(func() error {
 				if err := vectorIndex.Flush(); err != nil {
 					ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
 				}
@@ -115,6 +105,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 				if err := vectorIndex.Shutdown(ctx); err != nil {
 					ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
 				}
+
 				return nil
 			})
 		}

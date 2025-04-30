@@ -98,22 +98,11 @@ func (s *Shard) drop() (err error) {
 				if dropErr := queue.Drop(); dropErr != nil {
 					return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), dropErr)
 				}
-				return nil
-			})
-		}
 
-		// we have to close queue before index for versions before 1.28
-		if err = eg.Wait(); err != nil {
-			return err
-		}
-
-		for targetVector, vectorIndex := range s.vectorIndexes {
-			targetVector, vectorIndex := targetVector, vectorIndex // capture loop variables
-			eg.Go(func() error {
-				// Remove err from closure scope, use local error
-				if dropErr := vectorIndex.Drop(ctx); dropErr != nil {
-					return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), dropErr)
+				if err := s.vectorIndexes[targetVector].Drop(ctx); err != nil {
+					return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
 				}
+
 				return nil
 			})
 		}
