@@ -135,6 +135,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	// Note: it's important to process first the compacted segments
 	// TODO: a single iteration may be possible
 
+	errors := make([]error, 0, len(list))
+	brokenFiles := make([]string, 0, len(list))
 	for _, entry := range list {
 		if filepath.Ext(entry.Name()) != ".tmp" {
 			continue
@@ -150,9 +152,10 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		jointSegments := segmentID(potentialCompactedSegmentFileName)
 		jointSegmentsIDs := strings.Split(jointSegments, "_")
 
+		compactionSegmentPath := filepath.Join(sg.dir, entry.Name())
 		if len(jointSegmentsIDs) == 1 {
 			// cleanup leftover, to be removed
-			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+			if err := os.Remove(compactionSegmentPath); err != nil {
 				return nil, fmt.Errorf("delete partially cleaned segment %q: %w", entry.Name(), err)
 			}
 			continue
@@ -160,7 +163,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		if len(jointSegmentsIDs) != 2 {
 			logger.WithField("action", "lsm_segment_init").
-				WithField("path", filepath.Join(sg.dir, entry.Name())).
+				WithField("path", compactionSegmentPath).
 				Warn("ignored (partially written) LSM compacted segment generated with a version older than v1.24.0")
 
 			continue
@@ -174,23 +177,39 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		leftSegmentFound, err := fileExists(leftSegmentPath)
 		if err != nil {
-			return nil, fmt.Errorf("check for presence of segment %s: %w", leftSegmentFilename, err)
+			logger.WithError(err).WithField("segment_path", leftSegmentPath).WithField("compaction_segment_path", compactionSegmentPath).
+				Errorf("error checking existence of left segment '%s' from compaction file '%s'", leftSegmentPath, compactionSegmentPath)
+			errors = append(errors, err)
+			brokenFiles = append(brokenFiles, leftSegmentPath)
+			// return nil, fmt.Errorf("check for presence of segment %s: %w", leftSegmentFilename, err)
 		}
 
 		rightSegmentFound, err := fileExists(rightSegmentPath)
 		if err != nil {
-			return nil, fmt.Errorf("check for presence of segment %s: %w", rightSegmentFilename, err)
+			logger.WithError(err).WithField("segment_path", rightSegmentPath).WithField("compaction_segment_path", compactionSegmentPath).
+				Errorf("error checking existence of right segment '%s' from compaction file '%s'", rightSegmentPath, compactionSegmentPath)
+			errors = append(errors, err)
+			brokenFiles = append(brokenFiles, rightSegmentPath)
+			// return nil, fmt.Errorf("check for presence of segment %s: %w", rightSegmentFilename, err)
 		}
 
 		if leftSegmentFound && rightSegmentFound {
-			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
-				return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry.Name(), err)
+			if err := os.Remove(compactionSegmentPath); err != nil {
+				logger.WithError(err).WithField("segment_path", compactionSegmentPath).WithField("compaction_segment_path", compactionSegmentPath).
+					Errorf("failed to delete partially compacted segment '%s' from disk", compactionSegmentPath)
+				errors = append(errors, err)
+				brokenFiles = append(brokenFiles, compactionSegmentPath)
+				// return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry.Name(), err)
 			}
 			continue
 		}
 
 		if leftSegmentFound && !rightSegmentFound {
-			return nil, fmt.Errorf("missing right segment %q", rightSegmentFilename)
+			logger.WithError(err).WithField("segment_path", rightSegmentPath).WithField("compaction_segment_path", compactionSegmentPath).
+				Errorf("right segment '%s' not found during compaction file '%s'", rightSegmentPath, compactionSegmentPath)
+			errors = append(errors, err)
+			brokenFiles = append(brokenFiles, rightSegmentPath)
+			// return nil, fmt.Errorf("missing right segment %q", rightSegmentFilename)
 		}
 
 		if !leftSegmentFound && rightSegmentFound {
@@ -207,12 +226,20 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 					MinMMapSize:              sg.MinMMapSize,
 				})
 			if err != nil {
-				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
+				logger.WithError(err).WithField("segment_path", rightSegmentPath).WithField("compaction_segment_path", compactionSegmentPath).
+					Errorf("init already compacted right segment %s", rightSegmentFilename)
+				errors = append(errors, err)
+				brokenFiles = append(brokenFiles, rightSegmentPath)
+				// return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
 			err = rightSegment.close()
 			if err != nil {
-				return nil, fmt.Errorf("close already compacted right segment %s: %w", rightSegmentFilename, err)
+				logger.WithError(err).WithField("segment_path", rightSegmentPath).WithField("compaction_segment_path", compactionSegmentPath).
+					Errorf("close already compacted right segment %s", rightSegmentFilename)
+				errors = append(errors, err)
+				brokenFiles = append(brokenFiles, rightSegmentPath)
+				// return nil, fmt.Errorf("close already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
 			// https://github.com/weaviate/weaviate/pull/6128 introduces the ability
@@ -232,17 +259,29 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			// The total time is the same, so we can also just drop it immediately.
 			err = rightSegment.dropImmediately()
 			if err != nil {
-				return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
+				logger.WithError(err).WithField("segment_path", rightSegmentPath).WithField("compaction_segment_path", compactionSegmentPath).
+					Errorf("delete already compacted right segment %s", rightSegmentFilename)
+				errors = append(errors, err)
+				brokenFiles = append(brokenFiles, rightSegmentPath)
+				// return nil, fmt.Errorf("delete already compacted right segment %s: %w", rightSegmentFilename, err)
 			}
 
 			err = fsync(sg.dir)
 			if err != nil {
-				return nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
+				logger.WithError(err).WithField("segment_path", rightSegmentPath).WithField("compaction_segment_path", compactionSegmentPath).
+					Errorf("fsync already compacted right segment %s", rightSegmentFilename)
+				errors = append(errors, err)
+				brokenFiles = append(brokenFiles, rightSegmentPath)
+				// return nil, fmt.Errorf("fsync segment directory %s: %w", sg.dir, err)
 			}
 		}
 
-		if err := os.Rename(filepath.Join(sg.dir, entry.Name()), rightSegmentPath); err != nil {
-			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry.Name(), rightSegmentFilename, err)
+		if err := os.Rename(compactionSegmentPath, rightSegmentPath); err != nil {
+			logger.WithError(err).WithField("segment_path", compactionSegmentPath).WithField("compaction_segment_path", compactionSegmentPath).
+				Errorf("rename compacted segment file %q as %q", compactionSegmentPath, rightSegmentFilename)
+			errors = append(errors, err)
+			brokenFiles = append(brokenFiles, compactionSegmentPath)
+			// return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry.Name(), rightSegmentFilename, err)
 		}
 
 		segment, err := newSegment(rightSegmentPath, logger,
@@ -257,12 +296,17 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			},
 		)
 		if err != nil {
-			return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
+			logger.WithError(err).WithField("segment_path", rightSegmentPath).WithField("compaction_segment_path", compactionSegmentPath).
+				Errorf("init segment %s", rightSegmentFilename)
+			errors = append(errors, err)
+			brokenFiles = append(brokenFiles, rightSegmentPath)
+			// return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
 		}
 
-		sg.segments[segmentIndex] = segment
-		segmentIndex++
-
+		if segment != nil {
+			sg.segments[segmentIndex] = segment
+			segmentIndex++
+		}
 		segmentsAlreadyRecoveredFromCompaction[rightSegmentFilename] = struct{}{}
 	}
 
@@ -301,11 +345,16 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("check for presence of wals for segment %s: %w",
 				entry.Name(), err)
 		}
+		segmentPath := filepath.Join(sg.dir, entry.Name())
 		if ok {
 			// the segment will be recovered from the WAL
-			err := os.Remove(filepath.Join(sg.dir, entry.Name()))
+			err := os.Remove(segmentPath)
 			if err != nil {
-				return nil, fmt.Errorf("delete partially written segment %s: %w", entry.Name(), err)
+				logger.WithError(err).WithField("segment_path", segmentPath).
+					Errorf("failed to delete partially written segment %s", segmentPath)
+				errors = append(errors, err)
+				brokenFiles = append(brokenFiles, segmentPath)
+				// return nil, fmt.Errorf("delete partially written segment %s: %w", entry.Name(), err)
 			}
 
 			logger.WithField("action", "lsm_segment_init").
@@ -317,7 +366,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			continue
 		}
 
-		segment, err := newSegment(filepath.Join(sg.dir, entry.Name()), logger,
+		segment, err := newSegment(segmentPath, logger,
 			metrics, sg.makeExistsOnLower(segmentIndex),
 			segmentConfig{
 				mmapContents:             sg.mmapContents,
@@ -328,11 +377,26 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				MinMMapSize:              sg.MinMMapSize,
 			})
 		if err != nil {
-			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
+			logger.WithError(err).WithField("segment_path", segmentPath).
+				Errorf("failed to load segment '%s' from disk.", segmentPath)
+			errors = append(errors, err)
+			brokenFiles = append(brokenFiles, segmentPath)
+			// return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
 		}
 
-		sg.segments[segmentIndex] = segment
-		segmentIndex++
+		if segment != nil {
+			sg.segments[segmentIndex] = segment
+			segmentIndex++
+		}
+	}
+
+	if len(errors) > 0 {
+		logger.WithField("action", "lsm_segment_init").
+			WithField("path", sg.dir).
+			WithField("broken_files", brokenFiles).
+			Errorf("encountered %d error(s) while loading segments: %v. Loading the shard will fail to avoid possible data corruption. To proceed loading with shard regardless, delete or move them outside of the segment directory.", len(errors), errors)
+
+		return nil, fmt.Errorf("init segments: error loading %d segment(s) from disk: %v", len(errors), errors)
 	}
 
 	sg.segments = sg.segments[:segmentIndex]
