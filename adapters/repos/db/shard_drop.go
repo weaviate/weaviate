@@ -19,9 +19,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 // IMPORTANT:
@@ -88,38 +86,16 @@ func (s *Shard) drop() (err error) {
 	}
 
 	if s.hasTargetVectors() {
-		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(s.index.logger, ctx)
-		eg.SetLimit(_NUMCPU)
-
+		// TODO run in parallel?
 		for targetVector, queue := range s.queues {
-			targetVector, queue := targetVector, queue // capture loop variables
-			eg.Go(func() error {
-				// Remove err from closure scope, use local error
-				if dropErr := queue.Drop(); dropErr != nil {
-					return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), dropErr)
-				}
-				return nil
-			})
+			if err = queue.Drop(); err != nil {
+				return fmt.Errorf("close queue of vector %q at %s: %w", targetVector, s.path(), err)
+			}
 		}
-
-		// we have to close queue before index for versions before 1.28
-		if err = eg.Wait(); err != nil {
-			return err
-		}
-
 		for targetVector, vectorIndex := range s.vectorIndexes {
-			targetVector, vectorIndex := targetVector, vectorIndex // capture loop variables
-			eg.Go(func() error {
-				// Remove err from closure scope, use local error
-				if dropErr := vectorIndex.Drop(ctx); dropErr != nil {
-					return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), dropErr)
-				}
-				return nil
-			})
-		}
-
-		if err = eg.Wait(); err != nil {
-			return err
+			if err = vectorIndex.Drop(ctx); err != nil {
+				return fmt.Errorf("remove vector index of vector %q at %s: %w", targetVector, s.path(), err)
+			}
 		}
 	} else {
 		// delete queue cursor
