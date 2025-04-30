@@ -17,6 +17,7 @@ import (
 	"sync"
 	"time"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -44,12 +45,12 @@ func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
 	done := make(chan bool, 1)
-	go func() {
+	enterrors.GoWrapper( func() {
 		defer close(done)
 		m.rwlock.Lock()
 		done <- true
 		time.Sleep(1000 * time.Millisecond)
-	}()
+	}, nil)
 
 	select {
 	case <-done:
@@ -62,10 +63,10 @@ func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 
 func (m *CtxRWMutex) LockContextWithTimeout(ctx context.Context, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
-	go func() {
+	enterrors.GoWrapper(func() {
 		time.Sleep(timeout)
 		cancel()
-	}()
+	}, nil)
 	return m.LockContext(ctx)
 }
 
@@ -96,12 +97,12 @@ func (m *CtxRWMutex) RLockContext(ctx context.Context) error {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
 	done := make(chan bool, 1)
-	go func() {
+	enterrors.GoWrapper(func() {
 		defer close(done)
 		m.rwlock.RLock()
 		done <- true
 		time.Sleep(1000 * time.Millisecond)
-	}()
+	}, nil)
 
 	select {
 	case <-done:
@@ -114,10 +115,10 @@ func (m *CtxRWMutex) RLockContext(ctx context.Context) error {
 
 func (m *CtxRWMutex) RLockContextWithTimeout(ctx context.Context, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
-	go func() {
+	enterrors.GoWrapper(func() {
 		time.Sleep(timeout)
 		cancel()
-	}()
+	}, nil)
 	return m.RLockContext(ctx)
 }
 
