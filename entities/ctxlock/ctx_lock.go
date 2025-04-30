@@ -23,9 +23,10 @@ import (
 
 var ErrCtxTimeout = errors.New("ctxsync: lock acquisition timed out")
 
+// CtxRWMutex is a context-aware read/write mutex
 type CtxRWMutex struct {
-	rwlock   sync.RWMutex
-	location string
+	rwlock   sync.RWMutex // The underlying RWMutex
+	location string       // The location of the mutex, used for monitoring
 }
 
 // NewCtxRWMutex creates a new context-aware read/write mutex
@@ -36,6 +37,7 @@ func NewCtxRWMutex(location string) *CtxRWMutex {
 	}
 }
 
+// CtxRWLocation sets the location for the mutex, used for monitoring
 func (m *CtxRWMutex) CtxRWLocation(location string) {
 	m.location = location
 }
@@ -45,7 +47,7 @@ func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
 	done := make(chan bool, 1)
-	enterrors.GoWrapper( func() {
+	enterrors.GoWrapper(func() {
 		defer close(done)
 		m.rwlock.Lock()
 		done <- true
@@ -61,6 +63,7 @@ func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 	}
 }
 
+// LockContextWithTimeout acquires the write lock or returns an error on timeout/cancel
 func (m *CtxRWMutex) LockContextWithTimeout(ctx context.Context, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	enterrors.GoWrapper(func() {
@@ -70,6 +73,7 @@ func (m *CtxRWMutex) LockContextWithTimeout(ctx context.Context, timeout time.Du
 	return m.LockContext(ctx)
 }
 
+// Lock acquires the write lock
 func (m *CtxRWMutex) Lock() {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	m.rwlock.Lock()
@@ -77,6 +81,7 @@ func (m *CtxRWMutex) Lock() {
 	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
 }
 
+// TryLock attempts to acquire the write lock without blocking
 func (m *CtxRWMutex) TryLock() bool {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	ret := m.rwlock.TryLock()
@@ -85,6 +90,7 @@ func (m *CtxRWMutex) TryLock() bool {
 	return ret
 }
 
+// Unlock releases the write lock
 func (m *CtxRWMutex) Unlock() {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	m.rwlock.Unlock()
@@ -113,6 +119,7 @@ func (m *CtxRWMutex) RLockContext(ctx context.Context) error {
 	}
 }
 
+// RLockContextWithTimeout acquires the read lock or returns on context cancel/timeout
 func (m *CtxRWMutex) RLockContextWithTimeout(ctx context.Context, timeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	enterrors.GoWrapper(func() {
@@ -122,6 +129,7 @@ func (m *CtxRWMutex) RLockContextWithTimeout(ctx context.Context, timeout time.D
 	return m.RLockContext(ctx)
 }
 
+// RLock acquires the read lock
 func (m *CtxRWMutex) RLock() {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
@@ -129,6 +137,7 @@ func (m *CtxRWMutex) RLock() {
 	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
 }
 
+// TryRLock attempts to acquire the read lock without blocking
 func (m *CtxRWMutex) TryRLock() bool {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
@@ -137,6 +146,7 @@ func (m *CtxRWMutex) TryRLock() bool {
 	return ret
 }
 
+// RUnlock releases the read lock
 func (m *CtxRWMutex) RUnlock() {
 	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Dec()
 	m.rwlock.RUnlock()
