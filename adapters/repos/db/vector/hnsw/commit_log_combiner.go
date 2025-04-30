@@ -14,6 +14,8 @@ package hnsw
 import (
 	"io"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/pkg/errors"
@@ -38,7 +40,10 @@ func NewCommitLogCombiner(rootPath, id string, threshold int64,
 	}
 }
 
-func (c *CommitLogCombiner) Do() (bool, error) {
+func (c *CommitLogCombiner) Do(partitions ...string) (bool, error) {
+	// ensure partitions are sorted
+	sort.Strings(partitions)
+
 	executed := false
 	for {
 		// fileNames will already be in order
@@ -47,19 +52,54 @@ func (c *CommitLogCombiner) Do() (bool, error) {
 			return executed, errors.Wrap(err, "obtain files names")
 		}
 
-		ok, err := c.combineFirstMatch(fileNames)
-		if err != nil {
-			return executed, err
+		anyOk := false
+		for _, partFileNames := range c.partitonFileNames(fileNames, partitions) {
+			ok, err := c.combineFirstMatch(partFileNames)
+			if err != nil {
+				return executed, err
+			}
+			anyOk = anyOk || ok
 		}
-
-		if ok {
-			executed = true
-			continue
+		if !anyOk {
+			break
 		}
-
-		break
+		executed = true
 	}
 	return executed, nil
+}
+
+func (c *CommitLogCombiner) partitonFileNames(fileNames, partitions []string) [][]string {
+	if len(fileNames) == 0 {
+		return [][]string{}
+	}
+	if len(partitions) == 0 {
+		return [][]string{fileNames}
+	}
+
+	partitioned := make([][]string, 0, len(partitions)+1)
+
+	i := 0
+	partFileNames := []string{}
+	for _, partition := range partitions {
+		for ; i < len(fileNames); i++ {
+			logname := strings.TrimSuffix(filepath.Base(fileNames[i]), ".condensed")
+			if strings.Compare(logname, partition) > 0 {
+				break
+			}
+			partFileNames = append(partFileNames, fileNames[i])
+		}
+		if len(partFileNames) > 0 {
+			partitioned = append(partitioned, partFileNames)
+			partFileNames = []string{}
+		}
+	}
+	for ; i < len(fileNames); i++ {
+		partFileNames = append(partFileNames, fileNames[i])
+	}
+	if len(fileNames) > 0 {
+		partitioned = append(partitioned, partFileNames)
+	}
+	return partitioned
 }
 
 func (c *CommitLogCombiner) combineFirstMatch(fileNames []string) (bool, error) {
