@@ -33,7 +33,7 @@ const (
 // Multivector configuration
 type MultivectorConfig struct {
 	Enabled      bool         `json:"enabled"`
-	MuveraConfig MuveraConfig `json:"muveraConfig"`
+	MuveraConfig MuveraConfig `json:"muvera"`
 	Aggregation  string       `json:"aggregation"`
 }
 
@@ -88,7 +88,7 @@ func parseMultivectorMap(in map[string]interface{}, multivector *MultivectorConf
 		return err
 	}
 
-	muveraValue, ok := multivectorConfigMap["muveraConfig"]
+	muveraValue, ok := multivectorConfigMap["muvera"]
 	if !ok {
 		return nil
 	}
