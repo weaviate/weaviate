@@ -620,13 +620,20 @@ func (l *hnswCommitLogger) condenseOldLogs() (bool, error) {
 	return false, nil
 }
 
-func (l *hnswCommitLogger) combineLogs() (bool, error) {
+// partitions marks commitlogs (left ones) that should not be combined with
+// logs on the right side (newer ones). Given logs
+// 0001.condensed, 0002.condensed, 0003.condensed and 0004.condensed
+// with partitions = "0002", only logs <older than equal 0002.condensed>
+// or <newer than 0002.condensed> can be combined with each other
+// (0001+0002 or 0003+0004, NOT 0002+0003)
+// partitions should be given as filenames without extentions (0001, 0002)
+func (l *hnswCommitLogger) combineLogs(partitions ...string) (bool, error) {
 	// maxSize is the desired final size, since we assume a lot of redundancy we
 	// can set the combining threshold higher than the final threshold under the
 	// assumption that the combined file will be considerably smaller than the
 	// sum of both input files
 	threshold := l.logCombiningThreshold()
-	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do()
+	return NewCommitLogCombiner(l.rootPath, l.id, threshold, l.logger).Do(partitions...)
 }
 
 func (l *hnswCommitLogger) logCombiningThreshold() int64 {
