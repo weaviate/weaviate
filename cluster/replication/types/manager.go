@@ -24,7 +24,7 @@ type Manager interface {
 	// GetReplicationDetailsByReplicationId retrieves the details of a replication operation by its UUID.
 	//
 	// Parameters:
-	//   - id: The unique identifier for the replication operation (strfmt.UUID).
+	//   - uuid: The unique identifier for the replication operation (strfmt.UUID).
 	//
 	// Returns:
 	//   - api.ReplicationDetailsResponse: Contains the details of the requested replication operation.
