@@ -237,7 +237,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	// segment load order is as follows:
 	// - find .tmp files and recover them first
 	// - find .db files and load them
-	//   - if there is a .wal file exists fomr a .db, remove the .db file
+	//   - if there is a .wal file exists for a .db, remove the .db file
 	// - find .wal files and load them into a memtable
 	//   - flush the memtable to a segment file
 	// Thus, files may be loaded in a different order than they were created,
