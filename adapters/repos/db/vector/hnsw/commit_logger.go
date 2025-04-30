@@ -24,7 +24,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -566,9 +565,6 @@ func (l *hnswCommitLogger) combineLogs() (bool, error) {
 }
 
 func (l *hnswCommitLogger) Drop(ctx context.Context) error {
-	l.Lock()
-	defer l.Unlock()
-
 	if err := l.commitLogger.Close(); err != nil {
 		return errors.Wrap(err, "close hnsw commit logger prior to delete")
 	}

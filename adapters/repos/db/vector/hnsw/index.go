@@ -24,7 +24,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
@@ -595,9 +594,6 @@ func (h *hnsw) nodeByID(id uint64) *vertex {
 }
 
 func (h *hnsw) Drop(ctx context.Context) error {
-	h.Lock()
-	defer h.Unlock()
-
 	// cancel tombstone cleanup goroutine
 	if err := h.tombstoneCleanupCallbackCtrl.Unregister(ctx); err != nil {
 		return errors.Wrap(err, "hnsw drop")
@@ -624,9 +620,6 @@ func (h *hnsw) Drop(ctx context.Context) error {
 }
 
 func (h *hnsw) Shutdown(ctx context.Context) error {
-	h.Lock()
-	defer h.Unlock()
-
 	h.shutdownCtxCancel()
 
 	if err := h.commitLog.Shutdown(ctx); err != nil {
