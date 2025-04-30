@@ -97,7 +97,7 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 		Collection:   op.SourceShard.CollectionId,
 		SourceNodeId: op.SourceShard.NodeId,
 		TargetNodeId: op.TargetShard.NodeId,
-		Status:       status.state.String(),
+		Status:       status.State.String(),
 	}
 
 	payload, err := json.Marshal(response)

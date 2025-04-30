@@ -23,9 +23,9 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-type shardReplicationOpStatus struct {
+type ShardReplicationOpStatus struct {
 	// state is the current state of the shard replication operation
-	state api.ShardReplicationState
+	State api.ShardReplicationState
 }
 
 type ShardReplicationOp struct {
@@ -34,6 +34,24 @@ type ShardReplicationOp struct {
 	// Targeting information of the replication operation
 	SourceShard shardFQDN
 	TargetShard shardFQDN
+}
+
+type ShardReplicationOpAndStatus struct {
+	Op     ShardReplicationOp
+	Status ShardReplicationOpStatus
+}
+
+func NewShardReplicationOpAndStatus(op ShardReplicationOp, status ShardReplicationOpStatus) ShardReplicationOpAndStatus {
+	return ShardReplicationOpAndStatus{
+		Op:     op,
+		Status: status,
+	}
+}
+
+func NewShardReplicationStatus(state api.ShardReplicationState) ShardReplicationOpStatus {
+	return ShardReplicationOpStatus{
+		State: state,
+	}
 }
 
 func (s ShardReplicationOp) MarshalText() (text []byte, err error) {
@@ -73,7 +91,7 @@ type ShardReplicationFSM struct {
 	// opsByShard stores opId -> replicationOp
 	opsById map[uint64]ShardReplicationOp
 	// opsStatus stores op -> opStatus
-	opsStatus map[ShardReplicationOp]shardReplicationOpStatus
+	opsStatus map[ShardReplicationOp]ShardReplicationOpStatus
 
 	opsByStateGauge *prometheus.GaugeVec
 }
@@ -86,7 +104,7 @@ func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 		opsByShard:      make(map[string][]ShardReplicationOp),
 		opsByTargetFQDN: make(map[shardFQDN]ShardReplicationOp),
 		opsById:         make(map[uint64]ShardReplicationOp),
-		opsStatus:       make(map[ShardReplicationOp]shardReplicationOpStatus),
+		opsStatus:       make(map[ShardReplicationOp]ShardReplicationOpStatus),
 	}
 
 	fsm.opsByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
@@ -99,7 +117,7 @@ func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 }
 
 type snapshot struct {
-	Ops map[ShardReplicationOp]shardReplicationOpStatus
+	Ops map[ShardReplicationOp]ShardReplicationOpStatus
 }
 
 func (s *ShardReplicationFSM) Snapshot() ([]byte, error) {
@@ -152,14 +170,15 @@ func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp 
 	return s.opsByTarget[node]
 }
 
-func (s shardReplicationOpStatus) ShouldRestartOp() bool {
-	return s.state == api.REGISTERED || s.state == api.HYDRATING
+func (s ShardReplicationOpStatus) ShouldConsumeOps() bool {
+	return s.State != api.ABORTED
 }
 
-func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) shardReplicationOpStatus {
+func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicationOpStatus, bool) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	return s.opsStatus[op]
+	v, ok := s.opsStatus[op]
+	return v, ok
 }
 
 func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
@@ -205,7 +224,7 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	// Filter read/write based on the state of the replica
 	readOk := false
 	writeOk := false
-	switch opState.state {
+	switch opState.State {
 	case api.FINALIZING:
 		writeOk = true
 	case api.READY:
@@ -214,9 +233,4 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	default:
 	}
 	return readOk, writeOk
-}
-
-// IsOpCompletedOrInProgress returns true if the given replication operation has started or completed execution.
-func (s *ShardReplicationFSM) IsOpCompletedOrInProgress(op ShardReplicationOp) bool {
-	return api.REGISTERED != s.GetOpState(op).state
 }
