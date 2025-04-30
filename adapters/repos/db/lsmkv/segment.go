@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/mmap"
 	"github.com/willf/bloom"
 )
@@ -83,6 +84,7 @@ type segmentConfig struct {
 	overwriteDerived         bool
 	enableChecksumValidation bool
 	MinMMapSize              int64
+	allocChecker             memwatch.AllocChecker
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -127,14 +129,22 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	// mmap has some overhead, we can read small files directly to memory
 	var contents []byte
 	var unMapContents bool
-	if size > cfg.MinMMapSize {
+
+	if size <= cfg.MinMMapSize { // check if it is a candidate for mmap
+		err = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
+		if err != nil {
+			logger.WithError(err).Errorf("memory pressure: cannot mmap segment")
+		}
+	}
+
+	if size > cfg.MinMMapSize || err != nil { // mmap the file if it's too large or if we have memory pressure
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
 		}
 		contents = contents2
 		unMapContents = true
-	} else {
+	} else { // read the file into memory if it's small enough and we have enough memory
 		contents, err = io.ReadAll(file)
 		if err != nil {
 			return nil, fmt.Errorf("read file: %w", err)
