@@ -71,7 +71,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		createdAt:                time.Now(),
 		metrics:                  newMemtableMetrics(metrics, filepath.Dir(path), strategy),
 		enableChecksumValidation: enableChecksumValidation,
-		lockTimeout:              30 * time.Second,
+		lockTimeout:              10 * time.Second,
 	}
 
 	m.CtxRWLocation("memtable")
