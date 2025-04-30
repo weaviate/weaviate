@@ -75,18 +75,56 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		logOnceWhenRecoveringFromWAL.Do(func() {
 			b.logger.WithField("action", "lsm_recover_from_active_wal").
 				WithField("path", b.dir).
-				Warning("active write-ahead-log found. Did weaviate crash prior to this?")
+				Warning("active write-ahead-log found")
 		})
 	}
 
 	// recover from each log
-	for _, fname := range walFileNames {
+	for i, fname := range walFileNames {
 		path := filepath.Join(b.dir, strings.TrimSuffix(fname, ".wal"))
 
 		cl, err := newCommitLogger(path, b.strategy)
 		if err != nil {
 			return errors.Wrap(err, "init commit logger")
 		}
+
+		memtableExists, err := fileExists(path + ".mem")
+		if err != nil {
+			return err
+		}
+		if memtableExists {
+			walForActiveMemtable := i == len(walFileNames)-1
+
+			if walForActiveMemtable && !b.disableActiveMemtableReuse {
+				memFile, err := os.OpenFile(path+".mem", os.O_RDONLY, 0o666)
+				if err != nil {
+					return err
+				}
+				defer func() {
+					memFile.Close()
+					os.Remove(path + ".mem")
+				}()
+
+				b.active, err = DeserializeMemtable(bufio.NewReader(memFile),
+					path, b.strategy, b.secondaryIndices, b.enableChecksumValidation, cl, b.metrics, b.logger)
+				if err != nil {
+					return err
+				}
+
+				b.logger.WithField("action", "lsm_recover_from_active_wal_success").
+					WithField("path", filepath.Join(b.dir, fname)).
+					Info("successfully recovered from last active memtable")
+
+				return nil
+			}
+
+			// wal recovery will proceed as usual
+			err = os.Remove(path + ".mem")
+			if err != nil {
+				return err
+			}
+		}
+
 		defer cl.close()
 
 		cl.pause()

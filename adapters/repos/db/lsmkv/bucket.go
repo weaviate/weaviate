@@ -134,6 +134,9 @@ type Bucket struct {
 	// introduces latency of segment availability, for the tradeoff of
 	// ensuring segment files have integrity before reading them.
 	enableChecksumValidation bool
+
+	// optional reuse of active memtable if it's too small at shutdown time
+	disableActiveMemtableReuse bool
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -248,9 +251,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return b.disk.segments[i].path < b.disk.segments[j].path
 	})
 
-	err = b.setNewActiveMemtable()
-	if err != nil {
-		return nil, err
+	if b.active == nil {
+		err = b.setNewActiveMemtable()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	id := "bucket/flush/" + b.dir
@@ -1018,8 +1023,16 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 
 	b.flushLock.Lock()
-	if err := b.active.flush(); err != nil {
-		return err
+	if b.shouldSwitchMemtableDueToSizing() || b.disableActiveMemtableReuse {
+		if err := b.active.flush(); err != nil {
+			b.flushLock.Unlock()
+			return err
+		}
+	} else {
+		if err := b.active.rawFlush(); err != nil {
+			b.flushLock.Unlock()
+			return err
+		}
 	}
 	b.flushLock.Unlock()
 
@@ -1044,14 +1057,19 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-// flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
-func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	b.flushLock.RLock()
+func (b *Bucket) shouldSwitchMemtableDueToSizing() bool {
 	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
+	return memtableTooLarge || walTooLarge
+}
+
+// flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
+func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	b.flushLock.RLock()
+
 	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
-	shouldSwitch := memtableTooLarge || walTooLarge || dirtyTooLong
+	shouldSwitch := b.shouldSwitchMemtableDueToSizing() || dirtyTooLong
 
 	// If true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
