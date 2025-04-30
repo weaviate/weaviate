@@ -27,7 +27,40 @@ var ErrCtxTimeout = errors.New("ctxsync: lock acquisition timed out")
 type CtxRWMutex struct {
 	rwlock   sync.RWMutex // The underlying RWMutex
 	location string       // The location of the mutex, used for monitoring
+
+	doneMu     sync.Mutex
+	doneCache  []chan bool
 }
+
+const maxCachedDoneChans = 10
+
+func (m *CtxRWMutex) getDoneChan() chan bool {
+	m.doneMu.Lock()
+	defer m.doneMu.Unlock()
+	n := len(m.doneCache)
+	if n == 0 {
+		return make(chan bool, 1)
+	}
+	ch := m.doneCache[n-1]
+	m.doneCache = m.doneCache[:n-1]
+	return ch
+}
+
+func (m *CtxRWMutex) releaseDoneChan(ch chan bool) {
+	// Drain in case the channel wasn't read
+	select {
+	case <-ch:
+	default:
+	}
+
+	m.doneMu.Lock()
+	defer m.doneMu.Unlock()
+	if len(m.doneCache) < maxCachedDoneChans {
+		m.doneCache = append(m.doneCache, ch)
+	}
+}
+
+
 
 // NewCtxRWMutex creates a new context-aware read/write mutex
 func NewCtxRWMutex(location string) *CtxRWMutex {
@@ -46,20 +79,21 @@ func (m *CtxRWMutex) CtxRWLocation(location string) {
 func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
-	done := make(chan bool, 1)
+	done := m.getDoneChan()
+
 	enterrors.GoWrapper(func() {
-		defer close(done)
 		m.rwlock.Lock()
 		done <- true
-		time.Sleep(1000 * time.Millisecond)
 	}, nil)
 
 	select {
 	case <-done:
+		m.releaseDoneChan(done)
 		monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
-		return nil // Lock acquired successfully
+		return nil
 	case <-ctx.Done():
-		return context.DeadlineExceeded // Timeout or cancellation occurred
+		m.releaseDoneChan(done)
+		return context.DeadlineExceeded
 	}
 }
 
@@ -102,20 +136,21 @@ func (m *CtxRWMutex) Unlock() {
 func (m *CtxRWMutex) RLockContext(ctx context.Context) error {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
-	done := make(chan bool, 1)
+	done := m.getDoneChan()
+
 	enterrors.GoWrapper(func() {
-		defer close(done)
 		m.rwlock.RLock()
 		done <- true
-		time.Sleep(1000 * time.Millisecond)
 	}, nil)
 
 	select {
 	case <-done:
+		m.releaseDoneChan(done)
 		monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
-		return nil // Lock acquired successfully
+		return nil
 	case <-ctx.Done():
-		return context.DeadlineExceeded // Timeout or cancellation occurred
+		m.releaseDoneChan(done)
+		return context.DeadlineExceeded
 	}
 }
 

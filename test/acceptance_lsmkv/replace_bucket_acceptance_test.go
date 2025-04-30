@@ -101,6 +101,18 @@ func TestLSMKV_ReplaceBucket(t *testing.T) {
 		}
 	}
 
+	if len(putOutsideThreshold) > 0 {
+		t.Errorf("%d put queries outside threshold (%s): %v", len(putOutsideThreshold), putThreshold, putOutsideThreshold)
+	} else {
+		logger.Infof("all put queries were within threshold (%s)", putThreshold)
+	}
+
+	if len(getOutsideThreshold) > 0 {
+		t.Errorf("%d get queries outside threshold (%s) : %v", len(getOutsideThreshold), getThreshold, getOutsideThreshold)
+	} else {
+		logger.Infof("all get queries were within threshold (%s)", getThreshold)
+	}
+
 	// This a sanity check to make sure the test actually ran. The expected total
 	// is a lot more, but if the test were to just block for 60s and do nothing,
 	// this sanity check should catch it.
