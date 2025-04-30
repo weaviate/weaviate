@@ -5950,7 +5950,8 @@
     },
     "/graphql": {
       "post": {
-        "description": "Get a response based on a GraphQL query",
+        "summary": "Perform a GraphQL query",
+        "description": "Executes a single GraphQL query provided in the request body. Use this endpoint for all Weaviate data queries and exploration.",
         "operationId": "graphql.post",
         "x-serviceIds": [
           "weaviate.local.query",
@@ -5960,7 +5961,7 @@
         ],
         "parameters": [
           {
-            "description": "The GraphQL query request parameters.",
+            "description": "The GraphQL query to execute, including the query string and optional variables.",
             "in": "body",
             "name": "body",
             "required": true,
@@ -5971,7 +5972,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful query (with select).",
+            "description": "Query executed successfully. The response body contains the query result.",
             "schema": {
               "$ref": "#/definitions/GraphQLResponse"
             }
@@ -5986,19 +5987,18 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during query execution. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
         },
-        "summary": "Get a response based on GraphQL",
         "tags": [
           "graphql"
         ],
@@ -6008,7 +6008,8 @@
     },
     "/graphql/batch": {
       "post": {
-        "description": "Perform a batched GraphQL query",
+        "summary": "Perform batched GraphQL queries",
+        "description": "Executes multiple GraphQL queries provided in the request body as an array. Allows performing several queries in a single network request for efficiency.",
         "operationId": "graphql.batch",
         "x-serviceIds": [
           "weaviate.local.query",
@@ -6018,7 +6019,7 @@
         ],
         "parameters": [
           {
-            "description": "The GraphQL queries.",
+            "description": "An array containing multiple GraphQL query objects to execute in batch.",
             "in": "body",
             "name": "body",
             "required": true,
@@ -6029,7 +6030,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Successful query (with select).",
+            "description": "Batch request processed successfully. The response body contains an array of results corresponding to the input queries.",
             "schema": {
               "$ref": "#/definitions/GraphQLResponses"
             }
@@ -6044,19 +6045,18 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred during batch query execution. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
         },
-        "summary": "Get a response based on GraphQL.",
         "tags": [
           "graphql"
         ],
@@ -6066,14 +6066,18 @@
     },
     "/meta": {
       "get": {
-        "description": "Returns meta information about the server. Can be used to provide information to another Weaviate instance that wants to interact with the current instance.",
+        "summary": "Get instance metadata",
+        "description": "Provides meta-information about the running Weaviate instance, including its version, loaded modules, and network hostname. This information can be useful for monitoring, compatibility checks, or inter-instance communication.",
         "operationId": "meta.get",
         "x-serviceIds": [
           "weaviate.local.query.meta"
         ],
+        "tags": [
+            "meta"
+        ],
         "responses": {
           "200": {
-            "description": "Successful response.",
+            "description": "Successfully retrieved meta information.",
             "schema": {
               "$ref": "#/definitions/Meta"
             }
@@ -6088,16 +6092,12 @@
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving meta information. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
         },
-        "summary": "Returns meta information of the current Weaviate instance.",
-        "tags": [
-          "meta"
-        ],
         "x-available-in-mqtt": false,
         "x-available-in-websocket": false
       }
@@ -7315,8 +7315,8 @@
     },
     "/cluster/statistics": {
       "get": {
-        "summary": "See Raft cluster statistics",
-        "description": "Returns Raft cluster statistics of Weaviate DB.",
+        "summary": "Get cluster statistics",
+        "description": "Provides statistics about the internal Raft consensus protocol state for the Weaviate cluster.",
         "operationId": "cluster.get.statistics",
         "x-serviceIds": [
           "weaviate.cluster.statistics.get"
@@ -7326,7 +7326,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Cluster statistics successfully returned",
+            "description": "Successfully retrieved Raft cluster statistics.",
             "schema": {
               "$ref": "#/definitions/ClusterStatisticsResponse"
             }
@@ -7341,13 +7341,13 @@
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request for cluster statistics.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving cluster statistics. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7357,8 +7357,8 @@
     },
     "/nodes": {
       "get": {
-        "summary": "Node information for the database.",
-        "description": "Returns node information for the entire database.",
+        "summary": "Get node status",
+        "description": "Retrieves status information about all nodes in the cluster. Use the 'output' query parameter to control the level of detail.",
         "operationId": "nodes.get",
         "x-serviceIds": [
           "weaviate.nodes.status.get"
@@ -7373,7 +7373,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Nodes status successfully returned",
+            "description": "Successfully retrieved the status for all nodes.",
             "schema": {
               "$ref": "#/definitions/NodesStatusResponse"
             }
@@ -7388,19 +7388,19 @@
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Not Found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request for node status.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving node status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7410,8 +7410,8 @@
     },
     "/nodes/{className}": {
       "get": {
-        "summary": "Node information for a collection.",
-        "description": "Returns node information for the nodes relevant to the collection.",
+        "summary": "Get node status by collection",
+        "description": "Retrieves status information only for the nodes that host shards for the specified collection (`className`). Use the 'output' query parameter to control the level of detail.",
         "operationId": "nodes.get.class",
         "x-serviceIds": [
           "weaviate.nodes.status.get.class"
@@ -7422,6 +7422,7 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection for which to retrieve node status.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -7432,7 +7433,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Nodes status successfully returned",
+            "description": "Successfully retrieved the status for nodes relevant to the specified collection.",
             "schema": {
               "$ref": "#/definitions/NodesStatusResponse"
             }
@@ -7447,19 +7448,19 @@
             }
           },
           "404": {
-            "description": "Not Found - Backup does not exist",
+            "description": "Not Found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "422": {
-            "description": "Invalid backup restoration status attempt.",
+            "description": "Invalid request for node status.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving node status for the collection. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7501,14 +7502,15 @@
     },
     "/classifications/": {
       "post": {
-        "description": "Trigger a classification based on the specified params. Classifications will run in the background, use GET /classifications/<id> to retrieve the status of your classification.",
+        "summary": "Start a classification",
+        "description": "Initiates a background classification task based on the provided parameters. Use the GET /classifications/{id} endpoint to monitor the status and retrieve results.",
         "operationId": "classifications.post",
         "x-serviceIds": [
           "weaviate.classifications.post"
         ],
         "parameters": [
           {
-            "description": "parameters to start a classification",
+            "description": "Configuration parameters for the classification task, including type, target properties, and training data references.",
             "in": "body",
             "schema": {
               "$ref": "#/definitions/Classification"
@@ -7519,13 +7521,13 @@
         ],
         "responses": {
           "201": {
-            "description": "Successfully started classification.",
+            "description": "Classification task successfully initiated. The response body contains the classification details including its ID.",
             "schema": {
               "$ref": "#/definitions/Classification"
             }
           },
           "400": {
-            "description": "Incorrect request",
+            "description": "Invalid request body or parameters.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7540,13 +7542,12 @@
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while starting the classification task. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
         },
-        "summary": "Starts a classification.",
         "tags": [
           "classifications"
         ]
@@ -7554,14 +7555,15 @@
     },
     "/classifications/{id}": {
       "get": {
-        "description": "Get status, results and metadata of a previously created classification",
+        "summary": "Get classification status",
+        "description": "Retrieves the status, metadata, and results (if completed) of a classification task identified by its unique ID.",
         "operationId": "classifications.get",
         "x-serviceIds": [
           "weaviate.classifications.get"
         ],
         "parameters": [
           {
-            "description": "classification id",
+            "description": "The unique identifier (UUID) of the classification task.",
             "in": "path",
             "type": "string",
             "name": "id",
@@ -7570,13 +7572,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Found the classification, returned as body",
+            "description": "Successfully retrieved the classification details.",
             "schema": {
               "$ref": "#/definitions/Classification"
             }
-          },
-          "404": {
-            "description": "Not Found - Classification does not exist"
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -7587,14 +7586,16 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "404": {
+            "description": "Classification with the given ID not found."
+          },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An internal server error occurred while retrieving the classification status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           }
         },
-        "summary": "View previously created classification",
         "tags": [
           "classifications"
         ]
@@ -7636,13 +7637,6 @@
     },
     {
       "name": "meta"
-    },
-    {
-      "name": "P2P"
-    },
-    {
-      "name": "contextionary-API",
-      "description": "All functions related to the Contextionary."
     },
     {
       "name": "schema",
