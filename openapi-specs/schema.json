@@ -6085,8 +6085,8 @@
     },
     "/schema": {
       "get": {
-        "summary": "Dump the current the database schema.",
-        "description": "Fetch an array of all collection definitions from the schema.",
+        "summary": "Get all collection definitions",
+        "description": "Retrieves the definitions of all collections (classes) currently in the database schema.",
         "operationId": "schema.dump",
         "x-serviceIds": [
           "weaviate.local.query.meta"
@@ -6101,12 +6101,12 @@
             "required": false,
             "default": true,
             "type": "boolean",
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency"
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true."
           }
         ],
         "responses": {
           "200": {
-            "description": "Successfully dumped the database schema.",
+            "description": "Successfully retrieved the database schema.",
             "schema": {
               "$ref": "#/definitions/Schema"
             }
@@ -6121,7 +6121,7 @@
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while retrieving the schema. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6129,8 +6129,8 @@
         }
       },
       "post": {
-        "summary": "Create a new Object class in the schema.",
-        "description": "Create a new data object collection. <br/><br/>If AutoSchema is enabled, Weaviate will attempt to infer the schema from the data at import time. However, manual schema definition is recommended for production environments.",
+        "summary": "Create a new collection",
+        "description": "Defines and creates a new collection (class) in the schema.\n\nIf `AutoSchema` is enabled (not recommended for production), Weaviate might attempt to infer schema from data during import. Manual definition via this endpoint provides explicit control.",
         "operationId": "schema.objects.create",
         "x-serviceIds": [
           "weaviate.local.add.meta"
@@ -6143,6 +6143,7 @@
             "name": "objectClass",
             "in": "body",
             "required": true,
+            "description": "The definition of the collection (class) to create.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -6150,7 +6151,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Added the new Object class to the schema.",
+            "description": "Collection created successfully and its definition returned.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -6165,13 +6166,13 @@
             }
           },
           "422": {
-            "description": "Invalid Object class",
+            "description": "Invalid collection definition provided. Check the definition structure and properties.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred during collection creation. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6181,7 +6182,8 @@
     },
     "/schema/{className}": {
       "get": {
-        "summary": "Get a single class from the schema",
+        "summary": "Get a single collection",
+        "description": "Retrieve the definition of a specific collection (class), including its properties, configuration, and vectorizer settings.",
         "operationId": "schema.objects.get",
         "x-serviceIds": [
           "weaviate.local.get.meta"
@@ -6192,6 +6194,7 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection (class) to retrieve.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -6202,12 +6205,12 @@
             "required": false,
             "default": true,
             "type": "boolean",
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency"
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true."
           }
         ],
         "responses": {
           "200": {
-            "description": "Found the Class, returned as body",
+            "description": "Successfully retrieved the collection definition.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
@@ -6222,10 +6225,10 @@
             }
           },
           "404": {
-            "description": "This class does not exist"
+            "description": "Collection not found."
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while retrieving the collection definition. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6233,8 +6236,8 @@
         }
       },
       "delete": {
-        "summary": "Remove an Object class (and all data in the instances) from the schema.",
-        "description": "Remove a collection from the schema. This will also delete all the objects in the collection.",
+        "summary": "Delete a collection (and all associated data)",
+        "description": "Removes a collection definition from the schema. WARNING: This action permanently deletes all data objects stored within the collection.",
         "operationId": "schema.objects.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -6245,6 +6248,7 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection (class) to delete.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -6252,10 +6256,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Removed the Object class from the schema."
+            "description": "Collection deleted successfully."
           },
           "400": {
-            "description": "Could not delete the Object class.",
+            "description": "Could not delete the collection. See the error response for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6270,7 +6274,7 @@
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred during collection deletion. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6278,8 +6282,8 @@
         }
       },
       "put": {
-        "summary": "Update settings of an existing schema class",
-        "description": "Add a property to an existing collection.",
+        "summary": "Update collection definition",
+        "description": "Updates the configuration settings of an existing collection (class) based on the provided definition. Note: This operation modifies mutable settings specified in the request body. It does not add properties (use `POST /schema/{className}/properties` for that) or change the collection name.",
         "operationId": "schema.objects.update",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -6290,12 +6294,14 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection (class) to update.",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "objectClass",
+            "description": "The updated collection definition containing the settings to modify.",
             "in": "body",
             "required": true,
             "schema": {
@@ -6305,34 +6311,31 @@
         ],
         "responses": {
           "200": {
-            "description": "Class was updated successfully",
+            "description": "Collection settings updated successfully.",
             "schema": {
               "$ref": "#/definitions/Class"
             }
           },
-          "422": {
-            "description": "Invalid update attempt",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
-          "401": {
+            "401": {
             "description": "Unauthorized or invalid credentials."
           },
           "403": {
-            "description": "Forbidden",
+            "description": "Forbidden"
+          },
+          "404": {
+            "description": "Collection not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
-          "404": {
-            "description": "Class to be updated does not exist",
+          "422": {
+            "description": "Invalid update attempt.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while updating the collection. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6342,7 +6345,8 @@
     },
     "/schema/{className}/properties": {
       "post": {
-        "summary": "Add a property to an Object class.",
+        "summary": "Add a property to a collection",
+        "description": "Adds a new property definition to an existing collection (class) definition.",
         "operationId": "schema.objects.properties.add",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -6353,12 +6357,14 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection (class) to add the property to.",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "body",
+            "description": "The definition of the property to add.",
             "in": "body",
             "required": true,
             "schema": {
@@ -6368,7 +6374,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Added the property.",
+            "description": "Property added successfully and its definition returned.",
             "schema": {
               "$ref": "#/definitions/Property"
             }
@@ -6383,13 +6389,13 @@
             }
           },
           "422": {
-            "description": "Invalid property.",
+            "description": "Invalid property definition provided.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while adding the property. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6399,8 +6405,8 @@
     },
     "/schema/{className}/shards": {
       "get": {
-        "summary": "Get the shards status of an Object class",
-        "description": "Get the status of every shard in the cluster.",
+        "summary": "Get the shards status of a collection",
+        "description": "Retrieves the status of all shards associated with the specified collection (class). For multi-tenant collections, use the 'tenant' query parameter to retrieve status for a specific tenant's shards.",
         "operationId": "schema.objects.shards.get",
         "x-serviceIds": [
           "weaviate.local.get.meta"
@@ -6411,19 +6417,21 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection (class) whose shards to query.",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "tenant",
+            "description": "The name of the tenant for which to retrieve shard statuses (only applicable for multi-tenant collections).",
             "in": "query",
             "type": "string"
           }
         ],
         "responses": {
           "200": {
-            "description": "Found the status of the shards, returned as body",
+            "description": "Shard statuses retrieved successfully.",
             "schema": {
               "$ref": "#/definitions/ShardStatusList"
             }
@@ -6438,13 +6446,13 @@
             }
           },
           "404": {
-            "description": "This class does not exist",
+            "description": "Collection not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
-          "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "500": {
+            "description": "An error occurred while retrieving shard statuses. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6454,8 +6462,8 @@
     },
     "/schema/{className}/shards/{shardName}": {
       "put": {
-        "summary": "Update a shard status.",
-        "description": "Update a shard status for a collection. For example, a shard may have been marked as `READONLY` because its disk was full. After providing more disk space, use this endpoint to set the shard status to `READY` again. There is also a convenience function in each client to set the status of all shards of a collection.",
+        "summary": "Update a shard status",
+        "description": "Updates the status of a specific shard within a collection (e.g., sets it to 'READY' or 'READONLY'). This is typically used after resolving an underlying issue (like disk space) that caused a shard to become non-operational. There is also a convenience function in each client to set the status of all shards of a collection.",
         "operationId": "schema.objects.shards.update",
         "x-serviceIds": [
           "weaviate.local.manipulate.meta"
@@ -6466,12 +6474,14 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection (class) containing the shard.",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "shardName",
+            "description": "The name of the shard to update.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -6479,6 +6489,7 @@
           {
             "in": "body",
             "name": "body",
+            "description": "The shard status object containing the desired new status.",
             "required": true,
             "schema": {
               "$ref": "#/definitions/ShardStatus"
@@ -6487,7 +6498,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Shard status was updated successfully",
+            "description": "Shard status updated successfully.",
             "schema": {
               "$ref": "#/definitions/ShardStatus"
             }
@@ -6508,13 +6519,13 @@
             }
           },
           "404": {
-            "description": "Shard to be updated does not exist",
+            "description": "Collection or shard not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while updating the shard status. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6525,7 +6536,7 @@
     "/schema/{className}/tenants": {
       "post": {
         "summary": "Create a new tenant",
-        "description": "Create a new tenant for a collection. Multi-tenancy must be enabled in the collection definition.",
+        "description": "Creates one or more new tenants for a specified collection (class). Multi-tenancy must be enabled for the collection via its definition.",
         "operationId": "tenants.create",
         "tags": [
           "schema"
@@ -6533,6 +6544,7 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the multi-tenant enabled collection (class).",
             "in": "path",
             "required": true,
             "type": "string"
@@ -6540,6 +6552,7 @@
           {
             "in": "body",
             "name": "body",
+            "description": "An array of tenant objects to create.",
             "required": true,
             "schema": {
               "type": "array",
@@ -6551,7 +6564,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Added new tenants to the specified class",
+            "description": "Tenants created successfully.",
             "schema": {
               "type": "array",
               "items": {
@@ -6569,13 +6582,13 @@
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while creating tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6583,8 +6596,8 @@
         }
       },
       "put": {
-        "summary": "Update a tenant.",
-        "description": "Update tenant of a specific class",
+        "summary": "Update a tenant",
+        "description": "Updates the activity status (e.g., 'ACTIVE', 'INACTIVE', etc.) of one or more specified tenants within a collection (class).",
         "operationId": "tenants.update",
         "tags": [
           "schema"
@@ -6592,6 +6605,7 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection (class) containing the tenants.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -6599,6 +6613,7 @@
           {
             "in": "body",
             "name": "body",
+            "description": "An array of tenant objects specifying the tenants to update and their desired new status.",
             "required": true,
             "schema": {
               "type": "array",
@@ -6610,7 +6625,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Updated tenants of the specified class",
+            "description": "Tenant statuses updated successfully.",
             "schema": {
               "type": "array",
               "items": {
@@ -6628,13 +6643,13 @@
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid update request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while updating tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6642,7 +6657,8 @@
         }
       },
       "delete": {
-        "description": "delete tenants from a specific class",
+        "summary": "Delete tenants",
+        "description": "Deletes one or more specified tenants from a collection (class). WARNING: This action permanently deletes all data associated with the specified tenants.",
         "operationId": "tenants.delete",
         "tags": [
           "schema"
@@ -6650,6 +6666,7 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection (class) from which to delete tenants.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -6657,18 +6674,20 @@
           {
             "in": "body",
             "name": "tenants",
+            "description": "An array of tenant names to delete.",
             "required": true,
             "schema": {
               "type": "array",
               "items": {
-                "type": "string"
+                "type": "string",
+                  "description": "Name of a tenant to delete."
               }
             }
           }
         ],
         "responses": {
           "200": {
-            "description": "Deleted tenants from specified class."
+            "description": "Tenants deleted successfully."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -6680,13 +6699,13 @@
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while deleting tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6695,7 +6714,7 @@
       },
       "get": {
         "summary": "Get the list of tenants.",
-        "description": "get all tenants from a specific class",
+        "description": "Retrieves a list of all tenants currently associated with the specified collection.",
         "operationId": "tenants.get",
         "tags": [
           "schema"
@@ -6703,6 +6722,7 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection (class) whose tenants to list.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -6713,12 +6733,12 @@
             "required": false,
             "default": true,
             "type": "boolean",
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency"
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true."
           }
         ],
         "responses": {
           "200": {
-            "description": "tenants from specified class.",
+            "description": "Successfully retrieved tenants.",
             "schema": {
               "type": "array",
               "items": {
@@ -6736,13 +6756,13 @@
             }
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while listing tenants. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6753,7 +6773,7 @@
     "/schema/{className}/tenants/{tenantName}": {
       "head": {
         "summary": "Check whether a tenant exists",
-        "description": "Check if a tenant exists for a specific class",
+        "description": "Checks for the existence of a specific tenant within the given collection without returning tenant details.",
         "operationId": "tenant.exists",
         "tags": [
           "schema"
@@ -6761,12 +6781,14 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection (class) to check within.",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "tenantName",
+            "description": "The name of the tenant to check for.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -6777,12 +6799,12 @@
             "required": false,
             "default": true,
             "type": "boolean",
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency"
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true."
           }
         ],
         "responses": {
           "200": {
-            "description": "The tenant exists in the specified class"
+            "description": "The tenant exists in the specified collection."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -6794,16 +6816,16 @@
             }
           },
           "404": {
-            "description": "The tenant not found"
+            "description": "Tenant or collection not found."
           },
           "422": {
-            "description": "Invalid Tenant class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred during the check. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6812,7 +6834,7 @@
       },
       "get": {
         "summary": "Get a specific tenant",
-        "description": "get a specific tenant for the given class",
+        "description": "Retrieves details about a specific tenant within the given collection (class), such as its current activity status.",
         "operationId": "tenants.get.one",
         "tags": [
           "schema"
@@ -6820,12 +6842,14 @@
         "parameters": [
           {
             "name": "className",
+            "description": "The name of the collection (class) containing the tenant.",
             "in": "path",
             "required": true,
             "type": "string"
           },
           {
             "name": "tenantName",
+            "description": "The name of the tenant to retrieve.",
             "in": "path",
             "required": true,
             "type": "string"
@@ -6836,12 +6860,12 @@
             "required": false,
             "default": true,
             "type": "boolean",
-            "description": "If consistency is true, the request will be proxied to the leader to ensure strong schema consistency"
+            "description": "If true, the request is proxied to the cluster leader to ensure strong schema consistency. Default is true."
           }
         ],
         "responses": {
           "200": {
-            "description": "load the tenant given the specified class",
+            "description": "Successfully retrieved tenant details.",
             "schema": {
               "$ref": "#/definitions/TenantResponse"
             }
@@ -6856,16 +6880,16 @@
             }
           },
           "404": {
-            "description": "Tenant not found"
+            "description": "Tenant or collection not found."
           },
           "422": {
-            "description": "Invalid tenant or class",
+            "description": "Invalid request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
           },
           "500": {
-            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "description": "An error occurred while retrieving the tenant. Check the ErrorResponse for details.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
