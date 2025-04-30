@@ -335,23 +335,25 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= upperTimeBoundUnixMillis
 	}
 
-	func() {
-		// we only check the status of the async replication every 5 seconds to avoid
-		// spamming with too many requests too quickly
-		ticker := time.NewTicker(asyncStatusInterval)
-		defer ticker.Stop()
+	// we only check the status of the async replication every 5 seconds to avoid
+	// spamming with too many requests too quickly
+	ticker := time.NewTicker(asyncStatusInterval)
+	defer ticker.Stop()
 
-		if !do() {
-			for {
-				select {
-				case <-ticker.C:
-					if do() || ctx.Err() != nil {
-						break
-					}
+	// try to check the status of the async replication immediately
+	// then, check the status of the async replication every 5 seconds
+	if !do() {
+		for {
+			select {
+			case <-ticker.C:
+				if do() {
+					break
 				}
+			case <-ctx.Done():
+				return api.ShardReplicationState(""), ctx.Err()
 			}
 		}
-	}()
+	}
 
 	nextState := api.READY
 	if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, nextState); err != nil {
