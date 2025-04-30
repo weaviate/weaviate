@@ -96,7 +96,8 @@ func TestCtxRWMutex_RLockContext_Timeout(t *testing.T) {
 	m.Lock()
 	defer m.Unlock()
 
-	ctx, _ := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
 
 	start := time.Now()
 	err := m.RLockContext(ctx)

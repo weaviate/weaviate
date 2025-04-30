@@ -28,8 +28,8 @@ type CtxRWMutex struct {
 	rwlock   sync.RWMutex // The underlying RWMutex
 	location string       // The location of the mutex, used for monitoring
 
-	doneMu     sync.Mutex
-	doneCache  []chan bool
+	doneMu    sync.Mutex
+	doneCache []chan bool
 }
 
 const maxCachedDoneChans = 10
@@ -59,8 +59,6 @@ func (m *CtxRWMutex) releaseDoneChan(ch chan bool) {
 		m.doneCache = append(m.doneCache, ch)
 	}
 }
-
-
 
 // NewCtxRWMutex creates a new context-aware read/write mutex
 func NewCtxRWMutex(location string) *CtxRWMutex {
