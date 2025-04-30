@@ -14,7 +14,6 @@ package ctxlock
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync"
 	"time"
 
@@ -101,7 +100,6 @@ func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 
 // LockContextWithTimeout acquires the write lock or returns an error on timeout/cancel
 func (m *CtxRWMutex) LockContextWithTimeout(ctx context.Context, timeout time.Duration) error {
-	fmt.Printf("LockContextWithTimeout %s\n", m.location)
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	enterrors.GoWrapper(func() {
 		time.Sleep(timeout)
@@ -112,7 +110,6 @@ func (m *CtxRWMutex) LockContextWithTimeout(ctx context.Context, timeout time.Du
 
 // Lock acquires the write lock
 func (m *CtxRWMutex) Lock() {
-	fmt.Printf("Lock %s\n", m.location)
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	m.rwlock.Lock()
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
