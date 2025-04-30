@@ -113,8 +113,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 			require.Len(t, fileNames, len(names))
 			require.ElementsMatch(t, names, fileNames)
 		}
-		assertFileContains := func(t *testing.T, commitLogFile string, expectedSize int,
-			expectedContentByOffset map[int]string) {
+		assertFileContains := func(t *testing.T, commitLogFile string, expectedSize int, expectedContentByOffset map[int]string) {
 			contents, err := os.ReadFile(commitLogFile)
 			require.NoError(t, err)
 			require.Len(t, contents, expectedSize)
