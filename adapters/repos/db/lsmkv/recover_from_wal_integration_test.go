@@ -66,10 +66,12 @@ func TestReplaceStrategy_RecoverFromWAL(t *testing.T) {
 		})
 
 		t.Run("shutdown (orderly) bucket to create first segment", func(t *testing.T) {
+			err := b.FlushAndSwitch()
+			require.NoError(t, err)
+
 			b.Shutdown(context.Background())
 
 			// then recreate bucket
-			var err error
 			b, err = NewBucketCreator().NewBucket(testCtx(), dirNameOriginal, "", nullLogger(), nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 				WithStrategy(StrategyReplace))
