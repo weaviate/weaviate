@@ -145,8 +145,7 @@ func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) RunAndReturn(run
 func NewMockFSMUpdater(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockFSMUpdater {
+}) *MockFSMUpdater {
 	mock := &MockFSMUpdater{}
 	mock.Mock.Test(t)
 

@@ -86,8 +86,7 @@ func (_c *MockReplicaCopier_CopyReplica_Call) RunAndReturn(run func(context.Cont
 func NewMockReplicaCopier(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockReplicaCopier {
+}) *MockReplicaCopier {
 	mock := &MockReplicaCopier{}
 	mock.Mock.Test(t)
 
