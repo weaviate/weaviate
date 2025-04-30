@@ -192,3 +192,37 @@ func TestCtxRWMutex_WritersBlockEachOther(t *testing.T) {
 	m.Unlock()
 	<-done
 }
+
+
+func TestLockContext_TimesOutButLockStillAcquired(t *testing.T) {
+	m := NewCtxRWMutex("test")
+
+	// First goroutine holds the lock for 200ms
+	go func() {
+		m.Lock()
+		defer m.Unlock()
+		time.Sleep(200 * time.Millisecond)
+	}()
+
+	// Give the first goroutine time to acquire the lock
+	time.Sleep(20 * time.Millisecond)
+
+	// Second goroutine times out before lock is available
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	err := m.LockContext(ctx)
+	if err == nil {
+		t.Fatal("expected timeout error but got nil")
+	}
+
+	// Wait enough time for the first lock to release and the background goroutine to acquire
+	time.Sleep(300 * time.Millisecond)
+
+	// This should succeed immediately if the lock wasn't acquired by a zombie goroutine
+	success := m.TryLock()
+	if !success {
+		t.Fatal("expected TryLock to succeed, but it failed — lock is held by zombie goroutine")
+	}
+	m.Unlock()
+}
