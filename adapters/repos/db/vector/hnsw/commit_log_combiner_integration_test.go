@@ -60,10 +60,10 @@ func Test_CommitlogCombiner(t *testing.T) {
 		fileNames, err := dir.Readdirnames(0)
 		require.Nil(t, err)
 		require.Len(t, fileNames, 3)
-		require.ElementsMatch(t, []string{"1000", "1002", "1004"}, fileNames)
+		require.ElementsMatch(t, []string{"1001", "1003", "1004"}, fileNames)
 
 		t.Run("the first file is correctly combined", func(t *testing.T) {
-			contents, err := os.ReadFile(commitLogFileName(rootPath, id, "1000"))
+			contents, err := os.ReadFile(commitLogFileName(rootPath, id, "1001"))
 			require.Nil(t, err)
 			require.Len(t, contents, 600)
 			assert.Equal(t, contents[0:6], []byte("file1\n"))
@@ -71,7 +71,7 @@ func Test_CommitlogCombiner(t *testing.T) {
 		})
 
 		t.Run("the second file is correctly combined", func(t *testing.T) {
-			contents, err := os.ReadFile(commitLogFileName(rootPath, id, "1002"))
+			contents, err := os.ReadFile(commitLogFileName(rootPath, id, "1003"))
 			require.Nil(t, err)
 			require.Len(t, contents, 600)
 			assert.Equal(t, contents[0:6], []byte("file3\n"))

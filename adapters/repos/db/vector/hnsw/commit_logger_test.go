@@ -90,7 +90,7 @@ func TestCondenseLoop(t *testing.T) {
 			fileNames = append(fileNames, file.Name())
 		}
 
-		assert.ElementsMatch(t, []string{"1000.condensed", "1004"}, fileNames)
+		assert.ElementsMatch(t, []string{"1003.condensed", "1004"}, fileNames)
 	}, 5*time.Second, 50*time.Millisecond, "Condense loop did not run")
 }
 
@@ -113,7 +113,7 @@ func TestCondenseLoop_WithAllocChecker(t *testing.T) {
 			fileNames = append(fileNames, file.Name())
 		}
 
-		assert.ElementsMatch(t, []string{"1000.condensed", "1004"}, fileNames)
+		assert.ElementsMatch(t, []string{"1003.condensed", "1004"}, fileNames)
 	}, 5*time.Second, 50*time.Millisecond, "Condense loop did not run")
 }
 

@@ -110,32 +110,32 @@ func (c *CommitLogCombiner) combineFirstMatch(fileNames []string) (bool, error) 
 	return false, nil
 }
 
-func (c *CommitLogCombiner) combine(first, second string) error {
+func (c *CommitLogCombiner) combine(left, right string) error {
 	// all names are based on the first file, so that once file1 + file2 are
 	// combined it is as if file2 had never existed and file 1 was just always
 	// big enough to hold the contents of both
 
 	// clearly indicate that the file is "in progress", in case we crash while
 	// combining and the after restart there are multiple alternatives
-	tmpName := strings.TrimSuffix(first, ".condensed") + (".combined.tmp")
+	tmpName := strings.TrimSuffix(right, ".condensed") + (".combined.tmp")
 
 	// finalName will look like an uncondensed original commit log, so the
 	// condensor will pick it up without even knowing that it's a combined file
-	finalName := strings.TrimSuffix(first, ".condensed")
+	finalName := strings.TrimSuffix(right, ".condensed")
 
-	if err := c.mergeFiles(tmpName, first, second); err != nil {
+	if err := c.mergeFiles(tmpName, left, right); err != nil {
 		return errors.Wrap(err, "merge files")
 	}
 
-	if err := c.renameAndCleanUp(tmpName, finalName, first, second); err != nil {
+	if err := c.renameAndCleanUp(tmpName, finalName, left, right); err != nil {
 		return errors.Wrap(err, "rename and clean up files")
 	}
 
 	c.logger.WithFields(logrus.Fields{
 		"action":       "hnsw_commit_logger_combine_condensed_logs",
 		"id":           c.id,
-		"input_first":  first,
-		"input_second": second,
+		"input_first":  left,
+		"input_second": right,
 		"output":       finalName,
 	}).Info("successfully combined previously condensed commit log files")
 
