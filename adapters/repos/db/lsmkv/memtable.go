@@ -16,7 +16,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"path/filepath"
-
 	"time"
 
 	"github.com/pkg/errors"
@@ -50,7 +49,7 @@ type Memtable struct {
 	tombstones *sroar.Bitmap
 
 	enableChecksumValidation bool
-	lockTimeout 			time.Duration
+	lockTimeout              time.Duration
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,

@@ -1,5 +1,15 @@
-package ctxlock
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
 
+package ctxlock
 
 import (
 	"context"
@@ -7,7 +17,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
 )
 
 func TestCtxRWMutex_LockUnlock(t *testing.T) {
@@ -116,7 +125,7 @@ func TestCtxRWMutex_ParallelReaders(t *testing.T) {
 				t.Errorf("reader %d failed to acquire lock: %v", id, err)
 				return
 			}
-			started <- struct{}{} // signal this reader got the lock
+			started <- struct{}{}             // signal this reader got the lock
 			time.Sleep(50 * time.Millisecond) // simulate work
 			m.RUnlock()
 		}(i)
