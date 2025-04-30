@@ -234,6 +234,20 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, err
 	}
 
+	// segment load order is as follows:
+	// - find .tmp files and recover them first
+	// - find .db files and load them
+	//   - if there is a .wal file exists for a .db, remove the .db file
+	// - find .wal files and load them into a memtable
+	//   - flush the memtable to a segment file
+	// Thus, files may be loaded in a different order than they were created,
+	// and we need to re-sort them to ensure the order is correct, as compations
+	// and other operations are based on the creation order of the segments
+
+	sort.Slice(b.disk.segments, func(i, j int) bool {
+		return b.disk.segments[i].path < b.disk.segments[j].path
+	})
+
 	err = b.setNewActiveMemtable()
 	if err != nil {
 		return nil, err
