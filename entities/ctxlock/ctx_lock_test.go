@@ -55,9 +55,11 @@ func TestCtxRWMutex_TryRLock(t *testing.T) {
 	defer m.RUnlock()
 
 	ok = m.TryRLock()
-	if ok {
-		t.Fatal("expected second TryRLock to fail (single-reader channel limit)")
+	if !ok {
+		t.Fatal("expected second TryRLock to succeed while locked")
 	}
+
+	m.RUnlock()
 }
 
 func TestCtxRWMutex_LockContext_Timeout(t *testing.T) {
@@ -82,11 +84,10 @@ func TestCtxRWMutex_LockContext_Timeout(t *testing.T) {
 
 func TestCtxRWMutex_RLockContext_Timeout(t *testing.T) {
 	m := NewCtxRWMutex()
-	m.RLock()
-	defer m.RUnlock()
+	m.Lock()
+	defer m.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-	defer cancel()
+	ctx, _ := context.WithTimeout(context.Background(), 50*time.Millisecond)
 
 	start := time.Now()
 	err := m.RLockContext(ctx)

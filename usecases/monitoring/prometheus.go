@@ -158,6 +158,9 @@ type PrometheusMetrics struct {
 	ModuleExternalError              *prometheus.CounterVec
 	ModuleCallError                  *prometheus.CounterVec
 	ModuleBatchError                 *prometheus.CounterVec
+
+	Locks        *prometheus.GaugeVec
+	LocksWaiting *prometheus.GaugeVec
 }
 
 func NewTenantOffloadMetrics(cfg Config, reg prometheus.Registerer) *TenantOffloadMetrics {
@@ -811,6 +814,16 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "weaviate_module_batch_error_total",
 			Help: "Number of batch errors",
 		}, []string{"operation", "class_name"}),
+		// Locks held
+		Locks: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "weaviate_locks_held",
+			Help: "Number of locks held",
+		}, []string{"lock"}),
+		// Locks waiting
+		LocksWaiting: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "weaviate_locks_waiting",
+			Help: "Number of locks waiting",
+		}, []string{"lock"}),
 	}
 }
 

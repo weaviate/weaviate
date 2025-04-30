@@ -3,109 +3,107 @@ package ctxlock
 import (
 	"context"
 	"errors"
+	"sync"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 var ErrCtxTimeout = errors.New("ctxsync: lock acquisition timed out")
 
 type CtxRWMutex struct {
-	writeCh   chan struct{}
-	readersCh chan struct{}
-	readers   int
-	writer    bool
+	rwlock sync.RWMutex
+	location string
 }
 
 // NewCtxRWMutex creates a new context-aware read/write mutex
-func NewCtxRWMutex() *CtxRWMutex {
+func NewCtxRWMutex(location string) *CtxRWMutex {
 	return &CtxRWMutex{
-		writeCh:   make(chan struct{}, 1),
-		readersCh: make(chan struct{}, 1),
+		rwlock: sync.RWMutex{},
+		location: location,
 	}
 }
 
 // LockContext acquires the write lock or returns an error on timeout/cancel
 func (m *CtxRWMutex) LockContext(ctx context.Context) error {
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
+	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
+	done := make(chan bool, 1)
+	go func() {
+		defer close(done)
+		m.rwlock.Lock()
+		done <- true
+		time.Sleep(1000 * time.Millisecond) // Simulate work
+	}()
+
 	select {
-	case m.writeCh <- struct{}{}:
-		// Wait for all readers to exit
-		for {
-			select {
-			case <-m.readersCh:
-				m.readers--
-				if m.readers == 0 {
-					m.writer = true
-					return nil
-				}
-			default:
-				if m.readers == 0 {
-					m.writer = true
-					return nil
-				}
-				time.Sleep(1 * time.Millisecond)
-			}
-		}
+	case <-done:
+		monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
+		return nil // Lock acquired successfully
 	case <-ctx.Done():
-		return ctx.Err()
+		return context.DeadlineExceeded // Timeout or cancellation occurred
 	}
 }
 
 func (m *CtxRWMutex) Lock() {
-	_ = m.LockContext(context.Background())
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
+	m.rwlock.Lock()
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
+	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
 }
 
 func (m *CtxRWMutex) TryLock() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 0)
-	defer cancel()
-	return m.LockContext(ctx) == nil
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
+	ret := m.rwlock.TryLock()
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
+	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
+	return ret
 }
 
 func (m *CtxRWMutex) Unlock() {
-	if !m.writer {
-		panic("ctxsync: unlock called without writer lock")
-	}
-	m.writer = false
-	select {
-	case <-m.writeCh:
-	default:
-		panic("ctxsync: inconsistent writeCh")
-	}
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
+	m.rwlock.Unlock()
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
+	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Dec()
 }
 
 // RLockContext acquires the read lock or returns on context cancel/timeout
 func (m *CtxRWMutex) RLockContext(ctx context.Context) error {
-	for {
-		if m.writer || len(m.writeCh) > 0 {
-			select {
-			case <-ctx.Done():
-				return ctx.Err()
-			default:
-				time.Sleep(1 * time.Millisecond)
-			}
-		} else {
-			m.readers++
-			m.readersCh <- struct{}{}
-			return nil
-		}
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
+	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
+	done := make(chan bool, 1)
+	go func() {
+		defer close(done)
+		m.rwlock.RLock()
+		done <- true
+		time.Sleep(1000 * time.Millisecond) // Simulate work
+	}()
+
+	select {
+	case <-done:
+		monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
+		return nil // Lock acquired successfully
+	case <-ctx.Done():
+		return context.DeadlineExceeded // Timeout or cancellation occurred
 	}
 }
 
 func (m *CtxRWMutex) RLock() {
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
+	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
 	_ = m.RLockContext(context.Background())
+	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
 }
 
 func (m *CtxRWMutex) TryRLock() bool {
-	ctx, cancel := context.WithTimeout(context.Background(), 0)
-	defer cancel()
-	return m.RLockContext(ctx) == nil
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
+	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
+	ret :=  m.rwlock.TryRLock()
+	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
+	return ret
 }
 
 func (m *CtxRWMutex) RUnlock() {
-	if m.readers <= 0 {
-		panic("ctxsync: RUnlock without RLock")
-	}
-	m.readers--
-	select {
-	case <-m.readersCh:
-	default:
-	}
+	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Dec()
+	m.rwlock.RUnlock()
 }
