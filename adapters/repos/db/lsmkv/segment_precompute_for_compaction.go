@@ -61,6 +61,10 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	var contents []byte
 	var allocCheckerErr error
 
+	if size == 0 {
+		return nil, fmt.Errorf("segment file %q is empty", path)
+	}
+
 	// mmap has some overhead, we can read small files directly to memory
 
 	if size <= minMMapSize { // check if it is a candidate for full reading

@@ -131,6 +131,10 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	var unMapContents bool
 	var allocCheckerErr error
 
+	if size == 0 {
+		return nil, fmt.Errorf("segment file %q is empty", path)
+	}
+
 	if size <= cfg.MinMMapSize { // check if it is a candidate for full reading
 		allocCheckerErr = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
 		if allocCheckerErr != nil {
