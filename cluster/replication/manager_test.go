@@ -18,6 +18,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
 
@@ -54,6 +56,7 @@ func TestManager_Replicate(t *testing.T) {
 					}), "node1", true, false)
 			},
 			request: &api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
 				SourceCollection: "TestCollection",
 				SourceShard:      "shard1",
 				SourceNode:       "node1",
@@ -64,6 +67,7 @@ func TestManager_Replicate(t *testing.T) {
 		{
 			name: "class not found",
 			request: &api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
 				SourceCollection: "NonExistentCollection",
 				SourceShard:      "shard1",
 				SourceNode:       "node1",
@@ -83,6 +87,7 @@ func TestManager_Replicate(t *testing.T) {
 					}), "node1", true, false)
 			},
 			request: &api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
 				SourceCollection: "TestCollection",
 				SourceShard:      "NonExistentShard",
 				SourceNode:       "node1",
@@ -102,6 +107,7 @@ func TestManager_Replicate(t *testing.T) {
 					}), "node1", true, false)
 			},
 			request: &api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
 				SourceCollection: "TestCollection",
 				SourceShard:      "shard1",
 				SourceNode:       "node4",
@@ -121,6 +127,7 @@ func TestManager_Replicate(t *testing.T) {
 					}), "node1", true, false)
 			},
 			request: &api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
 				SourceCollection: "TestCollection",
 				SourceShard:      "shard1",
 				SourceNode:       "node1",
@@ -190,6 +197,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 					}), "node1", true, false)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
 				SourceCollection: "TestCollection",
 				SourceShard:      "shard1",
 				SourceNode:       "node1",
@@ -214,6 +222,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 					}), "node1", true, false)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
 				SourceCollection: "TestCollection",
 				SourceShard:      "shard1",
 				SourceNode:       "node1",
@@ -242,6 +251,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 					}), "node1", true, false)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
 				SourceCollection: "TestCollection",
 				SourceShard:      "shard1",
 				SourceNode:       "node1",
@@ -269,6 +279,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 					}), "node1", true, false)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
 				SourceCollection: "TestCollection",
 				SourceShard:      "shard1",
 				SourceNode:       "node1",
@@ -309,6 +320,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 					}), "node1", true, false)
 			},
 			replicaRequest: &api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
 				SourceCollection: "TestCollection",
 				SourceShard:      "shard1",
 				SourceNode:       "node1",
@@ -379,7 +391,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 				}
 			}
 
-			subCommand, _ = json.Marshal(&api.ReplicationDetailsRequest{Id: 0})
+			subCommand, _ = json.Marshal(&api.ReplicationDetailsRequest{Uuid: tt.replicaRequest.Uuid})
 			queryRequest := &api.QueryRequest{
 				Type:       api.QueryRequest_TYPE_GET_REPLICATION_DETAILS,
 				SubCommand: subCommand,
@@ -397,9 +409,12 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 }
 
 func TestManager_SnapshotRestore(t *testing.T) {
+	UUID1 := uuid4()
+	UUID2 := uuid4()
 	tests := []struct {
 		name                   string
 		schemaSetup            func(*testing.T, *schema.SchemaManager) error
+		uuids                  []strfmt.UUID
 		snapshotRequests       []*api.ApplyRequest
 		nonSnapshottedRequests []*api.ApplyRequest
 	}{
@@ -419,21 +434,23 @@ func TestManager_SnapshotRestore(t *testing.T) {
 			},
 			snapshotRequests: []*api.ApplyRequest{
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ReplicationReplicateShardRequest{
+					Uuid:             UUID1,
 					SourceCollection: "TestCollection",
 					SourceShard:      "shard1",
 					SourceNode:       "node1",
 					TargetNode:       "node2",
 				}),
-				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 0, Error: "test error"}),
+				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 0, Error: "test error", Uuid: UUID1}),
 			},
 			nonSnapshottedRequests: []*api.ApplyRequest{
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ReplicationReplicateShardRequest{
+					Uuid:             UUID2,
 					SourceCollection: "TestCollection",
 					SourceShard:      "shard2",
 					SourceNode:       "node1",
 					TargetNode:       "node2",
 				}),
-				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 1, Error: "test error"}),
+				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 1, Error: "test error", Uuid: UUID2}),
 			},
 		},
 		{
@@ -469,19 +486,21 @@ func TestManager_SnapshotRestore(t *testing.T) {
 			},
 			snapshotRequests: []*api.ApplyRequest{
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ReplicationReplicateShardRequest{
+					Uuid:             UUID1,
 					SourceCollection: "TestCollection",
 					SourceShard:      "shard1",
 					SourceNode:       "node1",
 					TargetNode:       "node2",
 				}),
-				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 0, Error: "test error"}),
+				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 0, Error: "test error", Uuid: UUID1}),
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ReplicationReplicateShardRequest{
+					Uuid:             UUID2,
 					SourceCollection: "TestCollection",
 					SourceShard:      "shard2",
 					SourceNode:       "node1",
 					TargetNode:       "node2",
 				}),
-				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 1, Error: "test error"}),
+				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 1, Error: "test error", Uuid: UUID2}),
 			},
 			nonSnapshottedRequests: []*api.ApplyRequest{},
 		},
@@ -553,8 +572,12 @@ func TestManager_SnapshotRestore(t *testing.T) {
 			for _, req := range tt.snapshotRequests {
 				switch req.Type {
 				case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+					var originalReq api.ReplicationReplicateShardRequest
+					err = json.Unmarshal(req.SubCommand, &originalReq)
+					require.NoError(t, err)
+
 					// Create QueryRequest
-					subCommand, _ := json.Marshal(&api.ReplicationDetailsRequest{Id: logIndex})
+					subCommand, _ := json.Marshal(&api.ReplicationDetailsRequest{Uuid: originalReq.Uuid})
 					queryRequest := &api.QueryRequest{
 						Type:       api.QueryRequest_TYPE_GET_REPLICATION_DETAILS,
 						SubCommand: subCommand,
@@ -564,10 +587,6 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					bytes, err := manager.GetReplicationDetailsByReplicationId(queryRequest)
 					require.NoError(t, err)
 					require.NotNil(t, bytes)
-
-					var originalReq api.ReplicationReplicateShardRequest
-					err = json.Unmarshal(req.SubCommand, &originalReq)
-					require.NoError(t, err)
 
 					var resp api.ReplicationDetailsResponse
 					err = json.Unmarshal(bytes, &resp)
@@ -584,7 +603,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					require.NoError(t, err)
 
 					// Create QueryRequest
-					subCommand, _ := json.Marshal(&api.ReplicationDetailsRequest{Id: originalReq.Id})
+					subCommand, _ := json.Marshal(&api.ReplicationDetailsRequest{Uuid: originalReq.Uuid})
 					queryRequest := &api.QueryRequest{
 						Type:       api.QueryRequest_TYPE_GET_REPLICATION_DETAILS,
 						SubCommand: subCommand,
@@ -609,8 +628,12 @@ func TestManager_SnapshotRestore(t *testing.T) {
 			for _, req := range tt.nonSnapshottedRequests {
 				switch req.Type {
 				case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+					originalReq := api.ReplicationReplicateShardRequest{}
+					err = json.Unmarshal(req.SubCommand, &originalReq)
+					require.NoError(t, err)
+
 					// Create QueryRequest
-					subCommand, _ := json.Marshal(&api.ReplicationDetailsRequest{Id: logIndex})
+					subCommand, _ := json.Marshal(&api.ReplicationDetailsRequest{Uuid: originalReq.Uuid})
 					queryRequest := &api.QueryRequest{
 						Type:       api.QueryRequest_TYPE_GET_REPLICATION_DETAILS,
 						SubCommand: subCommand,
@@ -626,7 +649,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					require.NoError(t, err)
 
 					// Create QueryRequest
-					subCommand, _ := json.Marshal(&api.ReplicationDetailsRequest{Id: originalReq.Id})
+					subCommand, _ := json.Marshal(&api.ReplicationDetailsRequest{Uuid: originalReq.Uuid})
 					queryRequest := &api.QueryRequest{
 						Type:       api.QueryRequest_TYPE_GET_REPLICATION_DETAILS,
 						SubCommand: subCommand,
@@ -661,6 +684,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 
 		// Create replication request
 		subCommand, err := json.Marshal(&api.ReplicationReplicateShardRequest{
+			Uuid:             uuid4(),
 			SourceCollection: "TestCollection",
 			SourceShard:      "shard1",
 			SourceNode:       "node1",
@@ -734,6 +758,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		require.NoError(t, err, "error while adding class: %v", err)
 
 		firstSubCommand, err := json.Marshal(&api.ReplicationReplicateShardRequest{
+			Uuid:             uuid4(),
 			SourceCollection: "TestCollection",
 			SourceShard:      "shard1",
 			SourceNode:       "node1",
@@ -742,6 +767,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		require.NoErrorf(t, err, "error while marshalling first replication request: %v", err)
 
 		secondSubCommand, err := json.Marshal(&api.ReplicationReplicateShardRequest{
+			Uuid:             uuid4(),
 			SourceCollection: "TestCollection",
 			SourceShard:      "shard2",
 			SourceNode:       "node1",
@@ -836,4 +862,12 @@ func buildApplyRequest(
 	}
 
 	return &cmd
+}
+
+func uuid4() strfmt.UUID {
+	id, err := uuid.NewRandom()
+	if err != nil {
+		panic(fmt.Sprintf("failed to generate Uuid: %v", err))
+	}
+	return strfmt.UUID(id.String())
 }

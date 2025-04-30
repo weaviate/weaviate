@@ -3468,7 +3468,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Replication operation registered successfully"
+            "description": "Replication operation registered successfully",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaResponse"
+            }
           },
           "400": {
             "description": "Malformed request.",
@@ -3514,7 +3517,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The replication operation id to get details for.",
+            "format": "uuid",
+            "description": "The id of the replication operation to get details for.",
             "name": "id",
             "in": "path",
             "required": true
@@ -6911,7 +6915,8 @@ func init() {
         },
         "id": {
           "description": "The unique id of the replication operation.",
-          "type": "string"
+          "type": "string",
+          "format": "uuid"
         },
         "shardId": {
           "description": "The id of the shard to collect replication details for.",
@@ -6986,6 +6991,20 @@ func init() {
         "sourceNodeName": {
           "description": "The node containing the replica",
           "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateReplicaResponse": {
+      "description": "The OK response of POST /replication/replicate",
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string",
+          "format": "uuid"
         }
       }
     },
@@ -11221,7 +11240,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Replication operation registered successfully"
+            "description": "Replication operation registered successfully",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaResponse"
+            }
           },
           "400": {
             "description": "Malformed request.",
@@ -11267,7 +11289,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The replication operation id to get details for.",
+            "format": "uuid",
+            "description": "The id of the replication operation to get details for.",
             "name": "id",
             "in": "path",
             "required": true
@@ -14967,7 +14990,8 @@ func init() {
         },
         "id": {
           "description": "The unique id of the replication operation.",
-          "type": "string"
+          "type": "string",
+          "format": "uuid"
         },
         "shardId": {
           "description": "The id of the shard to collect replication details for.",
@@ -15042,6 +15066,20 @@ func init() {
         "sourceNodeName": {
           "description": "The node containing the replica",
           "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateReplicaResponse": {
+      "description": "The OK response of POST /replication/replicate",
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string",
+          "format": "uuid"
         }
       }
     },

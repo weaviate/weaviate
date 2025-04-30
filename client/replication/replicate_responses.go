@@ -86,6 +86,7 @@ ReplicateOK describes a response with status code 200, with default header value
 Replication operation registered successfully
 */
 type ReplicateOK struct {
+	Payload *models.ReplicationReplicateReplicaResponse
 }
 
 // IsSuccess returns true when this replicate o k response has a 2xx status code
@@ -119,14 +120,25 @@ func (o *ReplicateOK) Code() int {
 }
 
 func (o *ReplicateOK) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK ", 200)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK  %+v", 200, o.Payload)
 }
 
 func (o *ReplicateOK) String() string {
-	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK ", 200)
+	return fmt.Sprintf("[POST /replication/replicate][%d] replicateOK  %+v", 200, o.Payload)
+}
+
+func (o *ReplicateOK) GetPayload() *models.ReplicationReplicateReplicaResponse {
+	return o.Payload
 }
 
 func (o *ReplicateOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ReplicationReplicateReplicaResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

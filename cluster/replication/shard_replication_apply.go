@@ -31,6 +31,7 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 
 	op := ShardReplicationOp{
 		ID:          id,
+		UUID:        c.Uuid,
 		SourceShard: newShardFQDN(c.SourceNode, c.SourceCollection, c.SourceShard),
 		TargetShard: newShardFQDN(c.TargetNode, c.SourceCollection, c.SourceShard),
 	}
@@ -64,6 +65,7 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 		return ErrShardAlreadyReplicating
 	}
 
+	s.idsByUuid[op.UUID] = op.ID
 	s.opsBySource[op.SourceShard.NodeId] = append(s.opsBySource[op.SourceShard.NodeId], op)
 	s.opsByTarget[op.TargetShard.NodeId] = append(s.opsByTarget[op.TargetShard.NodeId], op)
 	s.opsByShard[op.SourceShard.CollectionId] = append(s.opsByShard[op.SourceShard.ShardId], op)
@@ -155,6 +157,7 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 		s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
 	}
 
+	delete(s.idsByUuid, op.UUID)
 	delete(s.opsByTargetFQDN, op.TargetShard)
 	delete(s.opsById, op.ID)
 	delete(s.opsStatus, op)
