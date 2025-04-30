@@ -12,6 +12,7 @@
 package lsmkv
 
 import (
+	"context"
 	"encoding/binary"
 	"fmt"
 	"path/filepath"
@@ -23,9 +24,8 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
-	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/ctxlock"
-
+	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
 type Memtable struct {
@@ -101,7 +101,9 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
 
-	m.RLock()
+	if err := m.RLockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return nil, errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.RUnlock()
 
 	return m.key.get(key)
@@ -115,7 +117,9 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
 
-	m.RLock()
+	if err := m.RLockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return nil, errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.RUnlock()
 
 	primary := m.secondaryToPrimary[pos][string(key)]
@@ -134,7 +138,9 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("put only possible with strategy 'replace'")
 	}
 
-	m.Lock()
+	if err := m.LockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.Unlock()
 
 	var secondaryKeys [][]byte
@@ -182,7 +188,9 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	m.Lock()
+	if err := m.LockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.Unlock()
 
 	var secondaryKeys [][]byte
@@ -221,7 +229,9 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	m.Lock()
+	if err := m.LockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.Unlock()
 
 	var secondaryKeys [][]byte
@@ -289,7 +299,9 @@ func (m *Memtable) getCollection(key []byte) ([]value, error) {
 			StrategySetCollection, StrategyMapCollection, StrategyInverted)
 	}
 
-	m.RLock()
+	if err := m.RLockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return nil, errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.RUnlock()
 
 	v, err := m.keyMulti.get(key)
@@ -309,7 +321,9 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 			StrategyMapCollection, StrategyInverted)
 	}
 
-	m.RLock()
+	if err := m.RLockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return nil, errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.RUnlock()
 
 	v, err := m.keyMap.get(key)
@@ -329,7 +343,9 @@ func (m *Memtable) append(key []byte, values []value) error {
 			StrategySetCollection, StrategyMapCollection)
 	}
 
-	m.Lock()
+	if err := m.LockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.Unlock()
 	if err := m.commitlog.append(segmentCollectionNode{
 		primaryKey: key,
@@ -373,7 +389,9 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 		},
 	}
 
-	m.Lock()
+	if err := m.LockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.Unlock()
 
 	if err := m.commitlog.append(newNode); err != nil {
@@ -433,7 +451,9 @@ func (m *Memtable) countStats() *countStats {
 // that the WAL is written before a successful response is returned to the
 // user.
 func (m *Memtable) writeWAL() error {
-	m.Lock()
+	if err := m.LockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.Unlock()
 
 	return m.commitlog.flushBuffers()
@@ -444,7 +464,9 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 		return nil, errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
 	}
 
-	m.RLock()
+	if err := m.RLockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return nil, errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.RUnlock()
 
 	if m.tombstones != nil {
@@ -459,7 +481,9 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
 	}
 
-	m.Lock()
+	if err := m.LockContextWithTimeout(context.Background(), m.lockTimeout); err != nil {
+		return errors.Wrap(err, "failed to acquire lock")
+	}
 	defer m.Unlock()
 
 	m.tombstones.Set(docId)
