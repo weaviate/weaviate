@@ -24,6 +24,9 @@ func NewCtxRWMutex(location string) *CtxRWMutex {
 	}
 }
 
+func (m *CtxRWMutex) CtxRWLocation(location string) {
+	m.location = location
+}
 // LockContext acquires the write lock or returns an error on timeout/cancel
 func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()

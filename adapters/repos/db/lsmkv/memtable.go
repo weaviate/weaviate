@@ -73,6 +73,8 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		enableChecksumValidation: enableChecksumValidation,
 	}
 
+	m.CtxRWLocation("memtable")
+
 	if m.secondaryIndices > 0 {
 		m.secondaryToPrimary = make([]map[string][]byte, m.secondaryIndices)
 		for i := range m.secondaryToPrimary {

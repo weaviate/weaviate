@@ -11,7 +11,7 @@ import (
 )
 
 func TestCtxRWMutex_LockUnlock(t *testing.T) {
-	m := NewCtxRWMutex()
+	m := NewCtxRWMutex("")
 
 	m.Lock()
 	m.Unlock()
@@ -21,7 +21,7 @@ func TestCtxRWMutex_LockUnlock(t *testing.T) {
 }
 
 func TestCtxRWMutex_RLockRUnlock(t *testing.T) {
-	m := NewCtxRWMutex()
+	m := NewCtxRWMutex("")
 
 	m.RLock()
 	m.RUnlock()
@@ -31,7 +31,7 @@ func TestCtxRWMutex_RLockRUnlock(t *testing.T) {
 }
 
 func TestCtxRWMutex_TryLock(t *testing.T) {
-	m := NewCtxRWMutex()
+	m := NewCtxRWMutex("")
 
 	ok := m.TryLock()
 	if !ok {
@@ -46,7 +46,7 @@ func TestCtxRWMutex_TryLock(t *testing.T) {
 }
 
 func TestCtxRWMutex_TryRLock(t *testing.T) {
-	m := NewCtxRWMutex()
+	m := NewCtxRWMutex("")
 
 	ok := m.TryRLock()
 	if !ok {
@@ -63,7 +63,7 @@ func TestCtxRWMutex_TryRLock(t *testing.T) {
 }
 
 func TestCtxRWMutex_LockContext_Timeout(t *testing.T) {
-	m := NewCtxRWMutex()
+	m := NewCtxRWMutex("")
 	m.Lock()
 	defer m.Unlock()
 
@@ -83,7 +83,7 @@ func TestCtxRWMutex_LockContext_Timeout(t *testing.T) {
 }
 
 func TestCtxRWMutex_RLockContext_Timeout(t *testing.T) {
-	m := NewCtxRWMutex()
+	m := NewCtxRWMutex("")
 	m.Lock()
 	defer m.Unlock()
 
@@ -102,7 +102,7 @@ func TestCtxRWMutex_RLockContext_Timeout(t *testing.T) {
 }
 
 func TestCtxRWMutex_ParallelReaders(t *testing.T) {
-	m := NewCtxRWMutex()
+	m := NewCtxRWMutex("")
 	var wg sync.WaitGroup
 	numReaders := 5
 	started := make(chan struct{}, numReaders)
@@ -136,7 +136,7 @@ func TestCtxRWMutex_ParallelReaders(t *testing.T) {
 }
 
 func TestCtxRWMutex_WriterBlocksReader(t *testing.T) {
-	m := NewCtxRWMutex()
+	m := NewCtxRWMutex("")
 	m.Lock()
 
 	var got string
@@ -164,7 +164,7 @@ func TestCtxRWMutex_WriterBlocksReader(t *testing.T) {
 }
 
 func TestCtxRWMutex_WritersBlockEachOther(t *testing.T) {
-	m := NewCtxRWMutex()
+	m := NewCtxRWMutex("")
 	m.Lock()
 
 	done := make(chan struct{})
