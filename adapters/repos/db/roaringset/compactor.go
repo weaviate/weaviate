@@ -69,11 +69,83 @@ type Compactor struct {
 	cleanupDeletions bool
 
 	w    io.WriteSeeker
-	bufw *bufio.Writer
+	bufw compactorWriter
+	mw   *memoryWriter
 
 	scratchSpacePath string
 
 	enableChecksumValidation bool
+}
+
+type compactorWriter interface {
+	segmentindex.SegmentWriter
+	Reset(io.Writer)
+}
+
+type memoryWriter struct {
+	buffer *[]byte
+	pos    *int
+	maxPos *int
+	writer io.WriteSeeker
+}
+
+// NewMemoryWriterWrapper creates a new memoryWriter with initialized pointers
+func newMemoryWriterWrapper(initialCapacity int64, writer io.WriteSeeker) *memoryWriter {
+	buf := make([]byte, initialCapacity)
+	pos := 0
+	maxPos := 0
+	return &memoryWriter{
+		buffer: &buf,
+		pos:    &pos,
+		maxPos: &maxPos,
+		writer: writer,
+	}
+}
+
+func (mw memoryWriter) Write(p []byte) (n int, err error) {
+	// Get the length of the incoming data
+	lenCopyBytes := len(p)
+
+	// Check if we need to grow the buffer
+	requiredSize := *mw.pos + lenCopyBytes
+	if requiredSize > len(*mw.buffer) {
+		return 0, io.ErrShortWrite
+	}
+
+	// Copy the data into the buffer at the current position
+	numCopiedBytes := copy((*mw.buffer)[*mw.pos:], p)
+
+	// Update the position
+	*mw.pos += numCopiedBytes
+	if *mw.pos >= *mw.maxPos {
+		*mw.maxPos = *mw.pos
+	}
+
+	if numCopiedBytes != lenCopyBytes {
+		return numCopiedBytes, errors.New("could not copy all data into buffer")
+	}
+
+	return numCopiedBytes, nil
+}
+
+func (mw memoryWriter) Flush() error {
+	buf := *mw.buffer
+	_, err := mw.writer.Write(buf[:*mw.maxPos])
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (mw memoryWriter) Reset(writer io.Writer) {}
+
+func (mw memoryWriter) ResetWritePositionToZero() {
+	*mw.pos = 0
+}
+
+func (mw memoryWriter) ResetWritePositionToMax() {
+	*mw.pos = *mw.maxPos
 }
 
 // NewCompactor from left (older) and right (newer) seeker. See [Compactor] for
@@ -82,13 +154,23 @@ type Compactor struct {
 func NewCompactor(w io.WriteSeeker,
 	left, right *SegmentCursor, level uint16,
 	scratchSpacePath string, cleanupDeletions bool,
-	enableChecksumValidation bool,
+	enableChecksumValidation bool, maxNewFileSize int64,
 ) *Compactor {
+	var writer compactorWriter
+	var mw *memoryWriter
+	if maxNewFileSize < 4096 {
+		mw = newMemoryWriterWrapper(maxNewFileSize, w)
+		writer = mw
+	} else {
+		writer = bufio.NewWriterSize(w, 256*1024)
+	}
+
 	return &Compactor{
 		left:                     left,
 		right:                    right,
 		w:                        w,
-		bufw:                     bufio.NewWriterSize(w, 256*1024),
+		bufw:                     writer,
+		mw:                       mw,
 		currentLevel:             level,
 		cleanupDeletions:         cleanupDeletions,
 		scratchSpacePath:         scratchSpacePath,
@@ -117,8 +199,10 @@ func (c *Compactor) Do() error {
 	}
 
 	// flush buffered, so we can safely seek on underlying writer
-	if err := c.bufw.Flush(); err != nil {
-		return fmt.Errorf("flush buffered: %w", err)
+	if c.mw == nil {
+		if err := c.bufw.Flush(); err != nil {
+			return fmt.Errorf("flush buffered: %w", err)
+		}
 	}
 
 	var dataEnd uint64 = segmentindex.HeaderSize
@@ -321,10 +405,6 @@ func (c *Compactor) writeIndexes(f *segmentindex.SegmentFile,
 func (c *Compactor) writeHeader(f *segmentindex.SegmentFile,
 	level, version, secondaryIndices uint16, startOfIndex uint64,
 ) error {
-	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
-		return errors.Wrap(err, "seek to beginning to write header")
-	}
-
 	h := &segmentindex.Header{
 		Level:            level,
 		Version:          version,
@@ -332,11 +412,24 @@ func (c *Compactor) writeHeader(f *segmentindex.SegmentFile,
 		Strategy:         segmentindex.StrategyRoaringSet,
 		IndexStart:       startOfIndex,
 	}
-	// We have to write directly to compactor writer,
-	// since it has seeked back to start. The following
-	// call to f.WriteHeader will not write again.
-	if _, err := h.WriteTo(c.w); err != nil {
-		return err
+
+	if c.mw == nil {
+		if _, err := c.w.Seek(0, io.SeekStart); err != nil {
+			return errors.Wrap(err, "seek to beginning to write header")
+		}
+
+		// We have to write directly to compactor writer,
+		// since it has seeked back to start. The following
+		// call to f.WriteHeader will not write again.
+		if _, err := h.WriteTo(c.w); err != nil {
+			return err
+		}
+
+	} else {
+		c.mw.ResetWritePositionToZero()
+		if _, err := h.WriteTo(c.bufw); err != nil {
+			return err
+		}
 	}
 
 	if _, err := f.WriteHeader(h); err != nil {
@@ -344,8 +437,12 @@ func (c *Compactor) writeHeader(f *segmentindex.SegmentFile,
 	}
 
 	// We need to seek back to the end so we can write a checksum
-	if _, err := c.w.Seek(0, io.SeekEnd); err != nil {
-		return fmt.Errorf("seek to end after writing header: %w", err)
+	if c.mw == nil {
+		if _, err := c.w.Seek(0, io.SeekEnd); err != nil {
+			return fmt.Errorf("seek to end after writing header: %w", err)
+		}
+	} else {
+		c.mw.ResetWritePositionToMax()
 	}
 
 	c.bufw.Reset(c.w)
