@@ -27,6 +27,16 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
+// upperTimeBoundDuration is the duration for the upper time bound for the hash beat.
+// TODO better upper time bound? for now, we use 100s because we want to have enough
+// time for all nodes to start sending writes to the target node and give time for
+// in progress writes to finish (assuming that in progress writes time out in 90s)
+const upperTimeBoundDuration = 100 * time.Second
+
+// asyncStatusInterval is the polling interval to check the status of the
+// async replication of src->target
+const asyncStatusInterval = 5 * time.Second
+
 // OpConsumer is an interface for consuming replication operations.
 type OpConsumer interface {
 	// Consume starts consuming operations from the provided channel.
@@ -269,30 +279,35 @@ func (c *CopyOpConsumer) processReplicationOp(ctx context.Context, workerId uint
 
 		// Update schema to register the shard
 		logger.Info("starting to finalize replica copy")
-		// TODO make sure/test reads sent to target node do not use target node until op is ready/done
-		// TODO get the upper time bound for this movement from the source node (query/poll?)
-		// for now, just pick a time 100s in the future
-		upperTimeBoundUnixMillis := time.Now().Add(100 * time.Second).UnixMilli()
+		// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
+		// received during movement work as expected
+		upperTimeBoundUnixMillis := time.Now().Add(upperTimeBoundDuration).UnixMilli()
 		// TODO best effort writes
 		if _, err := c.leaderClient.StartFinalizingReplicaCopy(ctx, op.TargetShard.CollectionId, op.TargetShard.ShardId, op.SourceShard.NodeId, op.TargetShard.NodeId, upperTimeBoundUnixMillis); err != nil {
 			logger.WithField("consumer", c).WithError(err).Error("failure while starting to finalize replica copy")
 			return err
 		}
 
-		// TODO some kind of timer, stop, timeout, etc
-		for {
-			objectsPropagated, startDiffTimeUnixMillis, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.SourceShard.NodeId, op.TargetShard.NodeId, op.SourceShard.CollectionId, op.SourceShard.ShardId)
-			if err == nil && objectsPropagated == 0 {
-				if startDiffTimeUnixMillis >= upperTimeBoundUnixMillis {
-					break
+		func() {
+			// we only check the status of the async replication every 5 seconds to avoid
+			// spamming with too many requests too quickly
+			ticker := time.NewTicker(asyncStatusInterval)
+			defer ticker.Stop()
+			for {
+				select {
+				case <-ticker.C:
+					asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.SourceShard.NodeId, op.TargetShard.NodeId, op.SourceShard.CollectionId, op.SourceShard.ShardId)
+					if err == nil && asyncReplicationStatus.ObjectsPropagated == 0 {
+						if asyncReplicationStatus.StartDiffTimeUnixMillis >= upperTimeBoundUnixMillis {
+							break
+						}
+					}
+					if ctx.Err() != nil {
+						break
+					}
 				}
 			}
-			// Check if the context has been canceled or timed out
-			if ctx.Err() != nil {
-				break
-			}
-			time.Sleep(5 * time.Second)
-		}
+		}()
 
 		// TODO handle unhappy path
 

@@ -19,8 +19,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -67,6 +69,16 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 	relativeFilePaths, err := c.remoteIndex.ListFiles(ctx, sourceNodeHostname, collectionName, shardName)
 	if err != nil {
 		return err
+	}
+
+	// if WEAVIATE_TEST_COPY_REPLICA_SLEEP is set, sleep for that amount of time
+	// this is only used for testing purposes
+	if os.Getenv("WEAVIATE_TEST_COPY_REPLICA_SLEEP") != "" {
+		sleepTime, err := time.ParseDuration(os.Getenv("WEAVIATE_TEST_COPY_REPLICA_SLEEP"))
+		if err != nil {
+			return fmt.Errorf("invalid WEAVIATE_TEST_COPY_REPLICA_SLEEP: %w", err)
+		}
+		time.Sleep(sleepTime)
 	}
 
 	for _, relativeFilePath := range relativeFilePaths {
@@ -141,22 +153,26 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 
 // AsyncReplicationStatus returns the async replication status for a shard.
 // The first two return values are the number of objects propagated and the start diff time in unix milliseconds.
-func (c *Copier) AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (uint64, int64, error) {
+func (c *Copier) AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (models.AsyncReplicationStatus, error) {
 	// TODO can using verbose here blow up if the node has many shards/tenants? i could add a new method to get only one shard?
 	status, err := c.dbWrapper.GetOneNodeStatus(ctx, srcNodeId, collectionName, "verbose")
 	if err != nil {
-		return 0, 0, err
+		return models.AsyncReplicationStatus{}, err
 	}
 
 	for _, shard := range status.Shards {
 		if shard.Name == shardName && shard.Class == collectionName {
 			for _, asyncReplicationStatus := range shard.AsyncReplicationStatus {
 				if asyncReplicationStatus.TargetNode == targetNodeId {
-					return asyncReplicationStatus.ObjectsPropagated, asyncReplicationStatus.StartDiffTimeUnixMillis, nil
+					return models.AsyncReplicationStatus{
+						ObjectsPropagated:       asyncReplicationStatus.ObjectsPropagated,
+						StartDiffTimeUnixMillis: asyncReplicationStatus.StartDiffTimeUnixMillis,
+						TargetNode:              asyncReplicationStatus.TargetNode,
+					}, nil
 				}
 			}
 		}
 	}
 
-	return 0, 0, fmt.Errorf("shard %s or collection %s not found in node %s or stats are nil", shardName, collectionName, srcNodeId)
+	return models.AsyncReplicationStatus{}, fmt.Errorf("shard %s or collection %s not found in node %s or stats are nil", shardName, collectionName, srcNodeId)
 }

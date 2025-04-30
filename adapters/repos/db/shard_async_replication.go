@@ -1059,12 +1059,18 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 	return localObjectsCount, remoteObjectsCount, objectsToPropagate, nil
 }
 
+// getHashBeatMaxUpdateTime returns the maximum update time for the hash beat.
 // If our local node and the target node have an upper time bound configured, use the
 // configured upper time bound instead of the default one
 func (s *Shard) getHashBeatMaxUpdateTime(config asyncReplicationConfig, targetNodeName string) int64 {
 	localNodeName := s.index.replicator.LocalNodeName()
 	for _, override := range config.targetNodeOverrides {
-		if override.SourceNode == localNodeName && override.TargetNode == targetNodeName && override.CollectionID == s.class.Class && override.ShardID == s.name {
+		if override.Equal(&additional.AsyncReplicationTargetNodeOverride{
+			SourceNode:   localNodeName,
+			TargetNode:   targetNodeName,
+			CollectionID: s.class.Class,
+			ShardID:      s.name,
+		}) {
 			return override.UpperTimeBound
 		}
 	}

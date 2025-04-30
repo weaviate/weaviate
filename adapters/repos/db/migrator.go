@@ -191,12 +191,7 @@ func (m *Migrator) StartFinalizingReplicaCopy(ctx context.Context, class string,
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
-	// TODO can i load/get in the same call?
-	err := idx.LoadLocalShard(ctx, shard)
-	if err != nil {
-		return err
-	}
-	s, release, err := idx.GetShard(ctx, shard)
+	s, release, err := idx.getOrInitShard(ctx, shard)
 	if err != nil {
 		return err
 	}
@@ -214,7 +209,7 @@ func (m *Migrator) StartFinalizingReplicaCopy(ctx context.Context, class string,
 		return err
 	}
 
-	// TODO replace with init call?
+	// we call updateAsyncReplicationConfig here to initialize the hash tree if needed
 	err = s.updateAsyncReplicationConfig(ctx, true)
 	if err != nil {
 		return err
