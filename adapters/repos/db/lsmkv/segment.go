@@ -130,10 +130,10 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	var contents []byte
 	var unMapContents bool
 
-	if size <= cfg.MinMMapSize { // check if it is a candidate for mmap
+	if size <= cfg.MinMMapSize { // check if it is a candidate for full reading
 		err = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
 		if err != nil {
-			logger.WithError(err).Errorf("memory pressure: cannot mmap segment")
+			logger.Debugf("memory pressure: cannot fully read segment")
 		}
 	}
 

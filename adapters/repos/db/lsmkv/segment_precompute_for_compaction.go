@@ -62,10 +62,10 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	// mmap has some overhead, we can read small files directly to memory
 
-	if size <= minMMapSize { // check if it is a candidate for mmap
+	if size <= minMMapSize { // check if it is a candidate for full reading
 		err = allocChecker.CheckAlloc(size) // check if we have enough memory
 		if err != nil {
-			logger.WithError(err).Errorf("memory pressure: cannot mmap segment")
+			logger.Debugf("memory pressure: cannot fully read segment")
 		}
 	}
 
