@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/mmap"
 )
 
@@ -34,7 +35,7 @@ import (
 // able to find a way to unify the two -- there are subtle differences.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
-	enableChecksumValidation bool, minMMapSize int64,
+	enableChecksumValidation bool, minMMapSize int64, allocChecker memwatch.AllocChecker,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -58,9 +59,18 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	size := fileInfo.Size()
 
 	var contents []byte
+	var allocCheckerErr error
 
 	// mmap has some overhead, we can read small files directly to memory
-	if size > minMMapSize {
+
+	if size <= minMMapSize { // check if it is a candidate for full reading
+		allocCheckerErr = allocChecker.CheckAlloc(size) // check if we have enough memory
+		if allocCheckerErr != nil {
+			logger.Debugf("memory pressure: cannot fully read segment")
+		}
+	}
+
+	if size > minMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
@@ -68,7 +78,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		contents = contents2
 
 		defer contents2.Unmap()
-	} else {
+	} else { // read the file into memory if it's small enough and we have enough memory
 		contents, err = io.ReadAll(file)
 		if err != nil {
 			return nil, fmt.Errorf("read file: %w", err)
