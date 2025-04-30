@@ -44,6 +44,7 @@ type segment struct {
 	metrics             *Metrics
 	size                int64
 	mmapContents        bool
+	unMapContents       bool
 
 	useBloomFilter        bool // see bucket for more datails
 	bloomFilter           *bloom.BloomFilter
@@ -81,6 +82,7 @@ type segmentConfig struct {
 	calcCountNetAdditions    bool
 	overwriteDerived         bool
 	enableChecksumValidation bool
+	MinMMapSize              int64
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -122,11 +124,23 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 	size := fileInfo.Size()
 
-	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
-	if err != nil {
-		return nil, fmt.Errorf("mmap file: %w", err)
+	// mmap has some overhead, we can read small files directly to memory
+	var contents []byte
+	var unMapContents bool
+	if size > cfg.MinMMapSize {
+		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
+		if err != nil {
+			return nil, fmt.Errorf("mmap file: %w", err)
+		}
+		contents = contents2
+		unMapContents = true
+	} else {
+		contents, err = io.ReadAll(file)
+		if err != nil {
+			return nil, fmt.Errorf("read file: %w", err)
+		}
+		unMapContents = false
 	}
-
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
@@ -137,6 +151,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation {
+		file.Seek(0, io.SeekStart)
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
@@ -168,6 +183,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		mmapContents:          cfg.mmapContents,
 		useBloomFilter:        cfg.useBloomFilter,
 		calcCountNetAdditions: cfg.calcCountNetAdditions,
+		unMapContents:         unMapContents,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -204,9 +220,10 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 func (s *segment) close() error {
 	var munmapErr, fileCloseErr error
-
-	m := mmap.MMap(s.contents)
-	munmapErr = m.Unmap()
+	if s.unMapContents {
+		m := mmap.MMap(s.contents)
+		munmapErr = m.Unmap()
+	}
 	if s.contentFile != nil {
 		fileCloseErr = s.contentFile.Close()
 	}

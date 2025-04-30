@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -33,7 +34,7 @@ import (
 // able to find a way to unify the two -- there are subtle differences.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
-	enableChecksumValidation bool,
+	enableChecksumValidation bool, minMMapSize int64,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -56,12 +57,23 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	}
 	size := fileInfo.Size()
 
-	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
-	if err != nil {
-		return nil, fmt.Errorf("mmap file: %w", err)
-	}
+	var contents []byte
 
-	defer contents.Unmap()
+	// mmap has some overhead, we can read small files directly to memory
+	if size > minMMapSize {
+		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
+		if err != nil {
+			return nil, fmt.Errorf("mmap file: %w", err)
+		}
+		contents = contents2
+
+		defer contents2.Unmap()
+	} else {
+		contents, err = io.ReadAll(file)
+		if err != nil {
+			return nil, fmt.Errorf("read file: %w", err)
+		}
+	}
 
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
@@ -73,6 +85,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	}
 
 	if header.Version >= segmentindex.SegmentV1 && enableChecksumValidation {
+		file.Seek(0, io.SeekStart)
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
