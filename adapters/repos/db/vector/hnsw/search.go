@@ -759,7 +759,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		helpers.AnnotateSlowQueryLog(ctx, "knn_search_rescore_took", took)
 	}
 
-	if /*h.muvera.Load() ||*/ !h.multivector.Load() {
+	if !h.multivector.Load() {
 		for res.Len() > k {
 			res.Pop()
 		}
