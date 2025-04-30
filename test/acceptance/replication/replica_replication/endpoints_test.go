@@ -64,12 +64,6 @@ func TestCanCreateAndGetAReplicationOperation(t *testing.T) {
 
 	t.Run("get replication operation", func(t *testing.T) {
 		res, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(uuid), nil)
-		if err != nil {
-			parsed, ok := err.(*replication.ReplicationDetailsInternalServerError)
-			if ok {
-				t.Fatalf("internal server error when getting replication operation: %s", parsed.Payload.Error[0].Message)
-			}
-		}
 		require.Nil(t, err)
 		require.NotNil(t, res)
 		require.NotNil(t, res.Payload)

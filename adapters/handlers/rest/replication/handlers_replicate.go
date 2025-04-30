@@ -116,18 +116,6 @@ func (h *replicationHandler) handleForbiddenError(err error) middleware.Responde
 	return replication.NewReplicationDetailsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("access denied: %w", err)))
 }
 
-func (h *replicationHandler) handleMalformedRequestError(id strfmt.UUID, err error) middleware.Responder {
-	h.logger.WithFields(logrus.Fields{
-		"action": "replication",
-		"op":     "replication_details",
-		"id":     id,
-		"error":  err,
-	}).Debug("malformed request for replication operation")
-
-	return replication.NewReplicationDetailsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(
-		fmt.Errorf("malformed request for replication operation with id '%s'", id)))
-}
-
 func (h *replicationHandler) handleOperationNotFoundError(id strfmt.UUID, err error) middleware.Responder {
 	h.logger.WithFields(logrus.Fields{
 		"action": "replication",
