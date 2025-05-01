@@ -639,6 +639,7 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 			overwriteDerived:         false,
 			enableChecksumValidation: sg.enableChecksumValidation,
 			MinMMapSize:              sg.MinMMapSize,
+			allocChecker:             sg.allocChecker,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("create new segment %q: %w", segmentPath, err)

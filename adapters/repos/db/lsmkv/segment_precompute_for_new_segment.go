@@ -46,6 +46,7 @@ func (sg *SegmentGroup) initAndPrecomputeNewSegment(path string) (*segment, erro
 			overwriteDerived:         true,
 			enableChecksumValidation: sg.enableChecksumValidation,
 			MinMMapSize:              sg.MinMMapSize,
+			allocChecker:             sg.allocChecker,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("init and pre-compute new segment %s: %w", path, err)

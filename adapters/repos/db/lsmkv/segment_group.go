@@ -205,6 +205,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 					overwriteDerived:         false,
 					enableChecksumValidation: sg.enableChecksumValidation,
 					MinMMapSize:              sg.MinMMapSize,
+					allocChecker:             sg.allocChecker,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -254,6 +255,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				overwriteDerived:         true,
 				enableChecksumValidation: sg.enableChecksumValidation,
 				MinMMapSize:              sg.MinMMapSize,
+				allocChecker:             sg.allocChecker,
 			},
 		)
 		if err != nil {
@@ -326,6 +328,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				overwriteDerived:         false,
 				enableChecksumValidation: sg.enableChecksumValidation,
 				MinMMapSize:              sg.MinMMapSize,
+				allocChecker:             sg.allocChecker,
 			})
 		if err != nil {
 			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
@@ -386,6 +389,7 @@ func (sg *SegmentGroup) add(path string) error {
 			overwriteDerived:         true,
 			enableChecksumValidation: sg.enableChecksumValidation,
 			MinMMapSize:              sg.MinMMapSize,
+			allocChecker:             sg.allocChecker,
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
