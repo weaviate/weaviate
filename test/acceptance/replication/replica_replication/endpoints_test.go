@@ -12,7 +12,9 @@
 package replica_replication
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
@@ -20,29 +22,29 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
 func (suite *ReplicaReplicationTestSuite) TestCanCreateAndGetAReplicationOperation() {
 	t := suite.T()
-	// mainCtx := context.Background()
+	mainCtx := context.Background()
 
-	// compose, err := docker.New().
-	// 	WithWeaviateCluster(3).
-	// 	Start(mainCtx)
-	// require.Nil(t, err)
-	// defer func() {
-	// 	if err := compose.Terminate(mainCtx); err != nil {
-	// 		t.Fatalf("failed to terminate test containers: %s", err.Error())
-	// 	}
-	// }()
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
 
-	// _, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
-	// defer cancel()
+	_, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	defer cancel()
 
-	// helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupClient("localhost:8080")
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	paragraphClass := articles.ParagraphsClass()
 
