@@ -165,13 +165,21 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 				// Check if the operation is already in progress
 				if c.ongoingOps.LoadOrStore(op.Op.ID) {
-					// Avoid scheduling unnecessary work or incorrectly counting metrics
-					// for operations that are already in progress or completed.
-					c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("replication op skipped as already running")
-					// Need to release the token to let other consumers process queued replication operations.
-					<-c.tokens
-					c.engineOpCallbacks.OnOpSkipped(c.nodeId)
-					continue
+					if op.Status.OperationShouldCancel() {
+						// Avoid scheduling unnecessary work or incorrectly counting metrics
+						// for operations that are already in progress or completed.
+						c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("replication op skipped as already running")
+						// Need to release the token to let other consumers process queued replication operations.
+						<-c.tokens
+						c.engineOpCallbacks.OnOpSkipped(c.nodeId)
+						continue
+					}
+					// This means we're cancelling/deleting the operation, so we need to call the op's cancel
+					cancel, ok := c.ongoingOps.LoadCancel(op.Op.ID)
+					if !ok {
+						return fmt.Errorf("failed to load cancel function for op %d", op.Op.ID)
+					}
+					cancel()
 				}
 
 				wg.Add(1)
@@ -206,6 +214,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					// from running indefinitely
 					opCtx, opCancel := context.WithTimeout(workerCtx, c.opTimeout)
 					defer opCancel()
+					c.ongoingOps.StoreCancel(op.Op.ID, opCancel)
 
 					err := c.dispatchReplicationOp(opCtx, operation)
 					if err != nil && errors.Is(err, context.DeadlineExceeded) {

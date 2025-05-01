@@ -11,15 +11,22 @@
 
 package replication
 
-import "sync"
+import (
+	"context"
+	"sync"
+)
 
 type OpsCache struct {
+	// cancels is a map of opId to a cancel function
+	cancels sync.Map
+	// ops is a map of opId to an empty struct
 	ops sync.Map
 }
 
 func NewOpsCache() *OpsCache {
 	return &OpsCache{
-		ops: sync.Map{},
+		cancels: sync.Map{},
+		ops:     sync.Map{},
 	}
 }
 
@@ -28,6 +35,23 @@ func (c *OpsCache) LoadOrStore(opId uint64) bool {
 	return ok
 }
 
+func (c *OpsCache) LoadCancel(opId uint64) (context.CancelFunc, bool) {
+	cancelAny, ok := c.cancels.Load(opId)
+	if !ok {
+		return nil, false
+	}
+	cancel, ok := cancelAny.(context.CancelFunc)
+	if !ok {
+		return nil, false
+	}
+	return cancel, true
+}
+
+func (c *OpsCache) StoreCancel(opId uint64, cancel context.CancelFunc) {
+	c.cancels.Store(opId, cancel)
+}
+
 func (c *OpsCache) Remove(opId uint64) {
+	c.cancels.Delete(opId)
 	c.ops.Delete(opId)
 }

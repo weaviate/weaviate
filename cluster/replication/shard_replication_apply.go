@@ -82,17 +82,21 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdateOpStateRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
+	return s.updateReplicationOpStatus(c.Id, c.State)
+}
 
-	op, ok := s.opsById[c.Id]
+func (s *ShardReplicationFSM) updateReplicationOpStatus(id uint64, newState api.ShardReplicationState) error {
+	op, ok := s.opsById[id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", c.Id, ErrReplicationOpNotFound)
+		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOpNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
-		return fmt.Errorf("could not find op status for op %d", c.Id)
+		return fmt.Errorf("could not find op status for op %d", id)
 	}
+
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
-	status.ChangeState(c.State)
+	status.ChangeState(newState)
 	s.opsStatus[op] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
@@ -107,20 +111,8 @@ func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest)
 	if !ok {
 		return ErrReplicationOpNotFound
 	}
-	op, ok := s.opsById[id]
-	if !ok {
-		return ErrReplicationOpNotFound
-	}
-	status, ok := s.opsStatus[op]
-	if !ok {
-		return fmt.Errorf("could not find op status for op %d", id)
-	}
-	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
-	status.ChangeState(api.CANCELLING)
-	s.opsStatus[op] = status
-	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
-	return nil
+	return s.updateReplicationOpStatus(id, api.CANCELLING)
 }
 
 func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest) error {
@@ -131,20 +123,8 @@ func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest)
 	if !ok {
 		return ErrReplicationOpNotFound
 	}
-	op, ok := s.opsById[id]
-	if !ok {
-		return ErrReplicationOpNotFound
-	}
-	status, ok := s.opsStatus[op]
-	if !ok {
-		return fmt.Errorf("could not find op status for op %d", id)
-	}
-	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
-	status.ChangeState(api.DELETING)
-	s.opsStatus[op] = status
-	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
-	return nil
+	return s.updateReplicationOpStatus(id, api.DELETING)
 }
 
 func (s *ShardReplicationFSM) RemoveReplicationOp(c *api.ReplicationRemoveOpRequest) error {

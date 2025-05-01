@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
@@ -29,7 +30,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestCanCreateAndGetAReplicationOperation(t *testing.T) {
+func (suite *ReplicaReplicationTestSuite) TestReplicationReplicateEndpoints() {
+	t := suite.T()
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -54,50 +56,57 @@ func TestCanCreateAndGetAReplicationOperation(t *testing.T) {
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	var uuid strfmt.UUID
+	var id strfmt.UUID
 
 	t.Run("create replication operation", func(t *testing.T) {
 		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
 		require.Nil(t, err)
 		require.NotNil(t, created)
 		require.NotNil(t, created.Payload)
-		uuid = *created.Payload.ID
+		id = *created.Payload.ID
 	})
 
 	t.Run("get replication operation", func(t *testing.T) {
-		details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(uuid), nil)
+		details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 		require.Nil(t, err)
 		require.NotNil(t, details)
 		require.NotNil(t, details.Payload)
-		require.Equal(t, uuid, *details.Payload.ID)
+		require.NotNil(t, details.Payload.ID)
+		require.Equal(t, id, *details.Payload.ID)
+	})
+
+	t.Run("get non-existing replication operation", func(t *testing.T) {
+		_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(strfmt.UUID(uuid.New().String())), nil)
+		require.NotNil(t, err)
+		require.IsType(t, replication.NewReplicationDetailsNotFound(), err)
 	})
 
 	t.Run("cancel replication operation", func(t *testing.T) {
-		cancelled, err := helper.Client(t).Replication.CancelReplication(replication.NewCancelReplicationParams().WithID(uuid), nil)
+		cancelled, err := helper.Client(t).Replication.CancelReplication(replication.NewCancelReplicationParams().WithID(id), nil)
 		require.Nil(t, err)
 		require.NotNil(t, cancelled)
 	})
 
 	t.Run("wait for replication operation to be cancelled", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(uuid), nil)
+			details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 			require.Nil(t, err)
 			assert.Equal(ct, string(api.CANCELLED), details.Payload.Status.State)
-		}, 60*time.Second, 1*time.Second, "replication operation should be cancelled")
+		}, 30*time.Second, 1*time.Second, "replication operation should be cancelled")
 	})
 
 	t.Run("delete replication operation", func(t *testing.T) {
-		deleted, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(uuid), nil)
+		deleted, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(id), nil)
 		require.Nil(t, err)
 		require.NotNil(t, deleted)
 	})
 
 	t.Run("wait for replication operation to be deleted", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
-			details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(uuid), nil)
+			_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 			require.NotNil(ct, err)
-			assert.Equal(ct, replication.NewReplicationDetailsNotFound().Code(), details.Code())
-		}, 60*time.Second, 1*time.Second, "replication operation should be deleted")
+			assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
+		}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
 	})
 }
 

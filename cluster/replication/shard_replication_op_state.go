@@ -82,6 +82,10 @@ func (s *ShardReplicationOpStatus) GetCurrentState() api.ShardReplicationState {
 	return s.Current.State
 }
 
+func (s *ShardReplicationOpStatus) OperationShouldCancel() bool {
+	return s.Current.State == api.CANCELLING || s.Current.State == api.DELETING
+}
+
 // GetHistory returns the history of the state changes of the shard replication operation
 func (s *ShardReplicationOpStatus) GetHistory() StateHistory {
 	return s.History
