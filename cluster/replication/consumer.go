@@ -370,7 +370,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	}
 
 	if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
-		logger.WithField("consumer", c).WithError(err).Error("failure while starting to finalize replica copy")
+		logger.WithField("consumer", c).WithError(err).Error("failure while adding replica to shard")
 		return api.ShardReplicationState(""), err
 	}
 

@@ -937,6 +937,8 @@ func (c *RemoteIndex) GetFile(ctx context.Context, hostName, indexName,
 	return file, c.retry(ctx, 9, try)
 }
 
+// SetAsyncReplicationTargetNode configures and starts async replication for the given
+// host with the specified override.
 func (c *RemoteIndex) SetAsyncReplicationTargetNode(
 	ctx context.Context,
 	hostName, indexName, shardName string,

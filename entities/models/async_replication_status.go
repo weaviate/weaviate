@@ -28,13 +28,13 @@ import (
 // swagger:model AsyncReplicationStatus
 type AsyncReplicationStatus struct {
 
-	// The number of objects propagated.
+	// The number of objects propagated in the most recent iteration.
 	ObjectsPropagated uint64 `json:"objectsPropagated,omitempty"`
 
-	// The start time of the replication.
+	// The start time of the most recent iteration.
 	StartDiffTimeUnixMillis int64 `json:"startDiffTimeUnixMillis,omitempty"`
 
-	// The target node of the replication.
+	// The target node of the replication, if set, otherwise empty.
 	TargetNode string `json:"targetNode,omitempty"`
 }
 
