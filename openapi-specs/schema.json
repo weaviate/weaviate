@@ -1704,6 +1704,32 @@
           "description": "The load status of the shard.",
           "type": "boolean",
           "x-omitempty": false
+        },
+        "asyncReplicationStatus": {
+          "description": "The status of the async replication.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AsyncReplicationStatus"
+          }
+        }
+      }
+    },
+    "AsyncReplicationStatus": {
+      "description": "The status of the async replication.",
+      "properties": {
+        "objectsPropagated": {
+          "description": "The number of objects propagated in the most recent iteration.",
+          "type": "number",
+          "format": "uint64"
+        },
+        "startDiffTimeUnixMillis": {
+          "description": "The start time of the most recent iteration.",
+          "type": "number",
+          "format": "int64"
+        },
+        "targetNode": {
+          "description": "The target node of the replication, if set, otherwise empty.",
+          "type": "string"
         }
       }
     },

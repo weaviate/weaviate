@@ -4918,6 +4918,25 @@ func init() {
         "type": "object"
       }
     },
+    "AsyncReplicationStatus": {
+      "description": "The status of the async replication.",
+      "properties": {
+        "objectsPropagated": {
+          "description": "The number of objects propagated in the most recent iteration.",
+          "type": "number",
+          "format": "uint64"
+        },
+        "startDiffTimeUnixMillis": {
+          "description": "The start time of the most recent iteration.",
+          "type": "number",
+          "format": "int64"
+        },
+        "targetNode": {
+          "description": "The target node of the replication, if set, otherwise empty.",
+          "type": "string"
+        }
+      }
+    },
     "BM25Config": {
       "description": "tuning parameters for the BM25 algorithm",
       "type": "object",
@@ -6198,6 +6217,13 @@ func init() {
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
+        "asyncReplicationStatus": {
+          "description": "The status of the async replication.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AsyncReplicationStatus"
+          }
+        },
         "class": {
           "description": "The name of shard's class.",
           "type": "string",
@@ -12774,6 +12800,25 @@ func init() {
         "type": "object"
       }
     },
+    "AsyncReplicationStatus": {
+      "description": "The status of the async replication.",
+      "properties": {
+        "objectsPropagated": {
+          "description": "The number of objects propagated in the most recent iteration.",
+          "type": "number",
+          "format": "uint64"
+        },
+        "startDiffTimeUnixMillis": {
+          "description": "The start time of the most recent iteration.",
+          "type": "number",
+          "format": "int64"
+        },
+        "targetNode": {
+          "description": "The target node of the replication, if set, otherwise empty.",
+          "type": "string"
+        }
+      }
+    },
     "BM25Config": {
       "description": "tuning parameters for the BM25 algorithm",
       "type": "object",
@@ -14230,6 +14275,13 @@ func init() {
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
+        "asyncReplicationStatus": {
+          "description": "The status of the async replication.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AsyncReplicationStatus"
+          }
+        },
         "class": {
           "description": "The name of shard's class.",
           "type": "string",

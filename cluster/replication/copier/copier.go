@@ -19,8 +19,11 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"time"
 
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
+	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -36,18 +39,18 @@ type Copier struct {
 	// rootDataPath is the local path to the root data directory for the shard, we'll copy files
 	// to this path
 	rootDataPath string
-	// indexGetter is used to load the index for the collection so that we can create/interact
+	// dbWrapper is used to load the index for the collection so that we can create/interact
 	// with the shard on this node
-	indexGetter types.IndexGetter
+	dbWrapper types.DbWrapper
 }
 
 // New creates a new shard replica Copier.
-func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string, indexGetter types.IndexGetter) *Copier {
+func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string, dbWrapper types.DbWrapper) *Copier {
 	return &Copier{
 		remoteIndex:  t,
 		nodeSelector: nodeSelector,
 		rootDataPath: rootPath,
-		indexGetter:  indexGetter,
+		dbWrapper:    dbWrapper,
 	}
 }
 
@@ -67,6 +70,18 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 	relativeFilePaths, err := c.remoteIndex.ListFiles(ctx, sourceNodeHostname, collectionName, shardName)
 	if err != nil {
 		return err
+	}
+
+	// TODO remove this once we have a passing test that constantly inserts in parallel
+	// during shard replica movement
+	// if WEAVIATE_TEST_COPY_REPLICA_SLEEP is set, sleep for that amount of time
+	// this is only used for testing purposes
+	if os.Getenv("WEAVIATE_TEST_COPY_REPLICA_SLEEP") != "" {
+		sleepTime, err := time.ParseDuration(os.Getenv("WEAVIATE_TEST_COPY_REPLICA_SLEEP"))
+		if err != nil {
+			return fmt.Errorf("invalid WEAVIATE_TEST_COPY_REPLICA_SLEEP: %w", err)
+		}
+		time.Sleep(sleepTime)
 	}
 
 	for _, relativeFilePath := range relativeFilePaths {
@@ -131,10 +146,61 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 		}
 	}
 
-	err = c.indexGetter.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
+	err = c.dbWrapper.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// SetAsyncReplicationTargetNode adds a target node override for a shard.
+func (c *Copier) SetAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	srcNodeHostname, ok := c.nodeSelector.NodeHostname(targetNodeOverride.SourceNode)
+	if !ok {
+		return fmt.Errorf("source node address not found in cluster membership for node %s", targetNodeOverride.SourceNode)
+	}
+
+	return c.remoteIndex.SetAsyncReplicationTargetNode(ctx, srcNodeHostname, targetNodeOverride.CollectionID, targetNodeOverride.ShardID, targetNodeOverride)
+}
+
+func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error {
+	index := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
+	if index == nil {
+		return fmt.Errorf("index for collection %s not found", collectionName)
+	}
+
+	shard, release, err := index.GetShard(ctx, shardName)
+	if err != nil || shard == nil {
+		return fmt.Errorf("get shard %s: %w", shardName, err)
+	}
+	defer release()
+
+	return shard.UpdateAsyncReplicationConfig(ctx, true)
+}
+
+// AsyncReplicationStatus returns the async replication status for a shard.
+// The first two return values are the number of objects propagated and the start diff time in unix milliseconds.
+func (c *Copier) AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (models.AsyncReplicationStatus, error) {
+	// TODO can using verbose here blow up if the node has many shards/tenants? i could add a new method to get only one shard?
+	status, err := c.dbWrapper.GetOneNodeStatus(ctx, srcNodeId, collectionName, "verbose")
+	if err != nil {
+		return models.AsyncReplicationStatus{}, err
+	}
+
+	for _, shard := range status.Shards {
+		if shard.Name == shardName && shard.Class == collectionName {
+			for _, asyncReplicationStatus := range shard.AsyncReplicationStatus {
+				if asyncReplicationStatus.TargetNode == targetNodeId {
+					return models.AsyncReplicationStatus{
+						ObjectsPropagated:       asyncReplicationStatus.ObjectsPropagated,
+						StartDiffTimeUnixMillis: asyncReplicationStatus.StartDiffTimeUnixMillis,
+						TargetNode:              asyncReplicationStatus.TargetNode,
+					}, nil
+				}
+			}
+		}
+	}
+
+	return models.AsyncReplicationStatus{}, fmt.Errorf("shard %s or collection %s not found in node %s or stats are nil", shardName, collectionName, srcNodeId)
 }

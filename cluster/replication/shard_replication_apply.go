@@ -45,7 +45,7 @@ func (s *ShardReplicationFSM) RegisterError(id uint64, c *api.ReplicationRegiste
 
 	op, ok := s.opsById[id]
 	if !ok {
-		return ErrReplicationOpNotFound
+		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOpNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
@@ -86,7 +86,7 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 
 	op, ok := s.opsById[c.Id]
 	if !ok {
-		return ErrReplicationOpNotFound
+		return fmt.Errorf("could not find op %d: %w", c.Id, ErrReplicationOpNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {

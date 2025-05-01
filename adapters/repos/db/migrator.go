@@ -181,7 +181,7 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 	return nil
 }
 
-func (m *Migrator) AddReplicaToShard(ctx context.Context, class string, shard string) error {
+func (m *Migrator) AddReplicaToShard(ctx context.Context, class, shard string) error {
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
