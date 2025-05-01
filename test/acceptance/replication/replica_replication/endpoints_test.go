@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
@@ -53,26 +54,26 @@ func (suite *ReplicaReplicationTestSuite) TestCanCreateAndGetAReplicationOperati
 		helper.CreateClass(t, paragraphClass)
 	})
 
-	var uuid strfmt.UUID
+	var id strfmt.UUID
 
 	t.Run("create replication operation", func(t *testing.T) {
 		res, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
 		require.Nil(t, err)
 		require.NotNil(t, res)
 		require.NotNil(t, res.Payload)
-		uuid = *res.Payload.ID
+		id = *res.Payload.ID
 	})
 
 	t.Run("get replication operation", func(t *testing.T) {
-		res, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(uuid), nil)
+		res, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 		require.Nil(t, err)
 		require.NotNil(t, res)
 		require.NotNil(t, res.Payload)
-		require.Equal(t, uuid, *res.Payload.ID)
+		require.Equal(t, id, *res.Payload.ID)
 	})
 
 	t.Run("get non-existing replication operation", func(t *testing.T) {
-		res, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(strfmt.UUID("non-existing-uuid")), nil)
+		res, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(strfmt.UUID(uuid.New().String())), nil)
 		require.NotNil(t, err)
 		require.Nil(t, res)
 		require.Equal(t, replication.NewReplicationDetailsNotFound(), err)
