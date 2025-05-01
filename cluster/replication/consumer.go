@@ -24,8 +24,18 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
+
+// upperTimeBoundDuration is the duration for the upper time bound for the hash beat.
+// TODO better upper time bound? for now, we use 100s because we want to have enough time
+// for in progress writes to finish (assuming that in progress writes time out in ~90s)
+const upperTimeBoundDuration = 100 * time.Second
+
+// asyncStatusInterval is the polling interval to check the status of the
+// async replication of src->target
+const asyncStatusInterval = 5 * time.Second
 
 // OpConsumer is an interface for consuming replication operations.
 type OpConsumer interface {
@@ -310,8 +320,57 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
 	logger.Info("processing finalizing replication operation")
 
+	// ensure async replication is started on local (target) node
+	if err := c.replicaCopier.InitAsyncReplicationLocally(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failure while initializing async replication on local node")
+		return api.ShardReplicationState(""), err
+	}
+	// TODO start best effort writes before upper time bound is hit
+	// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
+	// received during movement work as expected
+	upperTimeBoundUnixMillis := time.Now().Add(upperTimeBoundDuration).UnixMilli()
+
+	// start async replication from source node to target node
+	if err := c.replicaCopier.SetAsyncReplicationTargetNode(
+		ctx,
+		additional.AsyncReplicationTargetNodeOverride{
+			CollectionID:   op.Op.SourceShard.CollectionId,
+			ShardID:        op.Op.TargetShard.ShardId,
+			TargetNode:     op.Op.TargetShard.NodeId,
+			SourceNode:     op.Op.SourceShard.NodeId,
+			UpperTimeBound: upperTimeBoundUnixMillis,
+		}); err != nil {
+		return api.ShardReplicationState(""), err
+	}
+
+	do := func() bool {
+		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
+		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= upperTimeBoundUnixMillis
+	}
+
+	// we only check the status of the async replication every 5 seconds to avoid
+	// spamming with too many requests too quickly
+	ticker := time.NewTicker(asyncStatusInterval)
+	defer ticker.Stop()
+
+	// try to check the status of the async replication immediately
+	// then, check the status of the async replication every 5 seconds
+	if !do() {
+		for {
+			select {
+			case <-ticker.C:
+				if do() {
+					ticker.Stop()
+					break
+				}
+			case <-ctx.Done():
+				return api.ShardReplicationState(""), ctx.Err()
+			}
+		}
+	}
+
 	if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
-		logger.WithField("consumer", c).WithError(err).Error("failure while updating sharding state")
+		logger.WithField("consumer", c).WithError(err).Error("failure while adding replica to shard")
 		return api.ShardReplicationState(""), err
 	}
 

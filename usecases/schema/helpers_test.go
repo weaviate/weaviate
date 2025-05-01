@@ -100,7 +100,7 @@ func (f *fakeDB) RestoreClassDir(class string) error {
 	return nil
 }
 
-func (f *fakeDB) AddReplicaToShard(class string, shard string, replica string) error {
+func (f *fakeDB) AddReplicaToShard(class string, shard string, targetNode string) error {
 	return nil
 }
 

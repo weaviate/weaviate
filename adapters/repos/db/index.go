@@ -615,7 +615,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.updateAsyncReplicationConfig(ctx, i.Config.AsyncReplicationEnabled); err != nil {
+		if err := shard.UpdateAsyncReplicationConfig(ctx, i.Config.AsyncReplicationEnabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil
@@ -909,6 +909,8 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		pos     []int
 	}
 	out := make([]error, len(objects))
+	// TODO this check causes problems because i think we'll write only write locally (no best effort)
+	// when rf=1, address in best effort pr
 	if i.replicationEnabled() && replProps == nil {
 		replProps = defaultConsistency()
 	}
