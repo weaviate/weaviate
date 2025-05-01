@@ -200,7 +200,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 						"target_collection": operation.Op.TargetShard.CollectionId,
 					})
 
-					opLogger.Info("worker processing replication operation")
+					opLogger.Debug("worker processing replication operation")
 
 					// Start a replication operation with a timeout for completion to prevent replication operations
 					// from running indefinitely
@@ -350,23 +350,15 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	// we only check the status of the async replication every 5 seconds to avoid
 	// spamming with too many requests too quickly
-	ticker := time.NewTicker(asyncStatusInterval)
-	defer ticker.Stop()
-
-	// try to check the status of the async replication immediately
-	// then, check the status of the async replication every 5 seconds
-	if !do() {
-		for {
-			select {
-			case <-ticker.C:
-				if do() {
-					ticker.Stop()
-					break
-				}
-			case <-ctx.Done():
-				return api.ShardReplicationState(""), ctx.Err()
-			}
+	err := backoff.Retry(func() error {
+		if do() {
+			return nil
 		}
+		return errors.New("async replication not done")
+	}, backoff.WithContext(backoff.NewConstantBackOff(asyncStatusInterval), ctx))
+	if err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failure while waiting for async replication to complete")
+		return api.ShardReplicationState(""), err
 	}
 
 	if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
