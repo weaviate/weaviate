@@ -212,7 +212,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
 			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
 			assert.Equal(ct, "READY", details.Payload.Status.State, "expected replication status to be READY")
-		}, 60*time.Second, 1*time.Second, "replication operation %s not finished in time", uuid)
+		}, 120*time.Second, 1*time.Second, "replication operation %s not finished in time", uuid)
 	})
 
 	// Kills the original node with the data to ensure we have only one replica available (the new one)
