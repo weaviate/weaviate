@@ -125,6 +125,18 @@ func NewCopyOpConsumer(
 		tokens:            make(chan struct{}, maxWorkers),
 		engineOpCallbacks: engineOpCallbacks,
 	}
+	ticker := time.NewTicker(10 * time.Second)
+	go func() {
+		for {
+			select {
+			case <-ticker.C:
+				c.ongoingOps.ops.Range(func(key, value any) bool {
+					fmt.Println("NATEE copy op consumer ongoing op", key, value)
+					return true
+				})
+			}
+		}
+	}()
 	return c
 }
 
@@ -239,11 +251,13 @@ func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardRepl
 	case api.DEHYDRATING:
 		return c.processStateAndTransition(ctx, op, c.processDehydratingOp)
 	case api.FINALIZING:
+		fmt.Println("NATEE copy op consumer dispatch replication op finalizing", op)
 		return c.processStateAndTransition(ctx, op, c.processFinalizingOp)
 	case api.ABORTED:
 		// TODO: In the future we should handle cleaning up aborted operations, for now just keep it in the FSM
 		return nil
 	case api.READY:
+		fmt.Println("NATEE copy op consumer dispatch replication op ready", op)
 		// TODO: In the future we should handle cleaning up completed operations, for now just keep it in the FSM
 		return nil
 	default:
@@ -289,6 +303,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 	}
 
 	op.Status.ChangeState(nextState)
+	fmt.Println("NATEE copy op consumer process state and transition next state", op, nextState)
 	return c.dispatchReplicationOp(ctx, op)
 }
 
@@ -351,7 +366,9 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	// we only check the status of the async replication every 5 seconds to avoid
 	// spamming with too many requests too quickly
 	err := backoff.Retry(func() error {
+		fmt.Println("NATEE copy op consumer process finalizing op do")
 		if do() {
+			fmt.Println("NATEE copy op consumer process finalizing op truedo")
 			return nil
 		}
 		return errors.New("async replication not done")
@@ -361,11 +378,14 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), err
 	}
 
+	fmt.Println("NATEE copy op consumer process finalizing op adding replica to shard")
 	if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
+		fmt.Println("NATEE copy op consumer process finalizing op error adding replica to shard", err)
 		logger.WithField("consumer", c).WithError(err).Error("failure while adding replica to shard")
 		return api.ShardReplicationState(""), err
 	}
 
+	fmt.Println("NATEE copy op consumer process finalizing op returning ready")
 	return api.READY, nil
 }
 
