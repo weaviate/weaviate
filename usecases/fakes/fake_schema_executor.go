@@ -43,8 +43,8 @@ func (m *MockSchemaExecutor) UpdateClass(req cmd.UpdateClassRequest) error {
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) AddReplicaToShard(class string, shard string, replica string) error {
-	args := m.Called(class, shard, replica)
+func (m *MockSchemaExecutor) AddReplicaToShard(class string, shard string, targetNode string) error {
+	args := m.Called(class, shard, targetNode)
 	return args.Error(0)
 }
 
