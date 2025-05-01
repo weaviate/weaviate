@@ -230,7 +230,7 @@ func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardRepl
 		return c.processStateAndTransition(ctx, op, c.processDehydratingOp)
 	case api.FINALIZING:
 		return c.processStateAndTransition(ctx, op, c.processFinalizingOp)
-	case api.ABORTED:
+	case api.CANCELLED:
 		// TODO: In the future we should handle cleaning up aborted operations, for now just keep it in the FSM
 		return nil
 	case api.READY:

@@ -29,7 +29,8 @@ const (
 	FINALIZING  ShardReplicationState = "FINALIZING"
 	READY       ShardReplicationState = "READY"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"
-	ABORTED     ShardReplicationState = "ABORTED"
+	// The operation has been scheduled for cancellation. Cleanup should be performed on the target.
+	CANCELLED ShardReplicationState = "CANCELLED"
 )
 
 type ReplicationReplicateShardRequest struct {
@@ -95,6 +96,11 @@ type ReplicationDetailsResponse struct {
 }
 
 type ReplicationCancelOpRequest struct {
+	Version int
+	Uuid    strfmt.UUID
+}
+
+type ReplicationStopOpRequest struct {
 	Version int
 	Uuid    strfmt.UUID
 }

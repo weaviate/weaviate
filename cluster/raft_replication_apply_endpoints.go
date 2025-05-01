@@ -100,7 +100,7 @@ func (s *Raft) ReplicationRegisterError(id uint64, errorToRegister string) error
 	return nil
 }
 
-func (s *Raft) ReplicationCancelReplicaOp(uuid strfmt.UUID) error {
+func (s *Raft) CancelReplication(uuid strfmt.UUID) error {
 	req := &api.ReplicationCancelOpRequest{
 		Version: api.ReplicationCommandVersionV0,
 		Uuid:    uuid,
@@ -112,6 +112,26 @@ func (s *Raft) ReplicationCancelReplicaOp(uuid strfmt.UUID) error {
 	}
 	command := &api.ApplyRequest{
 		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) StopReplication(uuid strfmt.UUID) error {
+	req := &api.ReplicationStopOpRequest{
+		Version: api.ReplicationCommandVersionV0,
+		Uuid:    uuid,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_STOP,
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(context.Background(), command); err != nil {

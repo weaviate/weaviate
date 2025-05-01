@@ -113,11 +113,11 @@ func (o *CancelReplicationNoContent) Code() int {
 }
 
 func (o *CancelReplicationNoContent) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNoContent ", 204)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] cancelReplicationNoContent ", 204)
 }
 
 func (o *CancelReplicationNoContent) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNoContent ", 204)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] cancelReplicationNoContent ", 204)
 }
 
 func (o *CancelReplicationNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -169,11 +169,11 @@ func (o *CancelReplicationUnauthorized) Code() int {
 }
 
 func (o *CancelReplicationUnauthorized) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] cancelReplicationUnauthorized ", 401)
 }
 
 func (o *CancelReplicationUnauthorized) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationUnauthorized ", 401)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] cancelReplicationUnauthorized ", 401)
 }
 
 func (o *CancelReplicationUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -226,11 +226,11 @@ func (o *CancelReplicationForbidden) Code() int {
 }
 
 func (o *CancelReplicationForbidden) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] cancelReplicationForbidden  %+v", 403, o.Payload)
 }
 
 func (o *CancelReplicationForbidden) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationForbidden  %+v", 403, o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] cancelReplicationForbidden  %+v", 403, o.Payload)
 }
 
 func (o *CancelReplicationForbidden) GetPayload() *models.ErrorResponse {
@@ -293,11 +293,11 @@ func (o *CancelReplicationNotFound) Code() int {
 }
 
 func (o *CancelReplicationNotFound) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotFound ", 404)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] cancelReplicationNotFound ", 404)
 }
 
 func (o *CancelReplicationNotFound) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationNotFound ", 404)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] cancelReplicationNotFound ", 404)
 }
 
 func (o *CancelReplicationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
@@ -350,11 +350,11 @@ func (o *CancelReplicationInternalServerError) Code() int {
 }
 
 func (o *CancelReplicationInternalServerError) Error() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] cancelReplicationInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *CancelReplicationInternalServerError) String() string {
-	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationInternalServerError  %+v", 500, o.Payload)
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] cancelReplicationInternalServerError  %+v", 500, o.Payload)
 }
 
 func (o *CancelReplicationInternalServerError) GetPayload() *models.ErrorResponse {

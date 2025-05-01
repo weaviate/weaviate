@@ -139,7 +139,28 @@ func (h *replicationHandler) handleInternalServerError(id strfmt.UUID, err error
 		fmt.Errorf("error while retrieving details for replication operation id '%s': %w", id, err)))
 }
 
-func (h *replicationHandler) cancelReplicate(params *replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
+func (h *replicationHandler) stopReplication(params replication.StopReplicationParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
+		return replication.NewStopReplicationForbidden()
+	}
+
+	if err := h.replicationManager.StopReplication(params.ID); err != nil {
+		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+			return h.handleOperationNotFoundError(params.ID, err)
+		}
+		return h.handleInternalServerError(params.ID, err)
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "stop_replication",
+		"id":     params.ID,
+	}).Info("replication operation stopped")
+
+	return replication.NewStopReplicationNoContent()
+}
+
+func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
 		return replication.NewCancelReplicationForbidden()
 	}

@@ -251,6 +251,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.replicationManager.CancelReplicaOp(&cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_STOP:
+		f = func() {
+			ret.Error = st.replicationManager.StopReplicaOp(&cmd)
+		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		f = func() {

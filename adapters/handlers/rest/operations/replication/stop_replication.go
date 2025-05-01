@@ -24,42 +24,42 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// CancelReplicationHandlerFunc turns a function with the right signature into a cancel replication handler
-type CancelReplicationHandlerFunc func(CancelReplicationParams, *models.Principal) middleware.Responder
+// StopReplicationHandlerFunc turns a function with the right signature into a stop replication handler
+type StopReplicationHandlerFunc func(StopReplicationParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn CancelReplicationHandlerFunc) Handle(params CancelReplicationParams, principal *models.Principal) middleware.Responder {
+func (fn StopReplicationHandlerFunc) Handle(params StopReplicationParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// CancelReplicationHandler interface for that can handle valid cancel replication params
-type CancelReplicationHandler interface {
-	Handle(CancelReplicationParams, *models.Principal) middleware.Responder
+// StopReplicationHandler interface for that can handle valid stop replication params
+type StopReplicationHandler interface {
+	Handle(StopReplicationParams, *models.Principal) middleware.Responder
 }
 
-// NewCancelReplication creates a new http.Handler for the cancel replication operation
-func NewCancelReplication(ctx *middleware.Context, handler CancelReplicationHandler) *CancelReplication {
-	return &CancelReplication{Context: ctx, Handler: handler}
+// NewStopReplication creates a new http.Handler for the stop replication operation
+func NewStopReplication(ctx *middleware.Context, handler StopReplicationHandler) *StopReplication {
+	return &StopReplication{Context: ctx, Handler: handler}
 }
 
 /*
-	CancelReplication swagger:route DELETE /replication/replicate/{id} replication cancelReplication
+	StopReplication swagger:route POST /replication/replicate/{id}/stop replication stopReplication
 
-Cancel a replication operation.
+Stop a replication operation.
 
-Immediately stops an in-progress replication operation and removes it from the finite state machine.
+Stops an in-progress replication operation as soon as possible. Under-the-hood, this moves it into the `STOPPED` state but does not delete it.
 */
-type CancelReplication struct {
+type StopReplication struct {
 	Context *middleware.Context
-	Handler CancelReplicationHandler
+	Handler StopReplicationHandler
 }
 
-func (o *CancelReplication) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *StopReplication) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewCancelReplicationParams()
+	var Params = NewStopReplicationParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)

@@ -3559,11 +3559,9 @@ func init() {
         "x-serviceIds": [
           "weaviate.replication.replicate.details"
         ]
-      }
-    },
-    "/replication/replicate/{id}/cancel": {
-      "post": {
-        "description": "Immediately cancels an in-progress replication operation. Under-the-hood, this moves it into the ` + "`" + `CANCELED` + "`" + ` state but does not delete it.",
+      },
+      "delete": {
+        "description": "Immediately stops an in-progress replication operation and removes it from the finite state machine.",
         "tags": [
           "replication"
         ],
@@ -3604,6 +3602,52 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.replication.replicate.cancel"
+        ]
+      }
+    },
+    "/replication/replicate/{id}/stop": {
+      "post": {
+        "description": "Stops an in-progress replication operation as soon as possible. Under-the-hood, this moves it into the ` + "`" + `STOPPED` + "`" + ` state but does not delete it.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Stop a replication operation.",
+        "operationId": "stopReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to stop.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully stopped."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.stop"
         ]
       }
     },
@@ -11371,11 +11415,9 @@ func init() {
         "x-serviceIds": [
           "weaviate.replication.replicate.details"
         ]
-      }
-    },
-    "/replication/replicate/{id}/cancel": {
-      "post": {
-        "description": "Immediately cancels an in-progress replication operation. Under-the-hood, this moves it into the ` + "`" + `CANCELED` + "`" + ` state but does not delete it.",
+      },
+      "delete": {
+        "description": "Immediately stops an in-progress replication operation and removes it from the finite state machine.",
         "tags": [
           "replication"
         ],
@@ -11416,6 +11458,52 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.replication.replicate.cancel"
+        ]
+      }
+    },
+    "/replication/replicate/{id}/stop": {
+      "post": {
+        "description": "Stops an in-progress replication operation as soon as possible. Under-the-hood, this moves it into the ` + "`" + `STOPPED` + "`" + ` state but does not delete it.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Stop a replication operation.",
+        "operationId": "stopReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to stop.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully stopped."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.stop"
         ]
       }
     },

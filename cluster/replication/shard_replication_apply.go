@@ -107,6 +107,17 @@ func (s *ShardReplicationFSM) CancelReplicationOp(c *api.ReplicationCancelOpRequ
 	if !ok {
 		return ErrReplicationOpNotFound
 	}
+	return s.deleteShardReplicationOp(id)
+}
+
+func (s *ShardReplicationFSM) StopReplicationOp(c *api.ReplicationStopOpRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	id, ok := s.idsByUuid[c.Uuid]
+	if !ok {
+		return ErrReplicationOpNotFound
+	}
 	op, ok := s.opsById[id]
 	if !ok {
 		return ErrReplicationOpNotFound
@@ -116,7 +127,7 @@ func (s *ShardReplicationFSM) CancelReplicationOp(c *api.ReplicationCancelOpRequ
 		return fmt.Errorf("could not find op status for op %d", id)
 	}
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
-	status.ChangeState(api.ABORTED)
+	status.ChangeState(api.CANCELLED)
 	s.opsStatus[op] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
