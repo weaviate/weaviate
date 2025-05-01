@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/global"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -693,6 +694,9 @@ func (b *Bucket) SetList(key []byte) ([][]byte, error) {
 func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+	if global.Manager().IsShutdownInProgress() {
+		return fmt.Errorf("server is shutting down")
+	}
 
 	return b.active.put(key, value, opts...)
 }

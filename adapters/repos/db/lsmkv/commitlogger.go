@@ -20,6 +20,7 @@ import (
 	"sync/atomic"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/global"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -250,6 +251,9 @@ func (cl *commitLogger) walPath() string {
 }
 
 func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) error {
+	if global.Manager().IsShutdownInProgress() {
+		return fmt.Errorf("server is shutting down")
+	}
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
 
 	rw := byteops.NewReadWriter(cl.tmpBuf)
@@ -299,6 +303,9 @@ func (cl *commitLogger) put(node segmentReplaceNode) error {
 func (cl *commitLogger) append(node segmentCollectionNode) error {
 	if cl.paused {
 		return nil
+	}
+	if global.Manager().IsShutdownInProgress() {
+		return fmt.Errorf("server is shutting down")
 	}
 
 	cl.bufNode.Reset()
