@@ -41,11 +41,54 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
+	CancelReplication(params *CancelReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CancelReplicationNoContent, error)
+
 	Replicate(params *ReplicateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateOK, error)
 
 	ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+CancelReplication cancels a replication operation
+
+Immediately cancels an in-progress replication operation. Under-the-hood, this moves it into the `CANCELED` state but does not delete it.
+*/
+func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CancelReplicationNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewCancelReplicationParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "cancelReplication",
+		Method:             "POST",
+		PathPattern:        "/replication/replicate/{id}/cancel",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &CancelReplicationReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*CancelReplicationNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for cancelReplication: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*

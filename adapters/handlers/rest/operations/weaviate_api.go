@@ -113,6 +113,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		BatchBatchReferencesCreateHandler: batch.BatchReferencesCreateHandlerFunc(func(params batch.BatchReferencesCreateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation batch.BatchReferencesCreate has not yet been implemented")
 		}),
+		ReplicationCancelReplicationHandler: replication.CancelReplicationHandlerFunc(func(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.CancelReplication has not yet been implemented")
+		}),
 		ClassificationsClassificationsGetHandler: classifications.ClassificationsGetHandlerFunc(func(params classifications.ClassificationsGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation classifications.ClassificationsGet has not yet been implemented")
 		}),
@@ -406,6 +409,8 @@ type WeaviateAPI struct {
 	BatchBatchObjectsDeleteHandler batch.BatchObjectsDeleteHandler
 	// BatchBatchReferencesCreateHandler sets the operation handler for the batch references create operation
 	BatchBatchReferencesCreateHandler batch.BatchReferencesCreateHandler
+	// ReplicationCancelReplicationHandler sets the operation handler for the cancel replication operation
+	ReplicationCancelReplicationHandler replication.CancelReplicationHandler
 	// ClassificationsClassificationsGetHandler sets the operation handler for the classifications get operation
 	ClassificationsClassificationsGetHandler classifications.ClassificationsGetHandler
 	// ClassificationsClassificationsPostHandler sets the operation handler for the classifications post operation
@@ -663,6 +668,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.BatchBatchReferencesCreateHandler == nil {
 		unregistered = append(unregistered, "batch.BatchReferencesCreateHandler")
+	}
+	if o.ReplicationCancelReplicationHandler == nil {
+		unregistered = append(unregistered, "replication.CancelReplicationHandler")
 	}
 	if o.ClassificationsClassificationsGetHandler == nil {
 		unregistered = append(unregistered, "classifications.ClassificationsGetHandler")
@@ -1018,6 +1026,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/batch/references"] = batch.NewBatchReferencesCreate(o.context, o.BatchBatchReferencesCreateHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/replication/replicate/{id}/cancel"] = replication.NewCancelReplication(o.context, o.ReplicationCancelReplicationHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

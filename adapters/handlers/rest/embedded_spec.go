@@ -3537,12 +3537,6 @@ func init() {
               "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
             }
           },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
@@ -3564,6 +3558,52 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.replication.replicate.details"
+        ]
+      }
+    },
+    "/replication/replicate/{id}/cancel": {
+      "post": {
+        "description": "Immediately cancels an in-progress replication operation. Under-the-hood, this moves it into the ` + "`" + `CANCELED` + "`" + ` state but does not delete it.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Cancel a replication operation.",
+        "operationId": "cancelReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully canceled."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.cancel"
         ]
       }
     },
@@ -11309,12 +11349,6 @@ func init() {
               "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
             }
           },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
@@ -11336,6 +11370,52 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.replication.replicate.details"
+        ]
+      }
+    },
+    "/replication/replicate/{id}/cancel": {
+      "post": {
+        "description": "Immediately cancels an in-progress replication operation. Under-the-hood, this moves it into the ` + "`" + `CANCELED` + "`" + ` state but does not delete it.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Cancel a replication operation.",
+        "operationId": "cancelReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully canceled."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.cancel"
         ]
       }
     },

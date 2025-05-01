@@ -31,4 +31,5 @@ type Manager interface {
 	//   - error: Returns ErrReplicationOperationNotFound if the operation doesn't exist,
 	//     or another error explaining why retrieving the replication operation details failed.
 	GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.ReplicationDetailsResponse, error)
+	CancelReplication(uuid strfmt.UUID) error
 }

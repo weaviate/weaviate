@@ -123,3 +123,13 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 
 	return payload, nil
 }
+
+func (m *Manager) CancelReplicaOp(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationCancelOpRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Store in the FSM the shard replication op
+	return m.replicationFSM.CancelReplicationOp(req)
+}

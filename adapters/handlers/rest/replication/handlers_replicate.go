@@ -62,6 +62,10 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	return h.handleReplicationReplicateResponse(uuid)
 }
 
+func (h *replicationHandler) handleReplicationReplicateResponse(id strfmt.UUID) *replication.ReplicateOK {
+	return replication.NewReplicateOK().WithPayload(&models.ReplicationReplicateReplicaResponse{ID: &id})
+}
+
 func (h *replicationHandler) getReplicationDetailsByReplicationId(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
 	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
 		return h.handleForbiddenError(err)
@@ -79,10 +83,6 @@ func (h *replicationHandler) getReplicationDetailsByReplicationId(params replica
 		includeHistory = *params.IncludeHistory
 	}
 	return h.handleReplicationDetailsResponse(includeHistory, response, params.ID)
-}
-
-func (h *replicationHandler) handleReplicationReplicateResponse(id strfmt.UUID) *replication.ReplicateOK {
-	return replication.NewReplicateOK().WithPayload(&models.ReplicationReplicateReplicaResponse{ID: &id})
 }
 
 func (h *replicationHandler) handleReplicationDetailsResponse(withHistory bool, response api.ReplicationDetailsResponse, uuid strfmt.UUID) *replication.ReplicationDetailsOK {
@@ -137,4 +137,25 @@ func (h *replicationHandler) handleInternalServerError(id strfmt.UUID, err error
 
 	return replication.NewReplicationDetailsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(
 		fmt.Errorf("error while retrieving details for replication operation id '%s': %w", id, err)))
+}
+
+func (h *replicationHandler) cancelReplicate(params *replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
+		return replication.NewCancelReplicationForbidden()
+	}
+
+	if err := h.replicationManager.CancelReplication(params.ID); err != nil {
+		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+			return h.handleOperationNotFoundError(params.ID, err)
+		}
+		return h.handleInternalServerError(params.ID, err)
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "cancel_replication",
+		"id":     params.ID,
+	}).Info("replication operation cancelled")
+
+	return replication.NewCancelReplicationNoContent()
 }

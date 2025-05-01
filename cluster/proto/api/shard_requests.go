@@ -93,3 +93,8 @@ type ReplicationDetailsResponse struct {
 	Status        ReplicationDetailsState
 	StatusHistory []ReplicationDetailsState
 }
+
+type ReplicationCancelOpRequest struct {
+	Version int
+	Uuid    strfmt.UUID
+}
