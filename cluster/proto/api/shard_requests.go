@@ -52,6 +52,15 @@ type ReplicationUpdateOpStateRequest struct {
 
 type ReplicationUpdateOpStateResponse struct{}
 
+type ReplicationRegisterErrorRequest struct {
+	Version int
+
+	Id    uint64
+	Error string
+}
+
+type ReplicationRegisterErrorResponse struct{}
+
 type ReplicationDeleteOpRequest struct {
 	Version int
 
@@ -64,11 +73,18 @@ type ReplicationDetailsRequest struct {
 	Id uint64
 }
 
+type ReplicationDetailsState struct {
+	State  string
+	Errors []string
+}
+
 type ReplicationDetailsResponse struct {
 	Id           uint64
 	ShardId      string
 	Collection   string
 	SourceNodeId string
 	TargetNodeId string
-	Status       string
+
+	Status        ReplicationDetailsState
+	StatusHistory []ReplicationDetailsState
 }

@@ -273,11 +273,11 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
 		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		statusOptions := []string{
-			models.ReplicationReplicateDetailsReplicaResponseStatusREADY,
-			models.ReplicationReplicateDetailsReplicaResponseStatusINDEXING,
-			models.ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONDEHYDRATING,
-			models.ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONFINALIZING,
-			models.ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREADY,
+			models.ReplicationReplicateDetailsReplicaStatusStateINDEXING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONDEHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONFINALIZING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONHYDRATING,
 		}
 		status := randomString(statusOptions)
 
@@ -287,7 +287,11 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			ShardId:      shardId,
 			SourceNodeId: sourceNodeId,
 			TargetNodeId: targetNodeId,
-			Status:       status,
+			Status: api.ReplicationDetailsState{
+				State:  status,
+				Errors: []string{},
+			},
+			StatusHistory: []api.ReplicationDetailsState{},
 		}
 
 		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -307,7 +311,72 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		assert.Equal(t, shardId, *replicationDetails.Payload.ShardID)
 		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNodeID)
 		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNodeID)
-		assert.Equal(t, status, *replicationDetails.Payload.Status)
+		assert.Equal(t, status, replicationDetails.Payload.Status.State)
+		assert.Equal(t, 0, len(replicationDetails.Payload.StatusHistory))
+	})
+
+	t.Run("successful retrieval with history", func(t *testing.T) {
+		// GIVEN
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		id := randomUint64()
+		params := replication.ReplicationDetailsParams{
+			ID:             strconv.FormatUint(id, 10),
+			HTTPRequest:    &http.Request{},
+			IncludeHistory: &[]bool{true}[0],
+		}
+
+		collection := fmt.Sprintf("Collection%d", randomInt(10))
+		shardId := fmt.Sprintf("shard-%d", randomInt(10))
+		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
+		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
+		statusOptions := []string{
+			models.ReplicationReplicateDetailsReplicaStatusStateREADY,
+			models.ReplicationReplicateDetailsReplicaStatusStateINDEXING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONDEHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONFINALIZING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONHYDRATING,
+		}
+		status := randomString(statusOptions)
+		historyStatus := randomString(statusOptions)
+
+		expectedResponse := api.ReplicationDetailsResponse{
+			Id:           id,
+			Collection:   collection,
+			ShardId:      shardId,
+			SourceNodeId: sourceNodeId,
+			TargetNodeId: targetNodeId,
+			Status: api.ReplicationDetailsState{
+				State:  status,
+				Errors: []string{},
+			},
+			StatusHistory: []api.ReplicationDetailsState{
+				{
+					State:  historyStatus,
+					Errors: []string{"error1", "error2"},
+				},
+			},
+		}
+
+		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.On("GetReplicationDetailsByReplicationId", id).Return(expectedResponse, nil)
+
+		// WHEN
+		response := handler.getReplicationDetailsByReplicationId(params, &models.Principal{})
+
+		// THEN
+		assert.IsType(t, &replication.ReplicationDetailsOK{}, response)
+		mockAuthorizer.AssertExpectations(t)
+		mockReplicationManager.AssertExpectations(t)
+
+		replicationDetails := response.(*replication.ReplicationDetailsOK)
+		assert.Equal(t, strconv.FormatUint(id, 10), *replicationDetails.Payload.ID)
+		assert.Equal(t, collection, *replicationDetails.Payload.Collection)
+		assert.Equal(t, shardId, *replicationDetails.Payload.ShardID)
+		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNodeID)
+		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNodeID)
+		assert.Equal(t, status, replicationDetails.Payload.Status.State)
+		assert.Equal(t, historyStatus, replicationDetails.Payload.StatusHistory[0].State)
+		assert.Equal(t, []string{"error1", "error2"}, replicationDetails.Payload.StatusHistory[0].Errors)
 	})
 
 	t.Run("malformed request id", func(t *testing.T) {

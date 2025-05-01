@@ -181,6 +181,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			).
 			Once().
 			Return(errors.New("simulated copy failure"))
+		mockFSMUpdater.EXPECT().
+			ReplicationRegisterError(uint64(opId), mock.Anything).
+			Return(nil)
 
 		var (
 			prepareProcessingCallbacksCounter int

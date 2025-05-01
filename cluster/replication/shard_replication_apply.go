@@ -34,7 +34,27 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 		SourceShard: newShardFQDN(c.SourceNode, c.SourceCollection, c.SourceShard),
 		TargetShard: newShardFQDN(c.TargetNode, c.SourceCollection, c.SourceShard),
 	}
-	return s.writeOpIntoFSM(op, ShardReplicationOpStatus{State: api.REGISTERED})
+	return s.writeOpIntoFSM(op, NewShardReplicationStatus(api.REGISTERED))
+}
+
+func (s *ShardReplicationFSM) RegisterError(id uint64, c *api.ReplicationRegisterErrorRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	op, ok := s.opsById[id]
+	if !ok {
+		return ErrReplicationOpNotFound
+	}
+	status, ok := s.opsStatus[op]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d", id)
+	}
+	if err := status.AddError(c.Error); err != nil {
+		return err
+	}
+	s.opsStatus[op] = status
+
+	return nil
 }
 
 // writeOpIntoFSM writes the op with status into the FSM. It *does* not holds the lock onto the maps so the callee must make sure the lock
@@ -52,7 +72,7 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	s.opsById[op.ID] = op
 	s.opsStatus[op] = status
 
-	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].State.String()).Inc()
+	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
 	return nil
 }
@@ -65,9 +85,14 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	if !ok {
 		return ErrReplicationOpNotFound
 	}
-	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].State.String()).Dec()
-	s.opsStatus[op] = ShardReplicationOpStatus{State: c.State}
-	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].State.String()).Inc()
+	status, ok := s.opsStatus[op]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d", c.Id)
+	}
+	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
+	status.ChangeState(c.State)
+	s.opsStatus[op] = status
+	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
 	return nil
 }
@@ -123,7 +148,12 @@ func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
 		s.opsByShard[op.SourceShard.ShardId] = opsReplace
 	}
 
-	s.opsByStateGauge.WithLabelValues(s.opsStatus[op].State.String()).Dec()
+	status, ok := s.opsStatus[op]
+	if !ok {
+		err = multierror.Append(err, fmt.Errorf("could not find op status for op %d", id))
+	} else {
+		s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
+	}
 
 	delete(s.opsByTargetFQDN, op.TargetShard)
 	delete(s.opsById, op.ID)

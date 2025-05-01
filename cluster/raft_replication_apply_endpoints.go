@@ -76,3 +76,24 @@ func (s *Raft) ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplic
 	}
 	return nil
 }
+
+func (s *Raft) ReplicationRegisterError(id uint64, errorToRegister string) error {
+	req := &api.ReplicationRegisterErrorRequest{
+		Version: api.ReplicationCommandVersionV0,
+		Id:      id,
+		Error:   errorToRegister,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}

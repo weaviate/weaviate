@@ -93,6 +93,53 @@ func (_c *MockFSMUpdater_AddReplicaToShard_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
+// ReplicationRegisterError provides a mock function with given fields: id, errorToRegister
+func (_m *MockFSMUpdater) ReplicationRegisterError(id uint64, errorToRegister string) error {
+	ret := _m.Called(id, errorToRegister)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplicationRegisterError")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(uint64, string) error); ok {
+		r0 = rf(id, errorToRegister)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockFSMUpdater_ReplicationRegisterError_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationRegisterError'
+type MockFSMUpdater_ReplicationRegisterError_Call struct {
+	*mock.Call
+}
+
+// ReplicationRegisterError is a helper method to define mock.On call
+//   - id uint64
+//   - errorToRegister string
+func (_e *MockFSMUpdater_Expecter) ReplicationRegisterError(id interface{}, errorToRegister interface{}) *MockFSMUpdater_ReplicationRegisterError_Call {
+	return &MockFSMUpdater_ReplicationRegisterError_Call{Call: _e.mock.On("ReplicationRegisterError", id, errorToRegister)}
+}
+
+func (_c *MockFSMUpdater_ReplicationRegisterError_Call) Run(run func(id uint64, errorToRegister string)) *MockFSMUpdater_ReplicationRegisterError_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(uint64), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationRegisterError_Call) Return(_a0 error) *MockFSMUpdater_ReplicationRegisterError_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationRegisterError_Call) RunAndReturn(run func(uint64, string) error) *MockFSMUpdater_ReplicationRegisterError_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReplicationUpdateReplicaOpStatus provides a mock function with given fields: id, state
 func (_m *MockFSMUpdater) ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplicationState) error {
 	ret := _m.Called(id, state)
