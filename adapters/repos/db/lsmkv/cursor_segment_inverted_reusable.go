@@ -85,18 +85,16 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 	if err != nil {
 		return err
 	}
-	if offset.end == 0 {
-		_, err := r.Read(buffer)
-		if err != nil {
-			return err
-		}
-		docCount := binary.LittleEndian.Uint64(buffer[:8])
-		end := uint64(20)
-		if docCount > uint64(terms.ENCODE_AS_FULL_BYTES) {
-			end = binary.LittleEndian.Uint64(buffer[8:16]) + 16
-		}
-		offset.end = offset.start + end + 4
+	_, err = r.Read(buffer)
+	if err != nil {
+		return err
 	}
+	docCount := binary.LittleEndian.Uint64(buffer[:8])
+	end := uint64(20)
+	if docCount > uint64(terms.ENCODE_AS_FULL_BYTES) {
+		end = binary.LittleEndian.Uint64(buffer[8:16]) + 16
+	}
+	offset.end = offset.start + end + 4
 
 	r, err = s.segment.newNodeReader(offset)
 	if err != nil {
