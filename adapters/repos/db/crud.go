@@ -182,7 +182,7 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
-	if global.Manager().IsShutdownInProgress()	{
+	if global.Manager().IsShutdownInProgress() {
 		return nil, objects.NewErrInternal("server is shutting down")
 	}
 	idx := db.GetIndex(schema.ClassName(class))

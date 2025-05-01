@@ -12,12 +12,14 @@
 package global
 
 import (
-	"sync/atomic"
 	"sync"
+	"sync/atomic"
 )
 
-var State *StateType
-var StateOnce sync.Once
+var (
+	State     *StateType
+	StateOnce sync.Once
+)
 
 func Manager() *StateType {
 	StateOnce.Do(func() {
@@ -33,6 +35,7 @@ type StateType struct {
 func (s *StateType) StartShutdown() {
 	s.ShutdownInProgress.Store(true)
 }
-func (s *StateType)  IsShutdownInProgress() bool {
+
+func (s *StateType) IsShutdownInProgress() bool {
 	return s.ShutdownInProgress.Load()
 }
