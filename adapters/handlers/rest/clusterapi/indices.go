@@ -74,6 +74,8 @@ type indices struct {
 	regexpResumeFileActivity *regexp.Regexp
 	regexpListFiles          *regexp.Regexp
 
+	regexpSetAsyncReplicationTargetNode *regexp.Regexp
+
 	logger logrus.FieldLogger
 }
 
@@ -121,6 +123,8 @@ const (
 		`\/shards\/(` + sh + `)\/background:resume`
 	urlPatternListFiles = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/background:list`
+	urlPatternSetAsyncReplicationTargetNode = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/set-async-replication-target-node`
 )
 
 type shards interface {
@@ -185,6 +189,9 @@ type shards interface {
 	// GetFile See adapters/clients.RemoteIndex.GetFile
 	GetFile(ctx context.Context, indexName, shardName,
 		relativeFilePath string) (io.ReadCloser, error)
+	// SetAsyncReplicationTargetNode See adapters/clients.RemoteIndex.SetAsyncReplicationTargetNode
+	SetAsyncReplicationTargetNode(ctx context.Context, indexName, shardName string,
+		targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 }
 
 type db interface {
@@ -201,23 +208,24 @@ func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() b
 		regexpObjectsSearch:        regexp.MustCompile(urlPatternObjectsSearch),
 		regexpObjectsFind:          regexp.MustCompile(urlPatternObjectsFind),
 
-		regexpObjectsAggregations: regexp.MustCompile(urlPatternObjectsAggregations),
-		regexpObject:              regexp.MustCompile(urlPatternObject),
-		regexpReferences:          regexp.MustCompile(urlPatternReferences),
-		regexpShardsQueueSize:     regexp.MustCompile(urlPatternShardsQueueSize),
-		regexpShardsStatus:        regexp.MustCompile(urlPatternShardsStatus),
-		regexpShardFiles:          regexp.MustCompile(urlPatternShardFiles),
-		regexpShardFileMetadata:   regexp.MustCompile(urlPatternShardFileMetadata),
-		regexpShard:               regexp.MustCompile(urlPatternShard),
-		regexpShardReinit:         regexp.MustCompile(urlPatternShardReinit),
-		regexpPauseFileActivity:   regexp.MustCompile(urlPatternPauseFileActivity),
-		regexpResumeFileActivity:  regexp.MustCompile(urlPatternResumeFileActivity),
-		regexpListFiles:           regexp.MustCompile(urlPatternListFiles),
-		shards:                    shards,
-		db:                        db,
-		auth:                      auth,
-		maintenanceModeEnabled:    maintenanceModeEnabled,
-		logger:                    logger,
+		regexpObjectsAggregations:           regexp.MustCompile(urlPatternObjectsAggregations),
+		regexpObject:                        regexp.MustCompile(urlPatternObject),
+		regexpReferences:                    regexp.MustCompile(urlPatternReferences),
+		regexpShardsQueueSize:               regexp.MustCompile(urlPatternShardsQueueSize),
+		regexpShardsStatus:                  regexp.MustCompile(urlPatternShardsStatus),
+		regexpShardFiles:                    regexp.MustCompile(urlPatternShardFiles),
+		regexpShardFileMetadata:             regexp.MustCompile(urlPatternShardFileMetadata),
+		regexpShard:                         regexp.MustCompile(urlPatternShard),
+		regexpShardReinit:                   regexp.MustCompile(urlPatternShardReinit),
+		regexpPauseFileActivity:             regexp.MustCompile(urlPatternPauseFileActivity),
+		regexpResumeFileActivity:            regexp.MustCompile(urlPatternResumeFileActivity),
+		regexpListFiles:                     regexp.MustCompile(urlPatternListFiles),
+		regexpSetAsyncReplicationTargetNode: regexp.MustCompile(urlPatternSetAsyncReplicationTargetNode),
+		shards:                              shards,
+		db:                                  db,
+		auth:                                auth,
+		maintenanceModeEnabled:              maintenanceModeEnabled,
+		logger:                              logger,
 	}
 }
 
@@ -396,6 +404,13 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 		case i.regexpListFiles.MatchString(path):
 			if r.Method == http.MethodPost {
 				i.postListFiles().ServeHTTP(w, r)
+				return
+			}
+			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
+			return
+		case i.regexpSetAsyncReplicationTargetNode.MatchString(path):
+			if r.Method == http.MethodPost {
+				i.postSetAsyncReplicationTargetNode().ServeHTTP(w, r)
 				return
 			}
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
@@ -1584,6 +1599,32 @@ func (i *indices) postListFiles() http.Handler {
 		}).Debug("Listed replica files")
 
 		w.Write(resBytes)
+		w.WriteHeader(http.StatusOK)
+	})
+}
+
+func (i *indices) postSetAsyncReplicationTargetNode() http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		args := i.regexpSetAsyncReplicationTargetNode.FindStringSubmatch(r.URL.Path)
+		if len(args) != 3 {
+			http.Error(w, "invalid URI", http.StatusBadRequest)
+			return
+		}
+
+		indexName, shardName := args[1], args[2]
+
+		var targetNodeOverride additional.AsyncReplicationTargetNodeOverride
+		if err := json.NewDecoder(r.Body).Decode(&targetNodeOverride); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		err := i.shards.SetAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+
 		w.WriteHeader(http.StatusOK)
 	})
 }
