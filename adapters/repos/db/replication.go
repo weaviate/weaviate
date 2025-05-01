@@ -432,12 +432,14 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	return reader, nil
 }
 
-// IncomingAsyncReplicationSetAsyncReplicationTargetNode sets a target node override for the specified shard.
+// IncomingSetAsyncReplicationTargetNode configures and starts async replication with
+// the given node as the target.
 func (i *Index) IncomingSetAsyncReplicationTargetNode(
 	ctx context.Context,
 	shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
+	// TODO do we want to init the shard if it's deactivated (eg on disk)?
 	localShard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return err

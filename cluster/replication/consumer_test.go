@@ -63,11 +63,16 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			Once().
 			Return(nil)
 		mockReplicaCopier.EXPECT().
+			InitAsyncReplicationLocally(mock.Anything, "TestCollection", mock.Anything).
+			Return(nil)
+		mockReplicaCopier.EXPECT().
 			AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", mock.Anything).
 			Return(models.AsyncReplicationStatus{
 				ObjectsPropagated:       0,
 				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
 			}, nil)
+		mockReplicaCopier.EXPECT().
+			SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -309,6 +314,11 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					ObjectsPropagated:       0,
 					StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
 				}, nil)
+			mockReplicaCopier.EXPECT().
+				InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+				Return(nil)
+			mockReplicaCopier.EXPECT().
+				SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 		}
 
 		var (
@@ -572,6 +582,11 @@ func TestConsumerWithCallbacks(t *testing.T) {
 						ObjectsPropagated:       0,
 						StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
 					}, nil)
+				mockReplicaCopier.EXPECT().
+					SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+				mockReplicaCopier.EXPECT().
+					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
 				completionWg.Add(1)
 			} else {
 				require.False(t, opsCache.LoadOrStore(opID), "operation should not be stored twice in cache")

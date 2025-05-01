@@ -182,7 +182,6 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 }
 
 func (m *Migrator) AddReplicaToShard(ctx context.Context, class, shard string) error {
-	// if this node is not the source or target node, don't need to get involved in this replica copy
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)

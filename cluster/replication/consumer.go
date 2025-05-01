@@ -29,9 +29,8 @@ import (
 )
 
 // upperTimeBoundDuration is the duration for the upper time bound for the hash beat.
-// TODO better upper time bound? for now, we use 100s because we want to have enough
-// time for all nodes to start sending writes to the target node and give time for
-// in progress writes to finish (assuming that in progress writes time out in 90s)
+// TODO better upper time bound? for now, we use 100s because we want to have enough time
+// for in progress writes to finish (assuming that in progress writes time out in ~90s)
 const upperTimeBoundDuration = 100 * time.Second
 
 // asyncStatusInterval is the polling interval to check the status of the

@@ -533,7 +533,7 @@ func TestStoreApply(t *testing.T) {
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 				m.indexer.On("AddClass", mock.Anything).Return(nil)
-				m.indexer.On("AddReplicaToShard", mock.Anything, "TestCollection", mock.Anything, "Node-1").Return(nil)
+				m.indexer.On("AddReplicaToShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
