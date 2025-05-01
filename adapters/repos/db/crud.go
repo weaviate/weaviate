@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/global"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -35,6 +36,9 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 	repl *additional.ReplicationProperties,
 	schemaVersion uint64,
 ) error {
+	if global.Manager().IsShutdownInProgress() {
+		return objects.NewErrInternal("server is shutting down")
+	}
 	object := storobj.FromObject(obj, vector, vectors, multivectors)
 	idx := db.GetIndex(object.Class())
 	if idx == nil {
@@ -52,6 +56,9 @@ func (db *DB) PutObject(ctx context.Context, obj *models.Object,
 func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 	deletionTime time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	if global.Manager().IsShutdownInProgress() {
+		return objects.NewErrInternal("server is shutting down")
+	}
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("delete from non-existing index for %s", class)
@@ -68,6 +75,9 @@ func (db *DB) DeleteObject(ctx context.Context, class string, id strfmt.UUID,
 func (db *DB) MultiGet(ctx context.Context, query []multi.Identifier,
 	additional additional.Properties, tenant string,
 ) ([]search.Result, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, objects.NewErrInternal("server is shutting down")
+	}
 	byIndex := map[string][]multi.Identifier{}
 	db.indexLock.RLock()
 	defer db.indexLock.RUnlock()
@@ -113,6 +123,9 @@ func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	tenant string,
 ) (*search.Result, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, objects.NewErrInternal("server is shutting down")
+	}
 	results, err := db.ObjectsByID(ctx, id, props, additional, tenant)
 	if err != nil {
 		return nil, err
@@ -130,6 +143,9 @@ func (db *DB) ObjectsByID(ctx context.Context, id strfmt.UUID,
 	props search.SelectProperties, additional additional.Properties,
 	tenant string,
 ) (search.Results, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, objects.NewErrInternal("server is shutting down")
+	}
 	var result []*storobj.Object
 	// TODO: Search in parallel, rather than sequentially or this will be
 	// painfully slow on large schemas
@@ -166,6 +182,9 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID,
 	props search.SelectProperties, addl additional.Properties,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
+	if global.Manager().IsShutdownInProgress()	{
+		return nil, objects.NewErrInternal("server is shutting down")
+	}
 	idx := db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return nil, nil
@@ -206,6 +225,9 @@ func (db *DB) enrichRefsForSingle(ctx context.Context, obj *search.Result,
 func (db *DB) Exists(ctx context.Context, class string, id strfmt.UUID,
 	repl *additional.ReplicationProperties, tenant string,
 ) (bool, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return false, objects.NewErrInternal("server is shutting down")
+	}
 	if class == "" {
 		return db.anyExists(ctx, id, repl)
 	}
@@ -261,6 +283,9 @@ func (db *DB) AddReference(ctx context.Context, source *crossref.RefSource, targ
 func (db *DB) Merge(ctx context.Context, merge objects.MergeDocument,
 	repl *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	if global.Manager().IsShutdownInProgress() {
+		return objects.NewErrInternal("server is shutting down")
+	}
 	idx := db.GetIndex(schema.ClassName(merge.Class))
 	if idx == nil {
 		return fmt.Errorf("merge from non-existing index for %s", merge.Class)

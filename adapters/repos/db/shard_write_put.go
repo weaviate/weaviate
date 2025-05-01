@@ -28,9 +28,13 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/global"
 )
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
+	if global.Manager().IsShutdownInProgress() {
+		return fmt.Errorf("server is shutting down")
+	}
 	s.activityTracker.Add(1)
 	if err := s.isReadOnly(); err != nil {
 		return err

@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/global"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -40,6 +41,9 @@ import (
 func (db *DB) Aggregate(ctx context.Context,
 	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, fmt.Errorf("shutdown in progress")
+	}
 	idx := db.GetIndex(params.ClassName)
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
@@ -59,6 +63,9 @@ func (db *DB) GetQueryMaximumResults() int {
 // for the raw storage objects, such as hybrid search.
 func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
+	if global.Manager().IsShutdownInProgress() {
+		return nil, nil, fmt.Errorf("shutdown in progress")
+	}
 	if idx == nil {
 		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
@@ -90,6 +97,9 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 }
 
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, fmt.Errorf("shutdown in progress")
+	}
 	if params.Pagination == nil {
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
 	}
@@ -108,6 +118,9 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 func (db *DB) VectorSearch(ctx context.Context,
 	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, fmt.Errorf("shutdown in progress")
+	}
 	if len(searchVectors) == 0 || len(searchVectors) == 1 && isEmptyVector(searchVectors[0]) {
 		results, err := db.Search(ctx, params)
 		return results, err
@@ -161,6 +174,9 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, targetVector string, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, fmt.Errorf("shutdown in progress")
+	}
 	var found search.Results
 
 	wg := &sync.WaitGroup{}
@@ -217,6 +233,9 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 
 // Query a specific class
 func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, *objects.Error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, &objects.Error{Msg: "shutdown in progress", Code: objects.StatusInternalServerError}
+	}
 	totalLimit := q.Offset + q.Limit
 	if totalLimit == 0 {
 		return nil, nil
@@ -254,6 +273,9 @@ func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, fmt.Errorf("shutdown in progress")
+	}
 	return db.objectSearch(ctx, offset, limit, filters, sort, additional, tenant)
 }
 
@@ -326,6 +348,9 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
 	addl additional.Properties, tenant string,
 ) (search.Results, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, fmt.Errorf("shutdown in progress")
+	}
 	if addl.NoProps {
 		// If we have no props, there also can't be refs among them, so we can skip
 		// the refcache resolver

@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	"github.com/weaviate/weaviate/usecases/global"
 	"github.com/weaviate/weaviate/usecases/logrusext"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 
@@ -150,6 +151,9 @@ func (v *client) VectorizeQuery(ctx context.Context, input []string,
 }
 
 func (v *client) vectorize(ctx context.Context, input []string, model string, config ent.VectorizationConfig) (*modulecomponents.VectorizationResult[[]float32], *modulecomponents.RateLimits, int, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, nil, 0, errors.New("server is shutting down")
+	}
 	metrics := monitoring.GetMetrics()
 	startTime := time.Now()
 	metrics.ModuleExternalRequests.WithLabelValues("text2vec", "openai").Inc()
@@ -187,6 +191,9 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 
 	metrics.ModuleExternalRequestSize.WithLabelValues("text2vec", endpoint).Observe(float64(len(body)))
 
+	if global.Manager().IsShutdownInProgress() {
+		return nil, nil, 0, errors.New("server is shutting down")
+	}
 	res, err := v.httpClient.Do(req)
 	if res != nil {
 		vrst := monitoring.GetMetrics().ModuleExternalResponseStatus
@@ -246,6 +253,9 @@ func (v *client) vectorize(ctx context.Context, input []string, model string, co
 }
 
 func (v *client) buildURL(ctx context.Context, config ent.VectorizationConfig) (string, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return "", errors.New("server is shutting down")
+	}
 	baseURL, resourceName, deploymentID, apiVersion, isAzure := config.BaseURL, config.ResourceName, config.DeploymentID, config.ApiVersion, config.IsAzure
 
 	if headerBaseURL := modulecomponents.GetValueFromContext(ctx, "X-Openai-Baseurl"); headerBaseURL != "" {

@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
+	"github.com/weaviate/weaviate/usecases/global"
 )
 
 // GetObject Class from the connected DB
@@ -33,6 +34,9 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, NewErrInternal("server is shutting down")
+	}
 	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id))
 	if err != nil {
 		return nil, err
@@ -58,6 +62,9 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, NewErrInternal("server is shutting down")
+	}
 	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", tenant, ""))
 	if err != nil {
 		return nil, err
@@ -89,6 +96,9 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID,
 ) (*models.Class, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, NewErrInternal("server is shutting down")
+	}
 	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", "", id))
 	if err != nil {
 		return nil, err
@@ -117,6 +127,9 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	adds additional.Properties, repl *additional.ReplicationProperties, tenant string,
 ) (res *search.Result, err error) {
 	if class != "" {
+		if global.Manager().IsShutdownInProgress() {
+			return nil, NewErrInternal("server is shutting down")
+		}
 		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds, repl, tenant)
 	} else {
 		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds, tenant)
