@@ -31,7 +31,7 @@ type Manager interface {
 	//   - error: Returns ErrReplicationOperationNotFound if the operation doesn't exist,
 	//     or another error explaining why retrieving the replication operation details failed.
 	GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.ReplicationDetailsResponse, error)
-	// CancelReplication cancels a replication operation meaning that the operation is stopped and removed from the FSM.
+	// CancelReplication cancels a replication operation meaning that the operation is stopped, cleaned-up on the target, and moved to the CANCELLED state.
 	//
 	// Parameters:
 	//   - uuid: The unique identifier for the replication operation (strfmt.UUID).
@@ -39,12 +39,12 @@ type Manager interface {
 	//   - error: Returns ErrReplicationOperationNotFound if the operation doesn't exist,
 	//     or another error explaining why cancelling the replication operation failed.
 	CancelReplication(uuid strfmt.UUID) error
-	// StopReplication stops a replication operation meaning that the operation is stopped and its state moved to STOPPED.
+	// DeleteReplication removes a replication operation from the FSM. If it's in progress, it will be cancelled first.
 	//
 	// Parameters:
 	//   - uuid: The unique identifier for the replication operation (strfmt.UUID).
 	// Returns:
 	//   - error: Returns ErrReplicationOperationNotFound if the operation doesn't exist,
 	//     or another error explaining why cancelling the replication operation failed.
-	StopReplication(uuid strfmt.UUID) error
+	DeleteReplication(uuid strfmt.UUID) error
 }

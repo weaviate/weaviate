@@ -43,11 +43,11 @@ func NewCancelReplication(ctx *middleware.Context, handler CancelReplicationHand
 }
 
 /*
-	CancelReplication swagger:route DELETE /replication/replicate/{id} replication cancelReplication
+	CancelReplication swagger:route POST /replication/replicate/{id}/cancel replication cancelReplication
 
 Cancel a replication operation.
 
-Immediately stops an in-progress replication operation and removes it from the finite state machine.
+Cancels an in-progress replication operation as soon as possible but does not delete it leaving it in the unresumable CANCELLED state.
 */
 type CancelReplication struct {
 	Context *middleware.Context

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/hashicorp/go-multierror"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -107,17 +108,6 @@ func (s *ShardReplicationFSM) CancelReplicationOp(c *api.ReplicationCancelOpRequ
 	if !ok {
 		return ErrReplicationOpNotFound
 	}
-	return s.deleteShardReplicationOp(id)
-}
-
-func (s *ShardReplicationFSM) StopReplicationOp(c *api.ReplicationStopOpRequest) error {
-	s.opsLock.Lock()
-	defer s.opsLock.Unlock()
-
-	id, ok := s.idsByUuid[c.Uuid]
-	if !ok {
-		return ErrReplicationOpNotFound
-	}
 	op, ok := s.opsById[id]
 	if !ok {
 		return ErrReplicationOpNotFound
@@ -135,15 +125,19 @@ func (s *ShardReplicationFSM) StopReplicationOp(c *api.ReplicationStopOpRequest)
 }
 
 func (s *ShardReplicationFSM) DeleteReplicationOp(c *api.ReplicationDeleteOpRequest) error {
-	return s.deleteShardReplicationOp(c.Id)
+	return s.deleteShardReplicationOp(c.Uuid)
 }
 
 // TODO: Improve the error handling in that function
-func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
+func (s *ShardReplicationFSM) deleteShardReplicationOp(uuid strfmt.UUID) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
 	var err error
+	id, ok := s.idsByUuid[uuid]
+	if !ok {
+		return ErrReplicationOpNotFound
+	}
 	op, ok := s.opsById[id]
 	if !ok {
 		return ErrReplicationOpNotFound

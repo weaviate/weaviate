@@ -120,8 +120,8 @@ func (s *Raft) CancelReplication(uuid strfmt.UUID) error {
 	return nil
 }
 
-func (s *Raft) StopReplication(uuid strfmt.UUID) error {
-	req := &api.ReplicationStopOpRequest{
+func (s *Raft) DeleteReplication(uuid strfmt.UUID) error {
+	req := &api.ReplicationDeleteOpRequest{
 		Version: api.ReplicationCommandVersionV0,
 		Uuid:    uuid,
 	}
@@ -131,7 +131,7 @@ func (s *Raft) StopReplication(uuid strfmt.UUID) error {
 		return fmt.Errorf("marshal request: %w", err)
 	}
 	command := &api.ApplyRequest{
-		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_STOP,
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE,
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(context.Background(), command); err != nil {

@@ -3034,11 +3034,11 @@
         }
       },
       "delete": {
-        "summary": "Cancel a replication operation.",
-        "description": "Immediately stops an in-progress replication operation and removes it from the finite state machine.",
-        "operationId": "cancelReplication",
+        "summary": "Delete a replication operation.",
+        "description": "Deletes a replication operation. If the operation is in progress, it is cancelled and cleaned up before being deleted.",
+        "operationId": "deleteReplication",
         "x-serviceIds": [
-          "weaviate.replication.replicate.cancel"
+          "weaviate.replication.replicate.delete"
         ],
         "tags": [
           "replication"
@@ -3048,14 +3048,14 @@
             "name": "id",
             "in": "path",
             "format": "uuid",
-            "description": "The id of the replication operation to cancel.",
+            "description": "The id of the replication operation to delete.",
             "required": true,
             "type": "string"
           }
         ],
         "responses": {
           "204": {
-            "description": "Successfully canceled."
+            "description": "Successfully deleted."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3078,13 +3078,13 @@
         }
       }
     },
-    "/replication/replicate/{id}/stop": {
+    "/replication/replicate/{id}/cancel": {
       "post": {
-        "summary": "Stop a replication operation.",
-        "description": "Stops an in-progress replication operation as soon as possible. Under-the-hood, this moves it into the `STOPPED` state but does not delete it.",
-        "operationId": "stopReplication",
+        "summary": "Cancel a replication operation.",
+        "description": "Cancels an in-progress replication operation as soon as possible but does not delete it leaving it in the unresumable CANCELLED state.",
+        "operationId": "cancelReplication",
         "x-serviceIds": [
-          "weaviate.replication.replicate.stop"
+          "weaviate.replication.replicate.cancel"
         ],
         "tags": [
           "replication"
@@ -3094,14 +3094,14 @@
             "name": "id",
             "in": "path",
             "format": "uuid",
-            "description": "The id of the replication operation to stop.",
+            "description": "The id of the replication operation to cancel.",
             "required": true,
             "type": "string"
           }
         ],
         "responses": {
           "204": {
-            "description": "Successfully stopped."
+            "description": "Successfully cancelled."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."

@@ -39,5 +39,5 @@ func SetupHandlers(api *operations.WeaviateAPI, replicationManager replicationTy
 	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(h.replicate)
 	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(h.getReplicationDetailsByReplicationId)
 	api.ReplicationCancelReplicationHandler = replication.CancelReplicationHandlerFunc(h.cancelReplication)
-	api.ReplicationStopReplicationHandler = replication.StopReplicationHandlerFunc(h.stopReplication)
+	api.ReplicationDeleteReplicationHandler = replication.DeleteReplicationHandlerFunc(h.deleteReplication)
 }

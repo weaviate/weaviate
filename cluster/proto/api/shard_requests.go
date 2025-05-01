@@ -70,7 +70,7 @@ type ReplicationRegisterErrorResponse struct{}
 type ReplicationDeleteOpRequest struct {
 	Version int
 
-	Id uint64
+	Uuid strfmt.UUID
 }
 
 type ReplicationDeleteOpResponse struct{}
@@ -96,11 +96,6 @@ type ReplicationDetailsResponse struct {
 }
 
 type ReplicationCancelOpRequest struct {
-	Version int
-	Uuid    strfmt.UUID
-}
-
-type ReplicationStopOpRequest struct {
 	Version int
 	Uuid    strfmt.UUID
 }

@@ -79,6 +79,52 @@ func (_c *MockManager_CancelReplication_Call) RunAndReturn(run func(strfmt.UUID)
 	return _c
 }
 
+// DeleteReplication provides a mock function with given fields: uuid
+func (_m *MockManager) DeleteReplication(uuid strfmt.UUID) error {
+	ret := _m.Called(uuid)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteReplication")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(strfmt.UUID) error); ok {
+		r0 = rf(uuid)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_DeleteReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteReplication'
+type MockManager_DeleteReplication_Call struct {
+	*mock.Call
+}
+
+// DeleteReplication is a helper method to define mock.On call
+//   - uuid strfmt.UUID
+func (_e *MockManager_Expecter) DeleteReplication(uuid interface{}) *MockManager_DeleteReplication_Call {
+	return &MockManager_DeleteReplication_Call{Call: _e.mock.On("DeleteReplication", uuid)}
+}
+
+func (_c *MockManager_DeleteReplication_Call) Run(run func(uuid strfmt.UUID)) *MockManager_DeleteReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(strfmt.UUID))
+	})
+	return _c
+}
+
+func (_c *MockManager_DeleteReplication_Call) Return(_a0 error) *MockManager_DeleteReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_DeleteReplication_Call) RunAndReturn(run func(strfmt.UUID) error) *MockManager_DeleteReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetReplicationDetailsByReplicationId provides a mock function with given fields: uuid
 func (_m *MockManager) GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.ReplicationDetailsResponse, error) {
 	ret := _m.Called(uuid)
@@ -277,52 +323,6 @@ func (_c *MockManager_ReplicationReplicateReplica_Call) Return(_a0 error) *MockM
 }
 
 func (_c *MockManager_ReplicationReplicateReplica_Call) RunAndReturn(run func(strfmt.UUID, string, string, string, string) error) *MockManager_ReplicationReplicateReplica_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// StopReplication provides a mock function with given fields: uuid
-func (_m *MockManager) StopReplication(uuid strfmt.UUID) error {
-	ret := _m.Called(uuid)
-
-	if len(ret) == 0 {
-		panic("no return value specified for StopReplication")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(strfmt.UUID) error); ok {
-		r0 = rf(uuid)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockManager_StopReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StopReplication'
-type MockManager_StopReplication_Call struct {
-	*mock.Call
-}
-
-// StopReplication is a helper method to define mock.On call
-//   - uuid strfmt.UUID
-func (_e *MockManager_Expecter) StopReplication(uuid interface{}) *MockManager_StopReplication_Call {
-	return &MockManager_StopReplication_Call{Call: _e.mock.On("StopReplication", uuid)}
-}
-
-func (_c *MockManager_StopReplication_Call) Run(run func(uuid strfmt.UUID)) *MockManager_StopReplication_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(strfmt.UUID))
-	})
-	return _c
-}
-
-func (_c *MockManager_StopReplication_Call) Return(_a0 error) *MockManager_StopReplication_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockManager_StopReplication_Call) RunAndReturn(run func(strfmt.UUID) error) *MockManager_StopReplication_Call {
 	_c.Call.Return(run)
 	return _c
 }

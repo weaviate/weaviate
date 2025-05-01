@@ -25,8 +25,8 @@ import (
 	"github.com/go-openapi/strfmt"
 )
 
-// StopReplicationURL generates an URL for the stop replication operation
-type StopReplicationURL struct {
+// DeleteReplicationURL generates an URL for the delete replication operation
+type DeleteReplicationURL struct {
 	ID strfmt.UUID
 
 	_basePath string
@@ -37,7 +37,7 @@ type StopReplicationURL struct {
 // WithBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *StopReplicationURL) WithBasePath(bp string) *StopReplicationURL {
+func (o *DeleteReplicationURL) WithBasePath(bp string) *DeleteReplicationURL {
 	o.SetBasePath(bp)
 	return o
 }
@@ -45,21 +45,21 @@ func (o *StopReplicationURL) WithBasePath(bp string) *StopReplicationURL {
 // SetBasePath sets the base path for this url builder, only required when it's different from the
 // base path specified in the swagger spec.
 // When the value of the base path is an empty string
-func (o *StopReplicationURL) SetBasePath(bp string) {
+func (o *DeleteReplicationURL) SetBasePath(bp string) {
 	o._basePath = bp
 }
 
 // Build a url path and query string
-func (o *StopReplicationURL) Build() (*url.URL, error) {
+func (o *DeleteReplicationURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/replication/replicate/{id}/stop"
+	var _path = "/replication/replicate/{id}"
 
 	id := o.ID.String()
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {
-		return nil, errors.New("id is required on StopReplicationURL")
+		return nil, errors.New("id is required on DeleteReplicationURL")
 	}
 
 	_basePath := o._basePath
@@ -72,7 +72,7 @@ func (o *StopReplicationURL) Build() (*url.URL, error) {
 }
 
 // Must is a helper function to panic when the url builder returns an error
-func (o *StopReplicationURL) Must(u *url.URL, err error) *url.URL {
+func (o *DeleteReplicationURL) Must(u *url.URL, err error) *url.URL {
 	if err != nil {
 		panic(err)
 	}
@@ -83,17 +83,17 @@ func (o *StopReplicationURL) Must(u *url.URL, err error) *url.URL {
 }
 
 // String returns the string representation of the path with query string
-func (o *StopReplicationURL) String() string {
+func (o *DeleteReplicationURL) String() string {
 	return o.Must(o.Build()).String()
 }
 
 // BuildFull builds a full url with scheme, host, path and query string
-func (o *StopReplicationURL) BuildFull(scheme, host string) (*url.URL, error) {
+func (o *DeleteReplicationURL) BuildFull(scheme, host string) (*url.URL, error) {
 	if scheme == "" {
-		return nil, errors.New("scheme is required for a full url on StopReplicationURL")
+		return nil, errors.New("scheme is required for a full url on DeleteReplicationURL")
 	}
 	if host == "" {
-		return nil, errors.New("host is required for a full url on StopReplicationURL")
+		return nil, errors.New("host is required for a full url on DeleteReplicationURL")
 	}
 
 	base, err := o.Build()
@@ -107,6 +107,6 @@ func (o *StopReplicationURL) BuildFull(scheme, host string) (*url.URL, error) {
 }
 
 // StringFull returns the string representation of a complete url
-func (o *StopReplicationURL) StringFull(scheme, host string) string {
+func (o *DeleteReplicationURL) StringFull(scheme, host string) string {
 	return o.Must(o.BuildFull(scheme, host)).String()
 }

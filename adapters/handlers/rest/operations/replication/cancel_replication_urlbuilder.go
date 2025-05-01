@@ -53,7 +53,7 @@ func (o *CancelReplicationURL) SetBasePath(bp string) {
 func (o *CancelReplicationURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/replication/replicate/{id}"
+	var _path = "/replication/replicate/{id}/cancel"
 
 	id := o.ID.String()
 	if id != "" {

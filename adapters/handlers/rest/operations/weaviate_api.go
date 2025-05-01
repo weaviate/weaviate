@@ -134,6 +134,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		UsersDeactivateUserHandler: users.DeactivateUserHandlerFunc(func(params users.DeactivateUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.DeactivateUser has not yet been implemented")
 		}),
+		ReplicationDeleteReplicationHandler: replication.DeleteReplicationHandlerFunc(func(params replication.DeleteReplicationParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.DeleteReplication has not yet been implemented")
+		}),
 		AuthzDeleteRoleHandler: authz.DeleteRoleHandlerFunc(func(params authz.DeleteRoleParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.DeleteRole has not yet been implemented")
 		}),
@@ -287,9 +290,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		SchemaSchemaObjectsUpdateHandler: schema.SchemaObjectsUpdateHandlerFunc(func(params schema.SchemaObjectsUpdateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.SchemaObjectsUpdate has not yet been implemented")
 		}),
-		ReplicationStopReplicationHandler: replication.StopReplicationHandlerFunc(func(params replication.StopReplicationParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation replication.StopReplication has not yet been implemented")
-		}),
 		SchemaTenantExistsHandler: schema.TenantExistsHandlerFunc(func(params schema.TenantExistsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation schema.TenantExists has not yet been implemented")
 		}),
@@ -426,6 +426,8 @@ type WeaviateAPI struct {
 	UsersCreateUserHandler users.CreateUserHandler
 	// UsersDeactivateUserHandler sets the operation handler for the deactivate user operation
 	UsersDeactivateUserHandler users.DeactivateUserHandler
+	// ReplicationDeleteReplicationHandler sets the operation handler for the delete replication operation
+	ReplicationDeleteReplicationHandler replication.DeleteReplicationHandler
 	// AuthzDeleteRoleHandler sets the operation handler for the delete role operation
 	AuthzDeleteRoleHandler authz.DeleteRoleHandler
 	// UsersDeleteUserHandler sets the operation handler for the delete user operation
@@ -528,8 +530,6 @@ type WeaviateAPI struct {
 	SchemaSchemaObjectsShardsUpdateHandler schema.SchemaObjectsShardsUpdateHandler
 	// SchemaSchemaObjectsUpdateHandler sets the operation handler for the schema objects update operation
 	SchemaSchemaObjectsUpdateHandler schema.SchemaObjectsUpdateHandler
-	// ReplicationStopReplicationHandler sets the operation handler for the stop replication operation
-	ReplicationStopReplicationHandler replication.StopReplicationHandler
 	// SchemaTenantExistsHandler sets the operation handler for the tenant exists operation
 	SchemaTenantExistsHandler schema.TenantExistsHandler
 	// SchemaTenantsCreateHandler sets the operation handler for the tenants create operation
@@ -695,6 +695,9 @@ func (o *WeaviateAPI) Validate() error {
 	if o.UsersDeactivateUserHandler == nil {
 		unregistered = append(unregistered, "users.DeactivateUserHandler")
 	}
+	if o.ReplicationDeleteReplicationHandler == nil {
+		unregistered = append(unregistered, "replication.DeleteReplicationHandler")
+	}
 	if o.AuthzDeleteRoleHandler == nil {
 		unregistered = append(unregistered, "authz.DeleteRoleHandler")
 	}
@@ -847,9 +850,6 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.SchemaSchemaObjectsUpdateHandler == nil {
 		unregistered = append(unregistered, "schema.SchemaObjectsUpdateHandler")
-	}
-	if o.ReplicationStopReplicationHandler == nil {
-		unregistered = append(unregistered, "replication.StopReplicationHandler")
 	}
 	if o.SchemaTenantExistsHandler == nil {
 		unregistered = append(unregistered, "schema.TenantExistsHandler")
@@ -1034,10 +1034,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/batch/references"] = batch.NewBatchReferencesCreate(o.context, o.BatchBatchReferencesCreateHandler)
-	if o.handlers["DELETE"] == nil {
-		o.handlers["DELETE"] = make(map[string]http.Handler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
 	}
-	o.handlers["DELETE"]["/replication/replicate/{id}"] = replication.NewCancelReplication(o.context, o.ReplicationCancelReplicationHandler)
+	o.handlers["POST"]["/replication/replicate/{id}/cancel"] = replication.NewCancelReplication(o.context, o.ReplicationCancelReplicationHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
@@ -1062,6 +1062,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/users/db/{user_id}/deactivate"] = users.NewDeactivateUser(o.context, o.UsersDeactivateUserHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/replication/replicate/{id}"] = replication.NewDeleteReplication(o.context, o.ReplicationDeleteReplicationHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
@@ -1266,10 +1270,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["PUT"] = make(map[string]http.Handler)
 	}
 	o.handlers["PUT"]["/schema/{className}"] = schema.NewSchemaObjectsUpdate(o.context, o.SchemaSchemaObjectsUpdateHandler)
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
-	o.handlers["POST"]["/replication/replicate/{id}/stop"] = replication.NewStopReplication(o.context, o.ReplicationStopReplicationHandler)
 	if o.handlers["HEAD"] == nil {
 		o.handlers["HEAD"] = make(map[string]http.Handler)
 	}

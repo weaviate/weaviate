@@ -28,7 +28,7 @@ import (
 const CancelReplicationNoContentCode int = 204
 
 /*
-CancelReplicationNoContent Successfully canceled.
+CancelReplicationNoContent Successfully cancelled.
 
 swagger:response cancelReplicationNoContent
 */

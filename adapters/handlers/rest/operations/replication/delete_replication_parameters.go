@@ -25,24 +25,24 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// NewStopReplicationParams creates a new StopReplicationParams object
+// NewDeleteReplicationParams creates a new DeleteReplicationParams object
 //
 // There are no default values defined in the spec.
-func NewStopReplicationParams() StopReplicationParams {
+func NewDeleteReplicationParams() DeleteReplicationParams {
 
-	return StopReplicationParams{}
+	return DeleteReplicationParams{}
 }
 
-// StopReplicationParams contains all the bound params for the stop replication operation
+// DeleteReplicationParams contains all the bound params for the delete replication operation
 // typically these are obtained from a http.Request
 //
-// swagger:parameters stopReplication
-type StopReplicationParams struct {
+// swagger:parameters deleteReplication
+type DeleteReplicationParams struct {
 
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The id of the replication operation to stop.
+	/*The id of the replication operation to delete.
 	  Required: true
 	  In: path
 	*/
@@ -52,8 +52,8 @@ type StopReplicationParams struct {
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
 // for simple values it will use straight method calls.
 //
-// To ensure default values, the struct must have been initialized with NewStopReplicationParams() beforehand.
-func (o *StopReplicationParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
+// To ensure default values, the struct must have been initialized with NewDeleteReplicationParams() beforehand.
+func (o *DeleteReplicationParams) BindRequest(r *http.Request, route *middleware.MatchedRoute) error {
 	var res []error
 
 	o.HTTPRequest = r
@@ -69,7 +69,7 @@ func (o *StopReplicationParams) BindRequest(r *http.Request, route *middleware.M
 }
 
 // bindID binds and validates parameter ID from path.
-func (o *StopReplicationParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
+func (o *DeleteReplicationParams) bindID(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
 	if len(rawData) > 0 {
 		raw = rawData[len(rawData)-1]
@@ -93,7 +93,7 @@ func (o *StopReplicationParams) bindID(rawData []string, hasKey bool, formats st
 }
 
 // validateID carries on validations for parameter ID
-func (o *StopReplicationParams) validateID(formats strfmt.Registry) error {
+func (o *DeleteReplicationParams) validateID(formats strfmt.Registry) error {
 
 	if err := validate.FormatOf("id", "path", "uuid", o.ID.String(), formats); err != nil {
 		return err

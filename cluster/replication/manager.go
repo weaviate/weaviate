@@ -133,13 +133,3 @@ func (m *Manager) CancelReplicaOp(c *cmd.ApplyRequest) error {
 	// Store in the FSM the shard replication op
 	return m.replicationFSM.CancelReplicationOp(req)
 }
-
-func (m *Manager) StopReplicaOp(c *cmd.ApplyRequest) error {
-	req := &cmd.ReplicationStopOpRequest{}
-	if err := json.Unmarshal(c.SubCommand, req); err != nil {
-		return fmt.Errorf("%w: %w", ErrBadRequest, err)
-	}
-
-	// Store in the FSM the shard replication op
-	return m.replicationFSM.StopReplicationOp(req)
-}

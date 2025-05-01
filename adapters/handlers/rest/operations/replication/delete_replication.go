@@ -24,42 +24,42 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// StopReplicationHandlerFunc turns a function with the right signature into a stop replication handler
-type StopReplicationHandlerFunc func(StopReplicationParams, *models.Principal) middleware.Responder
+// DeleteReplicationHandlerFunc turns a function with the right signature into a delete replication handler
+type DeleteReplicationHandlerFunc func(DeleteReplicationParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn StopReplicationHandlerFunc) Handle(params StopReplicationParams, principal *models.Principal) middleware.Responder {
+func (fn DeleteReplicationHandlerFunc) Handle(params DeleteReplicationParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// StopReplicationHandler interface for that can handle valid stop replication params
-type StopReplicationHandler interface {
-	Handle(StopReplicationParams, *models.Principal) middleware.Responder
+// DeleteReplicationHandler interface for that can handle valid delete replication params
+type DeleteReplicationHandler interface {
+	Handle(DeleteReplicationParams, *models.Principal) middleware.Responder
 }
 
-// NewStopReplication creates a new http.Handler for the stop replication operation
-func NewStopReplication(ctx *middleware.Context, handler StopReplicationHandler) *StopReplication {
-	return &StopReplication{Context: ctx, Handler: handler}
+// NewDeleteReplication creates a new http.Handler for the delete replication operation
+func NewDeleteReplication(ctx *middleware.Context, handler DeleteReplicationHandler) *DeleteReplication {
+	return &DeleteReplication{Context: ctx, Handler: handler}
 }
 
 /*
-	StopReplication swagger:route POST /replication/replicate/{id}/stop replication stopReplication
+	DeleteReplication swagger:route DELETE /replication/replicate/{id} replication deleteReplication
 
-Stop a replication operation.
+Delete a replication operation.
 
-Stops an in-progress replication operation as soon as possible. Under-the-hood, this moves it into the `STOPPED` state but does not delete it.
+Deletes a replication operation. If the operation is in progress, it is cancelled and cleaned up before being deleted.
 */
-type StopReplication struct {
+type DeleteReplication struct {
 	Context *middleware.Context
-	Handler StopReplicationHandler
+	Handler DeleteReplicationHandler
 }
 
-func (o *StopReplication) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *DeleteReplication) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewStopReplicationParams()
+	var Params = NewDeleteReplicationParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)

@@ -43,11 +43,11 @@ type ClientOption func(*runtime.ClientOperation)
 type ClientService interface {
 	CancelReplication(params *CancelReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CancelReplicationNoContent, error)
 
+	DeleteReplication(params *DeleteReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteReplicationNoContent, error)
+
 	Replicate(params *ReplicateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateOK, error)
 
 	ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error)
-
-	StopReplication(params *StopReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*StopReplicationNoContent, error)
 
 	SetTransport(transport runtime.ClientTransport)
 }
@@ -55,7 +55,7 @@ type ClientService interface {
 /*
 CancelReplication cancels a replication operation
 
-Immediately stops an in-progress replication operation and removes it from the finite state machine.
+Cancels an in-progress replication operation as soon as possible but does not delete it leaving it in the unresumable CANCELLED state.
 */
 func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CancelReplicationNoContent, error) {
 	// TODO: Validate the params before sending
@@ -64,8 +64,8 @@ func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo run
 	}
 	op := &runtime.ClientOperation{
 		ID:                 "cancelReplication",
-		Method:             "DELETE",
-		PathPattern:        "/replication/replicate/{id}",
+		Method:             "POST",
+		PathPattern:        "/replication/replicate/{id}/cancel",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},
@@ -90,6 +90,47 @@ func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo run
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for cancelReplication: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+DeleteReplication deletes a replication operation
+
+Deletes a replication operation. If the operation is in progress, it is cancelled and cleaned up before being deleted.
+*/
+func (a *Client) DeleteReplication(params *DeleteReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteReplicationNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewDeleteReplicationParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "deleteReplication",
+		Method:             "DELETE",
+		PathPattern:        "/replication/replicate/{id}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &DeleteReplicationReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*DeleteReplicationNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for deleteReplication: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
@@ -170,47 +211,6 @@ func (a *Client) ReplicationDetails(params *ReplicationDetailsParams, authInfo r
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for replicationDetails: API contract not enforced by server. Client expected to get an error, but got: %T", result)
-	panic(msg)
-}
-
-/*
-StopReplication stops a replication operation
-
-Stops an in-progress replication operation as soon as possible. Under-the-hood, this moves it into the `STOPPED` state but does not delete it.
-*/
-func (a *Client) StopReplication(params *StopReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*StopReplicationNoContent, error) {
-	// TODO: Validate the params before sending
-	if params == nil {
-		params = NewStopReplicationParams()
-	}
-	op := &runtime.ClientOperation{
-		ID:                 "stopReplication",
-		Method:             "POST",
-		PathPattern:        "/replication/replicate/{id}/stop",
-		ProducesMediaTypes: []string{"application/json"},
-		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
-		Schemes:            []string{"https"},
-		Params:             params,
-		Reader:             &StopReplicationReader{formats: a.formats},
-		AuthInfo:           authInfo,
-		Context:            params.Context,
-		Client:             params.HTTPClient,
-	}
-	for _, opt := range opts {
-		opt(op)
-	}
-
-	result, err := a.transport.Submit(op)
-	if err != nil {
-		return nil, err
-	}
-	success, ok := result.(*StopReplicationNoContent)
-	if ok {
-		return success, nil
-	}
-	// unexpected success response
-	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
-	msg := fmt.Sprintf("unexpected success response for stopReplication: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
