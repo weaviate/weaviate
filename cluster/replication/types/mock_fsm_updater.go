@@ -34,6 +34,65 @@ func (_m *MockFSMUpdater) EXPECT() *MockFSMUpdater_Expecter {
 	return &MockFSMUpdater_Expecter{mock: &_m.Mock}
 }
 
+// AddReplicaToShard provides a mock function with given fields: _a0, _a1, _a2, _a3
+func (_m *MockFSMUpdater) AddReplicaToShard(_a0 context.Context, _a1 string, _a2 string, _a3 string) (uint64, error) {
+	ret := _m.Called(_a0, _a1, _a2, _a3)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddReplicaToShard")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (uint64, error)); ok {
+		return rf(_a0, _a1, _a2, _a3)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) uint64); ok {
+		r0 = rf(_a0, _a1, _a2, _a3)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(_a0, _a1, _a2, _a3)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFSMUpdater_AddReplicaToShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddReplicaToShard'
+type MockFSMUpdater_AddReplicaToShard_Call struct {
+	*mock.Call
+}
+
+// AddReplicaToShard is a helper method to define mock.On call
+//   - _a0 context.Context
+//   - _a1 string
+//   - _a2 string
+//   - _a3 string
+func (_e *MockFSMUpdater_Expecter) AddReplicaToShard(_a0 interface{}, _a1 interface{}, _a2 interface{}, _a3 interface{}) *MockFSMUpdater_AddReplicaToShard_Call {
+	return &MockFSMUpdater_AddReplicaToShard_Call{Call: _e.mock.On("AddReplicaToShard", _a0, _a1, _a2, _a3)}
+}
+
+func (_c *MockFSMUpdater_AddReplicaToShard_Call) Run(run func(_a0 context.Context, _a1 string, _a2 string, _a3 string)) *MockFSMUpdater_AddReplicaToShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_AddReplicaToShard_Call) Return(_a0 uint64, _a1 error) *MockFSMUpdater_AddReplicaToShard_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFSMUpdater_AddReplicaToShard_Call) RunAndReturn(run func(context.Context, string, string, string) (uint64, error)) *MockFSMUpdater_AddReplicaToShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReplicationUpdateReplicaOpStatus provides a mock function with given fields: id, state
 func (_m *MockFSMUpdater) ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplicationState) error {
 	ret := _m.Called(id, state)
@@ -77,67 +136,6 @@ func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) Return(_a0 error
 }
 
 func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) RunAndReturn(run func(uint64, api.ShardReplicationState) error) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// StartFinalizingReplicaCopy provides a mock function with given fields: _a0, _a1, _a2, _a3, _a4, _a5
-func (_m *MockFSMUpdater) StartFinalizingReplicaCopy(_a0 context.Context, _a1 string, _a2 string, _a3 string, _a4 string, _a5 int64) (uint64, error) {
-	ret := _m.Called(_a0, _a1, _a2, _a3, _a4, _a5)
-
-	if len(ret) == 0 {
-		panic("no return value specified for StartFinalizingReplicaCopy")
-	}
-
-	var r0 uint64
-	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, int64) (uint64, error)); ok {
-		return rf(_a0, _a1, _a2, _a3, _a4, _a5)
-	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string, string, int64) uint64); ok {
-		r0 = rf(_a0, _a1, _a2, _a3, _a4, _a5)
-	} else {
-		r0 = ret.Get(0).(uint64)
-	}
-
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, string, string, int64) error); ok {
-		r1 = rf(_a0, _a1, _a2, _a3, _a4, _a5)
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
-}
-
-// MockFSMUpdater_StartFinalizingReplicaCopy_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'StartFinalizingReplicaCopy'
-type MockFSMUpdater_StartFinalizingReplicaCopy_Call struct {
-	*mock.Call
-}
-
-// StartFinalizingReplicaCopy is a helper method to define mock.On call
-//   - _a0 context.Context
-//   - _a1 string
-//   - _a2 string
-//   - _a3 string
-//   - _a4 string
-//   - _a5 int64
-func (_e *MockFSMUpdater_Expecter) StartFinalizingReplicaCopy(_a0 interface{}, _a1 interface{}, _a2 interface{}, _a3 interface{}, _a4 interface{}, _a5 interface{}) *MockFSMUpdater_StartFinalizingReplicaCopy_Call {
-	return &MockFSMUpdater_StartFinalizingReplicaCopy_Call{Call: _e.mock.On("StartFinalizingReplicaCopy", _a0, _a1, _a2, _a3, _a4, _a5)}
-}
-
-func (_c *MockFSMUpdater_StartFinalizingReplicaCopy_Call) Run(run func(_a0 context.Context, _a1 string, _a2 string, _a3 string, _a4 string, _a5 int64)) *MockFSMUpdater_StartFinalizingReplicaCopy_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(int64))
-	})
-	return _c
-}
-
-func (_c *MockFSMUpdater_StartFinalizingReplicaCopy_Call) Return(_a0 uint64, _a1 error) *MockFSMUpdater_StartFinalizingReplicaCopy_Call {
-	_c.Call.Return(_a0, _a1)
-	return _c
-}
-
-func (_c *MockFSMUpdater_StartFinalizingReplicaCopy_Call) RunAndReturn(run func(context.Context, string, string, string, string, int64) (uint64, error)) *MockFSMUpdater_StartFinalizingReplicaCopy_Call {
 	_c.Call.Return(run)
 	return _c
 }

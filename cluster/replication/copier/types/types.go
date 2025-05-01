@@ -16,6 +16,7 @@ import (
 	"io"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/file"
@@ -54,4 +55,7 @@ type RemoteIndex interface {
 	// GetFile See adapters/clients.RemoteIndex.GetFile
 	GetFile(ctx context.Context,
 		hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
+	// SetAsyncReplicationTargetNode See adapters/clients.RemoteIndex.SetAsyncReplicationTargetNode
+	SetAsyncReplicationTargetNode(ctx context.Context,
+		hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 }

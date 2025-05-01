@@ -526,14 +526,14 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "StartFinalizingReplicaCopy/Success/UpdateDB",
-			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_START_FINALIZING_REPLICA_COPY, cmd.StartFinalizingReplicaCopyRequest{Class: "C1", Shard: "T1", TargetNode: "Node-1"}, nil)},
+			name: "AddReplicaToShard/Success/UpdateDB",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShard{Class: "C1", Shard: "T1", TargetNode: "Node-1"}, nil)},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 				m.indexer.On("AddClass", mock.Anything).Return(nil)
-				m.indexer.On("StartFinalizingReplicaCopy", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				m.indexer.On("AddReplicaToShard", mock.Anything, "TestCollection", mock.Anything, "Node-1").Return(nil)
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
@@ -554,8 +554,8 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "StartFinalizingReplicaCopy/Success/NotUpdateDB",
-			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_START_FINALIZING_REPLICA_COPY, cmd.StartFinalizingReplicaCopyRequest{Class: "C1", Shard: "T1", TargetNode: "Node-3"}, nil)},
+			name: "AddReplicaToShard/Success/NotUpdateDB",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShard{Class: "C1", Shard: "T1", TargetNode: "Node-3"}, nil)},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
@@ -581,13 +581,13 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "StartFinalizingReplicaCopy/FailClassNotFound",
-			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_START_FINALIZING_REPLICA_COPY, cmd.StartFinalizingReplicaCopyRequest{Class: "C1", Shard: "T1", TargetNode: "Node-3"}, nil)},
+			name: "AddReplicaToShard/FailClassNotFound",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShard{Class: "C1", Shard: "T1", TargetNode: "Node-3"}, nil)},
 			resp: Response{Error: schema.ErrSchema},
 		},
 		{
-			name: "StartFinalizingReplicaCopy/FailShardNotFound",
-			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_START_FINALIZING_REPLICA_COPY, cmd.StartFinalizingReplicaCopyRequest{Class: "C1", Shard: "T1000", TargetNode: "Node-3"}, nil)},
+			name: "AddReplicaToShard/FailShardNotFound",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShard{Class: "C1", Shard: "T1000", TargetNode: "Node-3"}, nil)},
 			resp: Response{Error: schema.ErrSchema},
 			doBefore: func(m *MockStore) {
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
@@ -599,8 +599,8 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "StartFinalizingReplicaCopy/FailReplicaAlreadyExists",
-			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_START_FINALIZING_REPLICA_COPY, cmd.StartFinalizingReplicaCopyRequest{Class: "C1", Shard: "T1", TargetNode: "THIS"}, nil)},
+			name: "AddReplicaToShard/FailReplicaAlreadyExists",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShard{Class: "C1", Shard: "T1", TargetNode: "THIS"}, nil)},
 			resp: Response{Error: schema.ErrSchema},
 			doBefore: func(m *MockStore) {
 				m.parser.On("ParseClass", mock.Anything).Return(nil)

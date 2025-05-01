@@ -116,6 +116,8 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
+	UpdateAsyncReplicationConfig(ctx context.Context, enabled bool) error
+
 	isReadOnly() error
 	pathLSM() string
 
@@ -158,7 +160,6 @@ type ShardLike interface {
 	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
-	updateAsyncReplicationConfig(ctx context.Context, enabled bool) error
 	// addTargetNodeOverride adds a target node override to the shard.
 	addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 	// getAsyncReplicationStats returns all current sync replication stats for this node/shard

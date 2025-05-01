@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -316,17 +317,26 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
 	logger.Info("processing finalizing replication operation")
 
-	// if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
-	// 	logger.WithField("consumer", c).WithError(err).Error("failure while updating sharding state")
-	// 	return api.ShardReplicationState(""), err
-	// }
-
+	// ensure async replication is started on local (target) node
+	if err := c.replicaCopier.InitAsyncReplicationLocally(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failure while initializing async replication on local node")
+		return api.ShardReplicationState(""), err
+	}
+	// TODO start best effort writes before upper time bound is hit
 	// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
 	// received during movement work as expected
 	upperTimeBoundUnixMillis := time.Now().Add(upperTimeBoundDuration).UnixMilli()
-	// TODO add best effort writes here as part of StartFinalizingReplicaCopy
-	if _, err := c.leaderClient.StartFinalizingReplicaCopy(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, upperTimeBoundUnixMillis); err != nil {
-		logger.WithField("consumer", c).WithError(err).Error("failure while starting to finalize replica copy")
+
+	// start async replication from source node to target node
+	if err := c.replicaCopier.SetAsyncReplicationTargetNode(
+		ctx,
+		additional.AsyncReplicationTargetNodeOverride{
+			CollectionID:   op.Op.SourceShard.CollectionId,
+			ShardID:        op.Op.TargetShard.ShardId,
+			TargetNode:     op.Op.TargetShard.NodeId,
+			SourceNode:     op.Op.SourceShard.NodeId,
+			UpperTimeBound: upperTimeBoundUnixMillis,
+		}); err != nil {
 		return api.ShardReplicationState(""), err
 	}
 
@@ -347,12 +357,18 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 			select {
 			case <-ticker.C:
 				if do() {
+					ticker.Stop()
 					break
 				}
 			case <-ctx.Done():
 				return api.ShardReplicationState(""), ctx.Err()
 			}
 		}
+	}
+
+	if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failure while starting to finalize replica copy")
+		return api.ShardReplicationState(""), err
 	}
 
 	nextState := api.READY

@@ -288,6 +288,10 @@ func (f *fakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, sha
 	return nil, nil
 }
 
+func (f *fakeRemoteClient) SetAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	return nil
+}
+
 type fakeNodeResolver struct{}
 
 func (f *fakeNodeResolver) AllHostnames() []string {

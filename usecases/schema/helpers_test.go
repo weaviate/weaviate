@@ -100,7 +100,7 @@ func (f *fakeDB) RestoreClassDir(class string) error {
 	return nil
 }
 
-func (f *fakeDB) StartFinalizingReplicaCopy(class string, shard string, sourceNode string, targetNode string, upperTimeBound int64) error {
+func (f *fakeDB) AddReplicaToShard(class string, shard string, targetNode string) error {
 	return nil
 }
 
@@ -303,8 +303,8 @@ func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop .
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) StartFinalizingReplicaCopy(ctx context.Context, class string, shard string, sourceNode string, targetNode string, upperTimeBound int64) error {
-	args := f.Called(ctx, class, shard, sourceNode, targetNode, upperTimeBound)
+func (f *fakeMigrator) AddReplicaToShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }
 

@@ -432,6 +432,31 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	return reader, nil
 }
 
+// IncomingAsyncReplicationSetAsyncReplicationTargetNode sets a target node override for the specified shard.
+func (i *Index) IncomingSetAsyncReplicationTargetNode(
+	ctx context.Context,
+	shardName string,
+	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
+) error {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	err = localShard.addTargetNodeOverride(ctx, targetNodeOverride)
+	if err != nil {
+		return err
+	}
+	// we call update async replication config here to ensure that async replication starts
+	// if it's not already running
+	err = localShard.UpdateAsyncReplicationConfig(ctx, true)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Shard) filePutter(ctx context.Context,
 	filePath string,
 ) (io.WriteCloser, error) {

@@ -332,6 +332,8 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFi
 				wg.Add(1)
 				enterrors.GoWrapper(func() {
 					defer wg.Done()
+					// TODO replace/remove this sleep once we have a test that constantly inserts in parallel
+					// during shard replica movement
 					// sleep 20s so that the source node has paused compaction but not resumed yet
 					time.Sleep(20 * time.Second)
 					for i := 0; i < numParagraphsInsertedWhileStarting; i++ {
@@ -380,7 +382,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFi
 
 	// TODO: Start watch status until completion
 	// For now we sleep, remove the sleep and instead poll status once API is up
-	time.Sleep(120 * time.Second)
+	time.Sleep(180 * time.Second)
 
 	// Kills the original node with the data to ensure we have only one replica available (the new one)
 	t.Run(fmt.Sprintf("stop node %d", sourceNode), func(t *testing.T) {

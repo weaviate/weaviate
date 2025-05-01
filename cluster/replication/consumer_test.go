@@ -41,31 +41,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		opId, err := randInt(t, 100, 200)
 		require.NoError(t, err, "error generating random operation id")
 
-		// mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", uint64(opId), api.HYDRATING).Return(nil)
-		// mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", uint64(opId), api.FINALIZING).Return(nil)
-		// mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", uint64(opId), api.READY).Return(nil)
-		// mockReplicaCopier.On("CopyReplica",
-		// 	mock.Anything,
-		// 	"node1",
-		// 	"TestCollection",
-		// 	mock.Anything,
-		// ).Once().Return(nil)
-		// mockFSMUpdater.On("StartFinalizingReplicaCopy",
-		// 	mock.Anything,
-		// 	"TestCollection",
-		// 	mock.Anything,
-		// 	"node1",
-		// 	"node2",
-		// 	mock.Anything,
-		// ).Return(uint64(0), nil)
-		// mockReplicaCopier.On("AsyncReplicationStatus",
-		// 	mock.Anything,
-		// 	"node1",
-		// 	"node2",
-		// 	"TestCollection",
-		// 	mock.Anything,
-		// ).Return(uint64(0), time.Now().Add(200*time.Second).UnixMilli(), nil)
-		// mockTimeProvider.On("Now").Return(time.Now())
 		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(uint64(opId), api.HYDRATING).
 			Return(nil)
@@ -76,7 +51,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			ReplicationUpdateReplicaOpStatus(uint64(opId), api.READY).
 			Return(nil)
 		mockFSMUpdater.EXPECT().
-			StartFinalizingReplicaCopy(mock.Anything, "TestCollection", mock.Anything, "node1", "node2", mock.Anything).
+			AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, "node2").
 			Return(uint64(0), nil)
 		mockReplicaCopier.EXPECT().
 			CopyReplica(
@@ -310,12 +285,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "error while generating random op id start")
 		for i := 0; i < randomNumberOfOps; i++ {
 			opId := uint64(randomStartOpId + i)
-			// mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opId, api.HYDRATING).Return(nil)
-			// mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opId, api.FINALIZING).Return(nil)
-			// mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opId, api.READY).Return(nil)
-			// mockReplicaCopier.On("CopyReplica", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-			// mockFSMUpdater.On("StartFinalizingReplicaCopy", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
-			// mockReplicaCopier.On("AsyncReplicationStatus", mock.Anything, "node1", "node2", "TestCollection", mock.Anything).Return(uint64(0), time.Now().Add(200*time.Second).UnixMilli(), nil)
 			mockFSMUpdater.EXPECT().
 				ReplicationUpdateReplicaOpStatus(opId, api.HYDRATING).
 				Return(nil)
@@ -329,7 +298,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
 			mockFSMUpdater.EXPECT().
-				StartFinalizingReplicaCopy(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return(uint64(i), nil)
 			mockReplicaCopier.EXPECT().
 				AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -577,12 +546,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			opID := uint64(randomStartOpId + i)
 			skip := randomBoolean(t)
 			if !skip {
-				// mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opID, api.HYDRATING).Return(nil)
-				// mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opID, api.FINALIZING).Return(nil).Maybe()
-				// mockFSMUpdater.On("ReplicationUpdateReplicaOpStatus", opID, api.READY).Return(nil).Maybe()
-				// mockReplicaCopier.On("CopyReplica", mock.Anything, "node1", "TestCollection", mock.Anything).Return(nil)
-				// mockFSMUpdater.On("StartFinalizingReplicaCopy", mock.Anything, "TestCollection", mock.Anything, "node1", "node2", mock.Anything).Return(uint64(0), nil)
-				// mockReplicaCopier.On("AsyncReplicationStatus", mock.Anything, "node1", "node2", "TestCollection", mock.Anything).Return(uint64(0), time.Now().Add(200*time.Second).UnixMilli(), nil)
 				expectedStarted++
 				expectedCompleted++
 				mockFSMUpdater.EXPECT().
@@ -598,7 +561,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					CopyReplica(mock.Anything, "node1", "TestCollection", mock.Anything).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
-					StartFinalizingReplicaCopy(mock.Anything, "TestCollection", mock.Anything, "node1", "node2", mock.Anything).
+					AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, "node2").
 					Return(uint64(i), nil)
 				mockReplicaCopier.EXPECT().
 					AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", mock.Anything).
@@ -738,7 +701,7 @@ func TestConsumerBackoffPolicyRetriesOnStateChangeFailure(t *testing.T) {
 				}).
 				Times(5)
 
-			mockFSMUpdater.EXPECT().StartFinalizingReplicaCopy(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
+			mockFSMUpdater.EXPECT().AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 			mockReplicaCopier.EXPECT().CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 			mockReplicaCopier.EXPECT().AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(models.AsyncReplicationStatus{
 				ObjectsPropagated:       0,
@@ -839,7 +802,7 @@ func TestConsumerResumingConsumeOnStateChangeFailure(t *testing.T) {
 					return nil
 				})
 
-			mockFSMUpdater.EXPECT().StartFinalizingReplicaCopy(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
+			mockFSMUpdater.EXPECT().AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
 			mockReplicaCopier.EXPECT().CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 			mockReplicaCopier.EXPECT().AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(models.AsyncReplicationStatus{
 				ObjectsPropagated:       0,

@@ -14,6 +14,7 @@ package types
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
@@ -21,6 +22,12 @@ import (
 type ReplicaCopier interface {
 	// CopyReplica see cluster/replication/copier.Copier.CopyReplica
 	CopyReplica(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string) error
+
+	// InitAsyncReplicationLocally see cluster/replication/copier.Copier.InitAsyncReplicationLocally
+	InitAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error
+
+	// SetAsyncReplicationTargetNode see cluster/replication/copier.Copier.SetAsyncReplicationTargetNode
+	SetAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 
 	// AsyncReplicationStats see cluster/replication/copier.Copier.AsyncReplicationStatus
 	AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (models.AsyncReplicationStatus, error)

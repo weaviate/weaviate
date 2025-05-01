@@ -26,7 +26,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
-	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -182,39 +181,13 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 	return nil
 }
 
-func (m *Migrator) StartFinalizingReplicaCopy(ctx context.Context, class string, shard string, sourceNode string, targetNode string, upperTimeBound int64) error {
+func (m *Migrator) AddReplicaToShard(ctx context.Context, class, shard string) error {
 	// if this node is not the source or target node, don't need to get involved in this replica copy
-	if m.nodeId != sourceNode && m.nodeId != targetNode {
-		return nil
-	}
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
-	s, release, err := idx.getOrInitShard(ctx, shard)
-	if err != nil {
-		return err
-	}
-	defer release()
-
-	targetNodeOverrde := additional.AsyncReplicationTargetNodeOverride{
-		CollectionID:   class,
-		ShardID:        shard,
-		TargetNode:     targetNode,
-		SourceNode:     sourceNode,
-		UpperTimeBound: upperTimeBound,
-	}
-	err = s.addTargetNodeOverride(ctx, targetNodeOverrde)
-	if err != nil {
-		return err
-	}
-
-	// we call updateAsyncReplicationConfig here to initialize the hash tree if needed
-	err = s.updateAsyncReplicationConfig(ctx, true)
-	if err != nil {
-		return err
-	}
-	return nil
+	return idx.LoadLocalShard(ctx, shard)
 }
 
 // UpdateIndex ensures that the local index is up2date with the latest sharding
