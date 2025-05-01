@@ -124,12 +124,32 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 	return payload, nil
 }
 
-func (m *Manager) CancelReplicaOp(c *cmd.ApplyRequest) error {
-	req := &cmd.ReplicationCancelOpRequest{}
+func (m *Manager) CancelReplication(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationCancelRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
 	// Store in the FSM the shard replication op
-	return m.replicationFSM.CancelReplicationOp(req)
+	return m.replicationFSM.CancelReplication(req)
+}
+
+func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationDeleteRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Store in the FSM the shard replication op
+	return m.replicationFSM.DeleteReplication(req)
+}
+
+func (m *Manager) RemoveReplicaOp(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationRemoveOpRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Store in the FSM the shard replication op
+	return m.replicationFSM.RemoveReplicationOp(req)
 }

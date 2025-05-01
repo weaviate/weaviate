@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/go-openapi/strfmt"
 	"github.com/hashicorp/go-multierror"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -100,7 +99,7 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	return nil
 }
 
-func (s *ShardReplicationFSM) CancelReplicationOp(c *api.ReplicationCancelOpRequest) error {
+func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
@@ -117,27 +116,47 @@ func (s *ShardReplicationFSM) CancelReplicationOp(c *api.ReplicationCancelOpRequ
 		return fmt.Errorf("could not find op status for op %d", id)
 	}
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
-	status.ChangeState(api.CANCELLED)
+	status.ChangeState(api.CANCELLING)
 	s.opsStatus[op] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
 	return nil
 }
 
-func (s *ShardReplicationFSM) DeleteReplicationOp(c *api.ReplicationDeleteOpRequest) error {
-	return s.deleteShardReplicationOp(c.Uuid)
+func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	id, ok := s.idsByUuid[c.Uuid]
+	if !ok {
+		return ErrReplicationOpNotFound
+	}
+	op, ok := s.opsById[id]
+	if !ok {
+		return ErrReplicationOpNotFound
+	}
+	status, ok := s.opsStatus[op]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d", id)
+	}
+	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
+	status.ChangeState(api.DELETING)
+	s.opsStatus[op] = status
+	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) RemoveReplicationOp(c *api.ReplicationRemoveOpRequest) error {
+	return s.removeReplicationOp(c.Id)
 }
 
 // TODO: Improve the error handling in that function
-func (s *ShardReplicationFSM) deleteShardReplicationOp(uuid strfmt.UUID) error {
+func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
 	var err error
-	id, ok := s.idsByUuid[uuid]
-	if !ok {
-		return ErrReplicationOpNotFound
-	}
 	op, ok := s.opsById[id]
 	if !ok {
 		return ErrReplicationOpNotFound

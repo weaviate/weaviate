@@ -101,7 +101,7 @@ func (s *Raft) ReplicationRegisterError(id uint64, errorToRegister string) error
 }
 
 func (s *Raft) CancelReplication(uuid strfmt.UUID) error {
-	req := &api.ReplicationCancelOpRequest{
+	req := &api.ReplicationCancelRequest{
 		Version: api.ReplicationCommandVersionV0,
 		Uuid:    uuid,
 	}
@@ -121,7 +121,7 @@ func (s *Raft) CancelReplication(uuid strfmt.UUID) error {
 }
 
 func (s *Raft) DeleteReplication(uuid strfmt.UUID) error {
-	req := &api.ReplicationDeleteOpRequest{
+	req := &api.ReplicationDeleteRequest{
 		Version: api.ReplicationCommandVersionV0,
 		Uuid:    uuid,
 	}
@@ -132,6 +132,26 @@ func (s *Raft) DeleteReplication(uuid strfmt.UUID) error {
 	}
 	command := &api.ApplyRequest{
 		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) ReplicationRemoveReplicaOp(id uint64) error {
+	req := &api.ReplicationRemoveOpRequest{
+		Version: api.ReplicationCommandVersionV0,
+		Id:      id,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE,
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(context.Background(), command); err != nil {

@@ -240,8 +240,12 @@ func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardRepl
 		return c.processStateAndTransition(ctx, op, c.processDehydratingOp)
 	case api.FINALIZING:
 		return c.processStateAndTransition(ctx, op, c.processFinalizingOp)
+	case api.CANCELLING:
+		return c.processStateAndTransition(ctx, op, c.processCancellingOp)
+	case api.DELETING:
+		return c.processDeletingOp(ctx, op)
 	case api.CANCELLED:
-		// TODO: In the future we should handle cleaning up aborted operations, for now just keep it in the FSM
+		// TODO: In the future we should handle cleaning up cancelled operations, for now just keep it in the FSM
 		return nil
 	case api.READY:
 		// TODO: In the future we should handle cleaning up completed operations, for now just keep it in the FSM
@@ -381,4 +385,42 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 func (c *CopyOpConsumer) processDehydratingOp(context.Context, ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	// TODO: Implement
 	return api.ShardReplicationState(""), nil
+}
+
+// processCancellingOp is the state handler for the CANCELLING state.
+//
+// It handles removing the shard from this node and updating the state to CANCELLED.
+func (c *CopyOpConsumer) processCancellingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
+	logger.Info("processing cancelling replication operation")
+
+	if err := c.replicaCopier.RemoveReplica(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failure while removing replica shard")
+		return api.ShardReplicationState(""), err
+	}
+
+	return api.CANCELLED, nil
+}
+
+// processDeletingOp is the state handler for the DELETING state.
+//
+// It handles removing the shard from this node and subsequently removing the operation from the FSM.
+//
+// As a result, it does not need to return a new state and so should not be used as a callback in processStateAndTransition.
+func (c *CopyOpConsumer) processDeletingOp(ctx context.Context, op ShardReplicationOpAndStatus) error {
+	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
+	logger.Info("processing deleting replication operation")
+
+	// index.DropShard is a no-op so deleting a cancelled operation is not a problem
+	if err := c.replicaCopier.RemoveReplica(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failure while removing replica shard")
+		return err
+	}
+
+	if err := c.leaderClient.ReplicationRemoveReplicaOp(op.Op.ID); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failure while deleting replica operation")
+		return err
+	}
+
+	return nil
 }

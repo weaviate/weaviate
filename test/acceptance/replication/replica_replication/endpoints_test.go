@@ -17,9 +17,11 @@ import (
 	"time"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/docker"
@@ -55,19 +57,47 @@ func TestCanCreateAndGetAReplicationOperation(t *testing.T) {
 	var uuid strfmt.UUID
 
 	t.Run("create replication operation", func(t *testing.T) {
-		res, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
+		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
 		require.Nil(t, err)
-		require.NotNil(t, res)
-		require.NotNil(t, res.Payload)
-		uuid = *res.Payload.ID
+		require.NotNil(t, created)
+		require.NotNil(t, created.Payload)
+		uuid = *created.Payload.ID
 	})
 
 	t.Run("get replication operation", func(t *testing.T) {
-		res, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(uuid), nil)
+		details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(uuid), nil)
 		require.Nil(t, err)
-		require.NotNil(t, res)
-		require.NotNil(t, res.Payload)
-		require.Equal(t, uuid, *res.Payload.ID)
+		require.NotNil(t, details)
+		require.NotNil(t, details.Payload)
+		require.Equal(t, uuid, *details.Payload.ID)
+	})
+
+	t.Run("cancel replication operation", func(t *testing.T) {
+		cancelled, err := helper.Client(t).Replication.CancelReplication(replication.NewCancelReplicationParams().WithID(uuid), nil)
+		require.Nil(t, err)
+		require.NotNil(t, cancelled)
+	})
+
+	t.Run("wait for replication operation to be cancelled", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(uuid), nil)
+			require.Nil(t, err)
+			assert.Equal(ct, string(api.CANCELLED), details.Payload.Status.State)
+		}, 60*time.Second, 1*time.Second, "replication operation should be cancelled")
+	})
+
+	t.Run("delete replication operation", func(t *testing.T) {
+		deleted, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(uuid), nil)
+		require.Nil(t, err)
+		require.NotNil(t, deleted)
+	})
+
+	t.Run("wait for replication operation to be deleted", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(uuid), nil)
+			require.NotNil(ct, err)
+			assert.Equal(ct, replication.NewReplicationDetailsNotFound().Code(), details.Code())
+		}, 60*time.Second, 1*time.Second, "replication operation should be deleted")
 	})
 }
 
