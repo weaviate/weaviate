@@ -771,21 +771,8 @@ func TestConsumerResumingConsumeOnStateChangeFailure(t *testing.T) {
 			mockFSMUpdater.EXPECT().
 				ReplicationUpdateReplicaOpStatus(uint64(opId), mock.Anything).
 				RunAndReturn(func(id uint64, state api.ShardReplicationState) error {
-					// Success
-					if state == tc.testTo {
-						// If we're at the final state, we're done, stop the test here
-						if state == api.READY {
-							wg.Done()
-						}
-						return nil
-					}
-
-					// If we're not at the final state ensure we stop the test here by returning an error
-					if state != tc.testTo {
-						wg.Done()
-						return fmt.Errorf("simulated state change failure")
-					}
-					return nil
+					wg.Done()
+					return fmt.Errorf("simulated state change failure")
 				})
 
 			mockFSMUpdater.EXPECT().AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(0), nil).Maybe()
@@ -803,8 +790,7 @@ func TestConsumerResumingConsumeOnStateChangeFailure(t *testing.T) {
 				metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
 			)
 
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			ctx := t.Context()
 
 			opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
 			doneChan := make(chan error, 1)
