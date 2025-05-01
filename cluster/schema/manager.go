@@ -20,6 +20,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	gproto "google.golang.org/protobuf/proto"
 
@@ -38,14 +39,25 @@ type SchemaManager struct {
 	db     Indexer
 	parser Parser
 	log    *logrus.Logger
+
+	// metrics
+	// lastAppliedIndexGauge represents the current last applied index.
+	lastAppliedIndexGauge prometheus.Gauge
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
+	r := promauto.With(reg)
+
 	return &SchemaManager{
 		schema: NewSchema(nodeId, db, reg),
 		db:     db,
 		parser: parser,
 		log:    log,
+		lastAppliedIndexGauge: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_last_applied_index",
+			Help:        "Last applied index",
+			ConstLabels: prometheus.Labels{"nodeID": nodeId},
+		}),
 	}
 }
 
@@ -150,6 +162,7 @@ func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schem
 	return s.apply(
 		applyOp{
 			op:                   cmd.GetType().String(),
+			logIndex:             cmd.Version,
 			updateSchema:         func() error { return s.schema.addClass(req.Class, &shardingStateCopy, cmd.Version) },
 			updateStore:          func() error { return s.db.AddClass(req) },
 			schemaOnly:           schemaOnly,
@@ -180,6 +193,7 @@ func (s *SchemaManager) RestoreClass(cmd *command.ApplyRequest, nodeID string, s
 	return s.apply(
 		applyOp{
 			op:                   cmd.GetType().String(),
+			logIndex:             cmd.Version,
 			updateSchema:         func() error { return s.schema.addClass(req.Class, req.State, cmd.Version) },
 			updateStore:          func() error { return s.db.AddClass(req) },
 			schemaOnly:           schemaOnly,
@@ -232,6 +246,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 	return s.apply(
 		applyOp{
 			op:                   cmd.GetType().String(),
+			logIndex:             cmd.Version,
 			updateSchema:         func() error { return s.schema.updateClass(req.Class.Class, update) },
 			updateStore:          func() error { return s.db.UpdateClass(req) },
 			schemaOnly:           schemaOnly,
@@ -258,6 +273,7 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 	return s.apply(
 		applyOp{
 			op:                   cmd.GetType().String(),
+			logIndex:             cmd.Version,
 			updateSchema:         func() error { s.schema.deleteClass(cmd.Class); return nil },
 			updateStore:          func() error { return s.db.DeleteClass(cmd.Class, hasFrozen) },
 			schemaOnly:           schemaOnly,
@@ -278,6 +294,7 @@ func (s *SchemaManager) AddProperty(cmd *command.ApplyRequest, schemaOnly bool, 
 	return s.apply(
 		applyOp{
 			op:                   cmd.GetType().String(),
+			logIndex:             cmd.Version,
 			updateSchema:         func() error { return s.schema.addProperty(cmd.Class, cmd.Version, req.Properties...) },
 			updateStore:          func() error { return s.db.AddProperty(cmd.Class, req) },
 			schemaOnly:           schemaOnly,
@@ -295,6 +312,7 @@ func (s *SchemaManager) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly 
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
+			logIndex:     cmd.Version,
 			updateSchema: func() error { return nil },
 			updateStore:  func() error { return s.db.UpdateShardStatus(&req) },
 			schemaOnly:   schemaOnly,
@@ -311,6 +329,7 @@ func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) e
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
+			logIndex:     cmd.Version,
 			updateSchema: func() error { return s.schema.addTenants(cmd.Class, cmd.Version, req) },
 			updateStore:  func() error { return s.db.AddTenants(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
@@ -326,7 +345,8 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 
 	return s.apply(
 		applyOp{
-			op: cmd.GetType().String(),
+			op:       cmd.GetType().String(),
+			logIndex: cmd.Version,
 			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
@@ -359,6 +379,7 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
+			logIndex:     cmd.Version,
 			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
 			updateStore:  func() error { return s.db.DeleteTenants(cmd.Class, tenants) },
 			schemaOnly:   schemaOnly,
@@ -375,6 +396,7 @@ func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOn
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
+			logIndex:     cmd.Version,
 			updateSchema: func() error { return s.schema.updateTenantsProcess(cmd.Class, cmd.Version, req) },
 			updateStore:  func() error { return s.db.UpdateTenantsProcess(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
@@ -384,6 +406,7 @@ func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOn
 
 type applyOp struct {
 	op                   string
+	logIndex             uint64
 	updateSchema         func() error
 	updateStore          func() error
 	schemaOnly           bool
@@ -425,6 +448,8 @@ func (s *SchemaManager) apply(op applyOp) error {
 			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 		}
 	}
+
+	s.lastAppliedIndexGauge.Set(float64(op.logIndex))
 
 	return nil
 }

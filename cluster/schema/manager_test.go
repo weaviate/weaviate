@@ -21,6 +21,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -373,4 +374,45 @@ func (m *MockSnapshotSink) Read(p []byte) (n int, err error) {
 		return 0, m.rErr
 	}
 	return m.buf.Read(p)
+}
+
+func TestLastAppliedIndexGauge(t *testing.T) {
+	reg := prometheus.NewPedanticRegistry()
+	sm := NewSchemaManager("test-node", NewMockIndexer(t), fakes.NewMockParser(), reg, logrus.New())
+
+	t.Run("successful operation", func(t *testing.T) {
+		op := applyOp{
+			op:           "test_op",
+			logIndex:     100,
+			updateSchema: func() error { return nil },
+			updateStore:  func() error { return nil },
+		}
+
+		require.NoError(t, sm.apply(op))
+		require.Equal(t, float64(100), testutil.ToFloat64(sm.lastAppliedIndexGauge))
+	})
+
+	t.Run("schema error", func(t *testing.T) {
+		op := applyOp{
+			op:           "test_op",
+			logIndex:     200,
+			updateSchema: func() error { return fmt.Errorf("schema error") },
+			updateStore:  func() error { return nil },
+		}
+
+		require.Error(t, sm.apply(op))
+		require.Equal(t, float64(100), testutil.ToFloat64(sm.lastAppliedIndexGauge))
+	})
+
+	t.Run("store error", func(t *testing.T) {
+		op := applyOp{
+			op:           "test_op",
+			logIndex:     300,
+			updateSchema: func() error { return nil },
+			updateStore:  func() error { return fmt.Errorf("store error") },
+		}
+
+		require.Error(t, sm.apply(op))
+		require.Equal(t, float64(100), testutil.ToFloat64(sm.lastAppliedIndexGauge))
+	})
 }

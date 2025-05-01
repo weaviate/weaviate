@@ -8,3 +8,6 @@ packages:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
     interfaces:
       BucketCreator:
+  github.com/weaviate/weaviate/cluster/schema:
+    interfaces:
+      Indexer:
