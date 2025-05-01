@@ -725,6 +725,11 @@ func TestConsumerBackoffPolicyRetriesOnStateChangeFailure(t *testing.T) {
 				ObjectsPropagated:       0,
 				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
 			}, nil).Maybe()
+			mockReplicaCopier.EXPECT().
+				SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil).Maybe()
+			mockReplicaCopier.EXPECT().
+				InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+				Return(nil).Maybe()
 
 			consumer := replication.NewCopyOpConsumer(
 				logger,
@@ -826,6 +831,11 @@ func TestConsumerResumingConsumeOnStateChangeFailure(t *testing.T) {
 				ObjectsPropagated:       0,
 				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
 			}, nil).Maybe()
+			mockReplicaCopier.EXPECT().
+				SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil).Maybe()
+			mockReplicaCopier.EXPECT().
+				InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+				Return(nil).Maybe()
 
 			consumer := replication.NewCopyOpConsumer(
 				logger,
