@@ -84,6 +84,7 @@ type ReplicationDetailsState struct {
 }
 
 type ReplicationDetailsResponse struct {
+	Uuid         strfmt.UUID
 	Id           uint64
 	ShardId      string
 	Collection   string

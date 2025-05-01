@@ -78,14 +78,14 @@ func (h *replicationHandler) getReplicationDetailsByReplicationId(params replica
 	if params.IncludeHistory != nil {
 		includeHistory = *params.IncludeHistory
 	}
-	return h.handleReplicationDetailsResponse(includeHistory, response, params.ID)
+	return h.handleReplicationDetailsResponse(includeHistory, response)
 }
 
 func (h *replicationHandler) handleReplicationReplicateResponse(id strfmt.UUID) *replication.ReplicateOK {
 	return replication.NewReplicateOK().WithPayload(&models.ReplicationReplicateReplicaResponse{ID: &id})
 }
 
-func (h *replicationHandler) handleReplicationDetailsResponse(withHistory bool, response api.ReplicationDetailsResponse, uuid strfmt.UUID) *replication.ReplicationDetailsOK {
+func (h *replicationHandler) handleReplicationDetailsResponse(withHistory bool, response api.ReplicationDetailsResponse) *replication.ReplicationDetailsOK {
 	// Compute history only if requested
 	var history []*models.ReplicationReplicateDetailsReplicaStatus
 	if withHistory {
@@ -100,7 +100,7 @@ func (h *replicationHandler) handleReplicationDetailsResponse(withHistory bool, 
 
 	return replication.NewReplicationDetailsOK().WithPayload(&models.ReplicationReplicateDetailsReplicaResponse{
 		Collection:   &response.Collection,
-		ID:           &uuid,
+		ID:           &response.Uuid,
 		ShardID:      &response.ShardId,
 		SourceNodeID: &response.SourceNodeId,
 		TargetNodeID: &response.TargetNodeId,
