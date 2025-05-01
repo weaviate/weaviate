@@ -27,7 +27,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestCanCreateAndGetAReplicationOperation(t *testing.T) {
+func (suite *ReplicaReplicationTestSuite) TestCanCreateAndGetAReplicationOperation() {
+	t := suite.T()
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
