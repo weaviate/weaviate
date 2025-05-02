@@ -843,78 +843,92 @@
       ]
     },
     "ReplicationReplicateReplicaRequest": {
-        "description": "Request body to add a replica of given shard of a given collection",
-        "properties": {
-            "sourceNodeName": {
-                "description": "The node containing the replica",
-                "type": "string"
-            },
-            "destinationNodeName": {
-                "description": "The node to add a copy of the replica on",
-                "type": "string"
-            },
-            "collectionId": {
-                "description": "The collection name holding the shard",
-                "type": "string"
-            },
-            "shardId": {
-                "description": "The shard id holding the replica to be copied",
-                "type": "string"
-            }
+      "description": "Request body to add a replica of given shard of a given collection",
+      "properties": {
+        "sourceNodeName": {
+          "description": "The node containing the replica",
+          "type": "string"
         },
-        "type": "object",
-        "required": [
-            "sourceNodeName",
-            "destinationNodeName",
-            "collectionId",
-            "shardId"
-        ]
+        "destinationNodeName": {
+          "description": "The node to add a copy of the replica on",
+          "type": "string"
+        },
+        "collectionId": {
+          "description": "The collection name holding the shard",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be copied",
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "sourceNodeName",
+        "destinationNodeName",
+        "collectionId",
+        "shardId"
+      ]
+    },
+    "ReplicationReplicateReplicaResponse": {
+      "description": "The OK response of POST /replication/replicate",
+      "properties": {
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "format": "uuid",
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "id"
+      ]
     },
     "ReplicationDisableReplicaRequest": {
-        "description": "Request body to disable (soft-delete) a replica of given shard of a given collection",
-        "properties": {
-            "nodeName": {
-                "description": "The node containing the replica to be disabled",
-                "type": "string"
-            },
-            "collectionId": {
-                "description": "The collection name holding the replica to be disabled",
-                "type": "string"
-            },
-            "shardId": {
-                "description": "The shard id holding the replica to be disabled",
-                "type": "string"
-            }
+      "description": "Request body to disable (soft-delete) a replica of given shard of a given collection",
+      "properties": {
+        "nodeName": {
+          "description": "The node containing the replica to be disabled",
+          "type": "string"
         },
-        "type": "object",
-        "required": [
-            "nodeName",
-            "collectionId",
-            "shardId"
-        ]
+        "collectionId": {
+          "description": "The collection name holding the replica to be disabled",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be disabled",
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "nodeName",
+        "collectionId",
+        "shardId"
+      ]
     },
     "ReplicationDeleteReplicaRequest": {
-        "description": "Request body to delete a replica of given shard of a given collection",
-        "properties": {
-            "nodeName": {
-                "description": "The node containing the replica to be deleted",
-                "type": "string"
-            },
-            "collectionId": {
-                "description": "The collection name holding the replica to be delete",
-                "type": "string"
-            },
-            "shardId": {
-                "description": "The shard id holding the replica to be deleted",
-                "type": "string"
-            }
+      "description": "Request body to delete a replica of given shard of a given collection",
+      "properties": {
+        "nodeName": {
+          "description": "The node containing the replica to be deleted",
+          "type": "string"
         },
-        "type": "object",
-        "required": [
-            "nodeName",
-            "collectionId",
-            "shardId"
-        ]
+        "collectionId": {
+          "description": "The collection name holding the replica to be delete",
+          "type": "string"
+        },
+        "shardId": {
+          "description": "The shard id holding the replica to be deleted",
+          "type": "string"
+        }
+      },
+      "type": "object",
+      "required": [
+        "nodeName",
+        "collectionId",
+        "shardId"
+      ]
     },
     "ReplicationReplicateDetailsReplicaStatus": {
       "description": "The status of a replication operation",
@@ -943,6 +957,7 @@
       "properties": {
         "id": {
           "description": "The unique id of the replication operation.",
+          "format": "uuid",
           "type": "string"
         },
         "shardId": {
@@ -2954,7 +2969,10 @@
         ],
         "responses": {
           "200": {
-            "description": "Replication operation registered successfully"
+            "description": "Replication operation registered successfully",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaResponse"
+            }
           },
           "400": {
             "description": "Malformed request.",
@@ -3001,7 +3019,8 @@
           {
             "name": "id",
             "in": "path",
-            "description": "The replication operation id to get details for.",
+            "format": "uuid",
+            "description": "The id of the replication operation to get details for.",
             "required": true,
             "type": "string"
           },

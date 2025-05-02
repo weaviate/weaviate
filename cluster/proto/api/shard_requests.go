@@ -11,6 +11,8 @@
 
 package api
 
+import "github.com/go-openapi/strfmt"
+
 const (
 	ReplicationCommandVersionV0 = iota
 )
@@ -39,6 +41,8 @@ type ReplicationReplicateShardRequest struct {
 	SourceShard      string
 
 	TargetNode string
+
+	Uuid strfmt.UUID
 }
 
 type ReplicationReplicateShardReponse struct{}
@@ -57,6 +61,7 @@ type ReplicationRegisterErrorRequest struct {
 
 	Id    uint64
 	Error string
+	Uuid  strfmt.UUID
 }
 
 type ReplicationRegisterErrorResponse struct{}
@@ -70,7 +75,7 @@ type ReplicationDeleteOpRequest struct {
 type ReplicationDeleteOpResponse struct{}
 
 type ReplicationDetailsRequest struct {
-	Id uint64
+	Uuid strfmt.UUID
 }
 
 type ReplicationDetailsState struct {
@@ -79,6 +84,7 @@ type ReplicationDetailsState struct {
 }
 
 type ReplicationDetailsResponse struct {
+	Uuid         strfmt.UUID
 	Id           uint64
 	ShardId      string
 	Collection   string

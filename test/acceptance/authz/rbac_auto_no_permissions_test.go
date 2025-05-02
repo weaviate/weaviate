@@ -70,7 +70,8 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/backups/{backend}", // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
 		"/backups/{backend}/{id}",
 		"/backups/{backend}/{id}/restore",
-		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
+		"/classifications/{id}",       // requires to get classification by id first before checking of authz permissions
+		"/replication/replicate/{id}", // requires to get replication by id first before checking of authz permissions
 	}
 
 	ignoreGetAll := []string{
