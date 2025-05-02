@@ -88,7 +88,7 @@ func (s *Shard) drop() (err error) {
 	}
 
 	if s.hasTargetVectors() {
-		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(s.index.logger, ctx)
+		eg := enterrors.NewErrorGroupWrapper(s.index.logger)
 		eg.SetLimit(_NUMCPU)
 
 		for targetVector, queue := range s.queues {

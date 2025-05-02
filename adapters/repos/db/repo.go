@@ -313,7 +313,7 @@ func (db *DB) Shutdown(ctx context.Context) error {
 	db.indexLock.Lock()
 	defer db.indexLock.Unlock()
 
-	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(db.logger, ctx)
+	eg := enterrors.NewErrorGroupWrapper(db.logger)
 	eg.SetLimit(_NUMCPU)
 	for id, index := range db.indices {
 		id, index := id, index // capture loop variables
