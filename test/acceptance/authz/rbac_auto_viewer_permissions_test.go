@@ -77,6 +77,7 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
 		url = strings.ReplaceAll(url, "{user_id}", "admin-user")
 		url = strings.ReplaceAll(url, "{userType}", "db")
+		url = strings.ReplaceAll(url, "/replication/replicate/{id}", fmt.Sprintf("/replication/replicate/%s", UUID1.String()))
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
 			require.NotContains(t, url, "{")

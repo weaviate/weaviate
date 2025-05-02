@@ -70,8 +70,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/backups/{backend}", // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
 		"/backups/{backend}/{id}",
 		"/backups/{backend}/{id}/restore",
-		"/classifications/{id}",       // requires to get classification by id first before checking of authz permissions
-		"/replication/replicate/{id}", // requires to get replication by id first before checking of authz permissions
+		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
 	}
 
 	ignoreGetAll := []string{
@@ -95,6 +94,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
 		url = strings.ReplaceAll(url, "{user_id}", "admin-user")
 		url = strings.ReplaceAll(url, "{userType}", "db")
+		url = strings.ReplaceAll(url, "/replication/replicate/{id}", fmt.Sprintf("/replication/replicate/%s", UUID1.String()))
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
 			require.NotContains(t, url, "{")
