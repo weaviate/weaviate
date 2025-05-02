@@ -16,18 +16,20 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-func (s *Raft) ReplicationReplicateReplica(sourceNode string, sourceCollection string, sourceShard string, targetNode string) error {
+func (s *Raft) ReplicationReplicateReplica(uuid strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string) error {
 	req := &api.ReplicationReplicateShardRequest{
 		Version:          api.ReplicationCommandVersionV0,
 		SourceNode:       sourceNode,
 		SourceCollection: sourceCollection,
 		SourceShard:      sourceShard,
 		TargetNode:       targetNode,
+		Uuid:             uuid,
 	}
 
 	if err := replication.ValidateReplicationReplicateShard(s.SchemaReader(), req); err != nil {

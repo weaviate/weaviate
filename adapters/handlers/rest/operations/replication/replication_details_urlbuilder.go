@@ -22,12 +22,13 @@ import (
 	golangswaggerpaths "path"
 	"strings"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
 
 // ReplicationDetailsURL generates an URL for the replication details operation
 type ReplicationDetailsURL struct {
-	ID string
+	ID strfmt.UUID
 
 	IncludeHistory *bool
 
@@ -57,7 +58,7 @@ func (o *ReplicationDetailsURL) Build() (*url.URL, error) {
 
 	var _path = "/replication/replicate/{id}"
 
-	id := o.ID
+	id := o.ID.String()
 	if id != "" {
 		_path = strings.Replace(_path, "{id}", id, -1)
 	} else {

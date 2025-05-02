@@ -91,9 +91,14 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	op, ok := m.replicationFSM.opsById[subCommand.Id]
+	id, ok := m.replicationFSM.idsByUuid[subCommand.Uuid]
 	if !ok {
-		return nil, fmt.Errorf("%w: %d", ErrReplicationOperationNotFound, subCommand.Id)
+		return nil, fmt.Errorf("%w: %s", ErrReplicationOperationNotFound, subCommand.Uuid)
+	}
+
+	op, ok := m.replicationFSM.opsById[id]
+	if !ok {
+		return nil, fmt.Errorf("%w: %d", ErrReplicationOperationNotFound, id)
 	}
 
 	status, ok := m.replicationFSM.opsStatus[op]
@@ -102,6 +107,7 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 	}
 
 	response := cmd.ReplicationDetailsResponse{
+		Uuid:          op.UUID,
 		Id:            op.ID,
 		ShardId:       op.SourceShard.ShardId,
 		Collection:    op.SourceShard.CollectionId,

@@ -37,7 +37,8 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 
 	// The unique id of the replication operation.
 	// Required: true
-	ID *string `json:"id"`
+	// Format: uuid
+	ID *strfmt.UUID `json:"id"`
 
 	// The id of the shard to collect replication details for.
 	// Required: true
@@ -109,6 +110,10 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateCollection(formats 
 func (m *ReplicationReplicateDetailsReplicaResponse) validateID(formats strfmt.Registry) error {
 
 	if err := validate.Required("id", "body", m.ID); err != nil {
+		return err
+	}
+
+	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
 		return err
 	}
 

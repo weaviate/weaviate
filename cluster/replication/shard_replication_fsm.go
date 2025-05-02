@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"golang.org/x/exp/maps"
@@ -24,7 +25,8 @@ import (
 )
 
 type ShardReplicationOp struct {
-	ID uint64
+	ID   uint64
+	UUID strfmt.UUID
 
 	// Targeting information of the replication operation
 	SourceShard shardFQDN
@@ -55,6 +57,8 @@ func NewShardReplicationOp(id uint64, sourceNode, targetNode, collectionId, shar
 type ShardReplicationFSM struct {
 	opsLock sync.RWMutex
 
+	// idsByUuiid stores user-facing UUID -> repo-facing raft log index
+	idsByUuid map[strfmt.UUID]uint64
 	// opsByTarget stores the array of ShardReplicationOp for each "target" node
 	opsByTarget map[string][]ShardReplicationOp
 	// opsBySource stores the array of ShardReplicationOp for each "source" node
@@ -75,6 +79,7 @@ type ShardReplicationFSM struct {
 
 func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 	fsm := &ShardReplicationFSM{
+		idsByUuid:       make(map[strfmt.UUID]uint64),
 		opsByTarget:     make(map[string][]ShardReplicationOp),
 		opsBySource:     make(map[string][]ShardReplicationOp),
 		opsByCollection: make(map[string][]ShardReplicationOp),
@@ -130,6 +135,7 @@ func (s *ShardReplicationFSM) Restore(bytes []byte) error {
 // The lock onto the underlying data is *not acquired* by this function the callee must ensure the lock is held
 func (s *ShardReplicationFSM) resetState() {
 	// Reset data
+	maps.Clear(s.idsByUuid)
 	maps.Clear(s.opsByTarget)
 	maps.Clear(s.opsBySource)
 	maps.Clear(s.opsByCollection)
