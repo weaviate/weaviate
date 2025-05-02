@@ -284,6 +284,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		status := randomString(statusOptions)
 
 		expectedResponse := api.ReplicationDetailsResponse{
+			Uuid:         id,
 			Collection:   collection,
 			ShardId:      shardId,
 			SourceNodeId: sourceNodeId,
@@ -342,6 +343,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		historyStatus := randomString(statusOptions)
 
 		expectedResponse := api.ReplicationDetailsResponse{
+			Uuid:         uuid,
 			Id:           id,
 			Collection:   collection,
 			ShardId:      shardId,

@@ -591,6 +591,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					var resp api.ReplicationDetailsResponse
 					err = json.Unmarshal(bytes, &resp)
 					require.NoError(t, err)
+					require.Equal(t, resp.Uuid, originalReq.Uuid)
 					require.Equal(t, resp.Id, logIndex)
 					require.Equal(t, resp.Collection, originalReq.SourceCollection)
 					require.Equal(t, resp.ShardId, originalReq.SourceShard)
@@ -616,6 +617,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					var resp api.ReplicationDetailsResponse
 					err = json.Unmarshal(bytes, &resp)
 					require.NoError(t, err)
+					require.Equal(t, resp.Uuid, originalReq.Uuid)
 					require.Equal(t, resp.Id, originalReq.Id)
 					require.Equal(t, api.ShardReplicationState(resp.Status.State), api.REGISTERED)
 					require.Equal(t, resp.Status.Errors, []string{originalReq.Error})

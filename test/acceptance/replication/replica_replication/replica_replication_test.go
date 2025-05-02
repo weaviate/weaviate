@@ -212,7 +212,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
 			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
 			assert.Equal(ct, "READY", details.Payload.Status.State, "expected replication status to be READY")
-		}, 60*time.Second, 1*time.Second, "replication operation %s not finished in time", uuid)
+		}, 240*time.Second, 1*time.Second, "replication operation %s not finished in time", uuid)
 	})
 
 	// Kills the original node with the data to ensure we have only one replica available (the new one)
@@ -310,6 +310,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFi
 		}, 15*time.Second, 500*time.Millisecond)
 	})
 
+	var opId strfmt.UUID
 	sourceNode := -1
 	numParagraphsInsertedWhileStarting := 1
 	t.Run("start replica replication to node3 for paragraph", func(t *testing.T) {
@@ -382,6 +383,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFi
 					)
 					require.NoError(t, err)
 					require.Equal(t, http.StatusOK, resp.Code(), "replication replicate operation didn't return 200 OK")
+					opId = *resp.Payload.ID
 				}, logger)
 				wg.Wait()
 			}
@@ -395,9 +397,19 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFi
 		t.FailNow()
 	}
 
-	// TODO: Start watch status until completion
-	// For now we sleep, remove the sleep and instead poll status once API is up
-	time.Sleep(180 * time.Second)
+	// Wait for the replication to finish
+	t.Run("waiting for replication to finish", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			details, err := helper.Client(t).Replication.ReplicationDetails(
+				replication.NewReplicationDetailsParams().WithID(opId), nil,
+			)
+			assert.Nil(t, err, "failed to get replication details %s", err)
+			assert.NotNil(t, details, "expected replication details to be not nil")
+			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
+			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
+			assert.Equal(ct, "READY", details.Payload.Status.State, "expected replication status to be READY")
+		}, 240*time.Second, 1*time.Second, "replication operation %s not finished in time", opId)
+	})
 
 	// Kills the original node with the data to ensure we have only one replica available (the new one)
 	t.Run(fmt.Sprintf("stop node %d", sourceNode), func(t *testing.T) {

@@ -107,6 +107,7 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 	}
 
 	response := cmd.ReplicationDetailsResponse{
+		Uuid:          op.UUID,
 		Id:            op.ID,
 		ShardId:       op.SourceShard.ShardId,
 		Collection:    op.SourceShard.CollectionId,
