@@ -477,6 +477,11 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 }
 
 func (dynamic *dynamic) Upgrade(callback func()) error {
+	if dynamic.ctx.Err() != nil {
+		// already closed
+		return dynamic.ctx.Err()
+	}
+
 	if dynamic.upgraded.Load() {
 		return dynamic.index.(upgradableIndexer).Upgrade(callback)
 	}
