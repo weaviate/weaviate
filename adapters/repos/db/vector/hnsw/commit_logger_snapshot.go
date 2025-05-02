@@ -610,14 +610,6 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 	}
 	offset += writeByteSize
 
-	// store the max size of commit logs to ensure that value doesn't change
-	// between reboots. A changed value means that the snapshot can accidentally skip
-	// some logs because an immutable commit log can suddently because mutable again.
-	if err := writeUint64(w, uint64(l.maxSizeIndividual)); err != nil {
-		return 0, err
-	}
-	offset += writeUint64Size
-
 	if err := writeUint64(w, state.Entrypoint); err != nil {
 		return 0, err
 	}
@@ -744,15 +736,6 @@ func (l *hnswCommitLogger) readStateFrom(filename string, concurrency int, check
 	}
 	if b[0] != 0 {
 		return nil, fmt.Errorf("unsupported version %d", b[0])
-	}
-
-	_, err = ReadAndHash(r, hasher, b[:8]) // max commit log size
-	if err != nil {
-		return nil, errors.Wrapf(err, "")
-	}
-	storedMaxCommitLogSize := binary.LittleEndian.Uint64(b[:8])
-	if storedMaxCommitLogSize != uint64(l.maxSizeIndividual) {
-		return nil, fmt.Errorf("commit log size changed from %d to %d", l.maxSizeIndividual, storedMaxCommitLogSize)
 	}
 
 	_, err = ReadAndHash(r, hasher, b[:8]) // entrypoint
