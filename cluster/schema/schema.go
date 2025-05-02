@@ -530,6 +530,25 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return classesCopy
 }
 
+func (s *schema) DeepCopy() map[string]metaClass {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	classesCopy := make(map[string]metaClass, len(s.classes))
+	for k, v := range s.classes {
+		v.RLock()
+		classesCopy[k] = metaClass{
+			Class:        v.Class,
+			ClassVersion: v.ClassVersion,
+			Sharding:     v.Sharding.DeepCopy(),
+			ShardVersion: v.ShardVersion,
+		}
+		v.RUnlock()
+	}
+
+	return classesCopy
+}
+
 func (s *schema) Restore(r io.Reader, parser Parser) error {
 	snap := snapshot{}
 	if err := json.NewDecoder(r).Decode(&snap); err != nil {
@@ -572,5 +591,22 @@ func makeTenant(name, status string) *models.Tenant {
 	return &models.Tenant{
 		Name:           name,
 		ActivityStatus: status,
+	}
+}
+
+// RestoreFromSnapshot restores the schema state from a snapshot
+func (s *schema) Rollback(snap map[string]metaClass) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for k := range snap {
+		// Create new metaClass instance with copied values
+		s.classes[k] = &metaClass{
+			Class:          snap[k].Class,
+			ClassVersion:   snap[k].ClassVersion,
+			Sharding:       snap[k].Sharding,
+			ShardVersion:   snap[k].ShardVersion,
+			ShardProcesses: snap[k].ShardProcesses,
+		}
 	}
 }

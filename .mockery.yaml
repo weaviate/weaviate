@@ -7,4 +7,7 @@ filename: "mock_{{ snakecase .InterfaceName }}.go"
 packages:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
     interfaces:
-      BucketCreator:
+      BucketCreator:          
+  github.com/weaviate/weaviate/cluster/schema:
+    interfaces:
+      Indexer:
