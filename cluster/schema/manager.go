@@ -417,18 +417,22 @@ func (s *SchemaManager) apply(op applyOp) error {
 		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
 	}
 
-	if !op.schemaOnly {
-		if err := op.updateStore(); err != nil {
-			// If store update fails, rollback schema changes and return the error
-			s.schema.Rollback(schemaSnapshot)
-			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
-		}
-	}
-
 	if op.enableSchemaCallback {
 		// TriggerSchemaUpdateCallbacks is concurrent and at
 		// this point of time schema shall be up to date.
 		s.db.TriggerSchemaUpdateCallbacks()
+	}
+	if !op.schemaOnly {
+		if err := op.updateStore(); err != nil {
+			// If store update fails, rollback schema changes and return the error
+			s.schema.Rollback(schemaSnapshot)
+			if op.enableSchemaCallback {
+				// TriggerSchemaUpdateCallbacks is concurrent and at
+				// this point of time schema shall be up to date.
+				s.db.TriggerSchemaUpdateCallbacks()
+			}
+			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
+		}
 	}
 
 	return nil
