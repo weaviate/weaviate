@@ -154,6 +154,9 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		// as the file is alreaqdy closed, setting this flag to true makes all reads be from memory
 		// and closes the matching file at the end of the function
 		cfg.mmapContents = true
+		// also avoid using bloom filter if we read the file into memory as file is already in
+		// memory and the performance gains from the bloom filter are not worth the overhead
+		cfg.useBloomFilter = false
 	}
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
