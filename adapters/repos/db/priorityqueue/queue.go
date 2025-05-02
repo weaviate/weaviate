@@ -17,10 +17,10 @@ type supportedValueType interface {
 
 // Item represents a queue item supporting an optional additional Value
 type Item[T supportedValueType] struct {
-	ID       uint64
-	Dist     float32
-	Rescored bool
-	Value    T
+	ID                 uint64
+	Dist               float32
+	StepsSinceLastCalc int
+	Value              T
 }
 
 // Queue is a priority queue supporting generic item values
@@ -120,6 +120,15 @@ func (q *Queue[T]) Insert(id uint64, distance float32) int {
 	item := Item[T]{
 		ID:   id,
 		Dist: distance,
+	}
+	return q.insert(item)
+}
+
+func (q *Queue[T]) InsertWithPath(id uint64, distance float32, steps int) int {
+	item := Item[T]{
+		ID:                 id,
+		Dist:               distance,
+		StepsSinceLastCalc: steps,
 	}
 	return q.insert(item)
 }

@@ -39,6 +39,12 @@ const (
 	SWEEPING FilterStrategy = iota
 	ACORN
 	RRE
+
+	epsilon  = 0.0001
+	Pd       = 0.5
+	Pt       = 0.5
+	T        = 0.7
+	maxSteps = 4
 )
 
 func (h *hnsw) searchTimeEF(k int) int {
@@ -158,18 +164,18 @@ func (h *hnsw) cacheSize() int64 {
 }
 
 func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
-	return allowList != nil /*
-		if allowList == nil || !h.acornSearch.Load() {
+	return false /*allowList != nil /*
+	if allowList == nil || !h.acornSearch.Load() {
+		return false
+	}
+
+		cacheSize := h.cacheSize()
+		allowListSize := allowList.Len()
+		if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > float32(h.acornFilterRatio) {
 			return false
 		}
 
-			cacheSize := h.cacheSize()
-			allowListSize := allowList.Len()
-			if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > float32(h.acornFilterRatio) {
-				return false
-			}
-
-			return true*/
+		return true*/
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
@@ -190,6 +196,179 @@ func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
 		return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, ACORN, visited)
 	}
 	return h.searchLayerByVectorWithDistancerWithStrategy(ctx, queryVector, entrypoints, ef, level, allowList, compressorDistancer, SWEEPING, visited)
+}
+
+func (h *hnsw) searchLayerByVector2ndPhase(ctx context.Context,
+	queryVector []float32,
+	entrypoints *priorityqueue.Queue[any], ef int,
+	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
+	rInit *priorityqueue.Queue[any]) (*priorityqueue.Queue[any], error,
+) {
+	h.pools.visitedListsLock.RLock()
+	visited := h.pools.visitedLists.Borrow()
+	h.pools.visitedListsLock.RUnlock()
+	defer func() {
+		h.pools.visitedListsLock.RLock()
+		h.pools.visitedLists.Return(visited)
+		h.pools.visitedListsLock.RUnlock()
+	}()
+
+	start := time.Now()
+	defer func() {
+		took := time.Since(start)
+		helpers.AnnotateSlowQueryLog(ctx, fmt.Sprintf("knn_search_layer_%d_took", 0), took)
+	}()
+
+	candidates := h.pools.pqCandidates.GetMin(ef)
+	results := h.pools.pqResults.GetMax(ef)
+	var floatDistancer distancer.Distancer
+	if h.compressed.Load() {
+		if compressorDistancer == nil {
+			var returnFn compressionhelpers.ReturnDistancerFn
+			compressorDistancer, returnFn = h.compressor.NewDistancer(queryVector)
+			defer returnFn()
+		}
+	} else {
+		floatDistancer = h.distancerProvider.New(queryVector)
+	}
+
+	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
+		results, 0, ef, visited, allowList)
+
+	var worstResultDistance float32
+	var err error
+	if h.compressed.Load() {
+		worstResultDistance, err = h.currentWorstResultDistanceToByte(results, compressorDistancer)
+	} else {
+		worstResultDistance, err = h.currentWorstResultDistanceToFloat(results, floatDistancer)
+	}
+	if err != nil {
+		return nil, errors.Wrapf(err, "calculate distance of current last result")
+	}
+	var connectionsReusable []uint64
+	var sliceConnectionsReusable *common.VectorUint64Slice
+
+	connectionsReusable = make([]uint64, h.maximumConnectionsLayerZero)
+
+	for candidates.Len() > 0 {
+		if err := ctx.Err(); err != nil {
+			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_layer")
+			return nil, err
+		}
+		var dist float32
+		candidate := candidates.Pop()
+		dist = candidate.Dist
+
+		if dist > worstResultDistance && results.Len() >= ef {
+			break
+		}
+
+		h.shardedNodeLocks.RLock(candidate.ID)
+		candidateNode := h.nodes[candidate.ID]
+		h.shardedNodeLocks.RUnlock(candidate.ID)
+
+		if candidateNode == nil {
+			// could have been a node that already had a tombstone attached and was
+			// just cleaned up while we were waiting for a read lock
+			continue
+		}
+
+		candidateNode.Lock()
+		if len(candidateNode.connections[0]) > h.maximumConnectionsLayerZero {
+			// How is it possible that we could ever have more connections than the
+			// allowed maximum? It is not anymore, but there was a bug that allowed
+			// this to happen in versions prior to v1.12.0:
+			// https://github.com/weaviate/weaviate/issues/1868
+			//
+			// As a result the length of this slice is entirely unpredictable and we
+			// can no longer retrieve it from the pool. Instead we need to fallback
+			// to allocating a new slice.
+			//
+			// This was discovered as part of
+			// https://github.com/weaviate/weaviate/issues/1897
+			connectionsReusable = make([]uint64, len(candidateNode.connections[0]))
+		} else {
+			connectionsReusable = connectionsReusable[:len(candidateNode.connections[0])]
+		}
+		copy(connectionsReusable, candidateNode.connections[0])
+		candidateNode.Unlock()
+
+		for _, neighborID := range connectionsReusable {
+			if ok := visited.Visited(neighborID); ok {
+				// skip if we've already visited this neighbor
+				continue
+			}
+
+			// make sure we never visit this neighbor again
+			visited.Visit(neighborID)
+
+			var distance float32
+			var err error
+
+			shouldCalculateDist := allowList.Contains(neighborID)
+
+			if !shouldCalculateDist {
+				shouldCalculateOnPath := float32(math.Min(1, float64(candidate.StepsSinceLastCalc)/maxSteps))
+				shouldCalculateOnDist := 1 - candidate.Dist/worstResultDistance
+
+				shouldCalculateDist = Pt*shouldCalculateOnPath+Pd*shouldCalculateOnDist > T
+			}
+
+			if shouldCalculateDist {
+				if h.compressed.Load() {
+					distance, err = compressorDistancer.DistanceToNode(neighborID)
+				} else {
+					distance, err = h.distanceToFloatNode(floatDistancer, neighborID)
+				}
+				if err != nil {
+					var e storobj.ErrNotFound
+					if errors.As(err, &e) {
+						h.handleDeletedNode(e.DocID, "searchLayerByVectorWithDistancer")
+						continue
+					} else {
+						return nil, errors.Wrap(err, "calculate distance between candidate and query")
+					}
+				}
+
+				if distance < worstResultDistance || results.Len() < ef {
+					candidates.Insert(neighborID, distance)
+					if !allowList.Contains(neighborID) {
+						continue
+					}
+
+					if h.hasTombstone(neighborID) {
+						continue
+					}
+
+					results.Insert(neighborID, distance)
+
+					if h.compressed.Load() {
+						h.compressor.Prefetch(candidates.Top().ID)
+					} else {
+						h.cache.Prefetch(candidates.Top().ID)
+					}
+
+					// +1 because we have added one node size calculating the len
+					if results.Len() > ef {
+						results.Pop()
+					}
+
+					if results.Len() > 0 {
+						worstResultDistance = results.Top().Dist
+					}
+				}
+			} else {
+				if distance < worstResultDistance || results.Len() < ef {
+					candidates.InsertWithPath(neighborID, candidate.Dist+epsilon, candidate.StepsSinceLastCalc+1)
+				}
+			}
+		}
+	}
+
+	h.pools.tempVectorsUint64.Put(sliceConnectionsReusable)
+	h.pools.pqCandidates.Put(candidates)
+
+	return results, nil
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
@@ -221,7 +400,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	}
 
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
-		results, level, visited, allowList)
+		results, level, ef, visited, allowList)
 
 	var worstResultDistance float32
 	var err error
@@ -463,7 +642,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 }
 
 func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
-	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
+	entrypoints, candidates, results *priorityqueue.Queue[any], level, ef int,
 	visitedList visited.ListSet, allowList helpers.AllowList,
 ) {
 	for entrypoints.Len() > 0 {
@@ -485,6 +664,9 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 		}
 
 		results.Insert(ep.ID, ep.Dist)
+	}
+	for results.Len() > ef {
+		results.Pop()
 	}
 }
 
@@ -731,88 +913,79 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 
 	var res *priorityqueue.Queue[any]
 	if strategy == ACORN {
-		for i := 0; i < 3; i++ {
-			if allowList != nil && useAcorn {
-				it := allowList.Iterator()
-				idx, ok := it.Next()
-				h.shardedNodeLocks.RLockAll()
-				for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
-					idx, ok = it.Next()
-				}
-				h.shardedNodeLocks.RUnlockAll()
-
-				if ok {
-					entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
-					eps.Reset()
-					eps.Insert(idx, entryPointDistance)
-				}
+		oEntryPointID := entryPointID
+		oEntryPointDistance := entryPointDistance
+		if allowList != nil && useAcorn {
+			it := allowList.Iterator()
+			idx, ok := it.Next()
+			h.shardedNodeLocks.RLockAll()
+			for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
+				idx, ok = it.Next()
 			}
-			for level := maxLayer; level >= 1; level-- {
-				res2, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, 1, level, allowList, compressorDistancer, RRE, visited)
-				if err != nil {
-					return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
-				}
+			h.shardedNodeLocks.RUnlockAll()
 
-				// There might be situations where we did not find a better entrypoint at
-				// that particular level, so instead we're keeping whatever entrypoint we
-				// had before (i.e. either from a previous level or even the main
-				// entrypoint)
-				//
-				// If we do, however, have results, any candidate that's not nil (not
-				// deleted), and not under maintenance is a viable candidate
-				for res2.Len() > 0 {
-					cand := res2.Pop()
-					n := h.nodeByID(cand.ID)
-					if n == nil {
-						// we have found a node in results that is nil. This means it was
-						// deleted, but not cleaned up properly. Make sure to add a tombstone to
-						// this node, so it can be cleaned up in the next cycle.
-						if err := h.addTombstone(cand.ID); err != nil {
-							return nil, nil, err
-						}
-
-						// skip the nil node, as it does not make a valid entrypoint
-						continue
-					}
-
-					if !n.isUnderMaintenance() {
-						entryPointID = cand.ID
-						entryPointDistance = cand.Dist
-						break
-					}
-
-					// if we managed to go through the loop without finding a single
-					// suitable node, we simply stick with the original, i.e. the global
-					// entrypoint
-				}
+			if ok {
+				entryPointDistance, _ := h.distToNode(compressorDistancer, idx, searchVec)
 				eps.Reset()
-				eps.Insert(entryPointID, entryPointDistance)
-
-				h.pools.pqResults.Put(res2)
+				eps.Insert(idx, entryPointDistance)
 			}
-			res3, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, strategy, visited)
+		}
+		for level := maxLayer; level >= 1; level-- {
+			res2, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, 1, level, allowList, compressorDistancer, RRE, visited)
 			if err != nil {
-				return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+				return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 			}
-			if i == 0 {
-				res = h.pools.pqResults.GetMax(ef)
-				for res3.Len() > 0 {
-					item := res3.Pop()
-					visitedRes.Visit(item.ID)
-					res.Insert(item.ID, item.Dist)
-				}
-			} else {
-				for res3.Len() > 0 {
-					item := res3.Pop()
-					if visitedRes.Visited(item.ID) {
-						continue
+
+			// There might be situations where we did not find a better entrypoint at
+			// that particular level, so instead we're keeping whatever entrypoint we
+			// had before (i.e. either from a previous level or even the main
+			// entrypoint)
+			//
+			// If we do, however, have results, any candidate that's not nil (not
+			// deleted), and not under maintenance is a viable candidate
+			for res2.Len() > 0 {
+				cand := res2.Pop()
+				n := h.nodeByID(cand.ID)
+				if n == nil {
+					// we have found a node in results that is nil. This means it was
+					// deleted, but not cleaned up properly. Make sure to add a tombstone to
+					// this node, so it can be cleaned up in the next cycle.
+					if err := h.addTombstone(cand.ID); err != nil {
+						return nil, nil, err
 					}
-					visitedRes.Visit(item.ID)
-					res.Pop()
-					res.Insert(item.ID, item.Dist)
+
+					// skip the nil node, as it does not make a valid entrypoint
+					continue
 				}
+
+				if !n.isUnderMaintenance() {
+					entryPointID = cand.ID
+					entryPointDistance = cand.Dist
+					break
+				}
+
+				// if we managed to go through the loop without finding a single
+				// suitable node, we simply stick with the original, i.e. the global
+				// entrypoint
 			}
-			h.pools.pqResults.Put(res3)
+			eps.Reset()
+			eps.Insert(entryPointID, entryPointDistance)
+
+			h.pools.pqResults.Put(res2)
+		}
+		visited.Reset()
+		res, err = h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, RRE, visited)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
+		}
+
+		eps.Reset()
+		eps.Insert(oEntryPointID, oEntryPointDistance)
+
+		visited.Reset()
+		res, err = h.searchLayerByVector2ndPhase(ctx, searchVec, eps, ef, allowList, compressorDistancer, res)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 		}
 	} else {
 		if allowList != nil && useAcorn {
