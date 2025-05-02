@@ -44,8 +44,8 @@ type ShardReplicationOpStatus struct {
 	ShouldCancel bool
 	// ShouldDelete is a flag indicating that the operation should be cancelled at the earliest possible time and then deleted
 	ShouldDelete bool
-	// Canceling is a flag indicating that an operation is in the process of being canceled
-	Canceling bool
+	// Cancelling is a flag indicating that an operation is in the process of being canceled
+	Cancelling bool
 
 	// History is the history of the state changes of the shard replication operation
 	History StateHistory

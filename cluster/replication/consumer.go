@@ -176,13 +176,24 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					}
 					// This means we're cancelling/deleting the operation, so we need to call the op's cancel
 					cancel, ok := c.ongoingOps.LoadCancel(op.Op.ID)
-					if !ok {
-						continue // Nothing to cancel
+					if ok {
+						c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("cancelling the replication op")
+						// If there's something to cancel then cancel it
+						cancel()
+						// Then signify that the operation was cancelled so that the state can be updated in goroutine process
+						// once dispatchReplicationOp exits
+						c.ongoingOps.StoreCancelled(op.Op.ID)
+					} else {
+						// Otherwise, update the state to cancelled immediately now since we don't have a cancel function
+						// meaning that any in-flight operation has already completed
+						if c.ongoingOps.IsCancelled(op.Op.ID) {
+							logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
+							logger.WithField("consumer", c).Info("replication operation cancelled, stopping processing")
+							if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, api.CANCELLED); err != nil {
+								logger.WithField("consumer", c).WithError(err).Errorf("failed to update replica status to '%s'", api.CANCELLED)
+							}
+						}
 					}
-					c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("canceling the replication op")
-					cancel()
-					// Then signify that the operation was cancelled so that defer funcs can transition the state appropriately
-					c.ongoingOps.StoreCancelled(op.Op.ID)
 				}
 
 				wg.Add(1)
@@ -293,6 +304,10 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 				logger.WithField("consumer", c).WithError(err).Error("failed to register error for replication operation")
 			}
 			return api.ShardReplicationState(""), err
+		}
+
+		if c.ongoingOps.IsCancelled(op.Op.ID) {
+			nextState = api.CANCELLED
 		}
 
 		// No error from the state handler, update the state to the next, if this errors we will stop processing
