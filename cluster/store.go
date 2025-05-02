@@ -188,10 +188,38 @@ type Store struct {
 	// / lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
 
-	// metrics
-	storeApplyDuration    prometheus.Histogram
-	storeApplyFailures    prometheus.Counter
-	storeLastAppliedIndex prometheus.Gauge
+	metrics *storeMetrics
+}
+
+// storeMetrics exposes RAFT store related prometheus metrics
+type storeMetrics struct {
+	applyDuration    prometheus.Histogram
+	applyFailures    prometheus.Counter
+	lastAppliedIndex prometheus.Gauge
+}
+
+// newStoreMetrics cretes and registers the store related metrics on
+// given prometheus registry.
+func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
+	r := promauto.With(reg)
+	return &storeMetrics{
+		applyDuration: r.NewHistogram(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
+			Help:        "Time to apply cluster store FSM state in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets:     prometheus.ExponentialBuckets(0.01, 5, 10), // 10ms, 50ms, 250ms, 1.25s, 6.25s
+		}),
+		applyFailures: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_failures_total",
+			Help:        "Total failure count of cluster store FSM state apply in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		lastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_fsm_last_applied_index",
+			Help:        "Current applied index of cluster store FSM in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+	}
 }
 
 func NewFSM(cfg Config, reg prometheus.Registerer) Store {
@@ -213,8 +241,6 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		})
 	}
 
-	r := promauto.With(reg)
-
 	return Store{
 		cfg:           cfg,
 		log:           cfg.Logger,
@@ -222,22 +248,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
 		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger),
-		storeApplyDuration: r.NewHistogram(prometheus.HistogramOpts{
-			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
-			Help:        "Time to apply cluster store FSM state in local node",
-			ConstLabels: prometheus.Labels{"nodeID": cfg.NodeID},
-			Buckets:     prometheus.ExponentialBuckets(0.01, 5, 10), // 10ms, 50ms, 250ms, 1.25s, 6.25s
-		}),
-		storeApplyFailures: r.NewCounter(prometheus.CounterOpts{
-			Name:        "weaviate_cluster_store_fsm_apply_failures_total",
-			Help:        "Total failure count of cluster store FSM state apply in local node",
-			ConstLabels: prometheus.Labels{"nodeID": cfg.NodeID},
-		}),
-		storeLastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
-			Name:        "weaviate_cluster_store_fsm_last_applied_index",
-			Help:        "Current applied index of cluster store FSM in local node",
-			ConstLabels: prometheus.Labels{"nodeID": cfg.NodeID},
-		}),
+		metrics:       newStoreMetrics(reg),
 	}
 }
 
