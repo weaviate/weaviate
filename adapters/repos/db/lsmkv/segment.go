@@ -19,7 +19,6 @@ import (
 	"os"
 
 	"github.com/bits-and-blooms/bloom/v3"
-	"github.com/edsrzf/mmap-go"
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
