@@ -111,7 +111,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
-		st.lastAppliedIndexToDB.Store(l.Index)
 	}()
 
 	cmd.Version = l.Index
