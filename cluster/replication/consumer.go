@@ -28,11 +28,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-// upperTimeBoundDuration is the duration for the upper time bound for the hash beat.
-// TODO better upper time bound? for now, we use 100s because we want to have enough time
-// for in progress writes to finish (assuming that in progress writes time out in ~90s)
-const upperTimeBoundDuration = 100 * time.Second
-
 // asyncStatusInterval is the polling interval to check the status of the
 // async replication of src->target
 const asyncStatusInterval = 5 * time.Second
@@ -87,6 +82,9 @@ type CopyOpConsumer struct {
 	// engineOpCallbacks defines hooks invoked at various stages of a replication operation's lifecycle
 	// (e.g., pending, start, complete, failure) to support metrics or custom observability logic.
 	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks
+
+	// asyncReplicationMinimumWait is the duration for the upper time bound for the hash beat.
+	asyncReplicationMinimumWait time.Duration
 }
 
 // String returns a string representation of the CopyOpConsumer,
@@ -111,19 +109,21 @@ func NewCopyOpConsumer(
 	ongoingOps *OpsCache,
 	opTimeout time.Duration,
 	maxWorkers int,
+	asyncReplicationMinimumWait time.Duration,
 	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks,
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
-		logger:            logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),
-		leaderClient:      leaderClient,
-		replicaCopier:     replicaCopier,
-		backoffPolicy:     backoffPolicy,
-		ongoingOps:        ongoingOps,
-		opTimeout:         opTimeout,
-		maxWorkers:        maxWorkers,
-		nodeId:            nodeId,
-		tokens:            make(chan struct{}, maxWorkers),
-		engineOpCallbacks: engineOpCallbacks,
+		logger:                      logger.WithFields(logrus.Fields{"component": "replication_consumer", "action": replicationEngineLogAction, "node": nodeId, "workers": maxWorkers, "timeout": opTimeout}),
+		leaderClient:                leaderClient,
+		replicaCopier:               replicaCopier,
+		backoffPolicy:               backoffPolicy,
+		ongoingOps:                  ongoingOps,
+		opTimeout:                   opTimeout,
+		maxWorkers:                  maxWorkers,
+		nodeId:                      nodeId,
+		tokens:                      make(chan struct{}, maxWorkers),
+		engineOpCallbacks:           engineOpCallbacks,
+		asyncReplicationMinimumWait: asyncReplicationMinimumWait,
 	}
 	return c
 }
@@ -328,7 +328,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	// TODO start best effort writes before upper time bound is hit
 	// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
 	// received during movement work as expected
-	upperTimeBoundUnixMillis := time.Now().Add(upperTimeBoundDuration).UnixMilli()
+	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait).UnixMilli()
 
 	// start async replication from source node to target node
 	if err := c.replicaCopier.SetAsyncReplicationTargetNode(
@@ -338,14 +338,14 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 			ShardID:        op.Op.TargetShard.ShardId,
 			TargetNode:     op.Op.TargetShard.NodeId,
 			SourceNode:     op.Op.SourceShard.NodeId,
-			UpperTimeBound: upperTimeBoundUnixMillis,
+			UpperTimeBound: asyncReplicationUpperTimeBoundUnixMillis,
 		}); err != nil {
 		return api.ShardReplicationState(""), err
 	}
 
 	do := func() bool {
 		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
-		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= upperTimeBoundUnixMillis
+		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
 	}
 
 	// we only check the status of the async replication every 5 seconds to avoid

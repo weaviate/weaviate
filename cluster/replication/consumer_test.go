@@ -122,6 +122,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
+			time.Second*100,
 			metricsCallbacks,
 		)
 
@@ -237,6 +238,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
+			time.Second*100,
 			metricsCallbacks,
 		)
 
@@ -369,6 +371,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
+			time.Second*100,
 			metricsCallbacks,
 		)
 
@@ -486,6 +489,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			opsCache,
 			time.Second*10,
 			1,
+			time.Second*100,
 			callbacks,
 		)
 
@@ -637,6 +641,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			opsCache,
 			time.Second*10,
 			1,
+			time.Second*100,
 			callbacks,
 		)
 
@@ -727,6 +732,7 @@ func TestConsumerRetryAsyncReplication(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		1,
+		time.Second*100,
 		metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
 	)
 
@@ -815,6 +821,7 @@ func TestConsumerBackoffPolicyRetriesOnStateChangeFailure(t *testing.T) {
 				replication.NewOpsCache(),
 				time.Second*10,
 				1,
+				time.Second*100,
 				metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
 			)
 
@@ -908,6 +915,7 @@ func TestConsumerResumingConsumeOnStateChangeFailure(t *testing.T) {
 				replication.NewOpsCache(),
 				time.Second*10,
 				1,
+				time.Second*100,
 				metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
 			)
 
