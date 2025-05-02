@@ -151,6 +151,9 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("read file: %w", err)
 		}
 		unMapContents = false
+		// as the file is alreaqdy closed, setting this flag to true makes all reads be from memory
+		// and closes the matching file at the end of the function
+		cfg.mmapContents = true
 	}
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
