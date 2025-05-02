@@ -79,14 +79,13 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replicationEngineMaxWorkers*time.Second,
 		cfg.NodeSelector.LocalName(),
 	)
-	realTimeProvider := replication.RealTimeProvider{}
 	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
 		cfg.Logger,
 		raft,
 		cfg.ReplicaCopier,
-		realTimeProvider,
 		cfg.NodeSelector.LocalName(),
 		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
 		replicationOperationTimeout,
 		replicationEngineMaxWorkers,
 		metrics.NewReplicationEngineOpsCallbacks(prometheus.DefaultRegisterer),

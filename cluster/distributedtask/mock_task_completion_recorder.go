@@ -136,8 +136,7 @@ func (_c *MockTaskCompletionRecorder_RecordDistributedTaskNodeFailure_Call) RunA
 func NewMockTaskCompletionRecorder(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockTaskCompletionRecorder {
+}) *MockTaskCompletionRecorder {
 	mock := &MockTaskCompletionRecorder{}
 	mock.Mock.Test(t)
 

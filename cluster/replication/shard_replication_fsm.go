@@ -23,11 +23,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-type shardReplicationOpStatus struct {
-	// state is the current state of the shard replication operation
-	state api.ShardReplicationState
-}
-
 type ShardReplicationOp struct {
 	ID uint64
 
@@ -60,8 +55,10 @@ func NewShardReplicationOp(id uint64, sourceNode, targetNode, collectionId, shar
 type ShardReplicationFSM struct {
 	opsLock sync.RWMutex
 
-	// opsByNode stores the array of ShardReplicationOp for each "target" node
-	opsByNode map[string][]ShardReplicationOp
+	// opsByTarget stores the array of ShardReplicationOp for each "target" node
+	opsByTarget map[string][]ShardReplicationOp
+	// opsBySource stores the array of ShardReplicationOp for each "source" node
+	opsBySource map[string][]ShardReplicationOp
 	// opsByCollection stores the array of ShardReplicationOp for each collection
 	opsByCollection map[string][]ShardReplicationOp
 	// opsByShard stores the array of ShardReplicationOp for each shard
@@ -71,19 +68,20 @@ type ShardReplicationFSM struct {
 	// opsByShard stores opId -> replicationOp
 	opsById map[uint64]ShardReplicationOp
 	// opsStatus stores op -> opStatus
-	opsStatus map[ShardReplicationOp]shardReplicationOpStatus
+	opsStatus map[ShardReplicationOp]ShardReplicationOpStatus
 
 	opsByStateGauge *prometheus.GaugeVec
 }
 
 func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 	fsm := &ShardReplicationFSM{
-		opsByNode:       make(map[string][]ShardReplicationOp),
+		opsByTarget:     make(map[string][]ShardReplicationOp),
+		opsBySource:     make(map[string][]ShardReplicationOp),
 		opsByCollection: make(map[string][]ShardReplicationOp),
 		opsByShard:      make(map[string][]ShardReplicationOp),
 		opsByTargetFQDN: make(map[shardFQDN]ShardReplicationOp),
 		opsById:         make(map[uint64]ShardReplicationOp),
-		opsStatus:       make(map[ShardReplicationOp]shardReplicationOpStatus),
+		opsStatus:       make(map[ShardReplicationOp]ShardReplicationOpStatus),
 	}
 
 	fsm.opsByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
@@ -96,7 +94,7 @@ func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 }
 
 type snapshot struct {
-	Ops map[ShardReplicationOp]shardReplicationOpStatus
+	Ops map[ShardReplicationOp]ShardReplicationOpStatus
 }
 
 func (s *ShardReplicationFSM) Snapshot() ([]byte, error) {
@@ -132,7 +130,8 @@ func (s *ShardReplicationFSM) Restore(bytes []byte) error {
 // The lock onto the underlying data is *not acquired* by this function the callee must ensure the lock is held
 func (s *ShardReplicationFSM) resetState() {
 	// Reset data
-	maps.Clear(s.opsByNode)
+	maps.Clear(s.opsByTarget)
+	maps.Clear(s.opsBySource)
 	maps.Clear(s.opsByCollection)
 	maps.Clear(s.opsByShard)
 	maps.Clear(s.opsByTargetFQDN)
@@ -142,20 +141,21 @@ func (s *ShardReplicationFSM) resetState() {
 	s.opsByStateGauge.Reset()
 }
 
-func (s *ShardReplicationFSM) GetOpsForNode(node string) []ShardReplicationOp {
+func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	return s.opsByNode[node]
+	return s.opsByTarget[node]
 }
 
-func (s shardReplicationOpStatus) ShouldRestartOp() bool {
-	return s.state == api.REGISTERED || s.state == api.HYDRATING
+func (s ShardReplicationOpStatus) ShouldConsumeOps() bool {
+	return s.GetCurrentState() != api.ABORTED
 }
 
-func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) shardReplicationOpStatus {
+func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicationOpStatus, bool) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	return s.opsStatus[op]
+	v, ok := s.opsStatus[op]
+	return v, ok
 }
 
 func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
@@ -201,7 +201,7 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	// Filter read/write based on the state of the replica
 	readOk := false
 	writeOk := false
-	switch opState.state {
+	switch opState.GetCurrentState() {
 	case api.FINALIZING:
 		writeOk = true
 	case api.READY:

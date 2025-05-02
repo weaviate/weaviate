@@ -12,15 +12,14 @@
 package lsmkv
 
 import (
-	"bytes"
 	"fmt"
 	"os"
 	"strings"
 
-	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/usecases/mmap"
 )
 
 // preComputeSegmentMeta has no side-effects for an already running store. As a
@@ -64,7 +63,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	defer contents.Unmap()
 
-	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
+	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}

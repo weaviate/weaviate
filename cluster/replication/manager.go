@@ -65,6 +65,16 @@ func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
 	return m.replicationFSM.Replicate(logId, req)
 }
 
+func (m *Manager) RegisterError(logId uint64, c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationRegisterErrorRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Store in the FSM the shard replication op
+	return m.replicationFSM.RegisterError(logId, req)
+}
+
 func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 	req := &cmd.ReplicationUpdateOpStateRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
@@ -92,12 +102,13 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 	}
 
 	response := cmd.ReplicationDetailsResponse{
-		Id:           op.ID,
-		ShardId:      op.SourceShard.ShardId,
-		Collection:   op.SourceShard.CollectionId,
-		SourceNodeId: op.SourceShard.NodeId,
-		TargetNodeId: op.TargetShard.NodeId,
-		Status:       status.state.String(),
+		Id:            op.ID,
+		ShardId:       op.SourceShard.ShardId,
+		Collection:    op.SourceShard.CollectionId,
+		SourceNodeId:  op.SourceShard.NodeId,
+		TargetNodeId:  op.TargetShard.NodeId,
+		Status:        status.GetCurrent().ToAPIFormat(),
+		StatusHistory: status.GetHistory().ToAPIFormat(),
 	}
 
 	payload, err := json.Marshal(response)

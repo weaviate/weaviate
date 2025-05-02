@@ -9,16 +9,18 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package types
+//go:build !(darwin || linux)
+
+package mmap
 
 import (
-	"context"
+	"os"
 
-	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/edsrzf/mmap-go"
 )
 
-type FSMUpdater interface {
-	AddReplicaToShard(context.Context, string, string, string) (uint64, error)
-	ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplicationState) error
-	ReplicationRegisterError(id uint64, errorToRegister string) error
+type MMap = mmap.MMap
+
+func MapRegion(f *os.File, length int, prot, flags int, offset int64) (MMap, error) {
+	return mmap.MapRegion(f, length, prot, flags, offset)
 }

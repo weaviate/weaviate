@@ -25,6 +25,7 @@ import (
 	"github.com/go-openapi/runtime"
 	cr "github.com/go-openapi/runtime/client"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 )
 
 // NewReplicationDetailsParams creates a new ReplicationDetailsParams object,
@@ -77,6 +78,12 @@ type ReplicationDetailsParams struct {
 	   The replication operation id to get details for.
 	*/
 	ID string
+
+	/* IncludeHistory.
+
+	   Whether to include the history of the replication operation.
+	*/
+	IncludeHistory *bool
 
 	timeout    time.Duration
 	Context    context.Context
@@ -142,6 +149,17 @@ func (o *ReplicationDetailsParams) SetID(id string) {
 	o.ID = id
 }
 
+// WithIncludeHistory adds the includeHistory to the replication details params
+func (o *ReplicationDetailsParams) WithIncludeHistory(includeHistory *bool) *ReplicationDetailsParams {
+	o.SetIncludeHistory(includeHistory)
+	return o
+}
+
+// SetIncludeHistory adds the includeHistory to the replication details params
+func (o *ReplicationDetailsParams) SetIncludeHistory(includeHistory *bool) {
+	o.IncludeHistory = includeHistory
+}
+
 // WriteToRequest writes these params to a swagger request
 func (o *ReplicationDetailsParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
 
@@ -153,6 +171,23 @@ func (o *ReplicationDetailsParams) WriteToRequest(r runtime.ClientRequest, reg s
 	// path param id
 	if err := r.SetPathParam("id", o.ID); err != nil {
 		return err
+	}
+
+	if o.IncludeHistory != nil {
+
+		// query param includeHistory
+		var qrIncludeHistory bool
+
+		if o.IncludeHistory != nil {
+			qrIncludeHistory = *o.IncludeHistory
+		}
+		qIncludeHistory := swag.FormatBool(qrIncludeHistory)
+		if qIncludeHistory != "" {
+
+			if err := r.SetQueryParam("includeHistory", qIncludeHistory); err != nil {
+				return err
+			}
+		}
 	}
 
 	if len(res) > 0 {
