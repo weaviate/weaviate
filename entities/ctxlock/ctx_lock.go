@@ -17,7 +17,7 @@ import (
 	"sync"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	//enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -78,41 +78,17 @@ func (m *CtxRWMutex) CtxRWLocation(location string) {
 func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
-	if m.enforceTimout {
 
-		acquired := make(chan struct{})
-		go func() {
-			m.rwlock.Lock()
-			close(acquired)
-		}()
+	m.rwlock.Lock()
+	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
+	return nil
 
-		select {
-		case <-acquired:
-			monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
-			return nil
-		case <-ctx.Done():
-			// Spawn a cleaner to unlock once the goroutine does lock
-			go func() {
-				<-acquired // wait until lock is acquired
-				m.rwlock.Unlock()
-			}()
-			return context.DeadlineExceeded
-		}
-	} else {
-		m.rwlock.Lock()
-		monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
-		return nil
-	}
 }
 
 // LockContextWithTimeout acquires the write lock or returns an error on timeout/cancel
 func (m *CtxRWMutex) LockContextWithTimeout(ctx context.Context, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	enterrors.GoWrapper(func() {
-		time.Sleep(timeout)
-		cancel()
-	}, nil)
-	return m.LockContext(ctx)
+
+	return m.LockContext(context.Background())
 }
 
 // Lock acquires the write lock
@@ -145,40 +121,14 @@ func (m *CtxRWMutex) RLockContext(ctx context.Context) error {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
 
-	if m.enforceTimout {
-		acquired := make(chan struct{})
-
-		go func() {
-			m.rwlock.RLock()
-			close(acquired)
-		}()
-
-		select {
-		case <-acquired:
-			monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
-			return nil
-		case <-ctx.Done():
-			go func() {
-				<-acquired
-				m.rwlock.RUnlock()
-			}()
-			return context.DeadlineExceeded
-		}
-	} else {
-		m.rwlock.RLock()
-		monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
-		return nil
-	}
+	m.rwlock.RLock()
+	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
+	return nil	
 }
 
 // RLockContextWithTimeout acquires the read lock or returns on context cancel/timeout
 func (m *CtxRWMutex) RLockContextWithTimeout(ctx context.Context, timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	enterrors.GoWrapper(func() {
-		time.Sleep(timeout)
-		cancel()
-	}, nil)
-	return m.RLockContext(ctx)
+	return m.RLockContext(context.Background())
 }
 
 // RLock acquires the read lock
