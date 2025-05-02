@@ -19,7 +19,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -36,7 +35,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	werrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -482,32 +480,10 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 	bucket := dynamic.store.Bucket(dynamic.getBucketName())
 
-	g := werrors.NewErrorGroupWrapper(dynamic.logger)
-	workerCount := runtime.GOMAXPROCS(0)
-	type task struct {
-		id     uint64
-		vector []float32
-	}
-
-	ch := make(chan task, workerCount)
-
 	// For now use an unlimited context here – for backward compatibility. This
 	// is probably not ideal and I assume also an upgrade operation should have
 	// some sort of a timeout.
 	ctx := context.TODO()
-
-	for i := 0; i < workerCount; i++ {
-		g.Go(func() error {
-			for t := range ch {
-				err := index.Add(ctx, t.id, t.vector)
-				if err != nil {
-					return err
-				}
-			}
-
-			return nil
-		})
-	}
 
 	cursor := bucket.Cursor()
 
@@ -516,17 +492,14 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		vc := make([]float32, len(v)/4)
 		float32SliceFromByteSlice(v, vc)
 
-		ch <- task{id: id, vector: vc}
+		err := index.Add(ctx, id, vc)
+		if err != nil {
+			dynamic.logger.WithField("id", id).WithError(err).Error("failed to add vector")
+			continue
+		}
 	}
+
 	cursor.Close()
-
-	close(ch)
-
-	err = g.Wait()
-	if err != nil {
-		callback()
-		return errors.Wrap(err, "upgrade")
-	}
 
 	err = dynamic.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
