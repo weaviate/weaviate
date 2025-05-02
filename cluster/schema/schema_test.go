@@ -12,16 +12,21 @@
 package schema
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/protobuf/proto"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
@@ -240,4 +245,158 @@ func Test_schemaDeepCopy(t *testing.T) {
 		}
 		<-done
 	})
+}
+
+func TestSchemaManagerAtomicApply(t *testing.T) {
+	// Setup
+	reg := prometheus.NewPedanticRegistry()
+	log := logrus.New()
+	mockIndexer := NewMockIndexer(t)
+	mockParser := fakes.NewMockParser()
+	manager := NewSchemaManager("node1", mockIndexer, mockParser, reg, log)
+
+	baseClass := &models.Class{
+		Class: "TestClass",
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "testProperty",
+				DataType: []string{"string"},
+			},
+		},
+	}
+
+	baseShardingState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			"tenant1": {
+				BelongsToNodes: []string{"node1"},
+				Status:         "HOT",
+				Name:           "tenant1",
+			},
+		},
+	}
+
+	tests := []struct {
+		name           string
+		setupMocks     func()
+		cmd            *api.ApplyRequest
+		expectedStatus string
+		expectError    bool
+	}{
+		{
+			name: "successful class addition",
+			setupMocks: func() {
+				mockParser.On("ParseClass", mock.Anything).Return(nil)
+				mockIndexer.EXPECT().AddClass(mock.Anything).Return(nil)
+				mockIndexer.EXPECT().TriggerSchemaUpdateCallbacks().Return()
+			},
+			cmd: &api.ApplyRequest{
+				Type:    api.ApplyRequest_TYPE_ADD_CLASS,
+				Class:   "TestClass",
+				Version: 1,
+				SubCommand: func() []byte {
+					req := &api.AddClassRequest{
+						Class: baseClass,
+						State: baseShardingState,
+					}
+					b, _ := json.Marshal(req)
+					return b
+				}(),
+			},
+			expectedStatus: "HOT",
+			expectError:    false,
+		},
+		{
+			name: "successful tenant status update to COLD",
+			setupMocks: func() {
+				mockIndexer.EXPECT().UpdateTenants("TestClass", mock.Anything).Return(nil)
+				mockIndexer.EXPECT().TriggerSchemaUpdateCallbacks().Return()
+			},
+			cmd: &api.ApplyRequest{
+				Type:    api.ApplyRequest_TYPE_UPDATE_TENANT,
+				Class:   "TestClass",
+				Version: 2,
+				SubCommand: func() []byte {
+					req := &api.UpdateTenantsRequest{
+						Tenants: []*api.Tenant{
+							{
+								Name:   "tenant1",
+								Status: "COLD",
+							},
+						},
+						ClusterNodes: []string{"node1"},
+					}
+					b, _ := proto.Marshal(req)
+					return b
+				}(),
+			},
+			expectedStatus: "COLD",
+			expectError:    false,
+		},
+		{
+			name: "failed tenant update with rollback",
+			setupMocks: func() {
+				mockIndexer.EXPECT().UpdateTenants("TestClass", mock.Anything).Return(fmt.Errorf("db failed for tenant1 update"))
+			},
+			cmd: &api.ApplyRequest{
+				Type:    api.ApplyRequest_TYPE_UPDATE_TENANT,
+				Class:   "TestClass",
+				Version: 3,
+				SubCommand: func() []byte {
+					req := &api.UpdateTenantsRequest{
+						Tenants: []*api.Tenant{
+							{
+								Name:   "tenant1",
+								Status: "HOT",
+							},
+						},
+						ClusterNodes: []string{"node1"},
+					}
+					b, _ := proto.Marshal(req)
+					return b
+				}(),
+			},
+			expectedStatus: "COLD", // Should remain COLD after rollback
+			expectError:    true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Reset mocks
+			mockIndexer.ExpectedCalls = nil
+			mockParser.ExpectedCalls = nil
+
+			// Setup mocks for this test case
+			tt.setupMocks()
+
+			// Execute the command
+			var err error
+			switch tt.cmd.Type {
+			case api.ApplyRequest_TYPE_ADD_CLASS:
+				err = manager.AddClass(tt.cmd, "node1", false, true)
+			case api.ApplyRequest_TYPE_UPDATE_TENANT:
+				err = manager.UpdateTenants(tt.cmd, false)
+			default:
+			}
+
+			// Verify error expectation
+			if tt.expectError {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+
+			// Verify class/tenant status
+			meta := manager.schema.metaClass("TestClass")
+			require.NotNil(t, meta)
+			assert.Equal(t, tt.expectedStatus, meta.Sharding.Physical["tenant1"].Status)
+		})
+	}
+
+	// Verify all expectations were met
+	mockParser.AssertExpectations(t)
+	mockIndexer.AssertExpectations(t)
 }
