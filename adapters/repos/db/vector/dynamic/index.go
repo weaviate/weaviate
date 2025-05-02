@@ -529,6 +529,12 @@ func (dynamic *dynamic) doUpgrade() error {
 	cursor := bucket.Cursor()
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		if dynamic.ctx.Err() != nil {
+			// context was cancelled, stop processing
+			dynamic.RUnlock()
+			return dynamic.ctx.Err()
+		}
+
 		id := binary.BigEndian.Uint64(k)
 		vc := make([]float32, len(v)/4)
 		float32SliceFromByteSlice(v, vc)
@@ -548,12 +554,11 @@ func (dynamic *dynamic) doUpgrade() error {
 	// Lock the index for writing but check if it was already
 	// closed in the meantime
 	dynamic.Lock()
+	defer dynamic.Unlock()
 
-	if dynamic.ctx.Err() != nil {
+	if err := dynamic.ctx.Err(); err != nil {
 		// already closed
-		dynamic.Unlock()
-		dynamic.logger.Warn("index was closed while upgrading")
-		return nil
+		return errors.Wrap(err, "index was closed while upgrading")
 	}
 
 	err = dynamic.db.Update(func(tx *bolt.Tx) error {
@@ -566,8 +571,6 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	dynamic.index = index
 	dynamic.upgraded.Store(true)
-
-	dynamic.Unlock()
 
 	return nil
 }
