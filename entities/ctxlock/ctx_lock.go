@@ -25,8 +25,9 @@ var ErrCtxTimeout = errors.New("ctxsync: lock acquisition timed out")
 
 // CtxRWMutex is a context-aware read/write mutex
 type CtxRWMutex struct {
-	rwlock   sync.RWMutex // The underlying RWMutex
-	location string       // The location of the mutex, used for monitoring
+	rwlock        sync.RWMutex // The underlying RWMutex
+	location      string       // The location of the mutex, used for monitoring
+	enforceTimout bool         // Whether to enforce timeout on lock acquisition
 
 	doneMu    sync.Mutex
 	doneCache []chan bool
@@ -77,24 +78,30 @@ func (m *CtxRWMutex) CtxRWLocation(location string) {
 func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
+	if m.enforceTimout {
 
-	acquired := make(chan struct{})
-	go func() {
+		acquired := make(chan struct{})
+		go func() {
+			m.rwlock.Lock()
+			close(acquired)
+		}()
+
+		select {
+		case <-acquired:
+			monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
+			return nil
+		case <-ctx.Done():
+			// Spawn a cleaner to unlock once the goroutine does lock
+			go func() {
+				<-acquired // wait until lock is acquired
+				m.rwlock.Unlock()
+			}()
+			return context.DeadlineExceeded
+		}
+	} else {
 		m.rwlock.Lock()
-		close(acquired)
-	}()
-
-	select {
-	case <-acquired:
 		monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
 		return nil
-	case <-ctx.Done():
-		// Spawn a cleaner to unlock once the goroutine does lock
-		go func() {
-			<-acquired // wait until lock is acquired
-			m.rwlock.Unlock()
-		}()
-		return context.DeadlineExceeded
 	}
 }
 
@@ -138,23 +145,29 @@ func (m *CtxRWMutex) RLockContext(ctx context.Context) error {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
 
-	acquired := make(chan struct{})
+	if m.enforceTimout {
+		acquired := make(chan struct{})
 
-	go func() {
+		go func() {
+			m.rwlock.RLock()
+			close(acquired)
+		}()
+
+		select {
+		case <-acquired:
+			monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
+			return nil
+		case <-ctx.Done():
+			go func() {
+				<-acquired
+				m.rwlock.RUnlock()
+			}()
+			return context.DeadlineExceeded
+		}
+	} else {
 		m.rwlock.RLock()
-		close(acquired)
-	}()
-
-	select {
-	case <-acquired:
 		monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
 		return nil
-	case <-ctx.Done():
-		go func() {
-			<-acquired
-			m.rwlock.RUnlock()
-		}()
-		return context.DeadlineExceeded
 	}
 }
 

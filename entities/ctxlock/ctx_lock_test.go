@@ -71,8 +71,10 @@ func TestCtxRWMutex_TryRLock(t *testing.T) {
 	m.RUnlock()
 }
 
+
 func TestCtxRWMutex_LockContext_Timeout(t *testing.T) {
 	m := NewCtxRWMutex("")
+	m.enforceTimout = true
 	m.Lock()
 	defer m.Unlock()
 
@@ -91,8 +93,10 @@ func TestCtxRWMutex_LockContext_Timeout(t *testing.T) {
 	}
 }
 
+
 func TestCtxRWMutex_RLockContext_Timeout(t *testing.T) {
 	m := NewCtxRWMutex("")
+	m.enforceTimout = true
 	m.Lock()
 	defer m.Unlock()
 
@@ -110,6 +114,8 @@ func TestCtxRWMutex_RLockContext_Timeout(t *testing.T) {
 		t.Fatalf("expected context timeout wait, got %v", elapsed)
 	}
 }
+
+
 
 func TestCtxRWMutex_ParallelReaders(t *testing.T) {
 	m := NewCtxRWMutex("")
@@ -145,8 +151,10 @@ func TestCtxRWMutex_ParallelReaders(t *testing.T) {
 	wg.Wait()
 }
 
+
 func TestCtxRWMutex_WriterBlocksReader(t *testing.T) {
 	m := NewCtxRWMutex("")
+	m.enforceTimout = true
 	m.Lock()
 
 	var got string
@@ -175,6 +183,7 @@ func TestCtxRWMutex_WriterBlocksReader(t *testing.T) {
 
 func TestCtxRWMutex_WritersBlockEachOther(t *testing.T) {
 	m := NewCtxRWMutex("")
+	m.enforceTimout = true
 	m.Lock()
 
 	done := make(chan struct{})
@@ -196,6 +205,7 @@ func TestCtxRWMutex_WritersBlockEachOther(t *testing.T) {
 
 func TestLockContext_TimesOutButLockStillAcquired(t *testing.T) {
 	m := NewCtxRWMutex("test")
+	m.enforceTimout = true
 
 	// First goroutine holds the lock for 200ms
 	go func() {
