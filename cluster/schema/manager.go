@@ -410,7 +410,7 @@ func (s *SchemaManager) apply(op applyOp) error {
 	}
 
 	// Create a deep copy of the current schema state for potential rollback
-	schemaSnapshot := s.schema.DeepCopy()
+	schemaSnapshot := s.schema.deepCopy()
 
 	// schema applied 1st to make sure any validation happen before applying it to db
 	if err := op.updateSchema(); err != nil {
@@ -425,7 +425,7 @@ func (s *SchemaManager) apply(op applyOp) error {
 	if !op.schemaOnly {
 		if err := op.updateStore(); err != nil {
 			// If store update fails, rollback schema changes and return the error
-			s.schema.Rollback(schemaSnapshot)
+			s.schema.rollback(schemaSnapshot)
 			if op.enableSchemaCallback {
 				// TriggerSchemaUpdateCallbacks is concurrent and at
 				// this point of time schema shall be up to date.

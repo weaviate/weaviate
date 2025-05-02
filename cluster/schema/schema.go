@@ -530,7 +530,8 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return classesCopy
 }
 
-func (s *schema) DeepCopy() map[string]metaClass {
+// deepCopy returns a deep copy of the schema
+func (s *schema) deepCopy() map[string]metaClass {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
@@ -594,8 +595,8 @@ func makeTenant(name, status string) *models.Tenant {
 	}
 }
 
-// RestoreFromSnapshot restores the schema state from a snapshot
-func (s *schema) Rollback(snap map[string]metaClass) {
+// rollback restores the schema state from a snapshot
+func (s *schema) rollback(snap map[string]metaClass) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
