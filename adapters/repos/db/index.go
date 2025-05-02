@@ -24,10 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -44,10 +40,13 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -2297,29 +2296,60 @@ func (i *Index) Shutdown(ctx context.Context) error {
 	return nil
 }
 
+// stopCycleManagers stops all cycle managers concurrently
 func (i *Index) stopCycleManagers(ctx context.Context, usecase string) error {
-	if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop objects compaction cycle: %w", usecase, err)
-	}
-	if err := i.cycleCallbacks.compactionAuxCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop non objects compaction cycle: %w", usecase, err)
-	}
-	if err := i.cycleCallbacks.flushCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop flush cycle: %w", usecase, err)
-	}
-	if err := i.cycleCallbacks.vectorCommitLoggerCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop vector commit logger cycle: %w", usecase, err)
-	}
-	if err := i.cycleCallbacks.vectorTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop vector tombstone cleanup cycle: %w", usecase, err)
-	}
-	if err := i.cycleCallbacks.geoPropsCommitLoggerCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop geo props commit logger cycle: %w", usecase, err)
-	}
-	if err := i.cycleCallbacks.geoPropsTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
-		return fmt.Errorf("%s: stop geo props tombstone cleanup cycle: %w", usecase, err)
-	}
-	return nil
+	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(i.logger, ctx)
+
+	eg.Go(func() error {
+		if err := i.cycleCallbacks.compactionCycle.StopAndWait(ctx); err != nil {
+			return fmt.Errorf("%s: stop objects compaction cycle: %w", usecase, err)
+		}
+		return nil
+	})
+
+	eg.Go(func() error {
+		if err := i.cycleCallbacks.compactionAuxCycle.StopAndWait(ctx); err != nil {
+			return fmt.Errorf("%s: stop non objects compaction cycle: %w", usecase, err)
+		}
+		return nil
+	})
+
+	eg.Go(func() error {
+		if err := i.cycleCallbacks.flushCycle.StopAndWait(ctx); err != nil {
+			return fmt.Errorf("%s: stop flush cycle: %w", usecase, err)
+		}
+		return nil
+	})
+
+	eg.Go(func() error {
+		if err := i.cycleCallbacks.vectorCommitLoggerCycle.StopAndWait(ctx); err != nil {
+			return fmt.Errorf("%s: stop vector commit logger cycle: %w", usecase, err)
+		}
+		return nil
+	})
+
+	eg.Go(func() error {
+		if err := i.cycleCallbacks.vectorTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+			return fmt.Errorf("%s: stop vector tombstone cleanup cycle: %w", usecase, err)
+		}
+		return nil
+	})
+
+	eg.Go(func() error {
+		if err := i.cycleCallbacks.geoPropsCommitLoggerCycle.StopAndWait(ctx); err != nil {
+			return fmt.Errorf("%s: stop geo props commit logger cycle: %w", usecase, err)
+		}
+		return nil
+	})
+
+	eg.Go(func() error {
+		if err := i.cycleCallbacks.geoPropsTombstoneCleanupCycle.StopAndWait(ctx); err != nil {
+			return fmt.Errorf("%s: stop geo props tombstone cleanup cycle: %w", usecase, err)
+		}
+		return nil
+	})
+
+	return eg.Wait()
 }
 
 func (i *Index) shardState() *sharding.State {
