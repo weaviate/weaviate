@@ -24,8 +24,18 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
+
+// upperTimeBoundDuration is the duration for the upper time bound for the hash beat.
+// TODO better upper time bound? for now, we use 100s because we want to have enough time
+// for in progress writes to finish (assuming that in progress writes time out in ~90s)
+const upperTimeBoundDuration = 100 * time.Second
+
+// asyncStatusInterval is the polling interval to check the status of the
+// async replication of src->target
+const asyncStatusInterval = 5 * time.Second
 
 // OpConsumer is an interface for consuming replication operations.
 type OpConsumer interface {
@@ -190,7 +200,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 						"target_collection": operation.Op.TargetShard.CollectionId,
 					})
 
-					opLogger.Info("worker processing replication operation")
+					opLogger.Debug("worker processing replication operation")
 
 					// Start a replication operation with a timeout for completion to prevent replication operations
 					// from running indefinitely
@@ -221,7 +231,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 // If the state handler returns success and a valid next state, the operation is transitioned to the next state.
 // If the state handler returns an error, the operation is not transitioned and the error is returned.
 func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardReplicationOpAndStatus) error {
-	switch op.Status.State {
+	switch op.Status.GetCurrentState() {
 	case api.REGISTERED:
 		return c.processStateAndTransition(ctx, op, c.processRegisteredOp)
 	case api.HYDRATING:
@@ -237,8 +247,8 @@ func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardRepl
 		// TODO: In the future we should handle cleaning up completed operations, for now just keep it in the FSM
 		return nil
 	default:
-		getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c, "op_status": op.Status.State}).Error("unknown replication operation state")
-		return fmt.Errorf("unknown replication operation state: %s", op.Status.State)
+		getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c, "op_status": op.Status.GetCurrentState()}).Error("unknown replication operation state")
+		return fmt.Errorf("unknown replication operation state: %s", op.Status.GetCurrentState())
 	}
 }
 
@@ -256,13 +266,29 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			logger.WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
 			return api.ShardReplicationState(""), backoff.Permanent(ctx.Err())
 		}
-		return stateFuncHandler(ctx, op)
+
+		nextState, err := stateFuncHandler(ctx, op)
+		// If we receive an error from the state handler make sure we store it and then stop processing
+		if err != nil {
+			err = c.leaderClient.ReplicationRegisterError(op.Op.ID, err.Error())
+			if err != nil {
+				logger.WithField("consumer", c).WithError(err).Error("failed to register error for replication operation")
+			}
+			return api.ShardReplicationState(""), err
+		}
+
+		// No error from the state handler, update the state to the next, if this errors we will stop processing
+		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, nextState); err != nil {
+			logger.WithField("consumer", c).WithError(err).Errorf("failed to update replica status to '%s'", nextState)
+			return api.ShardReplicationState(""), err
+		}
+		return nextState, nil
 	}, c.backoffPolicy)
 	if err != nil {
 		return err
 	}
 
-	op.Status.State = nextState
+	op.Status.ChangeState(nextState)
 	return c.dispatchReplicationOp(ctx, op)
 }
 
@@ -271,13 +297,7 @@ func (c *CopyOpConsumer) processRegisteredOp(ctx context.Context, op ShardReplic
 	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
 	logger.Info("processing registered replication operation")
 
-	nextState := api.HYDRATING
-	if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, nextState); err != nil {
-		logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'HYDRATING'")
-		return api.ShardReplicationState(""), err
-	}
-
-	return nextState, nil
+	return api.HYDRATING, nil
 }
 
 // processHydratingOp is the state handler for the HYDRATING state.
@@ -291,13 +311,7 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 		return api.ShardReplicationState(""), err
 	}
 
-	nextState := api.FINALIZING
-	if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, nextState); err != nil {
-		logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'FINALIZING'")
-		return api.ShardReplicationState(""), err
-	}
-
-	return nextState, nil
+	return api.FINALIZING, nil
 }
 
 // processFinalizingOp is the state handler for the FINALIZING state.
@@ -306,18 +320,53 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
 	logger.Info("processing finalizing replication operation")
 
+	// ensure async replication is started on local (target) node
+	if err := c.replicaCopier.InitAsyncReplicationLocally(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failure while initializing async replication on local node")
+		return api.ShardReplicationState(""), err
+	}
+	// TODO start best effort writes before upper time bound is hit
+	// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
+	// received during movement work as expected
+	upperTimeBoundUnixMillis := time.Now().Add(upperTimeBoundDuration).UnixMilli()
+
+	// start async replication from source node to target node
+	if err := c.replicaCopier.SetAsyncReplicationTargetNode(
+		ctx,
+		additional.AsyncReplicationTargetNodeOverride{
+			CollectionID:   op.Op.SourceShard.CollectionId,
+			ShardID:        op.Op.TargetShard.ShardId,
+			TargetNode:     op.Op.TargetShard.NodeId,
+			SourceNode:     op.Op.SourceShard.NodeId,
+			UpperTimeBound: upperTimeBoundUnixMillis,
+		}); err != nil {
+		return api.ShardReplicationState(""), err
+	}
+
+	do := func() bool {
+		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
+		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= upperTimeBoundUnixMillis
+	}
+
+	// we only check the status of the async replication every 5 seconds to avoid
+	// spamming with too many requests too quickly
+	err := backoff.Retry(func() error {
+		if do() {
+			return nil
+		}
+		return errors.New("async replication not done")
+	}, backoff.WithContext(backoff.NewConstantBackOff(asyncStatusInterval), ctx))
+	if err != nil {
+		logger.WithField("consumer", c).WithError(err).Error("failure while waiting for async replication to complete")
+		return api.ShardReplicationState(""), err
+	}
+
 	if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
-		logger.WithField("consumer", c).WithError(err).Error("failure while updating sharding state")
+		logger.WithField("consumer", c).WithError(err).Error("failure while adding replica to shard")
 		return api.ShardReplicationState(""), err
 	}
 
-	nextState := api.READY
-	if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, nextState); err != nil {
-		logger.WithField("consumer", c).WithError(err).Error("failed to update replica status to 'READY'")
-		return api.ShardReplicationState(""), err
-	}
-
-	return nextState, nil
+	return api.READY, nil
 }
 
 // processDehydratingOp is the state handler for the DEHYDRATING state.

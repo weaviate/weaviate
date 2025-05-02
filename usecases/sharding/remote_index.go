@@ -117,6 +117,8 @@ type RemoteIndexClient interface {
 	// GetFile returns a reader for the file at the given path in the shard's root directory.
 	// The caller must close the returned io.ReadCloser if no error is returned.
 	GetFile(ctx context.Context, hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
+	// SetAsyncReplicationTargetNode sets the async replication target node for a shard.
+	SetAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,

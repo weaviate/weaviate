@@ -16,9 +16,10 @@ import (
 	"fmt"
 	"math/big"
 	"net/http"
-	"strconv"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -66,13 +67,14 @@ func TestReplicationReplicate(t *testing.T) {
 		}
 
 		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.On("ReplicationReplicateReplica", sourceNodeId, collection, shardId, targetNodeId).Return(nil)
+		mockReplicationManager.On("ReplicationReplicateReplica", mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId).Return(nil)
 
 		// WHEN
 		response := handler.replicate(params, &models.Principal{})
 
 		// THEN
 		assert.IsType(t, &replication.ReplicateOK{}, response)
+		assert.NotNil(t, response.(*replication.ReplicateOK).Payload.ID)
 		mockAuthorizer.AssertExpectations(t)
 		mockReplicationManager.AssertExpectations(t)
 	})
@@ -188,7 +190,7 @@ func TestReplicationReplicate(t *testing.T) {
 		}
 
 		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.On("ReplicationReplicateReplica", sourceNodeId, collection, shardId, targetNodeId).Return(types.ErrInvalidRequest)
+		mockReplicationManager.On("ReplicationReplicateReplica", mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId).Return(types.ErrInvalidRequest)
 
 		// WHEN
 		response := handler.replicate(params, &models.Principal{})
@@ -218,7 +220,7 @@ func TestReplicationReplicate(t *testing.T) {
 		}
 
 		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.On("ReplicationReplicateReplica", sourceNodeId, collection, shardId, targetNodeId).Return(errors.New("target node does not exist"))
+		mockReplicationManager.On("ReplicationReplicateReplica", mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId).Return(errors.New("target node does not exist"))
 
 		// WHEN
 		response := handler.replicate(params, &models.Principal{})
@@ -262,9 +264,9 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("successful retrieval", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		id := randomUint64()
+		id := uuid4()
 		params := replication.ReplicationDetailsParams{
-			ID:          strconv.FormatUint(id, 10),
+			ID:          id,
 			HTTPRequest: &http.Request{},
 		}
 
@@ -273,21 +275,25 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
 		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		statusOptions := []string{
-			models.ReplicationReplicateDetailsReplicaResponseStatusREADY,
-			models.ReplicationReplicateDetailsReplicaResponseStatusINDEXING,
-			models.ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONDEHYDRATING,
-			models.ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONFINALIZING,
-			models.ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREADY,
+			models.ReplicationReplicateDetailsReplicaStatusStateINDEXING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONDEHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONFINALIZING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONHYDRATING,
 		}
 		status := randomString(statusOptions)
 
 		expectedResponse := api.ReplicationDetailsResponse{
-			Id:           id,
+			Uuid:         id,
 			Collection:   collection,
 			ShardId:      shardId,
 			SourceNodeId: sourceNodeId,
 			TargetNodeId: targetNodeId,
-			Status:       status,
+			Status: api.ReplicationDetailsState{
+				State:  status,
+				Errors: []string{},
+			},
+			StatusHistory: []api.ReplicationDetailsState{},
 		}
 
 		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -302,56 +308,87 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		mockReplicationManager.AssertExpectations(t)
 
 		replicationDetails := response.(*replication.ReplicationDetailsOK)
-		assert.Equal(t, strconv.FormatUint(id, 10), *replicationDetails.Payload.ID)
+		assert.Equal(t, id, *replicationDetails.Payload.ID)
 		assert.Equal(t, collection, *replicationDetails.Payload.Collection)
 		assert.Equal(t, shardId, *replicationDetails.Payload.ShardID)
 		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNodeID)
 		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNodeID)
-		assert.Equal(t, status, *replicationDetails.Payload.Status)
+		assert.Equal(t, status, replicationDetails.Payload.Status.State)
+		assert.Equal(t, 0, len(replicationDetails.Payload.StatusHistory))
 	})
 
-	t.Run("malformed request id", func(t *testing.T) {
+	t.Run("successful retrieval with history", func(t *testing.T) {
 		// GIVEN
-		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		uuid := uuid4()
+		id := uint64(randomInt(100))
 		params := replication.ReplicationDetailsParams{
-			ID:          "foo",
-			HTTPRequest: &http.Request{},
+			ID:             uuid,
+			HTTPRequest:    &http.Request{},
+			IncludeHistory: &[]bool{true}[0],
+		}
+
+		collection := fmt.Sprintf("Collection%d", randomInt(10))
+		shardId := fmt.Sprintf("shard-%d", randomInt(10))
+		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
+		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
+		statusOptions := []string{
+			models.ReplicationReplicateDetailsReplicaStatusStateREADY,
+			models.ReplicationReplicateDetailsReplicaStatusStateINDEXING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONDEHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONFINALIZING,
+			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONHYDRATING,
+		}
+		status := randomString(statusOptions)
+		historyStatus := randomString(statusOptions)
+
+		expectedResponse := api.ReplicationDetailsResponse{
+			Uuid:         uuid,
+			Id:           id,
+			Collection:   collection,
+			ShardId:      shardId,
+			SourceNodeId: sourceNodeId,
+			TargetNodeId: targetNodeId,
+			Status: api.ReplicationDetailsState{
+				State:  status,
+				Errors: []string{},
+			},
+			StatusHistory: []api.ReplicationDetailsState{
+				{
+					State:  historyStatus,
+					Errors: []string{"error1", "error2"},
+				},
+			},
 		}
 
 		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		mockReplicationManager.On("GetReplicationDetailsByReplicationId", mock.AnythingOfType("strfmt.UUID")).Return(expectedResponse, nil)
 
 		// WHEN
 		response := handler.getReplicationDetailsByReplicationId(params, &models.Principal{})
 
 		// THEN
-		assert.IsType(t, &replication.ReplicationDetailsBadRequest{}, response)
+		assert.IsType(t, &replication.ReplicationDetailsOK{}, response)
 		mockAuthorizer.AssertExpectations(t)
-	})
+		mockReplicationManager.AssertExpectations(t)
 
-	t.Run("empty request id", func(t *testing.T) {
-		// GIVEN
-		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		params := replication.ReplicationDetailsParams{
-			ID:          "",
-			HTTPRequest: &http.Request{},
-		}
-
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
-
-		// WHEN
-		response := handler.getReplicationDetailsByReplicationId(params, &models.Principal{})
-
-		// THEN
-		assert.IsType(t, &replication.ReplicationDetailsBadRequest{}, response)
-		mockAuthorizer.AssertExpectations(t)
+		replicationDetails := response.(*replication.ReplicationDetailsOK)
+		assert.Equal(t, uuid, *replicationDetails.Payload.ID)
+		assert.Equal(t, collection, *replicationDetails.Payload.Collection)
+		assert.Equal(t, shardId, *replicationDetails.Payload.ShardID)
+		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNodeID)
+		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNodeID)
+		assert.Equal(t, status, replicationDetails.Payload.Status.State)
+		assert.Equal(t, historyStatus, replicationDetails.Payload.StatusHistory[0].State)
+		assert.Equal(t, []string{"error1", "error2"}, replicationDetails.Payload.StatusHistory[0].Errors)
 	})
 
 	t.Run("request id not found", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		id := randomUint64()
+		id := uuid4()
 		params := replication.ReplicationDetailsParams{
-			ID:          strconv.FormatUint(id, 10),
+			ID:          id,
 			HTTPRequest: &http.Request{},
 		}
 
@@ -369,9 +406,9 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("internal server error", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		id := randomUint64()
+		id := uuid4()
 		params := replication.ReplicationDetailsParams{
-			ID:          strconv.FormatUint(id, 10),
+			ID:          id,
 			HTTPRequest: &http.Request{},
 		}
 
@@ -389,9 +426,9 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 	t.Run("authorization error", func(t *testing.T) {
 		// GIVEN
 		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
-		id := randomUint64()
+		id := uuid4()
 		params := replication.ReplicationDetailsParams{
-			ID:          strconv.FormatUint(id, 10),
+			ID:          id,
 			HTTPRequest: &http.Request{},
 		}
 
@@ -424,13 +461,12 @@ func randomInt(max int64) int64 {
 	return n.Int64()
 }
 
-func randomUint64() uint64 {
-	maxUint64 := new(big.Int).SetUint64(^uint64(0))
-	n, err := rand.Int(rand.Reader, maxUint64)
+func uuid4() strfmt.UUID {
+	id, err := uuid.NewRandom()
 	if err != nil {
-		panic(fmt.Sprintf("failed to generate random number in range [0, %s): %v", maxUint64.String(), err))
+		panic(fmt.Sprintf("failed to generate UUID: %v", err))
 	}
-	return n.Uint64()
+	return strfmt.UUID(id.String())
 }
 
 func randomString(candidates []string) string {

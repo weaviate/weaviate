@@ -3468,7 +3468,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Replication operation registered successfully"
+            "description": "Replication operation registered successfully",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaResponse"
+            }
           },
           "400": {
             "description": "Malformed request.",
@@ -3514,10 +3517,17 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The replication operation id to get details for.",
+            "format": "uuid",
+            "description": "The id of the replication operation to get details for.",
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "description": "Whether to include the history of the replication operation.",
+            "name": "includeHistory",
+            "in": "query"
           }
         ],
         "responses": {
@@ -4824,6 +4834,25 @@ func init() {
         "type": "object"
       }
     },
+    "AsyncReplicationStatus": {
+      "description": "The status of the async replication.",
+      "properties": {
+        "objectsPropagated": {
+          "description": "The number of objects propagated in the most recent iteration.",
+          "type": "number",
+          "format": "uint64"
+        },
+        "startDiffTimeUnixMillis": {
+          "description": "The start time of the most recent iteration.",
+          "type": "number",
+          "format": "int64"
+        },
+        "targetNode": {
+          "description": "The target node of the replication, if set, otherwise empty.",
+          "type": "string"
+        }
+      }
+    },
     "BM25Config": {
       "description": "tuning parameters for the BM25 algorithm",
       "type": "object",
@@ -6104,6 +6133,13 @@ func init() {
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
+        "asyncReplicationStatus": {
+          "description": "The status of the async replication.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AsyncReplicationStatus"
+          }
+        },
         "class": {
           "description": "The name of shard's class.",
           "type": "string",
@@ -6905,7 +6941,8 @@ func init() {
         },
         "id": {
           "description": "The unique id of the replication operation.",
-          "type": "string"
+          "type": "string",
+          "format": "uuid"
         },
         "shardId": {
           "description": "The id of the shard to collect replication details for.",
@@ -6916,7 +6953,34 @@ func init() {
           "type": "string"
         },
         "status": {
-          "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
+          "description": "The current status of the replication operation",
+          "type": "object",
+          "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
+        },
+        "statusHistory": {
+          "description": "The history of the replication operation",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
+          }
+        },
+        "targetNodeId": {
+          "description": "The id of the node where the target replica is allocated.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaStatus": {
+      "description": "The status of a replication operation",
+      "type": "object",
+      "properties": {
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
           "type": "string",
           "enum": [
             "READY",
@@ -6925,10 +6989,6 @@ func init() {
             "REPLICATION_HYDRATING",
             "REPLICATION_DEHYDRATING"
           ]
-        },
-        "targetNodeId": {
-          "description": "The id of the node where the target replica is allocated.",
-          "type": "string"
         }
       }
     },
@@ -6957,6 +7017,20 @@ func init() {
         "sourceNodeName": {
           "description": "The node containing the replica",
           "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateReplicaResponse": {
+      "description": "The OK response of POST /replication/replicate",
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string",
+          "format": "uuid"
         }
       }
     },
@@ -11192,7 +11266,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Replication operation registered successfully"
+            "description": "Replication operation registered successfully",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaResponse"
+            }
           },
           "400": {
             "description": "Malformed request.",
@@ -11238,10 +11315,17 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The replication operation id to get details for.",
+            "format": "uuid",
+            "description": "The id of the replication operation to get details for.",
             "name": "id",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "boolean",
+            "description": "Whether to include the history of the replication operation.",
+            "name": "includeHistory",
+            "in": "query"
           }
         ],
         "responses": {
@@ -12546,6 +12630,25 @@ func init() {
       "type": "object",
       "additionalProperties": {
         "type": "object"
+      }
+    },
+    "AsyncReplicationStatus": {
+      "description": "The status of the async replication.",
+      "properties": {
+        "objectsPropagated": {
+          "description": "The number of objects propagated in the most recent iteration.",
+          "type": "number",
+          "format": "uint64"
+        },
+        "startDiffTimeUnixMillis": {
+          "description": "The start time of the most recent iteration.",
+          "type": "number",
+          "format": "int64"
+        },
+        "targetNode": {
+          "description": "The target node of the replication, if set, otherwise empty.",
+          "type": "string"
+        }
       }
     },
     "BM25Config": {
@@ -14004,6 +14107,13 @@ func init() {
     "NodeShardStatus": {
       "description": "The definition of a node shard status response body",
       "properties": {
+        "asyncReplicationStatus": {
+          "description": "The status of the async replication.",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/AsyncReplicationStatus"
+          }
+        },
         "class": {
           "description": "The name of shard's class.",
           "type": "string",
@@ -14932,7 +15042,8 @@ func init() {
         },
         "id": {
           "description": "The unique id of the replication operation.",
-          "type": "string"
+          "type": "string",
+          "format": "uuid"
         },
         "shardId": {
           "description": "The id of the shard to collect replication details for.",
@@ -14943,7 +15054,34 @@ func init() {
           "type": "string"
         },
         "status": {
-          "description": "The current status of the replication operation, indicating the replication phase the operation is in.",
+          "description": "The current status of the replication operation",
+          "type": "object",
+          "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
+        },
+        "statusHistory": {
+          "description": "The history of the replication operation",
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
+          }
+        },
+        "targetNodeId": {
+          "description": "The id of the node where the target replica is allocated.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaStatus": {
+      "description": "The status of a replication operation",
+      "type": "object",
+      "properties": {
+        "errors": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "state": {
           "type": "string",
           "enum": [
             "READY",
@@ -14952,10 +15090,6 @@ func init() {
             "REPLICATION_HYDRATING",
             "REPLICATION_DEHYDRATING"
           ]
-        },
-        "targetNodeId": {
-          "description": "The id of the node where the target replica is allocated.",
-          "type": "string"
         }
       }
     },
@@ -14984,6 +15118,20 @@ func init() {
         "sourceNodeName": {
           "description": "The node containing the replica",
           "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateReplicaResponse": {
+      "description": "The OK response of POST /replication/replicate",
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string",
+          "format": "uuid"
         }
       }
     },

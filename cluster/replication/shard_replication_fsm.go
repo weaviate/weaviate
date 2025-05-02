@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"golang.org/x/exp/maps"
@@ -23,35 +24,13 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-type ShardReplicationOpStatus struct {
-	// state is the current state of the shard replication operation
-	State api.ShardReplicationState
-}
-
 type ShardReplicationOp struct {
-	ID uint64
+	ID   uint64
+	UUID strfmt.UUID
 
 	// Targeting information of the replication operation
 	SourceShard shardFQDN
 	TargetShard shardFQDN
-}
-
-type ShardReplicationOpAndStatus struct {
-	Op     ShardReplicationOp
-	Status ShardReplicationOpStatus
-}
-
-func NewShardReplicationOpAndStatus(op ShardReplicationOp, status ShardReplicationOpStatus) ShardReplicationOpAndStatus {
-	return ShardReplicationOpAndStatus{
-		Op:     op,
-		Status: status,
-	}
-}
-
-func NewShardReplicationStatus(state api.ShardReplicationState) ShardReplicationOpStatus {
-	return ShardReplicationOpStatus{
-		State: state,
-	}
 }
 
 func (s ShardReplicationOp) MarshalText() (text []byte, err error) {
@@ -78,6 +57,8 @@ func NewShardReplicationOp(id uint64, sourceNode, targetNode, collectionId, shar
 type ShardReplicationFSM struct {
 	opsLock sync.RWMutex
 
+	// idsByUuiid stores user-facing UUID -> repo-facing raft log index
+	idsByUuid map[strfmt.UUID]uint64
 	// opsByTarget stores the array of ShardReplicationOp for each "target" node
 	opsByTarget map[string][]ShardReplicationOp
 	// opsBySource stores the array of ShardReplicationOp for each "source" node
@@ -98,6 +79,7 @@ type ShardReplicationFSM struct {
 
 func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 	fsm := &ShardReplicationFSM{
+		idsByUuid:       make(map[strfmt.UUID]uint64),
 		opsByTarget:     make(map[string][]ShardReplicationOp),
 		opsBySource:     make(map[string][]ShardReplicationOp),
 		opsByCollection: make(map[string][]ShardReplicationOp),
@@ -153,6 +135,7 @@ func (s *ShardReplicationFSM) Restore(bytes []byte) error {
 // The lock onto the underlying data is *not acquired* by this function the callee must ensure the lock is held
 func (s *ShardReplicationFSM) resetState() {
 	// Reset data
+	maps.Clear(s.idsByUuid)
 	maps.Clear(s.opsByTarget)
 	maps.Clear(s.opsBySource)
 	maps.Clear(s.opsByCollection)
@@ -171,7 +154,7 @@ func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp 
 }
 
 func (s ShardReplicationOpStatus) ShouldConsumeOps() bool {
-	return s.State != api.ABORTED
+	return s.GetCurrentState() != api.ABORTED
 }
 
 func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicationOpStatus, bool) {
@@ -224,7 +207,7 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	// Filter read/write based on the state of the replica
 	readOk := false
 	writeOk := false
-	switch opState.State {
+	switch opState.GetCurrentState() {
 	case api.FINALIZING:
 		writeOk = true
 	case api.READY:
