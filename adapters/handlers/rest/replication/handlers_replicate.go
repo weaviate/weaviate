@@ -140,7 +140,7 @@ func (h *replicationHandler) handleInternalServerError(id strfmt.UUID, err error
 }
 
 func (h *replicationHandler) deleteReplication(params replication.DeleteReplicationParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata()...); err != nil {
 		return replication.NewDeleteReplicationForbidden()
 	}
 
@@ -161,7 +161,7 @@ func (h *replicationHandler) deleteReplication(params replication.DeleteReplicat
 }
 
 func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata()...); err != nil {
 		return replication.NewCancelReplicationForbidden()
 	}
 
