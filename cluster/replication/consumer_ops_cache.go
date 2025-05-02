@@ -17,6 +17,8 @@ import (
 )
 
 type OpsCache struct {
+	// canceleds is a map of opId to an empty struct
+	cancelleds sync.Map
 	// cancels is a map of opId to a cancel function
 	cancels sync.Map
 	// ops is a map of opId to an empty struct
@@ -33,6 +35,15 @@ func NewOpsCache() *OpsCache {
 func (c *OpsCache) LoadOrStore(opId uint64) bool {
 	_, ok := c.ops.LoadOrStore(opId, struct{}{})
 	return ok
+}
+
+func (c *OpsCache) IsCancelled(opId uint64) bool {
+	_, ok := c.cancelleds.Load(opId)
+	return ok
+}
+
+func (c *OpsCache) StoreCancelled(opId uint64) {
+	c.cancelleds.Store(opId, struct{}{})
 }
 
 func (c *OpsCache) LoadCancel(opId uint64) (context.CancelFunc, bool) {
@@ -52,6 +63,7 @@ func (c *OpsCache) StoreCancel(opId uint64, cancel context.CancelFunc) {
 }
 
 func (c *OpsCache) Remove(opId uint64) {
+	c.cancelleds.Delete(opId)
 	c.cancels.Delete(opId)
 	c.ops.Delete(opId)
 }

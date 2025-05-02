@@ -97,6 +97,10 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 	}
 
 	for _, relativeFilePath := range relativeFilePaths {
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+
 		md, err := c.remoteIndex.GetFileMetadata(ctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
 		if err != nil {
 			return err

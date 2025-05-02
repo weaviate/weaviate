@@ -126,7 +126,7 @@ func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOpAndStat
 		if opState, ok := p.fsm.GetOpState(op); ok && opState.ShouldConsumeOps() {
 			nodeOpsSubset = append(nodeOpsSubset, NewShardReplicationOpAndStatus(op, opState))
 		} else if !ok {
-			p.logger.WithField("producer", p).WithField("op", op).Warn("skipping op as it has no state stored in FSM. This should never happen.")
+			p.logger.WithField("producer", p).WithField("op", op).Info("skipping op as it has no state stored in FSM. It may have been deleted in the meantime.")
 		}
 	}
 

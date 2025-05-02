@@ -29,12 +29,10 @@ const (
 	FINALIZING  ShardReplicationState = "FINALIZING"
 	READY       ShardReplicationState = "READY"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"
-	// The operation has been scheduled for cancellation. Cleanup will be performed on the target.
-	CANCELLING ShardReplicationState = "CANCELLING"
 	// The operation has been cancelled. It cannot be resumed.
 	CANCELLED ShardReplicationState = "CANCELLED"
-	// The operation has been scheduled for deletion. Cleanup will be performed on the target. Followed by removal from the FSM.
-	DELETING ShardReplicationState = "DELETING"
+	// The operation has been deleted. This is a transient state that should not be stored in the FSM.
+	DELETED ShardReplicationState = "DELETED"
 )
 
 type ReplicationReplicateShardRequest struct {

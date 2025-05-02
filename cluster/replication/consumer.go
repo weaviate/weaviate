@@ -165,7 +165,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 				// Check if the operation is already in progress
 				if c.ongoingOps.LoadOrStore(op.Op.ID) {
-					if !op.Status.OperationShouldCancel() {
+					if !op.Status.ShouldCancelOrDelete() {
 						// Avoid scheduling unnecessary work or incorrectly counting metrics
 						// for operations that are already in progress or completed.
 						c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("replication op skipped as already running")
@@ -177,9 +177,12 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					// This means we're cancelling/deleting the operation, so we need to call the op's cancel
 					cancel, ok := c.ongoingOps.LoadCancel(op.Op.ID)
 					if !ok {
-						return fmt.Errorf("failed to load cancel function for op %d", op.Op.ID) // This should never happen
+						continue // Nothing to cancel
 					}
+					c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("canceling the replication op")
 					cancel()
+					// Then signify that the operation was cancelled so that defer funcs can transition the state appropriately
+					c.ongoingOps.StoreCancelled(op.Op.ID)
 				}
 
 				wg.Add(1)
@@ -226,6 +229,13 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					} else {
 						c.engineOpCallbacks.OnOpComplete(c.nodeId)
 					}
+					if c.ongoingOps.IsCancelled(op.Op.ID) {
+						logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
+						logger.WithField("consumer", c).Info("replication operation cancelled, stopping processing")
+						if err = c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, api.CANCELLED); err != nil {
+							logger.WithField("consumer", c).WithError(err).Errorf("failed to update replica status to '%s'", api.CANCELLED)
+						}
+					}
 				}, c.logger)
 
 			case <-ctx.Done():
@@ -249,13 +259,8 @@ func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardRepl
 		return c.processStateAndTransition(ctx, op, c.processDehydratingOp)
 	case api.FINALIZING:
 		return c.processStateAndTransition(ctx, op, c.processFinalizingOp)
-	case api.CANCELLING:
-		return c.processStateAndTransition(ctx, op, c.processCancellingOp)
-	case api.DELETING:
-		return c.processDeletingOp(ctx, op)
 	case api.CANCELLED:
-		// TODO: In the future we should handle cleaning up cancelled operations, for now just keep it in the FSM
-		return nil
+		return c.processStateAndTransition(ctx, op, c.processCancelledOp)
 	case api.READY:
 		// TODO: In the future we should handle cleaning up completed operations, for now just keep it in the FSM
 		return nil
@@ -299,6 +304,10 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 	}, c.backoffPolicy)
 	if err != nil {
 		return err
+	}
+
+	if nextState == api.DELETED {
+		return nil
 	}
 
 	op.Status.ChangeState(nextState)
@@ -390,8 +399,10 @@ func (c *CopyOpConsumer) processDehydratingOp(context.Context, ShardReplicationO
 
 // processCancellingOp is the state handler for the CANCELLING state.
 //
-// It handles removing the shard from this node and updating the state to CANCELLED.
-func (c *CopyOpConsumer) processCancellingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+// It handles removing the shard from this node and updating the state to CANCELLED if ShouldCancel is true and removing the op if ShouldDelete is true.
+//
+// If ShouldDelete is true, it returns a temporary DELETED state that is handled appropriately in the caller.
+func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
 	logger.Info("processing cancelling replication operation")
 
@@ -400,28 +411,17 @@ func (c *CopyOpConsumer) processCancellingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), err
 	}
 
-	return api.CANCELLED, nil
-}
-
-// processDeletingOp is the state handler for the DELETING state.
-//
-// It handles removing the shard from this node and subsequently removing the operation from the FSM.
-//
-// As a result, it does not need to return a new state and so should not be used as a callback in processStateAndTransition.
-func (c *CopyOpConsumer) processDeletingOp(ctx context.Context, op ShardReplicationOpAndStatus) error {
-	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
-	logger.Info("processing deleting replication operation")
-
-	// index.DropShard is a no-op so deleting a cancelled operation is not a problem
-	if err := c.replicaCopier.RemoveReplica(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
-		logger.WithField("consumer", c).WithError(err).Error("failure while removing replica shard")
-		return err
+	if op.Status.ShouldCancel {
+		return api.CANCELLED, nil
 	}
 
-	if err := c.leaderClient.ReplicationRemoveReplicaOp(op.Op.ID); err != nil {
-		logger.WithField("consumer", c).WithError(err).Error("failure while deleting replica operation")
-		return err
+	if op.Status.ShouldDelete {
+		if err := c.leaderClient.ReplicationRemoveReplicaOp(op.Op.ID); err != nil {
+			logger.WithField("consumer", c).WithError(err).Error("failure while deleting replica operation")
+			return api.ShardReplicationState(""), err
+		}
+		return api.DELETED, nil
 	}
 
-	return nil
+	return api.ShardReplicationState(""), fmt.Errorf("something's wrong with the operation, either ShouldCancel or ShouldDelete must be true but both are false")
 }
