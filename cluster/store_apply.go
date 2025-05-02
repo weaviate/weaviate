@@ -17,10 +17,11 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"
+
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -97,8 +98,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			st.reloadDBFromSchema()
 		}
 
-		st.lastAppliedIndex.Store(l.Index)
-
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
 				"log_type":      l.Type,
@@ -108,7 +107,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 				"cmd_type_name": cmd.Type.String(),
 				"cmd_class":     cmd.Class,
 			}).WithError(ret.Error).Error("apply command")
+			return
 		}
+
+		st.lastAppliedIndex.Store(l.Index)
 	}()
 
 	cmd.Version = l.Index
