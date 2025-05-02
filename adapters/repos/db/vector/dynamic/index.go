@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -111,6 +112,7 @@ type dynamic struct {
 	threshold             uint64
 	index                 VectorIndex
 	upgraded              atomic.Bool
+	upgradeOnce           sync.Once
 	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
 	hnswUC                hnswent.UserConfig
 	db                    *bbolt.DB
@@ -450,12 +452,26 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 }
 
 func (dynamic *dynamic) Upgrade(callback func()) error {
-	dynamic.Lock()
-	defer dynamic.Unlock()
 	if dynamic.upgraded.Load() {
 		return dynamic.index.(upgradableIndexer).Upgrade(callback)
 	}
 
+	dynamic.upgradeOnce.Do(func() {
+		enterrors.GoWrapper(func() {
+			defer callback()
+
+			err := dynamic.doUpgrade()
+			if err != nil {
+				dynamic.logger.WithError(err).Error("failed to upgrade index")
+				return
+			}
+		}, dynamic.logger)
+	})
+
+	return nil
+}
+
+func (dynamic *dynamic) doUpgrade() error {
 	index, err := hnsw.New(
 		hnsw.Config{
 			Logger:                dynamic.logger,
@@ -474,7 +490,6 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 		dynamic.store,
 	)
 	if err != nil {
-		callback()
 		return err
 	}
 
@@ -501,6 +516,8 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 	cursor.Close()
 
+	dynamic.Lock()
+
 	err = dynamic.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
 		return b.Put(dynamic.dbKey(), []byte{1})
@@ -511,7 +528,9 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 	dynamic.index = index
 	dynamic.upgraded.Store(true)
-	callback()
+
+	dynamic.Unlock()
+
 	return nil
 }
 
