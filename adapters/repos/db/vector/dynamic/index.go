@@ -364,8 +364,8 @@ func (dynamic *dynamic) Drop(ctx context.Context) error {
 }
 
 func (dynamic *dynamic) Flush() error {
-	dynamic.Lock()
-	defer dynamic.Unlock()
+	dynamic.RLock()
+	defer dynamic.RUnlock()
 	return dynamic.index.Flush()
 }
 
@@ -507,6 +507,7 @@ func (dynamic *dynamic) doUpgrade() error {
 	// This allows search operations to continue while the index is being
 	// upgraded.
 	dynamic.RLock()
+
 	index, err := hnsw.New(
 		hnsw.Config{
 			Logger:                dynamic.logger,
@@ -535,6 +536,7 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		if dynamic.ctx.Err() != nil {
+			cursor.Close()
 			// context was cancelled, stop processing
 			dynamic.RUnlock()
 			return dynamic.ctx.Err()
