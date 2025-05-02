@@ -116,6 +116,8 @@ type dynamic struct {
 	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
 	hnswUC                hnswent.UserConfig
 	db                    *bbolt.DB
+	ctx                   context.Context
+	cancel                context.CancelFunc
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -141,6 +143,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		DistanceProvider: cfg.DistanceProvider,
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	index := &dynamic{
 		id:                    cfg.ID,
 		targetVector:          cfg.TargetVector,
@@ -158,6 +162,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		tombstoneCallbacks:    cfg.TombstoneCallbacks,
 		hnswUC:                uc.HnswUC,
 		db:                    cfg.SharedDB,
+		ctx:                   ctx,
+		cancel:                cancel,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bolt.Tx) error {
@@ -339,8 +345,17 @@ func (dynamic *dynamic) GetKeys(id uint64) (uint64, uint64, error) {
 }
 
 func (dynamic *dynamic) Drop(ctx context.Context) error {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
+	if dynamic.ctx.Err() != nil {
+		// already dropped
+		return nil
+	}
+
+	// cancel the context before locking to stop any ongoing operations
+	// and prevent new ones from starting
+	dynamic.cancel()
+
+	dynamic.Lock()
+	defer dynamic.Unlock()
 	if err := dynamic.db.Close(); err != nil {
 		return err
 	}
@@ -349,14 +364,24 @@ func (dynamic *dynamic) Drop(ctx context.Context) error {
 }
 
 func (dynamic *dynamic) Flush() error {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
+	dynamic.Lock()
+	defer dynamic.Unlock()
 	return dynamic.index.Flush()
 }
 
 func (dynamic *dynamic) Shutdown(ctx context.Context) error {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
+	if dynamic.ctx.Err() != nil {
+		// already closed
+		return nil
+	}
+
+	// cancel the context before locking to stop any ongoing operations
+	// and prevent new ones from starting
+	dynamic.cancel()
+
+	dynamic.Lock()
+	defer dynamic.Unlock()
+
 	if err := dynamic.db.Close(); err != nil {
 		return err
 	}
@@ -472,6 +497,11 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 }
 
 func (dynamic *dynamic) doUpgrade() error {
+	// Start with a read lock to prevent reading from the index
+	// while it's being dropped or closed.
+	// This allows search operations to continue while the index is being
+	// upgraded.
+	dynamic.RLock()
 	index, err := hnsw.New(
 		hnsw.Config{
 			Logger:                dynamic.logger,
@@ -490,15 +520,11 @@ func (dynamic *dynamic) doUpgrade() error {
 		dynamic.store,
 	)
 	if err != nil {
+		dynamic.RUnlock()
 		return err
 	}
 
 	bucket := dynamic.store.Bucket(dynamic.getBucketName())
-
-	// For now use an unlimited context here – for backward compatibility. This
-	// is probably not ideal and I assume also an upgrade operation should have
-	// some sort of a timeout.
-	ctx := context.TODO()
 
 	cursor := bucket.Cursor()
 
@@ -507,7 +533,7 @@ func (dynamic *dynamic) doUpgrade() error {
 		vc := make([]float32, len(v)/4)
 		float32SliceFromByteSlice(v, vc)
 
-		err := index.Add(ctx, id, vc)
+		err := index.Add(dynamic.ctx, id, vc)
 		if err != nil {
 			dynamic.logger.WithField("id", id).WithError(err).Error("failed to add vector")
 			continue
@@ -516,7 +542,19 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	cursor.Close()
 
+	// end of read-only zone
+	dynamic.RUnlock()
+
+	// Lock the index for writing but check if it was already
+	// closed in the meantime
 	dynamic.Lock()
+
+	if dynamic.ctx.Err() != nil {
+		// already closed
+		dynamic.Unlock()
+		dynamic.logger.Warn("index was closed while upgrading")
+		return nil
+	}
 
 	err = dynamic.db.Update(func(tx *bolt.Tx) error {
 		b := tx.Bucket(dynamicBucket)
