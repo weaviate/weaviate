@@ -82,7 +82,7 @@ type ShardReplicationFSM struct {
 	opsByStateGauge *prometheus.GaugeVec
 }
 
-func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
+func NewShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 	fsm := &ShardReplicationFSM{
 		idsByUuid:               make(map[strfmt.UUID]uint64),
 		opsByTarget:             make(map[string][]ShardReplicationOp),
