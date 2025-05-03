@@ -592,7 +592,7 @@ func TestStoreMetrics(t *testing.T) {
 		assert.Equal(t, 0, int(testutil.ToFloat64(store.metrics.applyFailures)))
 	})
 	t.Run("last_applied_index", func(t *testing.T) {
-		appliedIndex := 34 // after successfull apply, this node should have 34 as last applied index metric
+		appliedIndex := 34 // after successful apply, this node should have 34 as last applied index metric
 
 		doBefore := func(m *MockStore) {
 			m.indexer.On("AddClass", mock.Anything).Return(nil)
@@ -639,7 +639,7 @@ func TestStoreMetrics(t *testing.T) {
 		// before
 		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.applyFailures)))
 
-		// this apply will trigger failure with BadRequest as we pass emtpy (nil) AddClassRequest.
+		// this apply will trigger failure with BadRequest as we pass empty (nil) AddClassRequest.
 		store.Apply(
 			&raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS,
 				nil, &cmd.AddTenantsRequest{})},
