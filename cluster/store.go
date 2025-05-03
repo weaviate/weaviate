@@ -248,7 +248,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
 		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger),
-		metrics:       newStoreMetrics(reg),
+		metrics:       newStoreMetrics(cfg.NodeID, reg),
 	}
 }
 

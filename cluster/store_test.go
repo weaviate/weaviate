@@ -21,9 +21,12 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
@@ -550,6 +553,39 @@ func TestStoreApply(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestStoreMetrics(t *testing.T) {
+	t.Run("store_apply_duration", func(t *testing.T) {
+		nodeID := t.Name()
+		cls := &models.Class{Class: "C1", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
+		ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+			Name:           "T1",
+			BelongsToNodes: []string{"THIS"},
+		}, "T2": {
+			Name:           "T2",
+			BelongsToNodes: []string{"THIS"},
+		}}}
+
+		ms := NewMockStore(t, nodeID, 9092)
+		store := ms.Store(nil)
+		m := dto.Metric{}
+		require.NoError(t, store.metrics.applyDuration.Write(&m))
+
+		// before
+		assert.Equal(t, 0, m.Histogram.SampleCount)
+
+		store.Apply(
+			&raft.Log{
+				Data: cmdAsBytes("CI",
+					cmd.ApplyRequest_TYPE_ADD_CLASS,
+					cmd.AddClassRequest{Class: cls, State: ss}, nil),
+			},
+		)
+
+		// after
+		assert.Equal(t, 1, m.Histogram.SampleCount)
+	})
 }
 
 type MockStore struct {

@@ -70,9 +70,9 @@ func (st *Store) Apply(l *raft.Log) any {
 	start := time.Now()
 	defer func() {
 		if ret.Error != nil {
-			st.storeApplyFailures.Inc()
+			st.metrics.applyFailures.Inc()
 		}
-		st.storeApplyDuration.Observe(float64(time.Since(start)))
+		st.metrics.applyDuration.Observe(float64(time.Since(start)))
 	}()
 
 	if l.Type != raft.LogCommand {
@@ -108,7 +108,7 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
-		st.storeLastAppliedIndex.Set(float64(l.Index))
+		st.metrics.lastAppliedIndex.Set(float64(l.Index))
 
 		if ret.Error != nil {
 			st.log.WithFields(logrus.Fields{
