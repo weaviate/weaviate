@@ -21,6 +21,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	dto "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
@@ -557,6 +558,12 @@ func TestStoreApply(t *testing.T) {
 
 func TestStoreMetrics(t *testing.T) {
 	t.Run("store_apply_duration", func(t *testing.T) {
+
+		doBefore := func(m *MockStore) {
+			m.indexer.On("AddClass", mock.Anything).Return(nil)
+			m.parser.On("ParseClass", mock.Anything).Return(nil)
+			m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		}
 		nodeID := t.Name()
 		cls := &models.Class{Class: "C1", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
 		ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
@@ -566,15 +573,12 @@ func TestStoreMetrics(t *testing.T) {
 			Name:           "T2",
 			BelongsToNodes: []string{"THIS"},
 		}}}
-
 		ms := NewMockStore(t, nodeID, 9092)
-		store := ms.Store(nil)
+		store := ms.Store(doBefore)
 		m := dto.Metric{}
 		require.NoError(t, store.metrics.applyDuration.Write(&m))
-
 		// before
-		assert.Equal(t, 0, m.Histogram.SampleCount)
-
+		assert.Equal(t, 0, int(*m.Histogram.SampleCount))
 		store.Apply(
 			&raft.Log{
 				Data: cmdAsBytes("CI",
@@ -582,9 +586,66 @@ func TestStoreMetrics(t *testing.T) {
 					cmd.AddClassRequest{Class: cls, State: ss}, nil),
 			},
 		)
-
 		// after
-		assert.Equal(t, 1, m.Histogram.SampleCount)
+		require.NoError(t, store.metrics.applyDuration.Write(&m))
+		assert.Equal(t, 1, int(*m.Histogram.SampleCount))
+		assert.Equal(t, 0, int(testutil.ToFloat64(store.metrics.applyFailures)))
+	})
+	t.Run("last_applied_index", func(t *testing.T) {
+		appliedIndex := 34 // after successfull apply, this node should have 34 as last applied index metric
+
+		doBefore := func(m *MockStore) {
+			m.indexer.On("AddClass", mock.Anything).Return(nil)
+			m.parser.On("ParseClass", mock.Anything).Return(nil)
+			m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		}
+		nodeID := t.Name()
+		cls := &models.Class{Class: "C1", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
+		ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+			Name:           "T1",
+			BelongsToNodes: []string{"THIS"},
+		}, "T2": {
+			Name:           "T2",
+			BelongsToNodes: []string{"THIS"},
+		}}}
+		ms := NewMockStore(t, nodeID, 9092)
+		store := ms.Store(doBefore)
+
+		// before
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		store.Apply(
+			&raft.Log{
+				Index: uint64(appliedIndex),
+				Data: cmdAsBytes("CI",
+					cmd.ApplyRequest_TYPE_ADD_CLASS,
+					cmd.AddClassRequest{Class: cls, State: ss}, nil),
+			},
+		)
+		// after
+		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+	})
+
+	t.Run("apply_failures", func(t *testing.T) {
+		doBefore := func(m *MockStore) {
+			m.indexer.On("AddClass", mock.Anything).Return(nil)
+			m.parser.On("ParseClass", mock.Anything).Return(nil)
+			m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		}
+
+		nodeID := t.Name()
+		ms := NewMockStore(t, nodeID, 9092)
+		store := ms.Store(doBefore)
+
+		// before
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.applyFailures)))
+
+		// this apply will trigger failure with BadRequest as we pass emtpy (nil) AddClassRequest.
+		store.Apply(
+			&raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS,
+				nil, &cmd.AddTenantsRequest{})},
+		)
+		// after
+		require.Equal(t, 1, int(testutil.ToFloat64(store.metrics.applyFailures)))
 	})
 }
 
