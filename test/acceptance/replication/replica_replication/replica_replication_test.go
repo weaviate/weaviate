@@ -407,13 +407,9 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
 	t.Run("assert data is available for paragraph on node3 with consistency level one", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, objId := range paragraphIDs {
-				exists, err := common.ObjectExistsCL(t, compose.ContainerURI(3), paragraphClass.Class, objId, types.ConsistencyLevelOne)
+				obj, err := common.GetTenantObjectFromNode(t, targetNodeURI, paragraphClass.Class, objId, targetNode, "tenant0")
 				assert.Nil(ct, err)
-				assert.True(ct, exists)
-
-				resp, err := common.GetObjectCL(t, compose.ContainerURI(3), paragraphClass.Class, objId, types.ConsistencyLevelOne)
-				assert.Nil(ct, err)
-				assert.NotNil(ct, resp)
+				assert.NotNil(ct, obj)
 			}
 		}, 10*time.Second, 1*time.Second, "node3 doesn't have paragraph data")
 	})
