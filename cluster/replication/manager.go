@@ -32,7 +32,7 @@ type Manager struct {
 }
 
 func NewManager(logger *logrus.Logger, schemaReader schema.SchemaReader, replicaCopier types.ReplicaCopier, reg prometheus.Registerer) *Manager {
-	replicationFSM := newShardReplicationFSM(reg)
+	replicationFSM := NewShardReplicationFSM(reg)
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
