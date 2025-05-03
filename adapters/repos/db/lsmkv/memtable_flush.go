@@ -22,7 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
 
-func (m *Memtable) flush() (rerr error) {
+func (m *Memtable) flush(opts ...string) (rerr error) {
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
 	// only be deleted at the very end, if the flush was successful
@@ -40,6 +40,11 @@ func (m *Memtable) flush() (rerr error) {
 		if err := m.commitlog.delete(); err != nil {
 			return errors.Wrap(err, "delete commit log file")
 		}
+		return nil
+	}
+
+	if len(opts) > 0 && opts[0] == "shutdown" {
+		// leave the wal and do not generate the db file
 		return nil
 	}
 
