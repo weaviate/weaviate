@@ -281,3 +281,84 @@ func TestDynamicWithTargetVectors(t *testing.T) {
 		assert.True(t, latency1 > latency2)
 	}
 }
+
+func TestDynamicUpgradeCancelation(t *testing.T) {
+	ctx := context.Background()
+	t.Setenv("ASYNC_INDEXING", "true")
+	dimensions := 20
+	vectors_size := 10_000
+	queries_size := 10
+	k := 10
+
+	db, err := bbolt.Open(filepath.Join(t.TempDir(), "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+	rootPath := t.TempDir()
+	distancer := distancer.NewL2SquaredProvider()
+	truths := make([][]uint64, queries_size)
+	compressionhelpers.Concurrently(logger, uint64(len(queries)), func(i uint64) {
+		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, distanceWrapper(distancer))
+	})
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	hnswuc := hnswent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        64,
+		EF:                    32,
+		VectorCacheMaxObjects: 1_000_000,
+	}
+
+	dynamic, err := New(Config{
+		RootPath:              rootPath,
+		ID:                    "foo",
+		MakeCommitLoggerThunk: hnsw.MakeNoopCommitLogger,
+		DistanceProvider:      distancer,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			vec := vectors[int(id)]
+			if vec == nil {
+				return nil, storobj.NewErrNotFoundf(id, "nil vec")
+			}
+			return vec, nil
+		},
+		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		TombstoneCallbacks:   noopCallback,
+		SharedDB:             db,
+	}, ent.UserConfig{
+		Threshold: uint64(vectors_size),
+		Distance:  distancer.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
+	}, testinghelpers.NewDummyStore(t))
+	require.NoError(t, err)
+
+	compressionhelpers.Concurrently(logger, uint64(vectors_size), func(i uint64) {
+		dynamic.Add(ctx, i, vectors[i])
+	})
+
+	shouldUpgrade, at := dynamic.ShouldUpgrade()
+	require.True(t, shouldUpgrade)
+	require.Equal(t, vectors_size, at)
+	require.False(t, dynamic.Upgraded())
+
+	called := make(chan struct{})
+	dynamic.Upgrade(func() {
+		close(called)
+	})
+
+	// close the index to cancel the upgrade
+	err = dynamic.Shutdown(context.Background())
+	require.NoError(t, err)
+
+	require.False(t, dynamic.upgraded.Load())
+
+	select {
+	case <-called:
+	case <-time.After(5 * time.Second):
+		t.Fatal("upgrade callback was not called")
+	}
+}

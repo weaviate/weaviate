@@ -782,7 +782,7 @@ func TestShard_UpgradeIndex(t *testing.T) {
 	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "1ms")
 
 	cfg := dynamic.NewDefaultUserConfig()
-	cfg.Threshold = 1000
+	cfg.Threshold = 400
 
 	ctx := context.Background()
 	className := "SomeClass"
@@ -800,7 +800,7 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		}
 	}(shd.Index().Config.RootPath)
 
-	amount := 1000
+	amount := 400
 	for i := 0; i < 3; i++ {
 		objs := make([]*storobj.Object, 0, amount)
 		for j := 0; j < amount; j++ {
