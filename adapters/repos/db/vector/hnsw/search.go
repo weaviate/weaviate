@@ -611,7 +611,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		return nil, nil, nil
 	}
 
-	if k < 0 {
+	if k <= 0 {
 		return nil, nil, fmt.Errorf("k must be greater than zero")
 	}
 
