@@ -43,7 +43,7 @@ func Test_Schema_Authorization(t *testing.T) {
 		{
 			methodName:       "GetConsistentSchema",
 			expectedVerb:     "list",
-			additionalArgs:   []interface{}{false},
+			additionalArgs:   []interface{}{false, false},
 			expectedResource: "schema/*",
 		},
 		{
