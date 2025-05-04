@@ -43,7 +43,7 @@ var (
 	transformers_pq                     = "transformers_pq"
 	transformers_bq                     = "transformers_bq"
 	transformers_bq_very_long_230_chars = "transformers_bq_b9mgu3N7rCUWufddpfCqaVvr4IUjB9xpMBrmiQFIqyuUxKx5s8wCTD7iWb5gPkwNhECumphBMWXD67G9gvN4CQkylG3bDrR8p9sK02RLOGvE96jcaSKjpZrIRvjJuQliGf8BMNmzXEqH39UWGGt4zPNnZNvdPP6pIzxWG5zNpymGmJJLCHk6yP1eO3QgSdXMt0arzfcrAA1L9uZNIVT7tM"
-	text2vecContextionary               = "text2vec-contextionary"
+	text2vecContextionary               = "text2vec-model2vec"
 	text2vecTransformers                = "text2vec-transformers"
 	id1                                 = "00000000-0000-0000-0000-000000000001"
 	id2                                 = "00000000-0000-0000-0000-000000000002"

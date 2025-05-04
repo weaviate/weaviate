@@ -53,7 +53,7 @@ func testNamedVectorsWithGenerativeModules(host string) func(t *testing.T) {
 				VectorConfig: map[string]models.VectorConfig{
 					"title": {
 						Vectorizer: map[string]interface{}{
-							"text2vec-contextionary": map[string]interface{}{
+							"text2vec-model2vec": map[string]interface{}{
 								"properties":         []interface{}{"title"},
 								"vectorizeClassName": false,
 							},

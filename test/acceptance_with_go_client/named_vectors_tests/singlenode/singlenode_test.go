@@ -75,7 +75,7 @@ func TestNamedVectors_VectorCanNotBeAddedWithoutEnvFlag(t *testing.T) {
 		Class: "MixedVectors",
 		VectorConfig: map[string]models.VectorConfig{
 			"contextionary": {
-				Vectorizer:      map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+				Vectorizer:      map[string]interface{}{"text2vec-model2vec": map[string]interface{}{}},
 				VectorIndexType: "hnsw",
 			},
 		},

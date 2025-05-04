@@ -555,7 +555,7 @@ func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 				}
 				err := client.Schema().ClassCreator().WithClass(class).Do(ctx)
 				require.Error(t, err)
-				assert.ErrorContains(t, err, `parse vector config for c11y: multi vector index configured but vectorizer: \"text2vec-contextionary\" doesn't support multi vectors`)
+				assert.ErrorContains(t, err, `parse vector config for c11y: multi vector index configured but vectorizer: \"text2vec-model2vec\" doesn't support multi vectors`)
 			})
 			t.Run("named vector is colbert vectorizer with regular vector index", func(t *testing.T) {
 				cleanup()
