@@ -89,7 +89,7 @@ func NewCreateRoleCreated() *CreateRoleCreated {
 /*
 CreateRoleCreated describes a response with status code 201, with default header values.
 
-Role created successfully
+Role created successfully.
 */
 type CreateRoleCreated struct {
 }
@@ -337,7 +337,7 @@ func NewCreateRoleConflict() *CreateRoleConflict {
 /*
 CreateRoleConflict describes a response with status code 409, with default header values.
 
-Role already exists
+Role already exists.
 */
 type CreateRoleConflict struct {
 	Payload *models.ErrorResponse

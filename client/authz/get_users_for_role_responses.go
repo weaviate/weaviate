@@ -83,7 +83,7 @@ func NewGetUsersForRoleOK() *GetUsersForRoleOK {
 /*
 GetUsersForRoleOK describes a response with status code 200, with default header values.
 
-Users assigned to this role
+Users assigned to this role.
 */
 type GetUsersForRoleOK struct {
 	Payload []string
@@ -341,7 +341,7 @@ func NewGetUsersForRoleNotFound() *GetUsersForRoleNotFound {
 /*
 GetUsersForRoleNotFound describes a response with status code 404, with default header values.
 
-no role found
+Role not found.
 */
 type GetUsersForRoleNotFound struct {
 }

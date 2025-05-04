@@ -85,7 +85,7 @@ func NewRevokeRoleFromUserOK() *RevokeRoleFromUserOK {
 /*
 RevokeRoleFromUserOK describes a response with status code 200, with default header values.
 
-Role revoked successfully
+Roles revoked successfully from the user.
 */
 type RevokeRoleFromUserOK struct {
 }
@@ -333,7 +333,7 @@ func NewRevokeRoleFromUserNotFound() *RevokeRoleFromUserNotFound {
 /*
 RevokeRoleFromUserNotFound describes a response with status code 404, with default header values.
 
-role or user is not found.
+Roles or user not found.
 */
 type RevokeRoleFromUserNotFound struct {
 	Payload *models.ErrorResponse
@@ -467,7 +467,7 @@ swagger:model RevokeRoleFromUserBody
 */
 type RevokeRoleFromUserBody struct {
 
-	// the roles that revoked from the key or user
+	// The roles to be revoked from the user.
 	Roles []string `json:"roles"`
 }
 

@@ -45,7 +45,9 @@ func NewGetRole(ctx *middleware.Context, handler GetRoleHandler) *GetRole {
 /*
 	GetRole swagger:route GET /authz/roles/{id} authz getRole
 
-Get a role
+# Get a role
+
+Fetch a role by its name.
 */
 type GetRole struct {
 	Context *middleware.Context

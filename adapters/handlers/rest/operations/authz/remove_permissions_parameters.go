@@ -49,7 +49,7 @@ type RemovePermissionsParams struct {
 	  In: body
 	*/
 	Body RemovePermissionsBody
-	/*role name
+	/*The name of the role being modified.
 	  Required: true
 	  In: path
 	*/
