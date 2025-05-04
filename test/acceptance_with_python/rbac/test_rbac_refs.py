@@ -14,7 +14,7 @@ pytestmark = pytest.mark.xdist_group(name="rbac")
 
 
 @pytest.mark.parametrize("mt", [True, False])
-def test_rbac_refs(
+def test_rbac_add_ref(
     request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
 ):
     col_name = _sanitize_role_name(request.node.name)
@@ -42,7 +42,7 @@ def test_rbac_refs(
     admin_client.roles.delete(role_name)
 
     required_permissions = [
-        Permissions.collections(collection=[source.name, target.name], read_config=True),
+        Permissions.collections(collection=target.name, read_config=True),
         Permissions.data(collection=[source.name, target.name], update=True, read=True),
     ]
     with role_wrapper(admin_client, request, required_permissions):
@@ -57,6 +57,69 @@ def test_rbac_refs(
             from_property="ref",
             to=uuid_target1,
         )
+
+    for permission in generate_missing_permissions(required_permissions):
+        with role_wrapper(admin_client, request, permission):
+            source_no_rights = custom_client.collections.get(
+                source.name
+            )  # no network call => no RBAC check
+            if mt:
+                source_no_rights = source_no_rights.with_tenant("tenant1")
+
+            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
+                source_no_rights.data.reference_add(
+                    from_uuid=uuid_source,
+                    from_property="ref",
+                    to=uuid_target1,
+                )
+            assert e.value.status_code == 403
+
+    admin_client.collections.delete([target.name, source.name])
+
+
+@pytest.mark.parametrize("mt", [True, False])
+def test_rbac_update_delete_ref(
+    request: SubRequest, admin_client, custom_client, role_wrapper: RoleWrapperProtocol, mt: bool
+):
+    col_name = _sanitize_role_name(request.node.name)
+    admin_client.collections.delete([col_name + "target", col_name + "source"])
+    # create two collections with some objects to test refs
+    target = admin_client.collections.create(
+        name=col_name + "target",
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
+    )
+    source = admin_client.collections.create(
+        name=col_name + "source",
+        references=[wvc.config.ReferenceProperty(name="ref", target_collection=target.name)],
+        multi_tenancy_config=wvc.config.Configure.multi_tenancy(enabled=mt),
+    )
+    if mt:
+        target.tenants.create("tenant1")
+        source.tenants.create("tenant1")
+        target = target.with_tenant("tenant1")
+        source = source.with_tenant("tenant1")
+
+    uuid_target1 = target.data.insert({})
+    uuid_target2 = target.data.insert({})
+    uuid_source = source.data.insert(properties={})
+    role_name = _sanitize_role_name(request.node.name)
+    admin_client.roles.delete(role_name)
+
+    source.data.reference_add(
+        from_uuid=uuid_source,
+        from_property="ref",
+        to=uuid_target1,
+    )
+
+    required_permissions = [
+        Permissions.data(collection=[source.name, target.name], update=True, read=True),
+    ]
+    with role_wrapper(admin_client, request, required_permissions):
+        source_no_rights = custom_client.collections.get(
+            source.name
+        )  # no network call => no RBAC check
+        if mt:
+            source_no_rights = source_no_rights.with_tenant("tenant1")
 
         source_no_rights.data.reference_replace(
             from_uuid=uuid_source,
@@ -77,14 +140,6 @@ def test_rbac_refs(
             )  # no network call => no RBAC check
             if mt:
                 source_no_rights = source_no_rights.with_tenant("tenant1")
-
-            with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
-                source_no_rights.data.reference_add(
-                    from_uuid=uuid_source,
-                    from_property="ref",
-                    to=uuid_target1,
-                )
-            assert e.value.status_code == 403
 
             with pytest.raises(weaviate.exceptions.InsufficientPermissionsError) as e:
                 source_no_rights.data.reference_replace(
