@@ -488,6 +488,63 @@ func Test_Compactor(t *testing.T) {
 	}
 }
 
+func TestCompactor_InMemoryWritesEfficency(t *testing.T) {
+	// The point of the in-memory write path is to prevent using up too many
+	// Write syscalls for tiny segments/tiny compactions. This test proves that
+	// this is actually the case.
+	compactionSetup := func(inMem bool) (int, int, []byte) {
+		leftCursor := NewSegmentCursor(createSegmentsFromKeys(t, []keyWithBML{
+			{
+				additions: []uint64{0},
+			},
+		}), nil)
+		rightCursor := NewSegmentCursor(createSegmentsFromKeys(t, []keyWithBML{
+			{
+				additions: []uint64{1},
+			},
+		}), nil)
+
+		ws, err := NewCountingWriteSeeker()
+		require.Nil(t, err)
+		defer ws.Close()
+
+		maxNewFileSize := int64(len(leftCursor.data)+len(rightCursor.data)) + segmentindex.HeaderSize + 156 // for checksum
+		// if the maxNewFileSize is already larger than our
+		// SegmentWriterBufferSize there is no point in this test, both paths
+		// would use the regular buffer.
+		require.Less(t, maxNewFileSize, int64(SegmentWriterBufferSize))
+
+		if !inMem {
+			// we can force the "regular" write path by setting the maxNewFileSize
+			// to a value larger than the threshold
+			maxNewFileSize = SegmentWriterBufferSize + 1
+		}
+
+		c := NewCompactor(ws, leftCursor, rightCursor, 0, t.TempDir(), true, true, maxNewFileSize)
+
+		err = c.Do()
+		require.Nil(t, err)
+
+		b, err := ws.Bytes()
+		require.Nil(t, err)
+
+		return ws.WriteCalls, ws.SeekCalls, b
+	}
+
+	writeCallsRegular, seekCallsRegular, bytesRegular := compactionSetup(false)
+	writeCallsInMem, seekCallsInMem, bytesInMem := compactionSetup(true)
+
+	avgWriteSizeRegular := float64(len(bytesRegular)) / float64(writeCallsRegular)
+	avgWriteSizeInMem := float64(len(bytesInMem)) / float64(writeCallsInMem)
+
+	t.Logf("Regular write calls: %d (%d seek calls), avg write size: %fB", writeCallsRegular, seekCallsRegular, avgWriteSizeRegular)
+	t.Logf("In memory write calls: %d (%d seek calls), avg write size: %fB", writeCallsInMem, seekCallsInMem, avgWriteSizeInMem)
+
+	assert.Equal(t, 1, writeCallsInMem)
+	assert.Less(t, writeCallsInMem, writeCallsRegular)
+	assert.Equal(t, bytesRegular, bytesInMem)
+}
+
 type keyWithBML struct {
 	key       []byte
 	additions []uint64
@@ -507,3 +564,62 @@ func createSegmentsFromKeys(t *testing.T, keys []keyWithBML) []byte {
 
 	return out
 }
+
+// CountingWriteSeeker wraps an *os.File and records how it is used.
+// It is intended for single‑goroutine unit tests.  Guard with a sync.Mutex
+// if your code writes concurrently.
+type CountingWriteSeeker struct {
+	f *os.File
+
+	// Statistics
+	WriteCalls   int // how many times Write was invoked
+	BytesWritten int // total bytes written
+	SeekCalls    int // how many times Seek was invoked
+}
+
+// NewCountingWriteSeeker creates a temporary on‑disk file, unlinks it
+// immediately (so nothing is left behind), and returns the wrapper.
+// The file is removed automatically when it is closed or the process exits.
+func NewCountingWriteSeeker() (*CountingWriteSeeker, error) {
+	tmp, err := os.CreateTemp("", "counting-ws-*")
+	if err != nil {
+		return nil, err
+	}
+	// Remove from directory tree right away; the fd keeps it alive.
+	_ = os.Remove(tmp.Name())
+
+	return &CountingWriteSeeker{f: tmp}, nil
+}
+
+// Write records the call and forwards to the underlying *os.File.
+func (c *CountingWriteSeeker) Write(p []byte) (int, error) {
+	c.WriteCalls++
+	n, err := c.f.Write(p)
+	c.BytesWritten += n
+	return n, err
+}
+
+// Seek records the call and forwards to the underlying *os.File.
+func (c *CountingWriteSeeker) Seek(offset int64, whence int) (int64, error) {
+	c.SeekCalls++
+	return c.f.Seek(offset, whence)
+}
+
+// Bytes returns the full contents written so far.
+// It leaves the file offset unchanged.
+func (c *CountingWriteSeeker) Bytes() ([]byte, error) {
+	// Save current position
+	pos, err := c.f.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return nil, err
+	}
+	// Read everything
+	_, _ = c.f.Seek(0, io.SeekStart)
+	b, err := io.ReadAll(c.f)
+	// Restore previous position (ignore error)
+	_, _ = c.f.Seek(pos, io.SeekStart)
+	return b, err
+}
+
+// Close closes the underlying file.
+func (c *CountingWriteSeeker) Close() error { return c.f.Close() }
