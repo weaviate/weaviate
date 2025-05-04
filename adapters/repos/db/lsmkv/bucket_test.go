@@ -282,6 +282,8 @@ func TestBucketGetBySecondary(t *testing.T) {
 
 	err = b.Put([]byte("hello"), []byte("world"), WithSecondaryKey(0, []byte("bonjour")))
 	require.Nil(t, err)
+	err = b.Put([]byte("hello"), []byte("world"), WithSecondaryKey(1, []byte("bonjour")))
+	require.Error(t, err)
 
 	value, err := b.Get([]byte("hello"))
 	require.Nil(t, err)
