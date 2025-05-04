@@ -44,7 +44,6 @@ type Searcher struct {
 	getClass               func(string) *models.Class
 	classSearcher          ClassSearcher // to allow recursive searches on ref-props
 	propIndices            propertyspecific.Indices
-	stopwords              stopwords.StopwordDetector
 	shardVersion           uint16
 	isFallbackToSearchable IsFallbackToSearchable
 	tenant                 string
@@ -55,7 +54,7 @@ type Searcher struct {
 
 func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
-	classSearcher ClassSearcher, stopwords stopwords.StopwordDetector,
+	classSearcher ClassSearcher,
 	shardVersion uint16, isFallbackToSearchable IsFallbackToSearchable,
 	tenant string, nestedCrossRefLimit int64, bitmapFactory *roaringset.BitmapFactory,
 ) *Searcher {
@@ -65,7 +64,6 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 		getClass:               getClass,
 		propIndices:            propIndices,
 		classSearcher:          classSearcher,
-		stopwords:              stopwords,
 		shardVersion:           shardVersion,
 		isFallbackToSearchable: isFallbackToSearchable,
 		tenant:                 tenant,
@@ -580,9 +578,19 @@ func (s *Searcher) extractTokenizableProp(prop *models.Property, propType schema
 		return nil, inverted.NewMissingFilterableIndexError(prop.Name)
 	}
 
+	var stopWordDetector *stopwords.Detector
+	if class.InvertedIndexConfig != nil && class.InvertedIndexConfig.Stopwords != nil {
+		var err error
+		stopWordDetector, err = stopwords.NewDetectorFromConfig(*(class.InvertedIndexConfig.Stopwords))
+		if err != nil {
+			return nil, err
+		}
+
+	}
+
 	propValuePairs := make([]*propValuePair, 0, len(terms))
 	for _, term := range terms {
-		if s.stopwords.IsStopword(term) {
+		if stopWordDetector.IsStopword(term) {
 			continue
 		}
 		propValuePairs = append(propValuePairs, &propValuePair{
