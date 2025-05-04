@@ -6,6 +6,7 @@
 [![Coverage Status](https://codecov.io/gh/weaviate/weaviate/branch/main/graph/badge.svg)](https://codecov.io/gh/weaviate/weaviate)
 [![Slack](https://img.shields.io/badge/slack--channel-blue?logo=slack)](https://weaviate.io/slack)
 [![GitHub Tutorials](https://img.shields.io/badge/Weaviate_Tutorials-green)](https://github.com/weaviate-tutorials/)
+[![Gurubase](https://img.shields.io/badge/Gurubase-Ask%20Weaviate%20Guru-006BFF)](https://gurubase.io/g/weaviate)
 
 ## Overview
 
