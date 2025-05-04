@@ -25,6 +25,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+// SegmentWriterBufferSize controls the buffer size of the segment writer. But
+// in addition it also acts as the threshold to switch between the "regular"
+// write path and the "fully in memory" path which was added in v1.27.23. See
+// [NewCompactor] for more details about the decision logic and motivation
+// behind it..
+const SegmentWriterBufferSize = 256 * 1024
+
 type compactorWriter interface {
 	segmentindex.SegmentWriter
 	Reset(io.Writer)
@@ -148,9 +155,39 @@ type Compactor struct {
 	enableChecksumValidation bool
 }
 
-// NewCompactor from left (older) and right (newer) seeker. See [Compactor] for
-// an explanation of what goes on under the hood, and why the input
+// NewCompactor from left (older) and right (newer) segment. See [Compactor]
+// for an explanation of what goes on under the hood, and why the input
 // requirements are the way they are.
+//
+// # Segment Layout
+//
+// The layout of the segment is
+// - header
+// - data
+// - check-sum
+//
+// However, it is challenging to calculate the length of the data (which is
+// part of the header) before writing the file:
+//
+// big files (overhead is not that relevant)
+// - write empty header
+// - write data
+// - seek back to start
+// - write real header
+// - seek to original position (after data)
+// - write checksum
+//
+// # Decision Logic
+//
+// For small files we use a custom buffered writer, that buffers everything
+// and writes just once at the end. For larger files, we use the regular
+// approach as outlined above using a standard go buffered writer.
+//
+// The threshold to consider a file small vs large is simply the size of the
+// regular buffered writer. The idea is that we would allocate
+// [SegmentWriterBufferSize] bytes in any case, so if we anticipate being able
+// to write the entire file in less than [SegmentWriterBufferSize] bytes, there
+// is no additional cost to using the fully-in-memory approach.
 func NewCompactor(w io.WriteSeeker,
 	left, right *SegmentCursor, level uint16,
 	scratchSpacePath string, cleanupDeletions bool,
@@ -184,11 +221,11 @@ func NewCompactor(w io.WriteSeeker,
 
 	var writer compactorWriter
 	var mw *memoryWriter
-	if maxNewFileSize < 4096 {
+	if maxNewFileSize < SegmentWriterBufferSize {
 		mw = newMemoryWriterWrapper(maxNewFileSize, w)
 		writer = mw
 	} else {
-		writer = bufio.NewWriterSize(w, 256*1024)
+		writer = bufio.NewWriterSize(w, SegmentWriterBufferSize)
 	}
 	return &Compactor{
 		left:                     left,
