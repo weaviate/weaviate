@@ -15,6 +15,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 var (
@@ -37,10 +39,10 @@ type StateType struct {
 // Sets the shutdown in progress flag to true.  There will be a delay of 5 seconds,
 func (s *StateType) StartShutdown() {
 	s.rejectRequests.Store(true)
-	go func() {
+	enterrors.GoWrapper( func() {
 		time.Sleep(5 * time.Second)
 		s.shutdownInProgress.Store(true)
-	}()
+	}, nil)
 }
 
 func (s *StateType) IsShutdownInProgress() bool {
