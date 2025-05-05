@@ -13,6 +13,7 @@ package replica_replication
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -77,6 +78,11 @@ func (suite *ReplicaReplicationTestSuite) TestCanCreateAndGetAReplicationOperati
 		res, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(strfmt.UUID(uuid.New().String())), nil)
 		require.NotNil(t, err)
 		require.Nil(t, res)
+		if errors.As(err, replication.NewReplicateInternalServerError()) {
+			parsed, ok := err.(*replication.ReplicateInternalServerError)
+			require.True(t, ok)
+			t.Fatalf("expected not to get an internal server error, but got one: %s", parsed.Payload.Error[0].Message)
+		}
 		require.Equal(t, replication.NewReplicationDetailsNotFound(), err)
 	})
 }
