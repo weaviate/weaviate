@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentindex.Key, *sroar.Bitmap, error) {
@@ -134,7 +135,14 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 				ValueStart: totalWritten,
 			}
 
-			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values, docIdEncoder, tfEncoder, float64(m.bm25config.B), float64(m.bm25config.K1), m.averagePropLength)
+			b := config.DefaultBM25b
+			k1 := config.DefaultBM25k1
+			if m.bm25config != nil {
+				b = m.bm25config.B
+				k1 = m.bm25config.K1
+			}
+
+			blocksEncoded, _ := createAndEncodeBlocksWithLengths(mapNode.values, docIdEncoder, tfEncoder, float64(b), float64(k1), m.averagePropLength)
 
 			if _, err := f.Write(blocksEncoded); err != nil {
 				return nil, nil, err

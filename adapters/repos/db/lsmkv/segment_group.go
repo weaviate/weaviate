@@ -89,7 +89,7 @@ type SegmentGroup struct {
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 
-	bm25config schema.BM25Config
+	bm25config *schema.BM25Config
 }
 
 type sgConfig struct {
