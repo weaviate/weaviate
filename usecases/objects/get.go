@@ -34,7 +34,7 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
-	if global.Manager().IsShutdownInProgress() {
+	if global.Manager().RejectRequests() {
 		return nil, NewErrInternal("server is shutting down")
 	}
 	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id))
@@ -62,7 +62,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 	offset *int64, limit *int64, sort *string, order *string, after *string,
 	addl additional.Properties, tenant string,
 ) ([]*models.Object, error) {
-	if global.Manager().IsShutdownInProgress() {
+	if global.Manager().RejectRequests() {
 		return nil, NewErrInternal("server is shutting down")
 	}
 	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", tenant, ""))
@@ -96,7 +96,7 @@ func (m *Manager) GetObjects(ctx context.Context, principal *models.Principal,
 func (m *Manager) GetObjectsClass(ctx context.Context, principal *models.Principal,
 	id strfmt.UUID,
 ) (*models.Class, error) {
-	if global.Manager().IsShutdownInProgress() {
+	if global.Manager().RejectRequests() {
 		return nil, NewErrInternal("server is shutting down")
 	}
 	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects("", "", id))

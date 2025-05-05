@@ -35,7 +35,7 @@ import (
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
-	if global.Manager().IsShutdownInProgress() {
+	if global.Manager().RejectRequests() {
 		return []error{fmt.Errorf("server is shutting down")}
 	}
 	s.activityTracker.Add(1)
@@ -111,7 +111,7 @@ func newObjectsBatcher(s ShardLike) *objectsBatcher {
 func (ob *objectsBatcher) Objects(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
-	if global.Manager().IsShutdownInProgress() {
+	if global.Manager().RejectRequests() {
 		return []error{fmt.Errorf("server is shutting down")}
 	}
 	beforeBatch := time.Now()

@@ -14,6 +14,7 @@ package global
 import (
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 var (
@@ -29,13 +30,23 @@ func Manager() *StateType {
 }
 
 type StateType struct {
-	ShutdownInProgress atomic.Bool
+	rejectRequests     atomic.Bool
+	shutdownInProgress atomic.Bool
 }
 
+// Sets the shutdown in progress flag to true.  There will be a delay of 5 seconds,
 func (s *StateType) StartShutdown() {
-	s.ShutdownInProgress.Store(true)
+	s.rejectRequests.Store(true)
+	go func() {
+		time.Sleep(5)
+		s.shutdownInProgress.Store(true)
+	}()
 }
 
 func (s *StateType) IsShutdownInProgress() bool {
-	return s.ShutdownInProgress.Load()
+	return s.shutdownInProgress.Load()
+}
+
+func (s *StateType) RejectRequests() bool {
+	return s.rejectRequests.Load()
 }
