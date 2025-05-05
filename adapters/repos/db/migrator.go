@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/pkg/errors"
@@ -226,20 +227,33 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	if err := m.updateIndexAddTenants(ctx, idx, incomingSS); err != nil {
+	if err := m.updateIndexUpdateTenants(ctx, idx, incomingSS); err != nil {
 		return err
 	}
 	return m.updateIndexDeleteTenants(ctx, idx, incomingSS)
 }
 
-func (m *Migrator) updateIndexAddTenants(ctx context.Context, idx *Index,
+func (m *Migrator) updateIndexUpdateTenants(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
 	for shardName, phys := range incomingSS.Physical {
-		// Only load the tenant if activity status == HOT
-		if schemaUC.IsLocalActiveTenant(&phys, m.db.schemaGetter.NodeName()) {
+		if !m.isLocalTenant(&phys) {
+			continue
+		}
+
+		if phys.Status == models.TenantActivityStatusHOT {
+			// Only load the tenant if activity status == HOT
 			if err := idx.initLocalShard(ctx, shardName); err != nil {
 				return fmt.Errorf("add missing tenant shard %s during update index: %w", shardName, err)
+			}
+		} else {
+			// Shutdown the tenant if activity status != HOT
+			shard := idx.shards.Load(shardName)
+			if shard == nil {
+				continue
+			}
+			if err := shard.Shutdown(ctx); err != nil {
+				return fmt.Errorf("shutdown tenant shard %s during update index: %w", shardName, err)
 			}
 		}
 	}
@@ -1019,4 +1033,8 @@ func (m *Migrator) Shutdown(ctx context.Context) error {
 	}
 	m.logger.Info("closing loaded database ...")
 	return m.db.Shutdown(ctx)
+}
+
+func (m *Migrator) isLocalTenant(phys *sharding.Physical) bool {
+	return slices.Contains(phys.BelongsToNodes, m.nodeId)
 }
