@@ -27,8 +27,9 @@ type OpsCache struct {
 
 func NewOpsCache() *OpsCache {
 	return &OpsCache{
-		cancels: sync.Map{},
-		ops:     sync.Map{},
+		cancelleds: sync.Map{},
+		cancels:    sync.Map{},
+		ops:        sync.Map{},
 	}
 }
 
