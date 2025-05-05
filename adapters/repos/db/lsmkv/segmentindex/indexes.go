@@ -30,12 +30,14 @@ func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 	if len(s.Keys) > 0 {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
 	}
-	currentOffset += uint64(s.SecondaryIndexCount) * 8
+	secondaryIndexCountSize := uint64(s.SecondaryIndexCount) * 8
+	currentOffset += secondaryIndexCountSize
 
 	primaryIndex := s.buildPrimary(s.Keys)
 	currentOffset += uint64(primaryIndex.Size())
 
 	offsetSecondaryStart := currentOffset
+	secondaryIndexSize := uint64(0)
 	var secondaryTrees []*Tree
 	if s.SecondaryIndexCount > 0 {
 		secondaryTrees = make([]*Tree, s.SecondaryIndexCount)
@@ -46,10 +48,11 @@ func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 			}
 			secondaryTrees[pos] = &secondary
 			currentOffset += uint64(secondary.Size())
+			secondaryIndexSize += uint64(secondary.Size())
 		}
 	}
 
-	buf := make([]byte, currentOffset)
+	buf := make([]byte, uint64(primaryIndex.Size())+secondaryIndexCountSize+secondaryIndexSize)
 	rw := byteops.NewReadWriter(buf)
 
 	for _, secondary := range secondaryTrees {

@@ -156,7 +156,7 @@ func (bo *ReadWriter) CopyBytesToBuffer(copyBytes []byte) error {
 func (bo *ReadWriter) Write(p []byte) (int, error) {
 	lenCopyBytes := uint64(len(p))
 	bo.Position += lenCopyBytes
-	if bo.Position >= uint64(len(bo.Buffer)) {
+	if bo.Position > uint64(len(bo.Buffer)) {
 		return 0, io.EOF
 	}
 	numCopiedBytes := copy(bo.Buffer[bo.Position-lenCopyBytes:bo.Position], p)
