@@ -68,7 +68,7 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	s.idsByUuid[op.UUID] = op.ID
 	s.opsBySource[op.SourceShard.NodeId] = append(s.opsBySource[op.SourceShard.NodeId], op)
 	s.opsByTarget[op.TargetShard.NodeId] = append(s.opsByTarget[op.TargetShard.NodeId], op)
-	s.opsByShard[op.SourceShard.CollectionId] = append(s.opsByShard[op.SourceShard.ShardId], op)
+	s.opsByShard[op.SourceShard.ShardId] = append(s.opsByShard[op.SourceShard.ShardId], op)
 	s.opsByCollection[op.SourceShard.CollectionId] = append(s.opsByCollection[op.SourceShard.CollectionId], op)
 	s.opsByTargetFQDN[op.TargetShard] = op
 	s.opsById[op.ID] = op
