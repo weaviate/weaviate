@@ -339,6 +339,8 @@ func TestSchemaManagerAtomicApply(t *testing.T) {
 			name: "failed tenant update with rollback",
 			setupMocks: func() {
 				mockIndexer.EXPECT().UpdateTenants("TestClass", mock.Anything).Return(fmt.Errorf("db failed for tenant1 update"))
+				mockIndexer.EXPECT().TriggerSchemaUpdateCallbacks().Return()
+				mockIndexer.EXPECT().ReloadLocalDB(mock.Anything, mock.Anything).Return(nil)
 			},
 			cmd: &api.ApplyRequest{
 				Type:    api.ApplyRequest_TYPE_UPDATE_TENANT,
