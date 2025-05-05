@@ -227,13 +227,13 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	if err := m.updateIndexUpdateTenants(ctx, idx, incomingSS); err != nil {
+	if err := m.updateIndexTenantsStatus(ctx, idx, incomingSS); err != nil {
 		return err
 	}
 	return m.updateIndexDeleteTenants(ctx, idx, incomingSS)
 }
 
-func (m *Migrator) updateIndexUpdateTenants(ctx context.Context, idx *Index,
+func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
 	for shardName, phys := range incomingSS.Physical {
