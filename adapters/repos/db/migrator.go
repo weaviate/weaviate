@@ -1036,5 +1036,9 @@ func (m *Migrator) Shutdown(ctx context.Context) error {
 }
 
 func (m *Migrator) isLocalTenant(phys *sharding.Physical) bool {
-	return slices.Contains(phys.BelongsToNodes, m.nodeId)
+	if m.nodeId != "" {
+		return slices.Contains(phys.BelongsToNodes, m.nodeId)
+	}
+
+	return slices.Contains(phys.BelongsToNodes, m.db.schemaGetter.NodeName())
 }
