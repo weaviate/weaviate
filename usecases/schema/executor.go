@@ -114,6 +114,16 @@ func (e *executor) AddReplicaToShard(class string, shard string, targetNode stri
 	return e.migrator.AddReplicaToShard(ctx, class, shard)
 }
 
+func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
+	ctx := context.Background()
+	if replicas, err := e.schemaReader.ShardReplicas(class, shard); err != nil {
+		return fmt.Errorf("error reading replicas for collection %s shard %s: %w", class, shard, err)
+	} else if slices.Contains(replicas, targetNode) {
+		return fmt.Errorf("replica %s exists for collection %s shard %s", targetNode, class, shard)
+	}
+	return e.migrator.DeleteReplicaFromShard(ctx, class, shard)
+}
+
 // RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.
 // This function is invoked by the Raft store when a restoration request is sent by the backup coordinator.
 func (e *executor) RestoreClassDir(class string) error {

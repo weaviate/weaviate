@@ -131,6 +131,27 @@ func (s *Raft) AddReplicaToShard(ctx context.Context, class, shard, targetNode s
 	return s.Execute(ctx, command)
 }
 
+func (s *Raft) DeleteReplicaFromShard(ctx context.Context, class, shard, targetNode string) (uint64, error) {
+	if class == "" || shard == "" || targetNode == "" {
+		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode : %w", schema.ErrBadRequest)
+	}
+	req := cmd.DeleteReplicaFromShard{
+		Class:      class,
+		Shard:      shard,
+		TargetNode: targetNode,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD,
+		Class:      req.Class,
+		SubCommand: subCommand,
+	}
+	return s.Execute(ctx, command)
+}
+
 func (s *Raft) UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error) {
 	if class == "" || shard == "" {
 		return 0, fmt.Errorf("empty class or shard : %w", schema.ErrBadRequest)

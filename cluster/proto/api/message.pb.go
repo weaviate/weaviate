@@ -34,6 +34,7 @@ const (
 	ApplyRequest_TYPE_ADD_PROPERTY                           ApplyRequest_Type = 5
 	ApplyRequest_TYPE_UPDATE_SHARD_STATUS                    ApplyRequest_Type = 10
 	ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD                   ApplyRequest_Type = 11
+	ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD              ApplyRequest_Type = 12
 	ApplyRequest_TYPE_ADD_TENANT                             ApplyRequest_Type = 16
 	ApplyRequest_TYPE_UPDATE_TENANT                          ApplyRequest_Type = 17
 	ApplyRequest_TYPE_DELETE_TENANT                          ApplyRequest_Type = 18
@@ -71,6 +72,7 @@ var (
 		5:   "TYPE_ADD_PROPERTY",
 		10:  "TYPE_UPDATE_SHARD_STATUS",
 		11:  "TYPE_ADD_REPLICA_TO_SHARD",
+		12:  "TYPE_DELETE_REPLICA_FROM_SHARD",
 		16:  "TYPE_ADD_TENANT",
 		17:  "TYPE_UPDATE_TENANT",
 		18:  "TYPE_DELETE_TENANT",
@@ -105,6 +107,7 @@ var (
 		"TYPE_ADD_PROPERTY":                           5,
 		"TYPE_UPDATE_SHARD_STATUS":                    10,
 		"TYPE_ADD_REPLICA_TO_SHARD":                   11,
+		"TYPE_DELETE_REPLICA_FROM_SHARD":              12,
 		"TYPE_ADD_TENANT":                             16,
 		"TYPE_UPDATE_TENANT":                          17,
 		"TYPE_DELETE_TENANT":                          18,
@@ -1457,13 +1460,13 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11NotifyPeerRequest\x12\x0e\n" +
 	"\x02id\x18\x01 \x01(\tR\x02id\x12\x18\n" +
 	"\aaddress\x18\x02 \x01(\tR\aaddress\"\x14\n" +
-	"\x12NotifyPeerResponse\"\xcf\b\n" +
+	"\x12NotifyPeerResponse\"\xf3\b\n" +
 	"\fApplyRequest\x12@\n" +
 	"\x04type\x18\x01 \x01(\x0e2,.weaviate.internal.cluster.ApplyRequest.TypeR\x04type\x12\x14\n" +
 	"\x05class\x18\x02 \x01(\tR\x05class\x12\x18\n" +
 	"\aversion\x18\x03 \x01(\x04R\aversion\x12\x1f\n" +
 	"\vsub_command\x18\x04 \x01(\fR\n" +
-	"subCommand\"\xab\a\n" +
+	"subCommand\"\xcf\a\n" +
 	"\x04Type\x12\x14\n" +
 	"\x10TYPE_UNSPECIFIED\x10\x00\x12\x12\n" +
 	"\x0eTYPE_ADD_CLASS\x10\x01\x12\x15\n" +
@@ -1473,7 +1476,8 @@ const file_api_message_proto_rawDesc = "" +
 	"\x11TYPE_ADD_PROPERTY\x10\x05\x12\x1c\n" +
 	"\x18TYPE_UPDATE_SHARD_STATUS\x10\n" +
 	"\x12\x1d\n" +
-	"\x19TYPE_ADD_REPLICA_TO_SHARD\x10\v\x12\x13\n" +
+	"\x19TYPE_ADD_REPLICA_TO_SHARD\x10\v\x12\"\n" +
+	"\x1eTYPE_DELETE_REPLICA_FROM_SHARD\x10\f\x12\x13\n" +
 	"\x0fTYPE_ADD_TENANT\x10\x10\x12\x16\n" +
 	"\x12TYPE_UPDATE_TENANT\x10\x11\x12\x16\n" +
 	"\x12TYPE_DELETE_TENANT\x10\x12\x12\x17\n" +
