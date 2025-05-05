@@ -12,10 +12,7 @@
 package replica_replication
 
 import (
-	"context"
-	"errors"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -24,29 +21,30 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicaReplicationTestSuite) TestCanCreateAndGetAReplicationOperation() {
-	t := suite.T()
-	mainCtx := context.Background()
+// func (suite *ReplicaReplicationTestSuite) TestCanCreateAndGetAReplicationOperation() {
+func TestCanCreateAndGetAReplicationOperation(t *testing.T) {
+	// 	t := suite.T()
+	// 	mainCtx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
+	// 	compose, err := docker.New().
+	// 		WithWeaviateCluster(3).
+	// 		Start(mainCtx)
+	// 	require.Nil(t, err)
+	// 	defer func() {
+	// 		if err := compose.Terminate(mainCtx); err != nil {
+	// 			t.Fatalf("failed to terminate test containers: %s", err.Error())
+	// 		}
+	// 	}()
 
-	_, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
-	defer cancel()
+	// 	_, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	// 	defer cancel()
 
-	helper.SetupClient(compose.GetWeaviate().URI())
+	// 	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient("localhost:8080")
 
 	paragraphClass := articles.ParagraphsClass()
 
@@ -78,11 +76,6 @@ func (suite *ReplicaReplicationTestSuite) TestCanCreateAndGetAReplicationOperati
 		res, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(strfmt.UUID(uuid.New().String())), nil)
 		require.NotNil(t, err)
 		require.Nil(t, res)
-		if errors.As(err, replication.NewReplicateInternalServerError()) {
-			parsed, ok := err.(*replication.ReplicateInternalServerError)
-			require.True(t, ok)
-			t.Fatalf("expected not to get an internal server error, but got one: %s", parsed.Payload.Error[0].Message)
-		}
 		require.Equal(t, replication.NewReplicationDetailsNotFound(), err)
 	})
 }
