@@ -105,11 +105,11 @@ func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest)
 
 	id, ok := s.idsByUuid[c.Uuid]
 	if !ok {
-		return ErrReplicationOpNotFound
+		return ErrReplicationOperationNotFound
 	}
 	op, ok := s.opsById[id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOpNotFound)
+		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOperationNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
@@ -127,11 +127,11 @@ func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest)
 
 	id, ok := s.idsByUuid[c.Uuid]
 	if !ok {
-		return ErrReplicationOpNotFound
+		return ErrReplicationOperationNotFound
 	}
 	op, ok := s.opsById[id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOpNotFound)
+		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOperationNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
@@ -153,7 +153,7 @@ func (s *ShardReplicationFSM) CancellationComplete(c *api.ReplicationCancellatio
 
 	op, ok := s.opsById[c.Id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", c.Id, ErrReplicationOpNotFound)
+		return fmt.Errorf("could not find op %d: %w", c.Id, ErrReplicationOperationNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
