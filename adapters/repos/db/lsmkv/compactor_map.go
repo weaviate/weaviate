@@ -20,7 +20,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type compactorMap struct {
@@ -55,12 +58,20 @@ func newCompactorMapCollection(w io.WriteSeeker,
 	scratchSpacePath string, requiresSorting bool, cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64,
 ) *compactorMap {
-	writer, mw := compactor.NewWriter(w, maxNewFileSize)
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"operation": "compaction",
+		"strategy":  StrategyMapCollection,
+	})
+	writeCB := func(written int64) {
+		observeWrite.Observe(float64(written))
+	}
+	meteredW := diskio.NewMeteredWriter(w, writeCB)
+	writer, mw := compactor.NewWriter(meteredW, maxNewFileSize)
 
 	return &compactorMap{
 		c1:                       c1,
 		c2:                       c2,
-		w:                        w,
+		w:                        meteredW,
 		bufw:                     writer,
 		mw:                       mw,
 		currentLevel:             level,
