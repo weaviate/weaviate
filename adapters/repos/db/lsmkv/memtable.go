@@ -27,7 +27,7 @@ import (
 )
 
 type Memtable struct {
-	ctxlock.CtxRWMutex
+	*ctxlock.CtxRWMutex
 	key                *binarySearchTree
 	keyMulti           *binarySearchTreeMulti
 	keyMap             *binarySearchTreeMap
@@ -73,6 +73,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		lockTimeout:              10 * time.Second,
 	}
 
+	m.CtxRWMutex = ctxlock.NewCtxRWMutex("memtable")
 	m.CtxRWLocation("memtable")
 
 	if m.secondaryIndices > 0 {

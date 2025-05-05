@@ -77,9 +77,6 @@ func (m *CtxRWMutex) CtxRWLocation(location string) {
 
 // LockContext acquires the write lock or returns an error on timeout/cancel
 func (m *CtxRWMutex) LockContext(ctx context.Context) error {
-	if m.rwlock == nil {
-		m.rwlock = caslock.NewCASMutex()
-	}
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
 	if m.enforceTimout {
@@ -103,6 +100,9 @@ func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 			return context.DeadlineExceeded
 		}
 	} else {
+		if m.rwlock == nil {
+			m.rwlock = caslock.NewCASMutex()
+		}
 		m.rwlock.Lock()
 		monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
 		return nil
@@ -121,9 +121,6 @@ func (m *CtxRWMutex) LockWithTimeout(timeout time.Duration) error {
 
 // Lock acquires the write lock
 func (m *CtxRWMutex) Lock() {
-	if m.rwlock == nil {
-		m.rwlock = caslock.NewCASMutex()
-	}
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	m.rwlock.Lock()
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
@@ -132,9 +129,6 @@ func (m *CtxRWMutex) Lock() {
 
 // TryLock attempts to acquire the write lock without blocking
 func (m *CtxRWMutex) TryLock() bool {
-	if m.rwlock == nil {
-		m.rwlock = caslock.NewCASMutex()
-	}
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	ret := m.rwlock.TryLock()
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
@@ -144,9 +138,6 @@ func (m *CtxRWMutex) TryLock() bool {
 
 // Unlock releases the write lock
 func (m *CtxRWMutex) Unlock() {
-	if m.rwlock == nil {
-		m.rwlock = caslock.NewCASMutex()
-	}
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	m.rwlock.Unlock()
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
@@ -155,9 +146,6 @@ func (m *CtxRWMutex) Unlock() {
 
 // RLockContext acquires the read lock or returns on context cancel/timeout
 func (m *CtxRWMutex) RLockContext(ctx context.Context) error {
-	if m.rwlock == nil {
-		m.rwlock = caslock.NewCASMutex()
-	}
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
 
@@ -207,9 +195,6 @@ func (m *CtxRWMutex) RLock() {
 
 // TryRLock attempts to acquire the read lock without blocking
 func (m *CtxRWMutex) TryRLock() bool {
-	if m.rwlock == nil {
-		m.rwlock = caslock.NewCASMutex()
-	}
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
 	ret := m.rwlock.RTryLock()
@@ -219,9 +204,6 @@ func (m *CtxRWMutex) TryRLock() bool {
 
 // TryRLock attempts to acquire the read lock without blocking
 func (m *CtxRWMutex) RTryLock() bool {
-	if m.rwlock == nil {
-		m.rwlock = caslock.NewCASMutex()
-	}
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
 	ret := m.rwlock.RTryLock()
