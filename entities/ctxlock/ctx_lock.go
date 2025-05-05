@@ -100,9 +100,6 @@ func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 			return context.DeadlineExceeded
 		}
 	} else {
-		if m.rwlock == nil {
-			m.rwlock = caslock.NewCASMutex()
-		}
 		m.rwlock.Lock()
 		monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
 		return nil
