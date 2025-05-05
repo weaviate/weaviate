@@ -12,6 +12,7 @@
 package roaringset
 
 import (
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -407,87 +408,90 @@ func Test_Compactor(t *testing.T) {
 	for _, test := range tests {
 		leftCursor := NewSegmentCursor(test.left, nil)
 		rightCursor := NewSegmentCursor(test.right, nil)
-		maxNewFileSize := int64(len(leftCursor.data)+len(rightCursor.data)) + segmentindex.HeaderSize + 156 // for checksum
-
-		t.Run("[keep]"+test.name, func(t *testing.T) {
-			dir := t.TempDir()
-
-			segmentFile := filepath.Join(dir, "result.db")
-			f, err := os.Create(segmentFile)
-			require.NoError(t, err)
-
-			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", false, false, maxNewFileSize)
-			require.NoError(t, c.Do())
-
-			require.NoError(t, f.Close())
-
-			f, err = os.Open(segmentFile)
-			require.NoError(t, err)
-
-			segmentBytes, err := io.ReadAll(f)
-			require.NoError(t, err)
-
-			header, err := segmentindex.ParseHeader(segmentBytes[:segmentindex.HeaderSize])
-			require.NoError(t, err)
-
-			require.NoError(t, f.Close())
-
-			cu := NewSegmentCursor(segmentBytes[segmentindex.HeaderSize:header.IndexStart], nil)
-
-			i := 0
-			for k, v, _ := cu.First(); k != nil; k, v, _ = cu.Next() {
-				assert.Equal(t, test.expected[i].key, k)
-				assert.Equal(t, test.expected[i].additions, v.Additions.ToArray())
-				assert.Equal(t, test.expected[i].deletions, v.Deletions.ToArray())
-				i++
+		for _, checkSum := range []bool{true, false} {
+			maxNewFileSize := int64(len(test.left)+len(test.right)) + segmentindex.HeaderSize
+			if checkSum {
+				maxNewFileSize += 8 // for checksum
 			}
+			t.Run("[keep]"+test.name+fmt.Sprintf("checksum: %v", checkSum), func(t *testing.T) {
+				segmentBytesInMem := cursorCompactor(t, leftCursor, rightCursor, maxNewFileSize, false, checkSum)
+				segmentBytesWriter := cursorCompactor(t, leftCursor, rightCursor, compactor.SegmentWriterBufferSize+1, false, checkSum)
 
-			assert.Equal(t, len(test.expected), i, "all expected keys must have been hit")
-		})
+				require.Equal(t, segmentBytesInMem, segmentBytesWriter)
+
+				header, err := segmentindex.ParseHeader(segmentBytesInMem[:segmentindex.HeaderSize])
+				require.NoError(t, err)
+
+				cu := NewSegmentCursor(segmentBytesInMem[segmentindex.HeaderSize:header.IndexStart], nil)
+
+				i := 0
+				for k, v, _ := cu.First(); k != nil; k, v, _ = cu.Next() {
+					assert.Equal(t, test.expected[i].key, k)
+					assert.Equal(t, test.expected[i].additions, v.Additions.ToArray())
+					assert.Equal(t, test.expected[i].deletions, v.Deletions.ToArray())
+					i++
+				}
+
+				assert.Equal(t, len(test.expected), i, "all expected keys must have been hit")
+			})
+		}
 	}
 
 	for _, test := range tests {
-		t.Run("[cleanup] "+test.name, func(t *testing.T) {
-			dir := t.TempDir()
+		for _, checkSum := range []bool{true, false} {
+			t.Run("[cleanup] "+test.name, func(t *testing.T) {
+				leftCursor := NewSegmentCursor(test.left, nil)
+				rightCursor := NewSegmentCursor(test.right, nil)
 
-			leftCursor := NewSegmentCursor(test.left, nil)
-			rightCursor := NewSegmentCursor(test.right, nil)
+				maxNewFileSize := int64(len(test.left)+len(test.right)) + segmentindex.HeaderSize
+				if checkSum {
+					maxNewFileSize += 8 // for checksum
+				}
 
-			maxNewFileSize := int64(len(leftCursor.data)+len(rightCursor.data)) + segmentindex.HeaderSize + 156 // for checksum
+				segmentBytesInMem := cursorCompactor(t, leftCursor, rightCursor, maxNewFileSize, true, checkSum)
+				segmentBytesWriter := cursorCompactor(t, leftCursor, rightCursor, compactor.SegmentWriterBufferSize+1, true, checkSum)
+				require.Equal(t, segmentBytesInMem, segmentBytesWriter)
 
-			segmentFile := filepath.Join(dir, "result.db")
-			f, err := os.Create(segmentFile)
-			require.NoError(t, err)
+				header, err := segmentindex.ParseHeader(segmentBytesInMem[:segmentindex.HeaderSize])
+				require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", true, false, maxNewFileSize)
-			require.NoError(t, c.Do())
+				cu := NewSegmentCursor(segmentBytesInMem[segmentindex.HeaderSize:header.IndexStart], nil)
 
-			require.NoError(t, f.Close())
+				i := 0
+				for k, v, _ := cu.First(); k != nil; k, v, _ = cu.Next() {
+					assert.Equal(t, test.expectedRoot[i].key, k)
+					assert.Equal(t, test.expectedRoot[i].additions, v.Additions.ToArray())
+					assert.Empty(t, v.Deletions.ToArray())
+					i++
+				}
 
-			f, err = os.Open(segmentFile)
-			require.NoError(t, err)
-
-			segmentBytes, err := io.ReadAll(f)
-			require.NoError(t, err)
-
-			header, err := segmentindex.ParseHeader(segmentBytes[:segmentindex.HeaderSize])
-			require.NoError(t, err)
-
-			require.NoError(t, f.Close())
-
-			cu := NewSegmentCursor(segmentBytes[segmentindex.HeaderSize:header.IndexStart], nil)
-
-			i := 0
-			for k, v, _ := cu.First(); k != nil; k, v, _ = cu.Next() {
-				assert.Equal(t, test.expectedRoot[i].key, k)
-				assert.Equal(t, test.expectedRoot[i].additions, v.Additions.ToArray())
-				assert.Empty(t, v.Deletions.ToArray())
-				i++
-			}
-
-			assert.Equal(t, len(test.expectedRoot), i, "all expected keys must have been hit")
-		})
+				assert.Equal(t, len(test.expectedRoot), i, "all expected keys must have been hit")
+			})
+		}
 	}
+}
+
+func cursorCompactor(t *testing.T, leftCursor, rightCursor *SegmentCursor, maxNewFileSize int64, cleanup, checkSum bool) []byte {
+	t.Helper()
+	dir := t.TempDir()
+
+	segmentFile := filepath.Join(dir, fmt.Sprintf("result-%v-%v-%v.db", cleanup, checkSum, maxNewFileSize))
+	f, err := os.Create(segmentFile)
+	require.NoError(t, err)
+
+	c := NewCompactor(f, leftCursor, rightCursor, 5, dir+"/scratch", cleanup, checkSum, maxNewFileSize)
+	require.NoError(t, c.Do())
+
+	require.NoError(t, f.Close())
+
+	f, err = os.Open(segmentFile)
+	require.NoError(t, err)
+
+	segmentBytes, err := io.ReadAll(f)
+	require.NoError(t, err)
+	require.NoError(t, f.Close())
+
+	return segmentBytes
 }
 
 func TestCompactor_InMemoryWritesEfficency(t *testing.T) {
