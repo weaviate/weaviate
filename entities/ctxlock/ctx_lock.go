@@ -19,13 +19,14 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+	caslock "github.com/viney-shih/go-lock"
 )
 
 var ErrCtxTimeout = errors.New("ctxsync: lock acquisition timed out")
 
 // CtxRWMutex is a context-aware read/write mutex
 type CtxRWMutex struct {
-	rwlock        sync.RWMutex // The underlying RWMutex
+	rwlock        caslock.CASMutex // The underlying RWMutex
 	location      string       // The location of the mutex, used for monitoring
 	enforceTimout bool         // Whether to enforce timeout on lock acquisition
 
@@ -64,7 +65,7 @@ func (m *CtxRWMutex) releaseDoneChan(ch chan bool) {
 // NewCtxRWMutex creates a new context-aware read/write mutex
 func NewCtxRWMutex(location string) *CtxRWMutex {
 	return &CtxRWMutex{
-		rwlock:   sync.RWMutex{},
+		rwlock:   *caslock.NewCASMutex(),
 		location: location,
 	}
 }
@@ -193,7 +194,16 @@ func (m *CtxRWMutex) RLock() {
 func (m *CtxRWMutex) TryRLock() bool {
 	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
 	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
-	ret := m.rwlock.TryRLock()
+	ret := m.rwlock.RTryLock()
+	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
+	return ret
+}
+
+// TryRLock attempts to acquire the read lock without blocking
+func (m *CtxRWMutex) RTryLock() bool {
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
+	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
+	ret := m.rwlock.RTryLock()
 	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
 	return ret
 }
