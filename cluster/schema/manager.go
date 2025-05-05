@@ -426,6 +426,7 @@ func (s *SchemaManager) apply(op applyOp) error {
 		if err := op.updateStore(); err != nil {
 			// If store update fails, rollback schema changes and return the error
 			s.schema.rollback(schemaSnapshot)
+			s.ReloadDBFromSchema()
 			if op.enableSchemaCallback {
 				// TriggerSchemaUpdateCallbacks is concurrent and at
 				// this point of time schema shall be up to date.
