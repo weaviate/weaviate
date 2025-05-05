@@ -54,7 +54,7 @@ func (mw *MemoryWriter) Write(p []byte) (n int, err error) {
 
 	requiredSize := mw.pos + lenCopyBytes
 	if requiredSize > len(mw.buffer) {
-		return 0, io.ErrShortWrite
+		mw.buffer = append(mw.buffer, make([]byte, requiredSize)...)
 	}
 
 	numCopiedBytes := copy(mw.buffer[mw.pos:], p)
@@ -127,15 +127,15 @@ func WriteHeader(mw *MemoryWriter, w io.WriteSeeker, bufw Writer, f *segmentinde
 		if _, err := h.WriteTo(w); err != nil {
 			return err
 		}
+		if _, err := f.WriteHeader(h); err != nil {
+			return err
+		}
 	} else {
 		mw.ResetWritePositionToZero()
 		if _, err := h.WriteTo(bufw); err != nil {
 			return err
 		}
-	}
-
-	if _, err := f.WriteHeader(h); err != nil {
-		return err
+		f.SetHeader(h)
 	}
 
 	// We need to seek back to the end so we can write a checksum

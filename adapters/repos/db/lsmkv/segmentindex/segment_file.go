@@ -126,6 +126,10 @@ func (f *SegmentFile) BodyWriter() io.Writer {
 	return f.checksumWriter
 }
 
+func (f *SegmentFile) SetHeader(header *Header) {
+	f.header = header
+}
+
 // WriteHeader writes the header struct to the underlying writer.
 // This method resets the internal hash, so that the header can be written
 // to the checksum last. For more details see SegmentFile.
