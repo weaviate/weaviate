@@ -24,10 +24,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-func TestLastAppliedIndexOnSuccess(t *testing.T) {
+// setupTestData creates common test data for store apply index tests
+func setupTestData(t *testing.T, initialIndex uint64) (MockStore, *raft.Log) {
 	mockStore := NewMockStore(t, "Node-1", 0)
-
-	initialIndex := uint64(100)
 	mockStore.store.lastAppliedIndex.Store(initialIndex)
 
 	cls := &models.Class{
@@ -48,68 +47,50 @@ func TestLastAppliedIndexOnSuccess(t *testing.T) {
 	}
 
 	log := &raft.Log{
-		Index: 101,
+		Index: initialIndex + 1,
 		Type:  raft.LogCommand,
 		Data:  cmdAsBytes("TestClass", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls, State: ss}, nil),
 	}
 
-	mockStore.parser.On("ParseClass", mock.Anything).Return(nil)
-	mockStore.indexer.On("AddClass", mock.Anything).Return(nil)
-	mockStore.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-
-	result := mockStore.store.Apply(log)
-
-	// Verify that the result contains no error
-	resp, ok := result.(Response)
-	assert.True(t, ok)
-	assert.NoError(t, resp.Error)
-
-	// Verify that lastAppliedIndex was updated
-	currentIndex := mockStore.store.lastAppliedIndex.Load()
-	assert.Equal(t, log.Index, initialIndex+1)
-	assert.Equal(t, log.Index, currentIndex, "lastAppliedIndex should be updated on success")
+	return mockStore, log
 }
 
-func TestLastAppliedIndexOnFailure(t *testing.T) {
-	mockStore := NewMockStore(t, "Node-1", 0)
+func TestStore_ApplyIndex(t *testing.T) {
+	// Test case 1: Apply index is greater than last applied index
+	t.Run("Apply index is greater than last applied index", func(t *testing.T) {
+		mockStore, log := setupTestData(t, 100)
+		mockStore.parser.On("ParseClass", mock.Anything).Return(nil)
+		mockStore.indexer.On("AddClass", mock.Anything).Return(nil)
+		mockStore.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 
-	initialIndex := uint64(100)
-	mockStore.store.lastAppliedIndex.Store(initialIndex)
+		result := mockStore.store.Apply(log)
 
-	cls := &models.Class{
-		Class: "TestClass",
-		MultiTenancyConfig: &models.MultiTenancyConfig{
-			Enabled: true,
-		},
-	}
+		// Verify that the result contains no error
+		resp, ok := result.(Response)
+		assert.True(t, ok)
+		assert.NoError(t, resp.Error)
 
-	ss := &sharding.State{
-		Physical: map[string]sharding.Physical{
-			"T1": {
-				Name:           "T1",
-				BelongsToNodes: []string{"Node-1"},
-				Status:         "HOT",
-			},
-		},
-	}
+		// Verify that lastAppliedIndex was updated
+		currentIndex := mockStore.store.lastAppliedIndex.Load()
+		assert.Equal(t, uint64(101), log.Index)
+		assert.Equal(t, uint64(101), currentIndex, "lastAppliedIndex should be updated on success")
+	})
 
-	log := &raft.Log{
-		Index: 101,
-		Type:  raft.LogCommand,
-		Data:  cmdAsBytes("TestClass", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls, State: ss}, nil),
-	}
+	// Test case 2: Apply index fails due to parse error
+	t.Run("Apply index fails due to parse error", func(t *testing.T) {
+		mockStore, log := setupTestData(t, 100)
+		mockStore.parser.On("ParseClass", mock.Anything).Return(errors.New("parse error"))
 
-	mockStore.parser.On("ParseClass", mock.Anything).Return(errors.New("parse error"))
+		result := mockStore.store.Apply(log)
 
-	// Apply the log entry
-	result := mockStore.store.Apply(log)
+		// Verify that the result contains an error
+		resp, ok := result.(Response)
+		assert.True(t, ok)
+		assert.Error(t, resp.Error)
 
-	// Verify that the result contains an error
-	resp, ok := result.(Response)
-	assert.True(t, ok)
-	assert.Error(t, resp.Error)
-
-	// Verify that lastAppliedIndex was not updated
-	currentIndex := mockStore.store.lastAppliedIndex.Load()
-	assert.Equal(t, initialIndex, currentIndex, "lastAppliedIndex should not be updated when there's an error")
+		// Verify that lastAppliedIndex was not updated
+		currentIndex := mockStore.store.lastAppliedIndex.Load()
+		assert.Equal(t, uint64(101), log.Index)
+		assert.Equal(t, uint64(100), currentIndex, "lastAppliedIndex should not be updated when there's an error")
+	})
 }
