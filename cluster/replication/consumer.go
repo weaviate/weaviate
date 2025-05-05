@@ -45,8 +45,7 @@ type OpConsumer interface {
 	Consume(ctx context.Context, in <-chan ShardReplicationOpAndStatus) error
 }
 
-// DELETED is a constant representing the deleted state of a replication operation.
-// It is a temporary state so should not be used in the FSM.
+// DELETED is a constant representing a temporary deleted state of a replication operation that should not be stored in the FSM.
 const DELETED = "deleted"
 
 // CopyOpConsumer is an implementation of the OpConsumer interface that processes replication operations
@@ -310,10 +309,16 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 	}
 
 	if nextState == DELETED {
+		// Stop the recursion if we are in the DELETED state and don't update the state in the FSM
 		return nil
 	}
 
 	op.Status.ChangeState(nextState)
+	if nextState == api.READY {
+		// No need to continue the recursion if we are in the READY state
+		return nil
+	}
+
 	return c.dispatchReplicationOp(ctx, op)
 }
 
