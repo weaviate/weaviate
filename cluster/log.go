@@ -18,7 +18,7 @@ import (
 	"github.com/hashicorp/raft"
 )
 
-func (st *Store) LastAppliedCommand() (uint64, error) {
+func (st *Store) LastAppliedCommandIndex() (uint64, error) {
 	if st.logStore == nil {
 		return 0, fmt.Errorf("log store can't be nil")
 	}

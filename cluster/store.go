@@ -220,20 +220,18 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 func (st *Store) IsVoter() bool { return st.cfg.Voter }
 func (st *Store) ID() string    { return st.cfg.NodeID }
 
-// lastIndex returns the last index in stable storage,
-// either from the last log or from the last snapshot.
+// lastAppliedLogIndex returns the last index in stable storage,
 // this method work as a protection from applying anything was applied to the db
-// by checking either raft or max(snapshot, log store) instead the db will catchup
-func (st *Store) lastIndex() uint64 {
+func (st *Store) lastAppliedLogIndex() uint64 {
 	if st.raft != nil {
 		return st.raft.AppliedIndex()
 	}
 
-	l, err := st.LastAppliedCommand()
+	l, err := st.LastAppliedCommandIndex()
 	if err != nil {
 		panic(fmt.Sprintf("read log last command: %s", err.Error()))
 	}
-	return max(lastSnapshotIndex(st.snapshotStore), l)
+	return l
 }
 
 // Open opens this store and marked as such.
@@ -249,7 +247,7 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
 
-	st.lastAppliedIndexToDB.Store(st.lastIndex())
+	st.lastAppliedIndexToDB.Store(st.lastAppliedLogIndex())
 
 	// we have to open the DB before constructing new raft in case of restore calls
 	st.openDatabase(ctx)
@@ -551,7 +549,7 @@ func (st *Store) Stats() map[string]any {
 	stats["bootstrapped"] = st.bootstrapped.Load()
 	stats["candidates"] = st.candidates
 	stats["last_store_log_applied_index"] = st.lastAppliedIndexToDB.Load()
-	stats["last_applied_index"] = st.lastIndex()
+	stats["last_applied_index"] = st.lastAppliedLogIndex()
 	stats["db_loaded"] = st.dbLoaded.Load()
 
 	// If the raft stats exist, add them as a nested map
@@ -664,11 +662,7 @@ func (st *Store) reloadDBFromSchema() {
 	}
 
 	// restore requests from snapshots before init new RAFT node
-	lastLogApplied, err := st.LastAppliedCommand()
-	if err != nil {
-		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
-	}
-	st.lastAppliedIndexToDB.Store(lastLogApplied)
+	st.lastAppliedIndexToDB.Store(st.lastAppliedLogIndex())
 }
 
 type Response struct {

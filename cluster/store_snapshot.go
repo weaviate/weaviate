@@ -67,7 +67,7 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		}
 
 		st.log.WithFields(logrus.Fields{
-			"last_applied_index":           st.lastIndex(),
+			"last_applied_index":           st.lastAppliedLogIndex(),
 			"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			"last_snapshot_index":          snapIndex,
 			"n":                            st.schemaManager.NewSchemaReader().Len(),
