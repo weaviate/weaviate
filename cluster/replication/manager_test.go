@@ -61,6 +61,7 @@ func TestManager_Replicate(t *testing.T) {
 				SourceShard:      "shard1",
 				SourceNode:       "node1",
 				TargetNode:       "node2",
+				TransferType:     api.COPY.String(),
 			},
 			expectedError: nil,
 		},
@@ -72,6 +73,7 @@ func TestManager_Replicate(t *testing.T) {
 				SourceShard:      "shard1",
 				SourceNode:       "node1",
 				TargetNode:       "node2",
+				TransferType:     api.COPY.String(),
 			},
 			expectedError: replication.ErrClassNotFound,
 		},
@@ -92,6 +94,7 @@ func TestManager_Replicate(t *testing.T) {
 				SourceShard:      "NonExistentShard",
 				SourceNode:       "node1",
 				TargetNode:       "node2",
+				TransferType:     api.COPY.String(),
 			},
 			expectedError: replication.ErrShardNotFound,
 		},
@@ -112,6 +115,7 @@ func TestManager_Replicate(t *testing.T) {
 				SourceShard:      "shard1",
 				SourceNode:       "node4",
 				TargetNode:       "node2",
+				TransferType:     api.COPY.String(),
 			},
 			expectedError: replication.ErrNodeNotFound,
 		},
@@ -132,6 +136,7 @@ func TestManager_Replicate(t *testing.T) {
 				SourceShard:      "shard1",
 				SourceNode:       "node1",
 				TargetNode:       "node1",
+				TransferType:     api.COPY.String(),
 			},
 			expectedError: replication.ErrAlreadyExists,
 		},
@@ -146,7 +151,7 @@ func TestManager_Replicate(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(logrus.New(), schemaReader, nil, reg)
+			manager := replication.NewManager(schemaReader, reg)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -344,7 +349,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(logrus.New(), schemaReader, nil, reg)
+			manager := replication.NewManager(schemaReader, reg)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -439,6 +444,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					SourceShard:      "shard1",
 					SourceNode:       "node1",
 					TargetNode:       "node2",
+					TransferType:     api.COPY.String(),
 				}),
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 0, Error: "test error", Uuid: UUID1}),
 			},
@@ -449,6 +455,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					SourceShard:      "shard2",
 					SourceNode:       "node1",
 					TargetNode:       "node2",
+					TransferType:     api.COPY.String(),
 				}),
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 1, Error: "test error", Uuid: UUID2}),
 			},
@@ -491,6 +498,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					SourceShard:      "shard1",
 					SourceNode:       "node1",
 					TargetNode:       "node2",
+					TransferType:     api.MOVE.String(),
 				}),
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 0, Error: "test error", Uuid: UUID1}),
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ReplicationReplicateShardRequest{
@@ -499,6 +507,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					SourceShard:      "shard2",
 					SourceNode:       "node1",
 					TargetNode:       "node2",
+					TransferType:     api.COPY.String(),
 				}),
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 1, Error: "test error", Uuid: UUID2}),
 			},
@@ -515,7 +524,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(logrus.New(), schemaReader, nil, reg)
+			manager := replication.NewManager(schemaReader, reg)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -593,10 +602,11 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					require.NoError(t, err)
 					require.Equal(t, resp.Uuid, originalReq.Uuid)
 					require.Equal(t, resp.Id, logIndex)
-					require.Equal(t, resp.Collection, originalReq.SourceCollection)
-					require.Equal(t, resp.ShardId, originalReq.SourceShard)
-					require.Equal(t, resp.SourceNodeId, originalReq.SourceNode)
-					require.Equal(t, resp.TargetNodeId, originalReq.TargetNode)
+					require.Equal(t, originalReq.SourceCollection, resp.Collection)
+					require.Equal(t, originalReq.SourceShard, resp.ShardId)
+					require.Equal(t, originalReq.SourceNode, resp.SourceNodeId)
+					require.Equal(t, originalReq.TargetNode, resp.TargetNodeId)
+					require.Equal(t, originalReq.TransferType, resp.TransferType)
 					logIndex++
 				case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:
 					originalReq := api.ReplicationRegisterErrorRequest{}
@@ -675,7 +685,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
-		manager := replication.NewManager(logrus.New(), schemaReader, nil, reg)
+		manager := replication.NewManager(schemaReader, reg)
 		err := schemaManager.AddClass(buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 			State: &sharding.State{
@@ -747,7 +757,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
-		manager := replication.NewManager(logrus.New(), schemaReader, nil, reg)
+		manager := replication.NewManager(schemaReader, reg)
 		err := schemaManager.AddClass(buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 			State: &sharding.State{
@@ -765,6 +775,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 			SourceShard:      "shard1",
 			SourceNode:       "node1",
 			TargetNode:       "node2",
+			TransferType:     api.COPY.String(),
 		})
 		require.NoErrorf(t, err, "error while marshalling first replication request: %v", err)
 
@@ -774,6 +785,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 			SourceShard:      "shard2",
 			SourceNode:       "node1",
 			TargetNode:       "node3",
+			TransferType:     api.COPY.String(),
 		})
 		require.NoErrorf(t, err, "error while marshalling second replication request: %v", err)
 

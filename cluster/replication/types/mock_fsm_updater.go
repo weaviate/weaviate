@@ -93,6 +93,65 @@ func (_c *MockFSMUpdater_AddReplicaToShard_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
+// DeleteReplicaFromShard provides a mock function with given fields: _a0, _a1, _a2, _a3
+func (_m *MockFSMUpdater) DeleteReplicaFromShard(_a0 context.Context, _a1 string, _a2 string, _a3 string) (uint64, error) {
+	ret := _m.Called(_a0, _a1, _a2, _a3)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteReplicaFromShard")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (uint64, error)); ok {
+		return rf(_a0, _a1, _a2, _a3)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) uint64); ok {
+		r0 = rf(_a0, _a1, _a2, _a3)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(_a0, _a1, _a2, _a3)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFSMUpdater_DeleteReplicaFromShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteReplicaFromShard'
+type MockFSMUpdater_DeleteReplicaFromShard_Call struct {
+	*mock.Call
+}
+
+// DeleteReplicaFromShard is a helper method to define mock.On call
+//   - _a0 context.Context
+//   - _a1 string
+//   - _a2 string
+//   - _a3 string
+func (_e *MockFSMUpdater_Expecter) DeleteReplicaFromShard(_a0 interface{}, _a1 interface{}, _a2 interface{}, _a3 interface{}) *MockFSMUpdater_DeleteReplicaFromShard_Call {
+	return &MockFSMUpdater_DeleteReplicaFromShard_Call{Call: _e.mock.On("DeleteReplicaFromShard", _a0, _a1, _a2, _a3)}
+}
+
+func (_c *MockFSMUpdater_DeleteReplicaFromShard_Call) Run(run func(_a0 context.Context, _a1 string, _a2 string, _a3 string)) *MockFSMUpdater_DeleteReplicaFromShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_DeleteReplicaFromShard_Call) Return(_a0 uint64, _a1 error) *MockFSMUpdater_DeleteReplicaFromShard_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFSMUpdater_DeleteReplicaFromShard_Call) RunAndReturn(run func(context.Context, string, string, string) (uint64, error)) *MockFSMUpdater_DeleteReplicaFromShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReplicationRegisterError provides a mock function with given fields: id, errorToRegister
 func (_m *MockFSMUpdater) ReplicationRegisterError(id uint64, errorToRegister string) error {
 	ret := _m.Called(id, errorToRegister)

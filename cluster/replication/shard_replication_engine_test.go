@@ -830,7 +830,7 @@ func TestShardReplicationEngine(t *testing.T) {
 					randomSleepTime, e := randInt(t, 10, 50)
 					require.NoErrorf(t, e, "error generating random sleep time")
 					time.Sleep(time.Millisecond * time.Duration(randomSleepTime))
-					op := replication.NewShardReplicationOp(opId, "node1", "node2", "TestCollection", "shard1")
+					op := replication.NewShardReplicationOp(opId, "node1", "node2", "TestCollection", "shard1", api.COPY)
 
 					select {
 					case out <- replication.NewShardReplicationOpAndStatus(op, replication.NewShardReplicationStatus(api.REGISTERED)):
@@ -954,7 +954,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerStartedChan <- struct{}{}
 
-				op := replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "collection1", "shard1")
+				op := replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "collection1", "shard1", api.COPY)
 				select {
 				case <-ctx.Done():
 					return
@@ -1080,7 +1080,7 @@ func TestShardReplicationEngine(t *testing.T) {
 			Run(func(ctx context.Context, out chan<- replication.ShardReplicationOpAndStatus) {
 				producerStartedChan <- struct{}{}
 
-				op := replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "collection1", "shard1")
+				op := replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "collection1", "shard1", api.COPY)
 				select {
 				case <-ctx.Done():
 					return

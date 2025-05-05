@@ -414,6 +414,16 @@ func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica
 	return meta.AddReplicaToShard(v, shard, replica)
 }
 
+func (s *schema) deleteReplicaFromShard(class string, v uint64, shard string, replica string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	meta := s.classes[class]
+	if meta == nil {
+		return ErrClassNotFound
+	}
+	return meta.DeleteReplicaFromShard(v, shard, replica)
+}
+
 func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {
 	req.Tenants = removeNilTenants(req.Tenants)
 

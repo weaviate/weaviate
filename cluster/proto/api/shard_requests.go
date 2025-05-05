@@ -35,17 +35,29 @@ const (
 	DELETED ShardReplicationState = "DELETED"
 )
 
+type ShardReplicationTransferType string
+
+func (s ShardReplicationTransferType) String() string {
+	return string(s)
+}
+
+const (
+	COPY ShardReplicationTransferType = "COPY"
+	MOVE ShardReplicationTransferType = "MOVE"
+)
+
 type ReplicationReplicateShardRequest struct {
 	// Version is the version with which this command was generated
 	Version int
 
+	Uuid strfmt.UUID
+
 	SourceNode       string
 	SourceCollection string
 	SourceShard      string
+	TargetNode       string
 
-	TargetNode string
-
-	Uuid strfmt.UUID
+	TransferType string
 }
 
 type ReplicationReplicateShardReponse struct{}
@@ -96,6 +108,7 @@ type ReplicationDetailsResponse struct {
 
 	Status        ReplicationDetailsState
 	StatusHistory []ReplicationDetailsState
+	TransferType  string
 }
 
 type ReplicationCancelRequest struct {

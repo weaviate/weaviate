@@ -22,7 +22,7 @@ import (
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-func (s *Raft) ReplicationReplicateReplica(uuid strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string) error {
+func (s *Raft) ReplicationReplicateReplica(uuid strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error {
 	req := &api.ReplicationReplicateShardRequest{
 		Version:          api.ReplicationCommandVersionV0,
 		SourceNode:       sourceNode,
@@ -30,6 +30,7 @@ func (s *Raft) ReplicationReplicateReplica(uuid strfmt.UUID, sourceNode string, 
 		SourceShard:      sourceShard,
 		TargetNode:       targetNode,
 		Uuid:             uuid,
+		TransferType:     transferType,
 	}
 
 	if err := replication.ValidateReplicationReplicateShard(s.SchemaReader(), req); err != nil {

@@ -7016,7 +7016,8 @@ func init() {
         "sourceNodeId",
         "targetNodeId",
         "collection",
-        "status"
+        "status",
+        "transferType"
       ],
       "properties": {
         "collection": {
@@ -7051,6 +7052,14 @@ func init() {
         "targetNodeId": {
           "description": "The id of the node where the target replica is allocated.",
           "type": "string"
+        },
+        "transferType": {
+          "description": "The transfer type of the replication request, being 'copy' or 'move'.",
+          "type": "string",
+          "enum": [
+            "COPY",
+            "MOVE"
+          ]
         }
       }
     },
@@ -7101,6 +7110,15 @@ func init() {
         "sourceNodeName": {
           "description": "The node containing the replica",
           "type": "string"
+        },
+        "transferType": {
+          "description": "The type of transfer to perform: 'COPY' or 'MOVE'. Defaults to 'COPY' if not specified.",
+          "type": "string",
+          "default": "COPY",
+          "enum": [
+            "COPY",
+            "MOVE"
+          ]
         }
       }
     },
@@ -15201,7 +15219,8 @@ func init() {
         "sourceNodeId",
         "targetNodeId",
         "collection",
-        "status"
+        "status",
+        "transferType"
       ],
       "properties": {
         "collection": {
@@ -15236,6 +15255,14 @@ func init() {
         "targetNodeId": {
           "description": "The id of the node where the target replica is allocated.",
           "type": "string"
+        },
+        "transferType": {
+          "description": "The transfer type of the replication request, being 'copy' or 'move'.",
+          "type": "string",
+          "enum": [
+            "COPY",
+            "MOVE"
+          ]
         }
       }
     },
@@ -15286,6 +15313,15 @@ func init() {
         "sourceNodeName": {
           "description": "The node containing the replica",
           "type": "string"
+        },
+        "transferType": {
+          "description": "The type of transfer to perform: 'COPY' or 'MOVE'. Defaults to 'COPY' if not specified.",
+          "type": "string",
+          "default": "COPY",
+          "enum": [
+            "COPY",
+            "MOVE"
+          ]
         }
       }
     },

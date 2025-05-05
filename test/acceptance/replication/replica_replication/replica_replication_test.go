@@ -21,6 +21,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	logrusTest "github.com/sirupsen/logrus/hooks/test"
@@ -164,6 +166,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 				continue
 			}
 
+			transferType := api.COPY.String()
 			for _, shard := range node.Shards {
 				if shard.Class != paragraphClass.Class {
 					continue
@@ -180,6 +183,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 							SourceNodeName:      &node.Name,
 							DestinationNodeName: &targetNode,
 							ShardID:             &shard.Name,
+							TransferType:        &transferType,
 						},
 					),
 					nil,

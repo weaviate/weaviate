@@ -63,6 +63,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		require.Nil(t, err)
 		require.NotNil(t, created)
 		require.NotNil(t, created.Payload)
+		require.NotNil(t, created.Payload.ID)
 		id = *created.Payload.ID
 	})
 

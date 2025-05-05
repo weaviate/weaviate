@@ -17,7 +17,7 @@ import (
 )
 
 type Manager interface {
-	ReplicationReplicateReplica(opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string) error
+	ReplicationReplicateReplica(opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error
 	ReplicationDisableReplica(node string, collection string, shard string) error
 	ReplicationDeleteReplica(node string, collection string, shard string) error
 
