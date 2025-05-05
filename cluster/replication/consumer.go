@@ -178,12 +178,8 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					cancel, ok := c.ongoingOps.LoadCancel(op.Op.ID)
 					if ok {
 						c.logger.WithFields(logrus.Fields{"consumer": c, "op": op}).Debug("cancelling the replication op")
-						// If there's something to cancel then cancel it
 						cancel()
-						// Then signify that the operation was cancelled so that the state can be updated in goroutine process
-						// once dispatchReplicationOp exits
-						c.ongoingOps.StoreCancelled(op.Op.ID)
-					} else if c.ongoingOps.IsCancelled(op.Op.ID) {
+					} else {
 						// Otherwise, update the state to cancelled immediately now since we don't have a cancel function
 						// meaning that any in-flight operation has already completed
 						logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
@@ -241,13 +237,6 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					} else {
 						c.engineOpCallbacks.OnOpComplete(c.nodeId)
 					}
-					if c.ongoingOps.IsCancelled(op.Op.ID) {
-						logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
-						logger.WithField("consumer", c).Info("replication operation cancelled, stopping processing")
-						if err = c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, api.CANCELLED); err != nil {
-							logger.WithField("consumer", c).WithError(err).Errorf("failed to update replica status to '%s'", api.CANCELLED)
-						}
-					}
 				}, c.logger)
 
 			case <-ctx.Done():
@@ -300,14 +289,15 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 		nextState, err := stateFuncHandler(ctx, op)
 		// If we receive an error from the state handler make sure we store it and then stop processing
 		if err != nil {
-			err = c.leaderClient.ReplicationRegisterError(op.Op.ID, err.Error())
-			if err != nil {
-				logger.WithField("consumer", c).WithError(err).Error("failed to register error for replication operation")
+			// Provided that the error is not a cancellation error, we need to register it with the FSM
+			if !errors.Is(err, context.Canceled) {
+				err = c.leaderClient.ReplicationRegisterError(op.Op.ID, err.Error())
+				if err != nil {
+					logger.WithField("consumer", c).WithError(err).Error("failed to register error for replication operation")
+				}
+				return api.ShardReplicationState(""), err
 			}
-			return api.ShardReplicationState(""), err
-		}
-
-		if c.ongoingOps.IsCancelled(op.Op.ID) {
+			// Otherwise, we need to update the state to cancelled in the FSM
 			nextState = api.CANCELLED
 		}
 
@@ -427,10 +417,12 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 		return api.ShardReplicationState(""), err
 	}
 
+	// If the operation is only being cancelled then return early
 	if op.Status.ShouldCancel {
 		return api.CANCELLED, nil
 	}
 
+	// If the operation is being deleted then remove it from the FSM and return the temporary DELETED state
 	if op.Status.ShouldDelete {
 		if err := c.leaderClient.ReplicationRemoveReplicaOp(op.Op.ID); err != nil {
 			logger.WithField("consumer", c).WithError(err).Error("failure while deleting replica operation")
