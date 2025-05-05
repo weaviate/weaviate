@@ -126,6 +126,8 @@ func (f *SegmentFile) BodyWriter() io.Writer {
 	return f.checksumWriter
 }
 
+// SetHeader sets the header in the SegmentFile without writing anything. This should be used if the header was already
+// written by another reader.
 func (f *SegmentFile) SetHeader(header *Header) {
 	f.header = header
 }
