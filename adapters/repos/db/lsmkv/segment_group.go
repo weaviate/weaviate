@@ -86,7 +86,7 @@ type SegmentGroup struct {
 	lastCleanupCall    time.Time
 	lastCompactionCall time.Time
 
-	bm25config schema.BM25Config
+	bm25config *schema.BM25Config
 }
 
 type sgConfig struct {

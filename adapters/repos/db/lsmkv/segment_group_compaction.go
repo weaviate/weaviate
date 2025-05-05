@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -320,10 +321,17 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		}
 	case segmentindex.StrategyInverted:
 		avgPropLen, _ := sg.GetAveragePropertyLength()
+		b := float64(config.DefaultBM25b)
+		k1 := float64(config.DefaultBM25k1)
+		if sg.bm25config != nil {
+			b = sg.bm25config.B
+			k1 = sg.bm25config.K1
+		}
+
 		c := newCompactorInverted(f,
 			leftSegment.newInvertedCursorReusable(),
 			rightSegment.newInvertedCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, cleanupTombstones, sg.bm25config.K1, sg.bm25config.B, avgPropLen)
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones, k1, b, avgPropLen)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
