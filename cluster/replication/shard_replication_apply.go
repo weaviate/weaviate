@@ -20,10 +20,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
-var (
-	ErrShardAlreadyReplicating = errors.New("target shard is already being replicated")
-	ErrReplicationOpNotFound   = errors.New("could not find the replication op")
-)
+var ErrShardAlreadyReplicating = errors.New("target shard is already being replicated")
 
 func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateShardRequest) error {
 	s.opsLock.Lock()
@@ -45,7 +42,7 @@ func (s *ShardReplicationFSM) RegisterError(id uint64, c *api.ReplicationRegiste
 
 	op, ok := s.opsById[id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOpNotFound)
+		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOperationNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
@@ -87,7 +84,7 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 
 	op, ok := s.opsById[c.Id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", c.Id, ErrReplicationOpNotFound)
+		return fmt.Errorf("could not find op %d: %w", c.Id, ErrReplicationOperationNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
@@ -176,7 +173,7 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	var err error
 	op, ok := s.opsById[id]
 	if !ok {
-		return ErrReplicationOpNotFound
+		return ErrReplicationOperationNotFound
 	}
 
 	ops, ok := s.opsByTarget[op.SourceShard.NodeId]
