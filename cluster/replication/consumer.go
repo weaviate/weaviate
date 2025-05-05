@@ -407,7 +407,7 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 	logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
 	logger.Info("processing cancelling replication operation")
 
-	if err := c.replicaCopier.RemoveReplica(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+	if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
 		logger.WithField("consumer", c).WithError(err).Error("failure while removing replica shard")
 		return api.ShardReplicationState(""), err
 	}

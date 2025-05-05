@@ -54,18 +54,6 @@ func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string
 	}
 }
 
-// RemoveReplica removes a shard replica from this node.
-func (c *Copier) RemoveReplica(ctx context.Context, collectionName, shardName string) error {
-	index := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
-	if index == nil {
-		return fmt.Errorf("index for collection %s not found", collectionName)
-	}
-	if err := index.DropShard(shardName); err != nil {
-		return fmt.Errorf("drop shard %s: %w", shardName, err)
-	}
-	return nil
-}
-
 // CopyReplica copies a shard replica from the source node to this node.
 func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, shardName string) error {
 	sourceNodeHostname, ok := c.nodeSelector.NodeHostname(srcNodeId)

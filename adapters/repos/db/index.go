@@ -2219,27 +2219,6 @@ func (i *Index) IncomingAggregate(ctx context.Context, shardName string,
 	return shard.Aggregate(ctx, params, mods.(*modules.Provider))
 }
 
-// This method is a no-op if the shard does not exist
-func (i *Index) DropShard(name string) error {
-	return i.dropShard(name)
-}
-
-func (i *Index) dropShard(name string) error {
-	i.shardCreateLocks.Lock(name)
-	defer i.shardCreateLocks.Unlock(name)
-
-	shard, ok := i.shards.LoadAndDelete(name)
-	if !ok {
-		return nil // shard already does not exist
-	}
-	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName, "shard": name}
-	if err := shard.drop(); err != nil {
-		logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
-	}
-
-	return nil
-}
-
 func (i *Index) drop() error {
 	i.shardTransferMutex.RLock()
 	defer i.shardTransferMutex.RUnlock()
@@ -2257,9 +2236,21 @@ func (i *Index) drop() error {
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger)
 	eg.SetLimit(_NUMCPU * 2)
+	fields := logrus.Fields{"action": "drop_shard", "class": i.Config.ClassName}
 	dropShard := func(name string, _ ShardLike) error {
 		eg.Go(func() error {
-			return i.dropShard(name)
+			i.shardCreateLocks.Lock(name)
+			defer i.shardCreateLocks.Unlock(name)
+
+			shard, ok := i.shards.LoadAndDelete(name)
+			if !ok {
+				return nil // shard already does not exist
+			}
+			if err := shard.drop(); err != nil {
+				logrus.WithFields(fields).WithField("id", shard.ID()).Error(err)
+			}
+
+			return nil
 		})
 		return nil
 	}
