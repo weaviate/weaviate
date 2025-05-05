@@ -79,7 +79,7 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Store the udpated shard replication op in the FSM
+	// Store the updated shard replication op in the FSM
 	return m.replicationFSM.UpdateReplicationOpStatus(req)
 }
 
