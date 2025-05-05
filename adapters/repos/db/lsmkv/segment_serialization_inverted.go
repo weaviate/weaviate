@@ -21,14 +21,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
-var (
-	defaultBM25k1            = float64(config.DefaultBM25k1)
-	defaultBM25b             = float64(config.DefaultBM25b)
-	defaultAveragePropLength = float64(40.0)
-)
+var defaultAveragePropLength = float64(40.0)
 
 func extractTombstones(nodes []MapPair) (*sroar.Bitmap, []MapPair) {
 	out := sroar.NewBitmap()
