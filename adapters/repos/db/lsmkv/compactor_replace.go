@@ -18,8 +18,11 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type compactorReplace struct {
@@ -48,10 +51,17 @@ func newCompactorReplace(w io.WriteSeeker,
 	scratchSpacePath string, cleanupTombstones bool,
 	enableChecksumValidation bool,
 ) *compactorReplace {
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"operation": "compaction",
+		"strategy":  StrategyReplace,
+	})
+	writeCB := func(written int64) {
+		observeWrite.Observe(float64(written))
+	}
 	return &compactorReplace{
 		c1:                       c1,
 		c2:                       c2,
-		w:                        w,
+		w:                        diskio.NewMeteredWriter(w, writeCB),
 		bufw:                     bufio.NewWriterSize(w, 256*1024),
 		currentLevel:             level,
 		cleanupTombstones:        cleanupTombstones,

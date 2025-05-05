@@ -17,10 +17,13 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/concurrency"
+	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // Compactor takes in a left and a right segment and merges them into a single
@@ -79,10 +82,17 @@ type Compactor struct {
 func NewCompactor(w io.WriteSeeker, left, right SegmentCursor,
 	level uint16, cleanupDeletions bool, enableChecksumValidation bool,
 ) *Compactor {
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"operation": "compaction",
+		"strategy":  "roaringsetrange",
+	})
+	writeCB := func(written int64) {
+		observeWrite.Observe(float64(written))
+	}
 	return &Compactor{
 		left:                     left,
 		right:                    right,
-		w:                        w,
+		w:                        diskio.NewMeteredWriter(w, writeCB),
 		bufw:                     bufio.NewWriterSize(w, 256*1024),
 		currentLevel:             level,
 		cleanupDeletions:         cleanupDeletions,

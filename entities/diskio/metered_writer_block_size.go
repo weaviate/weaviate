@@ -9,7 +9,6 @@ type MeteredWriterCallback func(written int64)
 type WriterSeekerCloser interface {
 	io.Writer
 	io.Seeker
-	io.Closer
 }
 
 type MeteredWriter struct {
@@ -39,9 +38,9 @@ func (m *MeteredWriter) Seek(offset int64, whence int) (int64, error) {
 	return n, err
 }
 
-func (m *MeteredWriter) Close() error {
-	return m.w.Close()
-}
+// func (m *MeteredWriter) Close() error {
+// 	return m.w.Close()
+// }
 
 var _ = WriterSeekerCloser(&MeteredWriter{})
 

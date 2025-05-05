@@ -18,7 +18,10 @@ import (
 	"io"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type compactorSet struct {
@@ -48,10 +51,17 @@ func newCompactorSetCollection(w io.WriteSeeker,
 	scratchSpacePath string, cleanupTombstones bool,
 	enableChecksumValidation bool,
 ) *compactorSet {
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"operation": "compaction",
+		"strategy":  StrategySetCollection,
+	})
+	writeCB := func(written int64) {
+		observeWrite.Observe(float64(written))
+	}
 	return &compactorSet{
 		c1:                       c1,
 		c2:                       c2,
-		w:                        w,
+		w:                        diskio.NewMeteredWriter(w, writeCB),
 		bufw:                     bufio.NewWriterSize(w, 256*1024),
 		currentLevel:             level,
 		cleanupTombstones:        cleanupTombstones,
