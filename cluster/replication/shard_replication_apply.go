@@ -150,6 +150,24 @@ func (s *ShardReplicationFSM) RemoveReplicationOp(c *api.ReplicationRemoveOpRequ
 	return s.removeReplicationOp(c.Id)
 }
 
+func (s *ShardReplicationFSM) CancellationComplete(c *api.ReplicationCancellationCompleteRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	op, ok := s.opsById[c.Id]
+	if !ok {
+		return fmt.Errorf("could not find op %d: %w", c.Id, ErrReplicationOpNotFound)
+	}
+	status, ok := s.opsStatus[op]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d", c.Id)
+	}
+	status.CompleteCancellation()
+	s.opsStatus[op] = status
+
+	return nil
+}
+
 // TODO: Improve the error handling in that function
 func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	s.opsLock.Lock()

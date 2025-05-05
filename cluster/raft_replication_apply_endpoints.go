@@ -101,6 +101,26 @@ func (s *Raft) ReplicationRegisterError(id uint64, errorToRegister string) error
 	return nil
 }
 
+func (s *Raft) ReplicationCancellationComplete(id uint64) error {
+	req := &api.ReplicationCancellationCompleteRequest{
+		Version: api.ReplicationCommandVersionV0,
+		Id:      id,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Raft) CancelReplication(uuid strfmt.UUID) error {
 	req := &api.ReplicationCancelRequest{
 		Version: api.ReplicationCommandVersionV0,

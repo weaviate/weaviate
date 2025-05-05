@@ -29,10 +29,7 @@ const (
 	FINALIZING  ShardReplicationState = "FINALIZING"
 	READY       ShardReplicationState = "READY"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"
-	// The operation has been cancelled. It cannot be resumed.
-	CANCELLED ShardReplicationState = "CANCELLED"
-	// The operation has been deleted. This is a transient state that should not be stored in the FSM.
-	DELETED ShardReplicationState = "DELETED"
+	CANCELLED   ShardReplicationState = "CANCELLED" // The operation has been cancelled. It cannot be resumed.
 )
 
 type ShardReplicationTransferType string
@@ -118,6 +115,10 @@ type ReplicationCancelRequest struct {
 
 type ReplicationDeleteRequest struct {
 	Version int
+	Uuid    strfmt.UUID
+}
 
-	Uuid strfmt.UUID
+type ReplicationCancellationCompleteRequest struct {
+	Version int
+	Id      uint64
 }

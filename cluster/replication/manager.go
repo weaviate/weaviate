@@ -153,3 +153,13 @@ func (m *Manager) RemoveReplicaOp(c *cmd.ApplyRequest) error {
 	// Remove the replication operation itself from the FSM
 	return m.replicationFSM.RemoveReplicationOp(req)
 }
+
+func (m *Manager) ReplicationCancellationComplete(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationCancellationCompleteRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Mark the replication operation as cancelled in the FSM
+	return m.replicationFSM.CancellationComplete(req)
+}

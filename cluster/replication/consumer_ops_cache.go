@@ -17,6 +17,8 @@ import (
 )
 
 type OpsCache struct {
+	// hasBeenCancelled is a map of opId to an empty struct
+	hasBeenCancelled sync.Map
 	// cancels is a map of opId to a cancel function
 	cancels sync.Map
 	// ops is a map of opId to an empty struct
@@ -25,13 +27,28 @@ type OpsCache struct {
 
 func NewOpsCache() *OpsCache {
 	return &OpsCache{
-		cancels: sync.Map{},
-		ops:     sync.Map{},
+		hasBeenCancelled: sync.Map{},
+		cancels:          sync.Map{},
+		ops:              sync.Map{},
 	}
+}
+
+func (c *OpsCache) HasBeenCancelled(opId uint64) bool {
+	_, ok := c.hasBeenCancelled.Load(opId)
+	return ok
+}
+
+func (c *OpsCache) StoreHasBeenCancelled(opId uint64) {
+	c.hasBeenCancelled.Store(opId, struct{}{})
 }
 
 func (c *OpsCache) LoadOrStore(opId uint64) bool {
 	_, ok := c.ops.LoadOrStore(opId, struct{}{})
+	return ok
+}
+
+func (c *OpsCache) Load(opId uint64) bool {
+	_, ok := c.ops.Load(opId)
 	return ok
 }
 
@@ -51,7 +68,17 @@ func (c *OpsCache) StoreCancel(opId uint64, cancel context.CancelFunc) {
 	c.cancels.Store(opId, cancel)
 }
 
+func (c *OpsCache) Cancel(opId uint64) bool {
+	cancel, ok := c.LoadCancel(opId)
+	if !ok {
+		return false
+	}
+	cancel()
+	return true
+}
+
 func (c *OpsCache) Remove(opId uint64) {
+	c.hasBeenCancelled.Delete(opId)
 	c.cancels.Delete(opId)
 	c.ops.Delete(opId)
 }

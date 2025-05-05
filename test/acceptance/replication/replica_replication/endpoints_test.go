@@ -109,6 +109,27 @@ func (suite *ReplicaReplicationTestSuite) TestReplicationReplicateEndpoints() {
 			assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
 		}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
 	})
+
+	t.Run("create and delete replication operation", func(t *testing.T) {
+		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
+		require.Nil(t, err)
+		require.NotNil(t, created)
+		require.NotNil(t, created.Payload)
+		require.NotNil(t, created.Payload.ID)
+		id = *created.Payload.ID
+
+		deleted, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(id), nil)
+		require.Nil(t, err)
+		require.NotNil(t, deleted)
+	})
+
+	t.Run("wait for second replication operation to be deleted", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
+			require.NotNil(ct, err)
+			assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
+		}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
+	})
 }
 
 func getRequest(t *testing.T, className string) *models.ReplicationReplicateReplicaRequest {

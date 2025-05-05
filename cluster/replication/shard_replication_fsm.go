@@ -161,7 +161,7 @@ func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp 
 }
 
 func (s ShardReplicationOpStatus) ShouldConsumeOps() bool {
-	return (!s.Cancelling && s.GetCurrentState() != api.CANCELLED && s.GetCurrentState() != api.READY) || ((s.GetCurrentState() == api.CANCELLED || s.GetCurrentState() == api.READY) && s.ShouldCancelOrDelete())
+	return (s.GetCurrentState() != api.CANCELLED && s.GetCurrentState() != api.READY) || ((s.GetCurrentState() == api.CANCELLED || s.GetCurrentState() == api.READY) && s.ShouldCancelOrDelete())
 }
 
 func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicationOpStatus, bool) {
