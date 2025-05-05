@@ -189,6 +189,14 @@ func (m *Migrator) AddReplicaToShard(ctx context.Context, class, shard string) e
 	return idx.LoadLocalShard(ctx, shard)
 }
 
+func (m *Migrator) DeleteReplicaFromShard(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+	return idx.dropShards([]string{shard})
+}
+
 // UpdateIndex ensures that the local index is up2date with the latest sharding
 // state (shards/tenants) and index properties that may have been added in the
 // case that the local node was down during a class update operation.

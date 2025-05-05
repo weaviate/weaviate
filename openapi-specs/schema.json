@@ -860,6 +860,12 @@
         "shardId": {
           "description": "The shard id holding the replica to be copied",
           "type": "string"
+        },
+        "transferType": {
+          "description": "The type of transfer to perform: 'COPY' or 'MOVE'. Defaults to 'COPY' if not specified.",
+          "type": "string",
+          "enum": ["COPY", "MOVE"],
+          "default": "COPY"
         }
       },
       "type": "object",
@@ -976,6 +982,14 @@
           "description": "The id of the node where the target replica is allocated.",
           "type": "string"
         },
+        "transferType": {
+          "description": "The transfer type of the replication request, being 'copy' or 'move'.",
+          "type": "string",
+          "enum": [
+            "COPY",
+            "MOVE"
+          ]
+        },
         "status": {
           "description": "The current status of the replication operation",
           "type": "object",
@@ -989,7 +1003,7 @@
           }
         }
       },
-      "required": ["id", "shardId", "sourceNodeId", "targetNodeId", "collection", "status"]
+      "required": ["id", "shardId", "sourceNodeId", "targetNodeId", "collection", "status", "transferType"]
     },
     "PeerUpdate": {
       "description": "A single peer in the network.",
