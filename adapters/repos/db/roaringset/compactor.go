@@ -38,38 +38,35 @@ type compactorWriter interface {
 }
 
 type memoryWriter struct {
-	buffer *[]byte
-	pos    *int
-	maxPos *int
+	buffer []byte
+	pos    int
+	maxPos int
 	writer io.WriteSeeker
 }
 
 // NewMemoryWriterWrapper creates a new memoryWriter with initialized pointers
 func newMemoryWriterWrapper(initialCapacity int64, writer io.WriteSeeker) *memoryWriter {
-	buf := make([]byte, initialCapacity)
-	pos := 0
-	maxPos := 0
 	return &memoryWriter{
-		buffer: &buf,
-		pos:    &pos,
-		maxPos: &maxPos,
+		buffer: make([]byte, initialCapacity),
+		pos:    0,
+		maxPos: 0,
 		writer: writer,
 	}
 }
 
-func (mw memoryWriter) Write(p []byte) (n int, err error) {
+func (mw *memoryWriter) Write(p []byte) (n int, err error) {
 	lenCopyBytes := len(p)
 
-	requiredSize := *mw.pos + lenCopyBytes
-	if requiredSize > len(*mw.buffer) {
+	requiredSize := mw.pos + lenCopyBytes
+	if requiredSize > len(mw.buffer) {
 		return 0, io.ErrShortWrite
 	}
 
-	numCopiedBytes := copy((*mw.buffer)[*mw.pos:], p)
+	numCopiedBytes := copy(mw.buffer[mw.pos:], p)
 
-	*mw.pos += numCopiedBytes
-	if *mw.pos >= *mw.maxPos {
-		*mw.maxPos = *mw.pos
+	mw.pos += numCopiedBytes
+	if mw.pos >= mw.maxPos {
+		mw.maxPos = mw.pos
 	}
 
 	if numCopiedBytes != lenCopyBytes {
@@ -79,9 +76,9 @@ func (mw memoryWriter) Write(p []byte) (n int, err error) {
 	return numCopiedBytes, nil
 }
 
-func (mw memoryWriter) Flush() error {
-	buf := *mw.buffer
-	_, err := mw.writer.Write(buf[:*mw.maxPos])
+func (mw *memoryWriter) Flush() error {
+	buf := mw.buffer
+	_, err := mw.writer.Write(buf[:mw.maxPos])
 	if err != nil {
 		return err
 	}
@@ -90,14 +87,14 @@ func (mw memoryWriter) Flush() error {
 }
 
 // Reset needs to be present to fulfill interface
-func (mw memoryWriter) Reset(writer io.Writer) {}
+func (mw *memoryWriter) Reset(writer io.Writer) {}
 
-func (mw memoryWriter) ResetWritePositionToZero() {
-	*mw.pos = 0
+func (mw *memoryWriter) ResetWritePositionToZero() {
+	mw.pos = 0
 }
 
-func (mw memoryWriter) ResetWritePositionToMax() {
-	*mw.pos = *mw.maxPos
+func (mw *memoryWriter) ResetWritePositionToMax() {
+	mw.pos = mw.maxPos
 }
 
 // Compactor takes in a left and a right segment and merges them into a single
