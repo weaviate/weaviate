@@ -446,8 +446,9 @@ func Test_Compactor(t *testing.T) {
 			segmentFile := filepath.Join(dir, "result.db")
 			f, err := os.Create(segmentFile)
 			require.NoError(t, err)
+			maxNewFileSize := int64(len(leftCursor.data)+len(rightCursor.data)) + segmentindex.HeaderSize + 156 // for checksum
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, false, false)
+			c := NewCompactor(f, leftCursor, rightCursor, 5, false, false, maxNewFileSize)
 			err = c.Do()
 			require.NoError(t, f.Close())
 
@@ -493,7 +494,8 @@ func Test_Compactor(t *testing.T) {
 			f, err := os.Create(segmentFile)
 			require.NoError(t, err)
 
-			c := NewCompactor(f, leftCursor, rightCursor, 5, true, false)
+			maxNewFileSize := int64(len(leftCursor.data)+len(rightCursor.data)) + segmentindex.HeaderSize + 156 // for checksum
+			c := NewCompactor(f, leftCursor, rightCursor, 5, true, false, maxNewFileSize)
 			err = c.Do()
 			require.NoError(t, f.Close())
 
