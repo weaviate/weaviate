@@ -363,7 +363,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 			for i := 0; i < rounds; i++ {
 				key := data[(i * 4) : (i+1)*4]
 				bucket.Put(key, []byte("value"))
-				time.Sleep(25 * time.Millisecond)
+				time.Sleep(250 * time.Millisecond)
 			}
 		})
 
