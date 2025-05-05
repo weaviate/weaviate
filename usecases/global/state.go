@@ -38,7 +38,7 @@ type StateType struct {
 func (s *StateType) StartShutdown() {
 	s.rejectRequests.Store(true)
 	go func() {
-		time.Sleep(5*time.Second)
+		time.Sleep(5 * time.Second)
 		s.shutdownInProgress.Store(true)
 	}()
 }
