@@ -183,17 +183,18 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 						// Then signify that the operation was cancelled so that the state can be updated in goroutine process
 						// once dispatchReplicationOp exits
 						c.ongoingOps.StoreCancelled(op.Op.ID)
-					} else {
+					} else if c.ongoingOps.IsCancelled(op.Op.ID) {
 						// Otherwise, update the state to cancelled immediately now since we don't have a cancel function
 						// meaning that any in-flight operation has already completed
-						if c.ongoingOps.IsCancelled(op.Op.ID) {
-							logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
-							logger.WithField("consumer", c).Info("replication operation cancelled, stopping processing")
-							if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, api.CANCELLED); err != nil {
-								logger.WithField("consumer", c).WithError(err).Errorf("failed to update replica status to '%s'", api.CANCELLED)
-							}
+						logger := getLoggerForOp(c.logger.Logger, op.Op).WithFields(logrus.Fields{"consumer": c})
+						logger.WithField("consumer", c).Info("replication operation cancelled, stopping processing")
+						if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, api.CANCELLED); err != nil {
+							logger.WithField("consumer", c).WithError(err).Errorf("failed to update replica status to '%s'", api.CANCELLED)
 						}
 					}
+					// Need to release the token to let other consumers process queued replication operations.
+					<-c.tokens
+					continue
 				}
 
 				wg.Add(1)
