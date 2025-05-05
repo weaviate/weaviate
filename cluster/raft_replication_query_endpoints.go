@@ -40,7 +40,7 @@ func (s *Raft) GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.Repli
 
 	queryResponse, err := s.Query(context.Background(), command)
 	if err != nil {
-		if strings.Contains(err.Error(), replication.ErrReplicationOpNotFound.Error()) {
+		if strings.Contains(err.Error(), replication.ErrReplicationOperationNotFound.Error()) {
 			return api.ReplicationDetailsResponse{}, replicationTypes.ErrReplicationOperationNotFound
 		}
 		return api.ReplicationDetailsResponse{}, fmt.Errorf("failed to execute query: %w", err)
