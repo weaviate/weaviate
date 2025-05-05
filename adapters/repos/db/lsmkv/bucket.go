@@ -1783,13 +1783,3 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 	}
 	return float64(propLengthSum) / float64(propLengthCount), nil
 }
-
-func (b *Bucket) GetAveragePropertyLength2() (float64, error) {
-	if b.strategy != StrategyInverted {
-		return 0, fmt.Errorf("active memtable is not inverted")
-	}
-
-	segmentAveragePropLength, _ := b.disk.GetAveragePropertyLength()
-
-	return float64(segmentAveragePropLength), nil
-}
