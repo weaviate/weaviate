@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -182,6 +183,13 @@ Configurability of buckets
 func WithForceCompaction(opt bool) BucketOption {
 	return func(b *Bucket) error {
 		b.forceCompaction = opt
+		return nil
+	}
+}
+
+func WithBM25Config(bm25Config *models.BM25Config) BucketOption {
+	return func(b *Bucket) error {
+		b.bm25Config = bm25Config
 		return nil
 	}
 }

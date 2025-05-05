@@ -129,6 +129,8 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
 		}
 
+		searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithBM25Config(s.class.InvertedIndexConfig.Bm25))
+
 		if err := s.store.CreateOrLoadBucket(ctx,
 			helpers.BucketSearchableFromPropNameLSM(prop.Name),
 			searchableBucketOpts...,

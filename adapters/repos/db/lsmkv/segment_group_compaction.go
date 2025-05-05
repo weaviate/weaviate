@@ -319,10 +319,11 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			return false, err
 		}
 	case segmentindex.StrategyInverted:
+		avgPropLen, _ := sg.GetAveragePropertyLength()
 		c := newCompactorInverted(f,
 			leftSegment.newInvertedCursorReusable(),
 			rightSegment.newInvertedCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, cleanupTombstones)
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones, sg.bm25config.K1, sg.bm25config.B, avgPropLen)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
