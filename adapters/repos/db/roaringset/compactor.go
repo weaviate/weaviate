@@ -12,87 +12,16 @@
 package roaringset
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
 	"io"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 )
-
-// SegmentWriterBufferSize controls the buffer size of the segment writer. But
-// in addition it also acts as the threshold to switch between the "regular"
-// write path and the "fully in memory" path which was added in v1.27.23. See
-// [NewCompactor] for more details about the decision logic and motivation
-// behind it..
-const SegmentWriterBufferSize = 256 * 1024
-
-type compactorWriter interface {
-	segmentindex.SegmentWriter
-	Reset(io.Writer)
-}
-
-type memoryWriter struct {
-	buffer []byte
-	pos    int
-	maxPos int
-	writer io.WriteSeeker
-}
-
-// NewMemoryWriterWrapper creates a new memoryWriter with initialized pointers
-func newMemoryWriterWrapper(initialCapacity int64, writer io.WriteSeeker) *memoryWriter {
-	return &memoryWriter{
-		buffer: make([]byte, initialCapacity),
-		pos:    0,
-		maxPos: 0,
-		writer: writer,
-	}
-}
-
-func (mw *memoryWriter) Write(p []byte) (n int, err error) {
-	lenCopyBytes := len(p)
-
-	requiredSize := mw.pos + lenCopyBytes
-	if requiredSize > len(mw.buffer) {
-		return 0, io.ErrShortWrite
-	}
-
-	numCopiedBytes := copy(mw.buffer[mw.pos:], p)
-
-	mw.pos += numCopiedBytes
-	if mw.pos >= mw.maxPos {
-		mw.maxPos = mw.pos
-	}
-
-	if numCopiedBytes != lenCopyBytes {
-		return numCopiedBytes, errors.New("could not copy all data into buffer")
-	}
-
-	return numCopiedBytes, nil
-}
-
-func (mw *memoryWriter) Flush() error {
-	buf := mw.buffer
-	_, err := mw.writer.Write(buf[:mw.maxPos])
-	if err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// Reset needs to be present to fulfill interface
-func (mw *memoryWriter) Reset(writer io.Writer) {}
-
-func (mw *memoryWriter) ResetWritePositionToZero() {
-	mw.pos = 0
-}
-
-func (mw *memoryWriter) ResetWritePositionToMax() {
-	mw.pos = mw.maxPos
-}
 
 // Compactor takes in a left and a right segment and merges them into a single
 // segment. The input segments are represented by cursors without their
@@ -141,8 +70,8 @@ type Compactor struct {
 	cleanupDeletions bool
 
 	w    io.WriteSeeker
-	bufw compactorWriter
-	mw   *memoryWriter
+	bufw compactor.Writer
+	mw   *compactor.MemoryWriter
 
 	scratchSpacePath string
 
@@ -187,14 +116,7 @@ func NewCompactor(w io.WriteSeeker,
 	scratchSpacePath string, cleanupDeletions bool,
 	enableChecksumValidation bool, maxNewFileSize int64,
 ) *Compactor {
-	var writer compactorWriter
-	var mw *memoryWriter
-	if maxNewFileSize < SegmentWriterBufferSize {
-		mw = newMemoryWriterWrapper(maxNewFileSize, w)
-		writer = mw
-	} else {
-		writer = bufio.NewWriterSize(w, SegmentWriterBufferSize)
-	}
+	writer, mw := compactor.NewWriter(w, maxNewFileSize)
 
 	return &Compactor{
 		left:                     left,
@@ -242,9 +164,9 @@ func (c *Compactor) Do() error {
 	}
 
 	version := segmentindex.ChooseHeaderVersion(c.enableChecksumValidation)
-	if err := c.writeHeader(segmentFile, c.currentLevel,
-		version, 0, dataEnd); err != nil {
-		return fmt.Errorf("write header: %w", err)
+	if err := compactor.WriteHeader(c.mw, c.w, c.bufw, segmentFile, c.currentLevel, version,
+		0, dataEnd, segmentindex.StrategyRoaringSet); err != nil {
+		return errors.Wrap(err, "write header")
 	}
 
 	if _, err := segmentFile.WriteChecksum(); err != nil {
@@ -428,55 +350,4 @@ func (c *Compactor) writeIndexes(f *segmentindex.SegmentFile,
 	}
 	_, err := f.WriteIndexes(indexes)
 	return err
-}
-
-// writeHeader assumes that everything has been written to the underlying
-// writer and it is now safe to seek to the beginning and override the initial
-// header
-func (c *Compactor) writeHeader(f *segmentindex.SegmentFile,
-	level, version, secondaryIndices uint16, startOfIndex uint64,
-) error {
-	h := &segmentindex.Header{
-		Level:            level,
-		Version:          version,
-		SecondaryIndices: secondaryIndices,
-		Strategy:         segmentindex.StrategyRoaringSet,
-		IndexStart:       startOfIndex,
-	}
-
-	if c.mw == nil {
-		if _, err := c.w.Seek(0, io.SeekStart); err != nil {
-			return errors.Wrap(err, "seek to beginning to write header")
-		}
-
-		// We have to write directly to compactor writer,
-		// since it has seeked back to start. The following
-		// call to f.WriteHeader will not write again.
-		if _, err := h.WriteTo(c.w); err != nil {
-			return err
-		}
-
-	} else {
-		c.mw.ResetWritePositionToZero()
-		if _, err := h.WriteTo(c.bufw); err != nil {
-			return err
-		}
-	}
-
-	if _, err := f.WriteHeader(h); err != nil {
-		return err
-	}
-
-	// We need to seek back to the end so we can write a checksum
-	if c.mw == nil {
-		if _, err := c.w.Seek(0, io.SeekEnd); err != nil {
-			return fmt.Errorf("seek to end after writing header: %w", err)
-		}
-	} else {
-		c.mw.ResetWritePositionToMax()
-	}
-
-	c.bufw.Reset(c.w)
-
-	return nil
 }

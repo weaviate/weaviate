@@ -17,6 +17,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -512,12 +514,12 @@ func TestCompactor_InMemoryWritesEfficency(t *testing.T) {
 		// if the maxNewFileSize is already larger than our
 		// SegmentWriterBufferSize there is no point in this test, both paths
 		// would use the regular buffer.
-		require.Less(t, maxNewFileSize, int64(SegmentWriterBufferSize))
+		require.Less(t, maxNewFileSize, int64(compactor.SegmentWriterBufferSize))
 
 		if !inMem {
 			// we can force the "regular" write path by setting the maxNewFileSize
 			// to a value larger than the threshold
-			maxNewFileSize = SegmentWriterBufferSize + 1
+			maxNewFileSize = compactor.SegmentWriterBufferSize + 1
 		}
 
 		c := NewCompactor(ws, leftCursor, rightCursor, 0, t.TempDir(), true, true, maxNewFileSize)
