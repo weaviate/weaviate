@@ -29,7 +29,6 @@ import (
 //
 // swagger:model NodeShardStatus
 type NodeShardStatus struct {
-
 	// The status of the async replication.
 	AsyncReplicationStatus []*AsyncReplicationStatus `json:"asyncReplicationStatus"`
 
@@ -45,8 +44,14 @@ type NodeShardStatus struct {
 	// The name of the shard.
 	Name string `json:"name"`
 
+	// Number of replicas for the shard.
+	NumberOfReplicas int64 `json:"numberOfReplicas,omitempty"`
+
 	// The number of objects in shard.
 	ObjectCount int64 `json:"objectCount"`
+
+	// Minimum number of replicas for the shard.
+	ReplicationFactor int64 `json:"replicationFactor,omitempty"`
 
 	// The status of the vector indexing process.
 	VectorIndexingStatus string `json:"vectorIndexingStatus"`
@@ -110,9 +115,7 @@ func (m *NodeShardStatus) ContextValidate(ctx context.Context, formats strfmt.Re
 }
 
 func (m *NodeShardStatus) contextValidateAsyncReplicationStatus(ctx context.Context, formats strfmt.Registry) error {
-
 	for i := 0; i < len(m.AsyncReplicationStatus); i++ {
-
 		if m.AsyncReplicationStatus[i] != nil {
 			if err := m.AsyncReplicationStatus[i].ContextValidate(ctx, formats); err != nil {
 				if ve, ok := err.(*errors.Validation); ok {
@@ -123,7 +126,6 @@ func (m *NodeShardStatus) contextValidateAsyncReplicationStatus(ctx context.Cont
 				return err
 			}
 		}
-
 	}
 
 	return nil

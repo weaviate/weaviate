@@ -74,6 +74,8 @@ func Test_NodesAPI(t *testing.T) {
 			assert.True(t, len(shard.Name) > 0)
 			assert.Equal(t, booksClass.Class, shard.Class)
 			assert.Equal(t, int64(3), shard.ObjectCount)
+			assert.Equal(t, int64(1), shard.ReplicationFactor)
+			assert.Equal(t, int64(1), shard.NumberOfReplicas)
 			require.NotNil(t, nodeStatus.Stats)
 			assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
 			assert.Equal(t, int64(1), nodeStatus.Stats.ShardCount)
@@ -105,6 +107,8 @@ func Test_NodesAPI(t *testing.T) {
 				assert.True(t, len(shard.Name) > 0)
 				assert.Equal(t, multiShardClass.Class, shard.Class)
 				assert.GreaterOrEqual(t, shard.ObjectCount, int64(0))
+				assert.Equal(t, int64(1), shard.ReplicationFactor)
+				assert.Equal(t, int64(1), shard.NumberOfReplicas)
 				require.NotNil(t, nodeStatus.Stats)
 				assert.Equal(t, int64(3), nodeStatus.Stats.ObjectCount)
 				assert.Equal(t, int64(2), nodeStatus.Stats.ShardCount)
@@ -164,6 +168,8 @@ func Test_NodesAPI(t *testing.T) {
 				assert.True(t, len(shard.Name) > 0)
 				assert.Equal(t, docsClass.Class, shard.Class)
 				assert.Equal(t, int64(2), shard.ObjectCount)
+				assert.Equal(t, int64(1), shard.ReplicationFactor)
+				assert.Equal(t, int64(1), shard.NumberOfReplicas)
 			}
 
 			testStatusResponse(t, minimalAssertions, verboseAssertions, docsClass.Class)
