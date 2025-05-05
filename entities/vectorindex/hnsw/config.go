@@ -270,6 +270,10 @@ func (u *UserConfig) validate() error {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
 	}
 
+	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim > 10 {
+		return fmt.Errorf("invalid hnsw config: ksim must be less than 10")
+	}
+
 	return nil
 }
 
