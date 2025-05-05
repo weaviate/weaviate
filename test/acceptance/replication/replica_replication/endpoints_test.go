@@ -61,6 +61,7 @@ func (suite *ReplicaReplicationTestSuite) TestCanCreateAndGetAReplicationOperati
 		require.Nil(t, err)
 		require.NotNil(t, res)
 		require.NotNil(t, res.Payload)
+		require.NotNil(t, res.Payload.ID)
 		id = *res.Payload.ID
 	})
 

@@ -30,10 +30,11 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 	defer s.opsLock.Unlock()
 
 	op := ShardReplicationOp{
-		ID:          id,
-		UUID:        c.Uuid,
-		SourceShard: newShardFQDN(c.SourceNode, c.SourceCollection, c.SourceShard),
-		TargetShard: newShardFQDN(c.TargetNode, c.SourceCollection, c.SourceShard),
+		ID:           id,
+		UUID:         c.Uuid,
+		SourceShard:  newShardFQDN(c.SourceNode, c.SourceCollection, c.SourceShard),
+		TargetShard:  newShardFQDN(c.TargetNode, c.SourceCollection, c.SourceShard),
+		TransferType: api.ShardReplicationTransferType(c.TransferType),
 	}
 	return s.writeOpIntoFSM(op, NewShardReplicationStatus(api.REGISTERED))
 }
@@ -71,6 +72,7 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	s.opsByShard[op.SourceShard.ShardId] = append(s.opsByShard[op.SourceShard.ShardId], op)
 	s.opsByCollection[op.SourceShard.CollectionId] = append(s.opsByCollection[op.SourceShard.CollectionId], op)
 	s.opsByTargetFQDN[op.TargetShard] = op
+	s.opsBySourceFQDN[op.SourceShard] = op
 	s.opsById[op.ID] = op
 	s.opsStatus[op] = status
 
