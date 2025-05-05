@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func (m *Memtable) flush() (rerr error) {
@@ -56,8 +57,14 @@ func (m *Memtable) flush() (rerr error) {
 		}
 	}()
 
+	observeWrite := m.metrics.writeMemtable
+	cb := func(written int64) {
+		observeWrite(written)
+	}
+	meteredF := diskio.NewMeteredWriter(f, cb)
+
 	segmentFile := segmentindex.NewSegmentFile(
-		segmentindex.WithBufferedWriter(bufio.NewWriter(f)),
+		segmentindex.WithBufferedWriter(bufio.NewWriter(meteredF)),
 		segmentindex.WithChecksumsDisabled(!m.enableChecksumValidation),
 	)
 
