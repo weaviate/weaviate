@@ -24,7 +24,6 @@ message JoinPeerResponse {
 message RemovePeerRequest {
   string id = 1;
 }
-
 message RemovePeerResponse {
   string leader = 1;
 }
@@ -47,6 +46,8 @@ message ApplyRequest {
     TYPE_ADD_PROPERTY = 5;
 
     TYPE_UPDATE_SHARD_STATUS = 10;
+    TYPE_ADD_REPLICA_TO_SHARD = 11;
+    TYPE_DELETE_REPLICA_FROM_SHARD = 12;
 
     TYPE_ADD_TENANT = 16;
     TYPE_UPDATE_TENANT = 17;
@@ -66,6 +67,21 @@ message ApplyRequest {
     TYPE_ACTIVATE_USER = 84;
 
     TYPE_STORE_SCHEMA_V1 = 99;
+
+    TYPE_REPLICATION_REPLICATE = 200;
+    TYPE_REPLICATION_REPLICATE_UPDATE_STATE = 201;
+    TYPE_REPLICATION_REPLICATE_REGISTER_ERROR = 202;
+    TYPE_REPLICATION_REPLICATE_CANCEL = 203;
+    TYPE_REPLICATION_REPLICATE_DELETE = 204;
+    TYPE_REPLICATION_REPLICATE_REMOVE = 205;
+    TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE = 206;
+    TYPE_REPLICATION_REPLICA_DISABLE = 210;
+    TYPE_REPLICATION_REPLICA_DELETE = 211;
+
+    TYPE_DISTRIBUTED_TASK_ADD = 300;
+    TYPE_DISTRIBUTED_TASK_CANCEL = 301;
+    TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED = 302;
+    TYPE_DISTRIBUTED_TASK_CLEAN_UP = 303;
   }
   Type type = 1;
   string class = 2;
@@ -97,7 +113,9 @@ message QueryRequest {
 
     TYPE_GET_USERS = 61;
     TYPE_USER_IDENTIFIER_EXISTS = 62;
+    TYPE_GET_REPLICATION_DETAILS = 200;
 
+    TYPE_DISTRIBUTED_TASK_LIST = 300;
   }
 
   Type type = 1;
@@ -148,4 +166,33 @@ message DeleteTenantsRequest {
 message Tenant {
   string name = 1;
   string status = 2;
+}
+
+message AddDistributedTaskRequest {
+  string namespace = 1;
+  string id = 2;
+  bytes payload = 4;
+  int64 submitted_at_unix_millis = 5;
+}
+
+message RecordDistributedTaskNodeCompletionRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  string node_id = 4;
+  optional string error = 5;
+  int64 finished_at_unix_millis = 6;
+}
+
+message CancelDistributedTaskRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
+  int64 cancelled_at_unix_millis = 6;
+}
+
+message CleanUpDistributedTaskRequest {
+  string namespace = 1;
+  string id = 2;
+  uint64 version = 3;
 }

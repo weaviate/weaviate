@@ -100,6 +100,14 @@ func (f *fakeDB) RestoreClassDir(class string) error {
 	return nil
 }
 
+func (f *fakeDB) AddReplicaToShard(class string, shard string, targetNode string) error {
+	return nil
+}
+
+func (f *fakeDB) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
+	return nil
+}
+
 func (f *fakeDB) UpdateClass(cmd command.UpdateClassRequest) error {
 	return nil
 }
@@ -296,6 +304,16 @@ func (f *fakeMigrator) DropClass(ctx context.Context, className string, hasFroze
 
 func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {
 	args := f.Called(ctx, className, prop)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) AddReplicaToShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) DeleteReplicaFromShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }
 

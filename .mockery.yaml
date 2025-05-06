@@ -19,6 +19,9 @@ packages:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
+  github.com/weaviate/weaviate/cluster/schema/types:
+    interfaces:
+      SchemaReader:
   github.com/weaviate/weaviate/usecases/auth/authorization:
     interfaces:
       Controller:
@@ -29,3 +32,18 @@ packages:
   github.com/weaviate/weaviate/adapters/handlers/rest/db_users:
     interfaces:
       DbUserAndRolesGetter:
+  github.com/weaviate/weaviate/cluster/replication:
+    interfaces:
+      OpProducer:
+      OpConsumer:
+      Timer:
+  github.com/weaviate/weaviate/cluster/replication/types:
+    interfaces:
+      ReplicationFSMReader:
+      Manager:
+      FSMUpdater:
+      ReplicaCopier:
+  github.com/weaviate/weaviate/cluster/distributedtask:
+    interfaces:
+      TaskCleaner:
+      TaskCompletionRecorder:

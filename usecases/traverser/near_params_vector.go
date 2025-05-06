@@ -20,6 +20,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
@@ -114,7 +115,7 @@ func (v *nearParamsVector) vectorFromParams(ctx context.Context,
 
 	// either nearObject or nearVector or module search param has to be set,
 	// so if we land here, something has gone very wrong
-	return []float32{}, errors.Errorf("targetFromParams was called without any known params present")
+	return []float32{}, errors.Errorf("vectorFromParams was called without any known params present")
 }
 
 func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVector,
@@ -143,11 +144,11 @@ func (v *nearParamsVector) validateNearParams(nearVector *searchparams.NearVecto
 
 	if v.modulesProvider != nil {
 		if len(moduleParams) > 1 {
-			params := []string{}
+			params := make([]string, 0, len(moduleParams))
 			for p := range moduleParams {
 				params = append(params, fmt.Sprintf("'%s'", p))
 			}
-			return errors.Errorf("found more then one module param: %s which are conflicting "+
+			return errors.Errorf("found more than one module params: %s which are conflicting "+
 				"choose one instead", strings.Join(params, ", "))
 		}
 
@@ -265,7 +266,11 @@ func (v *nearParamsVector) classFindVector(ctx context.Context, className string
 		return nil, "", errors.New("vector not found")
 	}
 	if targetVector != "" {
-		if len(res.Vectors) == 0 || res.Vectors[targetVector] == nil {
+		if targetVector == modelsext.DefaultNamedVectorName && len(res.Vector) > 0 {
+			return res.Vector, "", nil
+		}
+
+		if res.Vectors[targetVector] == nil {
 			return nil, "", fmt.Errorf("vector not found for target: %v", targetVector)
 		}
 		vec, ok := res.Vectors[targetVector].([]float32)

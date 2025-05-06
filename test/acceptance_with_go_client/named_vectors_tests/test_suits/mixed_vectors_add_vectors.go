@@ -174,5 +174,77 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 			require.Len(t, obj2.Vectors[contextionary], 300)
 			require.Len(t, obj2.Vectors[transformers], 384)
 		})
+
+		t.Run("add colbert vector to a schema with legacy vector", func(t *testing.T) {
+			require.NoError(t, client.Schema().AllDeleter().Do(ctx))
+
+			class := &models.Class{
+				Class: className,
+				Properties: []*models.Property{
+					{
+						Name: "text", DataType: []string{schema.DataTypeText.String()},
+					},
+				},
+				Vectorizer:      text2vecContextionary,
+				VectorIndexType: "flat",
+				VectorConfig:    map[string]models.VectorConfig{},
+			}
+
+			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
+
+			_, err = client.Data().Creator().
+				WithID(UUID1).
+				WithClassName(className).
+				WithProperties(map[string]interface{}{
+					"text": "I love pizza",
+				}).
+				Do(ctx)
+			require.NoError(t, err)
+
+			class.VectorConfig["multi"] = models.VectorConfig{
+				VectorIndexConfig: map[string]interface{}{
+					"multivector": map[string]interface{}{
+						"enabled": true,
+					},
+				},
+				Vectorizer: map[string]interface{}{
+					"none": map[string]interface{}{},
+				},
+				VectorIndexType: "hnsw",
+			}
+			require.NoError(t, client.Schema().ClassUpdater().WithClass(class).Do(ctx))
+
+			multiVec := [][]float32{{1, 2, 3}, {4, 5, 6}}
+			_, err = client.Data().Creator().
+				WithID(UUID2).
+				WithClassName(className).
+				WithProperties(map[string]interface{}{
+					"text": "I love pizza",
+				}).
+				WithVectors(map[string]models.Vector{
+					"multi": multiVec,
+				}).
+				Do(ctx)
+			require.NoError(t, err)
+
+			obj1 := fetchObject(t, UUID1)
+			require.Len(t, obj1.Vector, 300)
+			require.Len(t, obj1.Vectors, 0)
+
+			obj2 := fetchObject(t, UUID2)
+			require.Len(t, obj2.Vector, 300)
+			require.Len(t, obj2.Vectors, 1)
+			require.Equal(t, multiVec, obj2.Vectors["multi"].([][]float32))
+
+			nearVector := client.GraphQL().
+				NearVectorArgBuilder().
+				WithVectorsPerTarget(map[string][]models.Vector{
+					"multi": {multiVec},
+				})
+
+			vectors := getVectorsWithNearVector(t, client, className, UUID2, nearVector, "multi")
+			require.Len(t, vectors, 1)
+			require.Equal(t, multiVec, vectors["multi"].([][]float32))
+		})
 	}
 }

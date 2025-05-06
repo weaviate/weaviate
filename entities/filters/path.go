@@ -106,7 +106,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 
 		className, err := schema.ValidateClassName(rawClassName)
 		if err != nil {
-			return nil, fmt.Errorf("Expected a valid class name in 'path' field for the filter but got '%s'", rawClassName)
+			return nil, fmt.Errorf("expected a valid class name in 'path' field for the filter but got '%s'", rawClassName)
 		}
 
 		var propertyName schema.PropertyName
@@ -115,7 +115,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 			// check if property in len(PROPERTY) is valid
 			_, err = schema.ValidatePropertyName(lengthPropName)
 			if err != nil {
-				return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter, but got '%s'", lengthPropName)
+				return nil, fmt.Errorf("expected a valid property name in 'path' field for the filter, but got '%s'", lengthPropName)
 			}
 			propertyName = schema.PropertyName(rawPropertyName)
 		} else {
@@ -126,7 +126,7 @@ func ParsePath(pathElements []interface{}, rootClass string) (*Path, error) {
 				untitlizedPropertyName := strings.ToLower(rawPropertyName[0:1]) + rawPropertyName[1:]
 				propertyName, err = schema.ValidatePropertyName(untitlizedPropertyName)
 				if err != nil {
-					return nil, fmt.Errorf("Expected a valid property name in 'path' field for the filter, but got '%s'", rawPropertyName)
+					return nil, fmt.Errorf("expected a valid property name in 'path' field for the filter, but got '%s'", rawPropertyName)
 				}
 			}
 

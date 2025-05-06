@@ -18,7 +18,6 @@ import (
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/protobuf/proto"
-	gproto "google.golang.org/protobuf/proto"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -55,7 +54,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	resp, ok := futureResponse.(Response)
 	if !ok {
 		// This should not happen, but it's better to log an error *if* it happens than panic and crash.
-		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen!", futureResponse)
+		return 0, fmt.Errorf("response returned from raft apply is not of type Response instead got: %T, this should not happen", futureResponse)
 	}
 	return resp.Version, resp.Error
 }
@@ -74,7 +73,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		return ret
 	}
 	cmd := api.ApplyRequest{}
-	if err := gproto.Unmarshal(l.Data, &cmd); err != nil {
+	if err := proto.Unmarshal(l.Data, &cmd); err != nil {
 		st.log.WithError(err).Error("decode command")
 		panic("error proto un-marshalling log data")
 	}
@@ -86,6 +85,18 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
 	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
+		if ret.Error != nil {
+			st.log.WithFields(logrus.Fields{
+				"log_type":      l.Type,
+				"log_name":      l.Type.String(),
+				"log_index":     l.Index,
+				"cmd_type":      cmd.Type,
+				"cmd_type_name": cmd.Type.String(),
+				"cmd_class":     cmd.Class,
+			}).WithError(ret.Error).Error("apply command")
+			return
+		}
+
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
 		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
@@ -99,17 +110,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
-
-		if ret.Error != nil {
-			st.log.WithFields(logrus.Fields{
-				"log_type":      l.Type,
-				"log_name":      l.Type.String(),
-				"log_index":     l.Index,
-				"cmd_type":      cmd.Type,
-				"cmd_type_name": cmd.Type.String(),
-				"cmd_class":     cmd.Class,
-			}).WithError(ret.Error).Error("apply command")
-		}
 	}()
 
 	cmd.Version = l.Index
@@ -164,6 +164,14 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
 		f = func() {
 			ret.Error = st.schemaManager.UpdateShardStatus(&cmd, schemaOnly)
+		}
+	case api.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.AddReplicaToShard(&cmd, schemaOnly)
+		}
+	case api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.DeleteReplicaFromShard(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_ADD_TENANT:
@@ -231,6 +239,52 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.dynUserManager.ActivateUser(&cmd)
 		}
+
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
+		f = func() {
+			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:
+		f = func() {
+			ret.Error = st.replicationManager.RegisterError(l.Index, &cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:
+		f = func() {
+			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL:
+		f = func() {
+			ret.Error = st.replicationManager.CancelReplication(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteReplication(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE:
+		f = func() {
+			ret.Error = st.replicationManager.RemoveReplicaOp(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE:
+		f = func() {
+			ret.Error = st.replicationManager.ReplicationCancellationComplete(&cmd)
+		}
+
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
+		f = func() {
+			ret.Error = st.distributedTasksManager.AddTask(&cmd, l.Index)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED:
+		f = func() {
+			ret.Error = st.distributedTasksManager.RecordNodeCompletion(&cmd, st.numberOfNodesInTheCluster())
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL:
+		f = func() {
+			ret.Error = st.distributedTasksManager.CancelTask(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP:
+		f = func() {
+			ret.Error = st.distributedTasksManager.CleanUpTask(&cmd)
+		}
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart
@@ -254,4 +308,8 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	wg.Wait()
 
 	return ret
+}
+
+func (st *Store) numberOfNodesInTheCluster() int {
+	return len(st.raft.GetConfiguration().Configuration().Servers)
 }

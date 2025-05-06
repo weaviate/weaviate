@@ -27,6 +27,10 @@ type Snapshot struct {
 	Schema []byte `json:"schema,omitempty"`
 	// RBAC is the rbac that will be used to restore the FSM
 	RBAC []byte `json:"rbac,omitempty"`
+	// DistributedTasks are the tasks that will be used to restore the FSM.
+	DistributedTasks []byte `json:"distributed_tasks,omitempty"`
+	// ReplicationOps are the currently ongoing operation for replica replication
+	ReplicationOps []byte `json:"replication_ops,omitempty"`
 }
 
 // Snapshotter is used to snapshot and restore any (FSM) state

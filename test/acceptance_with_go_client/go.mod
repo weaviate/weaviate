@@ -11,8 +11,8 @@ require (
 	github.com/pkg/errors v0.9.1
 	github.com/stretchr/testify v1.10.0
 	github.com/tailor-inc/graphql v0.5.7
-	github.com/weaviate/weaviate v1.29.0
-	github.com/weaviate/weaviate-go-client/v5 v5.0.2
+	github.com/weaviate/weaviate v1.30.1
+	github.com/weaviate/weaviate-go-client/v5 v5.1.0
 )
 
 require (
@@ -100,10 +100,10 @@ require (
 	github.com/hashicorp/golang-lru v1.0.2 // indirect
 	github.com/hashicorp/memberlist v0.5.2 // indirect
 	github.com/hashicorp/raft v1.7.2 // indirect
-	github.com/ikawaha/kagome-dict v1.1.0 // indirect
+	github.com/ikawaha/kagome-dict v1.1.6 // indirect
 	github.com/ikawaha/kagome-dict-ko v0.2.1 // indirect
-	github.com/ikawaha/kagome-dict/ipa v1.2.0 // indirect
-	github.com/ikawaha/kagome/v2 v2.10.0 // indirect
+	github.com/ikawaha/kagome-dict/ipa v1.2.5 // indirect
+	github.com/ikawaha/kagome/v2 v2.10.2 // indirect
 	github.com/jmespath/go-jmespath v0.4.0 // indirect
 	github.com/josharian/intern v1.0.0 // indirect
 	github.com/karrick/godirwalk v1.15.3 // indirect

@@ -28,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
-	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 )
 
 var logger, _ = test.NewNullLogger()
@@ -99,7 +98,7 @@ func TestBackup_IntegrationHnsw(t *testing.T) {
 	dirName := t.TempDir()
 	indexID := "restore-integration-test"
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
-	hnswuc := hnswent.UserConfig{
+	hnswuc := ent.UserConfig{
 		MaxConnections:        30,
 		EFConstruction:        64,
 		EF:                    32,

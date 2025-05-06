@@ -20,6 +20,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
@@ -258,7 +259,7 @@ func Test_nearParamsVector_vectorFromParams(t *testing.T) {
 			name: "Should get vector from nearObject across classes",
 			args: args{
 				nearObject: &searchparams.NearObject{
-					Beacon: crossref.NewLocalhost("SpecifiedClass", "e5dc4a4c-ef0f-3aed-89a3-a73435c6bbcf").String(),
+					Beacon: crossref.NewLocalhost("LegacyClass", "e5dc4a4c-ef0f-3aed-89a3-a73435c6bbcf").String(),
 				},
 			},
 			want:    []float32{0.0, 0.0, 0.0},
@@ -300,12 +301,12 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 		wantTargetVector string
 	}{
 		{
-			name: "Should get vector from nearObject with single multi vector no target vector",
+			name: "should get vector from nearObject with single multi vector no target vector",
 			args: args{
 				nearObject: &searchparams.NearObject{
 					ID: "uuid",
 				},
-				className: "SingleMultiVector",
+				className: "SingleNamedVector",
 			},
 			want:             []float32{2.0, 2.0, 2.0},
 			returnVec:        true,
@@ -313,13 +314,13 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 			wantTargetVector: "",
 		},
 		{
-			name: "Should get vector from nearObject with single multi vector and target vector",
+			name: "should get vector from nearObject with single named vector and target vector",
 			args: args{
 				nearObject: &searchparams.NearObject{
 					ID:            "uuid",
 					TargetVectors: []string{"Vector"},
 				},
-				className: "SingleMultiVector",
+				className: "SingleNamedVector",
 			},
 			want:             []float32{2.0, 2.0, 2.0},
 			returnVec:        true,
@@ -327,13 +328,13 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 			wantTargetVector: "Vector",
 		},
 		{
-			name: "Should get vector from nearObject with multi vector no target vector",
+			name: "should get vector from nearObject with multi named vector and target vector",
 			args: args{
 				nearObject: &searchparams.NearObject{
 					ID:            "uuid",
 					TargetVectors: []string{"B"},
 				},
-				className: "MultiMultiVector",
+				className: "MultiNamedVector",
 			},
 			want:             []float32{4.0, 4.0, 4.0},
 			returnVec:        true,
@@ -341,12 +342,38 @@ func Test_nearParamsVector_multiVectorFromParams(t *testing.T) {
 			wantTargetVector: "B",
 		},
 		{
-			name: "Error if no vector is present",
+			name: "should get legacy vector from nearObject with default named vector name from legacy collection",
+			args: args{
+				nearObject: &searchparams.NearObject{
+					ID:            "uuid",
+					TargetVectors: []string{modelsext.DefaultNamedVectorName},
+				},
+				className: "LegacyCollection",
+			},
+			want:             []float32{1, 1, 1},
+			returnVec:        true,
+			wantErr:          false,
+			wantTargetVector: modelsext.DefaultNamedVectorName,
+		},
+		{
+			name: "should get legacy vector from nearObject from legacy collection",
 			args: args{
 				nearObject: &searchparams.NearObject{
 					ID: "uuid",
 				},
-				className: "SpecifiedClass",
+				className: "LegacyCollection",
+			},
+			want:      []float32{1, 1, 1},
+			returnVec: true,
+			wantErr:   false,
+		},
+		{
+			name: "error if no vector is present",
+			args: args{
+				nearObject: &searchparams.NearObject{
+					ID: "uuid",
+				},
+				className: "LegacyClass",
 			},
 			returnVec: false,
 			wantErr:   true,
@@ -529,7 +556,8 @@ func (f *fakeNearParamsSearcher) Object(ctx context.Context, className string, i
 	props search.SelectProperties, additional additional.Properties,
 	repl *additional.ReplicationProperties, tenant string,
 ) (*search.Result, error) {
-	if className == "SpecifiedClass" {
+	switch className {
+	case "LegacyClass":
 		vec := []float32{0.0, 0.0, 0.0}
 		if !f.returnVec {
 			vec = nil
@@ -538,20 +566,20 @@ func (f *fakeNearParamsSearcher) Object(ctx context.Context, className string, i
 		return &search.Result{
 			Vector: vec,
 		}, nil
-	} else if className == "SingleMultiVector" {
+	case "SingleNamedVector":
 		return &search.Result{
 			Vectors: models.Vectors{
 				"Vector": []float32{2.0, 2.0, 2.0},
 			},
 		}, nil
-	} else if className == "MultiMultiVector" {
+	case "MultiNamedVector":
 		return &search.Result{
 			Vectors: models.Vectors{
 				"A": []float32{3.0, 3.0, 3.0},
 				"B": []float32{4.0, 4.0, 4.0},
 			},
 		}, nil
-	} else {
+	default:
 		return &search.Result{
 			Vector: []float32{1.0, 1.0, 1.0},
 		}, nil

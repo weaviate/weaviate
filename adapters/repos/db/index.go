@@ -24,6 +24,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -38,6 +40,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	"github.com/weaviate/weaviate/cluster/router"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -46,7 +50,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -242,7 +245,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig,
-	sg schemaUC.SchemaGetter,
+	router *router.Router, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
@@ -293,8 +296,8 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		return index.DeletionStrategy()
 	}
 
-	index.replicator = replica.NewReplicator(cfg.ClassName.String(),
-		sg, nodeResolver, getDeletionStrategy, replicaClient, logger)
+	// TODO: Fix replica router instantiation to be at the top level
+	index.replicator = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, replicaClient, logger)
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 
@@ -613,7 +616,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.updateAsyncReplicationConfig(ctx, i.Config.AsyncReplicationEnabled); err != nil {
+		if err := shard.UpdateAsyncReplicationConfig(ctx, i.Config.AsyncReplicationEnabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil
@@ -650,6 +653,7 @@ type IndexConfig struct {
 	MemtablesMaxSizeMB                  int
 	MemtablesMinActiveSeconds           int
 	MemtablesMaxActiveSeconds           int
+	MinMMapSize                         int64
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
@@ -743,7 +747,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
 		}
@@ -907,6 +911,8 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		pos     []int
 	}
 	out := make([]error, len(objects))
+	// TODO this check causes problems because i think we'll write only write locally (no best effort)
+	// when rf=1, address in best effort pr
 	if i.replicationEnabled() && replProps == nil {
 		replProps = defaultConsistency()
 	}
@@ -969,7 +975,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			var errs []error
 			if replProps != nil {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
-					replica.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+					types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
 				shard, release, err := i.GetShard(ctx, shardName)
 				if err != nil {
@@ -1070,7 +1076,7 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	for shardName, group := range byShard {
 		var errs []error
 		if i.replicationEnabled() {
-			errs = i.replicator.AddReferences(ctx, shardName, group.refs, replica.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+			errs = i.replicator.AddReferences(ctx, shardName, group.refs, types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else {
 			shard, release, err := i.GetShard(ctx, shardName)
 			if err != nil {
@@ -1139,8 +1145,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		if replProps.NodeName != "" {
 			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, addl)
 		} else {
-			obj, err = i.replicator.GetOne(ctx,
-				replica.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl)
+			obj, err = i.replicator.GetOne(ctx, types.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl)
 		}
 		return obj, err
 	}
@@ -1304,7 +1309,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		return i.replicator.Exists(ctx, cl, shardName, id)
 	}
 
@@ -1456,9 +1461,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = defaultConsistency(replica.One)
+			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
-		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		err = i.replicator.CheckConsistency(ctx, l, outObjects)
 		if err != nil {
 			i.logger.WithField("action", "object_search").
@@ -1542,7 +1547,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 		}
 		objs := resultObjects
 		scores := resultScores
-		var results []resultSortable = make([]resultSortable, len(objs))
+		results := make([]resultSortable, len(objs))
 		for i := range objs {
 			results[i] = resultSortable{
 				object: objs[i],
@@ -1558,10 +1563,9 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			return results[i].score > results[j].score
 		})
 
-		var finalObjs []*storobj.Object = make([]*storobj.Object, len(results))
-		var finalScores []float32 = make([]float32, len(results))
+		finalObjs := make([]*storobj.Object, len(results))
+		finalScores := make([]float32, len(results))
 		for i, result := range results {
-
 			finalObjs[i] = result.object
 			finalScores[i] = result.score
 		}
@@ -1849,9 +1853,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = defaultConsistency(replica.One)
+			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
-		l := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		err = i.replicator.CheckConsistency(ctx, l, out)
 		if err != nil {
 			i.logger.WithField("action", "object_vector_search").
@@ -1934,7 +1938,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.DeleteObject(ctx, shardName, id, deletionTime, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate deletion: shard=%q %w", shardName, err)
 		}
@@ -1992,7 +1996,7 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false)
 }
 
-func (i *Index) loadLocalShard(ctx context.Context, shardName string) error {
+func (i *Index) LoadLocalShard(ctx context.Context, shardName string) error {
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true)
 }
 
@@ -2114,7 +2118,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		cl := replica.ConsistencyLevel(replProps.ConsistencyLevel)
+		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.MergeObject(ctx, shardName, &merge, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate single update: %w", err)
 		}
@@ -2272,6 +2276,10 @@ func (i *Index) drop() error {
 	}
 
 	return os.RemoveAll(i.path())
+}
+
+func (i *Index) DropShard(name string) error {
+	return i.dropShards([]string{name})
 }
 
 func (i *Index) dropShards(names []string) error {
@@ -2574,7 +2582,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 				repl = defaultConsistency()
 			}
 
-			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, replica.ConsistencyLevel(repl.ConsistencyLevel))
+			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, types.ConsistencyLevel(repl.ConsistencyLevel))
 		} else {
 			shard, release, err = i.GetShard(ctx, shardName)
 			if err == nil {
@@ -2639,7 +2647,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
-					dryRun, replica.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+					dryRun, types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
 				shard, release, err := i.GetShard(ctx, shardName)
 				if err != nil {
@@ -2690,12 +2698,12 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
 }
 
-func defaultConsistency(l ...replica.ConsistencyLevel) *additional.ReplicationProperties {
+func defaultConsistency(l ...types.ConsistencyLevel) *additional.ReplicationProperties {
 	rp := &additional.ReplicationProperties{}
 	if len(l) != 0 {
 		rp.ConsistencyLevel = string(l[0])
 	} else {
-		rp.ConsistencyLevel = string(replica.Quorum)
+		rp.ConsistencyLevel = string(types.ConsistencyLevelQuorum)
 	}
 	return rp
 }

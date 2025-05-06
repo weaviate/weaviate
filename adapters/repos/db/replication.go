@@ -23,7 +23,9 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
@@ -31,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
@@ -319,6 +322,143 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 	return i.initLocalShard(ctx, shardName)
 }
 
+// IncomingPauseFileActivity pauses the background processes of the specified shard.
+// You should explicitly call resumeMaintenanceCycles to resume the background processes after you don't
+// need the returned files to stay immutable anymore.
+func (i *Index) IncomingPauseFileActivity(ctx context.Context,
+	shardName string,
+) error {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("shard %q could not be found locally", shardName)
+	}
+	defer release()
+
+	err = localShard.HaltForTransfer(ctx, false)
+	if err != nil {
+		return fmt.Errorf("shard %q could not be halted for transfer: %w", shardName, err)
+	}
+
+	return nil
+}
+
+// IncomingResumeFileActivity resumes the background processes of the specified shard.
+func (i *Index) IncomingResumeFileActivity(ctx context.Context,
+	shardName string,
+) error {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("shard %q could not be found locally", shardName)
+	}
+	defer release()
+
+	err = localShard.resumeMaintenanceCycles(ctx)
+	if err != nil {
+		return fmt.Errorf("shard %q could not be resumed after transfer: %w", shardName, err)
+	}
+
+	return nil
+}
+
+// IncomingListFiles returns a list of files that can be used to get the
+// shard data at the time the pause was requested.
+// You should explicitly call resumeMaintenanceCycles to resume the background processes after you don't
+// need the returned files to stay immutable anymore.
+func (i *Index) IncomingListFiles(ctx context.Context,
+	shardName string,
+) ([]string, error) {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q could not be found locally", shardName)
+	}
+	defer release()
+
+	sd := backup.ShardDescriptor{Name: shardName}
+
+	// prevent writing into the index during collection of metadata
+	i.shardTransferMutex.Lock()
+	defer i.shardTransferMutex.Unlock()
+
+	if err = localShard.Store().FlushMemtables(ctx); err != nil {
+		return nil, fmt.Errorf("flush memtables: %w", err)
+	}
+
+	if err := localShard.ListBackupFiles(ctx, &sd); err != nil {
+		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
+	}
+
+	files := []string{
+		sd.DocIDCounterPath,
+		sd.PropLengthTrackerPath,
+		sd.ShardVersionPath,
+	}
+	files = append(files, sd.Files...)
+
+	return files, nil
+}
+
+// IncomingGetFileMetadata returns file metadata at the given path in the specified shards's root
+// directory.
+func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relativeFilePath string) (file.FileMetadata, error) {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return file.FileMetadata{}, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+	defer release()
+
+	finalPath := filepath.Join(localShard.Index().Config.RootPath, relativeFilePath)
+
+	return file.GetFileMetadata(finalPath)
+}
+
+// IncomingGetFile returns a reader for the file at the given path in the specified shard's root
+// directory. The caller must close the returned io.ReadCloser if no error is returned.
+func (i *Index) IncomingGetFile(ctx context.Context, shardName,
+	relativeFilePath string,
+) (io.ReadCloser, error) {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
+	}
+	defer release()
+
+	finalPath := filepath.Join(localShard.Index().Config.RootPath, relativeFilePath)
+
+	reader, err := os.Open(finalPath)
+	if err != nil {
+		return nil, fmt.Errorf("open file %q for reading: %w", relativeFilePath, err)
+	}
+
+	return reader, nil
+}
+
+// IncomingSetAsyncReplicationTargetNode configures and starts async replication with
+// the given node as the target.
+func (i *Index) IncomingSetAsyncReplicationTargetNode(
+	ctx context.Context,
+	shardName string,
+	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
+) error {
+	// TODO do we want to init the shard if it's deactivated (eg on disk)?
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
+	if err != nil {
+		return err
+	}
+	defer release()
+
+	err = localShard.addTargetNodeOverride(ctx, targetNodeOverride)
+	if err != nil {
+		return err
+	}
+	// we call update async replication config here to ensure that async replication starts
+	// if it's not already running
+	err = localShard.UpdateAsyncReplicationConfig(ctx, true)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Shard) filePutter(ctx context.Context,
 	filePath string,
 ) (io.WriteCloser, error) {
@@ -343,7 +483,7 @@ func (s *Shard) filePutter(ctx context.Context,
 // and otherwise a list of failed operations.
 func (idx *Index) OverwriteObjects(ctx context.Context,
 	shard string, updates []*objects.VObject,
-) ([]replica.RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	s, release, err := idx.GetShard(ctx, shard)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q not found locally", shard)
@@ -353,14 +493,14 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 	}
 	defer release()
 
-	var result []replica.RepairResponse
+	var result []types.RepairResponse
 
 	for i, u := range updates {
 		incomingObj := u.LatestObject
 
 		if (u.Deleted && u.ID == "") || (!u.Deleted && (incomingObj == nil || incomingObj.ID == "")) {
 			msg := fmt.Sprintf("received nil object or empty uuid at position %d", i)
-			result = append(result, replica.RepairResponse{Err: msg})
+			result = append(result, types.RepairResponse{Err: msg})
 			continue
 		}
 
@@ -384,7 +524,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 				currUpdateTime = errDeleted.DeletionTime().UnixMilli()
 			} // otherwise an unknown deletion time
 		} else if !errors.Is(err, lsmkv.NotFound) {
-			result = append(result, replica.RepairResponse{
+			result = append(result, types.RepairResponse{
 				ID:  id.String(),
 				Err: err.Error(),
 			})
@@ -409,7 +549,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 				idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
 				currUpdateTime > u.LastUpdateTimeUnixMilli {
 				// object changed and its state differs from recent known state
-				r := replica.RepairResponse{
+				r := types.RepairResponse{
 					ID:         id.String(),
 					Deleted:    locallyDeleted,
 					UpdateTime: currUpdateTime,
@@ -431,7 +571,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		if !u.Deleted && locallyDeleted &&
 			(idx.DeletionStrategy() != models.ReplicationConfigDeletionStrategyTimeBasedResolution ||
 				currUpdateTime > u.LastUpdateTimeUnixMilli) {
-			r := replica.RepairResponse{
+			r := types.RepairResponse{
 				ID:         id.String(),
 				Deleted:    locallyDeleted,
 				UpdateTime: currUpdateTime,
@@ -445,7 +585,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 		if u.Deleted {
 			err := s.DeleteObject(ctx, u.ID, time.UnixMilli(u.LastUpdateTimeUnixMilli))
 			if err != nil {
-				r := replica.RepairResponse{
+				r := types.RepairResponse{
 					ID:  u.ID.String(),
 					Err: fmt.Sprintf("overwrite deleted object: %v", err),
 				}
@@ -456,7 +596,7 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 		err = s.PutObject(ctx, storobj.FromObject(incomingObj, u.Vector, u.Vectors, u.MultiVectors))
 		if err != nil {
-			r := replica.RepairResponse{
+			r := types.RepairResponse{
 				ID:  id.String(),
 				Err: fmt.Sprintf("overwrite stale object: %v", err),
 			}
@@ -470,14 +610,14 @@ func (idx *Index) OverwriteObjects(ctx context.Context,
 
 func (i *Index) IncomingOverwriteObjects(ctx context.Context,
 	shardName string, vobjects []*objects.VObject,
-) ([]replica.RepairResponse, error) {
+) ([]types.RepairResponse, error) {
 	return i.OverwriteObjects(ctx, shardName, vobjects)
 }
 
 func (i *Index) DigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
-) (result []replica.RepairResponse, err error) {
-	result = make([]replica.RepairResponse, len(ids))
+) (result []types.RepairResponse, err error) {
+	result = make([]types.RepairResponse, len(ids))
 
 	s, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
@@ -512,7 +652,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 				updateTime = deletionTime.UnixMilli()
 			}
 
-			result[j] = replica.RepairResponse{
+			result[j] = types.RepairResponse{
 				ID:         ids[j].String(),
 				Deleted:    deleted,
 				UpdateTime: updateTime,
@@ -520,7 +660,7 @@ func (i *Index) DigestObjects(ctx context.Context,
 				Version: 0,
 			}
 		} else {
-			result[j] = replica.RepairResponse{
+			result[j] = types.RepairResponse{
 				ID:         objs[j].ID().String(),
 				UpdateTime: objs[j].LastUpdateTimeUnix(),
 				// TODO: use version when supported
@@ -534,13 +674,13 @@ func (i *Index) DigestObjects(ctx context.Context,
 
 func (i *Index) IncomingDigestObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
-) (result []replica.RepairResponse, err error) {
+) (result []types.RepairResponse, err error) {
 	return i.DigestObjects(ctx, shardName, ids)
 }
 
 func (i *Index) DigestObjectsInRange(ctx context.Context,
 	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (result []replica.RepairResponse, err error) {
+) (result []types.RepairResponse, err error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
@@ -556,7 +696,7 @@ func (i *Index) DigestObjectsInRange(ctx context.Context,
 
 func (i *Index) IncomingDigestObjectsInRange(ctx context.Context,
 	shardName string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (result []replica.RepairResponse, err error) {
+) (result []types.RepairResponse, err error) {
 	return i.DigestObjectsInRange(ctx, shardName, initialUUID, finalUUID, limit)
 }
 

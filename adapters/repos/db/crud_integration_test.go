@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -37,7 +38,6 @@ import (
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/objects"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func TestCRUD(t *testing.T) {
@@ -2420,7 +2420,7 @@ func TestIndexDigestObjects(t *testing.T) {
 
 		input := []strfmt.UUID{obj1.ID, obj2.ID}
 
-		expected := []replica.RepairResponse{
+		expected := []types.RepairResponse{
 			{
 				ID:         obj1.ID.String(),
 				UpdateTime: obj1.LastUpdateTimeUnix,

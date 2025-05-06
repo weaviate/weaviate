@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -290,7 +291,7 @@ func Test_AddClass(t *testing.T) {
 					propName:       propName(dataType, tokenization),
 					dataType:       dataType.PropString(),
 					tokenization:   tokenization,
-					expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+					expectedErrMsg: fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 				})
 			}
 
@@ -317,7 +318,7 @@ func Test_AddClass(t *testing.T) {
 							propName:       propName(dataType, tokenization),
 							dataType:       dataType.PropString(),
 							tokenization:   tokenization,
-							expectedErrMsg: fmt.Sprintf("Tokenization is not allowed for data type '%s'", dataType),
+							expectedErrMsg: fmt.Sprintf("tokenization is not allowed for data type '%s'", dataType),
 						})
 					}
 				}
@@ -345,7 +346,7 @@ func Test_AddClass(t *testing.T) {
 						propName:       fmt.Sprintf("RefProp_%d_%s", i, tokenization),
 						dataType:       dataType,
 						tokenization:   tokenization,
-						expectedErrMsg: "Tokenization is not allowed for reference data type",
+						expectedErrMsg: "tokenization is not allowed for reference data type",
 						callReadOnly:   true,
 					})
 				}
@@ -379,7 +380,7 @@ func Test_AddClass(t *testing.T) {
 							propName:       propName(dataType, tokenization),
 							dataType:       dataType.PropString(),
 							tokenization:   tokenization,
-							expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+							expectedErrMsg: fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 						})
 					}
 				}
@@ -1831,7 +1832,7 @@ func Test_UpdateClass(t *testing.T) {
 					Vectorizer:      "text2vec-contextionary",
 					VectorIndexType: hnswT,
 					VectorConfig: map[string]models.VectorConfig{
-						schema.DefaultNamedVectorName: {
+						modelsext.DefaultNamedVectorName: {
 							VectorIndexType: hnswT,
 							Vectorizer: map[string]interface{}{
 								"text2vec-contextionary": map[string]interface{}{},
@@ -1839,7 +1840,7 @@ func Test_UpdateClass(t *testing.T) {
 						},
 					},
 				},
-				expectedError: fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", schema.DefaultNamedVectorName),
+				expectedError: fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", modelsext.DefaultNamedVectorName),
 			},
 		}
 

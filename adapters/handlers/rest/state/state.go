@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -84,7 +85,8 @@ type State struct {
 	ClusterService *rCluster.Service
 	TenantActivity *tenantactivity.Handler
 
-	Migrator *db.Migrator
+	DistributedTaskScheduler *distributedtask.Scheduler
+	Migrator                 *db.Migrator
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

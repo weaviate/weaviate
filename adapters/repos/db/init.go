@@ -91,6 +91,7 @@ func (db *DB) init(ctx context.Context) error {
 				MemtablesMaxSizeMB:                  db.config.MemtablesMaxSizeMB,
 				MemtablesMinActiveSeconds:           db.config.MemtablesMinActiveSeconds,
 				MemtablesMaxActiveSeconds:           db.config.MemtablesMaxActiveSeconds,
+				MinMMapSize:                         db.config.MinMMapSize,
 				SegmentsCleanupIntervalSeconds:      db.config.SegmentsCleanupIntervalSeconds,
 				SeparateObjectsCompactions:          db.config.SeparateObjectsCompactions,
 				CycleManagerRoutinesFactor:          db.config.CycleManagerRoutinesFactor,
@@ -114,9 +115,9 @@ func (db *DB) init(ctx context.Context) error {
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
-				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
-				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler,
-				db.indexCheckpoints, db.memMonitor, db.reindexer)
+				db.router, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
+				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
+				db.memMonitor, db.reindexer)
 			if err != nil {
 				return errors.Wrap(err, "create index")
 			}

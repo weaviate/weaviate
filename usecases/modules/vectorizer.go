@@ -19,7 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -526,7 +526,7 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 		modConfigs[name] = modConfig
 	}
 
-	if schemachecks.HasLegacyVectorIndex(class) && class.Vectorizer != config.VectorizerModuleNone {
+	if modelsext.ClassHasLegacyVectorIndex(class) && class.Vectorizer != config.VectorizerModuleNone {
 		if modConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
 			modConfigs[""] = modConfig
 		} else {

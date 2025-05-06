@@ -54,6 +54,7 @@ import (
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modmodel2vec "github.com/weaviate/weaviate/modules/text2vec-model2vec"
 	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -80,6 +81,8 @@ const (
 	envTestImg2VecNeuralImage = "TEST_IMG2VEC_NEURAL_IMAGE"
 	// envTestRerankerTransformersImage adds ability to pass a custom image to module tests
 	envTestRerankerTransformersImage = "TEST_RERANKER_TRANSFORMERS_IMAGE"
+	// envTestText2vecModel2VecImage adds ability to pass a custom image to module tests
+	envTestText2vecModel2VecImage = "TEST_TEXT2VEC_MODEL2VEC_IMAGE"
 	// envTestMockOIDCImage adds ability to pass a custom image to module tests
 	envTestMockOIDCImage = "TEST_MOCKOIDC_IMAGE"
 )
@@ -104,6 +107,7 @@ type Compose struct {
 	withBackendAzure           bool
 	withBackendAzureContainer  string
 	withTransformers           bool
+	withModel2Vec              bool
 	withContextionary          bool
 	withQnATransformers        bool
 	withWeaviateExposeGRPCPort bool
@@ -371,6 +375,13 @@ func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithText2VecModel2Vec() *Compose {
+	d.withModel2Vec = true
+	d.enableModules = append(d.enableModules, modmodel2vec.Name)
+	d.defaultVectorizerModule = Text2VecModel2Vec
+	return d
+}
+
 func (d *Compose) WithGenerativeAWS(accessKey, secretKey, sessionToken string) *Compose {
 	d.weaviateEnvs["AWS_ACCESS_KEY"] = accessKey
 	d.weaviateEnvs["AWS_SECRET_KEY"] = secretKey
@@ -630,6 +641,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	}
 	if d.withBackendFilesystem {
 		envSettings["BACKUP_FILESYSTEM_PATH"] = "/tmp/backups"
+	}
+	if d.withModel2Vec {
+		image := os.Getenv(envTestText2vecModel2VecImage)
+		container, err := startT2VModel2Vec(ctx, networkName, image)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", Text2VecModel2Vec)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
 	}
 	if d.withTransformers {
 		image := os.Getenv(envTestText2vecTransformersImage)

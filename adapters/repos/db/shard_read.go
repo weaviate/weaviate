@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -38,7 +39,6 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
@@ -125,7 +125,7 @@ func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) (
 
 func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	initialUUID, finalUUID strfmt.UUID, limit int) (
-	objs []replica.RepairResponse, err error,
+	objs []types.RepairResponse, err error,
 ) {
 	initialUUIDBytes, err := uuid.MustParse(initialUUID.String()).MarshalBinary()
 	if err != nil {
@@ -154,7 +154,7 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 			return objs, fmt.Errorf("cannot unmarshal object: %w", err)
 		}
 
-		replicaObj := replica.RepairResponse{
+		replicaObj := types.RepairResponse{
 			ID:         obj.ID().String(),
 			UpdateTime: obj.LastUpdateTimeUnix(),
 			// TODO: use version when supported

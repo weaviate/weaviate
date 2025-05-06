@@ -149,7 +149,7 @@ func idToByte(idRaw interface{}) ([]byte, string, error) {
 		return nil, "", errors.New("could not extract format id in additional prop")
 	}
 	idStrfmtStr := idStrfmt.String()
-	hexInteger, success := new(big.Int).SetString(strings.Replace(idStrfmtStr, "-", "", -1), 16)
+	hexInteger, success := new(big.Int).SetString(strings.ReplaceAll(idStrfmtStr, "-", ""), 16)
 	if !success {
 		return nil, "", fmt.Errorf("failed to parse hex string to integer")
 	}
