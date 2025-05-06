@@ -42,7 +42,7 @@ func (db *DB) Aggregate(ctx context.Context,
 	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	if global.Manager().RejectRequests() {
-		return nil, fmt.Errorf("shutdown in progress")
+		return nil, global.ErrServerShuttingDown
 	}
 	idx := db.GetIndex(params.ClassName)
 	if idx == nil {
@@ -64,7 +64,7 @@ func (db *DB) GetQueryMaximumResults() int {
 func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
 	if global.Manager().RejectRequests() {
-		return nil, nil, fmt.Errorf("shutdown in progress")
+		return nil, nil, global.ErrServerShuttingDown
 	}
 	if idx == nil {
 		return nil, nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
@@ -98,7 +98,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
 	if global.Manager().RejectRequests() {
-		return nil, fmt.Errorf("shutdown in progress")
+		return nil, global.ErrServerShuttingDown
 	}
 	if params.Pagination == nil {
 		return nil, fmt.Errorf("invalid params, pagination object is nil")
@@ -119,7 +119,7 @@ func (db *DB) VectorSearch(ctx context.Context,
 	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
 	if global.Manager().RejectRequests() {
-		return nil, fmt.Errorf("shutdown in progress")
+		return nil, global.ErrServerShuttingDown
 	}
 	if len(searchVectors) == 0 || len(searchVectors) == 1 && isEmptyVector(searchVectors[0]) {
 		results, err := db.Search(ctx, params)
@@ -175,7 +175,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	if global.Manager().RejectRequests() {
-		return nil, fmt.Errorf("shutdown in progress")
+		return nil, global.ErrServerShuttingDown
 	}
 	var found search.Results
 
@@ -274,7 +274,7 @@ func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
 	if global.Manager().RejectRequests() {
-		return nil, fmt.Errorf("shutdown in progress")
+		return nil, global.ErrServerShuttingDown
 	}
 	return db.objectSearch(ctx, offset, limit, filters, sort, additional, tenant)
 }
@@ -349,7 +349,7 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	addl additional.Properties, tenant string,
 ) (search.Results, error) {
 	if global.Manager().RejectRequests() {
-		return nil, fmt.Errorf("shutdown in progress")
+		return nil, global.ErrServerShuttingDown
 	}
 	if addl.NoProps {
 		// If we have no props, there also can't be refs among them, so we can skip

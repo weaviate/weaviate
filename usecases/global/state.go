@@ -15,19 +15,18 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"fmt"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 var (
-	State     *StateType
+	State     *StateType = &StateType{}
 	StateOnce sync.Once
+	ErrServerShuttingDown = fmt.Errorf("server is shutting down")
 )
 
 func Manager() *StateType {
-	StateOnce.Do(func() {
-		State = &StateType{}
-	})
 	return State
 }
 
