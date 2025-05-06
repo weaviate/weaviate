@@ -761,8 +761,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 					}
 					time.Sleep(1 * time.Second)
 				}
-			}).
-			Maybe()
+			}).Maybe()
 		completionWg.Add(1)
 		op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
 		status := replication.NewShardReplicationStatus(api.HYDRATING)
