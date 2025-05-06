@@ -159,7 +159,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 				// Cancel the in-flight operation
 				// Is a noop, returns false if the op doesn't exist
 				c.ongoingOps.Cancel(op.Op.ID)
-				// Ensure we don't accidentally re-spawn the operation by continuing
+				// Continue to ensure we don't accidentally re-spawn the operation in a new worker
 				continue
 			}
 
@@ -219,7 +219,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					if err != nil && errors.Is(err, context.DeadlineExceeded) {
 						c.engineOpCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation timed out")
-					} else if err != nil && errors.Is(err, context.Canceled) {
+					} else if err != nil && errors.Is(err, context.Canceled) && c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 						opLogger.WithError(err).Debug("replication operation cancelled")
 						c.cancelOp(workerCtx, operation, opLogger)
 					} else if err != nil {
@@ -252,7 +252,7 @@ func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardRepl
 	case api.FINALIZING:
 		return c.processStateAndTransition(ctx, op, c.processFinalizingOp)
 	case api.READY:
-		return c.processStateAndTransition(ctx, op, c.processReadyOp)
+		return nil
 	case api.CANCELLED:
 		return c.processStateAndTransition(ctx, op, c.processCancelledOp)
 	default:
@@ -272,11 +272,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 	logger := getLoggerForOp(c.logger.Logger, op.Op)
 	nextState, err := backoff.RetryWithData(func() (api.ShardReplicationState, error) {
 		if ctx.Err() != nil {
-			if errors.Is(ctx.Err(), context.Canceled) {
-				logger.Debug("context cancelled, stopping replication operation")
-			} else {
-				logger.WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
-			}
+			logger.WithError(ctx.Err()).Error("error while processing replication operation, shutting down")
 			return api.ShardReplicationState(""), backoff.Permanent(ctx.Err())
 		}
 
@@ -435,7 +431,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	}
 
 	if ctx.Err() != nil {
-		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 	// we only check the status of the async replication every 5 seconds to avoid
@@ -452,7 +448,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	}
 
 	if ctx.Err() != nil {
-		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
@@ -486,21 +482,6 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		return api.ShardReplicationState(""), err
 	}
 	return api.READY, nil
-}
-
-func (c *CopyOpConsumer) processReadyOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
-	logger := getLoggerForOp(c.logger.Logger, op.Op)
-	logger.Info("processing ready replication operation")
-
-	if !op.Status.ShouldDelete {
-		return api.ShardReplicationState(""), fmt.Errorf("replication operation with id %v is not in a state to be deleted", op.Op.ID)
-	}
-
-	if err := c.leaderClient.ReplicationRemoveReplicaOp(op.Op.ID); err != nil {
-		logger.WithError(err).Error("failure while removing replica operation")
-		return api.ShardReplicationState(""), err
-	}
-	return DELETED, nil
 }
 
 func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
