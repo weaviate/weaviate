@@ -24,8 +24,8 @@ const (
 const (
 	DefaultMultivectorEnabled       = false
 	DefaultMultivectorMuveraEnabled = false
-	DefaultMultivectorKSim          = 3
-	DefaultMultivectorDProjections  = 8
+	DefaultMultivectorKSim          = 4
+	DefaultMultivectorDProjections  = 16
 	DefaultMultivectorRepetitions   = 20
 	DefaultMultivectorAggregation   = "maxSim"
 )
