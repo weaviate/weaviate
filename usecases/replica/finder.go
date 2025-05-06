@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -304,12 +305,19 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 }
 
 type ShardDifferenceReader struct {
-	Host        string
-	RangeReader hashtree.AggregatedHashTreeRangeReader
+	TargetNodeName    string
+	TargetNodeAddress string
+	RangeReader       hashtree.AggregatedHashTreeRangeReader
 }
 
+// CollectShardDifferences collects the differences between the local node and the target nodes.
+// It returns a ShardDifferenceReader that contains the differences and the target node name/address.
+// If no differences are found, it returns ErrNoDiffFound.
+// When ErrNoDiffFound is returned as the error, the returned *ShardDifferenceReader may exist
+// and have some (but not all) of its fields set.
 func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
+	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
 	routingPlan, err := f.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:       f.class,
@@ -320,7 +328,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
 
-	collectDiffWith := func(host string) (*ShardDifferenceReader, error) {
+	collectDiffForTargetNode := func(targetNodeAddress, targetNodeName string) (*ShardDifferenceReader, error) {
 		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
 		defer cancel()
 
@@ -333,12 +341,12 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		for l := 0; l <= ht.Height(); l++ {
 			_, err := ht.Level(l, diff, digests)
 			if err != nil {
-				return nil, fmt.Errorf("%q: %w", host, err)
+				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 
-			levelDigests, err := f.client.HashTreeLevel(ctx, host, f.class, shardName, l, diff)
+			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, diff)
 			if err != nil {
-				return nil, fmt.Errorf("%q: %w", host, err)
+				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 			if len(levelDigests) == 0 {
 				// no differences were found
@@ -353,24 +361,51 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}
 
 		if diff.SetCount() == 0 {
-			return nil, ErrNoDiffFound
+			return &ShardDifferenceReader{
+				TargetNodeName:    targetNodeName,
+				TargetNodeAddress: targetNodeAddress,
+			}, ErrNoDiffFound
 		}
 
 		return &ShardDifferenceReader{
-			Host:        host,
-			RangeReader: ht.NewRangeReader(diff),
+			TargetNodeName:    targetNodeName,
+			TargetNodeAddress: targetNodeAddress,
+			RangeReader:       ht.NewRangeReader(diff),
 		}, nil
 	}
 
 	ec := errorcompounder.New()
 
-	localHostAddr, _ := f.router.NodeHostname(f.nodeName)
-	for _, host := range routingPlan.ReplicasHostAddrs {
-		if host == localHostAddr {
+	// If the caller provided a list of target node overrides, filter the replicas to only include
+	// the relevant overrides so that we only "push" updates to the specified nodes.
+	localNodeName := f.LocalNodeName()
+	targetNodesToUse := slices.Clone(routingPlan.Replicas)
+	if len(targetNodeOverrides) > 0 {
+		targetNodesToUse = make([]string, 0, len(targetNodeOverrides))
+		for _, override := range targetNodeOverrides {
+			if override.SourceNode == localNodeName && override.CollectionID == f.class && override.ShardID == shardName {
+				targetNodesToUse = append(targetNodesToUse, override.TargetNode)
+			}
+		}
+	}
+
+	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas))
+	replicasHostAddrs := make([]string, 0, len(routingPlan.ReplicasHostAddrs))
+	for _, replica := range targetNodesToUse {
+		replicaNodeNames = append(replicaNodeNames, replica)
+		replicaHostAddr, ok := f.router.NodeHostname(replica)
+		if ok {
+			replicasHostAddrs = append(replicasHostAddrs, replicaHostAddr)
+		}
+	}
+	localHostAddr, _ := f.router.NodeHostname(localNodeName)
+	for i, targetNodeAddress := range replicasHostAddrs {
+		targetNodeName := replicaNodeNames[i]
+		if targetNodeAddress == localHostAddr {
 			continue
 		}
 
-		diffReader, err := collectDiffWith(host)
+		diffReader, err := collectDiffForTargetNode(targetNodeAddress, targetNodeName)
 		if err != nil {
 			if !errors.Is(err, ErrNoDiffFound) {
 				ec.Add(err)
@@ -386,7 +421,14 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, err
 	}
 
-	return nil, ErrNoDiffFound
+	var targetNodeName string
+	// TODO how to get rid of len == 1 check?
+	if len(targetNodeOverrides) == 1 {
+		targetNodeName = targetNodeOverrides[0].TargetNode
+	}
+	return &ShardDifferenceReader{
+		TargetNodeName: targetNodeName,
+	}, ErrNoDiffFound
 }
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,
@@ -400,4 +442,8 @@ func (f *Finder) Overwrite(ctx context.Context,
 	host, index, shard string, xs []*objects.VObject,
 ) ([]types.RepairResponse, error) {
 	return f.client.Overwrite(ctx, host, index, shard, xs)
+}
+
+func (f *Finder) LocalNodeName() string {
+	return f.nodeName
 }

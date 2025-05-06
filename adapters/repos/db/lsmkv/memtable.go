@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"path/filepath"
 	"time"
 
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/ctxlock"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 type Memtable struct {
@@ -48,12 +50,15 @@ type Memtable struct {
 	tombstones *sroar.Bitmap
 
 	enableChecksumValidation bool
-	lockTimeout              time.Duration
+
+	bm25config        *models.BM25Config
+	averagePropLength float64
+	propLengthCount   uint64
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
-	enableChecksumValidation bool,
+	enableChecksumValidation bool, bm25config *models.BM25Config,
 ) (*Memtable, error) {
 	m := &Memtable{
 		key:                      &binarySearchTree{},
@@ -70,6 +75,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		createdAt:                time.Now(),
 		metrics:                  newMemtableMetrics(metrics, filepath.Dir(path), strategy),
 		enableChecksumValidation: enableChecksumValidation,
+		bm25config:               bm25config,
 	}
 
 	m.MeteredRWMutex = ctxlock.NewMeteredRWMutex("memtable")
@@ -463,4 +469,30 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 	m.tombstones.Set(docId)
 
 	return nil
+}
+
+func (m *Memtable) GetPropLengths() (uint64, uint64, error) {
+	m.RLock()
+	flatA := m.keyMap.flattenInOrder()
+	m.RUnlock()
+
+	docIdsLengths := make(map[uint64]uint32)
+	propLengthSum := uint64(0)
+	propLengthCount := uint64(0)
+
+	for _, mapNode := range flatA {
+		for j := range mapNode.values {
+			docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
+			if !mapNode.values[j].Tombstone {
+				fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(mapNode.values[j].Value[4:]))
+				if _, ok := docIdsLengths[docId]; !ok {
+					propLengthSum += uint64(fieldLength)
+					propLengthCount++
+				}
+				docIdsLengths[docId] = uint32(fieldLength)
+			}
+		}
+	}
+
+	return propLengthSum, propLengthCount, nil
 }

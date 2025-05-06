@@ -937,6 +937,41 @@ func (c *RemoteIndex) GetFile(ctx context.Context, hostName, indexName,
 	return file, c.retry(ctx, 9, try)
 }
 
+// SetAsyncReplicationTargetNode configures and starts async replication for the given
+// host with the specified override.
+func (c *RemoteIndex) SetAsyncReplicationTargetNode(
+	ctx context.Context,
+	hostName, indexName, shardName string,
+	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
+) error {
+	body, err := clusterapi.IndicesPayloads.SetAsyncReplicationTargetNode.Marshal(targetNodeOverride)
+	if err != nil {
+		return fmt.Errorf("marshal target node override: %w", err)
+	}
+	req, err := setupRequest(ctx, http.MethodPost, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/set-async-replication-target-node", indexName, shardName),
+		"", bytes.NewReader(body))
+	clusterapi.IndicesPayloads.SetAsyncReplicationTargetNode.SetContentTypeHeaderReq(req)
+
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
+	try := func(ctx context.Context) (bool, error) {
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusOK {
+			body, _ := io.ReadAll(res.Body)
+			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+		}
+		return false, nil
+	}
+	return c.retry(ctx, 9, try)
+}
+
 // setupRequest is a simple helper to create a new http request with the given method, host, path,
 // query, and body. Note that you can leave the query empty if you don't need it and the body can
 // be nil. This does not send the request, just creates the request object.

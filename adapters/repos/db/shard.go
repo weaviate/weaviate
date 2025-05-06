@@ -21,11 +21,11 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"go.etcd.io/bbolt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -116,6 +117,8 @@ type ShardLike interface {
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
+	UpdateAsyncReplicationConfig(ctx context.Context, enabled bool) error
+
 	isReadOnly() error
 	pathLSM() string
 
@@ -158,7 +161,10 @@ type ShardLike interface {
 	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
-	updateAsyncReplicationConfig(ctx context.Context, enabled bool) error
+	// addTargetNodeOverride adds a target node override to the shard.
+	addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
+	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
 
 	Metrics() *Metrics
 
@@ -206,12 +212,13 @@ type Shard struct {
 	hashtreeFullyInitialized   bool
 	asyncReplicationCancelFunc context.CancelFunc
 
-	lastComparedHosts    []string
-	lastComparedHostsMux sync.RWMutex
+	lastComparedHosts                 []string
+	lastComparedHostsMux              sync.RWMutex
+	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
 	//
 
 	status              ShardStatus
-	statusLock          sync.Mutex
+	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
 
 	stopDimensionTracking        chan struct{}

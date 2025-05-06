@@ -249,7 +249,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		authZController:    authZController,
 		authZManager:       rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
-		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader(), cfg.ReplicaCopier, reg),
+		replicationManager: replication.NewManager(schemaManager.NewSchemaReader(), reg),
 		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
 			Clock:            clockwork.NewRealClock(),
 			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
@@ -660,6 +660,7 @@ func (st *Store) raftConfig() *raft.Config {
 
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
 	cfg.LogLevel = st.cfg.Logger.GetLevel().String()
+	cfg.NoLegacyTelemetry = true
 
 	logger := log.NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger
