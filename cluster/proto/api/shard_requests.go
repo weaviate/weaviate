@@ -29,7 +29,7 @@ const (
 	FINALIZING  ShardReplicationState = "FINALIZING"
 	READY       ShardReplicationState = "READY"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"
-	ABORTED     ShardReplicationState = "ABORTED"
+	CANCELLED   ShardReplicationState = "CANCELLED" // The operation has been cancelled. It cannot be resumed.
 )
 
 type ShardReplicationTransferType string
@@ -78,7 +78,7 @@ type ReplicationRegisterErrorRequest struct {
 
 type ReplicationRegisterErrorResponse struct{}
 
-type ReplicationDeleteOpRequest struct {
+type ReplicationRemoveOpRequest struct {
 	Version int
 
 	Id uint64
@@ -106,4 +106,19 @@ type ReplicationDetailsResponse struct {
 	Status        ReplicationDetailsState
 	StatusHistory []ReplicationDetailsState
 	TransferType  string
+}
+
+type ReplicationCancelRequest struct {
+	Version int
+	Uuid    strfmt.UUID
+}
+
+type ReplicationDeleteRequest struct {
+	Version int
+	Uuid    strfmt.UUID
+}
+
+type ReplicationCancellationCompleteRequest struct {
+	Version int
+	Id      uint64
 }

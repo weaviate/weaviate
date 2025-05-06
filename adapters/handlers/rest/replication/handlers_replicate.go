@@ -144,3 +144,45 @@ func (h *replicationHandler) handleInternalServerError(id strfmt.UUID, err error
 	return replication.NewReplicationDetailsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(
 		fmt.Errorf("error while retrieving details for replication operation id '%s': %w", id, err)))
 }
+
+func (h *replicationHandler) deleteReplication(params replication.DeleteReplicationParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata()...); err != nil {
+		return replication.NewDeleteReplicationForbidden()
+	}
+
+	if err := h.replicationManager.DeleteReplication(params.ID); err != nil {
+		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+			return h.handleOperationNotFoundError(params.ID, err)
+		}
+		return h.handleInternalServerError(params.ID, err)
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "delete_replication",
+		"id":     params.ID,
+	}).Info("replication operation stopped")
+
+	return replication.NewDeleteReplicationNoContent()
+}
+
+func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata()...); err != nil {
+		return replication.NewCancelReplicationForbidden()
+	}
+
+	if err := h.replicationManager.CancelReplication(params.ID); err != nil {
+		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+			return h.handleOperationNotFoundError(params.ID, err)
+		}
+		return h.handleInternalServerError(params.ID, err)
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "cancel_replication",
+		"id":     params.ID,
+	}).Info("replication operation cancelled")
+
+	return replication.NewCancelReplicationNoContent()
+}
