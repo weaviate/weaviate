@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/ctxlock"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -39,17 +40,17 @@ import (
 
 type hnsw struct {
 	// global lock to prevent concurrent map read/write, etc.
-	sync.RWMutex
+	ctxlock.MeteredRWMutex
 
 	// certain operations related to deleting, such as finding a new entrypoint
 	// can only run sequentially, this separate lock helps assuring this without
 	// blocking the general usage of the hnsw index
 	deleteLock *sync.Mutex
 
-	tombstoneLock *sync.RWMutex
+	tombstoneLock *ctxlock.MeteredRWMutex
 
 	// prevents tombstones cleanup to be performed in parallel with index reset operation
-	resetLock *sync.RWMutex
+	resetLock *ctxlock.MeteredRWMutex
 	// indicates whether reset operation occurred or not - if so tombstones cleanup method
 	// is aborted as it makes no sense anymore
 	resetCtx       context.Context
@@ -172,7 +173,7 @@ type hnsw struct {
 	// to define the rescoring concurrency.
 	rescoreConcurrency int
 
-	compressActionLock *sync.RWMutex
+	compressActionLock *ctxlock.MeteredRWMutex
 	className          string
 	shardName          string
 	VectorForIDThunk   common.VectorForID[float32]
@@ -275,8 +276,8 @@ func New(cfg Config, uc ent.UserConfig,
 		logger:                cfg.Logger,
 		distancerProvider:     cfg.DistanceProvider,
 		deleteLock:            &sync.Mutex{},
-		tombstoneLock:         &sync.RWMutex{},
-		resetLock:             &sync.RWMutex{},
+		tombstoneLock:         ctxlock.NewMeteredRWMutex("tombstone"),
+		resetLock:             ctxlock.NewMeteredRWMutex("reset"),
 		resetCtx:              resetCtx,
 		resetCtxCancel:        resetCtxCancel,
 		shutdownCtx:           shutdownCtx,
@@ -292,7 +293,7 @@ func New(cfg Config, uc ent.UserConfig,
 		shardName: cfg.ShardName,
 
 		randFunc:                  rand.Float64,
-		compressActionLock:        &sync.RWMutex{},
+		compressActionLock:        ctxlock.NewMeteredRWMutex("compressAction"),
 		className:                 cfg.ClassName,
 		VectorForIDThunk:          cfg.VectorForIDThunk,
 		TempVectorForIDThunk:      cfg.TempVectorForIDThunk,

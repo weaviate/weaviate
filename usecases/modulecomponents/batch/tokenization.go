@@ -13,10 +13,10 @@ package batch
 
 import (
 	"context"
-	"sync"
 
 	"github.com/weaviate/weaviate/usecases/modulecomponents/settings"
 
+	"github.com/weaviate/weaviate/entities/ctxlock"
 	"github.com/weaviate/weaviate/entities/moduletools"
 
 	"github.com/weaviate/tiktoken-go"
@@ -26,12 +26,12 @@ import (
 )
 
 type EncoderCache struct {
-	lock  sync.RWMutex
+	lock  *ctxlock.MeteredRWMutex
 	cache map[string]*tiktoken.Tiktoken
 }
 
 func NewEncoderCache() *EncoderCache {
-	return &EncoderCache{cache: make(map[string]*tiktoken.Tiktoken), lock: sync.RWMutex{}}
+	return &EncoderCache{cache: make(map[string]*tiktoken.Tiktoken), lock: ctxlock.NewMeteredRWMutex("tokenizer")}
 }
 
 func (e *EncoderCache) Get(model string) (*tiktoken.Tiktoken, bool) {

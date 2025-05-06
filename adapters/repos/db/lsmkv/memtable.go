@@ -27,7 +27,7 @@ import (
 )
 
 type Memtable struct {
-	*ctxlock.MaxRWMutex
+	*ctxlock.MeteredRWMutex
 	key                *binarySearchTree
 	keyMulti           *binarySearchTreeMulti
 	keyMap             *binarySearchTreeMap
@@ -70,10 +70,9 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		createdAt:                time.Now(),
 		metrics:                  newMemtableMetrics(metrics, filepath.Dir(path), strategy),
 		enableChecksumValidation: enableChecksumValidation,
-		lockTimeout:              10 * time.Second,
 	}
 
-	m.MaxRWMutex = ctxlock.NewMaxRWMutex("memtable")
+	m.MeteredRWMutex = ctxlock.NewMeteredRWMutex("memtable")
 	m.CtxRWLocation("memtable")
 
 	if m.secondaryIndices > 0 {
@@ -100,9 +99,7 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
 
-	if ok := m.TryRLock(); !ok {
-		return nil, errors.New("failed to acquire read lock")
-	}
+	m.RLock()
 	defer m.RUnlock()
 
 	return m.key.get(key)
@@ -116,9 +113,7 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
 
-	if ok := m.TryRLock(); !ok {
-		return nil, errors.New("failed to acquire read lock")
-	}
+	m.RLock()
 	defer m.RUnlock()
 
 	primary := m.secondaryToPrimary[pos][string(key)]
@@ -137,9 +132,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("put only possible with strategy 'replace'")
 	}
 
-	if ok := m.TryLock(); !ok {
-		return errors.New("failed to acquire lock")
-	}
+	m.Lock()
 	defer m.Unlock()
 
 	var secondaryKeys [][]byte
@@ -187,9 +180,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	if ok := m.TryLock(); !ok {
-		return errors.New("failed to acquire lock")
-	}
+	m.Lock()
 	defer m.Unlock()
 
 	var secondaryKeys [][]byte
@@ -228,9 +219,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	if ok := m.TryLock(); !ok {
-		return errors.New("failed to acquire lock")
-	}
+	m.Lock()
 	defer m.Unlock()
 
 	var secondaryKeys [][]byte
@@ -298,9 +287,7 @@ func (m *Memtable) getCollection(key []byte) ([]value, error) {
 			StrategySetCollection, StrategyMapCollection, StrategyInverted)
 	}
 
-	if ok := m.TryRLock(); !ok {
-		return nil, errors.New("failed to acquire read lock")
-	}
+	m.RLock()
 	defer m.RUnlock()
 
 	v, err := m.keyMulti.get(key)
@@ -320,9 +307,7 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 			StrategyMapCollection, StrategyInverted)
 	}
 
-	if ok := m.TryRLock(); !ok {
-		return nil, errors.New("failed to acquire read lock")
-	}
+	m.RLock()
 	defer m.RUnlock()
 
 	v, err := m.keyMap.get(key)
@@ -342,9 +327,7 @@ func (m *Memtable) append(key []byte, values []value) error {
 			StrategySetCollection, StrategyMapCollection)
 	}
 
-	if ok := m.TryLock(); !ok {
-		return errors.New("failed to acquire lock")
-	}
+	m.Lock()
 	defer m.Unlock()
 	if err := m.commitlog.append(segmentCollectionNode{
 		primaryKey: key,
@@ -388,9 +371,7 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 		},
 	}
 
-	if ok := m.TryLock(); !ok {
-		return errors.New("failed to acquire lock")
-	}
+	m.Lock()
 	defer m.Unlock()
 
 	if err := m.commitlog.append(newNode); err != nil {
@@ -450,9 +431,7 @@ func (m *Memtable) countStats() *countStats {
 // that the WAL is written before a successful response is returned to the
 // user.
 func (m *Memtable) writeWAL() error {
-	if ok := m.TryLock(); !ok {
-		return errors.New("failed to acquire lock")
-	}
+	m.Lock()
 	defer m.Unlock()
 
 	return m.commitlog.flushBuffers()
@@ -463,9 +442,7 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 		return nil, errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
 	}
 
-	if ok := m.TryRLock(); !ok {
-		return nil, errors.New("failed to acquire read lock")
-	}
+	m.RLock()
 	defer m.RUnlock()
 
 	if m.tombstones != nil {
@@ -480,9 +457,7 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
 	}
 
-	if ok := m.TryLock(); !ok {
-		return errors.New("failed to acquire lock")
-	}
+	m.Lock()
 	defer m.Unlock()
 
 	m.tombstones.Set(docId)
