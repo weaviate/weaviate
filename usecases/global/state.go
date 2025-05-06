@@ -12,7 +12,6 @@
 package global
 
 import (
-	"sync"
 	"sync/atomic"
 	"time"
 	"fmt"
@@ -22,7 +21,6 @@ import (
 
 var (
 	State     *StateType = &StateType{}
-	StateOnce sync.Once
 	ErrServerShuttingDown = fmt.Errorf("server is shutting down")
 )
 
