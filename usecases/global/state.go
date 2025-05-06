@@ -20,7 +20,7 @@ import (
 )
 
 var (
-	State     *StateType = &StateType{}
+	state     *StateType = &StateType{}
 	ErrServerShuttingDown = fmt.Errorf("server is shutting down")
 )
 
