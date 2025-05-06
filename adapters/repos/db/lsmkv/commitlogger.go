@@ -252,7 +252,7 @@ func (cl *commitLogger) walPath() string {
 
 func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) error {
 	if global.Manager().IsShutdownInProgress() {
-		return fmt.Errorf("server is shutting down")
+		return global.ErrServerShuttingDown
 	}
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
 
@@ -305,7 +305,7 @@ func (cl *commitLogger) append(node segmentCollectionNode) error {
 		return nil
 	}
 	if global.Manager().IsShutdownInProgress() {
-		return fmt.Errorf("server is shutting down")
+		return global.ErrServerShuttingDown
 	}
 
 	cl.bufNode.Reset()

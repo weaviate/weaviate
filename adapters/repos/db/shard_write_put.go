@@ -33,7 +33,7 @@ import (
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 	if global.Manager().RejectRequests() {
-		return fmt.Errorf("server is shutting down")
+		return global.ErrServerShuttingDown
 	}
 	s.activityTracker.Add(1)
 	if err := s.isReadOnly(); err != nil {

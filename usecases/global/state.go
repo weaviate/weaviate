@@ -23,7 +23,7 @@ import (
 var (
 	State     *StateType = &StateType{}
 	StateOnce sync.Once
-	ErrServerShuttingDown = fmt.Errorf("server is shutting down")
+	ErrServerShuttingDown = global.ErrServerShuttingDown
 )
 
 func Manager() *StateType {

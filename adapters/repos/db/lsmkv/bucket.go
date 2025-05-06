@@ -695,7 +695,7 @@ func (b *Bucket) Put(key, value []byte, opts ...SecondaryKeyOption) error {
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 	if global.Manager().IsShutdownInProgress() {
-		return fmt.Errorf("server is shutting down")
+		return global.ErrServerShuttingDown
 	}
 
 	return b.active.put(key, value, opts...)

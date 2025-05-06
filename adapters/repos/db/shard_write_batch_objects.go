@@ -36,7 +36,7 @@ func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	if global.Manager().RejectRequests() {
-		return []error{fmt.Errorf("server is shutting down")}
+		return []error{global.ErrServerShuttingDown}
 	}
 	s.activityTracker.Add(1)
 	if err := s.isReadOnly(); err != nil {
@@ -112,7 +112,7 @@ func (ob *objectsBatcher) Objects(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
 	if global.Manager().RejectRequests() {
-		return []error{fmt.Errorf("server is shutting down")}
+		return []error{global.ErrServerShuttingDown}
 	}
 	beforeBatch := time.Now()
 	defer ob.shard.Metrics().BatchObject(beforeBatch, len(objects))
