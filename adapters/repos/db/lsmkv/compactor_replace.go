@@ -46,12 +46,13 @@ type compactorReplace struct {
 	scratchSpacePath string
 
 	enableChecksumValidation bool
+	expectedSize             int64
 }
 
 func newCompactorReplace(w io.WriteSeeker,
 	c1, c2 *segmentCursorReplace, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
-	enableChecksumValidation bool, maxNewFileSize int64,
+	enableChecksumValidation bool, expectedSize int64,
 ) *compactorReplace {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -60,7 +61,7 @@ func newCompactorReplace(w io.WriteSeeker,
 	writeCB := func(written int64) {
 		observeWrite.Observe(float64(written))
 	}
-	writer, mw := compactor.NewWriter(diskio.NewMeteredWriter(w, writeCB), maxNewFileSize)
+	writer, mw := compactor.NewWriter(diskio.NewMeteredWriter(w, writeCB), expectedSize)
 
 	return &compactorReplace{
 		c1:                       c1,
@@ -73,6 +74,7 @@ func newCompactorReplace(w io.WriteSeeker,
 		secondaryIndexCount:      secondaryIndexCount,
 		scratchSpacePath:         scratchSpacePath,
 		enableChecksumValidation: enableChecksumValidation,
+		expectedSize:             expectedSize,
 	}
 }
 
@@ -220,6 +222,6 @@ func (c *compactorReplace) writeIndexes(f *segmentindex.SegmentFile,
 			"operation": "writeIndices",
 		}),
 	}
-	_, err := f.WriteIndexes(indexes)
+	_, err := f.WriteIndexes(indexes, uint64(c.expectedSize))
 	return err
 }

@@ -17,12 +17,22 @@ import (
 	"os"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+
 	"github.com/stretchr/testify/require"
 )
 
 func BenchmarkIndexesWriteTo(b *testing.B) {
 	path := b.TempDir()
-	index := Indexes{SecondaryIndexCount: 10, ScratchSpacePath: path + "/scratch"}
+	index := Indexes{
+		SecondaryIndexCount: 10,
+		ScratchSpacePath:    path + "/scratch",
+		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+			"strategy":  "test",
+			"operation": "writeIndices",
+		}),
+	}
 	start := HeaderSize
 	for i := 0; i < 10; i++ {
 		key := Key{Key: []byte(fmt.Sprintf("primary%d", i))}
@@ -39,17 +49,21 @@ func BenchmarkIndexesWriteTo(b *testing.B) {
 
 	b.ResetTimer()
 
-	for i := 0; i < b.N; i++ {
-		f, err := os.Create(path + fmt.Sprintf("/test%d", i))
-		require.NoError(b, err)
+	for _, size := range []uint64{4096, 4097} {
+		b.Run(fmt.Sprintf("size=%d", size), func(b *testing.B) {
+			for i := 0; i < b.N; i++ {
+				f, err := os.Create(path + fmt.Sprintf("/test%d", i))
+				require.NoError(b, err)
 
-		w := bufio.NewWriter(f)
+				w := bufio.NewWriter(f)
 
-		_, err = index.WriteTo(w)
-		require.NoError(b, err)
+				_, err = index.WriteTo(w, size)
+				require.NoError(b, err)
 
-		require.NoError(b, w.Flush())
-		require.NoError(b, f.Sync())
-		require.NoError(b, f.Close())
+				require.NoError(b, w.Flush())
+				require.NoError(b, f.Sync())
+				require.NoError(b, f.Close())
+			}
+		})
 	}
 }

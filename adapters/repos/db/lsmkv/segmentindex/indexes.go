@@ -28,6 +28,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
+const WriteToMemoryMaxSize = 4096
+
 type Indexes struct {
 	Keys                []Key
 	SecondaryIndexCount uint16
@@ -35,8 +37,10 @@ type Indexes struct {
 	ObserveWrite        prometheus.Observer
 }
 
-func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
-	if len(s.Keys) < 100 {
+func (s *Indexes) WriteTo(w io.Writer, expectedSize uint64) (int64, error) {
+	// this number is only used to decide if we should use the more efficient (but memory intensive) in-Memory code path
+	// or the one with scratch files which is less efficient (more write operations) but can handle any size
+	if expectedSize < WriteToMemoryMaxSize {
 		return s.writeToMemory(w)
 	} else {
 		return s.writeToScratchFiles(w)

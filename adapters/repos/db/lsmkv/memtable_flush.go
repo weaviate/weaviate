@@ -116,7 +116,7 @@ func (m *Memtable) flush() (rerr error) {
 			}),
 		}
 
-		if _, err := segmentFile.WriteIndexes(indexes); err != nil {
+		if _, err := segmentFile.WriteIndexes(indexes, m.size); err != nil {
 			return err
 		}
 	}
