@@ -15,7 +15,8 @@ import "github.com/sirupsen/logrus"
 
 func getLoggerForOp(logger *logrus.Logger, op ShardReplicationOp) *logrus.Entry {
 	return logger.WithFields(logrus.Fields{
-		"op":                op.ID,
+		"op_uuid":           op.UUID,
+		"op_id":             op.ID,
 		"source_node":       op.SourceShard.NodeId,
 		"target_node":       op.TargetShard.NodeId,
 		"source_shard":      op.SourceShard.ShardId,
