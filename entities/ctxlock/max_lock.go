@@ -18,7 +18,7 @@ type MaxRWMutex struct {
 }
 
 func NewMaxRWMutex(location string) *MaxRWMutex {
-	const defaultMaxWaiting = 32
+	const defaultMaxWaiting = 100
 	return &MaxRWMutex{
 		location:   location,
 		maxWaiting: defaultMaxWaiting,
