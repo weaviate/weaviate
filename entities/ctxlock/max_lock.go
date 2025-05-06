@@ -59,11 +59,7 @@ func (m *MaxRWMutex) TryLock() bool {
 	if err := m.tryEnter(); err != nil {
 		return false
 	}
-	locked := make(chan bool, 1)
-	go func() {
-		locked <- m.rwlock.TryLock()
-	}()
-	ok := <-locked
+	ok := m.rwlock.TryLock()
 	if !ok {
 		m.exit()
 		return false
@@ -73,8 +69,8 @@ func (m *MaxRWMutex) TryLock() bool {
 }
 
 func (m *MaxRWMutex) Unlock() {
-	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Dec()
 	m.rwlock.Unlock()
+	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Dec()
 	m.exit()
 }
 
@@ -92,11 +88,7 @@ func (m *MaxRWMutex) TryRLock() bool {
 	if err := m.tryEnter(); err != nil {
 		return false
 	}
-	locked := make(chan bool, 1)
-	go func() {
-		locked <- m.rwlock.TryRLock()
-	}()
-	ok := <-locked
+	ok := m.rwlock.TryRLock()
 	if !ok {
 		m.exit()
 		return false
@@ -110,7 +102,7 @@ func (m *MaxRWMutex) RTryLock() bool {
 }
 
 func (m *MaxRWMutex) RUnlock() {
-	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Dec()
 	m.rwlock.RUnlock()
+	monitoring.GetMetrics().Locks.WithLabelValues(m.location).Dec()
 	m.exit()
 }
