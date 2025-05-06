@@ -90,6 +90,7 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", c.Id)
 	}
+
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
 	status.ChangeState(c.State)
 	s.opsStatus[op] = status
@@ -98,12 +99,74 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	return nil
 }
 
-func (s *ShardReplicationFSM) DeleteReplicationOp(c *api.ReplicationDeleteOpRequest) error {
-	return s.deleteShardReplicationOp(c.Id)
+func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	id, ok := s.idsByUuid[c.Uuid]
+	if !ok {
+		return ErrReplicationOperationNotFound
+	}
+	op, ok := s.opsById[id]
+	if !ok {
+		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOperationNotFound)
+	}
+	status, ok := s.opsStatus[op]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d", id)
+	}
+	status.TriggerCancellation()
+	s.opsStatus[op] = status
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	id, ok := s.idsByUuid[c.Uuid]
+	if !ok {
+		return ErrReplicationOperationNotFound
+	}
+	op, ok := s.opsById[id]
+	if !ok {
+		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOperationNotFound)
+	}
+	status, ok := s.opsStatus[op]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d", id)
+	}
+	status.TriggerDeletion()
+	s.opsStatus[op] = status
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) RemoveReplicationOp(c *api.ReplicationRemoveOpRequest) error {
+	return s.removeReplicationOp(c.Id)
+}
+
+func (s *ShardReplicationFSM) CancellationComplete(c *api.ReplicationCancellationCompleteRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	op, ok := s.opsById[c.Id]
+	if !ok {
+		return fmt.Errorf("could not find op %d: %w", c.Id, ErrReplicationOperationNotFound)
+	}
+	status, ok := s.opsStatus[op]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d", c.Id)
+	}
+	status.CompleteCancellation()
+	s.opsStatus[op] = status
+
+	return nil
 }
 
 // TODO: Improve the error handling in that function
-func (s *ShardReplicationFSM) deleteShardReplicationOp(id uint64) error {
+func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 

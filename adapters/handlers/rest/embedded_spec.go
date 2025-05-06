@@ -3537,12 +3537,6 @@ func init() {
               "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
             }
           },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
@@ -3564,6 +3558,96 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.replication.replicate.details"
+        ]
+      },
+      "delete": {
+        "description": "Deletes a replication operation. If the operation is in progress, it is cancelled and cleaned up before being deleted.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete a replication operation.",
+        "operationId": "deleteReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to delete.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.delete"
+        ]
+      }
+    },
+    "/replication/replicate/{id}/cancel": {
+      "post": {
+        "description": "Cancels an in-progress replication operation as soon as possible but does not delete it leaving it in the unresumable CANCELLED state.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Cancel a replication operation.",
+        "operationId": "cancelReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully cancelled."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.cancel"
         ]
       }
     },
@@ -11371,12 +11455,6 @@ func init() {
               "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
             }
           },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
-          },
           "401": {
             "description": "Unauthorized or invalid credentials."
           },
@@ -11398,6 +11476,96 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.replication.replicate.details"
+        ]
+      },
+      "delete": {
+        "description": "Deletes a replication operation. If the operation is in progress, it is cancelled and cleaned up before being deleted.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete a replication operation.",
+        "operationId": "deleteReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to delete.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.delete"
+        ]
+      }
+    },
+    "/replication/replicate/{id}/cancel": {
+      "post": {
+        "description": "Cancels an in-progress replication operation as soon as possible but does not delete it leaving it in the unresumable CANCELLED state.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Cancel a replication operation.",
+        "operationId": "cancelReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully cancelled."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.cancel"
         ]
       }
     },
