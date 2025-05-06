@@ -81,7 +81,7 @@ func (r *Repo) init() error {
 
 func (r *Repo) Put(ctx context.Context, classification models.Classification) error {
 	if global.Manager().IsShutdownInProgress() {
-		return errors.New("server is shutting down")
+		return global.ErrServerShuttingDown
 	}
 	classificationJSON, err := json.Marshal(classification)
 	if err != nil {
