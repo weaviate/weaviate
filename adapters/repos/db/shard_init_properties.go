@@ -97,6 +97,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		s.segmentCleanupConfig(),
 	}
 
@@ -124,9 +125,17 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 
 	if inverted.HasSearchableIndex(prop) {
 		strategy := lsmkv.DefaultSearchableStrategy(s.usingBlockMaxWAND)
-		searchableBucketOpts := append(bucketOpts, lsmkv.WithStrategy(strategy))
+		searchableBucketOpts := append(
+			bucketOpts,
+			lsmkv.WithStrategy(strategy),
+			lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		)
 		if strategy == lsmkv.StrategyMapCollection && s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
+		}
+
+		if s.class.InvertedIndexConfig != nil {
+			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithBM25Config(s.class.InvertedIndexConfig.Bm25))
 		}
 
 		bucketName := helpers.BucketSearchableFromPropNameLSM(prop.Name)
@@ -148,6 +157,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 				lsmkv.WithCalcCountNetAdditions(false),
 				lsmkv.WithKeepSegmentsInMemory(s.index.Config.IndexRangeableInMemory),
 				lsmkv.WithBitmapBufPool(s.bitmapBufPool),
+				lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 			)...,
 		); err != nil {
 			return err
@@ -177,6 +187,7 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		s.segmentCleanupConfig(),
 	)
 }
@@ -193,6 +204,7 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		s.segmentCleanupConfig(),
 	)
 }
@@ -210,6 +222,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {
@@ -231,6 +244,7 @@ func (s *Shard) createDimensionsBucket(ctx context.Context, name string) error {
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {
@@ -279,6 +293,7 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		s.segmentCleanupConfig(),
 	)
 }
@@ -292,6 +307,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		s.segmentCleanupConfig(),
 	)
 }
