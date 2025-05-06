@@ -296,10 +296,10 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
 	requestedShards := incomingSS.AllLocalPhysicalShards()
-	loadedShards := make(map[string]ShardLike)
+	existedShards := make(map[string]ShardLike)
 
 	if err := idx.ForEachShard(func(name string, shard ShardLike) error {
-		loadedShards[name] = shard
+		existedShards[name] = shard
 		return nil
 	}); err != nil {
 		return fmt.Errorf("failed to iterate over loaded shards: %w", err)
@@ -308,7 +308,7 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	toDrop := make([]string, 0, len(requestedShards))
 
 	// Initialize missing shards and drop unneeded ones
-	for shardName := range loadedShards {
+	for shardName := range existedShards {
 		if !slices.Contains(requestedShards, shardName) {
 			toDrop = append(toDrop, shardName)
 		}
@@ -321,7 +321,7 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	}
 
 	for _, shardName := range requestedShards {
-		if _, exists := loadedShards[shardName]; !exists {
+		if _, exists := existedShards[shardName]; !exists {
 			if err := idx.initLocalShard(ctx, shardName); err != nil {
 				return fmt.Errorf("add missing shard %s during update index: %w", shardName, err)
 			}
