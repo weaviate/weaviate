@@ -90,6 +90,7 @@ func (db *DB) init(ctx context.Context) error {
 				MemtablesMaxSizeMB:                  db.config.MemtablesMaxSizeMB,
 				MemtablesMinActiveSeconds:           db.config.MemtablesMinActiveSeconds,
 				MemtablesMaxActiveSeconds:           db.config.MemtablesMaxActiveSeconds,
+				MinMMapSize:                         db.config.MinMMapSize,
 				SegmentsCleanupIntervalSeconds:      db.config.SegmentsCleanupIntervalSeconds,
 				SeparateObjectsCompactions:          db.config.SeparateObjectsCompactions,
 				CycleManagerRoutinesFactor:          db.config.CycleManagerRoutinesFactor,

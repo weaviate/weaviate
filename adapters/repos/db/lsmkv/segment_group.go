@@ -76,6 +76,7 @@ type SegmentGroup struct {
 	calcCountNetAdditions    bool // see bucket for more details
 	compactLeftOverSegments  bool // see bucket for more details
 	enableChecksumValidation bool
+	MinMMapSize              int64
 
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
@@ -102,6 +103,7 @@ type sgConfig struct {
 	cleanupInterval          time.Duration
 	enableChecksumValidation bool
 	keepSegmentsInMemory     bool
+	MinMMapSize              int64
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -133,6 +135,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		allocChecker:             allocChecker,
 		lastCompactionCall:       now,
 		lastCleanupCall:          now,
+		MinMMapSize:              cfg.MinMMapSize,
 	}
 
 	segmentIndex := 0
@@ -211,6 +214,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 					calcCountNetAdditions:    sg.calcCountNetAdditions,
 					overwriteDerived:         false,
 					enableChecksumValidation: sg.enableChecksumValidation,
+					MinMMapSize:              sg.MinMMapSize,
+					allocChecker:             sg.allocChecker,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -259,6 +264,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				calcCountNetAdditions:    sg.calcCountNetAdditions,
 				overwriteDerived:         true,
 				enableChecksumValidation: sg.enableChecksumValidation,
+				MinMMapSize:              sg.MinMMapSize,
+				allocChecker:             sg.allocChecker,
 			},
 		)
 		if err != nil {
@@ -330,6 +337,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				calcCountNetAdditions:    sg.calcCountNetAdditions,
 				overwriteDerived:         false,
 				enableChecksumValidation: sg.enableChecksumValidation,
+				MinMMapSize:              sg.MinMMapSize,
+				allocChecker:             sg.allocChecker,
 			})
 		if err != nil {
 			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
@@ -427,6 +436,8 @@ func (sg *SegmentGroup) add(path string) error {
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         true,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			MinMMapSize:              sg.MinMMapSize,
+			allocChecker:             sg.allocChecker,
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
