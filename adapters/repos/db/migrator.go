@@ -305,18 +305,15 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 		return fmt.Errorf("failed to iterate over loaded shards: %w", err)
 	}
 
-	toDrop := make([]string, 0, len(requestedShards))
-
-	// Initialize missing shards and drop unneeded ones
-	for shardName := range existedShards {
+	// Initialize missing shards and shutdown unneeded ones
+	for shardName, shard := range existedShards {
 		if !slices.Contains(requestedShards, shardName) {
-			toDrop = append(toDrop, shardName)
-		}
-	}
-
-	if len(toDrop) > 0 {
-		if err := idx.dropShards(toDrop); err != nil {
-			return fmt.Errorf("drop shards %v during update index: %w", toDrop, err)
+			if err := shard.Shutdown(ctx); err != nil {
+				// we log instead of returning an error, to avoid stopping the change
+				m.logger.WithField("shard", shardName).Error("shutdown shard during update index: %w", err)
+				continue
+			}
+			idx.shards.LoadAndDelete(shardName)
 		}
 	}
 
