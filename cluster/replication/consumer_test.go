@@ -697,9 +697,9 @@ func TestConsumerOpCancellation(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationCancellationComplete(uint64(1)).
 		Return(nil)
-	mockFSMUpdater.EXPECT().
-		DeleteReplicaFromShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(0, nil)
+	mockReplicaCopier.EXPECT().
+		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil)
 
 	var completionWg sync.WaitGroup
 	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
@@ -808,9 +808,9 @@ func TestConsumerOpDeletion(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationRemoveReplicaOp(uint64(1)).
 		Return(nil)
-	mockFSMUpdater.EXPECT().
-		DeleteReplicaFromShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		Return(0, nil)
+	mockReplicaCopier.EXPECT().
+		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil)
 
 	var completionWg sync.WaitGroup
 	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
