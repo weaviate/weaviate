@@ -410,7 +410,10 @@ func (s *SchemaManager) apply(op applyOp) error {
 	}
 
 	// Create a deep copy of the current schema state for potential rollback
-	schemaSnapshot := s.schema.deepCopy()
+	var schemaSnapshot map[string]metaClass
+	if !op.schemaOnly {
+		schemaSnapshot = s.schema.deepCopy()
+	}
 
 	// schema applied 1st to make sure any validation happen before applying it to db
 	if err := op.updateSchema(); err != nil {
