@@ -516,7 +516,7 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation
 
 	freq := float64(s.blockDataDecoded.Tfs[s.blockDataIdx])
 	propLength := s.propLengths[s.idPointer]
-	tf := freq / (freq + s.k1*(1-s.b+s.b*(float64(propLength)/averagePropLength)))
+	tf := freq / (freq + s.k1*(1-s.b+s.b*(float64(propLength)/s.averagePropLength)))
 	s.Metrics.DocCountScored++
 	if s.blockEntryIdx != s.Metrics.LastAddedBlock {
 		s.Metrics.BlockCountDecodedFreqs++
