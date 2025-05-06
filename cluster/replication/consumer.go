@@ -149,7 +149,10 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			}
 
 			// If the operation has been scheduled for cancellation or deletion
-			if op.Status.ShouldCancelOrDelete() && c.ongoingOps.Load(op.Op.ID) && !c.ongoingOps.HasBeenCancelled(op.Op.ID) {
+			// This is done outside of the worker goroutine, and therefore without acquiring a token, so that
+			// we can cancel operations that have frozen or become unresponsive. If we were to acquire a token
+			// we would block the worker pool and not be able to cancel the operation leading to resource starvation.
+			if op.Status.ShouldCancel && c.ongoingOps.Load(op.Op.ID) && !c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 				// Update the cache to mark the operation as cancelled
 				c.ongoingOps.StoreHasBeenCancelled(op.Op.ID)
 				c.logger.WithFields(logrus.Fields{"op": op}).Debug("cancelled the replication op")
@@ -326,6 +329,15 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 	return c.dispatchReplicationOp(ctx, op)
 }
 
+// cancelOp performs clean up for the cancelled operation and notifies the FSM of the cancellation.
+//
+// It removes the replica shard from the target node and updates the FSM with the cancellation status.
+// If the operation is being cancelled, it notifies the FSM to complete the cancellation.
+// If the operation is being deleted, it notifies the FSM to remove the operation from the FSM.
+// It returns an error if any of the operations fail.
+//
+// It exists outside of the formal state machine to allow for cancellation of operations that are in progress
+// or have been cancelled but not yet processed without introducing new intermediate states to the FSM.
 func (c *CopyOpConsumer) cancelOp(ctx context.Context, op ShardReplicationOpAndStatus, logger *logrus.Entry) error {
 	defer c.engineOpCallbacks.OnOpCancelled(c.nodeId)
 
@@ -334,8 +346,8 @@ func (c *CopyOpConsumer) cancelOp(ctx context.Context, op ShardReplicationOpAndS
 		return err
 	}
 
-	// If the operation is being cancelled then notify the FSM so it can update its state
-	if op.Status.ShouldCancel {
+	// If the operation is only being cancelled then notify the FSM so it can update its state
+	if op.Status.OnlyCancellation() {
 		if err := c.leaderClient.ReplicationCancellationComplete(op.Op.ID); err != nil {
 			logger.WithError(err).Error("failure while completing cancellation of replica operation")
 			return err
@@ -422,12 +434,12 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= upperTimeBoundUnixMillis
 	}
 
+	if ctx.Err() != nil {
+		return api.ShardReplicationState(""), ctx.Err()
+	}
 	// we only check the status of the async replication every 5 seconds to avoid
 	// spamming with too many requests too quickly
 	err := backoff.Retry(func() error {
-		if ctx.Err() != nil {
-			return backoff.Permanent(ctx.Err())
-		}
 		if do() {
 			return nil
 		}

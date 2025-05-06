@@ -99,12 +99,12 @@ func (s *ShardReplicationOpStatus) CompleteCancellation() {
 }
 
 func (s *ShardReplicationOpStatus) TriggerDeletion() {
-	s.ShouldCancel = false
+	s.ShouldCancel = true
 	s.ShouldDelete = true
 }
 
-func (s *ShardReplicationOpStatus) ShouldCancelOrDelete() bool {
-	return s.ShouldCancel || s.ShouldDelete
+func (s *ShardReplicationOpStatus) OnlyCancellation() bool {
+	return s.ShouldCancel && !s.ShouldDelete
 }
 
 // GetHistory returns the history of the state changes of the shard replication operation

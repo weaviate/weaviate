@@ -160,8 +160,20 @@ func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp 
 	return s.opsByTarget[node]
 }
 
+// ShouldConsumeOps returns true if the operation should be consumed by the consumer
+//
+// It checks the following two conditions:
+//
+// 1. The operation is neither cancelled nor ready, meaning that it is still in progress performing some long-running op like hydrating/finalizing
+//
+// 2. The operation is cancelled or ready and should be deleted, meaning that the operation is finished and should be removed from the FSM
 func (s ShardReplicationOpStatus) ShouldConsumeOps() bool {
-	return (s.GetCurrentState() != api.CANCELLED && s.GetCurrentState() != api.READY) || ((s.GetCurrentState() == api.CANCELLED || s.GetCurrentState() == api.READY) && s.ShouldCancelOrDelete())
+	state := s.GetCurrentState()
+	return (
+	// Check if op is not in cancelled or ready state -> we schedule it
+	(state != api.CANCELLED && state != api.READY) ||
+		// If op is in cancelled or ready state, only schedule it if it should be deleted
+		(state == api.CANCELLED || state == api.READY) && s.ShouldDelete)
 }
 
 func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicationOpStatus, bool) {

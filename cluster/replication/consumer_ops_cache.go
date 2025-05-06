@@ -18,10 +18,17 @@ import (
 
 type OpsCache struct {
 	// hasBeenCancelled is a map of opId to an empty struct
+	// It is used to communicate between the main consumer goroutine and its
+	// workers whether an operation has been formally cancelled
 	hasBeenCancelled sync.Map
 	// cancels is a map of opId to a cancel function
+	// It is used by the main goroutine to cancel the workers if
+	// they are still in-flight. If they are not in-flight, the cancel function
+	// will be absent but hasBeenCancelled will be still be present
 	cancels sync.Map
 	// ops is a map of opId to an empty struct
+	// It is used to track whether an operation is currently being handled by
+	// a worker goroutine
 	ops sync.Map
 }
 
