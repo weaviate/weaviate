@@ -266,8 +266,8 @@ type stateFuncHandler func(ctx context.Context, op ShardReplicationOpAndStatus) 
 // If the operation is successful, the operation is transitioned to the next state.
 // Otherwise, the operation is transitioned to the next state and the process continues.
 func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op ShardReplicationOpAndStatus, stateFuncHandler stateFuncHandler) error {
+	logger := getLoggerForOp(c.logger.Logger, op.Op)
 	nextState, err := backoff.RetryWithData(func() (api.ShardReplicationState, error) {
-		logger := getLoggerForOp(c.logger.Logger, op.Op)
 		if ctx.Err() != nil {
 			if errors.Is(ctx.Err(), context.Canceled) {
 				logger.Debug("context cancelled, stopping replication operation")
@@ -319,6 +319,10 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 		return nil
 	}
 
+	if c.ongoingOps.HasBeenCancelled(op.Op.ID) {
+		logger.WithFields(logrus.Fields{"op": op}).Debug("replication op cancelled, stopping replication operation")
+		return ctx.Err()
+	}
 	return c.dispatchReplicationOp(ctx, op)
 }
 
