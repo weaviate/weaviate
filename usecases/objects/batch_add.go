@@ -35,7 +35,7 @@ var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, NewErrInternal("server is shutting down")
 	}
 	ctx = classcache.ContextWithClassCache(ctx)
@@ -72,7 +72,7 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 func (b *BatchManager) AddObjectsGRPCAfterAuth(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, NewErrInternal("server is shutting down")
 	}
 	return b.addObjects(ctx, principal, objects, repl, fetchedClasses)

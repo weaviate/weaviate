@@ -32,7 +32,7 @@ import (
 )
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return global.ErrServerShuttingDown
 	}
 	s.activityTracker.Add(1)

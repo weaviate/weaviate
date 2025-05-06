@@ -41,7 +41,7 @@ import (
 func (db *DB) Aggregate(ctx context.Context,
 	params aggregation.Params, modules *modules.Provider,
 ) (*aggregation.Result, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, global.ErrServerShuttingDown
 	}
 	idx := db.GetIndex(params.ClassName)
@@ -63,7 +63,7 @@ func (db *DB) GetQueryMaximumResults() int {
 // for the raw storage objects, such as hybrid search.
 func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
 	idx := db.GetIndex(schema.ClassName(params.ClassName))
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, nil, global.ErrServerShuttingDown
 	}
 	if idx == nil {
@@ -97,7 +97,7 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 }
 
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, global.ErrServerShuttingDown
 	}
 	if params.Pagination == nil {
@@ -118,7 +118,7 @@ func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result
 func (db *DB) VectorSearch(ctx context.Context,
 	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, global.ErrServerShuttingDown
 	}
 	if len(searchVectors) == 0 || len(searchVectors) == 1 && isEmptyVector(searchVectors[0]) {
@@ -174,7 +174,7 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, targetVector string, offset, limit int,
 	filters *filters.LocalFilter,
 ) ([]search.Result, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, global.ErrServerShuttingDown
 	}
 	var found search.Results
@@ -233,7 +233,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 
 // Query a specific class
 func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results, *objects.Error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, &objects.Error{Msg: "shutdown in progress", Code: objects.StatusInternalServerError}
 	}
 	totalLimit := q.Offset + q.Limit
@@ -273,7 +273,7 @@ func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
 	additional additional.Properties, tenant string,
 ) (search.Results, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, global.ErrServerShuttingDown
 	}
 	return db.objectSearch(ctx, offset, limit, filters, sort, additional, tenant)
@@ -348,7 +348,7 @@ func (db *DB) ResolveReferences(ctx context.Context, objs search.Results,
 	props search.SelectProperties, groupBy *searchparams.GroupBy,
 	addl additional.Properties, tenant string,
 ) (search.Results, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, global.ErrServerShuttingDown
 	}
 	if addl.NoProps {

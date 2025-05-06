@@ -25,7 +25,7 @@ var (
 )
 
 func Manager() *StateType {
-	return State
+	return state
 }
 
 type StateType struct {
@@ -42,10 +42,14 @@ func (s *StateType) StartShutdown() {
 	}, nil)
 }
 
+// This becomes true 5 seconds after shutdown is called.  This is typically checked before write operations, allowing weaviate to cancel running requests without file corruption.  Batches will be cancelled halfway through, etc.
 func (s *StateType) IsShutdownInProgress() bool {
 	return s.shutdownInProgress.Load()
 }
 
-func (s *StateType) RejectRequests() bool {
+// Immediately when shutdown is called, the server will stop accepting new requests.  The rest of the server continues running normally, allowing current requests to finish.  If weaviate does not shutdown within 5 seconds, it will start cancelling all running requests(see shutdownInProgress).
+//
+// This is typically checked at the "top level" of the server, before any processing is started.
+func (s *StateType) ShouldRejectRequests() bool {
 	return s.rejectRequests.Load()
 }

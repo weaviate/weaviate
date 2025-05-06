@@ -70,7 +70,7 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 }
 
 func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, global.ErrServerShuttingDown
 	}
 	var result *pb.AggregateReply
@@ -122,7 +122,7 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 }
 
 func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, global.ErrServerShuttingDown
 	}
 	before := time.Now()
@@ -146,7 +146,7 @@ func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*p
 }
 
 func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, global.ErrServerShuttingDown
 	}
 	var result *pb.BatchDeleteReply
@@ -200,7 +200,7 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 }
 
 func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, global.ErrServerShuttingDown
 	}
 	var result *pb.BatchObjectsReply

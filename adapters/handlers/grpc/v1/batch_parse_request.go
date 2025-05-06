@@ -35,7 +35,7 @@ func sliceToInterface[T any](values []T) []interface{} {
 }
 
 func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (*models.Class, error)) ([]*models.Object, map[int]int, map[int]error) {
-	if global.Manager().RejectRequests() {
+	if global.Manager().ShouldRejectRequests() {
 		return nil, nil, map[int]error{
 			0: global.ErrServerShuttingDown,
 		}
