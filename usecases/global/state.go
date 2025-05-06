@@ -12,16 +12,16 @@
 package global
 
 import (
+	"fmt"
 	"sync/atomic"
 	"time"
-	"fmt"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 var (
-	state     *StateType = &StateType{}
-	ErrServerShuttingDown = fmt.Errorf("server is shutting down")
+	state                 *StateType = &StateType{}
+	ErrServerShuttingDown            = fmt.Errorf("server is shutting down")
 )
 
 func Manager() *StateType {
