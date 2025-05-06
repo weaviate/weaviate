@@ -172,14 +172,21 @@ func (m *CtxRWMutex) RLockContext(ctx context.Context) error {
 	}
 }
 
-// RLockContextWithTimeout acquires the read lock or returns on context cancel/timeout
 func (m *CtxRWMutex) RLockWithTimeout(timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	go func() {
-		time.Sleep(timeout)
-		cancel()
-	}()
-	return m.RLockContext(ctx)
+	deadline := time.Now().Add(timeout)
+	monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Inc()
+	defer monitoring.GetMetrics().LocksWaiting.WithLabelValues(m.location).Dec()
+
+	for {
+		if m.rwlock.RTryLock() {
+			monitoring.GetMetrics().Locks.WithLabelValues(m.location).Inc()
+			return nil
+		}
+		if time.Now().After(deadline) {
+			return ErrCtxTimeout
+		}
+		time.Sleep(10 * time.Millisecond) // Backoff to avoid busy spin
+	}
 }
 
 // RLock acquires the read lock
