@@ -197,7 +197,10 @@ func InitState(id string, config config.Config, nodeLocalName string, names []st
 	out.distributeVirtualAmongPhysical()
 
 	out.ReplicationFactor = int64(replFactor)
-	out.NumberOfReplicas = int64(replFactor)
+	for _, shard := range out.Physical {
+		out.NumberOfReplicas = int64(len(shard.BelongsToNodes))
+		break // uset the number of replicas from one of the shards, they all have the same value
+	}
 
 	return out, nil
 }

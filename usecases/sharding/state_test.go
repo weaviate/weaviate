@@ -181,6 +181,24 @@ func TestInitState(t *testing.T) {
 	}
 }
 
+func TestInitStateWithZeroReplicationFactor(t *testing.T) {
+	nodes := mocks.NewMockNodeSelector("node1", "node2", "node3")
+	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
+	require.NoError(t, err)
+
+	state, err := InitState("index-zero", cfg, nodes.LocalName(), nodes.StorageCandidates(), 0, false)
+	require.NoErrorf(t, err, "unexpected error when initializing sharding state")
+	require.NotNil(t, state)
+
+	require.Equal(t, int64(0), state.ReplicationFactor, "replication factor is expected to be zero")
+	require.Equal(t, int64(1), state.NumberOfReplicas, "number of replicas expected to be one (even if replication factor is 0)")
+
+	for name, shard := range state.Physical {
+		assert.NotEmpty(t, shard.BelongsToNodes, fmt.Sprintf("shard %q should have at least one assigned node", name))
+		assert.Equal(t, 1, len(shard.BelongsToNodes), fmt.Sprintf("shard %q should have exactly one node assigned with rf=0", name))
+	}
+}
+
 func TestAdjustReplicas(t *testing.T) {
 	t.Run("1->3", func(t *testing.T) {
 		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3", "N4", "N5")
@@ -670,7 +688,7 @@ func TestShardReplicationFactor(t *testing.T) {
 		require.NoError(t, err, "unexpected error when initializing with zero replication factor")
 		require.NotNil(t, state, "state should not be nil")
 
-		require.Equal(t, int64(0), state.NumberOfReplicas, "unexpected initial replication factor")
+		require.Equal(t, int64(1), state.NumberOfReplicas, "unexpected initial replication factor")
 		require.Equal(t, int64(0), state.ReplicationFactor, "unexpected minimum replication factor")
 
 		for _, physical := range state.Physical {
@@ -694,7 +712,7 @@ func TestShardReplicationFactor(t *testing.T) {
 		require.NoError(t, err, "unexpected error when initializing with zero replication factor")
 		require.NotNil(t, state, "state should not be nil")
 
-		require.Equal(t, int64(0), state.NumberOfReplicas, "unexpected initial replication factor")
+		require.Equal(t, int64(1), state.NumberOfReplicas, "unexpected initial replication factor")
 		require.Equal(t, int64(0), state.ReplicationFactor, "unexpected minimum replication factor")
 
 		// With replication factor 0 we still have a replica
