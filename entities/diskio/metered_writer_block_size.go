@@ -49,10 +49,6 @@ func (m *MeteredWriter) Seek(offset int64, whence int) (int64, error) {
 	return n, err
 }
 
-// func (m *MeteredWriter) Close() error {
-// 	return m.w.Close()
-// }
-
 var _ = WriterSeekerCloser(&MeteredWriter{})
 
 func NewMeteredWriter(w WriterSeekerCloser, cb MeteredWriterCallback) *MeteredWriter {
