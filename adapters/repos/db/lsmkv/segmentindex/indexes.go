@@ -20,6 +20,9 @@ import (
 	"path/filepath"
 	"sort"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -29,6 +32,7 @@ type Indexes struct {
 	Keys                []Key
 	SecondaryIndexCount uint16
 	ScratchSpacePath    string
+	ObserveWrite        prometheus.Observer
 }
 
 func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
@@ -165,8 +169,9 @@ func (s *Indexes) writeToScratchFiles(w io.Writer) (int64, error) {
 	if err != nil {
 		return written, err
 	}
-
-	primaryFDBuffered := bufio.NewWriter(primaryFD)
+	primaryFDBuffered := bufio.NewWriter(diskio.NewMeteredWriter(primaryFD, func(written int64) {
+		s.ObserveWrite.Observe(float64(written))
+	}))
 
 	n, err := s.buildAndMarshalPrimary(primaryFDBuffered, s.Keys)
 	if err != nil {
@@ -192,7 +197,9 @@ func (s *Indexes) writeToScratchFiles(w io.Writer) (int64, error) {
 		return written, err
 	}
 
-	secondaryFDBuffered := bufio.NewWriter(secondaryFD)
+	secondaryFDBuffered := bufio.NewWriter(diskio.NewMeteredWriter(secondaryFD, func(written int64) {
+		s.ObserveWrite.Observe(float64(written))
+	}))
 
 	if s.SecondaryIndexCount > 0 {
 		offsets := make([]uint64, s.SecondaryIndexCount)
