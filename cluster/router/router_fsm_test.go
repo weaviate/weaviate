@@ -22,6 +22,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 		opStatus             api.ShardReplicationState
 		preRoutingPlanAction func(fsm *replication.ShardReplicationFSM)
 		expectedReplicas     []string
+		expectedErrorStr     string
 	}{
 		{
 			name:             "registered",
@@ -51,7 +52,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			name:             "dehydrating",
 			allShardNodes:    []string{"node1", "node2"},
 			opStatus:         api.DEHYDRATING,
-			expectedReplicas: []string{"node1"},
+			expectedErrorStr: "no replicas found for class collection1 shard shard1",
 		},
 		{
 			name:             "aborted",
@@ -122,8 +123,13 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				Collection: "collection1",
 				Shard:      "shard1",
 			})
-			require.NoError(t, err)
-			require.Equal(t, testCase.expectedReplicas, routingPlan.Replicas, "test case: %s", testCase.name)
+			if testCase.expectedErrorStr != "" {
+				require.Error(t, err)
+				require.Contains(t, err.Error(), testCase.expectedErrorStr)
+			} else {
+				require.NoError(t, err)
+				require.Equal(t, testCase.expectedReplicas, routingPlan.Replicas, "test case: %s", testCase.name)
+			}
 		})
 	}
 }
