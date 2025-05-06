@@ -174,6 +174,10 @@ func (p *Physical) ActivityStatus() string {
 }
 
 func InitState(id string, config config.Config, nodeLocalName string, names []string, replFactor int64, partitioningEnabled bool) (*State, error) {
+	if replFactor < 1 {
+		return nil, fmt.Errorf("replication factor must be at least 1, got %d", replFactor)
+	}
+
 	if f, n := replFactor, len(names); f > int64(n) {
 		return nil, fmt.Errorf("could not find enough weaviate nodes for replication: %d available, %d requested", len(names), f)
 	}
@@ -197,10 +201,7 @@ func InitState(id string, config config.Config, nodeLocalName string, names []st
 	out.distributeVirtualAmongPhysical()
 
 	out.ReplicationFactor = int64(replFactor)
-	for _, shard := range out.Physical {
-		out.NumberOfReplicas = int64(len(shard.BelongsToNodes))
-		break // uset the number of replicas from one of the shards, they all have the same value
-	}
+	out.NumberOfReplicas = int64(replFactor)
 
 	return out, nil
 }

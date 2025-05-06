@@ -186,17 +186,8 @@ func TestInitStateWithZeroReplicationFactor(t *testing.T) {
 	cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
 	require.NoError(t, err)
 
-	state, err := InitState("index-zero", cfg, nodes.LocalName(), nodes.StorageCandidates(), 0, false)
-	require.NoErrorf(t, err, "unexpected error when initializing sharding state")
-	require.NotNil(t, state)
-
-	require.Equal(t, int64(0), state.ReplicationFactor, "replication factor is expected to be zero")
-	require.Equal(t, int64(1), state.NumberOfReplicas, "number of replicas expected to be one (even if replication factor is 0)")
-
-	for name, shard := range state.Physical {
-		assert.NotEmpty(t, shard.BelongsToNodes, fmt.Sprintf("shard %q should have at least one assigned node", name))
-		assert.Equal(t, 1, len(shard.BelongsToNodes), fmt.Sprintf("shard %q should have exactly one node assigned with rf=0", name))
-	}
+	_, err = InitState("index-zero", cfg, nodes.LocalName(), nodes.StorageCandidates(), 0, false)
+	require.Errorf(t, err, "replication factor zero is not allowed")
 }
 
 func TestAdjustReplicas(t *testing.T) {
@@ -677,59 +668,6 @@ func TestShardReplicationFactor(t *testing.T) {
 		replicaToDelete := state.Physical[shardName].BelongsToNodes[0] + "-dummy"
 		err = state.DeleteReplicaFromShard(shardName, replicaToDelete)
 		require.Errorf(t, err, "expected a failure while removing a replica")
-	})
-
-	t.Run("add with zero replication factor", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
-		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
-		require.NoError(t, err)
-
-		state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 0, false)
-		require.NoError(t, err, "unexpected error when initializing with zero replication factor")
-		require.NotNil(t, state, "state should not be nil")
-
-		require.Equal(t, int64(1), state.NumberOfReplicas, "unexpected initial replication factor")
-		require.Equal(t, int64(0), state.ReplicationFactor, "unexpected minimum replication factor")
-
-		for _, physical := range state.Physical {
-			require.NotEmpty(t, physical.BelongsToNodes, "shards should have no replicas initially")
-		}
-
-		shardName := state.AllPhysicalShards()[0]
-		err = state.AddReplicaToShard(shardName, "test-replica")
-		require.NoError(t, err, "should be able to add replica later")
-
-		require.Equal(t, int64(2), state.NumberOfReplicas, "replication factor should update")
-		require.Equal(t, 2, len(state.Physical[shardName].BelongsToNodes), "shard should have two replicas")
-	})
-
-	t.Run("delete with zero replication factor", func(t *testing.T) {
-		nodes := mocks.NewMockNodeSelector("N1", "N2", "N3")
-		cfg, err := config.ParseConfig(map[string]interface{}{"desiredCount": float64(3)}, 3)
-		require.NoError(t, err)
-
-		state, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 0, false)
-		require.NoError(t, err, "unexpected error when initializing with zero replication factor")
-		require.NotNil(t, state, "state should not be nil")
-
-		require.Equal(t, int64(1), state.NumberOfReplicas, "unexpected initial replication factor")
-		require.Equal(t, int64(0), state.ReplicationFactor, "unexpected minimum replication factor")
-
-		// With replication factor 0 we still have a replica
-		for _, physical := range state.Physical {
-			require.NotEmpty(t, physical.BelongsToNodes, "shards should have no replicas initially")
-		}
-
-		shardName := state.AllPhysicalShards()[0]
-		err = state.AddReplicaToShard(shardName, "test-replica")
-		require.NoError(t, err, "should be able to add replica later")
-
-		require.Equal(t, int64(2), state.NumberOfReplicas, "replication factor should update")
-		require.Equal(t, 2, len(state.Physical[shardName].BelongsToNodes), "shard should have two replicas")
-
-		replicaToDelete := state.Physical[shardName].BelongsToNodes[0]
-		err = state.DeleteReplicaFromShard(shardName, replicaToDelete)
-		require.NoErrorf(t, err, "expected a failure while removing a replica")
 	})
 
 	t.Run("deepp copy", func(t *testing.T) {

@@ -38,6 +38,7 @@ func Test_SchemaComparison_Identical(t *testing.T) {
 							Name:     "prop_1",
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 			},
 		},
@@ -60,6 +61,7 @@ func Test_SchemaComparison_Identical(t *testing.T) {
 							Name:     "prop_1",
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 			},
 		},
@@ -86,6 +88,7 @@ func Test_SchemaComparison_MismatchInClasses(t *testing.T) {
 							Name:     "prop_1",
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 			},
 		},
@@ -250,8 +253,8 @@ func Test_SchemaComparison_VariousMismatches(t *testing.T) {
 		"class Foo3: missing sharding state in L",
 		"class Foo4: missing sharding state in R",
 		"class Foo2: sharding state mismatch: " +
-			"L has {\"indexID\":\"\",\"config\":{\"virtualPerPhysical\":0,\"desiredCount\":0,\"actualCount\":0,\"desiredVirtualCount\":0,\"actualVirtualCount\":0,\"key\":\"\",\"strategy\":\"\",\"function\":\"\"},\"physical\":{\"abcd\":{\"name\":\"\",\"ownsVirtual\":[\"v1\"],\"ownsPercentage\":0}},\"virtual\":null,\"partitioningEnabled\":false}, " +
-			"but R has {\"indexID\":\"\",\"config\":{\"virtualPerPhysical\":0,\"desiredCount\":0,\"actualCount\":0,\"desiredVirtualCount\":0,\"actualVirtualCount\":0,\"key\":\"\",\"strategy\":\"\",\"function\":\"\"},\"physical\":{\"xyz\":{\"name\":\"\",\"ownsPercentage\":0,\"belongsToNodes\":[\"n1\"]}},\"virtual\":null,\"partitioningEnabled\":false}",
+			"L has {\"indexID\":\"\",\"config\":{\"virtualPerPhysical\":0,\"desiredCount\":0,\"actualCount\":0,\"desiredVirtualCount\":0,\"actualVirtualCount\":0,\"key\":\"\",\"strategy\":\"\",\"function\":\"\"},\"physical\":{\"abcd\":{\"name\":\"\",\"ownsVirtual\":[\"v1\"],\"ownsPercentage\":0}},\"virtual\":null,\"partitioningEnabled\":false,\"numberOfReplicas\":0,\"replicationFactor\":0}, " +
+			"but R has {\"indexID\":\"\",\"config\":{\"virtualPerPhysical\":0,\"desiredCount\":0,\"actualCount\":0,\"desiredVirtualCount\":0,\"actualVirtualCount\":0,\"key\":\"\",\"strategy\":\"\",\"function\":\"\"},\"physical\":{\"xyz\":{\"name\":\"\",\"ownsPercentage\":0,\"belongsToNodes\":[\"n1\"]}},\"virtual\":null,\"partitioningEnabled\":false,\"numberOfReplicas\":0,\"replicationFactor\":0}",
 	}
 
 	for _, exp := range expected {
