@@ -75,6 +75,20 @@ func (h *hnsw) autoEfFromK(k int) int {
 	return ef
 }
 
+func shiftIfNegative(ids []uint64, dists []float32, err error) ([]uint64, []float32, error) {
+	if err != nil || dists[0] >= 0 {
+		return ids, dists, err
+	}
+	epsilon := float32(1)
+	for epsilon/10 > -dists[0] {
+		epsilon /= 10
+	}
+	for i := range dists {
+		dists[i] += epsilon
+	}
+	return ids, dists, err
+}
+
 func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	k int, allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
@@ -85,10 +99,10 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
-		return h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList)
+		return shiftIfNegative(h.flatSearch(ctx, vector, k, h.searchTimeEF(k), allowList))
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
-	return h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList)
+	return shiftIfNegative(h.knnSearchByVector(ctx, vector, k, h.searchTimeEF(k), allowList))
 }
 
 func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k int, allowList helpers.AllowList) ([]uint64, []float32, error) {
@@ -106,7 +120,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		return h.flatMultiSearch(ctx, vectors, k, allowList)
 	}
 	helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", false)
-	return h.knnSearchByMultiVector(ctx, vectors, k, allowList)
+	return shiftIfNegative(h.knnSearchByMultiVector(ctx, vectors, k, allowList))
 }
 
 // SearchByVectorDistance wraps SearchByVector, and calls it recursively until
@@ -122,8 +136,8 @@ func (h *hnsw) SearchByVectorDistance(ctx context.Context, vector []float32,
 	targetDistance float32, maxLimit int64,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
-	return searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
-		h.SearchByVector, h.logger)
+	return shiftIfNegative(searchByVectorDistance(ctx, vector, targetDistance, maxLimit, allowList,
+		h.SearchByVector, h.logger))
 }
 
 // SearchByMultiVectorDistance wraps SearchByMultiVector, and calls it recursively until
