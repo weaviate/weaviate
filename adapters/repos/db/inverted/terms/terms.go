@@ -331,7 +331,7 @@ func (t *Terms) FindMinIDWand(minScore float64) (uint64, int, bool) {
 		if term.Exhausted() {
 			continue
 		}
-		cumScore += float64(term.CurrentBlockImpact())
+		cumScore += term.Idf()
 		if cumScore >= minScore {
 			return term.IdPointer(), i, false
 		}

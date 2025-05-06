@@ -631,6 +631,7 @@ func (st *Store) raftConfig() *raft.Config {
 
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
 	cfg.LogLevel = st.cfg.Logger.GetLevel().String()
+	cfg.NoLegacyTelemetry = true
 
 	logger := log.NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger
