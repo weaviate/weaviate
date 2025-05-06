@@ -27,7 +27,7 @@ import (
 )
 
 type Memtable struct {
-	*ctxlock.CtxRWMutex
+	*ctxlock.MaxRWMutex
 	key                *binarySearchTree
 	keyMulti           *binarySearchTreeMulti
 	keyMap             *binarySearchTreeMap
@@ -73,7 +73,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		lockTimeout:              10 * time.Second,
 	}
 
-	m.CtxRWMutex = ctxlock.NewCtxRWMutex("memtable")
+	m.MaxRWMutex = ctxlock.NewMaxRWMutex("memtable")
 	m.CtxRWLocation("memtable")
 
 	if m.secondaryIndices > 0 {
@@ -100,8 +100,8 @@ func (m *Memtable) get(key []byte) ([]byte, error) {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
 
-	if err := m.RLockWithTimeout(m.lockTimeout); err != nil {
-		return nil, errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryRLock(); !ok {
+		return nil, errors.New("failed to acquire read lock")
 	}
 	defer m.RUnlock()
 
@@ -116,8 +116,8 @@ func (m *Memtable) getBySecondary(pos int, key []byte) ([]byte, error) {
 		return nil, errors.Errorf("get only possible with strategy 'replace'")
 	}
 
-	if err := m.RLockWithTimeout(m.lockTimeout); err != nil {
-		return nil, errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryRLock(); !ok {
+		return nil, errors.New("failed to acquire read lock")
 	}
 	defer m.RUnlock()
 
@@ -137,8 +137,8 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("put only possible with strategy 'replace'")
 	}
 
-	if err := m.LockWithTimeout(m.lockTimeout); err != nil {
-		return errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryLock(); !ok {
+		return errors.New("failed to acquire lock")
 	}
 	defer m.Unlock()
 
@@ -187,8 +187,8 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	if err := m.LockWithTimeout(m.lockTimeout); err != nil {
-		return errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryLock(); !ok {
+		return errors.New("failed to acquire lock")
 	}
 	defer m.Unlock()
 
@@ -228,8 +228,8 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 		return errors.Errorf("setTombstone only possible with strategy 'replace'")
 	}
 
-	if err := m.LockWithTimeout(m.lockTimeout); err != nil {
-		return errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryLock(); !ok {
+		return errors.New("failed to acquire lock")
 	}
 	defer m.Unlock()
 
@@ -298,8 +298,8 @@ func (m *Memtable) getCollection(key []byte) ([]value, error) {
 			StrategySetCollection, StrategyMapCollection, StrategyInverted)
 	}
 
-	if err := m.RLockWithTimeout(m.lockTimeout); err != nil {
-		return nil, errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryRLock(); !ok {
+		return nil, errors.New("failed to acquire read lock")
 	}
 	defer m.RUnlock()
 
@@ -320,8 +320,8 @@ func (m *Memtable) getMap(key []byte) ([]MapPair, error) {
 			StrategyMapCollection, StrategyInverted)
 	}
 
-	if err := m.RLockWithTimeout(m.lockTimeout); err != nil {
-		return nil, errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryRLock(); !ok {
+		return nil, errors.New("failed to acquire read lock")
 	}
 	defer m.RUnlock()
 
@@ -342,8 +342,8 @@ func (m *Memtable) append(key []byte, values []value) error {
 			StrategySetCollection, StrategyMapCollection)
 	}
 
-	if err := m.LockWithTimeout(m.lockTimeout); err != nil {
-		return errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryLock(); !ok {
+		return errors.New("failed to acquire lock")
 	}
 	defer m.Unlock()
 	if err := m.commitlog.append(segmentCollectionNode{
@@ -388,8 +388,8 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 		},
 	}
 
-	if err := m.LockWithTimeout(m.lockTimeout); err != nil {
-		return errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryLock(); !ok {
+		return errors.New("failed to acquire lock")
 	}
 	defer m.Unlock()
 
@@ -450,8 +450,8 @@ func (m *Memtable) countStats() *countStats {
 // that the WAL is written before a successful response is returned to the
 // user.
 func (m *Memtable) writeWAL() error {
-	if err := m.LockWithTimeout(m.lockTimeout); err != nil {
-		return errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryLock(); !ok {
+		return errors.New("failed to acquire lock")
 	}
 	defer m.Unlock()
 
@@ -463,8 +463,8 @@ func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 		return nil, errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
 	}
 
-	if err := m.RLockWithTimeout(m.lockTimeout); err != nil {
-		return nil, errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryRLock(); !ok {
+		return nil, errors.New("failed to acquire read lock")
 	}
 	defer m.RUnlock()
 
@@ -480,8 +480,8 @@ func (m *Memtable) SetTombstone(docId uint64) error {
 		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
 	}
 
-	if err := m.LockWithTimeout(m.lockTimeout); err != nil {
-		return errors.Wrap(err, "failed to acquire lock")
+	if ok := m.TryLock(); !ok {
+		return errors.New("failed to acquire lock")
 	}
 	defer m.Unlock()
 
