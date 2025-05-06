@@ -23,6 +23,9 @@ type ReplicaCopier interface {
 	// CopyReplica see cluster/replication/copier.Copier.CopyReplica
 	CopyReplica(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string) error
 
+	// CopyReplica see cluster/replication/copier.Copier.RemoveLocalReplica
+	RemoveLocalReplica(ctx context.Context, sourceCollection string, sourceShard string) error
+
 	// InitAsyncReplicationLocally see cluster/replication/copier.Copier.InitAsyncReplicationLocally
 	InitAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error
 

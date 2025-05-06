@@ -446,7 +446,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					TargetNode:       "node2",
 					TransferType:     api.COPY.String(),
 				}),
-				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 0, Error: "test error", Uuid: UUID1}),
+				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 0, Error: "test error", Uuid: UUID1}),
 			},
 			nonSnapshottedRequests: []*api.ApplyRequest{
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ReplicationReplicateShardRequest{
@@ -457,7 +457,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					TargetNode:       "node2",
 					TransferType:     api.COPY.String(),
 				}),
-				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 1, Error: "test error", Uuid: UUID2}),
+				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 1, Error: "test error", Uuid: UUID2}),
 			},
 		},
 		{
@@ -500,7 +500,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					TargetNode:       "node2",
 					TransferType:     api.MOVE.String(),
 				}),
-				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 0, Error: "test error", Uuid: UUID1}),
+				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 0, Error: "test error", Uuid: UUID1}),
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, api.ReplicationReplicateShardRequest{
 					Uuid:             UUID2,
 					SourceCollection: "TestCollection",
@@ -509,7 +509,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					TargetNode:       "node2",
 					TransferType:     api.COPY.String(),
 				}),
-				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 1, Error: "test error", Uuid: UUID2}),
+				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR, api.ReplicationRegisterErrorRequest{Id: 1, Error: "test error", Uuid: UUID2}),
 			},
 			nonSnapshottedRequests: []*api.ApplyRequest{},
 		},
@@ -538,7 +538,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					err := manager.Replicate(logIndex, req)
 					assert.NoError(t, err)
 					logIndex++
-				case api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR:
+				case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:
 					var originalReq api.ReplicationRegisterErrorRequest
 					err := json.Unmarshal(req.SubCommand, &originalReq)
 					require.NoError(t, err)
@@ -561,7 +561,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					// Execute
 					err := manager.Replicate(logIndex, req)
 					assert.NoError(t, err)
-				case api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR:
+				case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:
 					var originalReq api.ReplicationRegisterErrorRequest
 					err := json.Unmarshal(req.SubCommand, &originalReq)
 					require.NoError(t, err)
@@ -608,7 +608,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					require.Equal(t, originalReq.TargetNode, resp.TargetNodeId)
 					require.Equal(t, originalReq.TransferType, resp.TransferType)
 					logIndex++
-				case api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR:
+				case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:
 					originalReq := api.ReplicationRegisterErrorRequest{}
 					err = json.Unmarshal(req.SubCommand, &originalReq)
 					require.NoError(t, err)
@@ -655,7 +655,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					_, err := manager.GetReplicationDetailsByReplicationId(queryRequest)
 					require.Error(t, err)
 					logIndex++
-				case api.ApplyRequest_TYPE_REPLICATION_REGISTER_ERROR:
+				case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:
 					originalReq := api.ReplicationRegisterErrorRequest{}
 					err = json.Unmarshal(req.SubCommand, &originalReq)
 					require.NoError(t, err)
@@ -826,7 +826,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		secondStateUpdate, err := json.Marshal(&api.ReplicationUpdateOpStateRequest{
 			Version: 0,
 			Id:      1,
-			State:   api.ABORTED,
+			State:   api.CANCELLED,
 		})
 		require.NoErrorf(t, err, "error while marshalling second operation state change: %v", err)
 
@@ -839,7 +839,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		assertGaugeValues(t, reg, metricName, map[api.ShardReplicationState]float64{
 			api.REGISTERED: 0,
 			api.READY:      1,
-			api.ABORTED:    1,
+			api.CANCELLED:  1,
 		})
 	})
 }
