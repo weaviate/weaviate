@@ -18,7 +18,10 @@ import (
 	"os"
 	"sync/atomic"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -89,7 +92,7 @@ func (ct CommitType) Is(checkedCommitType CommitType) bool {
 	return ct == checkedCommitType
 }
 
-func newCommitLogger(path string) (*commitLogger, error) {
+func newCommitLogger(path string, strategy string) (*commitLogger, error) {
 	out := &commitLogger{
 		path: path + ".wal",
 	}
@@ -99,9 +102,18 @@ func newCommitLogger(path string) (*commitLogger, error) {
 		return nil, err
 	}
 
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"strategy":  strategy,
+		"operation": "appendWAL",
+	})
+
 	out.file = f
 
-	out.writer = bufio.NewWriter(f)
+	meteredF := diskio.NewMeteredWriter(f, func(written int64) {
+		observeWrite.Observe(float64(written))
+	})
+
+	out.writer = bufio.NewWriter(meteredF)
 	out.checksumWriter = integrity.NewCRC32Writer(out.writer)
 
 	out.bufNode = bytes.NewBuffer(nil)
