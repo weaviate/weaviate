@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/pkg/errors"
@@ -208,7 +209,7 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 				return err
 			}
 		} else {
-			if err := m.updateIndexAddShards(ctx, idx, incomingSS); err != nil {
+			if err := m.updateIndexShards(ctx, idx, incomingSS); err != nil {
 				return err
 			}
 		}
@@ -243,7 +244,7 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 
 		if phys.Status == models.TenantActivityStatusHOT {
 			// Only load the tenant if activity status == HOT
-			if err := idx.initLocalShard(ctx, shardName); err != nil {
+			if err := idx.loadLocalShard(ctx, shardName); err != nil {
 				return fmt.Errorf("add missing tenant shard %s during update index: %w", shardName, err)
 			}
 		} else {
@@ -291,14 +292,42 @@ func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 	return nil
 }
 
-func (m *Migrator) updateIndexAddShards(ctx context.Context, idx *Index,
+func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	for _, shardName := range incomingSS.AllLocalPhysicalShards() {
-		if err := idx.initLocalShard(ctx, shardName); err != nil {
-			return fmt.Errorf("add missing shard %s during update index: %w", shardName, err)
+	requestedShards := incomingSS.AllLocalPhysicalShards()
+	loadedShards := make(map[string]ShardLike)
+
+	if err := idx.ForEachShard(func(name string, shard ShardLike) error {
+		loadedShards[name] = shard
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to iterate over loaded shards: %w", err)
+	}
+
+	toDrop := make([]string, 0, len(requestedShards))
+
+	// Initialize missing shards and drop unneeded ones
+	for shardName := range loadedShards {
+		if !slices.Contains(requestedShards, shardName) {
+			toDrop = append(toDrop, shardName)
 		}
 	}
+
+	if len(toDrop) > 0 {
+		if err := idx.dropShards(toDrop); err != nil {
+			return fmt.Errorf("drop shards %v during update index: %w", toDrop, err)
+		}
+	}
+
+	for _, shardName := range requestedShards {
+		if _, exists := loadedShards[shardName]; !exists {
+			if err := idx.initLocalShard(ctx, shardName); err != nil {
+				return fmt.Errorf("add missing shard %s during update index: %w", shardName, err)
+			}
+		}
+	}
+
 	return nil
 }
 

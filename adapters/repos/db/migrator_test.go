@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/sirupsen/logrus"
@@ -23,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -116,6 +118,147 @@ func TestUpdateIndexTenants(t *testing.T) {
 
 			// Verify the shard status
 			require.Equal(t, tt.expectedStatus, shard.GetStatus())
+		})
+	}
+}
+
+func TestUpdateIndexShards(t *testing.T) {
+	tests := []struct {
+		name           string
+		initialShards  []string
+		newShards      []string
+		expectedShards []string
+		mustLoad       bool
+	}{
+		{
+			name:           "add new shard with lazy loading",
+			initialShards:  []string{"shard1", "shard2"},
+			newShards:      []string{"shard1", "shard2", "shard3"},
+			expectedShards: []string{"shard1", "shard2", "shard3"},
+			mustLoad:       false,
+		},
+		{
+			name:           "remove shard with lazy loading",
+			initialShards:  []string{"shard1", "shard2", "shard3"},
+			newShards:      []string{"shard1", "shard3"},
+			expectedShards: []string{"shard1", "shard3"},
+			mustLoad:       false,
+		},
+		{
+			name:           "keep existing shards with lazy loading",
+			initialShards:  []string{"shard1", "shard3"},
+			newShards:      []string{"shard1", "shard3"},
+			expectedShards: []string{"shard1", "shard3"},
+			mustLoad:       false,
+		},
+		{
+			name:           "add new shard with immediate loading",
+			initialShards:  []string{"shard1", "shard2"},
+			newShards:      []string{"shard1", "shard2", "shard3"},
+			expectedShards: []string{"shard1", "shard2", "shard3"},
+			mustLoad:       true,
+		},
+		{
+			name:           "remove shard with immediate loading",
+			initialShards:  []string{"shard1", "shard2", "shard3"},
+			newShards:      []string{"shard1", "shard3"},
+			expectedShards: []string{"shard1", "shard3"},
+			mustLoad:       true,
+		},
+		{
+			name:           "keep existing shards with immediate loading",
+			initialShards:  []string{"shard1", "shard3"},
+			newShards:      []string{"shard1", "shard3"},
+			expectedShards: []string{"shard1", "shard3"},
+			mustLoad:       true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			logger := logrus.New()
+
+			mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+			mockSchemaGetter.On("NodeName").Return("node1")
+
+			// Create a test class
+			class := &models.Class{
+				Class:               "TestClass",
+				InvertedIndexConfig: &models.InvertedIndexConfig{},
+			}
+			mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class).Maybe()
+
+			// Create initial sharding state
+			initialPhysical := make(map[string]sharding.Physical)
+			for _, shard := range tt.initialShards {
+				initialPhysical[shard] = sharding.Physical{
+					Name:           shard,
+					BelongsToNodes: []string{"node1"},
+				}
+			}
+			initialState := &sharding.State{
+				Physical: initialPhysical,
+			}
+			initialState.SetLocalName("node1")
+
+			// Create index with proper configuration
+			index, err := NewIndex(ctx, IndexConfig{
+				ClassName:         schema.ClassName("TestClass"),
+				RootPath:          t.TempDir(),
+				ReplicationFactor: NewAtomicInt64(1),
+				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+			}, initialState, inverted.ConfigFromModel(class.InvertedIndexConfig),
+				hnsw.NewDefaultUserConfig(), nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, class, nil, nil, memwatch.NewDummyMonitor())
+			require.NoError(t, err)
+
+			// Initialize shards
+			for _, shardName := range tt.initialShards {
+				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad)
+				require.NoError(t, err)
+			}
+
+			migrator := &Migrator{
+				db: &DB{
+					schemaGetter: mockSchemaGetter,
+				},
+				nodeId: "node1",
+			}
+
+			// Create new sharding state
+			newPhysical := make(map[string]sharding.Physical)
+			for _, shard := range tt.newShards {
+				newPhysical[shard] = sharding.Physical{
+					Name:           shard,
+					BelongsToNodes: []string{"node1"},
+				}
+
+			}
+			newState := &sharding.State{
+				Physical: newPhysical,
+			}
+			newState.SetLocalName("node1")
+
+			// Update shards
+			err = migrator.updateIndexShards(ctx, index, newState)
+			require.NoError(t, err)
+
+			// Verify expected shards exist and are ready
+			for _, expectedShard := range tt.expectedShards {
+				shard := index.shards.Load(expectedShard)
+				require.NotNil(t, shard, "shard %s should exist", expectedShard)
+				require.Equal(t, storagestate.StatusReady, shard.GetStatus(), "shard %s should be ready", expectedShard)
+			}
+
+			// Verify removed shards are dropped
+			for _, initialShard := range tt.initialShards {
+				if !slices.Contains(tt.newShards, initialShard) {
+					shard := index.shards.Load(initialShard)
+					require.Nil(t, shard, "shard %s should be dropped", initialShard)
+				}
+			}
+
+			mockSchemaGetter.AssertExpectations(t)
 		})
 	}
 }
