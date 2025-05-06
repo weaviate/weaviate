@@ -232,7 +232,6 @@ func TestUpdateIndexShards(t *testing.T) {
 					Name:           shard,
 					BelongsToNodes: []string{"node1"},
 				}
-
 			}
 			newState := &sharding.State{
 				Physical: newPhysical,
