@@ -18,6 +18,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -107,6 +110,10 @@ func (m *Memtable) flush() (rerr error) {
 			Keys:                keys,
 			SecondaryIndexCount: m.secondaryIndices,
 			ScratchSpacePath:    m.path + ".scratch.d",
+			ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+				"strategy":  m.strategy,
+				"operation": "writeIndices",
+			}),
 		}
 
 		if _, err := segmentFile.WriteIndexes(indexes); err != nil {
