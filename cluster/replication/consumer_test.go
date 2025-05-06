@@ -687,3 +687,225 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier.AssertExpectations(t)
 	})
 }
+
+func TestConsumerOpCancellation(t *testing.T) {
+	// GIVEN
+	logger, _ := logrustest.NewNullLogger()
+	mockFSMUpdater := types.NewMockFSMUpdater(t)
+	mockReplicaCopier := types.NewMockReplicaCopier(t)
+
+	mockFSMUpdater.EXPECT().
+		ReplicationCancellationComplete(uint64(1)).
+		Return(nil)
+	mockReplicaCopier.EXPECT().
+		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil)
+
+	var completionWg sync.WaitGroup
+	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+		WithPrepareProcessing(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in prepare processing callback")
+		}).
+		WithOpPendingCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in pending op callback")
+		}).
+		WithOpSkippedCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in skipped op callback")
+		}).
+		WithOpStartCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in start op callback")
+		}).
+		WithOpCompleteCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in complete op callback")
+		}).
+		WithOpFailedCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in failed op callback")
+		}).
+		WithOpCancelledCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in cancelled op callback")
+			completionWg.Done()
+		}).
+		Build()
+
+	consumer := replication.NewCopyOpConsumer(
+		logger,
+		mockFSMUpdater,
+		mockReplicaCopier,
+		"node2",
+		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
+		time.Second*10,
+		1,
+		metricsCallbacks,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	opsChan := make(chan replication.ShardReplicationOpAndStatus, 2)
+	doneChan := make(chan error, 1)
+
+	// WHEN
+	go func() {
+		doneChan <- consumer.Consume(ctx, opsChan)
+	}()
+
+	for _, sleep := range []uint64{0, 1} {
+		if sleep == 1 {
+			// Only mock the long-running operation when it will have started before cancellation
+			mockReplicaCopier.EXPECT().
+				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+					// Simulate a long-running operation that checks for cancellation every loop
+					for {
+						if ctx.Err() != nil {
+							return ctx.Err()
+						}
+						time.Sleep(1 * time.Second)
+					}
+				})
+		}
+		completionWg.Add(1)
+		op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
+		status := replication.NewShardReplicationStatus(api.HYDRATING)
+		status.TriggerCancellation()
+		// Simulate the copying step that will loop forever until cancelled in the mock
+		opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+		// Tests the cancellation happening before the copying has started (0s) and once it has started (1s)
+		time.Sleep(time.Duration(sleep) * time.Second)
+		// Cancel the operation via ShouldCancel or ShouldDelete
+		opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+
+		waitChan := make(chan struct{})
+		go func() {
+			completionWg.Wait()
+			waitChan <- struct{}{}
+		}()
+
+		select {
+		case <-waitChan:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("Test with sleep %vs timed out waiting for operation completion", sleep)
+		}
+	}
+
+	close(opsChan)
+	err := <-doneChan
+
+	// THEN
+	require.NoError(t, err, "expected consumer to stop without error")
+
+	mockFSMUpdater.AssertExpectations(t)
+	mockReplicaCopier.AssertExpectations(t)
+}
+
+func TestConsumerOpDeletion(t *testing.T) {
+	// GIVEN
+	logger, _ := logrustest.NewNullLogger()
+	mockFSMUpdater := types.NewMockFSMUpdater(t)
+	mockReplicaCopier := types.NewMockReplicaCopier(t)
+
+	mockFSMUpdater.EXPECT().
+		ReplicationRemoveReplicaOp(uint64(1)).
+		Return(nil)
+	mockReplicaCopier.EXPECT().
+		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil)
+
+	var completionWg sync.WaitGroup
+	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+		WithPrepareProcessing(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in prepare processing callback")
+		}).
+		WithOpPendingCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in pending op callback")
+		}).
+		WithOpSkippedCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in skipped op callback")
+		}).
+		WithOpStartCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in start op callback")
+		}).
+		WithOpCompleteCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in complete op callback")
+		}).
+		WithOpFailedCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in failed op callback")
+		}).
+		WithOpCancelledCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in cancelled op callback")
+			completionWg.Done()
+		}).
+		Build()
+
+	consumer := replication.NewCopyOpConsumer(
+		logger,
+		mockFSMUpdater,
+		mockReplicaCopier,
+		"node2",
+		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
+		time.Second*10,
+		1,
+		metricsCallbacks,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	opsChan := make(chan replication.ShardReplicationOpAndStatus, 2)
+	doneChan := make(chan error, 1)
+
+	// WHEN
+	go func() {
+		doneChan <- consumer.Consume(ctx, opsChan)
+	}()
+
+	for _, sleep := range []uint64{0, 1} {
+		if sleep == 1 {
+			// Only mock the long-running operation when it will have started before cancellation
+			mockReplicaCopier.EXPECT().
+				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+					// Simulate a long-running operation that checks for cancellation every loop
+					for {
+						if ctx.Err() != nil {
+							return ctx.Err()
+						}
+						time.Sleep(1 * time.Second)
+					}
+				})
+		}
+		completionWg.Add(1)
+		op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
+		status := replication.NewShardReplicationStatus(api.HYDRATING)
+		status.TriggerDeletion()
+		// Simulate the copying step that will loop forever until cancelled in the mock
+		opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+		// Tests the cancellation happening before the copying has started (0s) and once it has started (1s)
+		time.Sleep(time.Duration(sleep) * time.Second)
+		// Cancel the operation via ShouldCancel or ShouldDelete
+		opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+
+		waitChan := make(chan struct{})
+		go func() {
+			completionWg.Wait()
+			waitChan <- struct{}{}
+		}()
+
+		select {
+		case <-waitChan:
+		case <-time.After(10 * time.Second):
+			t.Fatalf("Test with sleep %vs timed out waiting for operation completion", sleep)
+		}
+	}
+
+	close(opsChan)
+	err := <-doneChan
+
+	// THEN
+	require.NoError(t, err, "expected consumer to stop without error")
+
+	mockFSMUpdater.AssertExpectations(t)
+	mockReplicaCopier.AssertExpectations(t)
+}

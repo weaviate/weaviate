@@ -119,7 +119,7 @@ func (p *Physical) AddReplica(replica string) error {
 
 func (p *Physical) DeleteReplica(replica string) error {
 	if !slices.Contains(p.BelongsToNodes, replica) {
-		return fmt.Errorf("replica %s does not exist", replica)
+		return nil // replica not found, nothing to do
 	}
 	idx := slices.Index(p.BelongsToNodes, replica)
 	p.BelongsToNodes = slices.Delete(p.BelongsToNodes, idx, idx+1)

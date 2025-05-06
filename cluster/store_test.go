@@ -616,9 +616,9 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "DeleteReplicaFromShard/Fail/ReplicaNotFound",
+			name: "DeleteReplicaFromShard/Success/ReplicaNotFound",
 			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, cmd.DeleteReplicaFromShard{Class: "C1", Shard: "T2", TargetNode: "Node-2"}, nil)},
-			resp: Response{Error: schema.ErrSchema},
+			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
 				ss := &sharding.State{Physical: map[string]sharding.Physical{"T2": {
 					Name:           "T2",
