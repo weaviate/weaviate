@@ -269,6 +269,10 @@ func (c *compactorMap) writeIndexes(f *segmentindex.SegmentFile,
 		Keys:                keys,
 		SecondaryIndexCount: c.secondaryIndexCount,
 		ScratchSpacePath:    c.scratchSpacePath,
+		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+			"strategy":  StrategyMapCollection,
+			"operation": "writeIndices",
+		}),
 	}
 	_, err := f.WriteIndexes(indexes)
 	return err
