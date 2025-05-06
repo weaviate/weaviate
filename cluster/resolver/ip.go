@@ -35,15 +35,15 @@ func ParseAddressWithPort(addr string) (string, uint16, error) {
 	var host string
 	var portStr string
 
-	// Try to use standard SplitHostPort first
-	if strings.HasPrefix(addr, "[") {
+	// First try standard net.SplitHostPort for bracketed IPv6 or IPv4/hostname
+	if strings.HasPrefix(addr, "[") || !IsIPv6(addr) {
 		var err error
 		host, portStr, err = net.SplitHostPort(addr)
 		if err != nil {
 			return "", 0, err
 		}
-	} else if IsIPv6(addr) {
-		// For non-bracketed IPv6 addresses, we need custom parsing
+	} else {
+		// Custom parsing for unbracketed IPv6 addresses
 		lastColon := strings.LastIndex(addr, ":")
 		if lastColon == -1 {
 			return addr, 0, nil
@@ -51,13 +51,6 @@ func ParseAddressWithPort(addr string) (string, uint16, error) {
 
 		host = addr[:lastColon]
 		portStr = addr[lastColon+1:]
-	} else {
-		// Regular IPv4 or hostname
-		var err error
-		host, portStr, err = net.SplitHostPort(addr)
-		if err != nil {
-			return "", 0, err
-		}
 	}
 
 	// Parse port number
