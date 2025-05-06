@@ -13,7 +13,6 @@ package segmentindex
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -114,9 +113,7 @@ func (s *Indexes) buildSecondary(keys []Key, pos int) (Tree, error) {
 
 	keyNodes = keyNodes[:i]
 
-	sort.Slice(keyNodes, func(a, b int) bool {
-		return bytes.Compare(keyNodes[a].Key, keyNodes[b].Key) < 0
-	})
+	sort.Sort(Nodes(keyNodes))
 
 	index := NewBalanced(keyNodes)
 	return index, nil
@@ -277,9 +274,7 @@ func (s *Indexes) buildAndMarshalSecondary(w io.Writer, pos int,
 
 	keyNodes = keyNodes[:i]
 
-	sort.Slice(keyNodes, func(a, b int) bool {
-		return bytes.Compare(keyNodes[a].Key, keyNodes[b].Key) < 0
-	})
+	sort.Sort(Nodes(keyNodes))
 
 	index := NewBalanced(keyNodes)
 	n, err := index.MarshalBinaryInto(w)
