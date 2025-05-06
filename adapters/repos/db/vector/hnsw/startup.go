@@ -138,7 +138,9 @@ func (h *hnsw) restoreFromDisk() error {
 				return errors.Wrapf(err, "restore doc mappings %q", h.id)
 			}
 		} else {
-			h.muveraEncoder.LoadMuveraConfig(*state.EncoderMuvera)
+			h.trackMuveraOnce.Do(func() {
+				h.muveraEncoder.LoadMuveraConfig(*state.EncoderMuvera)
+			})
 		}
 	}
 
