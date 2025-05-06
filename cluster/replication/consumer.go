@@ -341,7 +341,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 func (c *CopyOpConsumer) cancelOp(ctx context.Context, op ShardReplicationOpAndStatus, logger *logrus.Entry) error {
 	defer c.engineOpCallbacks.OnOpCancelled(c.nodeId)
 
-	if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
+	if err := c.replicaCopier.RemoveLocalReplica(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
 		logger.WithError(err).Error("failure while removing replica shard")
 		return err
 	}
@@ -435,6 +435,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	}
 
 	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 	// we only check the status of the async replication every 5 seconds to avoid
@@ -474,6 +475,11 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOp(c.logger.Logger, op.Op)
 	logger.Info("processing dehydrating replication operation")
+
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		return api.ShardReplicationState(""), ctx.Err()
+	}
 
 	if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, op.Op.SourceShard.NodeId); err != nil {
 		logger.WithError(err).Error("failure while deleting replica from shard")
