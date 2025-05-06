@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -80,13 +81,12 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	if s.hasTargetVectors() {
 		// TODO run in parallel?
 		for targetVector, queue := range s.queues {
-			err = queue.Flush()
-			if err != nil {
+			targetVector, queue := targetVector, queue // capture loop variables
+			if err := queue.Flush(); err != nil {
 				ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
 			}
 
-			err := queue.Close()
-			if err != nil {
+			if err := queue.Close(); err != nil {
 				ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
 			}
 		}
@@ -110,7 +110,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		}
 	} else {
 		err = s.queue.Flush()
-		ec.AddWrap(err, "flush vector index queue commitlog")
+		ec.Add(errors.Wrap(err, "flush vector index queue commitlog"))
 		err = s.queue.Close()
 		ec.AddWrap(err, "shut down vector index queue")
 
