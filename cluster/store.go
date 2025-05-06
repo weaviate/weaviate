@@ -18,6 +18,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -328,22 +329,46 @@ func (st *Store) init() error {
 		return fmt.Errorf("file snapshot store: %w", err)
 	}
 
-	// tcp transport
-	address := fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RaftPort)
-	tcpAddr, err := net.ResolveTCPAddr("tcp", address)
-	if err != nil {
-		return fmt.Errorf("net.resolve tcp address=%v: %w", address, err)
+	// TCP transport setup - handle IPv6 properly
+	// Use environment variable for full IPv6 address if available
+	host := strings.Trim(st.cfg.Host, "[]")
+	if envAddr := os.Getenv("CLUSTER_ADVERTISE_ADDR"); envAddr != "" && resolver.IsIPv6(host) {
+		cleanEnvAddr := strings.Trim(envAddr, "[]")
+		if len(cleanEnvAddr) > len(host) {
+			host = cleanEnvAddr
+		}
 	}
 
-	st.raftTransport, err = st.raftResolver.NewTCPTransport(address, tcpAddr, tcpMaxPool, tcpTimeout, st.log)
+	// Use wildcard for binding and specific address for advertising
+	bindAddress := fmt.Sprintf(":%d", st.cfg.RaftPort)
+	advertiseAddress := resolver.FormatAddressWithPort(host, uint16(st.cfg.RaftPort))
+
+	st.log.WithFields(logrus.Fields{
+		"advertise": advertiseAddress,
+		"bind":      bindAddress,
+	}).Info("creating tcp transport")
+
+	// Resolve addresses for TCP transport
+	// Verify that bind address is valid
+	if _, err := net.ResolveTCPAddr("tcp", bindAddress); err != nil {
+		return fmt.Errorf("resolve bind address: %w", err)
+	}
+
+	advertiseAddr, err := net.ResolveTCPAddr("tcp", advertiseAddress)
 	if err != nil {
-		return fmt.Errorf("raft transport address=%v tcpAddress=%v maxPool=%v timeOut=%v: %w", address, tcpAddr, tcpMaxPool, tcpTimeout, err)
+		return fmt.Errorf("resolve advertise address: %w", err)
+	}
+
+	st.raftTransport, err = st.raftResolver.NewTCPTransport(bindAddress, advertiseAddr, tcpMaxPool, tcpTimeout, st.log)
+	if err != nil {
+		return fmt.Errorf("raft transport advertise=%v bind=%v maxPool=%v timeOut=%v: %w", advertiseAddress, bindAddress, tcpMaxPool, tcpTimeout, err)
 	}
 	st.log.WithFields(logrus.Fields{
-		"address":    address,
-		"tcpMaxPool": tcpMaxPool,
-		"tcpTimeout": tcpTimeout,
-	}).Info("tcp transport")
+		"advertise_address": advertiseAddress,
+		"bind_address":      bindAddress,
+		"tcpMaxPool":        tcpMaxPool,
+		"tcpTimeout":        tcpTimeout,
+	}).Info("tcp transport successfully created")
 
 	return err
 }

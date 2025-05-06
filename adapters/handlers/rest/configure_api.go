@@ -473,14 +473,19 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	nodeName := appState.Cluster.LocalName()
 	nodeAddr, _ := appState.Cluster.NodeHostname(nodeName)
-	addrs := strings.Split(nodeAddr, ":")
+	host := strings.Split(nodeAddr, ":")[0]
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
+
+	// Prefer environment variable for IPv6 addresses if available
+	if advertiseAddr := os.Getenv("CLUSTER_ADVERTISE_ADDR"); advertiseAddr != "" {
+		host = strings.Trim(advertiseAddr, "[]")
+	}
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
 	rConfig := rCluster.Config{
 		WorkDir:                filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                 nodeName,
-		Host:                   addrs[0],
+		Host:                   host, // Use the clean host value for IPv6 compatibility
 		RaftPort:               appState.ServerConfig.Config.Raft.Port,
 		RPCPort:                appState.ServerConfig.Config.Raft.InternalRPCPort,
 		RaftRPCMessageMaxSize:  appState.ServerConfig.Config.Raft.RPCMessageMaxSize,

@@ -14,6 +14,8 @@ package cluster
 import (
 	"context"
 	"fmt"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -52,8 +54,23 @@ type Service struct {
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
 func New(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, svrMetrics *monitoring.GRPCServerMetrics) *Service {
-	rpcListenAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
-	raftAdvertisedAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort)
+	// Use wildcard address for RPC listening
+	rpcListenAddress := fmt.Sprintf(":%d", cfg.RPCPort)
+
+	// Process host for IPv6 compatibility
+	host := strings.Trim(cfg.Host, "[]")
+
+	// Use environment variable for full IPv6 address if available
+	if envAddr := os.Getenv("CLUSTER_ADVERTISE_ADDR"); envAddr != "" && resolver.IsIPv6(host) {
+		envAddrClean := strings.Trim(envAddr, "[]")
+		if len(envAddrClean) > len(host) {
+			host = envAddrClean
+		}
+	}
+
+	// Format Raft address with proper IPv6 handling
+	raftAdvertisedAddress := resolver.FormatAddressWithPort(host, uint16(cfg.RaftPort))
+
 	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 
 	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer)
