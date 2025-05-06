@@ -58,11 +58,14 @@ type compactorInverted struct {
 
 	docIdEncoder varenc.VarEncEncoder[uint64]
 	tfEncoder    varenc.VarEncEncoder[uint64]
+
+	k1, b, avgPropLen float64
 }
 
 func newCompactorInverted(w io.WriteSeeker,
 	c1, c2 *segmentCursorInvertedReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
+	k1, b, avgPropLen float64,
 ) *compactorInverted {
 	return &compactorInverted{
 		c1:                  c1,
@@ -74,6 +77,9 @@ func newCompactorInverted(w io.WriteSeeker,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
 		offset:              0,
+		k1:                  k1,
+		b:                   b,
+		avgPropLen:          avgPropLen,
 	}
 }
 
@@ -354,7 +360,7 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 		primaryKey:  keyCopy,
 		offset:      offset,
 		propLengths: propertyLengths,
-	}.KeyIndexAndWriteTo(c.bufw, c.docIdEncoder, c.tfEncoder)
+	}.KeyIndexAndWriteTo(c.bufw, c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
 }
 
 func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {

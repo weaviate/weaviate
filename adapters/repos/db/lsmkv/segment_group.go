@@ -29,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -87,6 +89,7 @@ type SegmentGroup struct {
 	lastCompactionCall time.Time
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
+	bm25config                     *schema.BM25Config
 }
 
 type sgConfig struct {
@@ -104,6 +107,7 @@ type sgConfig struct {
 	enableChecksumValidation bool
 	keepSegmentsInMemory     bool
 	MinMMapSize              int64
+	bm25config               *models.BM25Config
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -802,4 +806,29 @@ func (sg *SegmentGroup) Len() int {
 	defer release()
 
 	return len(segments)
+}
+
+func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
+	segments, release := sg.getAndLockSegments()
+	defer release()
+
+	if len(segments) == 0 {
+		return 0, 0
+	}
+
+	totalDocCount := uint64(0)
+	for _, segment := range segments {
+		totalDocCount += segment.invertedData.avgPropertyLengthsCount
+	}
+
+	if totalDocCount == 0 {
+		return defaultAveragePropLength, 0
+	}
+
+	weightedAverage := 0.0
+	for _, segment := range segments {
+		weightedAverage += float64(segment.invertedData.avgPropertyLengthsCount) / float64(totalDocCount) * segment.invertedData.avgPropertyLengthsAvg
+	}
+
+	return weightedAverage, totalDocCount
 }
