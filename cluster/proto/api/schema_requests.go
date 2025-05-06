@@ -45,6 +45,11 @@ type AddReplicaToShard struct {
 	SchemaVersion            uint64
 }
 
+type DeleteReplicaFromShard struct {
+	Class, Shard, TargetNode string
+	SchemaVersion            uint64
+}
+
 type QueryReadOnlyClassesRequest struct {
 	Classes []string
 }
