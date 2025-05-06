@@ -312,16 +312,11 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 		return nil
 	}
 
-	op.Status.ChangeState(nextState)
-	if nextState == api.READY {
-		// No need to continue the recursion if we are in the READY state
-		return nil
-	}
-
 	if c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 		logger.WithFields(logrus.Fields{"op": op}).Debug("replication op cancelled, stopping replication operation")
 		return ctx.Err()
 	}
+	op.Status.ChangeState(nextState)
 	return c.dispatchReplicationOp(ctx, op)
 }
 
