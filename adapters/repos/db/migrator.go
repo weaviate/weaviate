@@ -14,7 +14,6 @@ package db
 import (
 	"context"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/pkg/errors"
@@ -236,8 +235,9 @@ func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
 func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
+	nodeName := m.db.schemaGetter.NodeName()
 	for shardName, phys := range incomingSS.Physical {
-		if !m.isLocalTenant(&phys) {
+		if !phys.IsLocalShard(nodeName) {
 			continue
 		}
 
@@ -1033,12 +1033,4 @@ func (m *Migrator) Shutdown(ctx context.Context) error {
 	}
 	m.logger.Info("closing loaded database ...")
 	return m.db.Shutdown(ctx)
-}
-
-func (m *Migrator) isLocalTenant(phys *sharding.Physical) bool {
-	if m.nodeId != "" {
-		return slices.Contains(phys.BelongsToNodes, m.nodeId)
-	}
-
-	return slices.Contains(phys.BelongsToNodes, m.db.schemaGetter.NodeName())
 }
