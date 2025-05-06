@@ -85,6 +85,18 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
 	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
+		if ret.Error != nil {
+			st.log.WithFields(logrus.Fields{
+				"log_type":      l.Type,
+				"log_name":      l.Type.String(),
+				"log_index":     l.Index,
+				"cmd_type":      cmd.Type,
+				"cmd_type_name": cmd.Type.String(),
+				"cmd_class":     cmd.Class,
+			}).WithError(ret.Error).Error("apply command")
+			return
+		}
+
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
 		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
@@ -98,17 +110,6 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
-
-		if ret.Error != nil {
-			st.log.WithFields(logrus.Fields{
-				"log_type":      l.Type,
-				"log_name":      l.Type.String(),
-				"log_index":     l.Index,
-				"cmd_type":      cmd.Type,
-				"cmd_type_name": cmd.Type.String(),
-				"cmd_class":     cmd.Class,
-			}).WithError(ret.Error).Error("apply command")
-		}
 	}()
 
 	cmd.Version = l.Index
