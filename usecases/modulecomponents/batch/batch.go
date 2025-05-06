@@ -299,7 +299,7 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 					case context.Canceled:
 						job.errs[j] = fmt.Errorf("context cancelled while sending batch")
 					case context.DeadlineExceeded:
-						job.errs[j] = fmt.Errorf("context deadline exceeded while sending batch")
+						job.errs[j] = fmt.Errorf("context deadline exceeded")
 					default:
 						// this should not happen but we need to handle it
 						job.errs[j] = fmt.Errorf("context error: %w", job.ctx.Err())
