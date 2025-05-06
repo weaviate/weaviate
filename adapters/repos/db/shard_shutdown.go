@@ -17,10 +17,8 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
@@ -63,10 +61,10 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		return
 	}
 
-	ec := errorcompounder.NewSafe()
+	ec := errorcompounder.New()
 
 	err = s.GetPropertyLengthTracker().Close()
-	ec.Add(errors.Wrap(err, "close prop length tracker"))
+	ec.AddWrap(err, "close prop length tracker")
 
 	// unregister all callbacks at once, in parallel
 	err = cyclemanager.NewCombinedCallbackCtrl(0, s.index.logger,
@@ -81,20 +79,16 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	s.mayStopAsyncReplication()
 
 	if s.hasTargetVectors() {
-		eg := enterrors.NewErrorGroupWrapper(s.Index().logger)
-		eg.SetLimit(_NUMCPU)
+		// TODO run in parallel?
 		for targetVector, queue := range s.queues {
 			targetVector, queue := targetVector, queue // capture loop variables
-			eg.Go(func() error {
-				if err := queue.Flush(); err != nil {
-					ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
-				}
+			if err := queue.Flush(); err != nil {
+				ec.Add(fmt.Errorf("flush vector index queue commitlog of vector %q: %w", targetVector, err))
+			}
 
-				if err := queue.Close(); err != nil {
-					ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
-				}
-				return nil
-			})
+			if err := queue.Close(); err != nil {
+				ec.Add(fmt.Errorf("shut down vector index queue of vector %q: %w", targetVector, err))
+			}
 		}
 
 		for targetVector, vectorIndex := range s.vectorIndexes {
@@ -104,27 +98,21 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 				continue
 			}
 
-			targetVector, vectorIndex := targetVector, vectorIndex // capture loop variables
-			eg.Go(func() error {
-				if err := vectorIndex.Flush(); err != nil {
-					ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
-				}
+			err := vectorIndex.Flush()
+			if err != nil {
+				ec.Add(fmt.Errorf("flush vector index commitlog of vector %q: %w", targetVector, err))
+			}
 
-				if err := vectorIndex.Shutdown(ctx); err != nil {
-					ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
-				}
-				return nil
-			})
-		}
-
-		if err = eg.Wait(); err != nil {
-			ec.Add(err)
+			err = vectorIndex.Shutdown(ctx)
+			if err != nil {
+				ec.Add(fmt.Errorf("shut down vector index of vector %q: %w", targetVector, err))
+			}
 		}
 	} else {
 		err = s.queue.Flush()
 		ec.Add(errors.Wrap(err, "flush vector index queue commitlog"))
 		err = s.queue.Close()
-		ec.Add(errors.Wrap(err, "shut down vector index queue"))
+		ec.AddWrap(err, "shut down vector index queue")
 
 		if s.vectorIndex != nil {
 			// a nil-vector index during shutdown would indicate that the shard was not
@@ -136,10 +124,10 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 			// resulting in perpetually attempting to remove a tombstone
 			// which doesn't actually exist anymore
 			err = s.vectorIndex.Flush()
-			ec.Add(errors.Wrap(err, "flush vector index commitlog"))
+			ec.AddWrap(err, "flush vector index commitlog")
 
 			err = s.vectorIndex.Shutdown(ctx)
-			ec.Add(errors.Wrap(err, "shut down vector index"))
+			ec.AddWrap(err, "shut down vector index")
 		}
 	}
 
@@ -147,7 +135,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		// store would be nil if loading the objects bucket failed, as we would
 		// only return the store on success from s.initLSMStore()
 		err = s.store.Shutdown(ctx)
-		ec.Add(errors.Wrap(err, "stop lsmkv store"))
+		ec.AddWrap(err, "stop lsmkv store")
 	}
 
 	if s.dimensionTrackingInitialized.Load() {

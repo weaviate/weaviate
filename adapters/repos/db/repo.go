@@ -25,7 +25,6 @@ import (
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/cluster/utils"
@@ -202,6 +201,7 @@ type Config struct {
 	MemtablesMaxSizeMB                  int
 	MemtablesMinActiveSeconds           int
 	MemtablesMaxActiveSeconds           int
+	MinMMapSize                         int64
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	MaxSegmentSize                      int64
@@ -328,21 +328,10 @@ func (db *DB) Shutdown(ctx context.Context) error {
 
 	db.indexLock.Lock()
 	defer db.indexLock.Unlock()
-
-	eg, ctx := enterrors.NewErrorGroupWithContextWrapper(db.logger, ctx)
-	eg.SetLimit(_NUMCPU)
 	for id, index := range db.indices {
-		id, index := id, index // capture loop variables
-		eg.Go(func() error {
-			if err := index.Shutdown(ctx); err != nil {
-				return errors.Wrapf(err, "shutdown index %q", id)
-			}
-			return nil
-		})
-	}
-
-	if err := eg.Wait(); err != nil {
-		return err
+		if err := index.Shutdown(ctx); err != nil {
+			return errors.Wrapf(err, "shutdown index %q", id)
+		}
 	}
 
 	db.shutDownWg.Wait() // wait until job queue shutdown is completed
