@@ -20,13 +20,16 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/mmap"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/willf/bloom"
 )
 
@@ -61,6 +64,8 @@ type segment struct {
 
 	invertedHeader *segmentindex.HeaderInverted
 	invertedData   *segmentInvertedData
+
+	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
 }
 
 type diskIndex interface {
@@ -195,6 +200,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		dataEndPos = invertedHeader.TombstoneOffset
 	}
 
+	stratLabel := header.Strategy.String()
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"strategy":  stratLabel,
+		"operation": "segmentMetadata",
+	})
+
 	seg := &segment{
 		level:                 header.Level,
 		path:                  path,
@@ -217,7 +228,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		invertedData: &segmentInvertedData{
 			tombstones: sroar.NewBitmap(),
 		},
-		unMapContents: unMapContents,
+		unMapContents:    unMapContents,
+		observeMetaWrite: func(n int64) { observeWrite.Observe(float64(n)) },
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
