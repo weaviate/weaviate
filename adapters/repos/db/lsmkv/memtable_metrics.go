@@ -21,6 +21,7 @@ type memtableMetrics struct {
 	getMap          NsObserver
 	getCollection   NsObserver
 	size            Setter
+	writeMemtable   BytesObserver
 }
 
 // newMemtableMetrics curries the prometheus-functions just once to make sure
@@ -37,5 +38,6 @@ func newMemtableMetrics(metrics *Metrics, path, strategy string) *memtableMetric
 		getMap:          metrics.MemtableOpObserver(path, strategy, "getMap"),
 		getCollection:   metrics.MemtableOpObserver(path, strategy, "getCollection"),
 		size:            metrics.MemtableSizeSetter(path, strategy),
+		writeMemtable:   metrics.MemtableWriteObserver(strategy, "flushMemtable"),
 	}
 }
