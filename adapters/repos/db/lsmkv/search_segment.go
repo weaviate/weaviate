@@ -78,13 +78,13 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 				docInfos = make([]*terms.DocPointerWithScore, termCount)
 			}
 			if pivotID == results[firstNonExhausted].idPointer {
-				score := float32(0.0)
+				score := 0.0
 				for _, term := range results {
 					if term.idPointer != pivotID {
 						break
 					}
 					_, s, d := term.Score(averagePropLength, additionalExplanations)
-					score += float32(s)
+					score += s
 					upperBound -= term.currentBlockImpact - float32(s)
 
 					if additionalExplanations {
@@ -101,8 +101,8 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 					}
 					term.Advance()
 				}
-				if topKHeap.ShouldEnqueue(score, limit) {
-					topKHeap.InsertAndPop(pivotID, float64(score), limit, &worstDist, docInfos)
+				if topKHeap.ShouldEnqueue(float32(score), limit) {
+					topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
 				}
 
 				sort.Sort(results)

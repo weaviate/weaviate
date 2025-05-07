@@ -13,6 +13,7 @@ package config
 
 import (
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -42,29 +43,34 @@ func TestUpdateRuntimeConfig(t *testing.T) {
 			colCount   runtime.DynamicValue[int]
 			autoSchema runtime.DynamicValue[bool]
 			asyncRep   runtime.DynamicValue[bool]
+			minFinWait runtime.DynamicValue[time.Duration]
 		)
 
 		reg := &WeaviateRuntimeConfig{
-			MaximumAllowedCollectionsCount: &colCount,
-			AutoschemaEnabled:              &autoSchema,
-			AsyncReplicationDisabled:       &asyncRep,
+			MaximumAllowedCollectionsCount:       &colCount,
+			AutoschemaEnabled:                    &autoSchema,
+			AsyncReplicationDisabled:             &asyncRep,
+			ReplicaMovementMinimumFinalizingWait: &minFinWait,
 		}
 
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
-maximum_allowed_collections_count: 13`)
+maximum_allowed_collections_count: 13
+replica_movement_minimum_finalizing_wait: 10s`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
 		// before update (zero values)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
+		assert.Equal(t, 0*time.Second, minFinWait.Get())
 
 		require.NoError(t, UpdateRuntimeConfig(reg, parsed))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
 		assert.Equal(t, 13, colCount.Get())
+		assert.Equal(t, 10*time.Second, minFinWait.Get())
 	})
 
 	t.Run("updating priorities", func(t *testing.T) {
@@ -76,17 +82,20 @@ maximum_allowed_collections_count: 13`)
 			colCount   runtime.DynamicValue[int]
 			autoSchema runtime.DynamicValue[bool]
 			asyncRep   runtime.DynamicValue[bool]
+			minFinWait runtime.DynamicValue[time.Duration]
 		)
 
 		reg := &WeaviateRuntimeConfig{
-			MaximumAllowedCollectionsCount: &colCount,
-			AutoschemaEnabled:              &autoSchema,
-			AsyncReplicationDisabled:       &asyncRep,
+			MaximumAllowedCollectionsCount:       &colCount,
+			AutoschemaEnabled:                    &autoSchema,
+			AsyncReplicationDisabled:             &asyncRep,
+			ReplicaMovementMinimumFinalizingWait: &minFinWait,
 		}
 
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
-maximum_allowed_collections_count: 13`)
+maximum_allowed_collections_count: 13
+replica_movement_minimum_finalizing_wait: 10s`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
@@ -94,6 +103,7 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file.
+		assert.Equal(t, 0*time.Second, minFinWait.Get())
 
 		require.NoError(t, UpdateRuntimeConfig(reg, parsed))
 
@@ -101,6 +111,7 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, true, autoSchema.Get())
 		assert.Equal(t, 13, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file, should return default value.
+		assert.Equal(t, 10*time.Second, minFinWait.Get())
 
 		// removing `maximum_allowed_collection_count` from config
 		buf = []byte(`autoschema_enabled: false`)

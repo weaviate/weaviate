@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -163,6 +164,9 @@ type Config struct {
 
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
+
+	// ReplicaMovementMinimumFinalizingWait is the upper time bound duration for replica movement operations.
+	ReplicaMovementMinimumFinalizingWait *runtime.DynamicValue[time.Duration]
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -249,7 +253,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		authZController:    authZController,
 		authZManager:       rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
-		replicationManager: replication.NewManager(cfg.Logger, schemaManager.NewSchemaReader(), cfg.ReplicaCopier, reg),
+		replicationManager: replication.NewManager(schemaManager.NewSchemaReader(), reg),
 		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
 			Clock:            clockwork.NewRealClock(),
 			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
@@ -660,6 +664,7 @@ func (st *Store) raftConfig() *raft.Config {
 
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
 	cfg.LogLevel = st.cfg.Logger.GetLevel().String()
+	cfg.NoLegacyTelemetry = true
 
 	logger := log.NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger

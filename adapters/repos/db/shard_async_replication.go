@@ -31,6 +31,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/interval"
@@ -93,9 +94,13 @@ type asyncReplicationConfig struct {
 	propagationDelay            time.Duration
 	propagationConcurrency      int
 	propagationBatchSize        int
+	targetNodeOverrides         []additional.AsyncReplicationTargetNodeOverride
 }
 
 func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
+	// preserve the target node overrides from the previous config
+	config.targetNodeOverrides = s.asyncReplicationConfig.targetNodeOverrides
+
 	config.hashtreeHeight, err = optParseInt(
 		os.Getenv("ASYNC_REPLICATION_HASHTREE_HEIGHT"), defaultHashtreeHeight, minHashtreeHeight, maxHashtreeHeight)
 	if err != nil {
@@ -441,7 +446,7 @@ func (s *Shard) mayStopAsyncReplication() {
 	s.hashtreeFullyInitialized = false
 }
 
-func (s *Shard) updateAsyncReplicationConfig(_ context.Context, enabled bool) error {
+func (s *Shard) UpdateAsyncReplicationConfig(_ context.Context, enabled bool) error {
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
 
@@ -463,6 +468,31 @@ func (s *Shard) updateAsyncReplicationConfig(_ context.Context, enabled bool) er
 	s.hashtreeFullyInitialized = false
 
 	return nil
+}
+
+func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+
+	// TODO how to handle duplicates here? also, what if same source/target node shard movement op is sent twice?
+	s.asyncReplicationConfig.targetNodeOverrides = append(s.asyncReplicationConfig.targetNodeOverrides, targetNodeOverride)
+	return nil
+}
+
+func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	asyncReplicationStatsToReturn := make([]*models.AsyncReplicationStatus, 0, len(s.asyncReplicationStatsByTargetNode))
+	for targetNodeName, asyncReplicationStats := range s.asyncReplicationStatsByTargetNode {
+		asyncReplicationStatsToReturn = append(asyncReplicationStatsToReturn, &models.AsyncReplicationStatus{
+			ObjectsPropagated:       uint64(asyncReplicationStats.objectsPropagated),
+			StartDiffTimeUnixMillis: asyncReplicationStats.diffStartTime.UnixMilli(),
+			TargetNode:              targetNodeName,
+		})
+	}
+
+	return asyncReplicationStatsToReturn
 }
 
 func (s *Shard) dumpHashTree() error {
@@ -556,6 +586,19 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				return
 			case <-propagationRequired:
 				stats, err := s.hashBeat(ctx, config)
+				// update the shard stats for the target node
+				// anonymous func only here so we can use defer unlock
+				func() {
+					s.asyncReplicationRWMux.Lock()
+					defer s.asyncReplicationRWMux.Unlock()
+
+					if s.asyncReplicationStatsByTargetNode == nil {
+						s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
+					}
+					if (err == nil || errors.Is(err, replica.ErrNoDiffFound)) && stats != nil {
+						s.asyncReplicationStatsByTargetNode[stats.targetNodeName] = stats
+					}
+				}()
 				if err != nil {
 					if ctx.Err() != nil {
 						return
@@ -607,7 +650,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 						WithField("action", "async_replication").
 						WithField("class_name", s.class.Class).
 						WithField("shard_name", s.name).
-						WithField("host", stats.host).
+						WithField("target_node_name", stats.targetNodeName).
 						WithField("diff_calculation_took", stats.diffCalculationTook.String()).
 						WithField("local_objects", stats.localObjects).
 						WithField("remote_objects", stats.remoteObjects).
@@ -681,7 +724,8 @@ func (s *Shard) allAliveHostnames() []string {
 }
 
 type hashBeatHostStats struct {
-	host                string
+	targetNodeName      string
+	diffStartTime       time.Time
 	diffCalculationTook time.Duration
 	localObjects        int
 	remoteObjects       int
@@ -703,8 +747,15 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 
 	diffCalculationStart := time.Now()
 
-	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout)
+	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, config.targetNodeOverrides)
 	if err != nil {
+		if errors.Is(err, replica.ErrNoDiffFound) && len(config.targetNodeOverrides) > 0 {
+			return &hashBeatHostStats{
+				targetNodeName:    shardDiffReader.TargetNodeName,
+				diffStartTime:     diffCalculationStart,
+				objectsPropagated: 0,
+			}, err
+		}
 		return nil, fmt.Errorf("collecting differences: %w", err)
 	}
 
@@ -736,7 +787,8 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 		localObjsCountWithinRange, remoteObjsCountWithinRange, objsToPropagateWithinRange, err := s.objectsToPropagateWithinRange(
 			prepropagationCtx,
 			config,
-			shardDiffReader.Host,
+			shardDiffReader.TargetNodeAddress,
+			shardDiffReader.TargetNodeName,
 			initialLeaf,
 			finalLeaf,
 			config.propagationLimit-len(objectsToPropagate),
@@ -765,7 +817,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 		propagationCtx, cancel := context.WithTimeout(ctx, config.propagationTimeout)
 		defer cancel()
 
-		resp, err := s.propagateObjects(propagationCtx, config, shardDiffReader.Host, objectsToPropagate, remoteStaleUpdateTimeByUUID)
+		resp, err := s.propagateObjects(propagationCtx, config, shardDiffReader.TargetNodeAddress, objectsToPropagate, remoteStaleUpdateTimeByUUID)
 		if err != nil {
 			return nil, fmt.Errorf("propagating local objects: %w", err)
 		}
@@ -793,7 +845,8 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 	}
 
 	return &hashBeatHostStats{
-		host:                shardDiffReader.Host,
+		targetNodeName:      shardDiffReader.TargetNodeName,
+		diffStartTime:       diffCalculationStart,
 		diffCalculationTook: diffCalculationTook,
 		localObjects:        localObjectsCount,
 		remoteObjects:       remoteObjectsCount,
@@ -836,7 +889,7 @@ type objectToPropagate struct {
 }
 
 func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncReplicationConfig,
-	host string, initialLeaf, finalLeaf uint64, limit int,
+	targetNodeAddress, targetNodeName string, initialLeaf, finalLeaf uint64, limit int,
 ) (localObjectsCount int, remoteObjectsCount int, objectsToPropagate []objectToPropagate, err error) {
 	objectsToPropagate = make([]objectToPropagate, 0, limit)
 
@@ -890,12 +943,17 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 		localDigestsByUUID := make(map[string]types.RepairResponse, len(allLocalDigests))
 
 		// filter out too recent local digests to avoid object propagation when all the nodes may be alive
-		maxUpdateTime := time.Now().Add(-config.propagationDelay).UnixMilli()
+		// or if an upper time bound is configured for shard replica movement
+		maxUpdateTime := s.getHashBeatMaxUpdateTime(config, targetNodeName)
 
 		for _, d := range allLocalDigests {
 			if d.UpdateTime <= maxUpdateTime {
 				localDigestsByUUID[d.ID] = d
 			}
+		}
+		if len(localDigestsByUUID) == 0 {
+			// local digests are all too recent, so we can stop now
+			break
 		}
 
 		remoteStaleUpdateTime := make(map[string]int64, len(localDigestsByUUID))
@@ -912,8 +970,9 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 					return localObjectsCount, remoteObjectsCount, objectsToPropagate, err
 				}
 
+				// TODO could speed up by passing through the target node override upper time bound here
 				remoteDigests, err := s.index.replicator.DigestObjectsInRange(ctx,
-					s.name, host, currRemoteUUID, lastLocalUUID, config.diffBatchSize)
+					s.name, targetNodeAddress, currRemoteUUID, lastLocalUUID, config.diffBatchSize)
 				if err != nil {
 					return localObjectsCount, remoteObjectsCount, objectsToPropagate, fmt.Errorf("fetching remote object digests: %w", err)
 				}
@@ -998,6 +1057,24 @@ func (s *Shard) objectsToPropagateWithinRange(ctx context.Context, config asyncR
 	// the local shard may receive recent objects when remote shard propagates them
 
 	return localObjectsCount, remoteObjectsCount, objectsToPropagate, nil
+}
+
+// getHashBeatMaxUpdateTime returns the maximum update time for the hash beat.
+// If our local node and the target node have an upper time bound configured, use the
+// configured upper time bound instead of the default one
+func (s *Shard) getHashBeatMaxUpdateTime(config asyncReplicationConfig, targetNodeName string) int64 {
+	localNodeName := s.index.replicator.LocalNodeName()
+	for _, override := range config.targetNodeOverrides {
+		if override.Equal(&additional.AsyncReplicationTargetNodeOverride{
+			SourceNode:   localNodeName,
+			TargetNode:   targetNodeName,
+			CollectionID: s.class.Class,
+			ShardID:      s.name,
+		}) {
+			return override.UpperTimeBound
+		}
+	}
+	return time.Now().Add(-config.propagationDelay).UnixMilli()
 }
 
 func (s *Shard) propagateObjects(ctx context.Context, config asyncReplicationConfig, host string,

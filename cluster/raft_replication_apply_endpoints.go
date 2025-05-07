@@ -16,18 +16,21 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-func (s *Raft) ReplicationReplicateReplica(sourceNode string, sourceCollection string, sourceShard string, targetNode string) error {
+func (s *Raft) ReplicationReplicateReplica(uuid strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error {
 	req := &api.ReplicationReplicateShardRequest{
 		Version:          api.ReplicationCommandVersionV0,
 		SourceNode:       sourceNode,
 		SourceCollection: sourceCollection,
 		SourceShard:      sourceShard,
 		TargetNode:       targetNode,
+		Uuid:             uuid,
+		TransferType:     transferType,
 	}
 
 	if err := replication.ValidateReplicationReplicateShard(s.SchemaReader(), req); err != nil {
@@ -69,6 +72,107 @@ func (s *Raft) ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplic
 	}
 	command := &api.ApplyRequest{
 		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) ReplicationRegisterError(id uint64, errorToRegister string) error {
+	req := &api.ReplicationRegisterErrorRequest{
+		Version: api.ReplicationCommandVersionV0,
+		Id:      id,
+		Error:   errorToRegister,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) ReplicationCancellationComplete(id uint64) error {
+	req := &api.ReplicationCancellationCompleteRequest{
+		Version: api.ReplicationCommandVersionV0,
+		Id:      id,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) CancelReplication(uuid strfmt.UUID) error {
+	req := &api.ReplicationCancelRequest{
+		Version: api.ReplicationCommandVersionV0,
+		Uuid:    uuid,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) DeleteReplication(uuid strfmt.UUID) error {
+	req := &api.ReplicationDeleteRequest{
+		Version: api.ReplicationCommandVersionV0,
+		Uuid:    uuid,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) ReplicationRemoveReplicaOp(id uint64) error {
+	req := &api.ReplicationRemoveOpRequest{
+		Version: api.ReplicationCommandVersionV0,
+		Id:      id,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE,
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(context.Background(), command); err != nil {

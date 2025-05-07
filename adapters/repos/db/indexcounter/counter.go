@@ -26,12 +26,21 @@ type Counter struct {
 	f *os.File
 }
 
-func New(shardPath string) (*Counter, error) {
+func New(shardPath string) (cr *Counter, rerr error) {
 	fileName := fmt.Sprintf("%s/indexcount", shardPath)
 	f, err := os.OpenFile(fileName, os.O_RDWR|os.O_CREATE, 0o666)
 	if err != nil {
 		return nil, err
 	}
+
+	// The lifetime of the `f` exceeds this constructor as we store the open file for later use in Counter.
+	// invariant: We close `f`  **only** if any error happened after successfully opening the file. To avoid leaking open file descriptor.
+	// NOTE: This `defer` works even with `err` being shadowed in the whole function because defer checks for named `rerr` return value.
+	defer func() {
+		if rerr != nil {
+			f.Close()
+		}
+	}()
 
 	stat, err := f.Stat()
 	if err != nil {

@@ -18,7 +18,9 @@ package models
 
 import (
 	"context"
+	"strconv"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
 )
@@ -27,6 +29,9 @@ import (
 //
 // swagger:model NodeShardStatus
 type NodeShardStatus struct {
+
+	// The status of the async replication.
+	AsyncReplicationStatus []*AsyncReplicationStatus `json:"asyncReplicationStatus"`
 
 	// The name of shard's class.
 	Class string `json:"class"`
@@ -52,11 +57,75 @@ type NodeShardStatus struct {
 
 // Validate validates this node shard status
 func (m *NodeShardStatus) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.validateAsyncReplicationStatus(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
 	return nil
 }
 
-// ContextValidate validates this node shard status based on context it is used
+func (m *NodeShardStatus) validateAsyncReplicationStatus(formats strfmt.Registry) error {
+	if swag.IsZero(m.AsyncReplicationStatus) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.AsyncReplicationStatus); i++ {
+		if swag.IsZero(m.AsyncReplicationStatus[i]) { // not required
+			continue
+		}
+
+		if m.AsyncReplicationStatus[i] != nil {
+			if err := m.AsyncReplicationStatus[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("asyncReplicationStatus" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("asyncReplicationStatus" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
+	return nil
+}
+
+// ContextValidate validate this node shard status based on the context it is used
 func (m *NodeShardStatus) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateAsyncReplicationStatus(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *NodeShardStatus) contextValidateAsyncReplicationStatus(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.AsyncReplicationStatus); i++ {
+
+		if m.AsyncReplicationStatus[i] != nil {
+			if err := m.AsyncReplicationStatus[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("asyncReplicationStatus" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("asyncReplicationStatus" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

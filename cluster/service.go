@@ -79,19 +79,16 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replicationEngineMaxWorkers*time.Second,
 		cfg.NodeSelector.LocalName(),
 	)
-	realTimeProvider := replication.RealTimeProvider{}
 	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
 		cfg.Logger,
-		func(op replication.ShardReplicationOp) bool {
-			return fsm.replicationManager.GetReplicationFSM().IsOpCompletedOrInProgress(op)
-		},
 		raft,
 		cfg.ReplicaCopier,
-		realTimeProvider,
 		cfg.NodeSelector.LocalName(),
 		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
 		replicationOperationTimeout,
 		replicationEngineMaxWorkers,
+		cfg.ReplicaMovementMinimumFinalizingWait,
 		metrics.NewReplicationEngineOpsCallbacks(prometheus.DefaultRegisterer),
 	)
 	replicationEngine := replication.NewShardReplicationEngine(

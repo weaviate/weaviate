@@ -15,16 +15,17 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
-	"github.com/pkg/errors"
+	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-func (s *Raft) GetReplicationDetailsByReplicationId(id uint64) (api.ReplicationDetailsResponse, error) {
+func (s *Raft) GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.ReplicationDetailsResponse, error) {
 	request := &api.ReplicationDetailsRequest{
-		Id: id,
+		Uuid: uuid,
 	}
 
 	subCommand, err := json.Marshal(request)
@@ -38,9 +39,10 @@ func (s *Raft) GetReplicationDetailsByReplicationId(id uint64) (api.ReplicationD
 	}
 
 	queryResponse, err := s.Query(context.Background(), command)
-	if errors.Is(err, replication.ErrReplicationOperationNotFound) {
-		return api.ReplicationDetailsResponse{}, replicationTypes.ErrReplicationOperationNotFound
-	} else if err != nil {
+	if err != nil {
+		if strings.Contains(err.Error(), replication.ErrReplicationOperationNotFound.Error()) {
+			return api.ReplicationDetailsResponse{}, replicationTypes.ErrReplicationOperationNotFound
+		}
 		return api.ReplicationDetailsResponse{}, fmt.Errorf("failed to execute query: %w", err)
 	}
 
