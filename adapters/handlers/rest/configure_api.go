@@ -516,6 +516,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		DynamicUserController:                appState.APIKey.Dynamic,
 		ReplicaCopier:                        replicaCopier,
 		AuthNConfig:                          appState.ServerConfig.Config.Authentication,
+		ReplicationEngineMaxWorkers:          appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:                     appState.ServerConfig.Config.DistributedTasks,
 		ReplicaMovementMinimumFinalizingWait: appState.ServerConfig.Config.ReplicaMovementMinimumFinalizingWait,
 	}

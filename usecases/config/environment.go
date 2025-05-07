@@ -46,6 +46,7 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
+	DefaultReplicationEngineMaxWorkers          = 5
 	DefaultReplicaMovementMinimumFinalizingWait = 100 * time.Second
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
@@ -876,6 +877,14 @@ func (c *Config) parseMemtableConfig() error {
 		"PERSISTENCE_MEMTABLES_MAX_ACTIVE_DURATION_SECONDS",
 		func(val int) { c.Persistence.MemtablesMaxActiveDurationSeconds = val },
 		DefaultPersistenceMemtablesMaxDuration,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
+		"REPLICATION_ENGINE_MAX_WORKERS",
+		func(val int) { c.ReplicationEngineMaxWorkers = val },
+		DefaultReplicationEngineMaxWorkers,
 	); err != nil {
 		return err
 	}
