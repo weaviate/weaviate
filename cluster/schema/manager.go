@@ -409,6 +409,12 @@ func (s *SchemaManager) apply(op applyOp) error {
 		return fmt.Errorf("could not validate raft apply op: %s", err)
 	}
 
+	// Create a deep copy of the current schema state for potential rollback
+	var schemaSnapshot map[string]metaClass
+	if !op.schemaOnly {
+		schemaSnapshot = s.schema.deepCopy()
+	}
+
 	// schema applied 1st to make sure any validation happen before applying it to db
 	if err := op.updateSchema(); err != nil {
 		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
@@ -419,9 +425,16 @@ func (s *SchemaManager) apply(op applyOp) error {
 		// this point of time schema shall be up to date.
 		s.db.TriggerSchemaUpdateCallbacks()
 	}
-
 	if !op.schemaOnly {
 		if err := op.updateStore(); err != nil {
+			// If store update fails, rollback schema changes and return the error
+			s.schema.rollback(schemaSnapshot)
+			s.ReloadDBFromSchema()
+			if op.enableSchemaCallback {
+				// TriggerSchemaUpdateCallbacks is concurrent and at
+				// this point of time schema shall be up to date.
+				s.db.TriggerSchemaUpdateCallbacks()
+			}
 			return fmt.Errorf("%w: %s: %w", errDB, op.op, err)
 		}
 	}
