@@ -105,6 +105,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replication.NewOpsCache(),
 		replicationOperationTimeout,
 		replicationEngineMaxWorkers,
+		cfg.ReplicaMovementMinimumFinalizingWait,
 		metrics.NewReplicationEngineOpsCallbacks(prometheus.DefaultRegisterer),
 	)
 	replicationEngine := replication.NewShardReplicationEngine(
