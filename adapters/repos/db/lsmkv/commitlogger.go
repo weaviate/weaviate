@@ -17,6 +17,7 @@ import (
 	"io"
 	"os"
 	"sync/atomic"
+	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -312,9 +313,11 @@ func (cl *commitLogger) close() error {
 			return err
 		}
 
+		start := time.Now()
 		if err := cl.file.Sync(); err != nil {
 			return err
 		}
+		cl.metrics.fsyncDuration.Observe(float64(time.Since(start)))
 	}
 
 	return cl.file.Close()

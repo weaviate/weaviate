@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -31,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
+func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, walMetrics *lsmkv.CommitLoggerMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 ) (_ *Shard, err error) {
@@ -48,6 +49,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		class:       class,
 		name:        shardName,
 		promMetrics: promMetrics,
+		walMetrics:  walMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
 		slowQueryReporter:     helpers.NewSlowQueryReporterFromEnv(index.logger),

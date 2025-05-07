@@ -57,7 +57,7 @@ type LazyLoadShard struct {
 	shardLoadLimiter ShardLoadLimiter
 }
 
-func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
+func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics, walMetrics *lsmkv.CommitLoggerMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
 	shardLoadLimiter ShardLoadLimiter,
@@ -69,6 +69,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	return &LazyLoadShard{
 		shardOpts: &deferredShardOpts{
 			promMetrics:      promMetrics,
+			walMetrics:       walMetrics,
 			name:             shardName,
 			index:            index,
 			class:            class,
@@ -82,6 +83,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 
 type deferredShardOpts struct {
 	promMetrics      *monitoring.PrometheusMetrics
+	walMetrics       *lsmkv.CommitLoggerMetrics
 	name             string
 	index            *Index
 	class            *models.Class
@@ -121,7 +123,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	} else {
 		l.shardOpts.promMetrics.StartLoadingShard(l.shardOpts.class.Class)
 	}
-	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
+	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.walMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.indexCheckpoints)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)

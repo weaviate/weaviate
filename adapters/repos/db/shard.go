@@ -189,6 +189,7 @@ type Shard struct {
 	vectorIndexes     map[string]VectorIndex
 	metrics           *Metrics
 	promMetrics       *monitoring.PrometheusMetrics
+	walMetrics        *lsmkv.CommitLoggerMetrics
 	slowQueryReporter helpers.SlowQueryReporter
 	propertyIndices   propertyspecific.Indices
 	propLenTracker    *inverted.JsonShardMetaData
