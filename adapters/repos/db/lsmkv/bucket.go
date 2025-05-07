@@ -38,7 +38,7 @@ const FlushAfterDirtyDefault = 60 * time.Second
 
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-		metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
+		metrics *Metrics, walMetrics *commitLoggerMetrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 		opts ...BucketOption,
 	) (*Bucket, error)
 }
@@ -57,6 +57,7 @@ type Bucket struct {
 	haltedFlushTimer *interval.BackoffTimer
 
 	walThreshold      uint64
+	walMetrics        *commitLoggerMetrics
 	flushDirtyAfter   time.Duration
 	memtableThreshold uint64
 	minMMapSize       int64
@@ -145,7 +146,7 @@ func NewBucketCreator() *Bucket { return &Bucket{} }
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
 func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
+	metrics *Metrics, walMetrics *commitLoggerMetrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
 ) (*Bucket, error) {
 	beforeAll := time.Now()
@@ -168,6 +169,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		mmapContents:          true,
 		logger:                logger,
 		metrics:               metrics,
+		walMetrics:            walMetrics,
 		useBloomFilter:        true,
 		calcCountNetAdditions: true,
 		haltedFlushTimer:      interval.NewBackoffTimer(),
@@ -922,7 +924,7 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 func (b *Bucket) setNewActiveMemtable() error {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
-	cl, err := newCommitLogger(path, b.strategy)
+	cl, err := newCommitLogger(path, b.strategy, b.walMetrics)
 	if err != nil {
 		return errors.Wrap(err, "init commit logger")
 	}
