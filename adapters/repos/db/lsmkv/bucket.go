@@ -25,6 +25,7 @@ import (
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/ctxlock"
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
@@ -64,7 +65,7 @@ type Bucket struct {
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
-	flushLock        sync.RWMutex
+	flushLock        *ctxlock.MeteredRWMutex
 	haltedFlushTimer *interval.BackoffTimer
 
 	walThreshold      uint64
@@ -193,6 +194,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		useBloomFilter:        true,
 		calcCountNetAdditions: true,
 		haltedFlushTimer:      interval.NewBackoffTimer(),
+		flushLock: 		  ctxlock.NewMeteredRWMutex("bucket"),
+
 	}
 
 	for _, opt := range opts {
