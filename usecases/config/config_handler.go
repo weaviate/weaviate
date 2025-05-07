@@ -162,7 +162,7 @@ type Config struct {
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 
-	ReplicaMovementMinimumFinalizingWait time.Duration `json:"replica_movement_minimum_finalizing_wait" yaml:"replica_movement_minimum_finalizing_wait"`
+	ReplicaMovementMinimumFinalizingWait *runtime.DynamicValue[time.Duration] `json:"replica_movement_minimum_finalizing_wait" yaml:"replica_movement_minimum_finalizing_wait"`
 }
 
 type MapToBlockamaxConfig struct {

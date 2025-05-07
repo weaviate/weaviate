@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
@@ -84,7 +85,7 @@ type CopyOpConsumer struct {
 	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks
 
 	// asyncReplicationMinimumWait is the duration for the upper time bound for the hash beat.
-	asyncReplicationMinimumWait time.Duration
+	asyncReplicationMinimumWait *runtime.DynamicValue[time.Duration]
 }
 
 // String returns a string representation of the CopyOpConsumer,
@@ -109,7 +110,7 @@ func NewCopyOpConsumer(
 	ongoingOps *OpsCache,
 	opTimeout time.Duration,
 	maxWorkers int,
-	asyncReplicationMinimumWait time.Duration,
+	asyncReplicationMinimumWait *runtime.DynamicValue[time.Duration],
 	engineOpCallbacks *metrics.ReplicationEngineOpsCallbacks,
 ) *CopyOpConsumer {
 	c := &CopyOpConsumer{
@@ -328,7 +329,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	// TODO start best effort writes before upper time bound is hit
 	// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
 	// received during movement work as expected
-	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait).UnixMilli()
+	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
 
 	// start async replication from source node to target node
 	if err := c.replicaCopier.SetAsyncReplicationTargetNode(

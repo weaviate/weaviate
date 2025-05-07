@@ -670,9 +670,9 @@ func FromEnv(config *Config) error {
 		if duration < 0 {
 			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT must be a positive duration")
 		}
-		config.ReplicaMovementMinimumFinalizingWait = duration
+		config.ReplicaMovementMinimumFinalizingWait = runtime.NewDynamicValue(duration)
 	} else {
-		config.ReplicaMovementMinimumFinalizingWait = DefaultReplicaMovementMinimumFinalizingWait
+		config.ReplicaMovementMinimumFinalizingWait = runtime.NewDynamicValue(DefaultReplicaMovementMinimumFinalizingWait)
 	}
 
 	return nil

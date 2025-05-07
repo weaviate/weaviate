@@ -1751,6 +1751,7 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
+		registered.ReplicaMovementMinimumFinalizingWait = appState.ServerConfig.Config.ReplicaMovementMinimumFinalizingWait
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,

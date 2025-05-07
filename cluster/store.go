@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -165,7 +166,7 @@ type Config struct {
 	DistributedTasks config.DistributedTasksConfig
 
 	// ReplicaMovementMinimumFinalizingWait is the upper time bound duration for replica movement operations.
-	ReplicaMovementMinimumFinalizingWait time.Duration
+	ReplicaMovementMinimumFinalizingWait *runtime.DynamicValue[time.Duration]
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
