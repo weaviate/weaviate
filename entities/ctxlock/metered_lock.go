@@ -6,7 +6,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-// MeteredRWMutex is a read/write mutex with metering for lock usage
+// MeteredRWMutex is a read/write mutex with metering for lock usage.  It provides insight into how many threads are waiting on each lock, and how many are currently holding the lock (or read lock).
 type MeteredRWMutex struct {
 	rwlock   sync.RWMutex
 	location string
