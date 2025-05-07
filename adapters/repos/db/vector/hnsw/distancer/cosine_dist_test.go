@@ -104,11 +104,13 @@ func TestNoNegativeDistance(t *testing.T) {
 	for i := 0; i < dimensions; i++ {
 		vectors[0][i] = rand.Float32() - 0.5
 	}
+	Normalize(vectors[0])
 	for i := 1; i < len(vectors); i++ {
 		vectors[i] = make([]float32, dimensions)
 		for j := 0; j < dimensions; j++ {
 			vectors[i][j] = vectors[i][j] + (rand.Float32()-0.5)*0.00001
 		}
+		Normalize(vectors[i])
 	}
 
 	t.Run("test single distance", func(t *testing.T) {
