@@ -59,22 +59,8 @@ func snapshotDirectory(rootPath, name string) string {
 
 // Loads state of last available snapshot. Returns nil if no snaphshot was found.
 func (l *hnswCommitLogger) LoadSnapshot() (state *DeserializationResult, createdAt int64, err error) {
-	logger := l.logger.WithFields(logrus.Fields{
-		"action": "hnsw_snapshot",
-		"id":     l.id,
-		"method": "load_snapshot",
-	})
-	started := time.Now()
-
-	logger.Debug("started")
-	defer func() {
-		l := logger.WithField("took", time.Since(started))
-		if err != nil {
-			l.WithError(err).Errorf("finished with err")
-		} else {
-			l.Debug("finished")
-		}
-	}()
+	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "load_snapshot"})
+	defer func() { onFinish(err) }()
 
 	snapshotPath, createdAt, err := l.getLastSnapshot()
 	if err != nil {
@@ -98,21 +84,8 @@ func (l *hnswCommitLogger) LoadSnapshot() (state *DeserializationResult, created
 // or from the entire commit log if there is no previous snapshot.
 // The snapshot state contains all but last commitlog (may still be in use and mutable).
 func (l *hnswCommitLogger) CreateSnapshot() (created bool, createdAt int64, err error) {
-	logger := l.logger.WithFields(logrus.Fields{
-		"action": "hnsw_snapshot",
-		"id":     l.id,
-		"method": "create_snapshot",
-	})
-	started := time.Now()
-	logger.Debug("started")
-	defer func() {
-		l := logger.WithField("took", time.Since(started))
-		if err != nil {
-			l.WithError(err).Errorf("finished with err")
-		} else {
-			l.Debug("finished")
-		}
-	}()
+	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_snapshot"})
+	defer func() { onFinish(err) }()
 
 	snapshotPath, createdAt, err := l.getLastSnapshot()
 	if err != nil {
@@ -127,22 +100,8 @@ func (l *hnswCommitLogger) CreateSnapshot() (created bool, createdAt int64, err 
 // last snapshot. It is used at startup to automatically create a snapshot
 // while loading the commit log, to avoid having to load the commit log again.
 func (l *hnswCommitLogger) CreateAndLoadSnapshot() (state *DeserializationResult, createdAt int64, err error) {
-	logger := l.logger.WithFields(logrus.Fields{
-		"action": "hnsw_snapshot",
-		"id":     l.id,
-		"method": "create_and_load_snapshot",
-	})
-
-	started := time.Now()
-	logger.Debug("started")
-	defer func() {
-		l := logger.WithField("took", time.Since(started))
-		if err != nil {
-			l.WithError(err).Errorf("finished with err")
-		} else {
-			l.Debug("finished")
-		}
-	}()
+	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_and_load_snapshot"})
+	defer func() { onFinish(err) }()
 
 	snapshotPath, createdAt, err := l.getLastSnapshot()
 	if err != nil {
@@ -150,6 +109,20 @@ func (l *hnswCommitLogger) CreateAndLoadSnapshot() (state *DeserializationResult
 	}
 
 	return l.createAndOptionallyLoadSnapshotOnLastOne(logger, true, snapshotPath, createdAt)
+}
+
+func (l *hnswCommitLogger) setupSnapshotLogger(fields logrus.Fields) (logger logrus.FieldLogger, onFinish func(err error)) {
+	logger = l.snapshotLogger.WithFields(fields)
+	started := time.Now()
+
+	return logger, func(err error) {
+		l := logger.WithField("took", time.Since(started))
+		if err != nil {
+			l.WithError(err).Errorf("finished with err")
+		} else {
+			l.Debug("finished")
+		}
+	}
 }
 
 func (l *hnswCommitLogger) createAndOptionallyLoadSnapshotOnLastOne(logger logrus.FieldLogger,
@@ -267,6 +240,17 @@ func (l *hnswCommitLogger) initSnapshotData() error {
 		if path != "" {
 			l.snapshotPartitions = append(l.snapshotPartitions, snapshotName(path))
 		}
+
+		dirs := strings.Split(filepath.Clean(l.rootPath), string(os.PathSeparator))
+		if ln := len(dirs); ln > 2 {
+			dirs = dirs[ln-2:]
+		}
+
+		l.snapshotLogger = l.logger.WithFields(logrus.Fields{
+			"action": "hnsw_commit_log_snapshot",
+			"id":     l.id,
+			"path":   filepath.Join(dirs...),
+		})
 	}
 	return nil
 }
