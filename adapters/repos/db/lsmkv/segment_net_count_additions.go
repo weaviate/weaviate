@@ -21,6 +21,7 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // ErrInvalidChecksum indicates that the read file should not be trusted. For
@@ -113,17 +114,17 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 }
 
 func (s *segment) storeCountNetOnDisk() error {
-	return storeCountNetOnDisk(s.countNetPath(), s.countNetAdditions)
+	return storeCountNetOnDisk(s.countNetPath(), s.countNetAdditions, s.observeMetaWrite)
 }
 
-func storeCountNetOnDisk(path string, value int) error {
+func storeCountNetOnDisk(path string, value int, observeWrite diskio.MeteredWriterCallback) error {
 	buf := new(bytes.Buffer)
 
 	if err := binary.Write(buf, binary.LittleEndian, uint64(value)); err != nil {
 		return fmt.Errorf("write cna to buf: %w", err)
 	}
 
-	return writeWithChecksum(buf.Bytes(), path)
+	return writeWithChecksum(buf.Bytes(), path, observeWrite)
 }
 
 func (s *segment) loadCountNetFromDisk() error {
@@ -144,7 +145,7 @@ func (s *segment) precomputeCountNetAdditions(updatedCountNetAdditions int) ([]s
 	}
 
 	cnaPath := fmt.Sprintf("%s.tmp", s.countNetPath())
-	if err := storeCountNetOnDisk(cnaPath, updatedCountNetAdditions); err != nil {
+	if err := storeCountNetOnDisk(cnaPath, updatedCountNetAdditions, s.observeMetaWrite); err != nil {
 		return nil, err
 	}
 	return []string{cnaPath}, nil
