@@ -29,20 +29,32 @@ const (
 	FINALIZING  ShardReplicationState = "FINALIZING"
 	READY       ShardReplicationState = "READY"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"
-	ABORTED     ShardReplicationState = "ABORTED"
+	CANCELLED   ShardReplicationState = "CANCELLED" // The operation has been cancelled. It cannot be resumed.
+)
+
+type ShardReplicationTransferType string
+
+func (s ShardReplicationTransferType) String() string {
+	return string(s)
+}
+
+const (
+	COPY ShardReplicationTransferType = "COPY"
+	MOVE ShardReplicationTransferType = "MOVE"
 )
 
 type ReplicationReplicateShardRequest struct {
 	// Version is the version with which this command was generated
 	Version int
 
+	Uuid strfmt.UUID
+
 	SourceNode       string
 	SourceCollection string
 	SourceShard      string
+	TargetNode       string
 
-	TargetNode string
-
-	Uuid strfmt.UUID
+	TransferType string
 }
 
 type ReplicationReplicateShardReponse struct{}
@@ -66,7 +78,7 @@ type ReplicationRegisterErrorRequest struct {
 
 type ReplicationRegisterErrorResponse struct{}
 
-type ReplicationDeleteOpRequest struct {
+type ReplicationRemoveOpRequest struct {
 	Version int
 
 	Id uint64
@@ -93,4 +105,20 @@ type ReplicationDetailsResponse struct {
 
 	Status        ReplicationDetailsState
 	StatusHistory []ReplicationDetailsState
+	TransferType  string
+}
+
+type ReplicationCancelRequest struct {
+	Version int
+	Uuid    strfmt.UUID
+}
+
+type ReplicationDeleteRequest struct {
+	Version int
+	Uuid    strfmt.UUID
+}
+
+type ReplicationCancellationCompleteRequest struct {
+	Version int
+	Id      uint64
 }

@@ -116,6 +116,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMaxSizeMB:                  m.db.config.MemtablesMaxSizeMB,
 			MemtablesMinActiveSeconds:           m.db.config.MemtablesMinActiveSeconds,
 			MemtablesMaxActiveSeconds:           m.db.config.MemtablesMaxActiveSeconds,
+			MinMMapSize:                         m.db.config.MinMMapSize,
 			SegmentsCleanupIntervalSeconds:      m.db.config.SegmentsCleanupIntervalSeconds,
 			SeparateObjectsCompactions:          m.db.config.SeparateObjectsCompactions,
 			CycleManagerRoutinesFactor:          m.db.config.CycleManagerRoutinesFactor,
@@ -187,6 +188,14 @@ func (m *Migrator) AddReplicaToShard(ctx context.Context, class, shard string) e
 		return fmt.Errorf("could not find collection %s", class)
 	}
 	return idx.LoadLocalShard(ctx, shard)
+}
+
+func (m *Migrator) DeleteReplicaFromShard(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+	return idx.dropShards([]string{shard})
 }
 
 // UpdateIndex ensures that the local index is up2date with the latest sharding

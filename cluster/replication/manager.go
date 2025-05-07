@@ -18,9 +18,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 
-	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
-	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 )
 
@@ -31,7 +29,7 @@ type Manager struct {
 	schemaReader   schema.SchemaReader
 }
 
-func NewManager(logger *logrus.Logger, schemaReader schema.SchemaReader, replicaCopier types.ReplicaCopier, reg prometheus.Registerer) *Manager {
+func NewManager(schemaReader schema.SchemaReader, reg prometheus.Registerer) *Manager {
 	replicationFSM := newShardReplicationFSM(reg)
 	return &Manager{
 		replicationFSM: replicationFSM,
@@ -61,7 +59,7 @@ func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
 	if err := ValidateReplicationReplicateShard(m.schemaReader, req); err != nil {
 		return err
 	}
-	// Store in the FSM the shard replication op
+	// Store the shard replication op in the FSM
 	return m.replicationFSM.Replicate(logId, req)
 }
 
@@ -71,7 +69,7 @@ func (m *Manager) RegisterError(logId uint64, c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Store in the FSM the shard replication op
+	// Store an op's error emitted by the consumer in the FSM
 	return m.replicationFSM.RegisterError(logId, req)
 }
 
@@ -81,7 +79,7 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	// Store in the FSM the shard replication op
+	// Store the updated shard replication op in the FSM
 	return m.replicationFSM.UpdateReplicationOpStatus(req)
 }
 
@@ -113,6 +111,7 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 		Collection:    op.SourceShard.CollectionId,
 		SourceNodeId:  op.SourceShard.NodeId,
 		TargetNodeId:  op.TargetShard.NodeId,
+		TransferType:  op.TransferType.String(),
 		Status:        status.GetCurrent().ToAPIFormat(),
 		StatusHistory: status.GetHistory().ToAPIFormat(),
 	}
@@ -123,4 +122,44 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 	}
 
 	return payload, nil
+}
+
+func (m *Manager) CancelReplication(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationCancelRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Trigger cancellation of the replication operation in the FSM
+	return m.replicationFSM.CancelReplication(req)
+}
+
+func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationDeleteRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Trigger deletion of the replication operation in the FSM
+	return m.replicationFSM.DeleteReplication(req)
+}
+
+func (m *Manager) RemoveReplicaOp(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationRemoveOpRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Remove the replication operation itself from the FSM
+	return m.replicationFSM.RemoveReplicationOp(req)
+}
+
+func (m *Manager) ReplicationCancellationComplete(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationCancellationCompleteRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Mark the replication operation as cancelled in the FSM
+	return m.replicationFSM.CancellationComplete(req)
 }

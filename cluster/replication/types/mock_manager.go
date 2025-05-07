@@ -33,6 +33,98 @@ func (_m *MockManager) EXPECT() *MockManager_Expecter {
 	return &MockManager_Expecter{mock: &_m.Mock}
 }
 
+// CancelReplication provides a mock function with given fields: uuid
+func (_m *MockManager) CancelReplication(uuid strfmt.UUID) error {
+	ret := _m.Called(uuid)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CancelReplication")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(strfmt.UUID) error); ok {
+		r0 = rf(uuid)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_CancelReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CancelReplication'
+type MockManager_CancelReplication_Call struct {
+	*mock.Call
+}
+
+// CancelReplication is a helper method to define mock.On call
+//   - uuid strfmt.UUID
+func (_e *MockManager_Expecter) CancelReplication(uuid interface{}) *MockManager_CancelReplication_Call {
+	return &MockManager_CancelReplication_Call{Call: _e.mock.On("CancelReplication", uuid)}
+}
+
+func (_c *MockManager_CancelReplication_Call) Run(run func(uuid strfmt.UUID)) *MockManager_CancelReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(strfmt.UUID))
+	})
+	return _c
+}
+
+func (_c *MockManager_CancelReplication_Call) Return(_a0 error) *MockManager_CancelReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_CancelReplication_Call) RunAndReturn(run func(strfmt.UUID) error) *MockManager_CancelReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteReplication provides a mock function with given fields: uuid
+func (_m *MockManager) DeleteReplication(uuid strfmt.UUID) error {
+	ret := _m.Called(uuid)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteReplication")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(strfmt.UUID) error); ok {
+		r0 = rf(uuid)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_DeleteReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteReplication'
+type MockManager_DeleteReplication_Call struct {
+	*mock.Call
+}
+
+// DeleteReplication is a helper method to define mock.On call
+//   - uuid strfmt.UUID
+func (_e *MockManager_Expecter) DeleteReplication(uuid interface{}) *MockManager_DeleteReplication_Call {
+	return &MockManager_DeleteReplication_Call{Call: _e.mock.On("DeleteReplication", uuid)}
+}
+
+func (_c *MockManager_DeleteReplication_Call) Run(run func(uuid strfmt.UUID)) *MockManager_DeleteReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(strfmt.UUID))
+	})
+	return _c
+}
+
+func (_c *MockManager_DeleteReplication_Call) Return(_a0 error) *MockManager_DeleteReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_DeleteReplication_Call) RunAndReturn(run func(strfmt.UUID) error) *MockManager_DeleteReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetReplicationDetailsByReplicationId provides a mock function with given fields: uuid
 func (_m *MockManager) GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.ReplicationDetailsResponse, error) {
 	ret := _m.Called(uuid)
@@ -185,17 +277,17 @@ func (_c *MockManager_ReplicationDisableReplica_Call) RunAndReturn(run func(stri
 	return _c
 }
 
-// ReplicationReplicateReplica provides a mock function with given fields: opId, sourceNode, sourceCollection, sourceShard, targetNode
-func (_m *MockManager) ReplicationReplicateReplica(opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string) error {
-	ret := _m.Called(opId, sourceNode, sourceCollection, sourceShard, targetNode)
+// ReplicationReplicateReplica provides a mock function with given fields: opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType
+func (_m *MockManager) ReplicationReplicateReplica(opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error {
+	ret := _m.Called(opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicationReplicateReplica")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(strfmt.UUID, string, string, string, string) error); ok {
-		r0 = rf(opId, sourceNode, sourceCollection, sourceShard, targetNode)
+	if rf, ok := ret.Get(0).(func(strfmt.UUID, string, string, string, string, string) error); ok {
+		r0 = rf(opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -214,13 +306,14 @@ type MockManager_ReplicationReplicateReplica_Call struct {
 //   - sourceCollection string
 //   - sourceShard string
 //   - targetNode string
-func (_e *MockManager_Expecter) ReplicationReplicateReplica(opId interface{}, sourceNode interface{}, sourceCollection interface{}, sourceShard interface{}, targetNode interface{}) *MockManager_ReplicationReplicateReplica_Call {
-	return &MockManager_ReplicationReplicateReplica_Call{Call: _e.mock.On("ReplicationReplicateReplica", opId, sourceNode, sourceCollection, sourceShard, targetNode)}
+//   - transferType string
+func (_e *MockManager_Expecter) ReplicationReplicateReplica(opId interface{}, sourceNode interface{}, sourceCollection interface{}, sourceShard interface{}, targetNode interface{}, transferType interface{}) *MockManager_ReplicationReplicateReplica_Call {
+	return &MockManager_ReplicationReplicateReplica_Call{Call: _e.mock.On("ReplicationReplicateReplica", opId, sourceNode, sourceCollection, sourceShard, targetNode, transferType)}
 }
 
-func (_c *MockManager_ReplicationReplicateReplica_Call) Run(run func(opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string)) *MockManager_ReplicationReplicateReplica_Call {
+func (_c *MockManager_ReplicationReplicateReplica_Call) Run(run func(opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string)) *MockManager_ReplicationReplicateReplica_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(strfmt.UUID), args[1].(string), args[2].(string), args[3].(string), args[4].(string))
+		run(args[0].(strfmt.UUID), args[1].(string), args[2].(string), args[3].(string), args[4].(string), args[5].(string))
 	})
 	return _c
 }
@@ -230,7 +323,7 @@ func (_c *MockManager_ReplicationReplicateReplica_Call) Return(_a0 error) *MockM
 	return _c
 }
 
-func (_c *MockManager_ReplicationReplicateReplica_Call) RunAndReturn(run func(strfmt.UUID, string, string, string, string) error) *MockManager_ReplicationReplicateReplica_Call {
+func (_c *MockManager_ReplicationReplicateReplica_Call) RunAndReturn(run func(strfmt.UUID, string, string, string, string, string) error) *MockManager_ReplicationReplicateReplica_Call {
 	_c.Call.Return(run)
 	return _c
 }

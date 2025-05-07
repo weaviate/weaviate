@@ -42,7 +42,11 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}
 	uuid := strfmt.UUID(id.String())
 
-	if err := h.replicationManager.ReplicationReplicateReplica(uuid, *params.Body.SourceNodeName, *params.Body.CollectionID, *params.Body.ShardID, *params.Body.DestinationNodeName); err != nil {
+	transferType := models.ReplicationReplicateReplicaRequestTransferTypeCOPY
+	if params.Body.TransferType != nil {
+		transferType = *params.Body.TransferType
+	}
+	if err := h.replicationManager.ReplicationReplicateReplica(uuid, *params.Body.SourceNodeName, *params.Body.CollectionID, *params.Body.ShardID, *params.Body.DestinationNodeName, transferType); err != nil {
 		if errors.Is(err, replicationTypes.ErrInvalidRequest) {
 			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -57,6 +61,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 		"shardId":      *params.Body.ShardID,
 		"sourceNodeId": *params.Body.SourceNodeName,
 		"destNodeId":   *params.Body.DestinationNodeName,
+		"transferType": params.Body.TransferType,
 	}).Info("replicate operation registered")
 
 	return h.handleReplicationReplicateResponse(uuid)
@@ -109,6 +114,7 @@ func (h *replicationHandler) handleReplicationDetailsResponse(withHistory bool, 
 			Errors: response.Status.Errors,
 		},
 		StatusHistory: history,
+		TransferType:  &response.TransferType,
 	})
 }
 
@@ -137,4 +143,46 @@ func (h *replicationHandler) handleInternalServerError(id strfmt.UUID, err error
 
 	return replication.NewReplicationDetailsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(
 		fmt.Errorf("error while retrieving details for replication operation id '%s': %w", id, err)))
+}
+
+func (h *replicationHandler) deleteReplication(params replication.DeleteReplicationParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata()...); err != nil {
+		return replication.NewDeleteReplicationForbidden()
+	}
+
+	if err := h.replicationManager.DeleteReplication(params.ID); err != nil {
+		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+			return h.handleOperationNotFoundError(params.ID, err)
+		}
+		return h.handleInternalServerError(params.ID, err)
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "delete_replication",
+		"id":     params.ID,
+	}).Info("replication operation stopped")
+
+	return replication.NewDeleteReplicationNoContent()
+}
+
+func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata()...); err != nil {
+		return replication.NewCancelReplicationForbidden()
+	}
+
+	if err := h.replicationManager.CancelReplication(params.ID); err != nil {
+		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+			return h.handleOperationNotFoundError(params.ID, err)
+		}
+		return h.handleInternalServerError(params.ID, err)
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "cancel_replication",
+		"id":     params.ID,
+	}).Info("replication operation cancelled")
+
+	return replication.NewCancelReplicationNoContent()
 }
