@@ -1,7 +1,7 @@
 //                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
 // \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//  \V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
 //  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
@@ -12,11 +12,11 @@
 package ctxlock
 
 import (
-	//"context"
-	//"errors"
-	//"sync"
+	"context"
+	"errors"
+	"sync"
 	"testing"
-	//"time"
+	"time"
 )
 
 func TestCtxRWMutex_LockUnlock(t *testing.T) {
@@ -71,10 +71,8 @@ func TestCtxRWMutex_TryRLock(t *testing.T) {
 	m.RUnlock()
 }
 
-/*
 func TestCtxRWMutex_LockContext_Timeout(t *testing.T) {
 	m := NewCtxRWMutex("")
-	m.enforceTimout = true
 	m.Lock()
 	defer m.Unlock()
 
@@ -85,18 +83,19 @@ func TestCtxRWMutex_LockContext_Timeout(t *testing.T) {
 	err := m.LockContext(ctx)
 	elapsed := time.Since(start)
 
-	if !errors.Is(err, context.DeadlineExceeded) {
+	if !errors.Is(err, ErrCtxTimeout) {
 		t.Fatalf("expected deadline exceeded, got %v", err)
 	}
 	if elapsed < 50*time.Millisecond {
 		t.Fatalf("expected context timeout wait, got %v", elapsed)
 	}
+	if elapsed >= 100*time.Millisecond {
+		t.Fatalf("lock wait took too long: %v", elapsed)
+	}
 }
-
 
 func TestCtxRWMutex_RLockContext_Timeout(t *testing.T) {
 	m := NewCtxRWMutex("")
-	m.enforceTimout = true
 	m.Lock()
 	defer m.Unlock()
 
@@ -107,15 +106,16 @@ func TestCtxRWMutex_RLockContext_Timeout(t *testing.T) {
 	err := m.RLockContext(ctx)
 	elapsed := time.Since(start)
 
-	if !errors.Is(err, context.DeadlineExceeded) {
+	if !errors.Is(err, ErrCtxTimeout) {
 		t.Fatalf("expected deadline exceeded, got %v", err)
 	}
 	if elapsed < 50*time.Millisecond {
 		t.Fatalf("expected context timeout wait, got %v", elapsed)
 	}
+	if elapsed >= 100*time.Millisecond {
+		t.Fatalf("lock wait took too long: %v", elapsed)
+	}
 }
-
-
 
 func TestCtxRWMutex_ParallelReaders(t *testing.T) {
 	m := NewCtxRWMutex("")
@@ -151,10 +151,8 @@ func TestCtxRWMutex_ParallelReaders(t *testing.T) {
 	wg.Wait()
 }
 
-
 func TestCtxRWMutex_WriterBlocksReader(t *testing.T) {
 	m := NewCtxRWMutex("")
-	m.enforceTimout = true
 	m.Lock()
 
 	var got string
@@ -183,7 +181,6 @@ func TestCtxRWMutex_WriterBlocksReader(t *testing.T) {
 
 func TestCtxRWMutex_WritersBlockEachOther(t *testing.T) {
 	m := NewCtxRWMutex("")
-	m.enforceTimout = true
 	m.Lock()
 
 	done := make(chan struct{})
@@ -192,7 +189,7 @@ func TestCtxRWMutex_WritersBlockEachOther(t *testing.T) {
 		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
 		defer cancel()
 		err := m.LockContext(ctx)
-		if !errors.Is(err, context.DeadlineExceeded) {
+		if !errors.Is(err, ErrCtxTimeout) {
 			t.Errorf("expected deadline exceeded, got: %v", err)
 		}
 	}()
@@ -202,23 +199,21 @@ func TestCtxRWMutex_WritersBlockEachOther(t *testing.T) {
 	<-done
 }
 
-
 func TestLockContext_TimesOutButLockStillAcquired(t *testing.T) {
 	m := NewCtxRWMutex("test")
-	m.enforceTimout = true
 
-	// First goroutine holds the lock for 200ms
+	// First goroutine holds the lock for 2000ms
 	go func() {
 		m.Lock()
 		defer m.Unlock()
-		time.Sleep(200 * time.Millisecond)
+		time.Sleep(2000 * time.Millisecond)
 	}()
 
 	// Give the first goroutine time to acquire the lock
-	time.Sleep(20 * time.Millisecond)
+	time.Sleep(500 * time.Millisecond)
 
 	// Second goroutine times out before lock is available
-	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
 	err := m.LockContext(ctx)
@@ -227,7 +222,7 @@ func TestLockContext_TimesOutButLockStillAcquired(t *testing.T) {
 	}
 
 	// Wait enough time for the first lock to release and the background goroutine to acquire
-	time.Sleep(300 * time.Millisecond)
+	time.Sleep(3000 * time.Millisecond)
 
 	// This should succeed immediately if the lock wasn't acquired by a zombie goroutine
 	success := m.TryLock()
@@ -236,4 +231,3 @@ func TestLockContext_TimesOutButLockStillAcquired(t *testing.T) {
 	}
 	m.Unlock()
 }
-*/
