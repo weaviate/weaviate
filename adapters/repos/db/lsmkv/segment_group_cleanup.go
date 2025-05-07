@@ -576,7 +576,7 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 	countNetAdditions := oldSegment.countNetAdditions
 
 	precomputedFiles, err := preComputeSegmentMeta(tmpSegmentPath, countNetAdditions,
-		sg.logger, sg.useBloomFilter, sg.calcCountNetAdditions, sg.enableChecksumValidation)
+		sg.logger, sg.useBloomFilter, sg.calcCountNetAdditions, sg.enableChecksumValidation, sg.MinMMapSize, sg.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("precompute segment meta: %w", err)
 	}
@@ -640,6 +640,8 @@ func (sg *SegmentGroup) replaceSegmentBlocking(
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         false,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			MinMMapSize:              sg.MinMMapSize,
+			allocChecker:             sg.allocChecker,
 		})
 	if err != nil {
 		return nil, fmt.Errorf("create new segment %q: %w", segmentPath, err)

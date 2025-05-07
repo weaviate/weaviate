@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
@@ -122,6 +123,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
+			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 		)
 
@@ -237,6 +239,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
+			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 		)
 
@@ -369,6 +372,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
+			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 		)
 
@@ -486,6 +490,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			opsCache,
 			time.Second*10,
 			1,
+			runtime.NewDynamicValue(time.Second*100),
 			callbacks,
 		)
 
@@ -637,6 +642,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			opsCache,
 			time.Second*10,
 			1,
+			runtime.NewDynamicValue(time.Second*100),
 			callbacks,
 		)
 
@@ -736,6 +742,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		1,
+		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 	)
 
@@ -847,6 +854,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		1,
+		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 	)
 
