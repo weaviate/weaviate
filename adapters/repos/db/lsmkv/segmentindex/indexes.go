@@ -18,7 +18,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -119,8 +118,6 @@ func (s *Indexes) buildSecondary(keys []Key, pos int) (Tree, error) {
 	}
 
 	keyNodes = keyNodes[:i]
-
-	sort.Sort(Nodes(keyNodes))
 
 	index := NewBalanced(keyNodes)
 	return index, nil
@@ -283,8 +280,6 @@ func (s *Indexes) buildAndMarshalSecondary(w io.Writer, pos int,
 	}
 
 	keyNodes = keyNodes[:i]
-
-	sort.Sort(Nodes(keyNodes))
 
 	index := NewBalanced(keyNodes)
 	n, err := index.MarshalBinaryInto(w)
