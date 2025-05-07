@@ -19,7 +19,6 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
-
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -61,12 +60,13 @@ func newCompactorReplace(w io.WriteSeeker,
 	writeCB := func(written int64) {
 		observeWrite.Observe(float64(written))
 	}
-	writer, mw := compactor.NewWriter(diskio.NewMeteredWriter(w, writeCB), expectedSize)
+	meteredW := diskio.NewMeteredWriter(w, writeCB)
+	writer, mw := compactor.NewWriter(meteredW, expectedSize)
 
 	return &compactorReplace{
 		c1:                       c1,
 		c2:                       c2,
-		w:                        w,
+		w:                        meteredW,
 		bufw:                     writer,
 		mw:                       mw,
 		currentLevel:             level,

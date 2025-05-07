@@ -66,12 +66,13 @@ func newCompactorMapCollection(w io.WriteSeeker,
 	writeCB := func(written int64) {
 		observeWrite.Observe(float64(written))
 	}
-	writer, mw := compactor.NewWriter(diskio.NewMeteredWriter(w, writeCB), expectedSize)
+	meteredW := diskio.NewMeteredWriter(w, writeCB)
+	writer, mw := compactor.NewWriter(meteredW, expectedSize)
 
 	return &compactorMap{
 		c1:                       c1,
 		c2:                       c2,
-		w:                        w,
+		w:                        meteredW,
 		bufw:                     writer,
 		mw:                       mw,
 		currentLevel:             level,
