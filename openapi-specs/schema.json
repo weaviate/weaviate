@@ -28,7 +28,9 @@
           "description": "The username associated with the provided key"
         }
       },
-      "required": ["username"]
+      "required": [
+        "username"
+      ]
     },
     "Role": {
       "type": "object",
@@ -37,7 +39,7 @@
           "type": "string",
           "description": "role name"
         },
-        "permissions" : {
+        "permissions": {
           "type": "array",
           "items": {
             "type": "object",
@@ -46,7 +48,10 @@
           }
         }
       },
-      "required": ["name", "permissions"]
+      "required": [
+        "name",
+        "permissions"
+      ]
     },
     "Permission": {
       "type": "object",
@@ -167,29 +172,22 @@
           "description": "allowed actions in weaviate.",
           "enum": [
             "manage_backups",
-
             "read_cluster",
-
             "create_data",
             "read_data",
             "update_data",
             "delete_data",
-
             "read_nodes",
-
             "create_roles",
             "read_roles",
             "update_roles",
             "delete_roles",
-
             "create_collections",
             "read_collections",
             "update_collections",
             "delete_collections",
-
             "assign_and_revoke_users",
             "read_users",
-
             "create_tenants",
             "read_tenants",
             "update_tenants",
@@ -197,7 +195,9 @@
           ]
         }
       },
-      "required": ["action"]
+      "required": [
+        "action"
+      ]
     },
     "RolesListResponse": {
       "type": "array",
@@ -2432,11 +2432,11 @@
         {
           "properties": {
             "belongsToNodes": {
-                "description": "The list of nodes that owns that tenant data.",
-                "type": "array",
-                "items": {
-                    "type": "string"
-                }
+              "description": "The list of nodes that owns that tenant data.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         }
@@ -2454,7 +2454,7 @@
     },
     "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).",
     "title": "Weaviate",
-    "version": "1.29.4"
+    "version": "1.29.5"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -2766,7 +2766,7 @@
         }
       }
     },
-    "/authz/roles/{id}/add-permissions":{
+    "/authz/roles/{id}/add-permissions": {
       "post": {
         "summary": "Add permission to a given role.",
         "operationId": "addPermissions",
@@ -2792,15 +2792,17 @@
               "type": "object",
               "properties": {
                 "permissions": {
-                  "type":"array",
+                  "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
                   },
                   "description": "permissions to be added to the role"
                 }
               },
-              "required": ["name", "permissions"]
-
+              "required": [
+                "name",
+                "permissions"
+              ]
             }
           }
         ],
@@ -2841,7 +2843,7 @@
         }
       }
     },
-    "/authz/roles/{id}/remove-permissions":{
+    "/authz/roles/{id}/remove-permissions": {
       "post": {
         "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
         "operationId": "removePermissions",
@@ -2867,14 +2869,16 @@
               "type": "object",
               "properties": {
                 "permissions": {
-                  "type":"array",
+                  "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
                   },
                   "description": "permissions to remove from the role"
                 }
               },
-              "required": ["permissions"]
+              "required": [
+                "permissions"
+              ]
             }
           }
         ],
@@ -2987,7 +2991,7 @@
         ],
         "responses": {
           "204": {
-              "description": "Successfully deleted."
+            "description": "Successfully deleted."
           },
           "400": {
             "description": "Bad request",
@@ -3013,7 +3017,7 @@
         }
       }
     },
-    "/authz/roles/{id}/has-permission":{
+    "/authz/roles/{id}/has-permission": {
       "post": {
         "summary": "Check whether role possesses this permission.",
         "operationId": "hasPermission",
@@ -3102,7 +3106,7 @@
             "schema": {
               "type": "array",
               "items": {
-                  "type": "string"
+                "type": "string"
               }
             }
           },
