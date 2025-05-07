@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/ctxlock"
 )
 
 func mutexLocked(m *sync.Mutex) bool {
@@ -26,7 +27,7 @@ func mutexLocked(m *sync.Mutex) bool {
 	return !rlocked
 }
 
-func rwMutexLocked(m *sync.RWMutex) bool {
+func rwMutexLocked(m *ctxlock.MeteredRWMutex) bool {
 	// can not RLock
 	rlocked := m.TryRLock()
 	if rlocked {
@@ -35,7 +36,7 @@ func rwMutexLocked(m *sync.RWMutex) bool {
 	return !rlocked
 }
 
-func rwMutexRLocked(m *sync.RWMutex) bool {
+func rwMutexRLocked(m *ctxlock.MeteredRWMutex) bool {
 	// can not Lock, but can RLock
 	locked := m.TryLock()
 	if locked {
@@ -76,41 +77,41 @@ func TestKeyRWLockerLockUnlock(t *testing.T) {
 
 	s.Lock("t1")
 	lock, _ := s.m.Load("t1")
-	r.True(rwMutexLocked(lock.(*sync.RWMutex)))
-	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+	r.True(rwMutexLocked(lock.(*ctxlock.MeteredRWMutex)))
+	r.False(rwMutexRLocked(lock.(*ctxlock.MeteredRWMutex)))
 
 	s.Unlock("t1")
 	lock, _ = s.m.Load("t1")
-	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
-	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexLocked(lock.(*ctxlock.MeteredRWMutex)))
+	r.False(rwMutexRLocked(lock.(*ctxlock.MeteredRWMutex)))
 
 	s.Lock("t2")
 	lock, _ = s.m.Load("t2")
-	r.True(rwMutexLocked(lock.(*sync.RWMutex)))
-	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+	r.True(rwMutexLocked(lock.(*ctxlock.MeteredRWMutex)))
+	r.False(rwMutexRLocked(lock.(*ctxlock.MeteredRWMutex)))
 
 	s.Unlock("t2")
 	lock, _ = s.m.Load("t2")
-	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
-	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexLocked(lock.(*ctxlock.MeteredRWMutex)))
+	r.False(rwMutexRLocked(lock.(*ctxlock.MeteredRWMutex)))
 
 	s.RLock("t1")
 	lock, _ = s.m.Load("t1")
-	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
-	r.True(rwMutexRLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexLocked(lock.(*ctxlock.MeteredRWMutex)))
+	r.True(rwMutexRLocked(lock.(*ctxlock.MeteredRWMutex)))
 
 	s.RUnlock("t1")
 	lock, _ = s.m.Load("t1")
-	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
-	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexLocked(lock.(*ctxlock.MeteredRWMutex)))
+	r.False(rwMutexRLocked(lock.(*ctxlock.MeteredRWMutex)))
 
 	s.RLock("t2")
 	lock, _ = s.m.Load("t2")
-	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
-	r.True(rwMutexRLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexLocked(lock.(*ctxlock.MeteredRWMutex)))
+	r.True(rwMutexRLocked(lock.(*ctxlock.MeteredRWMutex)))
 
 	s.RUnlock("t2")
 	lock, _ = s.m.Load("t2")
-	r.False(rwMutexLocked(lock.(*sync.RWMutex)))
-	r.False(rwMutexRLocked(lock.(*sync.RWMutex)))
+	r.False(rwMutexLocked(lock.(*ctxlock.MeteredRWMutex)))
+	r.False(rwMutexRLocked(lock.(*ctxlock.MeteredRWMutex)))
 }
