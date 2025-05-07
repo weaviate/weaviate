@@ -52,6 +52,7 @@ type hnswCommitLogger struct {
 
 	allocChecker memwatch.AllocChecker
 
+	snapshotLogger logrus.FieldLogger
 	// whether snapshots are enabled and should be periodically created
 	snapshotEnabled bool
 	// minimum interval to create next snapshot out of last one and new commitlogs
