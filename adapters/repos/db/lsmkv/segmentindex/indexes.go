@@ -35,6 +35,10 @@ type Indexes struct {
 }
 
 func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
+	if s.SecondaryIndexCount == 0 {
+		return s.buildAndMarshalPrimary(w, s.Keys)
+	}
+
 	var currentOffset uint64 = HeaderSize
 	if len(s.Keys) > 0 {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
