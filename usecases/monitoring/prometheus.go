@@ -72,6 +72,7 @@ type PrometheusMetrics struct {
 	BackupRestoreFromStorageDurations   *prometheus.SummaryVec
 	BackupRestoreDataTransferred        *prometheus.CounterVec
 	BackupStoreDataTransferred          *prometheus.CounterVec
+	FileIOWrites                        *prometheus.SummaryVec
 
 	// offload metric
 	QueueSize                        *prometheus.GaugeVec
@@ -488,6 +489,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_memtable_durations_ms",
 			Help: "Time in ms for a bucket operation to complete",
 		}, []string{"strategy", "class_name", "shard_name", "path", "operation"}),
+		FileIOWrites: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "file_io_writes_total_bytes",
+			Help: "Total number of bytes written to disk",
+		}, []string{"operation", "strategy"}),
 
 		// Queue metrics
 		QueueSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
