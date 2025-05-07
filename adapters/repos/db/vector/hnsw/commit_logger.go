@@ -87,6 +87,7 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		maxSizeIndividual: defaultCommitLogSize / 5,
 		maxSizeCombining:  defaultCommitLogSize,
 
+		snapshotEnabled:                          true,
 		snapshotMinDeltaCommitlogsNumber:         1,
 		snapshotMinDeltaCommitlogsSizePercentage: 0,
 	}
