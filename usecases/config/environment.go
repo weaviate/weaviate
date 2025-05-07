@@ -45,6 +45,8 @@ const (
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
+
+	DefaultReplicaMovementMinimumFinalizingWait = 100 * time.Second
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -669,6 +671,19 @@ func FromEnv(config *Config) error {
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
 	); err != nil {
 		return err
+	}
+
+	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT as time.Duration: %w", err)
+		}
+		if duration < 0 {
+			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT must be a positive duration")
+		}
+		config.ReplicaMovementMinimumFinalizingWait = runtime.NewDynamicValue(duration)
+	} else {
+		config.ReplicaMovementMinimumFinalizingWait = runtime.NewDynamicValue(DefaultReplicaMovementMinimumFinalizingWait)
 	}
 
 	return nil
