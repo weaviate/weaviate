@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/willf/bloom"
 )
 
@@ -173,7 +174,7 @@ func (s *segment) storeBloomFilterOnDisk(path string) error {
 		return fmt.Errorf("write bloom filter: %w", err)
 	}
 
-	return writeWithChecksum(buf.Bytes(), path)
+	return writeWithChecksum(buf.Bytes(), path, s.observeMetaWrite)
 }
 
 func (s *segment) loadBloomFilterFromDisk() error {
@@ -294,7 +295,7 @@ func (s *segment) storeBloomFilterSecondaryOnDisk(path string, pos int) error {
 		return fmt.Errorf("write bloom filter: %w", err)
 	}
 
-	return writeWithChecksum(buf.Bytes(), path)
+	return writeWithChecksum(buf.Bytes(), path, s.observeMetaWrite)
 }
 
 func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
@@ -312,7 +313,7 @@ func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 	return nil
 }
 
-func writeWithChecksum(data []byte, path string) error {
+func writeWithChecksum(data []byte, path string, observeWrite diskio.MeteredWriterCallback) error {
 	chksm := crc32.ChecksumIEEE(data)
 
 	f, err := os.Create(path)
@@ -320,7 +321,9 @@ func writeWithChecksum(data []byte, path string) error {
 		return fmt.Errorf("open file for writing: %w", err)
 	}
 
-	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
+	meteredW := diskio.NewMeteredWriter(f, observeWrite)
+
+	if err := binary.Write(meteredW, binary.LittleEndian, chksm); err != nil {
 		// ignoring f.Close() error here, as we don't care about whether the file
 		// was flushed, the call is mainly intended to prevent a file descriptor
 		// leak.  We still want to return the original error below.
@@ -328,7 +331,7 @@ func writeWithChecksum(data []byte, path string) error {
 		return fmt.Errorf("write checkusm to file: %w", err)
 	}
 
-	if _, err := f.Write(data); err != nil {
+	if _, err := meteredW.Write(data); err != nil {
 		// ignoring f.Close() error here, as we don't care about whether the file
 		// was flushed, the call is mainly intended to prevent a file descriptor
 		// leak.  We still want to return the original error below.
