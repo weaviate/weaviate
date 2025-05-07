@@ -87,7 +87,7 @@ contextionary: ## Run the contextionary embedding server
 monitoring: ## Run the prometheus and grafana for monitoring
 	./tools/dev/restart_dev_environment.sh --prometheus
 
-local: ## Run the local development setup with single node
+local: contextionary ## Run the local development setup with single node
 	./tools/dev/run_dev_server.sh local-single-node
 
 debug: ## Connect local weaviate server via delv for debugging

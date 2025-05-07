@@ -80,11 +80,13 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		})
 	}
 
+	clMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
+
 	// recover from each log
 	for _, fname := range walFileNames {
 		path := filepath.Join(b.dir, strings.TrimSuffix(fname, ".wal"))
 
-		cl, err := newCommitLogger(path, b.strategy, newcommitLoggerMetrics(prometheus.NewPedanticRegistry()))
+		cl, err := newCommitLogger(path, b.strategy, clMetrics)
 		if err != nil {
 			return errors.Wrap(err, "init commit logger")
 		}

@@ -22,7 +22,6 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
@@ -50,7 +49,7 @@ type Store struct {
 
 	logger     logrus.FieldLogger
 	metrics    *Metrics
-	walMetrics *commitLoggerMetrics
+	walMetrics *CommitLoggerMetrics
 
 	cycleCallbacks *storeCycleCallbacks
 	bcreator       BucketCreator
@@ -65,11 +64,10 @@ type Store struct {
 // New initializes a new [Store] based on the root dir. If state is present on
 // disk, it is loaded, if the folder is empty a new store is initialized in
 // there.
-func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics,
+func New(dir, rootDir string, logger logrus.FieldLogger, metrics *Metrics, walMetrics *CommitLoggerMetrics,
 	shardCompactionCallbacks, shardCompactionAuxCallbacks,
 	shardFlushCallbacks cyclemanager.CycleCallbackGroup,
 ) (*Store, error) {
-	walMetrics := newcommitLoggerMetrics(prometheus.DefaultRegisterer)
 
 	s := &Store{
 		dir:           dir,

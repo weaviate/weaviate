@@ -18,6 +18,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -31,9 +32,10 @@ func TestMemtableRoaringSetRange(t *testing.T) {
 	memPath := func() string {
 		return path.Join(t.TempDir(), "memtable")
 	}
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
 	t.Run("concurrent writes and search", func(t *testing.T) {
-		cl, err := newCommitLogger(memPath(), StrategyRoaringSetRange)
+		cl, err := newCommitLogger(memPath(), StrategyRoaringSetRange, walMetrics)
 		require.NoError(t, err)
 		m, err := newMemtable(memPath(), StrategyRoaringSetRange, 0, cl, nil, logger, false)
 		require.Nil(t, err)

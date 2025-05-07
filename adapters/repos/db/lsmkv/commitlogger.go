@@ -57,16 +57,16 @@ type commitLogger struct {
 	// new log again
 	paused bool
 
-	metrics *commitLoggerMetrics
+	metrics *CommitLoggerMetrics
 }
 
-// commitLoggerMetrics exposes metrics to understand IO happending at the WAL layer.
+// CommitLoggerMetrics exposes metrics to understand IO happending at the WAL layer.
 //
 // Store ----> WAL ----> Filesystem page cache ----> Disk
 //
 // WAL does buffered IO. Meaning `Write()` fill the buffer and `Flush()` actually does the IO by writing to Filesystem page cache and eventually `Fsync()` persist to disk.
 // Given the expensive nature of `fsync()` and the fact internally Operating System does periodic `fsync()` to transfer bytes from filesystem cache into disk, at the application layer we do `fsync()` only during closing the underlying WAL segment file.
-type commitLoggerMetrics struct {
+type CommitLoggerMetrics struct {
 	// writtenEntriesSize gives visibility on size distribution of write payload coming to commitLogger via `Write()`.
 	// It also gives visibility on IOPS and Througput of the WAL at the application layer.
 	writtenEntriesSize prometheus.Histogram
@@ -78,9 +78,9 @@ type commitLoggerMetrics struct {
 	fsyncDuration prometheus.Histogram
 }
 
-func newcommitLoggerMetrics(reg prometheus.Registerer) *commitLoggerMetrics {
+func NewCommitLoggerMetrics(reg prometheus.Registerer) *CommitLoggerMetrics {
 	r := promauto.With(reg)
-	return &commitLoggerMetrics{
+	return &CommitLoggerMetrics{
 		writtenEntriesSize: r.NewHistogram(prometheus.HistogramOpts{
 			Name:    "weaviate_commitlogger_written_entries_bytes",
 			Help:    "Size distribution of each entry written by commitLogger",
@@ -113,11 +113,13 @@ type bufWriter struct {
 	pageFlushedSize prometheus.Histogram
 }
 
-func newbufWriter(size int, w io.Writer) *bufWriter {
+func newbufWriter(size int, w io.Writer, writtenSize, pageFlushedSize prometheus.Histogram) *bufWriter {
 	return &bufWriter{
-		pageSize: size,
-		w:        w,
-		buf:      &bytes.Buffer{},
+		pageSize:        size,
+		w:               w,
+		buf:             &bytes.Buffer{},
+		writtenSize:     writtenSize,
+		pageFlushedSize: pageFlushedSize,
 	}
 }
 
@@ -183,7 +185,7 @@ func (ct CommitType) Is(checkedCommitType CommitType) bool {
 	return ct == checkedCommitType
 }
 
-func newCommitLogger(path string, strategy string, metrics *commitLoggerMetrics) (*commitLogger, error) {
+func newCommitLogger(path string, strategy string, metrics *CommitLoggerMetrics) (*commitLogger, error) {
 	out := &commitLogger{
 		path:    path + ".wal",
 		metrics: metrics,
@@ -205,7 +207,7 @@ func newCommitLogger(path string, strategy string, metrics *commitLoggerMetrics)
 		observeWrite.Observe(float64(written))
 	})
 
-	out.writer = newbufWriter(defaultPageSize, meteredF)
+	out.writer = newbufWriter(defaultPageSize, meteredF, out.metrics.writtenEntriesSize, out.metrics.flushedEntriesSize)
 	out.checksumWriter = integrity.NewCRC32Writer(out.writer)
 
 	out.bufNode = bytes.NewBuffer(nil)

@@ -38,7 +38,7 @@ const FlushAfterDirtyDefault = 60 * time.Second
 
 type BucketCreator interface {
 	NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-		metrics *Metrics, walMetrics *commitLoggerMetrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
+		metrics *Metrics, walMetrics *CommitLoggerMetrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 		opts ...BucketOption,
 	) (*Bucket, error)
 }
@@ -57,7 +57,7 @@ type Bucket struct {
 	haltedFlushTimer *interval.BackoffTimer
 
 	walThreshold      uint64
-	walMetrics        *commitLoggerMetrics
+	walMetrics        *CommitLoggerMetrics
 	flushDirtyAfter   time.Duration
 	memtableThreshold uint64
 	minMMapSize       int64
@@ -146,7 +146,7 @@ func NewBucketCreator() *Bucket { return &Bucket{} }
 // [Store]. In this case the [Store] can manage buckets for you, using methods
 // such as CreateOrLoadBucket().
 func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus.FieldLogger,
-	metrics *Metrics, walMetrics *commitLoggerMetrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
+	metrics *Metrics, walMetrics *CommitLoggerMetrics, compactionCallbacks, flushCallbacks cyclemanager.CycleCallbackGroup,
 	opts ...BucketOption,
 ) (*Bucket, error) {
 	beforeAll := time.Now()

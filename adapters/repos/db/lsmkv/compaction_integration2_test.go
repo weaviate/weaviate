@@ -17,6 +17,7 @@ import (
 	"math/rand"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -41,6 +42,8 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	var bucket *Bucket
 
 	dirName := t.TempDir()
+
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
 	t.Run("create test data", func(t *testing.T) {
 		// The test data is split into 4 scenarios evenly:
@@ -133,7 +136,7 @@ func TestCompactionReplaceStrategyStraggler(t *testing.T) {
 	})
 
 	t.Run("init bucket", func(t *testing.T) {
-		b, err := NewBucketCreator().NewBucket(context.TODO(), dirName, "", nullLogger2(), nil,
+		b, err := NewBucketCreator().NewBucket(context.TODO(), dirName, "", nullLogger2(), nil, walMetrics,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 		require.Nil(t, err)
 

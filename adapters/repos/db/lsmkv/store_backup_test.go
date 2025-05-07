@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -47,6 +48,7 @@ func TestStoreBackup(t *testing.T) {
 
 func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
 	t.Run("assert that context timeout works for long compactions", func(t *testing.T) {
 		for _, buckets := range [][]string{
@@ -61,7 +63,7 @@ func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1)
 				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, walMetrics,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
@@ -98,7 +100,7 @@ func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1)
 				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, walMetrics,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
@@ -130,6 +132,7 @@ func pauseCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 func resumeCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
 	t.Run("assert compaction restarts after pausing", func(t *testing.T) {
 		for _, buckets := range [][]string{
@@ -144,7 +147,7 @@ func resumeCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1)
 				shardFlushCallbacks := cyclemanager.NewCallbackGroupNoop()
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, walMetrics,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
@@ -182,6 +185,7 @@ func resumeCompaction(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
 	t.Run("assert that context timeout works for long flushes", func(t *testing.T) {
 		for _, buckets := range [][]string{
@@ -196,7 +200,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroupNoop()
 				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, walMetrics,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
@@ -233,7 +237,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroupNoop()
 				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, walMetrics,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
@@ -287,7 +291,7 @@ func flushMemtable(ctx context.Context, t *testing.T, opts []BucketOption) {
 				shardCompactionAuxCallbacks := cyclemanager.NewCallbackGroupNoop()
 				shardFlushCallbacks := cyclemanager.NewCallbackGroup("classFlush", logger, 1)
 
-				store, err := New(dirName, dirName, logger, nil,
+				store, err := New(dirName, dirName, logger, nil, walMetrics,
 					shardCompactionCallbacks, shardCompactionAuxCallbacks, shardFlushCallbacks)
 				require.Nil(t, err)
 
