@@ -202,6 +202,16 @@ func (b *Batch[T]) batchWorker() {
 			stats.WithLabelValues(b.Label, "concurrent_batches").Set(float64(b.concurrentBatches.Load()))
 			stats.WithLabelValues(b.Label, "repeats_for_scheduling").Set(float64(repeats))
 
+			b.logger.
+				WithField("vectorizer", b.Label).
+				WithField("expectedNumRequests", expectedNumRequests).
+				WithField("job.tokenSum", job.tokenSum).
+				WithField("repeats", repeats).
+				WithField("RemainingRequests", rateLimit.RemainingRequests).
+				WithField("RemainingTokens", rateLimit.RemainingTokens).
+				WithField("ReservedRequests", rateLimit.ReservedRequests).
+				WithField("ResetTokens", rateLimit.ResetTokens).Warn()
+
 			if rateLimit.CanSendFullBatch(expectedNumRequests, job.tokenSum, repeats > 0, b.Label) {
 				b.concurrentBatches.Add(1)
 				monitoring.GetMetrics().T2VBatches.WithLabelValues(b.Label).Inc()
@@ -339,6 +349,9 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 			// Only sleep if values are reasonable, e.g. for the token counter is lower than the limit token and we do
 			// not blow up the sleep time
 			if sleepTime > 0 && fractionOfTotalLimit < 1 && time.Since(job.startTime)+sleepTime < b.maxBatchTime && !concurrentBatch {
+				b.logger.
+					WithField("vectorizer", b.Label).
+					WithField("sleep for 1", sleepTime).Warn()
 				time.Sleep(sleepTime)
 				rateLimit.RemainingTokens += int(float64(rateLimit.LimitTokens) * fractionOfTotalLimit)
 				continue // try again after tokens have hopefully refreshed
@@ -369,6 +382,10 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 			sleepFor := time.Duration((60.0-batchTookInS*float64(rateLimit.LimitRequests))/float64(rateLimit.LimitRequests)) * time.Second
 			// limit for how long we sleep to avoid deadlocks. This can happen if we get values from the vectorizer that
 			// should not happen such as the LimitRequests being 0
+			b.logger.
+				WithField("vectorizer", b.Label).
+				WithField("sleep for 2", sleepFor).
+				WithField("sleep for 2 min", min(b.maxBatchTime/2, sleepFor)).Warn()
 			time.Sleep(min(b.maxBatchTime/2, sleepFor))
 
 			// adapt the batches per limit
@@ -379,6 +396,9 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 			// limit for how long we sleep to avoid deadlocks. This can happen if we get values from the vectorizer that
 			// should not happen such as the LimitTokens being 0
 			sleepTime := min(b.maxBatchTime/2, time.Duration(sleepFor*float64(time.Second)))
+			b.logger.
+				WithField("vectorizer", b.Label).
+				WithField("sleepTime 3", sleepTime).Warn()
 			time.Sleep(sleepTime)
 		}
 
@@ -394,6 +414,10 @@ func (b *Batch[T]) sendBatch(job BatchJob[T], objCounter int, rateLimit *modulec
 				}
 				break
 			}
+			b.logger.
+				WithField("vectorizer", b.Label).
+				WithField("sleepTime 4", time.Until(rateLimit.ResetRequests)).Warn()
+
 			time.Sleep(time.Until(rateLimit.ResetRequests))
 		}
 
