@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // findCompactionCandidates looks for pair of segments eligible for compaction
@@ -319,10 +320,18 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			return false, err
 		}
 	case segmentindex.StrategyInverted:
+		avgPropLen, _ := sg.GetAveragePropertyLength()
+		b := float64(config.DefaultBM25b)
+		k1 := float64(config.DefaultBM25k1)
+		if sg.bm25config != nil {
+			b = sg.bm25config.B
+			k1 = sg.bm25config.K1
+		}
+
 		c := newCompactorInverted(f,
 			leftSegment.newInvertedCursorReusable(),
 			rightSegment.newInvertedCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, cleanupTombstones)
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones, k1, b, avgPropLen)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -362,7 +371,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
 	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
 		updatedCountNetAdditions, sg.logger, sg.useBloomFilter,
-		sg.calcCountNetAdditions, sg.enableChecksumValidation)
+		sg.calcCountNetAdditions, sg.enableChecksumValidation, sg.MinMMapSize, sg.allocChecker)
 	if err != nil {
 		return fmt.Errorf("precompute segment meta: %w", err)
 	}
@@ -466,6 +475,8 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         false,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			MinMMapSize:              sg.MinMMapSize,
+			allocChecker:             sg.allocChecker,
 		})
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "create new segment")
