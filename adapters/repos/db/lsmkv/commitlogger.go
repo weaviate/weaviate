@@ -122,8 +122,6 @@ func newbufWriter(size int, w io.Writer) *bufWriter {
 }
 
 func (b *bufWriter) Write(p []byte) (int, error) {
-	len := len(p)
-
 	n, err := b.buf.Write(p)
 	if err != nil {
 		return n, err
@@ -134,19 +132,18 @@ func (b *bufWriter) Write(p []byte) (int, error) {
 		}
 	}
 
-	b.writtenSize.Observe(float64(len))
+	b.writtenSize.Observe(float64(n))
 
 	return n, nil
 }
 
 func (b *bufWriter) Flush() error {
-	len := b.buf.Len()
-
-	if _, err := b.w.Write(b.buf.Bytes()); err != nil {
+	n, err := b.w.Write(b.buf.Bytes())
+	if err != nil {
 		return err
 	}
 
-	b.pageFlushedSize.Observe(float64(len))
+	b.pageFlushedSize.Observe(float64(n))
 
 	return nil
 }
