@@ -82,7 +82,7 @@ type Compactor struct {
 // an explanation of what goes on under the hood, and why the input
 // requirements are the way they are.
 func NewCompactor(w io.WriteSeeker, left, right SegmentCursor,
-	level uint16, cleanupDeletions bool, enableChecksumValidation bool, maxNewFileSize int64,
+	level uint16, cleanupDeletions bool, enableChecksumValidation bool, expectedSize int64,
 ) *Compactor {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -92,7 +92,7 @@ func NewCompactor(w io.WriteSeeker, left, right SegmentCursor,
 		observeWrite.Observe(float64(written))
 	}
 	meteredW := diskio.NewMeteredWriter(w, writeCB)
-	writer, mw := compactor.NewWriter(meteredW, maxNewFileSize)
+	writer, mw := compactor.NewWriter(meteredW, expectedSize)
 
 	return &Compactor{
 		left:                     left,

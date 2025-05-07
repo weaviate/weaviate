@@ -13,19 +13,21 @@ package segmentindex
 
 import (
 	"bufio"
-	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/diskio"
 
 	"github.com/pkg/errors"
+
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
+
+const WriteToMemoryMaxSize = 4096
 
 type Indexes struct {
 	Keys                []Key
@@ -34,7 +36,109 @@ type Indexes struct {
 	ObserveWrite        prometheus.Observer
 }
 
-func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
+func (s *Indexes) WriteTo(w io.Writer, expectedSize uint64) (int64, error) {
+	// this number is only used to decide if we should use the more efficient (but memory intensive) in-Memory code path
+	// or the one with scratch files which is less efficient (more write operations) but can handle any size
+	if expectedSize < WriteToMemoryMaxSize {
+		return s.writeToMemory(w)
+	} else {
+		return s.writeToScratchFiles(w)
+	}
+}
+
+func (s *Indexes) writeToMemory(w io.Writer) (int64, error) {
+	var currentOffset uint64 = HeaderSize
+	if len(s.Keys) > 0 {
+		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
+	}
+	secondaryIndexCountSize := uint64(s.SecondaryIndexCount) * byteops.Uint64Len
+	currentOffset += secondaryIndexCountSize
+
+	primaryIndex := s.buildPrimary(s.Keys)
+	currentOffset += uint64(primaryIndex.Size())
+
+	offsetSecondaryStart := currentOffset
+	secondaryIndexSize := uint64(0)
+	var secondaryTrees []*Tree
+	if s.SecondaryIndexCount > 0 {
+		secondaryTrees = make([]*Tree, s.SecondaryIndexCount)
+		for pos := range secondaryTrees {
+			secondary, err := s.buildSecondary(s.Keys, pos)
+			if err != nil {
+				return 0, err
+			}
+			secondaryTrees[pos] = &secondary
+			secondaryIndexSize += uint64(secondary.Size())
+		}
+	}
+
+	buf := make([]byte, uint64(primaryIndex.Size())+secondaryIndexCountSize+secondaryIndexSize)
+	rw := byteops.NewReadWriter(buf)
+
+	for _, secondary := range secondaryTrees {
+		rw.WriteUint64(offsetSecondaryStart)
+		offsetSecondaryStart += uint64(secondary.Size())
+	}
+
+	_, err := primaryIndex.MarshalBinaryInto(&rw)
+	if err != nil {
+		return 0, err
+	}
+
+	for _, secondary := range secondaryTrees {
+		_, err := secondary.MarshalBinaryInto(&rw)
+		if err != nil {
+			return 0, err
+		}
+	}
+	written, err := w.Write(rw.Buffer)
+	if err != nil {
+		return 0, err
+	}
+
+	return int64(written), nil
+}
+
+func (s *Indexes) buildSecondary(keys []Key, pos int) (Tree, error) {
+	keyNodes := make([]Node, len(keys))
+	i := 0
+	for _, key := range keys {
+		if pos >= len(key.SecondaryKeys) {
+			// a secondary key is not guaranteed to be present. For example, a delete
+			// operation could pe performed using only the primary key
+			continue
+		}
+
+		keyNodes[i] = Node{
+			Key:   key.SecondaryKeys[pos],
+			Start: uint64(key.ValueStart),
+			End:   uint64(key.ValueEnd),
+		}
+		i++
+	}
+
+	keyNodes = keyNodes[:i]
+
+	index := NewBalanced(keyNodes)
+	return index, nil
+}
+
+// assumes sorted keys and does NOT sort them again
+func (s *Indexes) buildPrimary(keys []Key) Tree {
+	keyNodes := make([]Node, len(keys))
+	for i, key := range keys {
+		keyNodes[i] = Node{
+			Key:   key.Key,
+			Start: uint64(key.ValueStart),
+			End:   uint64(key.ValueEnd),
+		}
+	}
+	index := NewBalanced(keyNodes)
+
+	return index
+}
+
+func (s *Indexes) writeToScratchFiles(w io.Writer) (int64, error) {
 	var currentOffset uint64 = HeaderSize
 	if len(s.Keys) > 0 {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
@@ -176,10 +280,6 @@ func (s *Indexes) buildAndMarshalSecondary(w io.Writer, pos int,
 	}
 
 	keyNodes = keyNodes[:i]
-
-	sort.Slice(keyNodes, func(a, b int) bool {
-		return bytes.Compare(keyNodes[a].Key, keyNodes[b].Key) < 0
-	})
 
 	index := NewBalanced(keyNodes)
 	n, err := index.MarshalBinaryInto(w)

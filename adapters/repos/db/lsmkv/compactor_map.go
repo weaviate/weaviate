@@ -51,12 +51,13 @@ type compactorMap struct {
 	requiresSorting bool
 
 	enableChecksumValidation bool
+	expectedSize             int64
 }
 
 func newCompactorMapCollection(w io.WriteSeeker,
 	c1, c2 *segmentCursorCollectionReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, requiresSorting bool, cleanupTombstones bool,
-	enableChecksumValidation bool, maxNewFileSize int64,
+	enableChecksumValidation bool, expectedSize int64,
 ) *compactorMap {
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"operation": "compaction",
@@ -66,7 +67,7 @@ func newCompactorMapCollection(w io.WriteSeeker,
 		observeWrite.Observe(float64(written))
 	}
 	meteredW := diskio.NewMeteredWriter(w, writeCB)
-	writer, mw := compactor.NewWriter(meteredW, maxNewFileSize)
+	writer, mw := compactor.NewWriter(meteredW, expectedSize)
 
 	return &compactorMap{
 		c1:                       c1,
@@ -80,6 +81,7 @@ func newCompactorMapCollection(w io.WriteSeeker,
 		scratchSpacePath:         scratchSpacePath,
 		requiresSorting:          requiresSorting,
 		enableChecksumValidation: enableChecksumValidation,
+		expectedSize:             expectedSize,
 	}
 }
 
@@ -274,7 +276,7 @@ func (c *compactorMap) writeIndexes(f *segmentindex.SegmentFile,
 			"operation": "writeIndices",
 		}),
 	}
-	_, err := f.WriteIndexes(indexes)
+	_, err := f.WriteIndexes(indexes, uint64(c.expectedSize))
 	return err
 }
 
