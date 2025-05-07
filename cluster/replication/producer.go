@@ -13,7 +13,6 @@ package replication
 
 import (
 	"context"
-	"time"
 
 	"github.com/sirupsen/logrus"
 )
@@ -29,24 +28,21 @@ type OpProducer interface {
 // FSMOpProducer is an implementation of the OpProducer interface that reads replication
 // operations from a ShardReplicationFSM, which tracks the state of replication operations.
 type FSMOpProducer struct {
-	logger          *logrus.Entry
-	fsm             *ShardReplicationFSM
-	pollingInterval time.Duration
-	nodeId          string
+	logger *logrus.Entry
+	fsm    *ShardReplicationFSM
+	nodeId string
 }
 
 // NewFSMOpProducer creates a new FSMOpProducer instance, which periodically polls the
 // ShardReplicationFSM for operations assigned to the given node and pushes them to
-// a channel for consumption by the replication engine.The polling interval controls
-// how often the FSM is queried for replication operations.
+// a channel for consumption by the replication engine.
 //
 // Additional configuration can be applied using optional FSMProducerOption functions.
-func NewFSMOpProducer(logger *logrus.Logger, fsm *ShardReplicationFSM, pollingInterval time.Duration, nodeId string) *FSMOpProducer {
+func NewFSMOpProducer(logger *logrus.Logger, fsm *ShardReplicationFSM, nodeId string) *FSMOpProducer {
 	return &FSMOpProducer{
-		logger:          logger.WithFields(logrus.Fields{"component": "replication_producer", "action": replicationEngineLogAction}),
-		fsm:             fsm,
-		pollingInterval: pollingInterval,
-		nodeId:          nodeId,
+		logger: logger.WithFields(logrus.Fields{"component": "replication_producer", "action": replicationEngineLogAction}),
+		fsm:    fsm,
+		nodeId: nodeId,
 	}
 }
 
@@ -65,17 +61,14 @@ func NewFSMOpProducer(logger *logrus.Logger, fsm *ShardReplicationFSM, pollingIn
 // to process it. Missing some ticks during backpressure is acceptable and avoids accumulating
 // unprocessed work or overloading the system.
 func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplicationOpAndStatus) error {
-	p.logger.WithFields(logrus.Fields{"node": p.nodeId, "polling_interval": p.pollingInterval}).Info("starting replication engine FSM producer")
-
-	ticker := time.NewTicker(p.pollingInterval)
-	defer ticker.Stop()
+	p.logger.WithFields(logrus.Fields{"node": p.nodeId}).Info("starting replication engine FSM producer")
 
 	for {
 		select {
 		case <-ctx.Done():
 			p.logger.Info("replication engine producer cancel request, stopping FSM producer")
 			return ctx.Err()
-		case <-ticker.C:
+		case <-p.fsm.OpsSignalingForTarget(p.nodeId):
 			ops := p.allOpsForNode(p.nodeId)
 			if len(ops) <= 0 {
 				continue

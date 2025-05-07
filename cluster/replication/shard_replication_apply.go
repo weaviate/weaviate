@@ -53,6 +53,8 @@ func (s *ShardReplicationFSM) RegisterError(id uint64, c *api.ReplicationRegiste
 	}
 	s.opsStatus[op] = status
 
+	s.signalTarget(op.TargetShard.NodeId)
+
 	return nil
 }
 
@@ -66,6 +68,7 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	s.idsByUuid[op.UUID] = op.ID
 	s.opsBySource[op.SourceShard.NodeId] = append(s.opsBySource[op.SourceShard.NodeId], op)
 	s.opsByTarget[op.TargetShard.NodeId] = append(s.opsByTarget[op.TargetShard.NodeId], op)
+	s.targetByOpID[op.ID] = op.TargetShard.NodeId
 	s.opsByShard[op.SourceShard.ShardId] = append(s.opsByShard[op.SourceShard.ShardId], op)
 	s.opsByCollection[op.SourceShard.CollectionId] = append(s.opsByCollection[op.SourceShard.CollectionId], op)
 	s.opsByTargetFQDN[op.TargetShard] = op
@@ -74,6 +77,8 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	s.opsStatus[op] = status
 
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
+
+	s.signalTarget(op.TargetShard.NodeId)
 
 	return nil
 }
@@ -95,6 +100,8 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	status.ChangeState(c.State)
 	s.opsStatus[op] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
+
+	s.signalTarget(op.TargetShard.NodeId)
 
 	return nil
 }
@@ -118,6 +125,8 @@ func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest)
 	status.TriggerCancellation()
 	s.opsStatus[op] = status
 
+	s.signalTarget(op.TargetShard.NodeId)
+
 	return nil
 }
 
@@ -140,6 +149,8 @@ func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest)
 	status.TriggerDeletion()
 	s.opsStatus[op] = status
 
+	s.signalTarget(op.TargetShard.NodeId)
+
 	return nil
 }
 
@@ -161,6 +172,8 @@ func (s *ShardReplicationFSM) CancellationComplete(c *api.ReplicationCancellatio
 	}
 	status.CompleteCancellation()
 	s.opsStatus[op] = status
+
+	s.signalTarget(op.TargetShard.NodeId)
 
 	return nil
 }
@@ -222,6 +235,7 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	delete(s.idsByUuid, op.UUID)
 	delete(s.opsByTargetFQDN, op.TargetShard)
 	delete(s.opsById, op.ID)
+	delete(s.targetByOpID, op.ID)
 	delete(s.opsStatus, op)
 
 	return err

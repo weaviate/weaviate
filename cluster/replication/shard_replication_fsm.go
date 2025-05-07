@@ -64,6 +64,10 @@ type ShardReplicationFSM struct {
 	idsByUuid map[strfmt.UUID]uint64
 	// opsByTarget stores the array of ShardReplicationOp for each "target" node
 	opsByTarget map[string][]ShardReplicationOp
+	// opsSignalingByTarget stores a signaling channel for each "target" node
+	opsSignalingByTarget map[string]chan struct{}
+	// targetsByOpID stores opID -> target node
+	targetByOpID map[uint64]string
 	// opsBySource stores the array of ShardReplicationOp for each "source" node
 	opsBySource map[string][]ShardReplicationOp
 	// opsByCollection stores the array of ShardReplicationOp for each collection
@@ -84,15 +88,17 @@ type ShardReplicationFSM struct {
 
 func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 	fsm := &ShardReplicationFSM{
-		idsByUuid:       make(map[strfmt.UUID]uint64),
-		opsByTarget:     make(map[string][]ShardReplicationOp),
-		opsBySource:     make(map[string][]ShardReplicationOp),
-		opsByCollection: make(map[string][]ShardReplicationOp),
-		opsByShard:      make(map[string][]ShardReplicationOp),
-		opsByTargetFQDN: make(map[shardFQDN]ShardReplicationOp),
-		opsBySourceFQDN: make(map[shardFQDN]ShardReplicationOp),
-		opsById:         make(map[uint64]ShardReplicationOp),
-		opsStatus:       make(map[ShardReplicationOp]ShardReplicationOpStatus),
+		idsByUuid:            make(map[strfmt.UUID]uint64),
+		opsByTarget:          make(map[string][]ShardReplicationOp),
+		opsSignalingByTarget: make(map[string]chan struct{}),
+		targetByOpID:         make(map[uint64]string),
+		opsBySource:          make(map[string][]ShardReplicationOp),
+		opsByCollection:      make(map[string][]ShardReplicationOp),
+		opsByShard:           make(map[string][]ShardReplicationOp),
+		opsByTargetFQDN:      make(map[shardFQDN]ShardReplicationOp),
+		opsBySourceFQDN:      make(map[shardFQDN]ShardReplicationOp),
+		opsById:              make(map[uint64]ShardReplicationOp),
+		opsStatus:            make(map[ShardReplicationOp]ShardReplicationOpStatus),
 	}
 
 	fsm.opsByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
@@ -143,6 +149,8 @@ func (s *ShardReplicationFSM) resetState() {
 	// Reset data
 	maps.Clear(s.idsByUuid)
 	maps.Clear(s.opsByTarget)
+	maps.Clear(s.opsSignalingByTarget)
+	maps.Clear(s.targetByOpID)
 	maps.Clear(s.opsBySource)
 	maps.Clear(s.opsByCollection)
 	maps.Clear(s.opsByShard)
@@ -158,6 +166,33 @@ func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp 
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 	return s.opsByTarget[node]
+}
+
+func (s *ShardReplicationFSM) OpsSignalingForTarget(node string) chan struct{} {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	return s.opsSignalingForTarget(node)
+}
+
+func (s *ShardReplicationFSM) opsSignalingForTarget(node string) chan struct{} {
+	signalCh, ok := s.opsSignalingByTarget[node]
+	if ok {
+		return signalCh
+	}
+
+	signalCh = make(chan struct{}, 1)
+	s.opsSignalingByTarget[node] = signalCh
+
+	return signalCh
+}
+
+func (s *ShardReplicationFSM) signalTarget(node string) {
+	// non-blocking signal
+	select {
+	case s.opsSignalingForTarget(node) <- struct{}{}:
+	default: // skip if already signaled
+	}
 }
 
 // ShouldConsumeOps returns true if the operation should be consumed by the consumer

@@ -300,7 +300,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
 			manager := replication.NewManager(schemaReader, reg)
-			producer := replication.NewFSMOpProducer(logger, manager.GetReplicationFSM(), time.Second*1, replicateRequest.TargetNode)
+			producer := replication.NewFSMOpProducer(logger, manager.GetReplicationFSM(), replicateRequest.TargetNode)
 
 			// Setup the class + shard in the schema
 			// We only use the manager + fsm + schema to "kickstart" the producer/consumer read loop, all the subsequent
