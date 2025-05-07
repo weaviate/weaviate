@@ -42,34 +42,29 @@ func TestUpdateRuntimeConfig(t *testing.T) {
 			colCount   runtime.DynamicValue[int]
 			autoSchema runtime.DynamicValue[bool]
 			asyncRep   runtime.DynamicValue[bool]
-			repEngine  runtime.DynamicValue[int]
 		)
 
 		reg := &WeaviateRuntimeConfig{
 			MaximumAllowedCollectionsCount: &colCount,
 			AutoschemaEnabled:              &autoSchema,
 			AsyncReplicationDisabled:       &asyncRep,
-			ReplicationEngineMaxWorkers:    &repEngine,
 		}
 
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
-maximum_allowed_collections_count: 13
-replication_engine_max_workers: 10`)
+maximum_allowed_collections_count: 13`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
 		// before update (zero values)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
-		assert.Equal(t, 0, repEngine.Get())
 
 		require.NoError(t, UpdateRuntimeConfig(reg, parsed))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
 		assert.Equal(t, 13, colCount.Get())
-		assert.Equal(t, 10, repEngine.Get())
 	})
 
 	t.Run("updating priorities", func(t *testing.T) {
@@ -81,20 +76,17 @@ replication_engine_max_workers: 10`)
 			colCount   runtime.DynamicValue[int]
 			autoSchema runtime.DynamicValue[bool]
 			asyncRep   runtime.DynamicValue[bool]
-			repEngine  runtime.DynamicValue[int]
 		)
 
 		reg := &WeaviateRuntimeConfig{
 			MaximumAllowedCollectionsCount: &colCount,
 			AutoschemaEnabled:              &autoSchema,
 			AsyncReplicationDisabled:       &asyncRep,
-			ReplicationEngineMaxWorkers:    &repEngine,
 		}
 
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
-maximum_allowed_collections_count: 13
-replication_engine_max_workers: 10`)
+maximum_allowed_collections_count: 13`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
@@ -102,7 +94,6 @@ replication_engine_max_workers: 10`)
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file.
-		assert.Equal(t, 0, repEngine.Get())
 		require.NoError(t, UpdateRuntimeConfig(reg, parsed))
 
 		// after update (reflect from parsed values)
