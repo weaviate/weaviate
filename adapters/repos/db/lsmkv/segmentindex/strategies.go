@@ -24,6 +24,24 @@ const (
 	StrategyInverted
 )
 
+// consistent labels with adapters/repos/db/lsmkv/strategies.go
+func (s Strategy) String() string {
+	switch s {
+	case StrategyReplace:
+		return "replace"
+	case StrategySetCollection:
+		return "setcollection"
+	case StrategyMapCollection:
+		return "mapcollection"
+	case StrategyRoaringSet:
+		return "roaringset"
+	case StrategyRoaringSetRange:
+		return "roaringsetrange"
+	default:
+		return "n/a"
+	}
+}
+
 func IsExpectedStrategy(strategy Strategy, expectedStrategies ...Strategy) bool {
 	if len(expectedStrategies) == 0 {
 		expectedStrategies = []Strategy{
