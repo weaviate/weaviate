@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package ctxlock
 
 import (
@@ -14,7 +25,7 @@ var ErrCtxTimeout = errors.New("ctxsync: lock acquisition timed out")
 type CtxRWMutex struct {
 	location string
 
-	readerCount int32        // number of active readers
+	readerCount int32         // number of active readers
 	writer      chan struct{} // single-slot semaphore for writers
 	mu          sync.Mutex    // protects coordination
 }
