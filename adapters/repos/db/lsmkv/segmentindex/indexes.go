@@ -52,7 +52,7 @@ func (s *Indexes) writeToMemory(w io.Writer) (int64, error) {
 	if len(s.Keys) > 0 {
 		currentOffset = uint64(s.Keys[len(s.Keys)-1].ValueEnd)
 	}
-	secondaryIndexCountSize := uint64(s.SecondaryIndexCount) * 8
+	secondaryIndexCountSize := uint64(s.SecondaryIndexCount) * byteops.Uint64Len
 	currentOffset += secondaryIndexCountSize
 
 	primaryIndex := s.buildPrimary(s.Keys)
@@ -69,7 +69,6 @@ func (s *Indexes) writeToMemory(w io.Writer) (int64, error) {
 				return 0, err
 			}
 			secondaryTrees[pos] = &secondary
-			currentOffset += uint64(secondary.Size())
 			secondaryIndexSize += uint64(secondary.Size())
 		}
 	}
