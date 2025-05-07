@@ -134,6 +134,7 @@ type Config struct {
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
 	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
+	TransferInactivityTimeout           time.Duration            `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	ReindexerGoroutinesFactor           float64                  `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
@@ -161,6 +162,8 @@ type Config struct {
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
+
+	ReplicaMovementMinimumFinalizingWait *runtime.DynamicValue[time.Duration] `json:"replica_movement_minimum_finalizing_wait" yaml:"replica_movement_minimum_finalizing_wait"`
 }
 
 type MapToBlockamaxConfig struct {
@@ -364,7 +367,7 @@ const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibilit
 
 const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
 
-const DefaultMinMMapSize = 0 // setting it to 0 means that no segments are always mmaped (and not fully read) by default
+const DefaultPersistenceMinMMapSize = 0 // setting it to 0 means that no segments are always mmaped (and not fully read) by default
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {

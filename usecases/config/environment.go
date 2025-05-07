@@ -46,7 +46,10 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
-	DefaultReplicationEngineMaxWorkers = 5
+	DefaultReplicationEngineMaxWorkers          = 5
+	DefaultReplicaMovementMinimumFinalizingWait = 100 * time.Second
+
+	DefaultTransferInactivityTimeout = 5 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -96,6 +99,16 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
 		config.ForceFullReplicasSearch = true
+	}
+
+	if v := os.Getenv("TRANSFER_INACTIVITY_TIMEOUT"); v != "" {
+		timeout, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TRANSFER_INACTIVITY_TIMEOUT as duration: %w", err)
+		}
+		config.TransferInactivityTimeout = timeout
+	} else {
+		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
@@ -290,7 +303,7 @@ func FromEnv(config *Config) error {
 
 		config.Persistence.MinMMapSize = parsed
 	} else {
-		config.Persistence.MinMMapSize = DefaultMinMMapSize
+		config.Persistence.MinMMapSize = DefaultPersistenceMinMMapSize
 	}
 
 	if err := parseInt(
@@ -671,6 +684,19 @@ func FromEnv(config *Config) error {
 		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
 	); err != nil {
 		return err
+	}
+
+	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT as time.Duration: %w", err)
+		}
+		if duration < 0 {
+			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT must be a positive duration")
+		}
+		config.ReplicaMovementMinimumFinalizingWait = runtime.NewDynamicValue(duration)
+	} else {
+		config.ReplicaMovementMinimumFinalizingWait = runtime.NewDynamicValue(DefaultReplicaMovementMinimumFinalizingWait)
 	}
 
 	return nil
