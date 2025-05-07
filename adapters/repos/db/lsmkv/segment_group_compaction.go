@@ -241,14 +241,18 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	if sg.metrics != nil && !sg.metrics.groupClasses {
 		pathLabel = sg.dir
 	}
+
+	maxNewFileSize := leftSegment.size + rightSegment.size
+
 	switch strategy {
 
 	// TODO: call metrics just once with variable strategy label
 
 	case segmentindex.StrategyReplace:
+
 		c := newCompactorReplace(f, leftSegment.newCursor(),
 			rightSegment.newCursor(), level, secondaryIndices,
-			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation)
+			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionReplace.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -261,7 +265,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 	case segmentindex.StrategySetCollection:
 		c := newCompactorSetCollection(f, leftSegment.newCollectionCursor(),
 			rightSegment.newCollectionCursor(), level, secondaryIndices,
-			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation)
+			scratchSpacePath, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionSet.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -277,7 +281,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 			rightSegment.newCollectionCursorReusable(),
 			level, secondaryIndices, scratchSpacePath,
 			sg.mapRequiresSorting, cleanupTombstones,
-			sg.enableChecksumValidation)
+			sg.enableChecksumValidation, maxNewFileSize)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
@@ -293,13 +297,12 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 		c := roaringset.NewCompactor(f, leftCursor, rightCursor,
 			level, scratchSpacePath, cleanupTombstones,
-			sg.enableChecksumValidation)
+			sg.enableChecksumValidation, maxNewFileSize)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(1)
 			defer sg.metrics.CompactionRoaringSet.With(prometheus.Labels{"path": pathLabel}).Set(0)
 		}
-
 		if err := c.Do(); err != nil {
 			return false, err
 		}
@@ -309,7 +312,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		rightCursor := rightSegment.newRoaringSetRangeCursor()
 
 		c := roaringsetrange.NewCompactor(f, leftCursor, rightCursor,
-			level, cleanupTombstones, sg.enableChecksumValidation)
+			level, cleanupTombstones, sg.enableChecksumValidation, maxNewFileSize)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionRoaringSetRange.With(prometheus.Labels{"path": pathLabel}).Set(1)
