@@ -137,7 +137,7 @@ func (h *hnsw) restoreFromDisk() error {
 			if err := h.restoreDocMappings(); err != nil {
 				return errors.Wrapf(err, "restore doc mappings %q", h.id)
 			}
-		} else {
+		} else if state.MuveraEnabled {
 			h.trackMuveraOnce.Do(func() {
 				h.muveraEncoder.LoadMuveraConfig(*state.EncoderMuvera)
 			})
