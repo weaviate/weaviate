@@ -39,17 +39,17 @@ func NewKeyLocker() *KeyLocker {
 //
 //	do not forget calling Unlock() after locking it.
 func (s *KeyLocker) Lock(ID string) {
-	iLock := &sync.Mutex{}
+	iLock := ctxlock.NewMeteredRWMutex("keylocker")
 	iLocks, _ := s.m.LoadOrStore(ID, iLock)
 
-	iLock = iLocks.(*sync.Mutex)
+	iLock = iLocks.(*ctxlock.MeteredRWMutex)
 	iLock.Lock()
 }
 
 // Unlock it unlocks a specific item by it's ID
 func (s *KeyLocker) Unlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
-	iLock := iLocks.(*sync.Mutex)
+	iLock := iLocks.(*ctxlock.MeteredRWMutex)
 	iLock.Unlock()
 }
 
@@ -90,7 +90,7 @@ func (s *KeyRWLocker) Lock(ID string) {
 // Unlock it unlocks a specific item by it's ID
 func (s *KeyRWLocker) Unlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
-	iLock := iLocks.(*sync.RWMutex)
+	iLock := iLocks.(*ctxlock.MeteredRWMutex)
 	iLock.Unlock()
 }
 
@@ -109,6 +109,6 @@ func (s *KeyRWLocker) RLock(ID string) {
 // RUnlock it runlocks a specific item by it's ID
 func (s *KeyRWLocker) RUnlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
-	iLock := iLocks.(*sync.RWMutex)
+	iLock := iLocks.(*ctxlock.MeteredRWMutex)
 	iLock.RUnlock()
 }
