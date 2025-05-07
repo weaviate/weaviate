@@ -290,7 +290,7 @@ func FromEnv(config *Config) error {
 
 		config.Persistence.MinMMapSize = parsed
 	} else {
-		config.Persistence.MinMMapSize = DefaultMinMMapSize
+		config.Persistence.MinMMapSize = DefaultPersistenceMinMMapSize
 	}
 
 	if err := parseInt(
