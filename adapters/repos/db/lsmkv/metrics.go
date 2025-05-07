@@ -19,9 +19,10 @@ import (
 )
 
 type (
-	NsObserver   func(ns int64)
-	Setter       func(val uint64)
-	TimeObserver func(start time.Time)
+	NsObserver    func(ns int64)
+	BytesObserver func(bytes int64)
+	Setter        func(val uint64)
+	TimeObserver  func(start time.Time)
 )
 
 type Metrics struct {
@@ -43,6 +44,7 @@ type Metrics struct {
 	memtableDurations            prometheus.ObserverVec
 	memtableSize                 *prometheus.GaugeVec
 	DimensionSum                 *prometheus.GaugeVec
+	IOWrite                      *prometheus.SummaryVec
 
 	groupClasses        bool
 	criticalBucketsOnly bool
@@ -146,6 +148,7 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
+		IOWrite: promMetrics.FileIOWrites,
 	}
 }
 
@@ -179,6 +182,21 @@ func (m *Metrics) MemtableOpObserver(path, strategy, op string) NsObserver {
 	return func(startNs int64) {
 		took := float64(time.Now().UnixNano()-startNs) / float64(time.Millisecond)
 		curried.Observe(took)
+	}
+}
+
+func (m *Metrics) MemtableWriteObserver(strategy, op string) BytesObserver {
+	if m == nil {
+		return noOpNsObserver
+	}
+
+	curried := m.IOWrite.With(prometheus.Labels{
+		"operation": op,
+		"strategy":  strategy,
+	})
+
+	return func(bytes int64) {
+		curried.Observe(float64(bytes))
 	}
 }
 
