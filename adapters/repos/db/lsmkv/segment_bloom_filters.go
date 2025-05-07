@@ -21,9 +21,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/diskio"
-	"github.com/willf/bloom"
 )
 
 func (s *segment) bloomFilterPath() string {
