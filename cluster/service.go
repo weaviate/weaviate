@@ -79,6 +79,10 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		replicationEngineMaxWorkers*time.Second,
 		cfg.NodeSelector.LocalName(),
 	)
+	replicationEngineMaxWorkers := replicationEngineMaxWorkers
+	if cfg.ReplicationEngineMaxWorkers != nil {
+		replicationEngineMaxWorkers = cfg.ReplicationEngineMaxWorkers.Get()
+	}
 	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
 		cfg.Logger,
 		raft,

@@ -28,6 +28,7 @@ import (
 type WeaviateRuntimeConfig struct {
 	MaximumAllowedCollectionsCount *runtime.DynamicValue[int]  `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 	AutoschemaEnabled              *runtime.DynamicValue[bool] `json:"autoschema_enabled" yaml:"autoschema_enabled"`
+	ReplicationEngineMaxWorkers    *runtime.DynamicValue[int]  `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	AsyncReplicationDisabled       *runtime.DynamicValue[bool] `json:"async_replication_disabled" yaml:"async_replication_disabled"`
 }
 

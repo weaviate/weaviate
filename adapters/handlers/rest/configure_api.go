@@ -485,37 +485,38 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
 	replicaCopier := copier.New(remoteIndexClient, appState.Cluster, dataPath, appState.DB)
 	rConfig := rCluster.Config{
-		WorkDir:                filepath.Join(dataPath, config.DefaultRaftDir),
-		NodeID:                 nodeName,
-		Host:                   addrs[0],
-		RaftPort:               appState.ServerConfig.Config.Raft.Port,
-		RPCPort:                appState.ServerConfig.Config.Raft.InternalRPCPort,
-		RaftRPCMessageMaxSize:  appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
-		BootstrapTimeout:       appState.ServerConfig.Config.Raft.BootstrapTimeout,
-		BootstrapExpect:        appState.ServerConfig.Config.Raft.BootstrapExpect,
-		HeartbeatTimeout:       appState.ServerConfig.Config.Raft.HeartbeatTimeout,
-		ElectionTimeout:        appState.ServerConfig.Config.Raft.ElectionTimeout,
-		SnapshotInterval:       appState.ServerConfig.Config.Raft.SnapshotInterval,
-		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
-		TrailingLogs:           appState.ServerConfig.Config.Raft.TrailingLogs,
-		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
-		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
-		EnableOneNodeRecovery:  appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
-		ForceOneNodeRecovery:   appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
-		DB:                     nil,
-		Parser:                 schemaParser,
-		NodeNameToPortMap:      server2port,
-		NodeSelector:           appState.Cluster,
-		Logger:                 appState.Logger,
-		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
-		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
-		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
-		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
-		AuthzController:        appState.AuthzController,
-		DynamicUserController:  appState.APIKey.Dynamic,
-		ReplicaCopier:          replicaCopier,
-		AuthNConfig:            appState.ServerConfig.Config.Authentication,
-		DistributedTasks:       appState.ServerConfig.Config.DistributedTasks,
+		WorkDir:                     filepath.Join(dataPath, config.DefaultRaftDir),
+		NodeID:                      nodeName,
+		Host:                        addrs[0],
+		RaftPort:                    appState.ServerConfig.Config.Raft.Port,
+		RPCPort:                     appState.ServerConfig.Config.Raft.InternalRPCPort,
+		RaftRPCMessageMaxSize:       appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
+		BootstrapTimeout:            appState.ServerConfig.Config.Raft.BootstrapTimeout,
+		BootstrapExpect:             appState.ServerConfig.Config.Raft.BootstrapExpect,
+		HeartbeatTimeout:            appState.ServerConfig.Config.Raft.HeartbeatTimeout,
+		ElectionTimeout:             appState.ServerConfig.Config.Raft.ElectionTimeout,
+		SnapshotInterval:            appState.ServerConfig.Config.Raft.SnapshotInterval,
+		SnapshotThreshold:           appState.ServerConfig.Config.Raft.SnapshotThreshold,
+		TrailingLogs:                appState.ServerConfig.Config.Raft.TrailingLogs,
+		ConsistencyWaitTimeout:      appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
+		MetadataOnlyVoters:          appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		EnableOneNodeRecovery:       appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
+		ForceOneNodeRecovery:        appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
+		DB:                          nil,
+		Parser:                      schemaParser,
+		NodeNameToPortMap:           server2port,
+		NodeSelector:                appState.Cluster,
+		Logger:                      appState.Logger,
+		IsLocalHost:                 appState.ServerConfig.Config.Cluster.Localhost,
+		LoadLegacySchema:            schemaRepo.LoadLegacySchema,
+		SaveLegacySchema:            schemaRepo.SaveLegacySchema,
+		SentryEnabled:               appState.ServerConfig.Config.Sentry.Enabled,
+		AuthzController:             appState.AuthzController,
+		DynamicUserController:       appState.APIKey.Dynamic,
+		ReplicaCopier:               replicaCopier,
+		AuthNConfig:                 appState.ServerConfig.Config.Authentication,
+		ReplicationEngineMaxWorkers: appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
+		DistributedTasks:            appState.ServerConfig.Config.DistributedTasks,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -1749,6 +1750,7 @@ func initRuntimeOverrides(appState *state.State) {
 		// Runtimeconfig manager takes of keeping the `registered` config values upto date
 		registered := &config.WeaviateRuntimeConfig{}
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
+		registered.ReplicationEngineMaxWorkers = appState.ServerConfig.Config.ReplicationEngineMaxWorkers
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 
