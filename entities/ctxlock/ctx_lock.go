@@ -17,9 +17,9 @@ import (
 	"sync"
 	"time"
 
+	caslock "github.com/viney-shih/go-lock"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	caslock "github.com/viney-shih/go-lock"
 )
 
 var ErrCtxTimeout = errors.New("ctxsync: lock acquisition timed out")
@@ -27,8 +27,8 @@ var ErrCtxTimeout = errors.New("ctxsync: lock acquisition timed out")
 // CtxRWMutex is a context-aware read/write mutex
 type CtxRWMutex struct {
 	rwlock        *caslock.CASMutex // The underlying RWMutex
-	location      string       // The location of the mutex, used for monitoring
-	enforceTimout bool         // Whether to enforce timeout on lock acquisition
+	location      string            // The location of the mutex, used for monitoring
+	enforceTimout bool              // Whether to enforce timeout on lock acquisition
 
 	doneMu    sync.Mutex
 	doneCache []chan bool
@@ -108,7 +108,7 @@ func (m *CtxRWMutex) LockContext(ctx context.Context) error {
 
 // LockContextWithTimeout acquires the write lock or returns an error on timeout/cancel
 func (m *CtxRWMutex) LockWithTimeout(timeout time.Duration) error {
-	ctx, cancel := context.WithTimeout(context.Background(),timeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	enterrors.GoWrapper(func() {
 		time.Sleep(timeout)
 		cancel()
