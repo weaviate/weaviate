@@ -20,6 +20,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
@@ -122,6 +123,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
+			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 		)
 
@@ -237,6 +239,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
+			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 		)
 
@@ -369,6 +372,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			replication.NewOpsCache(),
 			time.Second*10,
 			1,
+			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
 		)
 
@@ -486,6 +490,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			opsCache,
 			time.Second*10,
 			1,
+			runtime.NewDynamicValue(time.Second*100),
 			callbacks,
 		)
 
@@ -637,6 +642,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			opsCache,
 			time.Second*10,
 			1,
+			runtime.NewDynamicValue(time.Second*100),
 			callbacks,
 		)
 
@@ -736,6 +742,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		1,
+		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 	)
 
@@ -751,20 +758,17 @@ func TestConsumerOpCancellation(t *testing.T) {
 	}()
 
 	for _, sleep := range []uint64{0, 1} {
-		if sleep == 1 {
-			// Only mock the long-running operation when it will have started before cancellation
-			mockReplicaCopier.EXPECT().
-				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-				RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
-					// Simulate a long-running operation that checks for cancellation every loop
-					for {
-						if ctx.Err() != nil {
-							return ctx.Err()
-						}
-						time.Sleep(1 * time.Second)
+		mockReplicaCopier.EXPECT().
+			CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+				// Simulate a long-running operation that checks for cancellation every loop
+				for {
+					if ctx.Err() != nil {
+						return ctx.Err()
 					}
-				})
-		}
+					time.Sleep(1 * time.Second)
+				}
+			}).Maybe()
 		completionWg.Add(1)
 		op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
 		status := replication.NewShardReplicationStatus(api.HYDRATING)
@@ -847,6 +851,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 		replication.NewOpsCache(),
 		time.Second*10,
 		1,
+		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
 	)
 
@@ -862,20 +867,17 @@ func TestConsumerOpDeletion(t *testing.T) {
 	}()
 
 	for _, sleep := range []uint64{0, 1} {
-		if sleep == 1 {
-			// Only mock the long-running operation when it will have started before cancellation
-			mockReplicaCopier.EXPECT().
-				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-				RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
-					// Simulate a long-running operation that checks for cancellation every loop
-					for {
-						if ctx.Err() != nil {
-							return ctx.Err()
-						}
-						time.Sleep(1 * time.Second)
+		mockReplicaCopier.EXPECT().
+			CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+				// Simulate a long-running operation that checks for cancellation every loop
+				for {
+					if ctx.Err() != nil {
+						return ctx.Err()
 					}
-				})
-		}
+					time.Sleep(1 * time.Second)
+				}
+			}).Maybe()
 		completionWg.Add(1)
 		op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
 		status := replication.NewShardReplicationStatus(api.HYDRATING)

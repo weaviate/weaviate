@@ -128,6 +128,10 @@ func (m *Memtable) flush() (rerr error) {
 		if _, err := segmentFile.WriteChecksum(); err != nil {
 			return err
 		}
+	} else {
+		if err := bufw.Flush(); err != nil {
+			return err
+		}
 	}
 
 	if err := f.Sync(); err != nil {

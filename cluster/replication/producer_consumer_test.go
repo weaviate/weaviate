@@ -32,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -288,6 +289,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				replication.NewOpsCache(),
 				time.Second*20,
 				1,
+				runtime.NewDynamicValue(time.Second*100),
 				metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
 			)
 			tc.setupMocksFunc(&wg, mockFSMUpdater, mockReplicaCopier)
