@@ -34,8 +34,20 @@ type Indexes struct {
 	ObserveWrite        prometheus.Observer
 }
 
+// WriteTo writes the indices (primary and secondary) to the writer
+//
+// The segment files look like this:
+// - header (already written)
+// - secondary indexes offset (if present)
+// - primary index
+// - secondary indexes (if present)
+//
+// We first write the primary index to a scratch file to know the positions of the secondary indices. Only then we know
+// the offsets of the secondary indices.
 func (s *Indexes) WriteTo(w io.Writer) (int64, error) {
 	if s.SecondaryIndexCount == 0 {
+		// In case there are no secondary indices present, we can write the primary index directly to the writer without
+		// all the extra steps
 		return s.buildAndMarshalPrimary(w, s.Keys)
 	}
 
