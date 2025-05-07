@@ -12,14 +12,13 @@
 package sync
 
 import (
-	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/ctxlock"
 )
 
-func mutexLocked(m *sync.Mutex) bool {
+func mutexLocked(m *ctxlock.MeteredRWMutex) bool {
 	rlocked := m.TryLock()
 	if rlocked {
 		defer m.Unlock()
@@ -56,19 +55,19 @@ func TestKeyLockerLockUnlock(t *testing.T) {
 
 	s.Lock("t1")
 	lock, _ := s.m.Load("t1")
-	r.True(mutexLocked(lock.(*sync.Mutex)))
+	r.True(mutexLocked(lock.(*ctxlock.MeteredRWMutex)))
 
 	s.Unlock("t1")
 	lock, _ = s.m.Load("t1")
-	r.False(mutexLocked(lock.(*sync.Mutex)))
+	r.False(mutexLocked(lock.(*ctxlock.MeteredRWMutex)))
 
 	s.Lock("t2")
 	lock, _ = s.m.Load("t2")
-	r.True(mutexLocked(lock.(*sync.Mutex)))
+	r.True(mutexLocked(lock.(*ctxlock.MeteredRWMutex)))
 
 	s.Unlock("t2")
 	lock, _ = s.m.Load("t2")
-	r.False(mutexLocked(lock.(*sync.Mutex)))
+	r.False(mutexLocked(lock.(*ctxlock.MeteredRWMutex)))
 }
 
 func TestKeyRWLockerLockUnlock(t *testing.T) {
