@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
@@ -268,7 +269,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 					registerErrorRequests: []*api.ReplicationRegisterErrorRequest{
 						{Id: 1, Error: "test error"},
 					},
-					registerErrorExpectedError: []error{replication.ErrReplicationOperationNotFound, nil},
+					registerErrorExpectedError: []error{types.ErrReplicationOperationNotFound, nil},
 				},
 			},
 		},
@@ -334,7 +335,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 			updateStatusRequests: []*stateChangeAndErrors{
 				{
 					stateChangeRequest:       &api.ReplicationUpdateOpStateRequest{Id: 1, State: api.ShardReplicationState(api.REGISTERED)},
-					stateChangeExpectedError: replication.ErrReplicationOperationNotFound,
+					stateChangeExpectedError: types.ErrReplicationOperationNotFound,
 				},
 			},
 		},
