@@ -36,10 +36,11 @@ import (
 
 const (
 	// TODO: consider exposing these as settings
-	shardReplicationEngineBufferSize = 16
-	replicationEngineShutdownTimeout = 10 * time.Minute
-	replicationOperationTimeout      = 24 * time.Hour
-	catchUpInterval                  = 5 * time.Second
+	shardReplicationEngineBufferSize    = 16
+	fsmOpProducerPollingIntervalSeconds = 5
+	replicationEngineShutdownTimeout    = 10 * time.Minute
+	replicationOperationTimeout         = 24 * time.Hour
+	catchUpInterval                     = 5 * time.Second
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
@@ -75,8 +76,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	fsmOpProducer := replication.NewFSMOpProducer(
 		cfg.Logger,
 		fsm.replicationManager.GetReplicationFSM(),
-		// polling interval should be as many seconds as there are workers
-		time.Duration(cfg.ReplicationEngineMaxWorkers)*time.Second,
+		fsmOpProducerPollingIntervalSeconds*time.Second,
 		cfg.NodeSelector.LocalName(),
 	)
 	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
