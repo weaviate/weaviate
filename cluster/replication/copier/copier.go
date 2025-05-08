@@ -55,18 +55,18 @@ func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string
 }
 
 // RemoveLocalReplica removes the local replica of a shard on this node.
-func (c *Copier) RemoveLocalReplica(ctx context.Context, collectionName, shardName string) error {
+func (c *Copier) RemoveLocalReplica(ctx context.Context, collectionName, shardName string) {
 	index := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
 	if index == nil {
-		return nil // no index found, nothing to do
+		return // no index found, nothing to do
 	}
 
 	err := index.DropShard(shardName)
 	if err != nil {
-		return nil // no shard found, nothing to do
+		return // no shard found, nothing to do
 	}
 
-	return nil
+	return
 }
 
 // CopyReplica copies a shard replica from the source node to this node.
