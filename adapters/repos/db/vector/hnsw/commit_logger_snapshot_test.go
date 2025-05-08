@@ -28,6 +28,8 @@ func createTestCommitLoggerForSnapshots(t *testing.T, dir string) *hnswCommitLog
 		WithCommitlogThreshold(1000),
 		WithCommitlogThresholdForCombining(200),
 		WithCondensor(&fakeCondensor{}),
+		WithSnapshotEnabled(true),
+		WithAllocChecker(fakeAllocChecker{}),
 	}
 
 	commitLogDir := commitLogDirectory(dir, "main")
@@ -115,22 +117,32 @@ func TestCreateSnapshot(t *testing.T) {
 			setup: []any{"1000", 1000},
 		},
 		{
-			name:  "many non-condensed files",
-			setup: []any{"1000", 1000, "1001", 1000, "1002", 1000, "1003", 1000},
+			name:     "many non-condensed files",
+			setup:    []any{"1000", 1000, "1001", 1000, "1002", 1000, "1003", 1000},
+			expected: []string{"1002.snapshot", "1002.snapshot.checkpoints"},
+			created:  true,
 		},
 		{
-			name:  "mutable condensed files",
-			setup: []any{"1000.condensed", 100, "1001.condensed", 100, "1002.condensed", 100, "1003.condensed", 100},
+			name:     "small condensed files",
+			setup:    []any{"1000.condensed", 100, "1001.condensed", 100, "1002.condensed", 100, "1003.condensed", 100},
+			expected: []string{"1002.snapshot", "1002.snapshot.checkpoints"},
+			created:  true,
 		},
 		{
-			name:     "immutable condensed files",
+			name:     "bigger condensed files",
 			setup:    []any{"1000.condensed", 200, "1001.condensed", 200, "1002.condensed", 200, "1003.condensed", 200},
 			expected: []string{"1002.snapshot", "1002.snapshot.checkpoints"},
 			created:  true,
 		},
 		{
-			name:  "not enough immutable condensed files",
+			name:  "not enough condensed files",
 			setup: []any{"1000.condensed", 1000},
+		},
+		{
+			name:     "enough condensed files",
+			setup:    []any{"1000.condensed", 1000, "1001.condensed", 1000},
+			expected: []string{"1000.snapshot", "1000.snapshot.checkpoints"},
+			created:  true,
 		},
 	}
 
@@ -140,9 +152,9 @@ func TestCreateSnapshot(t *testing.T) {
 			cl := createTestCommitLoggerForSnapshots(t, dir)
 			createSnapshotTestData(t, commitLogDirectory(dir, "main"), test.setup...)
 
-			state, _, err := cl.CreateSnapshot()
+			created, _, err := cl.CreateSnapshot()
 			require.NoError(t, err)
-			require.Equal(t, state != nil, test.created)
+			require.Equal(t, test.created, created)
 			require.Equal(t, test.expected, readDir(t, snapshotDirectory(dir, "main")))
 		})
 	}
@@ -157,9 +169,9 @@ func TestCreateSnapshotWithExistingState(t *testing.T) {
 	createSnapshotTestData(t, clDir, "1000.condensed", 200, "1001.condensed", 200, "1002.condensed", 200, "1003.condensed", 200)
 
 	// create snapshot
-	state, _, err := cl.CreateSnapshot()
+	created, _, err := cl.CreateSnapshot()
 	require.NoError(t, err)
-	require.NotNil(t, state)
+	require.True(t, created)
 
 	files := readDir(t, sDir)
 	require.Equal(t, []string{"1002.snapshot", "1002.snapshot.checkpoints"}, files)
@@ -167,64 +179,65 @@ func TestCreateSnapshotWithExistingState(t *testing.T) {
 	// add new files
 	createSnapshotTestData(t, clDir, "1004", 1000, "1005", 5)
 
-	// create snapshot, should not create it
-	state, _, err = cl.CreateSnapshot()
+	// create snapshot, should create it
+	created, _, err = cl.CreateSnapshot()
 	require.NoError(t, err)
-	require.Nil(t, state)
+	require.True(t, created)
 	files = readDir(t, sDir)
-	require.Equal(t, []string{"1002.snapshot", "1002.snapshot.checkpoints"}, files)
+	require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
 
 	// simulate file condensation
 	err = os.Rename(filepath.Join(clDir, "1004"), filepath.Join(clDir, "1004.condensed"))
 	require.NoError(t, err)
 
-	// create snapshot, should create it
-	state, _, err = cl.CreateSnapshot()
+	// create snapshot, should not create it (no new commitlogs)
+	created, _, err = cl.CreateSnapshot()
 	require.NoError(t, err)
-	require.NotNil(t, state)
+	require.False(t, created)
 	files = readDir(t, sDir)
-	require.Equal(t, []string{"1003.snapshot", "1003.snapshot.checkpoints"}, files)
+	require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
 
 	// simulate file condensation
 	err = os.Rename(filepath.Join(clDir, "1005"), filepath.Join(clDir, "1005.condensed"))
 	require.NoError(t, err)
 
-	// create snapshot, should create it, because 1005.condensed is the last condensed file
-	state, _, err = cl.CreateSnapshot()
+	// create snapshot, should not create it (no new commitlogs)
+	created, _, err = cl.CreateSnapshot()
 	require.NoError(t, err)
-	require.NotNil(t, state)
+	require.False(t, created)
 	files = readDir(t, sDir)
 	require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
 
 	// add new files
 	createSnapshotTestData(t, clDir, "1006", 5)
 
-	// create snapshot, should not create it, because 1005.condensed is the last condensed file
-	state, _, err = cl.CreateSnapshot()
+	// create snapshot, should create it
+	created, _, err = cl.CreateSnapshot()
 	require.NoError(t, err)
-	require.Nil(t, state)
+	require.True(t, created)
+	files = readDir(t, sDir)
+	require.Equal(t, []string{"1005.snapshot", "1005.snapshot.checkpoints"}, files)
 
 	// simulate file condensation
 	err = os.Rename(filepath.Join(clDir, "1006"), filepath.Join(clDir, "1006.condensed"))
 	require.NoError(t, err)
 
-	// create snapshot, should not create it, because 1005.condensed can be combined with 1006.condensed
-	// as they are both below the threshold
-	state, _, err = cl.CreateSnapshot()
+	// create snapshot, should not create it (no new files)
+	created, _, err = cl.CreateSnapshot()
 	require.NoError(t, err)
-	require.Nil(t, state)
-
-	// increase the size of 1005.condensed
-	err = os.Remove(filepath.Join(clDir, "1005.condensed"))
-	require.NoError(t, err)
-	createSnapshotTestData(t, clDir, "1005.condensed", 1000)
-
-	// create snapshot, should create it, because 1005.condensed is above the threshold
-	state, _, err = cl.CreateSnapshot()
-	require.NoError(t, err)
-	require.NotNil(t, state)
+	require.False(t, created)
 	files = readDir(t, sDir)
 	require.Equal(t, []string{"1005.snapshot", "1005.snapshot.checkpoints"}, files)
+
+	// add new files
+	createSnapshotTestData(t, clDir, "1007", 5)
+
+	// create snapshot, should create it
+	created, _, err = cl.CreateSnapshot()
+	require.NoError(t, err)
+	require.True(t, created)
+	files = readDir(t, sDir)
+	require.Equal(t, []string{"1006.snapshot", "1006.snapshot.checkpoints"}, files)
 }
 
 func TestCreateSnapshotCrashRecovery(t *testing.T) {
@@ -241,9 +254,9 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		createSnapshotTestData(t, sDir, "1000.snapshot.tmp", 1000)
 
 		// create snapshot
-		state, _, err := cl.CreateSnapshot()
+		created, _, err := cl.CreateSnapshot()
 		require.NoError(t, err)
-		require.NotNil(t, state)
+		require.True(t, created)
 		files := readDir(t, sDir)
 		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
 	})
@@ -254,15 +267,18 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		clDir := commitLogDirectory(dir, "main")
 		sDir := snapshotDirectory(dir, "main")
 
+		createSnapshotTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000,
+			"1003", 1000)
+
 		// missing checkpoints
-		createSnapshotTestData(t, clDir, "1000.condensed", 1000, "1000.snapshot", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
+		createSnapshotTestData(t, sDir, "1000.snapshot", 1000)
 
 		// create snapshot should still work
-		state, _, err := cl.CreateSnapshot()
+		created, _, err := cl.CreateSnapshot()
 		require.NoError(t, err)
-		require.NotNil(t, state)
+		require.True(t, created)
 		files := readDir(t, sDir)
-		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+		require.Equal(t, []string{"1002.snapshot", "1002.snapshot.checkpoints"}, files)
 	})
 
 	t.Run("corrupt snapshot", func(t *testing.T) {
@@ -274,9 +290,9 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		createSnapshotTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
 
 		// create snapshot
-		state, _, err := cl.CreateSnapshot()
+		created, _, err := cl.CreateSnapshot()
 		require.NoError(t, err)
-		require.NotNil(t, state)
+		require.NotNil(t, created)
 		files := readDir(t, sDir)
 		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
 
@@ -288,15 +304,15 @@ func TestCreateSnapshotCrashRecovery(t *testing.T) {
 		createSnapshotTestData(t, clDir, "1003.condensed", 1000, "1004.condensed", 1000, "1005.condensed", 1000)
 
 		// create snapshot should still work
-		state, _, err = cl.CreateSnapshot()
+		created, _, err = cl.CreateSnapshot()
 		require.NoError(t, err)
-		require.NotNil(t, state)
+		require.True(t, created)
 		files = readDir(t, sDir)
 		require.Equal(t, []string{"1004.snapshot", "1004.snapshot.checkpoints"}, files)
 	})
 }
 
-func TestCreateOrLoadSnapshot(t *testing.T) {
+func TestCreateAndLoadSnapshot(t *testing.T) {
 	t.Run("create and load snapshot", func(t *testing.T) {
 		dir := t.TempDir()
 		cl := createTestCommitLoggerForSnapshots(t, dir)
@@ -307,29 +323,43 @@ func TestCreateOrLoadSnapshot(t *testing.T) {
 
 		// try to create a snapshot, should not create it
 		// because there is not enough data
-		state, _, err := cl.CreateOrLoadSnapshot()
+		state, createdAt, err := cl.CreateAndLoadSnapshot()
 		require.NoError(t, err)
 		require.Nil(t, state)
+		require.Zero(t, createdAt)
 		files := readDir(t, sDir)
-		require.EqualValues(t, []string(nil), files)
+		require.Empty(t, files)
 
 		// add new files
 		createSnapshotTestData(t, clDir, "1001.condensed", 1000)
 
-		// create snapshot
-		state, _, err = cl.CreateOrLoadSnapshot()
+		// create new snapshot
+		state, createdAt, err = cl.CreateAndLoadSnapshot()
 		require.NoError(t, err)
 		require.NotNil(t, state)
+		require.NotZero(t, createdAt)
 		files = readDir(t, sDir)
-		require.Equal(t, []string{"1000.snapshot", "1000.snapshot.checkpoints"}, files)
+		require.ElementsMatch(t, []string{"1000.snapshot", "1000.snapshot.checkpoints"}, files)
+
+		// add new files
+		createSnapshotTestData(t, clDir, "1002.condensed", 1000)
+
+		// create new snapshot
+		state, createdAt, err = cl.CreateAndLoadSnapshot()
+		require.NoError(t, err)
+		require.NotNil(t, state)
+		require.NotZero(t, createdAt)
+		files = readDir(t, sDir)
+		require.ElementsMatch(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
 
 		// try again, should not create a new snapshot
 		// but should return the existing one
-		state, _, err = cl.CreateOrLoadSnapshot()
+		state, createdAt, err = cl.CreateAndLoadSnapshot()
 		require.NoError(t, err)
 		require.NotNil(t, state)
+		require.NotZero(t, createdAt)
 		files = readDir(t, sDir)
-		require.Equal(t, []string{"1000.snapshot", "1000.snapshot.checkpoints"}, files)
+		require.ElementsMatch(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
 	})
 
 	t.Run("empty snapshot", func(t *testing.T) {
@@ -341,9 +371,10 @@ func TestCreateOrLoadSnapshot(t *testing.T) {
 		createSnapshotTestData(t, clDir, "1000.condensed", 1000, "1001.condensed", 1000, "1002.condensed", 1000)
 
 		// create snapshot
-		state, _, err := cl.CreateSnapshot()
+		created, createdAt, err := cl.CreateSnapshot()
 		require.NoError(t, err)
-		require.NotNil(t, state)
+		require.True(t, created)
+		require.NotZero(t, createdAt)
 		files := readDir(t, sDir)
 		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
 
@@ -351,10 +382,16 @@ func TestCreateOrLoadSnapshot(t *testing.T) {
 		err = os.WriteFile(filepath.Join(sDir, "1001.snapshot"), []byte(""), 0o644)
 		require.NoError(t, err)
 
-		// create snapshot should still work
-		state, from, err := cl.CreateOrLoadSnapshot()
+		// create snapshot again
+		state, createdAt, err := cl.CreateAndLoadSnapshot()
 		require.NoError(t, err)
-		require.Nil(t, state)
-		require.Zero(t, from)
+		require.NotNil(t, state)
+		require.NotZero(t, createdAt)
+		files = readDir(t, sDir)
+		require.Equal(t, []string{"1001.snapshot", "1001.snapshot.checkpoints"}, files)
+		// snapshot has content now
+		info, err := os.Stat(filepath.Join(sDir, "1001.snapshot"))
+		require.NoError(t, err)
+		require.Less(t, int64(0), info.Size())
 	})
 }
