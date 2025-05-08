@@ -28,7 +28,8 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestReplicationDeletingClassCleansUpOperations(t *testing.T) {
+func (suite *ReplicationTestSuiteEndpoints) TestReplicationDeletingClassCleansUpOperations() {
+	t := suite.T()
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -40,9 +41,6 @@ func TestReplicationDeletingClassCleansUpOperations(t *testing.T) {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
-
-	_, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
-	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 

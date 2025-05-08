@@ -20,6 +20,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -30,7 +31,20 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestReplicationReplicateEndpoints(t *testing.T) {
+type ReplicationTestSuiteEndpoints struct {
+	suite.Suite
+}
+
+func (suite *ReplicationTestSuiteEndpoints) SetupTest() {
+	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+}
+
+func TestReplicationTestSuiteEndpoints(t *testing.T) {
+	suite.Run(t, new(ReplicationTestSuiteEndpoints))
+}
+
+func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateEndpoints() {
+	t := suite.T()
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -42,9 +56,6 @@ func TestReplicationReplicateEndpoints(t *testing.T) {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
 	}()
-
-	_, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
-	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
 

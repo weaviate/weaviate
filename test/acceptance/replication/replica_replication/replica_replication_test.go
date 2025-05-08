@@ -28,6 +28,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -53,7 +54,20 @@ var paragraphIDs = []strfmt.UUID{
 	strfmt.UUID("50566856-5d0a-4fb1-a390-e099bc236f66"),
 }
 
-func TestReplicaMovementHappyPath(t *testing.T) {
+type ReplicationTestSuite struct {
+	suite.Suite
+}
+
+func (suite *ReplicationTestSuite) SetupTest() {
+	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+}
+
+func TestReplicationTestSuite(t *testing.T) {
+	suite.Run(t, new(ReplicationTestSuite))
+}
+
+func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
+	t := suite.T()
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
