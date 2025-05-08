@@ -420,6 +420,10 @@ func (f *fakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, ho
 	return nil
 }
 
+func (f *fakeRemoteClient) RemoveAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	return nil
+}
+
 func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties,
