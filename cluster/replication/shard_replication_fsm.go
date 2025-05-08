@@ -234,6 +234,9 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	case api.READY:
 		readOk = true
 		writeOk = true
+	case api.DEHYDRATING:
+		readOk = true
+		writeOk = true
 	default:
 	}
 	return readOk, writeOk
