@@ -83,7 +83,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 	for _, fname := range walFileNames {
 		path := filepath.Join(b.dir, strings.TrimSuffix(fname, ".wal"))
 
-		cl, err := newCommitLogger(path)
+		cl, err := newCommitLogger(path, b.strategy)
 		if err != nil {
 			return errors.Wrap(err, "init commit logger")
 		}
@@ -93,7 +93,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		defer cl.unpause()
 
 		mt, err := newMemtable(path, b.strategy, b.secondaryIndices,
-			cl, b.metrics, b.logger, b.enableChecksumValidation)
+			cl, b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config)
 		if err != nil {
 			return err
 		}
@@ -107,6 +107,9 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 				Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))
 		}
 
+		if mt.strategy == StrategyInverted {
+			mt.averagePropLength, _ = b.disk.GetAveragePropertyLength()
+		}
 		if err := mt.flush(); err != nil {
 			return errors.Wrap(err, "flush memtable after WAL recovery")
 		}

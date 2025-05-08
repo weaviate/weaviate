@@ -11,6 +11,8 @@
 
 package api
 
+import "github.com/go-openapi/strfmt"
+
 const (
 	ReplicationCommandVersionV0 = iota
 )
@@ -27,18 +29,32 @@ const (
 	FINALIZING  ShardReplicationState = "FINALIZING"
 	READY       ShardReplicationState = "READY"
 	DEHYDRATING ShardReplicationState = "DEHYDRATING"
-	ABORTED     ShardReplicationState = "ABORTED"
+	CANCELLED   ShardReplicationState = "CANCELLED" // The operation has been cancelled. It cannot be resumed.
+)
+
+type ShardReplicationTransferType string
+
+func (s ShardReplicationTransferType) String() string {
+	return string(s)
+}
+
+const (
+	COPY ShardReplicationTransferType = "COPY"
+	MOVE ShardReplicationTransferType = "MOVE"
 )
 
 type ReplicationReplicateShardRequest struct {
 	// Version is the version with which this command was generated
 	Version int
 
+	Uuid strfmt.UUID
+
 	SourceNode       string
 	SourceCollection string
 	SourceShard      string
+	TargetNode       string
 
-	TargetNode string
+	TransferType string
 }
 
 type ReplicationReplicateShardReponse struct{}
@@ -57,11 +73,12 @@ type ReplicationRegisterErrorRequest struct {
 
 	Id    uint64
 	Error string
+	Uuid  strfmt.UUID
 }
 
 type ReplicationRegisterErrorResponse struct{}
 
-type ReplicationDeleteOpRequest struct {
+type ReplicationRemoveOpRequest struct {
 	Version int
 
 	Id uint64
@@ -70,7 +87,20 @@ type ReplicationDeleteOpRequest struct {
 type ReplicationDeleteOpResponse struct{}
 
 type ReplicationDetailsRequest struct {
-	Id uint64
+	Uuid strfmt.UUID
+}
+
+type ReplicationDetailsRequestByCollection struct {
+	Collection string
+}
+
+type ReplicationDetailsRequestByCollectionAndShard struct {
+	Collection string
+	Shard      string
+}
+
+type ReplicationDetailsRequestByTargetNode struct {
+	Node string
 }
 
 type ReplicationDetailsState struct {
@@ -79,6 +109,7 @@ type ReplicationDetailsState struct {
 }
 
 type ReplicationDetailsResponse struct {
+	Uuid         strfmt.UUID
 	Id           uint64
 	ShardId      string
 	Collection   string
@@ -87,4 +118,34 @@ type ReplicationDetailsResponse struct {
 
 	Status        ReplicationDetailsState
 	StatusHistory []ReplicationDetailsState
+	TransferType  string
+}
+
+type ReplicationCancelRequest struct {
+	Version int
+	Uuid    strfmt.UUID
+}
+
+type ReplicationDeleteRequest struct {
+	Version int
+	Uuid    strfmt.UUID
+}
+
+type ReplicationCancellationCompleteRequest struct {
+	Version int
+	Id      uint64
+}
+
+type ShardingState struct {
+	Collection string
+	Shards     map[string][]string
+}
+
+type ReplicationQueryShardingStateByCollectionRequest struct {
+	Collection string
+}
+
+type ReplicationQueryShardingStateByCollectionAndShardRequest struct {
+	Collection string
+	Shard      string
 }

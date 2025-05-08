@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"golang.org/x/exp/maps"
@@ -24,11 +25,14 @@ import (
 )
 
 type ShardReplicationOp struct {
-	ID uint64
+	ID   uint64
+	UUID strfmt.UUID
 
 	// Targeting information of the replication operation
 	SourceShard shardFQDN
 	TargetShard shardFQDN
+
+	TransferType api.ShardReplicationTransferType
 }
 
 func (s ShardReplicationOp) MarshalText() (text []byte, err error) {
@@ -44,28 +48,33 @@ func (s *ShardReplicationOp) UnmarshalText(text []byte) error {
 	return json.Unmarshal(text, (*shardReplicationOpCopy)(s))
 }
 
-func NewShardReplicationOp(id uint64, sourceNode, targetNode, collectionId, shardId string) ShardReplicationOp {
+func NewShardReplicationOp(id uint64, sourceNode, targetNode, collectionId, shardId string, transferType api.ShardReplicationTransferType) ShardReplicationOp {
 	return ShardReplicationOp{
-		ID:          id,
-		SourceShard: newShardFQDN(sourceNode, collectionId, shardId),
-		TargetShard: newShardFQDN(targetNode, collectionId, shardId),
+		ID:           id,
+		SourceShard:  newShardFQDN(sourceNode, collectionId, shardId),
+		TargetShard:  newShardFQDN(targetNode, collectionId, shardId),
+		TransferType: transferType,
 	}
 }
 
 type ShardReplicationFSM struct {
 	opsLock sync.RWMutex
 
+	// idsByUuiid stores user-facing UUID -> repo-facing raft log index
+	idsByUuid map[strfmt.UUID]uint64
 	// opsByTarget stores the array of ShardReplicationOp for each "target" node
 	opsByTarget map[string][]ShardReplicationOp
 	// opsBySource stores the array of ShardReplicationOp for each "source" node
 	opsBySource map[string][]ShardReplicationOp
 	// opsByCollection stores the array of ShardReplicationOp for each collection
 	opsByCollection map[string][]ShardReplicationOp
-	// opsByShard stores the array of ShardReplicationOp for each shard
-	opsByShard map[string][]ShardReplicationOp
+	// opsByCollectionAndShard stores the array of ShardReplicationOp for each collection and shard
+	opsByCollectionAndShard map[string]map[string][]ShardReplicationOp
 	// opsByTargetFQDN stores the registered ShardReplicationOp (if any) for each destination replica
 	opsByTargetFQDN map[shardFQDN]ShardReplicationOp
-	// opsByShard stores opId -> replicationOp
+	// opsBySourceFQDN stores the registered ShardReplicationOp (if any) for each source replica
+	opsBySourceFQDN map[shardFQDN]ShardReplicationOp
+	// opsById stores opId -> replicationOp
 	opsById map[uint64]ShardReplicationOp
 	// opsStatus stores op -> opStatus
 	opsStatus map[ShardReplicationOp]ShardReplicationOpStatus
@@ -75,13 +84,15 @@ type ShardReplicationFSM struct {
 
 func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 	fsm := &ShardReplicationFSM{
-		opsByTarget:     make(map[string][]ShardReplicationOp),
-		opsBySource:     make(map[string][]ShardReplicationOp),
-		opsByCollection: make(map[string][]ShardReplicationOp),
-		opsByShard:      make(map[string][]ShardReplicationOp),
-		opsByTargetFQDN: make(map[shardFQDN]ShardReplicationOp),
-		opsById:         make(map[uint64]ShardReplicationOp),
-		opsStatus:       make(map[ShardReplicationOp]ShardReplicationOpStatus),
+		idsByUuid:               make(map[strfmt.UUID]uint64),
+		opsByTarget:             make(map[string][]ShardReplicationOp),
+		opsBySource:             make(map[string][]ShardReplicationOp),
+		opsByCollection:         make(map[string][]ShardReplicationOp),
+		opsByCollectionAndShard: make(map[string]map[string][]ShardReplicationOp),
+		opsByTargetFQDN:         make(map[shardFQDN]ShardReplicationOp),
+		opsBySourceFQDN:         make(map[shardFQDN]ShardReplicationOp),
+		opsById:                 make(map[uint64]ShardReplicationOp),
+		opsStatus:               make(map[ShardReplicationOp]ShardReplicationOpStatus),
 	}
 
 	fsm.opsByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
@@ -130,11 +141,13 @@ func (s *ShardReplicationFSM) Restore(bytes []byte) error {
 // The lock onto the underlying data is *not acquired* by this function the callee must ensure the lock is held
 func (s *ShardReplicationFSM) resetState() {
 	// Reset data
+	maps.Clear(s.idsByUuid)
 	maps.Clear(s.opsByTarget)
 	maps.Clear(s.opsBySource)
 	maps.Clear(s.opsByCollection)
-	maps.Clear(s.opsByShard)
+	maps.Clear(s.opsByCollectionAndShard)
 	maps.Clear(s.opsByTargetFQDN)
+	maps.Clear(s.opsBySourceFQDN)
 	maps.Clear(s.opsById)
 	maps.Clear(s.opsStatus)
 
@@ -147,8 +160,48 @@ func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp 
 	return s.opsByTarget[node]
 }
 
+func (s *ShardReplicationFSM) GetOpsForCollection(collection string) ([]ShardReplicationOp, bool) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	val, ok := s.opsByCollection[collection]
+	return val, ok
+}
+
+func (s *ShardReplicationFSM) GetOpsForCollectionAndShard(collection string, shard string) ([]ShardReplicationOp, bool) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	shardOps, ok := s.opsByCollectionAndShard[collection]
+	if !ok {
+		return nil, false
+	}
+	val, ok := shardOps[shard]
+	if !ok {
+		return nil, false
+	}
+	return val, true
+}
+
+func (s *ShardReplicationFSM) GetOpsForTargetNode(node string) ([]ShardReplicationOp, bool) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	val, ok := s.opsByTarget[node]
+	return val, ok
+}
+
+// ShouldConsumeOps returns true if the operation should be consumed by the consumer
+//
+// It checks the following two conditions:
+//
+// 1. The operation is neither cancelled nor ready, meaning that it is still in progress performing some long-running op like hydrating/finalizing
+//
+// 2. The operation is cancelled or ready and should be deleted, meaning that the operation is finished and should be removed from the FSM
 func (s ShardReplicationOpStatus) ShouldConsumeOps() bool {
-	return s.GetCurrentState() != api.ABORTED
+	state := s.GetCurrentState()
+	return (
+	// Check if op is not in cancelled or ready state -> we schedule it
+	(state != api.CANCELLED && state != api.READY) ||
+		// If op is in cancelled or ready state, only schedule it if it should be deleted
+		(state == api.CANCELLED || state == api.READY) && s.ShouldDelete)
 }
 
 func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicationOpStatus, bool) {
@@ -162,7 +215,7 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string,
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
-	_, ok := s.opsByShard[shard]
+	_, ok := s.opsByCollectionAndShard[collection][shard]
 	// Check if the specified shard is current undergoing replication at all.
 	// If not we can return early as all replicas can be used for read/writes
 	if !ok {
@@ -184,10 +237,42 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string,
 	return readReplicas, writeReplicas
 }
 
+// filterOneReplicaAsTargetReadWrite returns whether the replica node for collection and shard is usable for read and write
+// It returns a tuple of boolean (readOk, writeOk)
 func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection string, shard string) (bool, bool) {
-	targetFQDN := newShardFQDN(node, collection, shard)
-	op, ok := s.opsByTargetFQDN[targetFQDN]
-	// There's no replication ops for that replicas, it can be used for both read and writes
+	replicaFQDN := newShardFQDN(node, collection, shard)
+	op, ok := s.opsByTargetFQDN[replicaFQDN]
+	// No target replication ops for that replica, ensure we check if it's a source
+	if !ok {
+		return s.filterOneReplicaAsSourceReadWrite(node, collection, shard)
+	}
+
+	opState, ok := s.opsStatus[op]
+	if !ok {
+		// TODO: This should never happens
+		return true, true
+	}
+
+	// Filter read/write based on the state of the replica op
+	readOk := false
+	writeOk := false
+	switch opState.GetCurrentState() {
+	case api.FINALIZING:
+		writeOk = true
+	case api.READY:
+		readOk = true
+		writeOk = true
+	default:
+	}
+	return readOk, writeOk
+}
+
+// filterOneReplicaAsSourceReadWrite returns a tuple of boolean (found, readOk, writeOk)
+// if found is true it means there's a source replication op for that replica and readOk and writeOk should be considered
+func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, collection string, shard string) (bool, bool) {
+	replicaFQDN := newShardFQDN(node, collection, shard)
+	op, ok := s.opsBySourceFQDN[replicaFQDN]
+	// No source replication ops for that replica it can be used for both read and writes
 	if !ok {
 		return true, true
 	}
@@ -198,15 +283,13 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 		return true, true
 	}
 
-	// Filter read/write based on the state of the replica
-	readOk := false
-	writeOk := false
+	// Filter read/write based on the state of the replica op
+	readOk := true
+	writeOk := true
 	switch opState.GetCurrentState() {
-	case api.FINALIZING:
-		writeOk = true
-	case api.READY:
-		readOk = true
-		writeOk = true
+	case api.DEHYDRATING:
+		readOk = false
+		writeOk = false
 	default:
 	}
 	return readOk, writeOk

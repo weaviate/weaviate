@@ -89,11 +89,32 @@ func (s *State) AddReplicaToShard(shard string, replica string) error {
 	return nil
 }
 
+func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
+	phys, ok := s.Physical[shard]
+	if !ok {
+		return fmt.Errorf("could not find shard %s", shard)
+	}
+	if err := phys.DeleteReplica(replica); err != nil {
+		return err
+	}
+	s.Physical[shard] = phys
+	return nil
+}
+
 func (p *Physical) AddReplica(replica string) error {
 	if slices.Contains(p.BelongsToNodes, replica) {
 		return fmt.Errorf("replica %s already exists", replica)
 	}
 	p.BelongsToNodes = append(p.BelongsToNodes, replica)
+	return nil
+}
+
+func (p *Physical) DeleteReplica(replica string) error {
+	if !slices.Contains(p.BelongsToNodes, replica) {
+		return nil // replica not found, nothing to do
+	}
+	idx := slices.Index(p.BelongsToNodes, replica)
+	p.BelongsToNodes = slices.Delete(p.BelongsToNodes, idx, idx+1)
 	return nil
 }
 

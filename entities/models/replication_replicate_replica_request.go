@@ -18,6 +18,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -45,6 +46,10 @@ type ReplicationReplicateReplicaRequest struct {
 	// The node containing the replica
 	// Required: true
 	SourceNodeName *string `json:"sourceNodeName"`
+
+	// The type of transfer to perform: 'COPY' or 'MOVE'. Defaults to 'COPY' if not specified.
+	// Enum: [COPY MOVE]
+	TransferType *string `json:"transferType,omitempty"`
 }
 
 // Validate validates this replication replicate replica request
@@ -64,6 +69,10 @@ func (m *ReplicationReplicateReplicaRequest) Validate(formats strfmt.Registry) e
 	}
 
 	if err := m.validateSourceNodeName(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTransferType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -103,6 +112,48 @@ func (m *ReplicationReplicateReplicaRequest) validateShardID(formats strfmt.Regi
 func (m *ReplicationReplicateReplicaRequest) validateSourceNodeName(formats strfmt.Registry) error {
 
 	if err := validate.Required("sourceNodeName", "body", m.SourceNodeName); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var replicationReplicateReplicaRequestTypeTransferTypePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["COPY","MOVE"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		replicationReplicateReplicaRequestTypeTransferTypePropEnum = append(replicationReplicateReplicaRequestTypeTransferTypePropEnum, v)
+	}
+}
+
+const (
+
+	// ReplicationReplicateReplicaRequestTransferTypeCOPY captures enum value "COPY"
+	ReplicationReplicateReplicaRequestTransferTypeCOPY string = "COPY"
+
+	// ReplicationReplicateReplicaRequestTransferTypeMOVE captures enum value "MOVE"
+	ReplicationReplicateReplicaRequestTransferTypeMOVE string = "MOVE"
+)
+
+// prop value enum
+func (m *ReplicationReplicateReplicaRequest) validateTransferTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, replicationReplicateReplicaRequestTypeTransferTypePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *ReplicationReplicateReplicaRequest) validateTransferType(formats strfmt.Registry) error {
+	if swag.IsZero(m.TransferType) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateTransferTypeEnum("transferType", "body", *m.TransferType); err != nil {
 		return err
 	}
 

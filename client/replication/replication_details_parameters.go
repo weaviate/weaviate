@@ -75,9 +75,11 @@ type ReplicationDetailsParams struct {
 
 	/* ID.
 
-	   The replication operation id to get details for.
+	   The id of the replication operation to get details for.
+
+	   Format: uuid
 	*/
-	ID string
+	ID strfmt.UUID
 
 	/* IncludeHistory.
 
@@ -139,13 +141,13 @@ func (o *ReplicationDetailsParams) SetHTTPClient(client *http.Client) {
 }
 
 // WithID adds the id to the replication details params
-func (o *ReplicationDetailsParams) WithID(id string) *ReplicationDetailsParams {
+func (o *ReplicationDetailsParams) WithID(id strfmt.UUID) *ReplicationDetailsParams {
 	o.SetID(id)
 	return o
 }
 
 // SetID adds the id to the replication details params
-func (o *ReplicationDetailsParams) SetID(id string) {
+func (o *ReplicationDetailsParams) SetID(id strfmt.UUID) {
 	o.ID = id
 }
 
@@ -169,7 +171,7 @@ func (o *ReplicationDetailsParams) WriteToRequest(r runtime.ClientRequest, reg s
 	var res []error
 
 	// path param id
-	if err := r.SetPathParam("id", o.ID); err != nil {
+	if err := r.SetPathParam("id", o.ID.String()); err != nil {
 		return err
 	}
 

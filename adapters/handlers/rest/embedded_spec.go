@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.0-dev"
+    "version": "1.31.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -3468,7 +3468,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Replication operation registered successfully"
+            "description": "Replication operation registered successfully",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaResponse"
+            }
           },
           "400": {
             "description": "Malformed request.",
@@ -3503,6 +3506,84 @@ func init() {
         ]
       }
     },
+    "/replication/replicate/list": {
+      "get": {
+        "description": "Returns the details of all ongoing replication operations. This endpoint only supports filtering by (collection, [shard]) or (nodeId)",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the details of all ongoing replication operations based on query params",
+        "operationId": "listReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The id of the target node to get details for.",
+            "name": "nodeId",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The name of the collection to get details for.",
+            "name": "collection",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The shard to get details for.",
+            "name": "shard",
+            "in": "query"
+          },
+          {
+            "type": "boolean",
+            "description": "Whether to include the history of the replication operation.",
+            "name": "includeHistory",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The details of the replication operation.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.details"
+        ]
+      }
+    },
     "/replication/replicate/{id}": {
       "get": {
         "description": "Returns the details of a replication operation for a given shard, identified by the provided replication operation id.",
@@ -3514,7 +3595,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The replication operation id to get details for.",
+            "format": "uuid",
+            "description": "The id of the replication operation to get details for.",
             "name": "id",
             "in": "path",
             "required": true
@@ -3531,12 +3613,6 @@ func init() {
             "description": "The details of the replication operation.",
             "schema": {
               "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
-            }
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -3560,6 +3636,158 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.replication.replicate.details"
+        ]
+      },
+      "delete": {
+        "description": "Deletes a replication operation. If the operation is in progress, it is cancelled and cleaned up before being deleted.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete a replication operation.",
+        "operationId": "deleteReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to delete.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.delete"
+        ]
+      }
+    },
+    "/replication/replicate/{id}/cancel": {
+      "post": {
+        "description": "Cancels an in-progress replication operation as soon as possible but does not delete it leaving it in the unresumable CANCELLED state.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Cancel a replication operation.",
+        "operationId": "cancelReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully cancelled."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.cancel"
+        ]
+      }
+    },
+    "/replication/sharding-state": {
+      "get": {
+        "description": "Get the sharding state for a collection and optionally a shard.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the sharding state for a collection and optionally a shard.",
+        "operationId": "getCollectionShardingState",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The collection name to get the sharding state for.",
+            "name": "collection",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The shard to get the sharding state for.",
+            "name": "shard",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationShardingStateResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.shardingstate.collection.get"
         ]
       }
     },
@@ -6928,7 +7156,8 @@ func init() {
         "sourceNodeId",
         "targetNodeId",
         "collection",
-        "status"
+        "status",
+        "transferType"
       ],
       "properties": {
         "collection": {
@@ -6937,7 +7166,8 @@ func init() {
         },
         "id": {
           "description": "The unique id of the replication operation.",
-          "type": "string"
+          "type": "string",
+          "format": "uuid"
         },
         "shardId": {
           "description": "The id of the shard to collect replication details for.",
@@ -6962,6 +7192,14 @@ func init() {
         "targetNodeId": {
           "description": "The id of the node where the target replica is allocated.",
           "type": "string"
+        },
+        "transferType": {
+          "description": "The transfer type of the replication request, being 'copy' or 'move'.",
+          "type": "string",
+          "enum": [
+            "COPY",
+            "MOVE"
+          ]
         }
       }
     },
@@ -7012,6 +7250,68 @@ func init() {
         "sourceNodeName": {
           "description": "The node containing the replica",
           "type": "string"
+        },
+        "transferType": {
+          "description": "The type of transfer to perform: 'COPY' or 'MOVE'. Defaults to 'COPY' if not specified.",
+          "type": "string",
+          "default": "COPY",
+          "enum": [
+            "COPY",
+            "MOVE"
+          ]
+        }
+      }
+    },
+    "ReplicationReplicateReplicaResponse": {
+      "description": "The OK response of POST /replication/replicate",
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "ReplicationShardReplicas": {
+      "description": "A shard and its replicas.",
+      "type": "object",
+      "properties": {
+        "replicas": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "shard": {
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationShardingState": {
+      "description": "A collection and its shards.",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "type": "string"
+        },
+        "shards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationShardReplicas"
+          }
+        }
+      }
+    },
+    "ReplicationShardingStateResponse": {
+      "description": "The OK response of GET /replication/shardingstate",
+      "type": "object",
+      "properties": {
+        "shardingState": {
+          "$ref": "#/definitions/ReplicationShardingState"
         }
       }
     },
@@ -7717,7 +8017,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.0-dev"
+    "version": "1.31.0-rc.0"
   },
   "basePath": "/v1",
   "paths": {
@@ -11247,7 +11547,10 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Replication operation registered successfully"
+            "description": "Replication operation registered successfully",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateReplicaResponse"
+            }
           },
           "400": {
             "description": "Malformed request.",
@@ -11282,6 +11585,84 @@ func init() {
         ]
       }
     },
+    "/replication/replicate/list": {
+      "get": {
+        "description": "Returns the details of all ongoing replication operations. This endpoint only supports filtering by (collection, [shard]) or (nodeId)",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the details of all ongoing replication operations based on query params",
+        "operationId": "listReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The id of the target node to get details for.",
+            "name": "nodeId",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The name of the collection to get details for.",
+            "name": "collection",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The shard to get details for.",
+            "name": "shard",
+            "in": "query"
+          },
+          {
+            "type": "boolean",
+            "description": "Whether to include the history of the replication operation.",
+            "name": "includeHistory",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The details of the replication operation.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.details"
+        ]
+      }
+    },
     "/replication/replicate/{id}": {
       "get": {
         "description": "Returns the details of a replication operation for a given shard, identified by the provided replication operation id.",
@@ -11293,7 +11674,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The replication operation id to get details for.",
+            "format": "uuid",
+            "description": "The id of the replication operation to get details for.",
             "name": "id",
             "in": "path",
             "required": true
@@ -11310,12 +11692,6 @@ func init() {
             "description": "The details of the replication operation.",
             "schema": {
               "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
-            }
-          },
-          "400": {
-            "description": "Malformed request.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
             }
           },
           "401": {
@@ -11339,6 +11715,158 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.replication.replicate.details"
+        ]
+      },
+      "delete": {
+        "description": "Deletes a replication operation. If the operation is in progress, it is cancelled and cleaned up before being deleted.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete a replication operation.",
+        "operationId": "deleteReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to delete.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.delete"
+        ]
+      }
+    },
+    "/replication/replicate/{id}/cancel": {
+      "post": {
+        "description": "Cancels an in-progress replication operation as soon as possible but does not delete it leaving it in the unresumable CANCELLED state.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Cancel a replication operation.",
+        "operationId": "cancelReplication",
+        "parameters": [
+          {
+            "type": "string",
+            "format": "uuid",
+            "description": "The id of the replication operation to cancel.",
+            "name": "id",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully cancelled."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicate.cancel"
+        ]
+      }
+    },
+    "/replication/sharding-state": {
+      "get": {
+        "description": "Get the sharding state for a collection and optionally a shard.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Get the sharding state for a collection and optionally a shard.",
+        "operationId": "getCollectionShardingState",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The collection name to get the sharding state for.",
+            "name": "collection",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The shard to get the sharding state for.",
+            "name": "shard",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationShardingStateResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.shardingstate.collection.get"
         ]
       }
     },
@@ -15010,7 +15538,8 @@ func init() {
         "sourceNodeId",
         "targetNodeId",
         "collection",
-        "status"
+        "status",
+        "transferType"
       ],
       "properties": {
         "collection": {
@@ -15019,7 +15548,8 @@ func init() {
         },
         "id": {
           "description": "The unique id of the replication operation.",
-          "type": "string"
+          "type": "string",
+          "format": "uuid"
         },
         "shardId": {
           "description": "The id of the shard to collect replication details for.",
@@ -15044,6 +15574,14 @@ func init() {
         "targetNodeId": {
           "description": "The id of the node where the target replica is allocated.",
           "type": "string"
+        },
+        "transferType": {
+          "description": "The transfer type of the replication request, being 'copy' or 'move'.",
+          "type": "string",
+          "enum": [
+            "COPY",
+            "MOVE"
+          ]
         }
       }
     },
@@ -15094,6 +15632,68 @@ func init() {
         "sourceNodeName": {
           "description": "The node containing the replica",
           "type": "string"
+        },
+        "transferType": {
+          "description": "The type of transfer to perform: 'COPY' or 'MOVE'. Defaults to 'COPY' if not specified.",
+          "type": "string",
+          "default": "COPY",
+          "enum": [
+            "COPY",
+            "MOVE"
+          ]
+        }
+      }
+    },
+    "ReplicationReplicateReplicaResponse": {
+      "description": "The OK response of POST /replication/replicate",
+      "type": "object",
+      "required": [
+        "id"
+      ],
+      "properties": {
+        "id": {
+          "description": "The unique id of the replication operation.",
+          "type": "string",
+          "format": "uuid"
+        }
+      }
+    },
+    "ReplicationShardReplicas": {
+      "description": "A shard and its replicas.",
+      "type": "object",
+      "properties": {
+        "replicas": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "shard": {
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationShardingState": {
+      "description": "A collection and its shards.",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "type": "string"
+        },
+        "shards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationShardReplicas"
+          }
+        }
+      }
+    },
+    "ReplicationShardingStateResponse": {
+      "description": "The OK response of GET /replication/shardingstate",
+      "type": "object",
+      "properties": {
+        "shardingState": {
+          "$ref": "#/definitions/ReplicationShardingState"
         }
       }
     },

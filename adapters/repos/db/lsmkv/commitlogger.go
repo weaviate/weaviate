@@ -19,8 +19,12 @@ import (
 	"sync"
 	"sync/atomic"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/usecases/byteops"
 	"github.com/weaviate/weaviate/usecases/global"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -45,6 +49,7 @@ var (
 
 type lazyCommitLogger struct {
 	path         string
+	strategy     string
 	commitLogger *commitLogger
 	mux          sync.Mutex
 }
@@ -57,7 +62,7 @@ func (cl *lazyCommitLogger) mayInitCommitLogger() error {
 		return nil
 	}
 
-	commitLogger, err := newCommitLogger(cl.path)
+	commitLogger, err := newCommitLogger(cl.path, cl.strategy)
 	if err != nil {
 		return err
 	}
@@ -219,13 +224,14 @@ func (ct CommitType) Is(checkedCommitType CommitType) bool {
 	return ct == checkedCommitType
 }
 
-func newLazyCommitLogger(path string) (*lazyCommitLogger, error) {
+func newLazyCommitLogger(path, strategy string) (*lazyCommitLogger, error) {
 	return &lazyCommitLogger{
-		path: path,
+		path:     path,
+		strategy: strategy,
 	}, nil
 }
 
-func newCommitLogger(path string) (*commitLogger, error) {
+func newCommitLogger(path, strategy string) (*commitLogger, error) {
 	out := &commitLogger{
 		path: walPath(path),
 	}
@@ -235,9 +241,18 @@ func newCommitLogger(path string) (*commitLogger, error) {
 		return nil, err
 	}
 
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"strategy":  strategy,
+		"operation": "appendWAL",
+	})
+
 	out.file = f
 
-	out.writer = bufio.NewWriter(f)
+	meteredF := diskio.NewMeteredWriter(f, func(written int64) {
+		observeWrite.Observe(float64(written))
+	})
+
+	out.writer = bufio.NewWriter(meteredF)
 	out.checksumWriter = integrity.NewCRC32Writer(out.writer)
 
 	out.bufNode = bytes.NewBuffer(nil)

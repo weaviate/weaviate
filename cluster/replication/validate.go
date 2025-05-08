@@ -20,15 +20,18 @@ import (
 )
 
 var (
-	ErrAlreadyExists                = errors.New("already exists")
-	ErrNodeNotFound                 = errors.New("node not found")
-	ErrClassNotFound                = errors.New("class not found")
-	ErrShardNotFound                = errors.New("shard not found")
-	ErrReplicationOperationNotFound = errors.New("replication operation not found")
+	ErrAlreadyExists = errors.New("already exists")
+	ErrNodeNotFound  = errors.New("node not found")
+	ErrClassNotFound = errors.New("class not found")
+	ErrShardNotFound = errors.New("shard not found")
 )
 
 // ValidateReplicationReplicateShard validates that c is valid given the current state of the schema read using schemaReader
 func ValidateReplicationReplicateShard(schemaReader schema.SchemaReader, c *api.ReplicationReplicateShardRequest) error {
+	if c.Uuid == "" {
+		return fmt.Errorf("uuid is required: %w", ErrBadRequest)
+	}
+
 	classInfo := schemaReader.ClassInfo(c.SourceCollection)
 	// ClassInfo doesn't return an error, so the only way to know if the class exist is to check if the Exists
 	// boolean is not set to default value

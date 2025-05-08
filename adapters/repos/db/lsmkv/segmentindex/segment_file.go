@@ -21,6 +21,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/integrity"
 )
 
+type SegmentWriter interface {
+	Write(p []byte) (n int, err error)
+	Flush() error
+}
+
 // SegmentFile facilitates the writing/reading of an LSM bucket segment file.
 //
 // These contents include the CRC32 checksum which is calculated based on the:
@@ -50,7 +55,7 @@ import (
 //	   ```
 type SegmentFile struct {
 	header         *Header
-	writer         *bufio.Writer
+	writer         SegmentWriter
 	reader         *bufio.Reader
 	checksumWriter integrity.ChecksumWriter
 	checksumReader integrity.ChecksumReader
@@ -66,7 +71,7 @@ type SegmentFileOption func(*SegmentFile)
 
 // WithBufferedWriter sets the desired segment file writer
 // This will typically wrap the segment *os.File
-func WithBufferedWriter(writer *bufio.Writer) SegmentFileOption {
+func WithBufferedWriter(writer SegmentWriter) SegmentFileOption {
 	return func(segmentFile *SegmentFile) {
 		segmentFile.writer = writer
 		segmentFile.checksumWriter = integrity.NewCRC32Writer(writer)
@@ -119,6 +124,12 @@ func (f *SegmentFile) BodyWriter() io.Writer {
 		return f.writer
 	}
 	return f.checksumWriter
+}
+
+// SetHeader sets the header in the SegmentFile without writing anything. This should be used if the header was already
+// written by another reader.
+func (f *SegmentFile) SetHeader(header *Header) {
+	f.header = header
 }
 
 // WriteHeader writes the header struct to the underlying writer.
