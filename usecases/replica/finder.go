@@ -421,7 +421,14 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, err
 	}
 
-	return &ShardDifferenceReader{}, ErrNoDiffFound
+	var targetNodeName string
+	// TODO how to get rid of len == 1 check?
+	if len(targetNodeOverrides) == 1 {
+		targetNodeName = targetNodeOverrides[0].TargetNode
+	}
+	return &ShardDifferenceReader{
+		TargetNodeName: targetNodeName,
+	}, ErrNoDiffFound
 }
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,

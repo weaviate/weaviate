@@ -288,11 +288,7 @@ func (f *fakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, sha
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
-	return nil
-}
-
-func (f *fakeRemoteClient) RemoveAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+func (f *fakeRemoteClient) SetAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	return nil
 }
 

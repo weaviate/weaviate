@@ -21,10 +21,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/google/uuid"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
