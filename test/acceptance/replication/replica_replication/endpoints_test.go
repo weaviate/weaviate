@@ -30,8 +30,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicaReplicationTestSuite) TestReplicationReplicateEndpoints() {
-	t := suite.T()
+func TestReplicationReplicateEndpoints(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().

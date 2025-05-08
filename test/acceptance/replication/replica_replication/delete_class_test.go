@@ -28,8 +28,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicaReplicationTestSuite) TestReplicationDeletingClassCleansUpOperations() {
-	t := suite.T()
+func TestReplicationDeletingClassCleansUpOperations(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().

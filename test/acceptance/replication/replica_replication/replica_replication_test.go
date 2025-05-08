@@ -28,7 +28,6 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -54,20 +53,7 @@ var paragraphIDs = []strfmt.UUID{
 	strfmt.UUID("50566856-5d0a-4fb1-a390-e099bc236f66"),
 }
 
-type ReplicaReplicationTestSuite struct {
-	suite.Suite
-}
-
-func (suite *ReplicaReplicationTestSuite) SetupTest() {
-	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
-}
-
-func TestReplicaReplicationTestSuite(t *testing.T) {
-	suite.Run(t, new(ReplicaReplicationTestSuite))
-}
-
-func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
-	t := suite.T()
+func TestReplicaMovementHappyPath(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -239,8 +225,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 	})
 }
 
-func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
-	t := suite.T()
+func TestReplicaMovementTenantHappyPath(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -419,8 +404,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
 	})
 }
 
-func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy() {
-	t := suite.T()
+func TestReplicaMovementOneWriteExtraSlowFileCopy(t *testing.T) {
 	mainCtx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
 
