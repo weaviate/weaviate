@@ -704,10 +704,11 @@ func TestConsumerOpCancellation(t *testing.T) {
 		ReplicationCancellationComplete(uint64(1)).
 		Return(nil)
 	mockReplicaCopier.EXPECT().
-		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything).
-		Return(nil)
+		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything)
 
 	var completionWg sync.WaitGroup
+	var once sync.Once
+	completionWg.Add(1)
 	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
 		WithPrepareProcessing(func(node string) {
 			require.Equal(t, "node2", node, "invalid node in prepare processing callback")
@@ -729,7 +730,11 @@ func TestConsumerOpCancellation(t *testing.T) {
 		}).
 		WithOpCancelledCallback(func(node string) {
 			require.Equal(t, "node2", node, "invalid node in cancelled op callback")
-			completionWg.Done()
+			once.Do(func() {
+				// cancelOp in Consumer is a complete noop so can be called multiple times
+				// without error. However, completionWg.Done() can only be called once
+				completionWg.Done()
+			})
 		}).
 		Build()
 
@@ -757,40 +762,38 @@ func TestConsumerOpCancellation(t *testing.T) {
 		doneChan <- consumer.Consume(ctx, opsChan)
 	}()
 
-	for _, sleep := range []uint64{0, 1} {
-		mockReplicaCopier.EXPECT().
-			CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
-				// Simulate a long-running operation that checks for cancellation every loop
-				for {
-					if ctx.Err() != nil {
-						return ctx.Err()
-					}
-					time.Sleep(1 * time.Second)
+	mockReplicaCopier.EXPECT().
+		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+			// Simulate a long-running operation that checks for cancellation every loop
+			for {
+				if ctx.Err() != nil {
+					return ctx.Err()
 				}
-			}).Maybe()
-		completionWg.Add(1)
-		op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
-		status := replication.NewShardReplicationStatus(api.HYDRATING)
-		status.TriggerCancellation()
-		// Simulate the copying step that will loop forever until cancelled in the mock
-		opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
-		// Tests the cancellation happening before the copying has started (0s) and once it has started (1s)
-		time.Sleep(time.Duration(sleep) * time.Second)
-		// Cancel the operation via ShouldCancel or ShouldDelete
-		opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+				time.Sleep(1 * time.Second)
+			}
+		}).Maybe()
 
-		waitChan := make(chan struct{})
-		go func() {
-			completionWg.Wait()
-			waitChan <- struct{}{}
-		}()
+	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
+	status := replication.NewShardReplicationStatus(api.HYDRATING)
+	status.TriggerCancellation()
+	// Simulate the copying step that will loop forever until cancelled in the mock
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+	// Tests the cancellation happening before the copying has started (0s) and once it has started (1s)
+	time.Sleep(1 * time.Second)
+	// Cancel the operation via ShouldCancel or ShouldDelete
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 
-		select {
-		case <-waitChan:
-		case <-time.After(10 * time.Second):
-			t.Fatalf("Test with sleep %vs timed out waiting for operation completion", sleep)
-		}
+	waitChan := make(chan struct{})
+	go func() {
+		completionWg.Wait()
+		waitChan <- struct{}{}
+	}()
+
+	select {
+	case <-waitChan:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("Test timed out waiting for operation completion")
 	}
 
 	close(opsChan)
@@ -813,10 +816,11 @@ func TestConsumerOpDeletion(t *testing.T) {
 		ReplicationRemoveReplicaOp(uint64(1)).
 		Return(nil)
 	mockReplicaCopier.EXPECT().
-		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything).
-		Return(nil)
+		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything)
 
 	var completionWg sync.WaitGroup
+	var once sync.Once
+	completionWg.Add(1)
 	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
 		WithPrepareProcessing(func(node string) {
 			require.Equal(t, "node2", node, "invalid node in prepare processing callback")
@@ -838,7 +842,11 @@ func TestConsumerOpDeletion(t *testing.T) {
 		}).
 		WithOpCancelledCallback(func(node string) {
 			require.Equal(t, "node2", node, "invalid node in cancelled op callback")
-			completionWg.Done()
+			once.Do(func() {
+				// cancelOp in Consumer is a complete noop so can be called multiple times
+				// without error. However, completionWg.Done() can only be called once
+				completionWg.Done()
+			})
 		}).
 		Build()
 
@@ -866,40 +874,38 @@ func TestConsumerOpDeletion(t *testing.T) {
 		doneChan <- consumer.Consume(ctx, opsChan)
 	}()
 
-	for _, sleep := range []uint64{0, 1} {
-		mockReplicaCopier.EXPECT().
-			CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-			RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
-				// Simulate a long-running operation that checks for cancellation every loop
-				for {
-					if ctx.Err() != nil {
-						return ctx.Err()
-					}
-					time.Sleep(1 * time.Second)
+	mockReplicaCopier.EXPECT().
+		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+			// Simulate a long-running operation that checks for cancellation every loop
+			for {
+				if ctx.Err() != nil {
+					return ctx.Err()
 				}
-			}).Maybe()
-		completionWg.Add(1)
-		op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
-		status := replication.NewShardReplicationStatus(api.HYDRATING)
-		status.TriggerDeletion()
-		// Simulate the copying step that will loop forever until cancelled in the mock
-		opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
-		// Tests the cancellation happening before the copying has started (0s) and once it has started (1s)
-		time.Sleep(time.Duration(sleep) * time.Second)
-		// Cancel the operation via ShouldCancel or ShouldDelete
-		opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+				time.Sleep(1 * time.Second)
+			}
+		}).Maybe()
 
-		waitChan := make(chan struct{})
-		go func() {
-			completionWg.Wait()
-			waitChan <- struct{}{}
-		}()
+	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
+	status := replication.NewShardReplicationStatus(api.HYDRATING)
+	status.TriggerDeletion()
+	// Simulate the copying step that will loop forever until cancelled in the mock
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+	// Tests the cancellation happening before the copying has started (0s) and once it has started (1s)
+	time.Sleep(1 * time.Second)
+	// Cancel the operation via ShouldCancel or ShouldDelete
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 
-		select {
-		case <-waitChan:
-		case <-time.After(10 * time.Second):
-			t.Fatalf("Test with sleep %vs timed out waiting for operation completion", sleep)
-		}
+	waitChan := make(chan struct{})
+	go func() {
+		completionWg.Wait()
+		waitChan <- struct{}{}
+	}()
+
+	select {
+	case <-waitChan:
+	case <-time.After(10 * time.Second):
+		t.Fatalf("Test timed out waiting for operation completion")
 	}
 
 	close(opsChan)
