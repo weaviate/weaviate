@@ -937,25 +937,25 @@ func (c *RemoteIndex) GetFile(ctx context.Context, hostName, indexName,
 	return file, c.retry(ctx, 9, try)
 }
 
-// SetAsyncReplicationTargetNode configures and starts async replication for the given
+// AddAsyncReplicationTargetNode configures and starts async replication for the given
 // host with the specified override.
-func (c *RemoteIndex) SetAsyncReplicationTargetNode(
+func (c *RemoteIndex) AddAsyncReplicationTargetNode(
 	ctx context.Context,
 	hostName, indexName, shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
-	body, err := clusterapi.IndicesPayloads.SetAsyncReplicationTargetNode.Marshal(targetNodeOverride)
+	body, err := clusterapi.IndicesPayloads.AsyncReplicationTargetNode.Marshal(targetNodeOverride)
 	if err != nil {
 		return fmt.Errorf("marshal target node override: %w", err)
 	}
 	req, err := setupRequest(ctx, http.MethodPost, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/set-async-replication-target-node", indexName, shardName),
+		fmt.Sprintf("/indices/%s/shards/%s/async-replication-target-node", indexName, shardName),
 		"", bytes.NewReader(body))
-	clusterapi.IndicesPayloads.SetAsyncReplicationTargetNode.SetContentTypeHeaderReq(req)
-
 	if err != nil {
 		return fmt.Errorf("create http request: %w", err)
 	}
+	clusterapi.IndicesPayloads.AsyncReplicationTargetNode.SetContentTypeHeaderReq(req)
+
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
@@ -964,6 +964,41 @@ func (c *RemoteIndex) SetAsyncReplicationTargetNode(
 		defer res.Body.Close()
 
 		if code := res.StatusCode; code != http.StatusOK {
+			body, _ := io.ReadAll(res.Body)
+			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
+		}
+		return false, nil
+	}
+	return c.retry(ctx, 9, try)
+}
+
+// RemoveAsyncReplicationTargetNode removes the given target node override for async replication.
+func (c *RemoteIndex) RemoveAsyncReplicationTargetNode(
+	ctx context.Context,
+	hostName, indexName, shardName string,
+	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
+) error {
+	body, err := clusterapi.IndicesPayloads.AsyncReplicationTargetNode.Marshal(targetNodeOverride)
+	if err != nil {
+		return fmt.Errorf("marshal target node override: %w", err)
+	}
+
+	req, err := setupRequest(ctx, http.MethodDelete, hostName,
+		fmt.Sprintf("/indices/%s/shards/%s/async-replication-target-node", indexName, shardName),
+		"", bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("create http request: %w", err)
+	}
+	clusterapi.IndicesPayloads.AsyncReplicationTargetNode.SetContentTypeHeaderReq(req)
+
+	try := func(ctx context.Context) (bool, error) {
+		res, err := c.client.Do(req)
+		if err != nil {
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+		}
+		defer res.Body.Close()
+
+		if code := res.StatusCode; code != http.StatusNoContent {
 			body, _ := io.ReadAll(res.Body)
 			return shouldRetry(code), fmt.Errorf("status code: %v body: (%s)", code, body)
 		}
