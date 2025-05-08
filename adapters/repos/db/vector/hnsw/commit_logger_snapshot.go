@@ -115,6 +115,7 @@ func (l *hnswCommitLogger) setupSnapshotLogger(fields logrus.Fields) (logger log
 	logger = l.snapshotLogger.WithFields(fields)
 	started := time.Now()
 
+	logger.Debug("started")
 	return logger, func(err error) {
 		l := logger.WithField("took", time.Since(started))
 		if err != nil {
