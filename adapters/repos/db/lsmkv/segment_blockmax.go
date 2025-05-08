@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+var blockMaxBufferSize = 4096
 
 func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
 	var buf []byte
@@ -85,24 +86,27 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 }
 
 // todo: check if there is a performance impact of starting to sectionReader at offset and not have to pass offset here
-func (s *segment) loadBlockDataReusable(sectionReader *io.SectionReader, offset, offsetStart, offsetEnd uint64, buf []byte, encoded *terms.BlockData) error {
+func (s *segment) loadBlockDataReusable(sectionReader *io.SectionReader, blockDataBufferOffset, offset, offsetStart, offsetEnd uint64, buf []byte, encoded *terms.BlockData) (uint64, error) {
 	if s.mmapContents {
 		terms.DecodeBlockDataReusable(s.contents[offsetStart:offsetEnd], encoded)
-		return nil
+		return offsetStart, nil
 	} else {
-
-		_, err := sectionReader.Seek(int64(offsetStart-offset), io.SeekStart)
-		if err != nil {
-			return err
+		if offsetStart < blockDataBufferOffset || offsetEnd > blockDataBufferOffset+uint64(len(buf)) {
+			sectionReader.Seek(int64(offsetStart-offset), io.SeekStart)
+			_, err := sectionReader.Read(buf)
+			if err != nil {
+				return 0, err
+			}
+			// readBytes += int64(n)
+			// readCounts++
+			blockDataBufferOffset = offsetStart
 		}
 
-		_, err = sectionReader.Read(buf[:offsetEnd-offsetStart])
-		if err != nil {
-			return err
-		}
-		terms.DecodeBlockDataReusable(buf[:offsetEnd-offsetStart], encoded)
+		bufOffsetStart := offsetStart - blockDataBufferOffset
+		bufOffsetEnd := offsetEnd - blockDataBufferOffset
+		terms.DecodeBlockDataReusable(buf[bufOffsetStart:bufOffsetEnd], encoded)
+		return blockDataBufferOffset, nil
 	}
-	return nil
 }
 
 type BlockMetrics struct {
@@ -118,29 +122,30 @@ type BlockMetrics struct {
 }
 
 type SegmentBlockMax struct {
-	segment              *segment
-	node                 segmentindex.Node
-	docCount             uint64
-	blockEntries         []*terms.BlockEntry
-	blockEntryIdx        int
-	blockDataBuffer      []byte
-	blockDataEncoded     *terms.BlockData
-	blockDataDecoded     *terms.BlockDataDecoded
-	blockDataIdx         int
-	blockDataSize        int
-	blockDataStartOffset uint64
-	blockDataEndOffset   uint64
-	idPointer            uint64
-	idf                  float64
-	exhausted            bool
-	decoded              bool
-	freqDecoded          bool
-	queryTermIndex       int
-	Metrics              BlockMetrics
-	averagePropLength    float64
-	b                    float64
-	k1                   float64
-	propertyBoost        float64
+	segment               *segment
+	node                  segmentindex.Node
+	docCount              uint64
+	blockEntries          []*terms.BlockEntry
+	blockEntryIdx         int
+	blockDataBufferOffset uint64
+	blockDataBuffer       []byte
+	blockDataEncoded      *terms.BlockData
+	blockDataDecoded      *terms.BlockDataDecoded
+	blockDataIdx          int
+	blockDataSize         int
+	blockDataStartOffset  uint64
+	blockDataEndOffset    uint64
+	idPointer             uint64
+	idf                   float64
+	exhausted             bool
+	decoded               bool
+	freqDecoded           bool
+	queryTermIndex        int
+	Metrics               BlockMetrics
+	averagePropLength     float64
+	b                     float64
+	k1                    float64
+	propertyBoost         float64
 
 	currentBlockImpact float32
 	currentBlockMaxId  uint64
@@ -347,7 +352,7 @@ func (s *SegmentBlockMax) reset() error {
 	}
 
 	if s.blockDataDecoded == nil {
-		s.blockDataBuffer = make([]byte, terms.BLOCK_SIZE*8+terms.BLOCK_SIZE*4+terms.BLOCK_SIZE*4)
+		s.blockDataBuffer = make([]byte, blockMaxBufferSize)
 		s.blockDataDecoded = &terms.BlockDataDecoded{
 			DocIds: make([]uint64, terms.BLOCK_SIZE),
 			Tfs:    make([]uint64, terms.BLOCK_SIZE),
@@ -360,6 +365,7 @@ func (s *SegmentBlockMax) reset() error {
 	s.blockDataStartOffset = s.node.Start + 16 + uint64(len(s.blockEntries)*20)
 	s.blockDataEndOffset = s.node.End - uint64(len(s.node.Key)+4)
 
+	s.blockDataBufferOffset = s.blockDataStartOffset + 1
 	s.decodeBlock()
 
 	s.advanceOnTombstoneOrFilter()
@@ -399,7 +405,7 @@ func (s *SegmentBlockMax) decodeBlock() error {
 		if s.blockEntryIdx < len(s.blockEntries)-1 {
 			endOffset = uint64(s.blockEntries[s.blockEntryIdx+1].Offset) + s.blockDataStartOffset
 		}
-		err = s.segment.loadBlockDataReusable(s.sectionReader, s.node.Start, startOffset, endOffset, s.blockDataBuffer, s.blockDataEncoded)
+		s.blockDataBufferOffset, err = s.segment.loadBlockDataReusable(s.sectionReader, s.blockDataBufferOffset, s.node.Start, startOffset, endOffset, s.blockDataBuffer, s.blockDataEncoded)
 		if err != nil {
 			return err
 		}
