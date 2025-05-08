@@ -102,10 +102,8 @@ type RemoteIndexIncomingRepo interface {
 	IncomingGetFileMetadata(ctx context.Context, shardName, relativeFilePath string) (file.FileMetadata, error)
 	// IncomingGetFile See adapters/clients.RemoteIndex.GetFile
 	IncomingGetFile(ctx context.Context, shardName, relativeFilePath string) (io.ReadCloser, error)
-	// IncomingAddAsyncReplicationTargetNode See adapters/clients.RemoteIndex.AddAsyncReplicationTargetNode
-	IncomingAddAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
-	// IncomingRemoveAsyncReplicationTargetNode See adapters/clients.RemoteIndex.RemoveAsyncReplicationTargetNode
-	IncomingRemoveAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+	// IncomingSetAsyncReplicationTargetNode See adapters/clients.RemoteIndex.SetAsyncReplicationTargetNode
+	IncomingSetAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 }
 
 type RemoteIndexIncoming struct {
@@ -444,7 +442,7 @@ func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,
 	return index.IncomingHashTreeLevel(ctx, shardName, level, discriminant)
 }
 
-func (rii *RemoteIndexIncoming) AddAsyncReplicationTargetNode(
+func (rii *RemoteIndexIncoming) SetAsyncReplicationTargetNode(
 	ctx context.Context,
 	indexName, shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
@@ -454,18 +452,5 @@ func (rii *RemoteIndexIncoming) AddAsyncReplicationTargetNode(
 		return fmt.Errorf("local index %q not found", indexName)
 	}
 
-	return index.IncomingAddAsyncReplicationTargetNode(ctx, shardName, targetNodeOverride)
-}
-
-func (rii *RemoteIndexIncoming) RemoveAsyncReplicationTargetNode(
-	ctx context.Context,
-	indexName, shardName string,
-	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
-) error {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
-		return fmt.Errorf("local index %q not found", indexName)
-	}
-
-	return index.IncomingRemoveAsyncReplicationTargetNode(ctx, shardName, targetNodeOverride)
+	return index.IncomingSetAsyncReplicationTargetNode(ctx, shardName, targetNodeOverride)
 }

@@ -41,33 +41,33 @@ import (
 var IndicesPayloads = indicesPayloads{}
 
 type indicesPayloads struct {
-	ErrorList                  errorListPayload
-	SingleObject               singleObjectPayload
-	MergeDoc                   mergeDocPayload
-	ObjectList                 objectListPayload
-	VersionedObjectList        versionedObjectListPayload
-	SearchResults              searchResultsPayload
-	SearchParams               searchParamsPayload
-	VectorDistanceParams       vectorDistanceParamsPayload
-	VectorDistanceResults      vectorDistanceResultsPayload
-	ReferenceList              referenceListPayload
-	AggregationParams          aggregationParamsPayload
-	AggregationResult          aggregationResultPayload
-	FindUUIDsParams            findUUIDsParamsPayload
-	FindUUIDsResults           findUUIDsResultsPayload
-	BatchDeleteParams          batchDeleteParamsPayload
-	BatchDeleteResults         batchDeleteResultsPayload
-	GetShardQueueSizeParams    getShardQueueSizeParamsPayload
-	GetShardQueueSizeResults   getShardQueueSizeResultsPayload
-	GetShardStatusParams       getShardStatusParamsPayload
-	GetShardStatusResults      getShardStatusResultsPayload
-	UpdateShardStatusParams    updateShardStatusParamsPayload
-	UpdateShardsStatusResults  updateShardsStatusResultsPayload
-	ShardFiles                 shardFilesPayload
-	IncreaseReplicationFactor  increaseReplicationFactorPayload
-	ShardFileMetadataResults   shardFileMetadataResultsPayload
-	ShardFilesResults          shardFilesResultsPayload
-	AsyncReplicationTargetNode asyncReplicationTargetNode
+	ErrorList                     errorListPayload
+	SingleObject                  singleObjectPayload
+	MergeDoc                      mergeDocPayload
+	ObjectList                    objectListPayload
+	VersionedObjectList           versionedObjectListPayload
+	SearchResults                 searchResultsPayload
+	SearchParams                  searchParamsPayload
+	VectorDistanceParams          vectorDistanceParamsPayload
+	VectorDistanceResults         vectorDistanceResultsPayload
+	ReferenceList                 referenceListPayload
+	AggregationParams             aggregationParamsPayload
+	AggregationResult             aggregationResultPayload
+	FindUUIDsParams               findUUIDsParamsPayload
+	FindUUIDsResults              findUUIDsResultsPayload
+	BatchDeleteParams             batchDeleteParamsPayload
+	BatchDeleteResults            batchDeleteResultsPayload
+	GetShardQueueSizeParams       getShardQueueSizeParamsPayload
+	GetShardQueueSizeResults      getShardQueueSizeResultsPayload
+	GetShardStatusParams          getShardStatusParamsPayload
+	GetShardStatusResults         getShardStatusResultsPayload
+	UpdateShardStatusParams       updateShardStatusParamsPayload
+	UpdateShardsStatusResults     updateShardsStatusResultsPayload
+	ShardFiles                    shardFilesPayload
+	IncreaseReplicationFactor     increaseReplicationFactorPayload
+	ShardFileMetadataResults      shardFileMetadataResultsPayload
+	ShardFilesResults             shardFilesResultsPayload
+	SetAsyncReplicationTargetNode setAsyncReplicationTargetNode
 }
 
 type shardFileMetadataResultsPayload struct{}
@@ -106,17 +106,17 @@ func (p shardFilesResultsPayload) Unmarshal(in []byte) ([]string, error) {
 	return shardFiles, nil
 }
 
-type asyncReplicationTargetNode struct{}
+type setAsyncReplicationTargetNode struct{}
 
-func (p asyncReplicationTargetNode) MIME() string {
-	return "application/vnd.weaviate.asyncreplicationtargetnode+json"
+func (p setAsyncReplicationTargetNode) MIME() string {
+	return "application/vnd.weaviate.setasyncreplicationtargetnode+json"
 }
 
-func (p asyncReplicationTargetNode) SetContentTypeHeaderReq(r *http.Request) {
+func (p setAsyncReplicationTargetNode) SetContentTypeHeaderReq(r *http.Request) {
 	r.Header.Set("content-type", p.MIME())
 }
 
-func (p asyncReplicationTargetNode) Marshal(in additional.AsyncReplicationTargetNodeOverride) ([]byte, error) {
+func (p setAsyncReplicationTargetNode) Marshal(in additional.AsyncReplicationTargetNodeOverride) ([]byte, error) {
 	return json.Marshal(in)
 }
 
