@@ -69,6 +69,12 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
+					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
 					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
@@ -106,6 +112,12 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -150,6 +162,12 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
+					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
 					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
@@ -192,6 +210,12 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
 					Return(fmt.Errorf("failed to set async replication target node")).
 					Times(1)
+				mockReplicaCopier.EXPECT().
+					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationRegisterError(uint64(opId), fmt.Errorf("failed to set async replication target node").Error()).
 					Return(nil)
@@ -237,6 +261,12 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).

@@ -972,6 +972,7 @@ func (c *RemoteIndex) AddAsyncReplicationTargetNode(
 	return c.retry(ctx, 9, try)
 }
 
+// RemoveAsyncReplicationTargetNode removes the given target node override for async replication.
 func (c *RemoteIndex) RemoveAsyncReplicationTargetNode(
 	ctx context.Context,
 	hostName, indexName, shardName string,

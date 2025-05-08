@@ -424,8 +424,10 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	return localShard.GetFile(ctx, relativeFilePath)
 }
 
-// IncomingAddAsyncReplicationTargetNode configures and starts async replication with
-// the given node as the target.
+// IncomingAddAsyncReplicationTargetNode adds the given target node override for async replication.
+// If the target node override already exists with a different upper time bound, the existing
+// override will use the maximum upper time bound between the two. Async replication will be
+// started if it's not already running.
 func (i *Index) IncomingAddAsyncReplicationTargetNode(
 	ctx context.Context,
 	shardName string,
@@ -441,6 +443,11 @@ func (i *Index) IncomingAddAsyncReplicationTargetNode(
 	return localShard.addTargetNodeOverride(ctx, targetNodeOverride)
 }
 
+// IncomingRemoveAsyncReplicationTargetNode removes the given target node override for async
+// replication. The removal is a no-op if the target node override does not exist
+// or if the upper time bound of the given target node override is less than the existing
+// override's upper time bound. If there are no target node overrides left, async replication
+// will be reset to it's default configuration.
 func (i *Index) IncomingRemoveAsyncReplicationTargetNode(ctx context.Context,
 	shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,

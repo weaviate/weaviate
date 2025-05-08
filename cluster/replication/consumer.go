@@ -407,9 +407,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		logger.WithError(err).Error("failure while initializing async replication on local node")
 		return api.ShardReplicationState(""), err
 	}
-	defer func() {
-		c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId)
-	}()
+	defer c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId)
 
 	// TODO start best effort writes before upper time bound is hit
 	// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
@@ -427,9 +425,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
 		return api.ShardReplicationState(""), err
 	}
-	defer func() {
-		c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride)
-	}()
+	defer c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride)
 
 	do := func() bool {
 		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)

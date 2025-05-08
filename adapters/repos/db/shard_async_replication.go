@@ -471,47 +471,54 @@ func (s *Shard) UpdateAsyncReplicationConfig(_ context.Context, enabled bool) er
 }
 
 func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
-	s.asyncReplicationRWMux.Lock()
-	defer s.asyncReplicationRWMux.Unlock()
+	func() {
+		s.asyncReplicationRWMux.Lock()
+		// unlock before calling UpdateAsyncReplicationConfig because it will lock again
+		defer s.asyncReplicationRWMux.Unlock()
 
-	for i, existing := range s.asyncReplicationConfig.targetNodeOverrides {
-		if existing.Equal(&targetNodeOverride) {
-			// if the collection/shard/source/target already exists, use the max
-			// upper time bound between the existing/new override
-			maxUpperTimeBound := existing.UpperTimeBound
-			if targetNodeOverride.UpperTimeBound > maxUpperTimeBound {
-				maxUpperTimeBound = targetNodeOverride.UpperTimeBound
+		for i, existing := range s.asyncReplicationConfig.targetNodeOverrides {
+			if existing.Equal(&targetNodeOverride) {
+				// if the collection/shard/source/target already exists, use the max
+				// upper time bound between the existing/new override
+				maxUpperTimeBound := existing.UpperTimeBound
+				if targetNodeOverride.UpperTimeBound > maxUpperTimeBound {
+					maxUpperTimeBound = targetNodeOverride.UpperTimeBound
+					s.asyncReplicationConfig.targetNodeOverrides[i].UpperTimeBound = maxUpperTimeBound
+				}
+				return
 			}
-			targetNodeOverride.UpperTimeBound = maxUpperTimeBound
-			s.asyncReplicationConfig.targetNodeOverrides[i] = targetNodeOverride
-			return nil
 		}
-	}
 
-	s.asyncReplicationConfig.targetNodeOverrides = append(s.asyncReplicationConfig.targetNodeOverrides, targetNodeOverride)
+		s.asyncReplicationConfig.targetNodeOverrides = append(s.asyncReplicationConfig.targetNodeOverrides, targetNodeOverride)
+	}()
 	// we call update async replication config here to ensure that async replication starts
 	// if it's not already running
 	return s.UpdateAsyncReplicationConfig(ctx, true)
 }
 
 func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverrideToRemove additional.AsyncReplicationTargetNodeOverride) error {
-	s.asyncReplicationRWMux.Lock()
-	defer s.asyncReplicationRWMux.Unlock()
+	targetNodeOverrideLen := 0
+	func() {
+		s.asyncReplicationRWMux.Lock()
+		// unlock before calling UpdateAsyncReplicationConfig because it will lock again
+		defer s.asyncReplicationRWMux.Unlock()
 
-	newTargetNodeOverrides := make([]additional.AsyncReplicationTargetNodeOverride, 0, len(s.asyncReplicationConfig.targetNodeOverrides))
-	for _, existing := range s.asyncReplicationConfig.targetNodeOverrides {
-		// only remove the existing override if the collection/shard/source/target match and the
-		// existing upper time bound is <= to the override being removed (eg if the override to remove
-		// is "before" the existing override, don't remove it)
-		if !(existing.Equal(&targetNodeOverrideToRemove) && existing.UpperTimeBound <= targetNodeOverrideToRemove.UpperTimeBound) {
-			newTargetNodeOverrides = append(newTargetNodeOverrides, existing)
+		newTargetNodeOverrides := make([]additional.AsyncReplicationTargetNodeOverride, 0, len(s.asyncReplicationConfig.targetNodeOverrides))
+		for _, existing := range s.asyncReplicationConfig.targetNodeOverrides {
+			// only remove the existing override if the collection/shard/source/target match and the
+			// existing upper time bound is <= to the override being removed (eg if the override to remove
+			// is "before" the existing override, don't remove it)
+			if !(existing.Equal(&targetNodeOverrideToRemove) && existing.UpperTimeBound <= targetNodeOverrideToRemove.UpperTimeBound) {
+				newTargetNodeOverrides = append(newTargetNodeOverrides, existing)
+			}
 		}
-	}
-	s.asyncReplicationConfig.targetNodeOverrides = newTargetNodeOverrides
+		s.asyncReplicationConfig.targetNodeOverrides = newTargetNodeOverrides
 
+		targetNodeOverrideLen = len(s.asyncReplicationConfig.targetNodeOverrides)
+	}()
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
-	if len(s.asyncReplicationConfig.targetNodeOverrides) == 0 {
+	if targetNodeOverrideLen == 0 {
 		s.UpdateAsyncReplicationConfig(ctx, s.index.Config.AsyncReplicationEnabled)
 	}
 	return nil
@@ -796,8 +803,6 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]
 	diffCalculationStart := time.Now()
 
 	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, config.targetNodeOverrides)
-	// if any node checked had a difference, then err = nil
-	// if err = NoDiffFound AND target node overrides len > 0 -> all target node overrides have no diff
 	if err != nil {
 		if errors.Is(err, replica.ErrNoDiffFound) && len(config.targetNodeOverrides) > 0 {
 			stats := make([]*hashBeatHostStats, 0, len(config.targetNodeOverrides))

@@ -74,6 +74,10 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			}, nil)
 		mockReplicaCopier.EXPECT().
 			AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+		mockReplicaCopier.EXPECT().
+			RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+		mockReplicaCopier.EXPECT().
+			RevertAsyncReplicationLocally(mock.Anything, "TestCollection", mock.Anything).Return(nil)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -322,6 +326,10 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				Return(nil)
 			mockReplicaCopier.EXPECT().
 				AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+			mockReplicaCopier.EXPECT().
+				RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+			mockReplicaCopier.EXPECT().
+				RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		}
 
 		var (
@@ -590,8 +598,12 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				mockReplicaCopier.EXPECT().
 					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 				mockReplicaCopier.EXPECT().
+					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				completionWg.Add(1)
 			} else {
 				require.False(t, opsCache.LoadOrStore(opID), "operation should not be stored twice in cache")
