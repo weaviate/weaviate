@@ -167,7 +167,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					// Continue to ensure we don't accidentally re-spawn the operation in a new worker
 					continue
 				}
-				// Otherwise, the operation is not in-flight and should therefore be processed in a worker where cancellation happens
+				// Otherwise, the operation is not in-flight and should therefore be processed in a worker where clean-up happens
 			}
 
 			c.engineOpCallbacks.OnOpPending(c.nodeId)
