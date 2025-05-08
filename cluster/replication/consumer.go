@@ -407,23 +407,25 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		logger.WithError(err).Error("failure while initializing async replication on local node")
 		return api.ShardReplicationState(""), err
 	}
+	defer c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId)
+
 	// TODO start best effort writes before upper time bound is hit
 	// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
 	// received during movement work as expected
 	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
 
 	// start async replication from source node to target node
-	if err := c.replicaCopier.SetAsyncReplicationTargetNode(
-		ctx,
-		additional.AsyncReplicationTargetNodeOverride{
-			CollectionID:   op.Op.SourceShard.CollectionId,
-			ShardID:        op.Op.TargetShard.ShardId,
-			TargetNode:     op.Op.TargetShard.NodeId,
-			SourceNode:     op.Op.SourceShard.NodeId,
-			UpperTimeBound: asyncReplicationUpperTimeBoundUnixMillis,
-		}); err != nil {
+	targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
+		CollectionID:   op.Op.SourceShard.CollectionId,
+		ShardID:        op.Op.TargetShard.ShardId,
+		TargetNode:     op.Op.TargetShard.NodeId,
+		SourceNode:     op.Op.SourceShard.NodeId,
+		UpperTimeBound: asyncReplicationUpperTimeBoundUnixMillis,
+	}
+	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
 		return api.ShardReplicationState(""), err
 	}
+	defer c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride)
 
 	do := func() bool {
 		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)

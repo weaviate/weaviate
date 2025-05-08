@@ -173,14 +173,24 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 	return nil
 }
 
-// SetAsyncReplicationTargetNode adds a target node override for a shard.
-func (c *Copier) SetAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+// AddAsyncReplicationTargetNode adds a target node override for a shard.
+func (c *Copier) AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	srcNodeHostname, ok := c.nodeSelector.NodeHostname(targetNodeOverride.SourceNode)
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", targetNodeOverride.SourceNode)
 	}
 
-	return c.remoteIndex.SetAsyncReplicationTargetNode(ctx, srcNodeHostname, targetNodeOverride.CollectionID, targetNodeOverride.ShardID, targetNodeOverride)
+	return c.remoteIndex.AddAsyncReplicationTargetNode(ctx, srcNodeHostname, targetNodeOverride.CollectionID, targetNodeOverride.ShardID, targetNodeOverride)
+}
+
+// RemoveAsyncReplicationTargetNode removes a target node override for a shard.
+func (c *Copier) RemoveAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	srcNodeHostname, ok := c.nodeSelector.NodeHostname(targetNodeOverride.SourceNode)
+	if !ok {
+		return fmt.Errorf("source node address not found in cluster membership for node %s", targetNodeOverride.SourceNode)
+	}
+
+	return c.remoteIndex.RemoveAsyncReplicationTargetNode(ctx, srcNodeHostname, targetNodeOverride.CollectionID, targetNodeOverride.ShardID, targetNodeOverride)
 }
 
 func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error {
@@ -196,6 +206,21 @@ func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName
 	defer release()
 
 	return shard.UpdateAsyncReplicationConfig(ctx, true)
+}
+
+func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error {
+	index := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
+	if index == nil {
+		return fmt.Errorf("index for collection %s not found", collectionName)
+	}
+
+	shard, release, err := index.GetShard(ctx, shardName)
+	if err != nil || shard == nil {
+		return fmt.Errorf("get shard %s: %w", shardName, err)
+	}
+	defer release()
+
+	return shard.UpdateAsyncReplicationConfig(ctx, shard.Index().Config.AsyncReplicationEnabled)
 }
 
 // AsyncReplicationStatus returns the async replication status for a shard.

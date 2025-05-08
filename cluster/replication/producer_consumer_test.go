@@ -66,7 +66,13 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -105,7 +111,13 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -147,7 +159,13 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -189,14 +207,20 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
 					Return(fmt.Errorf("failed to set async replication target node")).
 					Times(1)
+				mockReplicaCopier.EXPECT().
+					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationRegisterError(uint64(opId), fmt.Errorf("failed to set async replication target node").Error()).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
 					Return(nil)
 				// Async replication status triggers an internal retry and doesn't register an error
 				mockReplicaCopier.EXPECT().
@@ -236,7 +260,13 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
