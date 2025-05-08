@@ -558,7 +558,6 @@ func TestStoreApply(t *testing.T) {
 
 func TestStoreMetrics(t *testing.T) {
 	t.Run("store_apply_duration", func(t *testing.T) {
-
 		doBefore := func(m *MockStore) {
 			m.indexer.On("AddClass", mock.Anything).Return(nil)
 			m.parser.On("ParseClass", mock.Anything).Return(nil)
