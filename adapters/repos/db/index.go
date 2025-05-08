@@ -2048,6 +2048,31 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 	return i.getOptInitLocalShard(ctx, shardName, true)
 }
 
+// getNoInitLocalShard returns the local shard with the given name.
+// This method returns the shard if it is in memory.
+// If, for whatever reason, it is not in memory (e.g. on disk, deleted, lazy loading), then
+// shard not found error is returned
+func (i *Index) getNoInitLocalShard(shardName string) (ShardLike, func(), error) {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return nil, func() {}, errAlreadyShutdown
+	}
+
+	shard := i.shards.Load(shardName)
+	if shard == nil {
+		return nil, func() {}, fmt.Errorf("get local shard %q, not found", shardName)
+	}
+
+	release, err := shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("get local shard %q, no shutdown: %w", shardName, err)
+	}
+
+	return shard, release, nil
+}
+
 // getOptInitLocalShard returns the local shard with the given name.
 // It is ensured that the returned instance is a fully loaded shard if ensureInit is set to true.
 // The returned shard may be a lazy shard instance or nil if the shard hasn't yet been initialized.

@@ -704,8 +704,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 		ReplicationCancellationComplete(uint64(1)).
 		Return(nil)
 	mockReplicaCopier.EXPECT().
-		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything).
-		Return(nil)
+		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything)
 
 	var completionWg sync.WaitGroup
 	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
@@ -770,7 +769,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 						}
 						time.Sleep(1 * time.Second)
 					}
-				})
+				}).Maybe()
 		}
 		completionWg.Add(1)
 		op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
@@ -816,8 +815,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 		ReplicationRemoveReplicaOp(uint64(1)).
 		Return(nil)
 	mockReplicaCopier.EXPECT().
-		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything).
-		Return(nil)
+		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything)
 
 	var completionWg sync.WaitGroup
 	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
@@ -882,7 +880,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 						}
 						time.Sleep(1 * time.Second)
 					}
-				})
+				}).Maybe()
 		}
 		completionWg.Add(1)
 		op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)

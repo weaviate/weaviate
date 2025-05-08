@@ -205,6 +205,11 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		}
 	}
 
+	if err := h.replicationsDeleter.DeleteReplicationsByTenants(class, tenants); err != nil {
+		// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
+		h.logger.WithField("error", err).WithField("class", class).Error("could not delete replication operations for deleted class")
+	}
+
 	req := api.DeleteTenantsRequest{
 		Tenants: tenants,
 	}

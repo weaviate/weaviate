@@ -125,6 +125,99 @@ func (_c *MockManager_DeleteReplication_Call) RunAndReturn(run func(strfmt.UUID)
 	return _c
 }
 
+// DeleteReplicationsByCollection provides a mock function with given fields: collection
+func (_m *MockManager) DeleteReplicationsByCollection(collection string) error {
+	ret := _m.Called(collection)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteReplicationsByCollection")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string) error); ok {
+		r0 = rf(collection)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_DeleteReplicationsByCollection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteReplicationsByCollection'
+type MockManager_DeleteReplicationsByCollection_Call struct {
+	*mock.Call
+}
+
+// DeleteReplicationsByCollection is a helper method to define mock.On call
+//   - collection string
+func (_e *MockManager_Expecter) DeleteReplicationsByCollection(collection interface{}) *MockManager_DeleteReplicationsByCollection_Call {
+	return &MockManager_DeleteReplicationsByCollection_Call{Call: _e.mock.On("DeleteReplicationsByCollection", collection)}
+}
+
+func (_c *MockManager_DeleteReplicationsByCollection_Call) Run(run func(collection string)) *MockManager_DeleteReplicationsByCollection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_DeleteReplicationsByCollection_Call) Return(_a0 error) *MockManager_DeleteReplicationsByCollection_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_DeleteReplicationsByCollection_Call) RunAndReturn(run func(string) error) *MockManager_DeleteReplicationsByCollection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteReplicationsByTenants provides a mock function with given fields: collection, tenants
+func (_m *MockManager) DeleteReplicationsByTenants(collection string, tenants []string) error {
+	ret := _m.Called(collection, tenants)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteReplicationsByTenants")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(string, []string) error); ok {
+		r0 = rf(collection, tenants)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_DeleteReplicationsByTenants_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteReplicationsByTenants'
+type MockManager_DeleteReplicationsByTenants_Call struct {
+	*mock.Call
+}
+
+// DeleteReplicationsByTenants is a helper method to define mock.On call
+//   - collection string
+//   - tenants []string
+func (_e *MockManager_Expecter) DeleteReplicationsByTenants(collection interface{}, tenants interface{}) *MockManager_DeleteReplicationsByTenants_Call {
+	return &MockManager_DeleteReplicationsByTenants_Call{Call: _e.mock.On("DeleteReplicationsByTenants", collection, tenants)}
+}
+
+func (_c *MockManager_DeleteReplicationsByTenants_Call) Run(run func(collection string, tenants []string)) *MockManager_DeleteReplicationsByTenants_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].([]string))
+	})
+	return _c
+}
+
+func (_c *MockManager_DeleteReplicationsByTenants_Call) Return(_a0 error) *MockManager_DeleteReplicationsByTenants_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_DeleteReplicationsByTenants_Call) RunAndReturn(run func(string, []string) error) *MockManager_DeleteReplicationsByTenants_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetReplicationDetailsByReplicationId provides a mock function with given fields: uuid
 func (_m *MockManager) GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.ReplicationDetailsResponse, error) {
 	ret := _m.Called(uuid)

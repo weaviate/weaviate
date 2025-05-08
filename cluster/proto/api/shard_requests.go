@@ -122,3 +122,14 @@ type ReplicationCancellationCompleteRequest struct {
 	Version int
 	Id      uint64
 }
+
+type ReplicationsDeleteByCollectionRequest struct {
+	Version    int
+	Collection string
+}
+
+type ReplicationsDeleteByTenantsRequest struct {
+	Version    int
+	Collection string
+	Tenants    []string
+}

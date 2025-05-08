@@ -47,4 +47,24 @@ type Manager interface {
 	//   - error: Returns ErrReplicationOperationNotFound if the operation doesn't exist,
 	//     or another error explaining why cancelling the replication operation failed.
 	DeleteReplication(uuid strfmt.UUID) error
+
+	// DeleteReplicationsByCollection removes all replication operations for a specific collection.
+	//
+	// This is required when a collection is deleted, and all replication operations for that collection should be removed including in-flight operations that must be cancelled first.
+	//
+	// Parameters:
+	//   - collection: The name of the collection for which to delete replication operations.
+	// Returns:
+	//   - error: Returns an error if the deletion of replication operations fails.
+	DeleteReplicationsByCollection(collection string) error
+	// DeleteReplicationsByTenants removes all replication operations for specified tenants in a specific collection.
+	//
+	// This is required when tenants are deleted, and all replication operations for those tenants should be removed including in-flight operations that must be cancelled first.
+	//
+	// Parameters:
+	//   - collection: The name of the collection for which to delete replication operations.
+	//   - tenants: The list of tenants for which to delete replication operations.
+	// Returns:
+	//   - error: Returns an error if the deletion of replication operations fails.
+	DeleteReplicationsByTenants(collection string, tenants []string) error
 }

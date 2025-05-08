@@ -57,6 +57,18 @@ func NewShardReplicationOp(id uint64, sourceNode, targetNode, collectionId, shar
 	}
 }
 
+type shardKey struct {
+	Collection string
+	Shard      string
+}
+
+func newShardKey(collection string, shard string) shardKey {
+	return shardKey{
+		Collection: collection,
+		Shard:      shard,
+	}
+}
+
 type ShardReplicationFSM struct {
 	opsLock sync.RWMutex
 
@@ -69,7 +81,7 @@ type ShardReplicationFSM struct {
 	// opsByCollection stores the array of ShardReplicationOp for each collection
 	opsByCollection map[string][]ShardReplicationOp
 	// opsByShard stores the array of ShardReplicationOp for each shard
-	opsByShard map[string][]ShardReplicationOp
+	opsByShard map[shardKey][]ShardReplicationOp
 	// opsByTargetFQDN stores the registered ShardReplicationOp (if any) for each destination replica
 	opsByTargetFQDN map[shardFQDN]ShardReplicationOp
 	// opsBySourceFQDN stores the registered ShardReplicationOp (if any) for each source replica
@@ -77,7 +89,7 @@ type ShardReplicationFSM struct {
 	// opsByShard stores opId -> replicationOp
 	opsById map[uint64]ShardReplicationOp
 	// opsStatus stores op -> opStatus
-	opsStatus map[ShardReplicationOp]ShardReplicationOpStatus
+	statusById map[uint64]ShardReplicationOpStatus
 
 	opsByStateGauge *prometheus.GaugeVec
 }
@@ -88,11 +100,11 @@ func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 		opsByTarget:     make(map[string][]ShardReplicationOp),
 		opsBySource:     make(map[string][]ShardReplicationOp),
 		opsByCollection: make(map[string][]ShardReplicationOp),
-		opsByShard:      make(map[string][]ShardReplicationOp),
+		opsByShard:      make(map[shardKey][]ShardReplicationOp),
 		opsByTargetFQDN: make(map[shardFQDN]ShardReplicationOp),
 		opsBySourceFQDN: make(map[shardFQDN]ShardReplicationOp),
 		opsById:         make(map[uint64]ShardReplicationOp),
-		opsStatus:       make(map[ShardReplicationOp]ShardReplicationOpStatus),
+		statusById:      make(map[uint64]ShardReplicationOpStatus),
 	}
 
 	fsm.opsByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
@@ -110,7 +122,15 @@ type snapshot struct {
 
 func (s *ShardReplicationFSM) Snapshot() ([]byte, error) {
 	s.opsLock.RLock()
-	ops := maps.Clone(s.opsStatus)
+	ops := make(map[ShardReplicationOp]ShardReplicationOpStatus, len(s.statusById))
+	for id, status := range s.statusById {
+		op, ok := s.opsById[id]
+		if !ok {
+			s.opsLock.RUnlock()
+			return nil, fmt.Errorf("op %d not found in opsById", op.ID)
+		}
+		ops[op] = status
+	}
 	s.opsLock.RUnlock()
 
 	return json.Marshal(&snapshot{Ops: ops})
@@ -149,7 +169,7 @@ func (s *ShardReplicationFSM) resetState() {
 	maps.Clear(s.opsByTargetFQDN)
 	maps.Clear(s.opsBySourceFQDN)
 	maps.Clear(s.opsById)
-	maps.Clear(s.opsStatus)
+	maps.Clear(s.statusById)
 
 	s.opsByStateGauge.Reset()
 }
@@ -179,7 +199,7 @@ func (s ShardReplicationOpStatus) ShouldConsumeOps() bool {
 func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicationOpStatus, bool) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	v, ok := s.opsStatus[op]
+	v, ok := s.statusById[op.ID]
 	return v, ok
 }
 
@@ -187,7 +207,7 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string,
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
-	_, ok := s.opsByShard[shard]
+	_, ok := s.opsByShard[newShardKey(collection, shard)]
 	// Check if the specified shard is current undergoing replication at all.
 	// If not we can return early as all replicas can be used for read/writes
 	if !ok {
@@ -219,7 +239,7 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 		return s.filterOneReplicaAsSourceReadWrite(node, collection, shard)
 	}
 
-	opState, ok := s.opsStatus[op]
+	opState, ok := s.statusById[op.ID]
 	if !ok {
 		// TODO: This should never happens
 		return true, true
@@ -249,7 +269,7 @@ func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, col
 		return true, true
 	}
 
-	opState, ok := s.opsStatus[op]
+	opState, ok := s.statusById[op.ID]
 	if !ok {
 		// TODO: This should never happens
 		return true, true

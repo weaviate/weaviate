@@ -70,7 +70,7 @@ func (m *Manager) RegisterError(logId uint64, c *cmd.ApplyRequest) error {
 	}
 
 	// Store an op's error emitted by the consumer in the FSM
-	return m.replicationFSM.RegisterError(logId, req)
+	return m.replicationFSM.RegisterError(req)
 }
 
 func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
@@ -99,7 +99,7 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 		return nil, fmt.Errorf("%w: %d", ErrReplicationOperationNotFound, id)
 	}
 
-	status, ok := m.replicationFSM.opsStatus[op]
+	status, ok := m.replicationFSM.statusById[op.ID]
 	if !ok {
 		return nil, fmt.Errorf("unable to retrieve replication operation '%d' status", op.ID)
 	}
@@ -162,4 +162,24 @@ func (m *Manager) ReplicationCancellationComplete(c *cmd.ApplyRequest) error {
 
 	// Mark the replication operation as cancelled in the FSM
 	return m.replicationFSM.CancellationComplete(req)
+}
+
+func (m *Manager) DeleteReplicationsByCollection(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationsDeleteByCollectionRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Trigger deletion of all replication operations for the specified class in the FSM
+	return m.replicationFSM.DeleteReplicationsByCollection(req)
+}
+
+func (m *Manager) DeleteReplicationsByTenants(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationsDeleteByTenantsRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Trigger deletion of all replication operations for the specified class in the FSM
+	return m.replicationFSM.DeleteReplicationsByTenants(req)
 }
