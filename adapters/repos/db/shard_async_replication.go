@@ -508,9 +508,10 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 			// only remove the existing override if the collection/shard/source/target match and the
 			// existing upper time bound is <= to the override being removed (eg if the override to remove
 			// is "before" the existing override, don't remove it)
-			if !(existing.Equal(&targetNodeOverrideToRemove) && existing.UpperTimeBound <= targetNodeOverrideToRemove.UpperTimeBound) {
-				newTargetNodeOverrides = append(newTargetNodeOverrides, existing)
+			if existing.Equal(&targetNodeOverrideToRemove) && existing.UpperTimeBound <= targetNodeOverrideToRemove.UpperTimeBound {
+				continue
 			}
+			newTargetNodeOverrides = append(newTargetNodeOverrides, existing)
 		}
 		s.asyncReplicationConfig.targetNodeOverrides = newTargetNodeOverrides
 
