@@ -89,7 +89,7 @@ func NewRotateUserAPIKeyOK() *RotateUserAPIKeyOK {
 /*
 RotateUserAPIKeyOK describes a response with status code 200, with default header values.
 
-ApiKey successfully changed
+API key successfully updated.
 */
 type RotateUserAPIKeyOK struct {
 	Payload *models.UserAPIKey
@@ -349,7 +349,7 @@ func NewRotateUserAPIKeyNotFound() *RotateUserAPIKeyNotFound {
 /*
 RotateUserAPIKeyNotFound describes a response with status code 404, with default header values.
 
-user not found
+User not found.
 */
 type RotateUserAPIKeyNotFound struct {
 }

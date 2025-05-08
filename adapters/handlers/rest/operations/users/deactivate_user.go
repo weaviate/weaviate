@@ -48,7 +48,9 @@ func NewDeactivateUser(ctx *middleware.Context, handler DeactivateUserHandler) *
 /*
 	DeactivateUser swagger:route POST /users/db/{user_id}/deactivate users deactivateUser
 
-deactivate a user
+# Deactivate a user
+
+Deactivate a database user (`db` user type).
 */
 type DeactivateUser struct {
 	Context *middleware.Context
@@ -89,7 +91,7 @@ func (o *DeactivateUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // swagger:model DeactivateUserBody
 type DeactivateUserBody struct {
 
-	// if the key should be revoked when deactivating the user
+	// Whether the API key should be revoked when deactivating the user.
 	RevokeKey *bool `json:"revoke_key,omitempty" yaml:"revoke_key,omitempty"`
 }
 

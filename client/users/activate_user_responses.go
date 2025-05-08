@@ -95,7 +95,7 @@ func NewActivateUserOK() *ActivateUserOK {
 /*
 ActivateUserOK describes a response with status code 200, with default header values.
 
-User successfully activated
+User successfully activated.
 */
 type ActivateUserOK struct {
 }
@@ -343,7 +343,7 @@ func NewActivateUserNotFound() *ActivateUserNotFound {
 /*
 ActivateUserNotFound describes a response with status code 404, with default header values.
 
-user not found
+User not found.
 */
 type ActivateUserNotFound struct {
 }
@@ -399,7 +399,7 @@ func NewActivateUserConflict() *ActivateUserConflict {
 /*
 ActivateUserConflict describes a response with status code 409, with default header values.
 
-user already activated
+User already activated.
 */
 type ActivateUserConflict struct {
 }

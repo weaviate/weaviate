@@ -83,7 +83,7 @@ func NewGetUserInfoOK() *GetUserInfoOK {
 /*
 GetUserInfoOK describes a response with status code 200, with default header values.
 
-Info about the user
+Info about the user.
 */
 type GetUserInfoOK struct {
 	Payload *models.DBUserInfo
@@ -275,7 +275,7 @@ func NewGetUserInfoNotFound() *GetUserInfoNotFound {
 /*
 GetUserInfoNotFound describes a response with status code 404, with default header values.
 
-user not found
+User not found.
 */
 type GetUserInfoNotFound struct {
 }

@@ -25,7 +25,7 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// UserTypeOutput the type of user
+// UserTypeOutput The type of the user. `db_user` users are created through the `users` API, `db_env_user` users are created through environment variables, and `oidc` users are managed by an external OIDC provider.
 //
 // swagger:model UserTypeOutput
 type UserTypeOutput string

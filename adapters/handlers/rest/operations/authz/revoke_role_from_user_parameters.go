@@ -49,7 +49,7 @@ type RevokeRoleFromUserParams struct {
 	  In: body
 	*/
 	Body RevokeRoleFromUserBody
-	/*user name
+	/*The name of the user.
 	  Required: true
 	  In: path
 	*/

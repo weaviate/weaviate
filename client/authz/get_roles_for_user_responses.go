@@ -89,7 +89,7 @@ func NewGetRolesForUserOK() *GetRolesForUserOK {
 /*
 GetRolesForUserOK describes a response with status code 200, with default header values.
 
-Role assigned users
+Roles assigned to the user.
 */
 type GetRolesForUserOK struct {
 	Payload models.RolesListResponse
@@ -155,7 +155,7 @@ func NewGetRolesForUserBadRequest() *GetRolesForUserBadRequest {
 /*
 GetRolesForUserBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Malformed request.
 */
 type GetRolesForUserBadRequest struct {
 	Payload *models.ErrorResponse
@@ -347,7 +347,7 @@ func NewGetRolesForUserNotFound() *GetRolesForUserNotFound {
 /*
 GetRolesForUserNotFound describes a response with status code 404, with default header values.
 
-no role found for user
+No roles found for specified user.
 */
 type GetRolesForUserNotFound struct {
 }

@@ -83,7 +83,7 @@ func NewHasPermissionOK() *HasPermissionOK {
 /*
 HasPermissionOK describes a response with status code 200, with default header values.
 
-Permission check was successful
+Permission check was successful.
 */
 type HasPermissionOK struct {
 	Payload bool

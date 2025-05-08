@@ -28,7 +28,7 @@ import (
 const ActivateUserOKCode int = 200
 
 /*
-ActivateUserOK User successfully activated
+ActivateUserOK User successfully activated.
 
 swagger:response activateUserOK
 */
@@ -168,7 +168,7 @@ func (o *ActivateUserForbidden) WriteResponse(rw http.ResponseWriter, producer r
 const ActivateUserNotFoundCode int = 404
 
 /*
-ActivateUserNotFound user not found
+ActivateUserNotFound User not found.
 
 swagger:response activateUserNotFound
 */
@@ -193,7 +193,7 @@ func (o *ActivateUserNotFound) WriteResponse(rw http.ResponseWriter, producer ru
 const ActivateUserConflictCode int = 409
 
 /*
-ActivateUserConflict user already activated
+ActivateUserConflict User already activated.
 
 swagger:response activateUserConflict
 */
