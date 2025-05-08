@@ -162,6 +162,9 @@ type Config struct {
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier
 
+	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
+	ReplicationEngineMaxWorkers int
+
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
 

@@ -90,6 +90,19 @@ type ReplicationDetailsRequest struct {
 	Uuid strfmt.UUID
 }
 
+type ReplicationDetailsRequestByCollection struct {
+	Collection string
+}
+
+type ReplicationDetailsRequestByCollectionAndShard struct {
+	Collection string
+	Shard      string
+}
+
+type ReplicationDetailsRequestByTargetNode struct {
+	Node string
+}
+
 type ReplicationDetailsState struct {
 	State  string
 	Errors []string
@@ -132,4 +145,18 @@ type ReplicationsDeleteByTenantsRequest struct {
 	Version    int
 	Collection string
 	Tenants    []string
+}
+
+type ShardingState struct {
+	Collection string
+	Shards     map[string][]string
+}
+
+type ReplicationQueryShardingStateByCollectionRequest struct {
+	Collection string
+}
+
+type ReplicationQueryShardingStateByCollectionAndShardRequest struct {
+	Collection string
+	Shard      string
 }

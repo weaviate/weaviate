@@ -22,4 +22,5 @@ var (
 	ErrUnknownCommand = errors.New("unknown command")
 	// ErrDeadlineExceeded represents an error returned when the deadline for waiting for a specific update is exceeded.
 	ErrDeadlineExceeded = errors.New("deadline exceeded for waiting for update")
+	ErrNotFound         = errors.New("not found")
 )

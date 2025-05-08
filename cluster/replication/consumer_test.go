@@ -757,20 +757,17 @@ func TestConsumerOpCancellation(t *testing.T) {
 	}()
 
 	for _, sleep := range []uint64{0, 1} {
-		if sleep == 1 {
-			// Only mock the long-running operation when it will have started before cancellation
-			mockReplicaCopier.EXPECT().
-				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-				RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
-					// Simulate a long-running operation that checks for cancellation every loop
-					for {
-						if ctx.Err() != nil {
-							return ctx.Err()
-						}
-						time.Sleep(1 * time.Second)
+		mockReplicaCopier.EXPECT().
+			CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+				// Simulate a long-running operation that checks for cancellation every loop
+				for {
+					if ctx.Err() != nil {
+						return ctx.Err()
 					}
-				}).Maybe()
-		}
+					time.Sleep(1 * time.Second)
+				}
+			}).Maybe()
 		completionWg.Add(1)
 		op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
 		status := replication.NewShardReplicationStatus(api.HYDRATING)
@@ -868,20 +865,17 @@ func TestConsumerOpDeletion(t *testing.T) {
 	}()
 
 	for _, sleep := range []uint64{0, 1} {
-		if sleep == 1 {
-			// Only mock the long-running operation when it will have started before cancellation
-			mockReplicaCopier.EXPECT().
-				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-				RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
-					// Simulate a long-running operation that checks for cancellation every loop
-					for {
-						if ctx.Err() != nil {
-							return ctx.Err()
-						}
-						time.Sleep(1 * time.Second)
+		mockReplicaCopier.EXPECT().
+			CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+			RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+				// Simulate a long-running operation that checks for cancellation every loop
+				for {
+					if ctx.Err() != nil {
+						return ctx.Err()
 					}
-				}).Maybe()
-		}
+					time.Sleep(1 * time.Second)
+				}
+			}).Maybe()
 		completionWg.Add(1)
 		op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
 		status := replication.NewShardReplicationStatus(api.HYDRATING)

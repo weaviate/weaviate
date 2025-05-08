@@ -20,11 +20,10 @@ import (
 )
 
 var (
-	ErrAlreadyExists                = errors.New("already exists")
-	ErrNodeNotFound                 = errors.New("node not found")
-	ErrClassNotFound                = errors.New("class not found")
-	ErrShardNotFound                = errors.New("shard not found")
-	ErrReplicationOperationNotFound = errors.New("replication operation not found")
+	ErrAlreadyExists = errors.New("already exists")
+	ErrNodeNotFound  = errors.New("node not found")
+	ErrClassNotFound = errors.New("class not found")
+	ErrShardNotFound = errors.New("shard not found")
 )
 
 // ValidateReplicationReplicateShard validates that c is valid given the current state of the schema read using schemaReader

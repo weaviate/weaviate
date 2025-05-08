@@ -670,6 +670,7 @@ type IndexConfig struct {
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
 	ForceFullReplicasSearch             bool
+	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 	ShardLoadLimiter                    ShardLoadLimiter
