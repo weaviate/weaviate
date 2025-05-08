@@ -18,12 +18,15 @@ import (
 	"io"
 	"os"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/mmap"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/willf/bloom"
 )
 
@@ -55,6 +58,8 @@ type segment struct {
 	// the net addition this segment adds with respect to all previous segments
 	calcCountNetAdditions bool // see bucket for more datails
 	countNetAdditions     int
+
+	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
 }
 
 type diskIndex interface {
@@ -176,6 +181,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	primaryDiskIndex := segmentindex.NewDiskTree(primaryIndex)
 
+	stratLabel := header.Strategy.String()
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"strategy":  stratLabel,
+		"operation": "segmentMetadata",
+	})
+
 	seg := &segment{
 		level:                 header.Level,
 		path:                  path,
@@ -195,6 +206,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		useBloomFilter:        cfg.useBloomFilter,
 		calcCountNetAdditions: cfg.calcCountNetAdditions,
 		unMapContents:         unMapContents,
+		observeMetaWrite:      func(n int64) { observeWrite.Observe(float64(n)) },
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime

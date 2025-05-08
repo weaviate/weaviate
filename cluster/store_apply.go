@@ -18,10 +18,11 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/proto/api"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"google.golang.org/protobuf/proto"
 	gproto "google.golang.org/protobuf/proto"
+
+	"github.com/weaviate/weaviate/cluster/proto/api"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
 func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
@@ -95,6 +96,18 @@ func (st *Store) Apply(l *raft.Log) any {
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
 	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
+		if ret.Error != nil {
+			st.log.WithFields(logrus.Fields{
+				"log_type":      l.Type,
+				"log_name":      l.Type.String(),
+				"log_index":     l.Index,
+				"cmd_type":      cmd.Type,
+				"cmd_type_name": cmd.Type.String(),
+				"cmd_class":     cmd.Class,
+			}).WithError(ret.Error).Error("apply command")
+			return
+		}
+
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
 		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
@@ -109,17 +122,6 @@ func (st *Store) Apply(l *raft.Log) any {
 
 		st.lastAppliedIndex.Store(l.Index)
 		st.metrics.lastAppliedIndex.Set(float64(l.Index))
-
-		if ret.Error != nil {
-			st.log.WithFields(logrus.Fields{
-				"log_type":      l.Type,
-				"log_name":      l.Type.String(),
-				"log_index":     l.Index,
-				"cmd_type":      cmd.Type,
-				"cmd_type_name": cmd.Type.String(),
-				"cmd_class":     cmd.Class,
-			}).WithError(ret.Error).Error("apply command")
-		}
 	}()
 
 	cmd.Version = l.Index
