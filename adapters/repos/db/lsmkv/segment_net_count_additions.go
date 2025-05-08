@@ -12,13 +12,14 @@
 package lsmkv
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -118,13 +119,11 @@ func (s *segment) storeCountNetOnDisk() error {
 }
 
 func storeCountNetOnDisk(path string, value int, observeWrite diskio.MeteredWriterCallback) error {
-	buf := new(bytes.Buffer)
+	rw := byteops.NewReadWriter(make([]byte, byteops.Uint64Len+byteops.Uint32Len))
+	rw.MoveBufferPositionForward(byteops.Uint32Len) // leave space for checksum
+	rw.WriteUint64(uint64(value))
 
-	if err := binary.Write(buf, binary.LittleEndian, uint64(value)); err != nil {
-		return fmt.Errorf("write cna to buf: %w", err)
-	}
-
-	return writeWithChecksum(buf.Bytes(), path, observeWrite)
+	return writeWithChecksum(rw, path, observeWrite)
 }
 
 func (s *segment) loadCountNetFromDisk() error {
