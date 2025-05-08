@@ -294,6 +294,9 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+	if global.Manager().ShouldRejectRequests() {
+		return nil, global.ErrServerShuttingDown
+	}
 	var result *pb.SearchReply
 	var errInner error
 
