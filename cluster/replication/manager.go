@@ -31,7 +31,7 @@ type Manager struct {
 }
 
 func NewManager(schemaReader schema.SchemaReader, reg prometheus.Registerer) *Manager {
-	replicationFSM := newShardReplicationFSM(reg)
+	replicationFSM := NewShardReplicationFSM(reg)
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
