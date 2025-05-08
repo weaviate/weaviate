@@ -320,6 +320,9 @@ func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 	return nil
 }
 
+// writeWithChecksum expects the data in the buffer to start at position byteops.Uint32Len so the
+// checksum can be added into the same buffer at its start and everything can be written to the file
+// in one go
 func writeWithChecksum(bufWriter byteops.ReadWriter, path string, observeFileWriter diskio.MeteredWriterCallback) error {
 	// checksum needs to be at the start of the file
 	chksm := crc32.ChecksumIEEE(bufWriter.Buffer[byteops.Uint32Len:])
@@ -373,6 +376,7 @@ func loadWithChecksum(path string, lengthCheck int) ([]byte, error) {
 }
 
 func getBloomFilterSize(bf *bloom.BloomFilter) int {
+	// size of the bloom filter is size of the underlying bitSet and two uint64 parameters
 	bs := bf.BitSet()
 	bsSize := bs.BinaryStorageSize()
 	return bsSize + 2*byteops.Uint64Len
