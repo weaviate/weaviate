@@ -125,7 +125,6 @@ func refuseRequestsIfShuttingDown() func(http.Handler) http.Handler {
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
 func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Context) func(http.Handler) http.Handler {
 	return func(handler http.Handler) http.Handler {
-
 		handleCORS := cors.New(cors.Options{
 			OptionsPassthrough: true,
 			AllowedMethods:     strings.Split(appState.ServerConfig.Config.CORS.AllowMethods, ","),
