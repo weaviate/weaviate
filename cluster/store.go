@@ -43,6 +43,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -161,8 +162,14 @@ type Config struct {
 	// ReplicaCopier copies shard replicas between nodes
 	ReplicaCopier replicationTypes.ReplicaCopier
 
+	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
+	ReplicationEngineMaxWorkers int
+
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
+
+	// ReplicaMovementMinimumFinalizingWait is the upper time bound duration for replica movement operations.
+	ReplicaMovementMinimumFinalizingWait *runtime.DynamicValue[time.Duration]
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -660,6 +667,7 @@ func (st *Store) raftConfig() *raft.Config {
 
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
 	cfg.LogLevel = st.cfg.Logger.GetLevel().String()
+	cfg.NoLegacyTelemetry = true
 
 	logger := log.NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger

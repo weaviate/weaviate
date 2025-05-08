@@ -38,7 +38,9 @@
           "description": "The username associated with the provided key"
         }
       },
-      "required": ["username"]
+      "required": [
+        "username"
+      ]
     },
     "DBUserInfo": {
       "type": "object",
@@ -105,7 +107,7 @@
           "type": "string",
           "description": "role name"
         },
-        "permissions" : {
+        "permissions": {
           "type": "array",
           "items": {
             "type": "object",
@@ -114,7 +116,10 @@
           }
         }
       },
-      "required": ["name", "permissions"]
+      "required": [
+        "name",
+        "permissions"
+      ]
     },
     "Permission": {
       "type": "object",
@@ -235,32 +240,25 @@
           "description": "allowed actions in weaviate.",
           "enum": [
             "manage_backups",
-
             "read_cluster",
-
             "create_data",
             "read_data",
             "update_data",
             "delete_data",
-
             "read_nodes",
-
             "create_roles",
             "read_roles",
             "update_roles",
             "delete_roles",
-
             "create_collections",
             "read_collections",
             "update_collections",
             "delete_collections",
-
             "assign_and_revoke_users",
             "create_users",
             "read_users",
             "update_users",
             "delete_users",
-
             "create_tenants",
             "read_tenants",
             "update_tenants",
@@ -268,7 +266,9 @@
           ]
         }
       },
-      "required": ["action"]
+      "required": [
+        "action"
+      ]
     },
     "RolesListResponse": {
       "type": "array",
@@ -2755,11 +2755,11 @@
         {
           "properties": {
             "belongsToNodes": {
-                "description": "The list of nodes that owns that tenant data.",
-                "type": "array",
-                "items": {
-                    "type": "string"
-                }
+              "description": "The list of nodes that owns that tenant data.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         }
@@ -3053,11 +3053,95 @@
               "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
             }
           },
-          "400": {
-            "description": "Malformed request.",
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "summary": "Delete a replication operation.",
+        "description": "Deletes a replication operation. If the operation is in progress, it is cancelled and cleaned up before being deleted.",
+        "operationId": "deleteReplication",
+        "x-serviceIds": [
+          "weaviate.replication.replicate.delete"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "format": "uuid",
+            "description": "The id of the replication operation to delete.",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/replication/replicate/{id}/cancel": {
+      "post": {
+        "summary": "Cancel a replication operation.",
+        "description": "Cancels an in-progress replication operation as soon as possible but does not delete it leaving it in the unresumable CANCELLED state.",
+        "operationId": "cancelReplication",
+        "x-serviceIds": [
+          "weaviate.replication.replicate.cancel"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "parameters": [
+          {
+            "name": "id",
+            "in": "path",
+            "format": "uuid",
+            "description": "The id of the replication operation to cancel.",
+            "required": true,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully cancelled."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -3623,7 +3707,7 @@
         }
       }
     },
-    "/authz/roles/{id}/add-permissions":{
+    "/authz/roles/{id}/add-permissions": {
       "post": {
         "summary": "Add permission to a given role.",
         "operationId": "addPermissions",
@@ -3649,15 +3733,17 @@
               "type": "object",
               "properties": {
                 "permissions": {
-                  "type":"array",
+                  "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
                   },
                   "description": "permissions to be added to the role"
                 }
               },
-              "required": ["name", "permissions"]
-
+              "required": [
+                "name",
+                "permissions"
+              ]
             }
           }
         ],
@@ -3698,7 +3784,7 @@
         }
       }
     },
-    "/authz/roles/{id}/remove-permissions":{
+    "/authz/roles/{id}/remove-permissions": {
       "post": {
         "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
         "operationId": "removePermissions",
@@ -3724,14 +3810,16 @@
               "type": "object",
               "properties": {
                 "permissions": {
-                  "type":"array",
+                  "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
                   },
                   "description": "permissions to remove from the role"
                 }
               },
-              "required": ["permissions"]
+              "required": [
+                "permissions"
+              ]
             }
           }
         ],
@@ -3844,7 +3932,7 @@
         ],
         "responses": {
           "204": {
-              "description": "Successfully deleted."
+            "description": "Successfully deleted."
           },
           "400": {
             "description": "Bad request",
@@ -3870,7 +3958,7 @@
         }
       }
     },
-    "/authz/roles/{id}/has-permission":{
+    "/authz/roles/{id}/has-permission": {
       "post": {
         "summary": "Check whether role possesses this permission.",
         "operationId": "hasPermission",
@@ -3960,7 +4048,7 @@
             "schema": {
               "type": "array",
               "items": {
-                  "type": "string"
+                "type": "string"
               }
             }
           },

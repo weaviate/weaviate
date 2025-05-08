@@ -22,4 +22,6 @@ type FSMUpdater interface {
 	DeleteReplicaFromShard(context.Context, string, string, string) (uint64, error)
 	ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplicationState) error
 	ReplicationRegisterError(id uint64, errorToRegister string) error
+	ReplicationRemoveReplicaOp(id uint64) error
+	ReplicationCancellationComplete(id uint64) error
 }

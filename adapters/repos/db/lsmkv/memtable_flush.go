@@ -18,6 +18,9 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -57,7 +60,13 @@ func (m *Memtable) flush() (rerr error) {
 		}
 	}()
 
-	bufw := bufio.NewWriter(f)
+	observeWrite := m.metrics.writeMemtable
+	cb := func(written int64) {
+		observeWrite(written)
+	}
+	meteredF := diskio.NewMeteredWriter(f, cb)
+
+	bufw := bufio.NewWriter(meteredF)
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(bufw),
 		segmentindex.WithChecksumsDisabled(!m.enableChecksumValidation),
@@ -105,6 +114,10 @@ func (m *Memtable) flush() (rerr error) {
 			Keys:                keys,
 			SecondaryIndexCount: m.secondaryIndices,
 			ScratchSpacePath:    m.path + ".scratch.d",
+			ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+				"strategy":  m.strategy,
+				"operation": "writeIndices",
+			}),
 		}
 
 		// TODO: Currently no checksum validation support for StrategyInverted.
@@ -126,6 +139,10 @@ func (m *Memtable) flush() (rerr error) {
 	//       all strategies we can simply `segmentFile.WriteChecksum()`
 	if m.strategy != StrategyInverted {
 		if _, err := segmentFile.WriteChecksum(); err != nil {
+			return err
+		}
+	} else {
+		if err := bufw.Flush(); err != nil {
 			return err
 		}
 	}

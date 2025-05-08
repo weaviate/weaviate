@@ -62,6 +62,12 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		return
 	}
 
+	s.haltForTransferMux.Lock()
+	if s.haltForTransferCancel != nil {
+		s.haltForTransferCancel()
+	}
+	s.haltForTransferMux.Unlock()
+
 	ec := errorcompounder.New()
 
 	err = s.GetPropertyLengthTracker().Close()

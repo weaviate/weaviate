@@ -40,6 +40,11 @@ type ShardReplicationOpStatus struct {
 	// Current is the current state of the shard replication operation
 	Current State
 
+	// ShouldCancel is a flag indicating that the operation should be cancelled at the earliest possible time
+	ShouldCancel bool
+	// ShouldDelete is a flag indicating that the operation should be cancelled at the earliest possible time and then deleted
+	ShouldDelete bool
+
 	// History is the history of the state changes of the shard replication operation
 	History StateHistory
 }
@@ -80,6 +85,26 @@ func (s *ShardReplicationOpStatus) GetCurrent() State {
 // GetCurrentState returns the current state of the shard replication operation
 func (s *ShardReplicationOpStatus) GetCurrentState() api.ShardReplicationState {
 	return s.Current.State
+}
+
+func (s *ShardReplicationOpStatus) TriggerCancellation() {
+	s.ShouldCancel = true
+	s.ShouldDelete = false
+}
+
+func (s *ShardReplicationOpStatus) CompleteCancellation() {
+	s.ShouldCancel = false
+	s.ShouldDelete = false
+	s.ChangeState(api.CANCELLED)
+}
+
+func (s *ShardReplicationOpStatus) TriggerDeletion() {
+	s.ShouldCancel = true
+	s.ShouldDelete = true
+}
+
+func (s *ShardReplicationOpStatus) OnlyCancellation() bool {
+	return s.ShouldCancel && !s.ShouldDelete
 }
 
 // GetHistory returns the history of the state changes of the shard replication operation
