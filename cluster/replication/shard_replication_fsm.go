@@ -68,13 +68,13 @@ type ShardReplicationFSM struct {
 	opsBySource map[string][]ShardReplicationOp
 	// opsByCollection stores the array of ShardReplicationOp for each collection
 	opsByCollection map[string][]ShardReplicationOp
-	// opsByShard stores the array of ShardReplicationOp for each shard
-	opsByShard map[string][]ShardReplicationOp
+	// opsByCollectionAndShard stores the array of ShardReplicationOp for each collection and shard
+	opsByCollectionAndShard map[string]map[string][]ShardReplicationOp
 	// opsByTargetFQDN stores the registered ShardReplicationOp (if any) for each destination replica
 	opsByTargetFQDN map[shardFQDN]ShardReplicationOp
 	// opsBySourceFQDN stores the registered ShardReplicationOp (if any) for each source replica
 	opsBySourceFQDN map[shardFQDN]ShardReplicationOp
-	// opsByShard stores opId -> replicationOp
+	// opsById stores opId -> replicationOp
 	opsById map[uint64]ShardReplicationOp
 	// opsStatus stores op -> opStatus
 	opsStatus map[ShardReplicationOp]ShardReplicationOpStatus
@@ -84,15 +84,15 @@ type ShardReplicationFSM struct {
 
 func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 	fsm := &ShardReplicationFSM{
-		idsByUuid:       make(map[strfmt.UUID]uint64),
-		opsByTarget:     make(map[string][]ShardReplicationOp),
-		opsBySource:     make(map[string][]ShardReplicationOp),
-		opsByCollection: make(map[string][]ShardReplicationOp),
-		opsByShard:      make(map[string][]ShardReplicationOp),
-		opsByTargetFQDN: make(map[shardFQDN]ShardReplicationOp),
-		opsBySourceFQDN: make(map[shardFQDN]ShardReplicationOp),
-		opsById:         make(map[uint64]ShardReplicationOp),
-		opsStatus:       make(map[ShardReplicationOp]ShardReplicationOpStatus),
+		idsByUuid:               make(map[strfmt.UUID]uint64),
+		opsByTarget:             make(map[string][]ShardReplicationOp),
+		opsBySource:             make(map[string][]ShardReplicationOp),
+		opsByCollection:         make(map[string][]ShardReplicationOp),
+		opsByCollectionAndShard: make(map[string]map[string][]ShardReplicationOp),
+		opsByTargetFQDN:         make(map[shardFQDN]ShardReplicationOp),
+		opsBySourceFQDN:         make(map[shardFQDN]ShardReplicationOp),
+		opsById:                 make(map[uint64]ShardReplicationOp),
+		opsStatus:               make(map[ShardReplicationOp]ShardReplicationOpStatus),
 	}
 
 	fsm.opsByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
@@ -145,7 +145,7 @@ func (s *ShardReplicationFSM) resetState() {
 	maps.Clear(s.opsByTarget)
 	maps.Clear(s.opsBySource)
 	maps.Clear(s.opsByCollection)
-	maps.Clear(s.opsByShard)
+	maps.Clear(s.opsByCollectionAndShard)
 	maps.Clear(s.opsByTargetFQDN)
 	maps.Clear(s.opsBySourceFQDN)
 	maps.Clear(s.opsById)
@@ -158,6 +158,34 @@ func (s *ShardReplicationFSM) GetOpsForTarget(node string) []ShardReplicationOp 
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 	return s.opsByTarget[node]
+}
+
+func (s *ShardReplicationFSM) GetOpsForCollection(collection string) ([]ShardReplicationOp, bool) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	val, ok := s.opsByCollection[collection]
+	return val, ok
+}
+
+func (s *ShardReplicationFSM) GetOpsForCollectionAndShard(collection string, shard string) ([]ShardReplicationOp, bool) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	shardOps, ok := s.opsByCollectionAndShard[collection]
+	if !ok {
+		return nil, false
+	}
+	val, ok := shardOps[shard]
+	if !ok {
+		return nil, false
+	}
+	return val, true
+}
+
+func (s *ShardReplicationFSM) GetOpsForTargetNode(node string) ([]ShardReplicationOp, bool) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	val, ok := s.opsByTarget[node]
+	return val, ok
 }
 
 // ShouldConsumeOps returns true if the operation should be consumed by the consumer
@@ -187,7 +215,7 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string,
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
-	_, ok := s.opsByShard[shard]
+	_, ok := s.opsByCollectionAndShard[collection][shard]
 	// Check if the specified shard is current undergoing replication at all.
 	// If not we can return early as all replicas can be used for read/writes
 	if !ok {
