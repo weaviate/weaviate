@@ -65,8 +65,6 @@ func (c *Copier) RemoveLocalReplica(ctx context.Context, collectionName, shardNa
 	if err != nil {
 		return // no shard found, nothing to do
 	}
-
-	return
 }
 
 // CopyReplica copies a shard replica from the source node to this node.
