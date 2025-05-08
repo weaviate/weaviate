@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
 	"github.com/weaviate/weaviate/entities/schema"
 )
+
 var blockMaxBufferSize = 4096
 
 func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
@@ -522,7 +523,7 @@ func (s *SegmentBlockMax) Score(averagePropLength float64, additionalExplanation
 
 	freq := float64(s.blockDataDecoded.Tfs[s.blockDataIdx])
 	propLength := s.propLengths[s.idPointer]
-	tf := freq / (freq + s.k1*(1-s.b+s.b*(float64(propLength)/s.averagePropLength)))
+	tf := freq / (freq + s.k1*((1-s.b)+s.b*(float64(propLength)/s.averagePropLength)))
 	s.Metrics.DocCountScored++
 	if s.blockEntryIdx != s.Metrics.LastAddedBlock {
 		s.Metrics.BlockCountDecodedFreqs++
