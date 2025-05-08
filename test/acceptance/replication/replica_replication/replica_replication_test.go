@@ -239,7 +239,8 @@ func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
 	})
 }
 
-func TestReplicaMovementTenantHappyPath(t *testing.T) {
+func (suite *ReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
+	t := suite.T()
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -418,7 +419,8 @@ func TestReplicaMovementTenantHappyPath(t *testing.T) {
 	})
 }
 
-func TestReplicaMovementOneWriteExtraSlowFileCopy(t *testing.T) {
+func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy() {
+	t := suite.T()
 	mainCtx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
 
