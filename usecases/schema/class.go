@@ -221,13 +221,16 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 
 	class = schema.UppercaseClassName(class)
 
+	if _, err = h.schemaManager.DeleteClass(ctx, class); err != nil {
+		return err
+	}
+
 	if err = h.replicationsDeleter.DeleteReplicationsByCollection(class); err != nil {
 		// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
 		h.logger.WithField("error", err).WithField("class", class).Error("could not delete replication operations for deleted class")
 	}
 
-	_, err = h.schemaManager.DeleteClass(ctx, class)
-	return err
+	return nil
 }
 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
