@@ -33,10 +33,6 @@ func testText2VecGoogle(host, gcpProject, vectorizerName string) func(t *testing
 			model string
 		}{
 			{
-				name:  "textembedding-gecko@001",
-				model: "textembedding-gecko@001",
-			},
-			{
 				name:  "textembedding-gecko@latest",
 				model: "textembedding-gecko@latest",
 			},
@@ -45,24 +41,12 @@ func testText2VecGoogle(host, gcpProject, vectorizerName string) func(t *testing
 				model: "textembedding-gecko-multilingual@latest",
 			},
 			{
-				name:  "textembedding-gecko@003",
-				model: "textembedding-gecko@003",
+				name:  "text-embedding-005",
+				model: "text-embedding-005",
 			},
 			{
-				name:  "textembedding-gecko@002",
-				model: "textembedding-gecko@002",
-			},
-			{
-				name:  "textembedding-gecko-multilingual@001",
-				model: "textembedding-gecko-multilingual@001",
-			},
-			{
-				name:  "text-embedding-preview-0409",
-				model: "text-embedding-preview-0409",
-			},
-			{
-				name:  "text-multilingual-embedding-preview-0409",
-				model: "text-multilingual-embedding-preview-0409",
+				name:  "text-multilingual-embedding-002",
+				model: "text-multilingual-embedding-002",
 			},
 		}
 		for _, tt := range tests {
