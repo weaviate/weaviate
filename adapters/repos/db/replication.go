@@ -424,9 +424,9 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	return localShard.GetFile(ctx, relativeFilePath)
 }
 
-// IncomingSetAsyncReplicationTargetNode configures and starts async replication with
+// IncomingAddAsyncReplicationTargetNode configures and starts async replication with
 // the given node as the target.
-func (i *Index) IncomingSetAsyncReplicationTargetNode(
+func (i *Index) IncomingAddAsyncReplicationTargetNode(
 	ctx context.Context,
 	shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
@@ -438,17 +438,20 @@ func (i *Index) IncomingSetAsyncReplicationTargetNode(
 	}
 	defer release()
 
-	err = localShard.addTargetNodeOverride(ctx, targetNodeOverride)
+	return localShard.addTargetNodeOverride(ctx, targetNodeOverride)
+}
+
+func (i *Index) IncomingRemoveAsyncReplicationTargetNode(ctx context.Context,
+	shardName string,
+	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
+) error {
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return err
 	}
-	// we call update async replication config here to ensure that async replication starts
-	// if it's not already running
-	err = localShard.UpdateAsyncReplicationConfig(ctx, true)
-	if err != nil {
-		return err
-	}
-	return nil
+	defer release()
+
+	return localShard.removeTargetNodeOverride(ctx, targetNodeOverride)
 }
 
 func (s *Shard) filePutter(ctx context.Context,

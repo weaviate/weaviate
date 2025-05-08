@@ -319,16 +319,19 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
+	fmt.Println("NATEE finder collectsharddifferences start")
 	routingPlan, err := f.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:       f.class,
 		Shard:            shardName,
 		ConsistencyLevel: types.ConsistencyLevelOne,
 	})
+	fmt.Println("NATEE finder collectsharddifferences routingPlan", routingPlan, err)
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
 
 	collectDiffForTargetNode := func(targetNodeAddress, targetNodeName string) (*ShardDifferenceReader, error) {
+		fmt.Println("NATEE finder collectsharddifferences collectDiffForTargetNode start")
 		ctx, cancel := context.WithTimeout(ctx, diffTimeoutPerNode)
 		defer cancel()
 
@@ -338,14 +341,17 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 
 		diff.Set(0) // init comparison at root level
 
+		fmt.Println("NATEE finder collectsharddifferences collectDiffForTargetNode loop")
 		for l := 0; l <= ht.Height(); l++ {
 			_, err := ht.Level(l, diff, digests)
 			if err != nil {
+				fmt.Println("NATEE finder collectsharddifferences collectDiffForTargetNode level", l, "err", err)
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 
 			levelDigests, err := f.client.HashTreeLevel(ctx, targetNodeAddress, f.class, shardName, l, diff)
 			if err != nil {
+				fmt.Println("NATEE finder collectsharddifferences collectDiffForTargetNode levelDigests", l, "err", err)
 				return nil, fmt.Errorf("%q: %w", targetNodeAddress, err)
 			}
 			if len(levelDigests) == 0 {
@@ -359,6 +365,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 				break
 			}
 		}
+		fmt.Println("NATEE finder collectsharddifferences collectDiffForTargetNode end")
 
 		if diff.SetCount() == 0 {
 			return &ShardDifferenceReader{
@@ -400,6 +407,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	}
 	localHostAddr, _ := f.router.NodeHostname(localNodeName)
 	for i, targetNodeAddress := range replicasHostAddrs {
+		fmt.Println("NATEE finder collectsharddifferences for i", i, "targetNodeAddress", targetNodeAddress)
 		targetNodeName := replicaNodeNames[i]
 		if targetNodeAddress == localHostAddr {
 			continue
@@ -421,14 +429,9 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, err
 	}
 
-	var targetNodeName string
-	// TODO how to get rid of len == 1 check?
-	if len(targetNodeOverrides) == 1 {
-		targetNodeName = targetNodeOverrides[0].TargetNode
-	}
-	return &ShardDifferenceReader{
-		TargetNodeName: targetNodeName,
-	}, ErrNoDiffFound
+	fmt.Println("NATEE finder collectsharddifferences end")
+
+	return &ShardDifferenceReader{}, ErrNoDiffFound
 }
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,

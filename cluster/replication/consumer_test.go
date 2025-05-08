@@ -73,7 +73,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
 			}, nil)
 		mockReplicaCopier.EXPECT().
-			SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+			AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -321,7 +321,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
 			mockReplicaCopier.EXPECT().
-				SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+				AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 		}
 
 		var (
@@ -588,7 +588,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 						StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
 					}, nil)
 				mockReplicaCopier.EXPECT().
-					SetAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)

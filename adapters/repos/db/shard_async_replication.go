@@ -474,8 +474,46 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
 
-	// TODO how to handle duplicates here? also, what if same source/target node shard movement op is sent twice?
+	for i, existing := range s.asyncReplicationConfig.targetNodeOverrides {
+		if existing.Equal(&targetNodeOverride) {
+			// if the collection/shard/source/target already exists, use the max
+			// upper time bound between the existing/new override
+			maxUpperTimeBound := existing.UpperTimeBound
+			if targetNodeOverride.UpperTimeBound > maxUpperTimeBound {
+				maxUpperTimeBound = targetNodeOverride.UpperTimeBound
+			}
+			targetNodeOverride.UpperTimeBound = maxUpperTimeBound
+			s.asyncReplicationConfig.targetNodeOverrides[i] = targetNodeOverride
+			return nil
+		}
+	}
+
 	s.asyncReplicationConfig.targetNodeOverrides = append(s.asyncReplicationConfig.targetNodeOverrides, targetNodeOverride)
+	// we call update async replication config here to ensure that async replication starts
+	// if it's not already running
+	return s.UpdateAsyncReplicationConfig(ctx, true)
+}
+
+func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverrideToRemove additional.AsyncReplicationTargetNodeOverride) error {
+	s.asyncReplicationRWMux.Lock()
+	defer s.asyncReplicationRWMux.Unlock()
+
+	newTargetNodeOverrides := make([]additional.AsyncReplicationTargetNodeOverride, 0, len(s.asyncReplicationConfig.targetNodeOverrides))
+	for _, existing := range s.asyncReplicationConfig.targetNodeOverrides {
+		// only remove the existing override if the collection/shard/source/target match and the
+		// existing upper time bound is <= to the override being removed (eg if the override to remove
+		// is "before" the existing override, don't remove it)
+		if !(existing.Equal(&targetNodeOverrideToRemove) && existing.UpperTimeBound <= targetNodeOverrideToRemove.UpperTimeBound) {
+			newTargetNodeOverrides = append(newTargetNodeOverrides, existing)
+		}
+	}
+	s.asyncReplicationConfig.targetNodeOverrides = newTargetNodeOverrides
+
+	// if there are no overrides left, return the async replication config to what it
+	// was before overrides were added
+	if len(s.asyncReplicationConfig.targetNodeOverrides) == 0 {
+		s.UpdateAsyncReplicationConfig(ctx, s.index.Config.AsyncReplicationEnabled)
+	}
 	return nil
 }
 
@@ -596,7 +634,11 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 						s.asyncReplicationStatsByTargetNode = make(map[string]*hashBeatHostStats)
 					}
 					if (err == nil || errors.Is(err, replica.ErrNoDiffFound)) && stats != nil {
-						s.asyncReplicationStatsByTargetNode[stats.targetNodeName] = stats
+						for _, stat := range stats {
+							if stat != nil {
+								s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
+							}
+						}
 					}
 				}()
 				if err != nil {
@@ -643,26 +685,32 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 					continue
 				}
 
+				statsHaveObjectsPropagated := false
 				if time.Since(lastLog) >= config.loggingFrequency {
 					lastLog = time.Now()
 
-					s.index.logger.
-						WithField("action", "async_replication").
-						WithField("class_name", s.class.Class).
-						WithField("shard_name", s.name).
-						WithField("target_node_name", stats.targetNodeName).
-						WithField("diff_calculation_took", stats.diffCalculationTook.String()).
-						WithField("local_objects", stats.localObjects).
-						WithField("remote_objects", stats.remoteObjects).
-						WithField("objects_propagated", stats.objectsPropagated).
-						WithField("object_progation_took", stats.objectProgationTook.String()).
-						Info("hashbeat iteration successfully completed")
+					for _, stat := range stats {
+						s.index.logger.
+							WithField("action", "async_replication").
+							WithField("class_name", s.class.Class).
+							WithField("shard_name", s.name).
+							WithField("target_node_name", stat.targetNodeName).
+							WithField("diff_calculation_took", stat.diffCalculationTook.String()).
+							WithField("local_objects", stat.localObjects).
+							WithField("remote_objects", stat.remoteObjects).
+							WithField("objects_propagated", stat.objectsPropagated).
+							WithField("object_progation_took", stat.objectProgationTook.String()).
+							Info("hashbeat iteration successfully completed")
+						if stat.objectsPropagated > 0 {
+							statsHaveObjectsPropagated = true
+						}
+					}
 				}
 
 				backoffTimer.Reset()
 				lastHashbeatMux.Lock()
 				lastHashbeat = time.Now()
-				lastHashbeatPropagatedObjects = stats.objectsPropagated > 0
+				lastHashbeatPropagatedObjects = statsHaveObjectsPropagated
 				lastHashbeatMux.Unlock()
 			}
 		}
@@ -733,7 +781,7 @@ type hashBeatHostStats struct {
 	objectProgationTook time.Duration
 }
 
-func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (stats *hashBeatHostStats, err error) {
+func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]*hashBeatHostStats, error) {
 	var ht hashtree.AggregatedHashTree
 
 	s.asyncReplicationRWMux.RLock()
@@ -748,13 +796,19 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 	diffCalculationStart := time.Now()
 
 	shardDiffReader, err := s.index.replicator.CollectShardDifferences(ctx, s.name, ht, config.diffPerNodeTimeout, config.targetNodeOverrides)
+	// if any node checked had a difference, then err = nil
+	// if err = NoDiffFound AND target node overrides len > 0 -> all target node overrides have no diff
 	if err != nil {
 		if errors.Is(err, replica.ErrNoDiffFound) && len(config.targetNodeOverrides) > 0 {
-			return &hashBeatHostStats{
-				targetNodeName:    shardDiffReader.TargetNodeName,
-				diffStartTime:     diffCalculationStart,
-				objectsPropagated: 0,
-			}, err
+			stats := make([]*hashBeatHostStats, 0, len(config.targetNodeOverrides))
+			for _, o := range config.targetNodeOverrides {
+				stats = append(stats, &hashBeatHostStats{
+					targetNodeName:    o.TargetNode,
+					diffStartTime:     diffCalculationStart,
+					objectsPropagated: 0,
+				})
+			}
+			return stats, err
 		}
 		return nil, fmt.Errorf("collecting differences: %w", err)
 	}
@@ -844,14 +898,16 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) (st
 		}
 	}
 
-	return &hashBeatHostStats{
-		targetNodeName:      shardDiffReader.TargetNodeName,
-		diffStartTime:       diffCalculationStart,
-		diffCalculationTook: diffCalculationTook,
-		localObjects:        localObjectsCount,
-		remoteObjects:       remoteObjectsCount,
-		objectsPropagated:   len(objectsToPropagate),
-		objectProgationTook: time.Since(objectProgationStart),
+	return []*hashBeatHostStats{
+		&hashBeatHostStats{
+			targetNodeName:      shardDiffReader.TargetNodeName,
+			diffStartTime:       diffCalculationStart,
+			diffCalculationTook: diffCalculationTook,
+			localObjects:        localObjectsCount,
+			remoteObjects:       remoteObjectsCount,
+			objectsPropagated:   len(objectsToPropagate),
+			objectProgationTook: time.Since(objectProgationStart),
+		},
 	}, nil
 }
 
