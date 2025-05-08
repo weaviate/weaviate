@@ -90,7 +90,7 @@ func (h *replicationHandler) handleReplicationReplicateResponse(id strfmt.UUID) 
 	return replication.NewReplicateOK().WithPayload(&models.ReplicationReplicateReplicaResponse{ID: &id})
 }
 
-func (h *replicationHandler) handleReplicationDetailsResponse(withHistory bool, response api.ReplicationDetailsResponse) *replication.ReplicationDetailsOK {
+func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool, response api.ReplicationDetailsResponse) *models.ReplicationReplicateDetailsReplicaResponse {
 	// Compute history only if requested
 	var history []*models.ReplicationReplicateDetailsReplicaStatus
 	if withHistory {
@@ -103,7 +103,7 @@ func (h *replicationHandler) handleReplicationDetailsResponse(withHistory bool, 
 		}
 	}
 
-	return replication.NewReplicationDetailsOK().WithPayload(&models.ReplicationReplicateDetailsReplicaResponse{
+	return &models.ReplicationReplicateDetailsReplicaResponse{
 		Collection:   &response.Collection,
 		ID:           &response.Uuid,
 		ShardID:      &response.ShardId,
@@ -115,7 +115,19 @@ func (h *replicationHandler) handleReplicationDetailsResponse(withHistory bool, 
 		},
 		StatusHistory: history,
 		TransferType:  &response.TransferType,
-	})
+	}
+}
+
+func (h *replicationHandler) generateArrayReplicationDetailsResponse(withHistory bool, response []api.ReplicationDetailsResponse) []*models.ReplicationReplicateDetailsReplicaResponse {
+	responses := make([]*models.ReplicationReplicateDetailsReplicaResponse, len(response))
+	for i, r := range response {
+		responses[i] = h.generateReplicationDetailsResponse(withHistory, r)
+	}
+	return responses
+}
+
+func (h *replicationHandler) handleReplicationDetailsResponse(withHistory bool, response api.ReplicationDetailsResponse) *replication.ReplicationDetailsOK {
+	return replication.NewReplicationDetailsOK().WithPayload(h.generateReplicationDetailsResponse(withHistory, response))
 }
 
 func (h *replicationHandler) handleForbiddenError(err error) middleware.Responder {
@@ -185,4 +197,87 @@ func (h *replicationHandler) cancelReplication(params replication.CancelReplicat
 	}).Info("replication operation cancelled")
 
 	return replication.NewCancelReplicationNoContent()
+}
+
+func (h *replicationHandler) listReplication(params replication.ListReplicationParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
+		return replication.NewListReplicationForbidden()
+	}
+
+	// Validate query params
+	if params.Collection != nil && params.Shard != nil && params.NodeID != nil {
+		return replication.NewListReplicationBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("no query params provided")))
+	}
+
+	// Start the query based on the provided query params
+	var response []api.ReplicationDetailsResponse
+	var err error
+	if params.Collection != nil {
+		if params.Shard != nil {
+			response, err = h.replicationManager.GetReplicationDetailsByCollectionAndShard(*params.Collection, *params.Shard)
+		} else {
+			response, err = h.replicationManager.GetReplicationDetailsByCollection(*params.Collection)
+		}
+	} else if params.NodeID != nil {
+		response, err = h.replicationManager.GetReplicationDetailsByTargetNode(*params.NodeID)
+	} else {
+		// This can happen if the user provides only a shard id without a collection id
+		return replication.NewListReplicationBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("shard id provided without collection id")))
+	}
+
+	// Handle error if any
+	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
+		return replication.NewListReplicationNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	} else if err != nil {
+		return replication.NewListReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	// Parse response into the correct format and return
+	includeHistory := false
+	if params.IncludeHistory != nil {
+		includeHistory = *params.IncludeHistory
+	}
+	return replication.NewListReplicationOK().WithPayload(h.generateArrayReplicationDetailsResponse(includeHistory, response))
+}
+
+func (h *replicationHandler) generateShardingStateResponse(collection string, shards map[string][]string) *models.ReplicationShardingStateResponse {
+	shardsResponse := make([]*models.ReplicationShardReplicas, 0, len(shards))
+	for shard, replicas := range shards {
+		shardsResponse = append(shardsResponse, &models.ReplicationShardReplicas{
+			Shard:    shard,
+			Replicas: replicas,
+		})
+	}
+	return &models.ReplicationShardingStateResponse{
+		ShardingState: &models.ReplicationShardingState{
+			Collection: collection,
+			Shards:     shardsResponse,
+		},
+	}
+}
+
+func (h *replicationHandler) getCollectionShardingState(params replication.GetCollectionShardingStateParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...); err != nil {
+		return replication.NewGetCollectionShardingStateForbidden()
+	}
+
+	if params.Collection == nil {
+		return replication.NewGetCollectionShardingStateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("collection is required")))
+	}
+
+	var shardingState api.ShardingState
+	var err error
+	if params.Shard != nil {
+		shardingState, err = h.replicationManager.QueryShardingStateByCollectionAndShard(*params.Collection, *params.Shard)
+	} else {
+		shardingState, err = h.replicationManager.QueryShardingStateByCollection(*params.Collection)
+	}
+
+	if errors.Is(err, replicationTypes.ErrNotFound) {
+		return replication.NewGetCollectionShardingStateNotFound()
+	} else if err != nil {
+		return replication.NewGetCollectionShardingStateInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	return replication.NewGetCollectionShardingStateOK().WithPayload(h.generateShardingStateResponse(shardingState.Collection, shardingState.Shards))
 }

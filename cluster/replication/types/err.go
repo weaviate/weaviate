@@ -16,4 +16,10 @@ import "errors"
 var (
 	ErrInvalidRequest               = errors.New("invalid request")
 	ErrReplicationOperationNotFound = errors.New("replication operation not found")
+	// ErrNotFound is a custom error that is used to indicate that a resource was not found.
+	// We use it to return a specific error code from the RPC layer to ensure we don't retry an operation
+	// returning an error indicating that the resource was not found.
+	// We add E00001 to the error string to ensure it's unique and can be checked for specifically.
+	// Otherwise it could be matched against any "not found" error.
+	ErrNotFound = errors.New("E00001: not found")
 )

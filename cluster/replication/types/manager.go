@@ -17,6 +17,9 @@ import (
 )
 
 type Manager interface {
+	QueryShardingStateByCollection(collection string) (api.ShardingState, error)
+	QueryShardingStateByCollectionAndShard(collection string, shard string) (api.ShardingState, error)
+
 	ReplicationReplicateReplica(opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error
 	ReplicationDisableReplica(node string, collection string, shard string) error
 	ReplicationDeleteReplica(node string, collection string, shard string) error
@@ -31,6 +34,38 @@ type Manager interface {
 	//   - error: Returns ErrReplicationOperationNotFound if the operation doesn't exist,
 	//     or another error explaining why retrieving the replication operation details failed.
 	GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.ReplicationDetailsResponse, error)
+
+	// GetReplicationDetailsByCollection retrieves the details of all replication operations for a given collection.
+	//
+	// Parameters:
+	//   - collection: The name of the collection to retrieve replication details for.
+	//
+	// Returns:
+	//   - []api.ReplicationDetailsResponse: A list of replication details for the given collection. Returns an empty list if there are no replication operations for the given collection.
+	//   - error: Returns an error if fetching the replication details failed.
+	GetReplicationDetailsByCollection(collection string) ([]api.ReplicationDetailsResponse, error)
+
+	// GetReplicationDetailsByCollectionAndShard retrieves the details of all replication operations for a given collection and shard.
+	//
+	// Parameters:
+	//   - collection: The name of the collection to retrieve replication details for.
+	//   - shard: The name of the shard to retrieve replication details for.
+	//
+	// Returns:
+	//   - []api.ReplicationDetailsResponse: A list of replication details for the given collection and shard. Returns an empty list if there are no replication operations for the given collection and shard.
+	//   - error: Returns an error if fetching the replication details failed.
+	GetReplicationDetailsByCollectionAndShard(collection string, shard string) ([]api.ReplicationDetailsResponse, error)
+
+	// GetReplicationDetailsByTargetNode retrieves the details of all replication operations for a given target node.
+	//
+	// Parameters:
+	//   - node: The name of the target node to retrieve replication details for.
+	//
+	// Returns:
+	//   - []api.ReplicationDetailsResponse: A list of replication details for the given target node. Returns an empty list if there are no replication operations for the given target node.
+	//   - error: Returns an error if fetching the replication details failed.
+	GetReplicationDetailsByTargetNode(node string) ([]api.ReplicationDetailsResponse, error)
+
 	// CancelReplication cancels a replication operation meaning that the operation is stopped, cleaned-up on the target, and moved to the CANCELLED state.
 	//
 	// Parameters:

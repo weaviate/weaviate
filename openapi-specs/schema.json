@@ -38,7 +38,9 @@
           "description": "The username associated with the provided key"
         }
       },
-      "required": ["username"]
+      "required": [
+        "username"
+      ]
     },
     "DBUserInfo": {
       "type": "object",
@@ -105,7 +107,7 @@
           "type": "string",
           "description": "role name"
         },
-        "permissions" : {
+        "permissions": {
           "type": "array",
           "items": {
             "type": "object",
@@ -114,7 +116,10 @@
           }
         }
       },
-      "required": ["name", "permissions"]
+      "required": [
+        "name",
+        "permissions"
+      ]
     },
     "Permission": {
       "type": "object",
@@ -235,32 +240,25 @@
           "description": "allowed actions in weaviate.",
           "enum": [
             "manage_backups",
-
             "read_cluster",
-
             "create_data",
             "read_data",
             "update_data",
             "delete_data",
-
             "read_nodes",
-
             "create_roles",
             "read_roles",
             "update_roles",
             "delete_roles",
-
             "create_collections",
             "read_collections",
             "update_collections",
             "delete_collections",
-
             "assign_and_revoke_users",
             "create_users",
             "read_users",
             "update_users",
             "delete_users",
-
             "create_tenants",
             "read_tenants",
             "update_tenants",
@@ -268,7 +266,9 @@
           ]
         }
       },
-      "required": ["action"]
+      "required": [
+        "action"
+      ]
     },
     "RolesListResponse": {
       "type": "array",
@@ -890,6 +890,15 @@
         "id"
       ]
     },
+    "ReplicationShardingStateResponse": {
+      "description": "The OK response of GET /replication/shardingstate",
+      "properties": {
+        "shardingState": {
+          "$ref": "#/definitions/ReplicationShardingState"
+        }
+      },
+      "type": "object"
+    },
     "ReplicationDisableReplicaRequest": {
       "description": "Request body to disable (soft-delete) a replica of given shard of a given collection",
       "properties": {
@@ -936,6 +945,36 @@
         "shardId"
       ]
     },
+    "ReplicationShardReplicas": {
+      "description": "A shard and its replicas.",
+      "type": "object",
+      "properties": {
+        "shard": {
+          "type": "string"
+        },
+        "replicas": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "ReplicationShardingState": {
+      "description": "A collection and its shards.",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "type": "string"
+        },
+        "shards": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/ReplicationShardReplicas"
+          }
+        }
+      }
+    },  
     "ReplicationReplicateDetailsReplicaStatus": {
       "description": "The status of a replication operation",
       "type": "object",
@@ -2755,11 +2794,11 @@
         {
           "properties": {
             "belongsToNodes": {
-                "description": "The list of nodes that owns that tenant data.",
-                "type": "array",
-                "items": {
-                    "type": "string"
-                }
+              "description": "The list of nodes that owns that tenant data.",
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
             }
           }
         }
@@ -3118,6 +3157,88 @@
         }
       }
     },
+    "/replication/replicate/list": {
+      "get": {
+        "summary": "Get the details of all ongoing replication operations based on query params",
+        "description": "Returns the details of all ongoing replication operations. This endpoint only supports filtering by (collection, [shard]) or (nodeId)",
+        "operationId": "listReplication",
+        "x-serviceIds": [
+          "weaviate.replication.replicate.details"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "parameters": [
+          {
+            "name": "nodeId", 
+            "in": "query",
+            "description": "The id of the target node to get details for.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "collection",
+            "in": "query",
+            "description": "The name of the collection to get details for.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "shard",
+            "in": "query",
+            "description": "The shard to get details for.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "includeHistory",
+            "in": "query",
+            "description": "Whether to include the history of the replication operation.",
+            "required": false,
+            "type": "boolean"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "The details of the replication operation.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "$ref": "#/definitions/ReplicationReplicateDetailsReplicaResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/replication/replicate/{id}/cancel": {
       "post": {
         "summary": "Cancel a replication operation.",
@@ -3154,6 +3275,70 @@
           },
           "404": {
             "description": "Shard replica operation not found"
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/replication/sharding-state": {
+      "get": {
+        "summary": "Get the sharding state for a collection and optionally a shard.",
+        "description": "Get the sharding state for a collection and optionally a shard.",
+        "operationId": "getCollectionShardingState",
+        "x-serviceIds": [
+          "weaviate.replication.shardingstate.collection.get"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "query",
+            "description": "The collection name to get the sharding state for.",
+            "required": false,
+            "type": "string"
+          },
+          {
+            "name": "shard",
+            "in": "query",
+            "description": "The shard to get the sharding state for.",
+            "required": false,
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successfully retrieved.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationShardingStateResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Shard replica operation not found",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -3707,7 +3892,7 @@
         }
       }
     },
-    "/authz/roles/{id}/add-permissions":{
+    "/authz/roles/{id}/add-permissions": {
       "post": {
         "summary": "Add permission to a given role.",
         "operationId": "addPermissions",
@@ -3733,15 +3918,17 @@
               "type": "object",
               "properties": {
                 "permissions": {
-                  "type":"array",
+                  "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
                   },
                   "description": "permissions to be added to the role"
                 }
               },
-              "required": ["name", "permissions"]
-
+              "required": [
+                "name",
+                "permissions"
+              ]
             }
           }
         ],
@@ -3782,7 +3969,7 @@
         }
       }
     },
-    "/authz/roles/{id}/remove-permissions":{
+    "/authz/roles/{id}/remove-permissions": {
       "post": {
         "summary": "Remove permissions from a role. If this results in an empty role, the role will be deleted.",
         "operationId": "removePermissions",
@@ -3808,14 +3995,16 @@
               "type": "object",
               "properties": {
                 "permissions": {
-                  "type":"array",
+                  "type": "array",
                   "items": {
                     "$ref": "#/definitions/Permission"
                   },
                   "description": "permissions to remove from the role"
                 }
               },
-              "required": ["permissions"]
+              "required": [
+                "permissions"
+              ]
             }
           }
         ],
@@ -3928,7 +4117,7 @@
         ],
         "responses": {
           "204": {
-              "description": "Successfully deleted."
+            "description": "Successfully deleted."
           },
           "400": {
             "description": "Bad request",
@@ -3954,7 +4143,7 @@
         }
       }
     },
-    "/authz/roles/{id}/has-permission":{
+    "/authz/roles/{id}/has-permission": {
       "post": {
         "summary": "Check whether role possesses this permission.",
         "operationId": "hasPermission",
@@ -4044,7 +4233,7 @@
             "schema": {
               "type": "array",
               "items": {
-                  "type": "string"
+                "type": "string"
               }
             }
           },
