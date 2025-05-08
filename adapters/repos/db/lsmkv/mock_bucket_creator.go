@@ -35,14 +35,14 @@ func (_m *MockBucketCreator) EXPECT() *MockBucketCreator_Expecter {
 	return &MockBucketCreator_Expecter{mock: &_m.Mock}
 }
 
-// NewBucket provides a mock function with given fields: ctx, dir, rootDir, logger, metrics, compactionCallbacks, flushCallbacks, opts
-func (_m *MockBucketCreator) NewBucket(ctx context.Context, dir string, rootDir string, logger logrus.FieldLogger, metrics *Metrics, compactionCallbacks cyclemanager.CycleCallbackGroup, flushCallbacks cyclemanager.CycleCallbackGroup, opts ...BucketOption) (*Bucket, error) {
+// NewBucket provides a mock function with given fields: ctx, dir, rootDir, logger, metrics, walMetrics, compactionCallbacks, flushCallbacks, opts
+func (_m *MockBucketCreator) NewBucket(ctx context.Context, dir string, rootDir string, logger logrus.FieldLogger, metrics *Metrics, walMetrics *CommitLoggerMetrics, compactionCallbacks cyclemanager.CycleCallbackGroup, flushCallbacks cyclemanager.CycleCallbackGroup, opts ...BucketOption) (*Bucket, error) {
 	_va := make([]interface{}, len(opts))
 	for _i := range opts {
 		_va[_i] = opts[_i]
 	}
 	var _ca []interface{}
-	_ca = append(_ca, ctx, dir, rootDir, logger, metrics, compactionCallbacks, flushCallbacks)
+	_ca = append(_ca, ctx, dir, rootDir, logger, metrics, walMetrics, compactionCallbacks, flushCallbacks)
 	_ca = append(_ca, _va...)
 	ret := _m.Called(_ca...)
 
@@ -52,19 +52,19 @@ func (_m *MockBucketCreator) NewBucket(ctx context.Context, dir string, rootDir 
 
 	var r0 *Bucket
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, logrus.FieldLogger, *Metrics, cyclemanager.CycleCallbackGroup, cyclemanager.CycleCallbackGroup, ...BucketOption) (*Bucket, error)); ok {
-		return rf(ctx, dir, rootDir, logger, metrics, compactionCallbacks, flushCallbacks, opts...)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, logrus.FieldLogger, *Metrics, *CommitLoggerMetrics, cyclemanager.CycleCallbackGroup, cyclemanager.CycleCallbackGroup, ...BucketOption) (*Bucket, error)); ok {
+		return rf(ctx, dir, rootDir, logger, metrics, walMetrics, compactionCallbacks, flushCallbacks, opts...)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, logrus.FieldLogger, *Metrics, cyclemanager.CycleCallbackGroup, cyclemanager.CycleCallbackGroup, ...BucketOption) *Bucket); ok {
-		r0 = rf(ctx, dir, rootDir, logger, metrics, compactionCallbacks, flushCallbacks, opts...)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, logrus.FieldLogger, *Metrics, *CommitLoggerMetrics, cyclemanager.CycleCallbackGroup, cyclemanager.CycleCallbackGroup, ...BucketOption) *Bucket); ok {
+		r0 = rf(ctx, dir, rootDir, logger, metrics, walMetrics, compactionCallbacks, flushCallbacks, opts...)
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*Bucket)
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func(context.Context, string, string, logrus.FieldLogger, *Metrics, cyclemanager.CycleCallbackGroup, cyclemanager.CycleCallbackGroup, ...BucketOption) error); ok {
-		r1 = rf(ctx, dir, rootDir, logger, metrics, compactionCallbacks, flushCallbacks, opts...)
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, logrus.FieldLogger, *Metrics, *CommitLoggerMetrics, cyclemanager.CycleCallbackGroup, cyclemanager.CycleCallbackGroup, ...BucketOption) error); ok {
+		r1 = rf(ctx, dir, rootDir, logger, metrics, walMetrics, compactionCallbacks, flushCallbacks, opts...)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -83,23 +83,24 @@ type MockBucketCreator_NewBucket_Call struct {
 //   - rootDir string
 //   - logger logrus.FieldLogger
 //   - metrics *Metrics
+//   - walMetrics *CommitLoggerMetrics
 //   - compactionCallbacks cyclemanager.CycleCallbackGroup
 //   - flushCallbacks cyclemanager.CycleCallbackGroup
 //   - opts ...BucketOption
-func (_e *MockBucketCreator_Expecter) NewBucket(ctx interface{}, dir interface{}, rootDir interface{}, logger interface{}, metrics interface{}, compactionCallbacks interface{}, flushCallbacks interface{}, opts ...interface{}) *MockBucketCreator_NewBucket_Call {
+func (_e *MockBucketCreator_Expecter) NewBucket(ctx interface{}, dir interface{}, rootDir interface{}, logger interface{}, metrics interface{}, walMetrics interface{}, compactionCallbacks interface{}, flushCallbacks interface{}, opts ...interface{}) *MockBucketCreator_NewBucket_Call {
 	return &MockBucketCreator_NewBucket_Call{Call: _e.mock.On("NewBucket",
-		append([]interface{}{ctx, dir, rootDir, logger, metrics, compactionCallbacks, flushCallbacks}, opts...)...)}
+		append([]interface{}{ctx, dir, rootDir, logger, metrics, walMetrics, compactionCallbacks, flushCallbacks}, opts...)...)}
 }
 
-func (_c *MockBucketCreator_NewBucket_Call) Run(run func(ctx context.Context, dir string, rootDir string, logger logrus.FieldLogger, metrics *Metrics, compactionCallbacks cyclemanager.CycleCallbackGroup, flushCallbacks cyclemanager.CycleCallbackGroup, opts ...BucketOption)) *MockBucketCreator_NewBucket_Call {
+func (_c *MockBucketCreator_NewBucket_Call) Run(run func(ctx context.Context, dir string, rootDir string, logger logrus.FieldLogger, metrics *Metrics, walMetrics *CommitLoggerMetrics, compactionCallbacks cyclemanager.CycleCallbackGroup, flushCallbacks cyclemanager.CycleCallbackGroup, opts ...BucketOption)) *MockBucketCreator_NewBucket_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		variadicArgs := make([]BucketOption, len(args)-7)
-		for i, a := range args[7:] {
+		variadicArgs := make([]BucketOption, len(args)-8)
+		for i, a := range args[8:] {
 			if a != nil {
 				variadicArgs[i] = a.(BucketOption)
 			}
 		}
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(logrus.FieldLogger), args[4].(*Metrics), args[5].(cyclemanager.CycleCallbackGroup), args[6].(cyclemanager.CycleCallbackGroup), variadicArgs...)
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(logrus.FieldLogger), args[4].(*Metrics), args[5].(*CommitLoggerMetrics), args[6].(cyclemanager.CycleCallbackGroup), args[7].(cyclemanager.CycleCallbackGroup), variadicArgs...)
 	})
 	return _c
 }
@@ -109,7 +110,7 @@ func (_c *MockBucketCreator_NewBucket_Call) Return(_a0 *Bucket, _a1 error) *Mock
 	return _c
 }
 
-func (_c *MockBucketCreator_NewBucket_Call) RunAndReturn(run func(context.Context, string, string, logrus.FieldLogger, *Metrics, cyclemanager.CycleCallbackGroup, cyclemanager.CycleCallbackGroup, ...BucketOption) (*Bucket, error)) *MockBucketCreator_NewBucket_Call {
+func (_c *MockBucketCreator_NewBucket_Call) RunAndReturn(run func(context.Context, string, string, logrus.FieldLogger, *Metrics, *CommitLoggerMetrics, cyclemanager.CycleCallbackGroup, cyclemanager.CycleCallbackGroup, ...BucketOption) (*Bucket, error)) *MockBucketCreator_NewBucket_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -119,8 +120,7 @@ func (_c *MockBucketCreator_NewBucket_Call) RunAndReturn(run func(context.Contex
 func NewMockBucketCreator(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockBucketCreator {
+}) *MockBucketCreator {
 	mock := &MockBucketCreator{}
 	mock.Mock.Test(t)
 

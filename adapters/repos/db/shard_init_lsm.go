@@ -120,7 +120,7 @@ func (s *Shard) initLSMStore() error {
 		metrics = lsmkv.NewMetrics(s.promMetrics, string(s.index.Config.ClassName), s.name)
 	}
 
-	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics,
+	store, err := lsmkv.New(s.pathLSM(), s.path(), annotatedLogger, metrics, s.walMetrics,
 		s.cycleCallbacks.compactionCallbacks,
 		s.cycleCallbacks.compactionAuxCallbacks,
 		s.cycleCallbacks.flushCallbacks)

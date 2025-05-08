@@ -50,6 +50,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -337,6 +338,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Metrics = promMetrics
 	}
 
+	walMetrics := lsmkv.NewCommitLoggerMetrics(prometheus.DefaultRegisterer)
+
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
@@ -377,7 +380,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// loading existing ones.
 		Replication:                 replication.GlobalConfig{MinimumFactor: 1},
 		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
+	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, walMetrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
