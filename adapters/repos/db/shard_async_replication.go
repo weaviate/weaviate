@@ -905,7 +905,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]
 	}
 
 	return []*hashBeatHostStats{
-		&hashBeatHostStats{
+		{
 			targetNodeName:      shardDiffReader.TargetNodeName,
 			diffStartTime:       diffCalculationStart,
 			diffCalculationTook: diffCalculationTook,
