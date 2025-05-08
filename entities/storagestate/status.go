@@ -47,6 +47,8 @@ func ValidateStatus(in string) (status Status, err error) {
 		status = StatusIndexing
 	case string(StatusReady):
 		status = StatusReady
+	case string(StatusShutdown):
+		status = StatusShutdown
 	default:
 		err = ErrInvalidStatus
 	}

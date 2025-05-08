@@ -25,6 +25,7 @@ import (
 	"time"
 
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -70,6 +71,7 @@ type Bucket struct {
 	walThreshold      uint64
 	flushDirtyAfter   time.Duration
 	memtableThreshold uint64
+	minMMapSize       int64
 	memtableResizer   *memtableSizeAdvisor
 	strategy          string
 	// Strategy inverted index is supposed to be created with, but existing
@@ -153,6 +155,8 @@ type Bucket struct {
 	// pool of buffers for bitmaps merges
 	// (currently used by roaringsetrange inverted indexes)
 	bitmapBufPool roaringset.BitmapBufPool
+
+	bm25Config *models.BM25Config
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -221,6 +225,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			cleanupInterval:          b.segmentsCleanupInterval,
 			enableChecksumValidation: b.enableChecksumValidation,
 			keepSegmentsInMemory:     b.keepSegmentsInMemory,
+			MinMMapSize:              b.minMMapSize,
+			bm25config:               b.bm25Config,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -278,6 +284,20 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
 		return nil, err
 	}
+
+	// segment load order is as follows:
+	// - find .tmp files and recover them first
+	// - find .db files and load them
+	//   - if there is a .wal file exists for a .db, remove the .db file
+	// - find .wal files and load them into a memtable
+	//   - flush the memtable to a segment file
+	// Thus, files may be loaded in a different order than they were created,
+	// and we need to re-sort them to ensure the order is correct, as compations
+	// and other operations are based on the creation order of the segments
+
+	sort.Slice(b.disk.segments, func(i, j int) bool {
+		return b.disk.segments[i].path < b.disk.segments[j].path
+	})
 
 	err = b.setNewActiveMemtable()
 	if err != nil {
@@ -1087,13 +1107,13 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 func (b *Bucket) setNewActiveMemtable() error {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
-	cl, err := newLazyCommitLogger(path)
+	cl, err := newLazyCommitLogger(path, b.strategy)
 	if err != nil {
 		return errors.Wrap(err, "init commit logger")
 	}
 
 	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
-		b.metrics, b.logger, b.enableChecksumValidation)
+		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config)
 	if err != nil {
 		return err
 	}
@@ -1183,6 +1203,9 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 
 	b.flushLock.Lock()
+	if b.active.strategy == StrategyInverted {
+		b.active.averagePropLength, b.active.propLengthCount = b.disk.GetAveragePropertyLength()
+	}
 	if err := b.active.flush(); err != nil {
 		return err
 	}
@@ -1346,6 +1369,9 @@ func (b *Bucket) FlushAndSwitch() error {
 		return nil
 	}
 
+	if b.flushing.strategy == StrategyInverted {
+		b.flushing.averagePropLength, b.flushing.propLengthCount = b.disk.GetAveragePropertyLength()
+	}
 	if err := b.flushing.flush(); err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
@@ -1764,4 +1790,42 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	term.blockDataSize = len(term.blockDataDecoded.DocIds)
 	term.idPointer = term.blockDataDecoded.DocIds[0]
 	return n, nil
+}
+
+func (b *Bucket) GetAveragePropertyLength() (float64, error) {
+	if b.strategy != StrategyInverted {
+		return 0, fmt.Errorf("active memtable is not inverted")
+	}
+
+	var err error
+	propLengthCount := uint64(0)
+	propLengthSum := uint64(0)
+	if b.flushing != nil {
+		propLengthSum, propLengthCount, err = b.flushing.GetPropLengths()
+		if err != nil {
+			return 0, err
+		}
+	}
+	// if the active memtable is inverted, we need to get the average property
+	if b.active != nil {
+		propLengthSum2, propLengthCount2, err := b.active.GetPropLengths()
+		if err != nil {
+			return 0, err
+		}
+		propLengthCount += propLengthCount2
+		propLengthSum += propLengthSum2
+	}
+
+	// weighted average of m.averagePropLength and the average of the current flush
+	// averaged by propLengthCount and m.propLengthCount
+	segmentAveragePropLength, segmentPropCount := b.disk.GetAveragePropertyLength()
+
+	if segmentPropCount != 0 {
+		propLengthSum += uint64(segmentAveragePropLength * float64(segmentPropCount))
+		propLengthCount += segmentPropCount
+	}
+	if propLengthCount == 0 {
+		return 0, nil
+	}
+	return float64(propLengthSum) / float64(propLengthCount), nil
 }

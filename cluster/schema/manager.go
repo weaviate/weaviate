@@ -329,6 +329,29 @@ func (s *SchemaManager) AddReplicaToShard(cmd *command.ApplyRequest, schemaOnly 
 	)
 }
 
+func (s *SchemaManager) DeleteReplicaFromShard(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.DeleteReplicaFromShard{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(
+		applyOp{
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				return s.schema.deleteReplicaFromShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode)
+			},
+			updateStore: func() error {
+				if req.TargetNode == s.schema.nodeID {
+					return s.db.DeleteReplicaFromShard(req.Class, req.Shard, req.TargetNode)
+				}
+				return nil
+			},
+			schemaOnly: schemaOnly,
+		},
+	)
+}
+
 func (s *SchemaManager) AddTenants(cmd *command.ApplyRequest, schemaOnly bool) error {
 	req := &command.AddTenantsRequest{}
 	if err := gproto.Unmarshal(cmd.SubCommand, req); err != nil {

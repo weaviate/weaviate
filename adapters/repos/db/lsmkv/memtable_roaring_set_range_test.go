@@ -33,9 +33,9 @@ func TestMemtableRoaringSetRange(t *testing.T) {
 	}
 
 	t.Run("concurrent writes and search", func(t *testing.T) {
-		cl, err := newCommitLogger(memPath())
+		cl, err := newCommitLogger(memPath(), StrategyRoaringSetRange)
 		require.NoError(t, err)
-		m, err := newMemtable(memPath(), StrategyRoaringSetRange, 0, cl, nil, logger, false)
+		m, err := newMemtable(memPath(), StrategyRoaringSetRange, 0, cl, nil, logger, false, nil)
 		require.Nil(t, err)
 
 		addKeyVals := func(k uint64) error {

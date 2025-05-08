@@ -225,6 +225,14 @@ func (m *Metrics) AddTombstone() {
 	m.tombstones.Inc()
 }
 
+func (m *Metrics) SetTombstone(count int) {
+	if !m.enabled {
+		return
+	}
+
+	m.tombstones.Set(float64(count))
+}
+
 func (m *Metrics) AddUnexpectedTombstone(operation string) {
 	if !m.enabled {
 		return

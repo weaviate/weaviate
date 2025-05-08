@@ -21,7 +21,7 @@ import (
 type segmentCursorInvertedReusable struct {
 	segment     *segment
 	nextOffset  uint64
-	nodeBuf     *binarySearchNodeMap
+	nodeBuf     binarySearchNodeMap
 	propLengths map[uint64]uint32
 }
 
@@ -44,7 +44,7 @@ func (s *segmentCursorInvertedReusable) seek(key []byte) ([]byte, []MapPair, err
 
 	err = s.parseInvertedNodeInto(nodeOffset{node.Start, node.End})
 	if err != nil {
-		return s.nodeBuf.key, nil, err
+		return nil, nil, err
 	}
 
 	s.nextOffset = node.End
@@ -59,7 +59,7 @@ func (s *segmentCursorInvertedReusable) next() ([]byte, []MapPair, error) {
 
 	err := s.parseInvertedNodeInto(nodeOffset{start: s.nextOffset})
 	if err != nil {
-		return s.nodeBuf.key, nil, err
+		return nil, nil, err
 	}
 
 	return s.nodeBuf.key, s.nodeBuf.values, nil
@@ -74,7 +74,7 @@ func (s *segmentCursorInvertedReusable) first() ([]byte, []MapPair, error) {
 
 	err := s.parseInvertedNodeInto(nodeOffset{start: s.nextOffset})
 	if err != nil {
-		return s.nodeBuf.key, nil, err
+		return nil, nil, err
 	}
 	return s.nodeBuf.key, s.nodeBuf.values, nil
 }
@@ -85,18 +85,16 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 	if err != nil {
 		return err
 	}
-	if offset.end == 0 {
-		_, err := r.Read(buffer)
-		if err != nil {
-			return err
-		}
-		docCount := binary.LittleEndian.Uint64(buffer[:8])
-		end := uint64(20)
-		if docCount > uint64(terms.ENCODE_AS_FULL_BYTES) {
-			end = binary.LittleEndian.Uint64(buffer[8:16]) + 16
-		}
-		offset.end = offset.start + end + 4
+	_, err = r.Read(buffer)
+	if err != nil {
+		return err
 	}
+	docCount := binary.LittleEndian.Uint64(buffer[:8])
+	end := uint64(20)
+	if docCount > uint64(terms.ENCODE_AS_FULL_BYTES) {
+		end = binary.LittleEndian.Uint64(buffer[8:16]) + 16
+	}
+	offset.end = offset.start + end + 4
 
 	r, err = s.segment.newNodeReader(offset)
 	if err != nil {
@@ -127,10 +125,8 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 		return err
 	}
 
-	s.nodeBuf = &binarySearchNodeMap{
-		key:    key,
-		values: nodes,
-	}
+	s.nodeBuf.key = key
+	s.nodeBuf.values = nodes
 
 	s.nextOffset = offset.end
 

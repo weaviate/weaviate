@@ -2370,9 +2370,10 @@ func compactSegments(sg *SegmentGroup, pair []int, newLevel uint16, resizeFactor
 	left, right := sg.segments[leftId], sg.segments[rightId]
 
 	seg := &segment{
-		path:  left.path + "+" + right.path,
-		size:  int64(float32(left.size+right.size) * resizeFactor),
-		level: newLevel,
+		path:             left.path + "+" + right.path,
+		size:             int64(float32(left.size+right.size) * resizeFactor),
+		level:            newLevel,
+		observeMetaWrite: func(n int64) {},
 	}
 
 	sg.segments[leftId] = seg
