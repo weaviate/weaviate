@@ -153,7 +153,7 @@ type Config struct {
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
 	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
-
+	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
