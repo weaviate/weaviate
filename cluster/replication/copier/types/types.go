@@ -55,7 +55,10 @@ type RemoteIndex interface {
 	// GetFile See adapters/clients.RemoteIndex.GetFile
 	GetFile(ctx context.Context,
 		hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
-	// SetAsyncReplicationTargetNode See adapters/clients.RemoteIndex.SetAsyncReplicationTargetNode
-	SetAsyncReplicationTargetNode(ctx context.Context,
+	// AddAsyncReplicationTargetNode See adapters/clients.RemoteIndex.AddAsyncReplicationTargetNode
+	AddAsyncReplicationTargetNode(ctx context.Context,
+		hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+	// RemoveAsyncReplicationTargetNode See adapters/clients.RemoteIndex.RemoveAsyncReplicationTargetNode
+	RemoveAsyncReplicationTargetNode(ctx context.Context,
 		hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 }
