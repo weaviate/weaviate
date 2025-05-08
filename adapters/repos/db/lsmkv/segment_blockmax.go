@@ -95,7 +95,8 @@ func (s *segment) loadBlockDataReusable(sectionReader *io.SectionReader, blockDa
 		if offsetStart < blockDataBufferOffset || offsetEnd > blockDataBufferOffset+uint64(len(buf)) {
 			sectionReader.Seek(int64(offsetStart-offset), io.SeekStart)
 			_, err := sectionReader.Read(buf)
-			if err != nil {
+			// EOF is expected when the last block + tree are smaller than the buffer
+			if err != nil && err.Error() != "EOF" {
 				return 0, err
 			}
 			// readBytes += int64(n)
