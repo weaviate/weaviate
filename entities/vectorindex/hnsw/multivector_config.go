@@ -22,14 +22,26 @@ const (
 )
 
 const (
-	DefaultMultivectorEnabled     = false
-	DefaultMultivectorAggregation = "maxSim"
+	DefaultMultivectorEnabled       = false
+	DefaultMultivectorMuveraEnabled = false
+	DefaultMultivectorKSim          = 4
+	DefaultMultivectorDProjections  = 16
+	DefaultMultivectorRepetitions   = 20
+	DefaultMultivectorAggregation   = "maxSim"
 )
 
 // Multivector configuration
 type MultivectorConfig struct {
-	Enabled     bool   `json:"enabled"`
-	Aggregation string `json:"aggregation"`
+	Enabled      bool         `json:"enabled"`
+	MuveraConfig MuveraConfig `json:"muvera"`
+	Aggregation  string       `json:"aggregation"`
+}
+
+type MuveraConfig struct {
+	Enabled      bool `json:"enabled"`
+	KSim         int  `json:"ksim"`
+	DProjections int  `json:"dprojections"`
+	Repetitions  int  `json:"repetitions"`
 }
 
 func validAggregation(v string) error {
@@ -72,6 +84,40 @@ func parseMultivectorMap(in map[string]interface{}, multivector *MultivectorConf
 		} else {
 			multivector.Enabled = v
 		}
+	}); err != nil {
+		return err
+	}
+
+	muveraValue, ok := multivectorConfigMap["muvera"]
+	if !ok {
+		return nil
+	}
+
+	muveraMap, ok := muveraValue.(map[string]interface{})
+	if !ok {
+		return nil
+	}
+
+	if err := common.OptionalBoolFromMap(muveraMap, "enabled", func(v bool) {
+		multivector.MuveraConfig.Enabled = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalIntFromMap(muveraMap, "ksim", func(v int) {
+		multivector.MuveraConfig.KSim = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalIntFromMap(muveraMap, "dprojections", func(v int) {
+		multivector.MuveraConfig.DProjections = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalIntFromMap(muveraMap, "repetitions", func(v int) {
+		multivector.MuveraConfig.Repetitions = v
 	}); err != nil {
 		return err
 	}
