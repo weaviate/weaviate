@@ -358,7 +358,7 @@ const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibilit
 
 const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
 
-const DefaultPersistenceMinMMapSize = 0 // setting it to 0 means that no segments are always mmaped (and not fully read) by default
+const DefaultPersistenceMinMMapSize = 8192 // 8kb by default
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
