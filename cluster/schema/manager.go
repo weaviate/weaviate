@@ -75,6 +75,15 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.schema.shardReader = idx
 }
 
+func (s *SchemaManager) MetaClasses() map[string]any {
+	classes := s.schema.MetaClasses()
+	classesMap := make(map[string]any)
+	for k, v := range classes {
+		classesMap[k] = v
+	}
+	return classesMap
+}
+
 func (s *SchemaManager) Snapshot() ([]byte, error) {
 	var buf bytes.Buffer
 

@@ -38,10 +38,11 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 		return fmt.Errorf("rbac snapshot: %w", err)
 	}
 	snap := fsm.Snapshot{
-		NodeID:     s.cfg.NodeID,
-		SnapshotID: sink.ID(),
-		Schema:     schemaSnapshot,
-		RBAC:       rbacSnapshot,
+		NodeID:       s.cfg.NodeID,
+		SnapshotID:   sink.ID(),
+		LegacySchema: s.schemaManager.MetaClasses(),
+		Schema:       schemaSnapshot,
+		RBAC:         rbacSnapshot,
 	}
 	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
 		return fmt.Errorf("encode: %w", err)
