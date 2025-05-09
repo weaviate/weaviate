@@ -1,3 +1,14 @@
+//                           _       _
+// __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//
+//  CONTACT: hello@weaviate.io
+//
+
 package db
 
 import (
@@ -18,7 +29,6 @@ import (
 )
 
 func TestShardShutdownWithInUseRefTimeout(t *testing.T) {
-
 	r := getRandomSeed()
 	dirName := t.TempDir()
 
@@ -100,10 +110,8 @@ func TestShardShutdownWithInUseRefTimeout(t *testing.T) {
 		shutdownErrCh <- err
 	}()
 
-
 	// Wait for 33s which should be long enough for the shutdown timeout (30s)
 	time.Sleep(33 * time.Second)
-
 
 	select {
 	case err := <-shutdownErrCh:
