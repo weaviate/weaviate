@@ -532,8 +532,8 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
 					Name:           "T1",
-					BelongsToNodes: []string{"Node-1"},
-				}}}
+					BelongsToNodes: []string{"Node-1", "Node-2"},
+				}}, NumberOfReplicas: 2, ReplicationFactor: 1}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 				m.indexer.On("AddClass", mock.Anything).Return(nil)
@@ -547,8 +547,8 @@ func TestStoreApply(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if len(replicas) != 0 {
-					return fmt.Errorf("sharding state should have 0 shards for class C1")
+				if len(replicas) != 1 {
+					return fmt.Errorf("sharding state should have 1 shard for class C1 after deleting a shard")
 				}
 
 				return nil
@@ -561,8 +561,8 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
 					Name:           "T1",
-					BelongsToNodes: []string{"Node-2"},
-				}}}
+					BelongsToNodes: []string{"Node-2", "Node-3"},
+				}}, NumberOfReplicas: 2, ReplicationFactor: 1}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 				m.indexer.On("AddClass", mock.Anything).Return(nil)
@@ -575,8 +575,8 @@ func TestStoreApply(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if len(replicas) != 0 {
-					return fmt.Errorf("sharding state should have 0 shards for class C1")
+				if len(replicas) != 1 {
+					return fmt.Errorf("sharding state should have 1 shard for class C1 after deleting a shard")
 				}
 
 				return nil
