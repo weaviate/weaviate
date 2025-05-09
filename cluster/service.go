@@ -37,6 +37,7 @@ import (
 const (
 	// TODO: consider exposing these as settings
 	shardReplicationEngineBufferSize = 16
+	fsmOpProducerPollingInterval     = 5 * time.Second
 	replicationEngineShutdownTimeout = 10 * time.Minute
 	replicationOperationTimeout      = 24 * time.Hour
 	catchUpInterval                  = 5 * time.Second
@@ -75,8 +76,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	fsmOpProducer := replication.NewFSMOpProducer(
 		cfg.Logger,
 		fsm.replicationManager.GetReplicationFSM(),
-		// polling interval should be as many seconds as there are workers
-		time.Duration(cfg.ReplicationEngineMaxWorkers)*time.Second,
+		fsmOpProducerPollingInterval,
 		cfg.NodeSelector.LocalName(),
 	)
 	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
