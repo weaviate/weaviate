@@ -121,5 +121,4 @@ func TestShardShutdownWithInUseRefTimeout(t *testing.T) {
 		// This is a failure case, we expect the shutdown to complete
 		t.Fatal("shutdown did not complete in time after timeout")
 	}
-	fmt.Println("Shutdown test completed successfully")
 }
