@@ -18,6 +18,7 @@ import (
 	"io"
 	"os"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
@@ -27,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/mmap"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/willf/bloom"
 )
 
 type segment struct {
