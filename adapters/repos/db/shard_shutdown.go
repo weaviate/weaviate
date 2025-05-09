@@ -176,7 +176,7 @@ func (s *Shard) waitForShutdown(ctx context.Context) error {
 		for {
 			select {
 			case <-ctx.Done():
-				return fmt.Errorf("Shard::proceedWithShutdown: %w", ctx.Err())
+				return nil
 			case <-ticker.C:
 				if eligible, err := s.checkEligibleForShutdown(); err != nil {
 					return err
