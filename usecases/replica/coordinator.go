@@ -180,14 +180,15 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	cl types.ConsistencyLevel,
 	ask readyOp,
 	com commitOp[T],
-) (<-chan _Result[T], int, error) {
+	// TODO return an "additional hosts" struct instead of adding all these new return vals
+) (<-chan _Result[T], int, <-chan _Result[T], int, bool, error) {
 	routingPlan, err := c.Router.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:       c.Class,
 		Shard:            c.Shard,
 		ConsistencyLevel: cl,
 	})
 	if err != nil {
-		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
+		return nil, 0, nil, 0, false, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := routingPlan.IntConsistencyLevel
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
@@ -198,7 +199,18 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		"level":    level,
 	}).Debug("context.WithTimeout")
 	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
-	return c.commitAll(context.Background(), nodeCh, com), level, nil
+	commitCh := c.commitAll(context.Background(), nodeCh, com)
+	var additionalHostsCommitCh <-chan _Result[T]
+	additionalHostsLevel := 0
+	requireAdditionalHostsSuccess := false
+	if len(routingPlan.AdditionalHostAddrs) > 0 {
+		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, level)
+		additionalHostsCommitCh = c.commitAll(context.Background(), additionalHostsBroadcast, com)
+		additionalHostsLevel = len(routingPlan.AdditionalHostAddrs)
+		// TODO decide from routing plan or something like that?
+		requireAdditionalHostsSuccess = false
+	}
+	return commitCh, level, additionalHostsCommitCh, additionalHostsLevel, requireAdditionalHostsSuccess, nil
 }
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls

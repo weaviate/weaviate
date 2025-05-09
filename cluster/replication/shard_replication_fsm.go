@@ -211,15 +211,15 @@ func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicatio
 	return v, ok
 }
 
-func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string, []string) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
-	_, ok := s.opsByCollectionAndShard[collection][shard]
+	ops, ok := s.opsByCollectionAndShard[collection][shard]
 	// Check if the specified shard is current undergoing replication at all.
 	// If not we can return early as all replicas can be used for read/writes
 	if !ok {
-		return shardReplicasLocation, shardReplicasLocation
+		return shardReplicasLocation, shardReplicasLocation, []string{}
 	}
 
 	readReplicas := make([]string, 0, len(shardReplicasLocation))
@@ -233,8 +233,17 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string,
 			writeReplicas = append(writeReplicas, shardReplicaLocation)
 		}
 	}
-
-	return readReplicas, writeReplicas
+	additionalWriteReplicas := []string{}
+	for _, op := range ops {
+		opState, ok := s.GetOpState(op)
+		if !ok {
+			continue
+		}
+		if opState.GetCurrentState() == api.FINALIZING {
+			additionalWriteReplicas = append(additionalWriteReplicas, op.TargetShard.NodeId)
+		}
+	}
+	return readReplicas, writeReplicas, additionalWriteReplicas
 }
 
 // filterOneReplicaAsTargetReadWrite returns whether the replica node for collection and shard is usable for read and write

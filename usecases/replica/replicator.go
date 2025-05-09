@@ -112,19 +112,29 @@ func (r *Replicator) PutObject(ctx context.Context,
 		}
 		return nil
 	}
-	replyCh, level, err := coord.Push(ctx, l, isReady, r.simpleCommit(shard))
+	replyCh, replyLevel, additionalHostsCommitCh, additionalHostsLevel, requireAdditionalHostsSuccess, err := coord.Push(ctx, l, isReady, r.simpleCommit(shard))
 	if err != nil {
 		r.log.WithField("op", "push.one").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
 		return fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
-
 	}
-	err = r.stream.readErrors(1, level, replyCh)[0]
+	err = r.stream.readErrors(1, replyLevel, replyCh)[0]
 	if err != nil {
 		r.log.WithField("op", "put").WithField("class", r.class).
 			WithField("shard", shard).WithField("uuid", obj.ID()).Error(err)
+		return err
 	}
-	return err
+	if additionalHostsLevel > 0 {
+		err = r.stream.readErrors(1, additionalHostsLevel, additionalHostsCommitCh)[0]
+		if err != nil {
+			r.log.WithField("op", "put").WithField("class", r.class).
+				WithField("shard", shard).WithField("uuid", obj.ID()).Error(err)
+			if requireAdditionalHostsSuccess {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func (r *Replicator) MergeObject(ctx context.Context,
@@ -144,7 +154,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 		}
 		return nil
 	}
-	replyCh, level, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
+	replyCh, level, _, _, _, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
 	if err != nil {
 		r.log.WithField("op", "push.merge").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -180,7 +190,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 		}
 		return nil
 	}
-	replyCh, level, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
+	replyCh, level, _, _, _, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
 	if err != nil {
 		r.log.WithField("op", "push.delete").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -212,7 +222,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 		return nil
 	}
 
-	replyCh, level, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
+	replyCh, level, _, _, _, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
 	if err != nil {
 		r.log.WithField("op", "push.many").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -262,7 +272,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 		return resp, err
 	}
 
-	replyCh, level, err := coord.Push(ctx, l, op, commit)
+	replyCh, level, _, _, _, err := coord.Push(ctx, l, op, commit)
 	if err != nil {
 		r.log.WithField("op", "push.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -298,7 +308,7 @@ func (r *Replicator) AddReferences(ctx context.Context,
 		}
 		return nil
 	}
-	replyCh, level, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
+	replyCh, level, _, _, _, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
 	if err != nil {
 		r.log.WithField("op", "push.refs").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
