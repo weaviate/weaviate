@@ -542,7 +542,7 @@ func (s *schema) Restore(r io.Reader, parser Parser) error {
 		if err := json.Unmarshal(snap.Schema, &classes); err != nil {
 			return fmt.Errorf("restore snapshot: decode json: %w", err)
 		}
-		s.classes = classes
+		snap.classes = classes
 	}
 
 	for _, cls := range snap.Classes {
