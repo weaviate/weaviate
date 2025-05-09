@@ -311,3 +311,17 @@ func (f *fakeStore) UpdateClass(cls *models.Class) error {
 	cls.InvertedIndexConfig = u.InvertedIndexConfig
 	return nil
 }
+
+type fakeReplicationsDeleter struct {
+	mock.Mock
+}
+
+func (f *fakeReplicationsDeleter) DeleteReplicationsByCollection(collection string) error {
+	args := f.Called(collection)
+	return args.Error(0)
+}
+
+func (f *fakeReplicationsDeleter) DeleteReplicationsByTenants(collection string, tenants []string) error {
+	args := f.Called(collection, tenants)
+	return args.Error(0)
+}

@@ -54,19 +54,19 @@ var paragraphIDs = []strfmt.UUID{
 	strfmt.UUID("50566856-5d0a-4fb1-a390-e099bc236f66"),
 }
 
-type ReplicaReplicationTestSuite struct {
+type ReplicationTestSuite struct {
 	suite.Suite
 }
 
-func (suite *ReplicaReplicationTestSuite) SetupTest() {
+func (suite *ReplicationTestSuite) SetupTest() {
 	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 }
 
-func TestReplicaReplicationTestSuite(t *testing.T) {
-	suite.Run(t, new(ReplicaReplicationTestSuite))
+func TestReplicationTestSuite(t *testing.T) {
+	suite.Run(t, new(ReplicationTestSuite))
 }
 
-func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
+func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
 	t := suite.T()
 	mainCtx := context.Background()
 
@@ -239,7 +239,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 	})
 }
 
-func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
+func (suite *ReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
 	t := suite.T()
 	mainCtx := context.Background()
 
@@ -419,7 +419,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
 	})
 }
 
-func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy() {
+func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy() {
 	t := suite.T()
 	mainCtx := context.Background()
 	logger, _ := logrustest.NewNullLogger()

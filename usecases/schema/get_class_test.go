@@ -134,7 +134,7 @@ func TestClassGetterFromSchema(t *testing.T) {
 		testCase := testCase
 		t.Run(testCase.name, func(t *testing.T) {
 			// Configure test setup
-			handler, fakeSchema := newTestHandler(t, &fakeDB{})
+			handler, fakeSchema, _ := newTestHandler(t, &fakeDB{})
 			log, _ := test.NewNullLogger()
 			classGetter := NewClassGetter(
 				&handler.parser,

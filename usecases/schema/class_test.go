@@ -43,7 +43,7 @@ func Test_AddClass(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("happy path", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 
 		class := &models.Class{
 			Class: "NewClass",
@@ -63,7 +63,7 @@ func Test_AddClass(t *testing.T) {
 	})
 
 	t.Run("happy path, named vectors", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 
 		class := &models.Class{
 			Class: "NewClass",
@@ -89,7 +89,7 @@ func Test_AddClass(t *testing.T) {
 	})
 
 	t.Run("mixed vector schema creation", func(t *testing.T) {
-		handler, _ := newTestHandler(t, &fakeDB{})
+		handler, _, _ := newTestHandler(t, &fakeDB{})
 
 		class := &models.Class{
 			Class: "NewClass",
@@ -113,14 +113,14 @@ func Test_AddClass(t *testing.T) {
 	})
 
 	t.Run("with empty class name", func(t *testing.T) {
-		handler, _ := newTestHandler(t, &fakeDB{})
+		handler, _, _ := newTestHandler(t, &fakeDB{})
 		class := models.Class{}
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, "'' is not a valid class name")
 	})
 
 	t.Run("with reserved class name", func(t *testing.T) {
-		handler, _ := newTestHandler(t, &fakeDB{})
+		handler, _, _ := newTestHandler(t, &fakeDB{})
 		class := models.Class{Class: config.DefaultRaftDir}
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
@@ -143,7 +143,7 @@ func Test_AddClass(t *testing.T) {
 	})
 
 	t.Run("with default params", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 		class := models.Class{
 			Class:      "NewClass",
 			Vectorizer: "none",
@@ -171,7 +171,7 @@ func Test_AddClass(t *testing.T) {
 	})
 
 	t.Run("with customized params", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 		expectedBM25Config := &models.BM25Config{
 			K1: 1.88,
 			B:  0.44,
@@ -232,7 +232,7 @@ func Test_AddClass(t *testing.T) {
 		runTestCases := func(t *testing.T, testCases []testCase) {
 			for i, tc := range testCases {
 				t.Run(tc.propName, func(t *testing.T) {
-					handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+					handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 
 					class := &models.Class{
 						Class: fmt.Sprintf("NewClass_%d", i),
@@ -391,7 +391,7 @@ func Test_AddClass(t *testing.T) {
 	})
 
 	t.Run("with invalid settings", func(t *testing.T) {
-		handler, _ := newTestHandler(t, &fakeDB{})
+		handler, _, _ := newTestHandler(t, &fakeDB{})
 
 		_, _, err := handler.AddClass(ctx, nil, &models.Class{
 			Class:           "NewClass",
@@ -466,7 +466,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 
 		for _, tt := range tests {
 			t.Run(tt.name, func(t *testing.T) {
-				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 
 				// Mock the schema count
 				fakeSchemaManager.On("QueryCollectionsCount").Return(tt.existingCount, nil)
@@ -515,7 +515,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 			},
 		} {
 			t.Run(tt.name, func(t *testing.T) {
-				handler, schemaManager := newTestHandler(t, &fakeDB{})
+				handler, schemaManager, _ := newTestHandler(t, &fakeDB{})
 				handler.asyncIndexingEnabled = tt.asyncIndexingEnabled
 
 				if tt.expectError == "" {
@@ -627,7 +627,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 			}
 		}
 
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 		var properties []*models.Property
 		for _, tc := range testCases {
 			properties = append(properties, &models.Property{
@@ -811,7 +811,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 			Vectorizer: "none",
 		}
 		t.Run("create class with all properties", func(t *testing.T) {
-			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 			_, _, err := handler.AddClass(ctx, nil, &class)
@@ -820,7 +820,7 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		})
 
 		t.Run("add properties to existing class", func(t *testing.T) {
-			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 			for _, tc := range testCases {
 				t.Run("added_"+tc.propName, func(t *testing.T) {
 					prop := &models.Property{
@@ -970,7 +970,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 		t.Run("different class names without keywords or properties", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+					handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 					class := &models.Class{
 						Vectorizer: "none",
 						Class:      test.input,
@@ -991,7 +991,7 @@ func Test_Validation_ClassNames(t *testing.T) {
 		t.Run("different class names with valid keywords", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+					handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 					class := &models.Class{
 						Vectorizer: "none",
 						Class:      test.input,
@@ -1084,7 +1084,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 		t.Run("different property names without keywords for the prop", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+					handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 					class := &models.Class{
 						Vectorizer: "none",
 						Class:      "ValidName",
@@ -1109,7 +1109,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 		t.Run("different property names  with valid keywords for the prop", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+					handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 					class := &models.Class{
 						Vectorizer: "none",
 						Class:      "ValidName",
@@ -1136,7 +1136,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 		t.Run("different property names without keywords for the prop", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+					handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 					class := &models.Class{
 						Vectorizer: "none",
 						Class:      "ValidName",
@@ -1171,7 +1171,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 		t.Run("different property names  with valid keywords for the prop", func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
-					handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+					handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 					class := &models.Class{
 						Vectorizer: "none",
 						Class:      "ValidName",
@@ -1199,7 +1199,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 // specific updates, such as the vector index config
 func Test_UpdateClass(t *testing.T) {
 	t.Run("class not found", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 		fakeSchemaManager.On("ReadOnlyClass", "WrongClass", mock.Anything).Return(nil)
 		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(ErrNotFound)
 
@@ -1846,7 +1846,7 @@ func Test_UpdateClass(t *testing.T) {
 
 		for _, test := range tests {
 			t.Run(test.name, func(t *testing.T) {
-				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+				handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 				ctx := context.Background()
 
 				store := NewFakeStore()
@@ -1887,7 +1887,7 @@ func TestRestoreClass_WithCircularRefs(t *testing.T) {
 	// when restoring, we need to relax this validation.
 
 	t.Parallel()
-	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 
 	classes := []*models.Class{
 		{
@@ -1957,7 +1957,7 @@ func TestRestoreClass_WithNodeMapping(t *testing.T) {
 		Vectorizer: "none",
 	}}
 
-	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+	handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 
 	for _, classRaw := range classes {
 		schemaBytes, err := json.Marshal(classRaw)
@@ -2034,12 +2034,13 @@ func Test_DeleteClass(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler, fakeSchemaManager, fakeReplicationsDeleter := newTestHandler(t, &fakeDB{})
 
 			// NOTE: mocking schema manager's `DeleteClass` (not handler's)
 			// underlying schemaManager should still work with canonical class name.
 			canonical := schema.UppercaseClassName(test.classToDelete)
 			fakeSchemaManager.On("DeleteClass", canonical).Return(nil)
+			fakeReplicationsDeleter.On("DeleteReplicationsByCollection", canonical).Return(nil)
 
 			// but layer above like handler's `DeleteClass` should work independent of case sensitivity.
 			err := handler.DeleteClass(ctx, nil, test.classToDelete)
@@ -2099,7 +2100,7 @@ func Test_GetConsistentClass(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 
 			// underlying schemaManager should still work with canonical class name.
 			canonical := schema.UppercaseClassName(test.classToGet)
@@ -2137,7 +2138,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("with MT enabled and no optional settings", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 		class := models.Class{
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 			Class:              "NewClass",
@@ -2154,7 +2155,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 	})
 
 	t.Run("with MT enabled and all optional settings", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 		class := models.Class{
 			MultiTenancyConfig: &models.MultiTenancyConfig{
 				Enabled:              true,
@@ -2175,7 +2176,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 	})
 
 	t.Run("with MT disabled, but auto tenant creation on", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 		class := models.Class{
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false, AutoTenantCreation: true},
 			Class:              "NewClass",
@@ -2190,7 +2191,7 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 	})
 
 	t.Run("with MT disabled, but auto tenant activation on", func(t *testing.T) {
-		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
 		class := models.Class{
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false, AutoTenantActivation: true},
 			Class:              "NewClass",
@@ -2253,7 +2254,7 @@ func Test_SetClassDefaults(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler, _ := newTestHandler(t, &fakeDB{})
+			handler, _, _ := newTestHandler(t, &fakeDB{})
 			err := handler.setClassDefaults(tt.class, globalCfg)
 			if tt.expectedError != "" {
 				assert.EqualError(t, err, tt.expectedError)
@@ -2267,9 +2268,9 @@ func Test_SetClassDefaults(t *testing.T) {
 
 func TestExperimentBackwardsCompatibleNamedVectorsGuard(t *testing.T) {
 	var (
-		className              = "TestClass"
-		ctx                    = context.Background()
-		handler, schemaManager = newTestHandler(t, &fakeDB{})
+		className                 = "TestClass"
+		ctx                       = context.Background()
+		handler, schemaManager, _ = newTestHandler(t, &fakeDB{})
 	)
 	handler.parser.experimentBackwardsCompatibleNamedVectorsEnabled = false
 

@@ -54,7 +54,7 @@ func (c *OpsCache) LoadOrStore(opId uint64) bool {
 	return ok
 }
 
-func (c *OpsCache) Load(opId uint64) bool {
+func (c *OpsCache) InFlight(opId uint64) bool {
 	_, ok := c.ops.Load(opId)
 	return ok
 }
@@ -84,8 +84,11 @@ func (c *OpsCache) Cancel(opId uint64) bool {
 	return true
 }
 
-func (c *OpsCache) Remove(opId uint64) {
+func (c *OpsCache) RemoveHasBeenCancelled(opId uint64) {
 	c.hasBeenCancelled.Delete(opId)
+}
+
+func (c *OpsCache) Remove(opId uint64) {
 	c.cancels.Delete(opId)
 	c.ops.Delete(opId)
 }

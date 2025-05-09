@@ -136,6 +136,17 @@ type ReplicationCancellationCompleteRequest struct {
 	Id      uint64
 }
 
+type ReplicationsDeleteByCollectionRequest struct {
+	Version    int
+	Collection string
+}
+
+type ReplicationsDeleteByTenantsRequest struct {
+	Version    int
+	Collection string
+	Tenants    []string
+}
+
 type ShardingState struct {
 	Collection string
 	Shards     map[string][]string
