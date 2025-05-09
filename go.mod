@@ -11,6 +11,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/config v1.29.4
 	github.com/aws/aws-sdk-go-v2/credentials v1.17.61
 	github.com/aws/aws-sdk-go-v2/service/bedrockruntime v1.24.3
+	github.com/bits-and-blooms/bloom/v3 v3.7.0
 	github.com/bmatcuk/doublestar v1.3.4
 	github.com/buger/jsonparser v1.1.1
 	github.com/casbin/casbin/v2 v2.103.0
@@ -67,7 +68,6 @@ require (
 	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.9
 	github.com/weaviate/tiktoken-go v0.0.2
-	github.com/willf/bloom v2.0.3+incompatible
 	go.etcd.io/bbolt v1.3.11
 	golang.org/x/net v0.35.0
 	golang.org/x/oauth2 v0.25.0
@@ -109,6 +109,7 @@ require (
 	github.com/aws/aws-sdk-go-v2/service/sts v1.33.16 // indirect
 	github.com/aws/smithy-go v1.22.2 // indirect
 	github.com/beorn7/perks v1.0.1 // indirect
+	github.com/bits-and-blooms/bitset v1.10.0 // indirect
 	github.com/bmatcuk/doublestar/v4 v4.6.1 // indirect
 	github.com/boltdb/bolt v1.3.1 // indirect
 	github.com/casbin/govaluate v1.3.0 // indirect
