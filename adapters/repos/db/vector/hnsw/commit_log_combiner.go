@@ -42,7 +42,7 @@ func (c *CommitLogCombiner) Do() (bool, error) {
 	executed := false
 	for {
 		// fileNames will already be in order
-		fileNames, err := getCommitFileNames(c.rootPath, c.id)
+		fileNames, err := getCommitFileNames(c.rootPath, c.id, 0)
 		if err != nil {
 			return executed, errors.Wrap(err, "obtain files names")
 		}

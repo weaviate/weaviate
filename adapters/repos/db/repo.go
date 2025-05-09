@@ -215,6 +215,7 @@ type Config struct {
 	SeparateObjectsCompactions          bool
 	MaxSegmentSize                      int64
 	HNSWMaxLogSize                      int64
+	HNSWDisableSnapshots                bool
 	HNSWWaitForCachePrefill             bool
 	HNSWFlatSearchConcurrency           int
 	HNSWAcornFilterRatio                float64
