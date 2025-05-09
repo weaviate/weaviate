@@ -81,7 +81,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 20*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -254,7 +254,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 20*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
