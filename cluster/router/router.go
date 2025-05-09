@@ -38,25 +38,25 @@ func New(logger *logrus.Logger, clusterStateReader cluster.NodeSelector, metadat
 	}
 }
 
-func (r *Router) GetReadWriteReplicasLocation(collection string, shard string) ([]string, []string, error) {
+func (r *Router) GetReadWriteReplicasLocation(collection string, shard string) ([]string, []string, []string, error) {
 	replicas, err := r.metadataReader.ShardReplicas(collection, shard)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	readReplicas, writeReplicas, additionalWriteReplicas := r.replicationFSMReader.FilterOneShardReplicasReadWrite(collection, shard, replicas)
+	return readReplicas, writeReplicas, additionalWriteReplicas, nil
+}
+
+func (r *Router) GetWriteReplicasLocation(collection string, shard string) ([]string, []string, error) {
+	_, writeReplicasLocation, additionalWriteReplicas, err := r.GetReadWriteReplicasLocation(collection, shard)
 	if err != nil {
 		return nil, nil, err
 	}
-	readReplicas, writeReplicas := r.replicationFSMReader.FilterOneShardReplicasReadWrite(collection, shard, replicas)
-	return readReplicas, writeReplicas, nil
-}
-
-func (r *Router) GetWriteReplicasLocation(collection string, shard string) ([]string, error) {
-	_, writeReplicasLocation, err := r.GetReadWriteReplicasLocation(collection, shard)
-	if err != nil {
-		return nil, err
-	}
-	return writeReplicasLocation, nil
+	return writeReplicasLocation, additionalWriteReplicas, nil
 }
 
 func (r *Router) GetReadReplicasLocation(collection string, shard string) ([]string, error) {
-	readReplicasLocation, _, err := r.GetReadWriteReplicasLocation(collection, shard)
+	readReplicasLocation, _, _, err := r.GetReadWriteReplicasLocation(collection, shard)
 	if err != nil {
 		return nil, err
 	}
@@ -112,7 +112,56 @@ func (r *Router) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (typ
 func (r *Router) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
 	// TODO: See if there is any sense in having writes be propagated to the "new" shard currently.
 	// For now discarding that idea because we need doc id synced to avoid colisions
-	return r.BuildReadRoutingPlan(params)
+	// return r.BuildReadRoutingPlan(params)
+	if err := params.Validate(); err != nil {
+		return types.RoutingPlan{}, err
+	}
+
+	writeReplicas, additionalWriteReplicas, err := r.GetWriteReplicasLocation(params.Collection, params.Shard)
+	if err != nil {
+		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas location from sharding state: %w", err)
+	}
+
+	routingPlan := types.RoutingPlan{
+		Collection:          params.Collection,
+		Shard:               params.Shard,
+		Replicas:            make([]string, 0, len(writeReplicas)),
+		ConsistencyLevel:    params.ConsistencyLevel,
+		ReplicasHostAddrs:   make([]string, 0, len(writeReplicas)),
+		AdditionalHostAddrs: make([]string, 0, len(additionalWriteReplicas)),
+	}
+
+	// If there was no local replica first specified, put the local node as direct candidate. If the local node is part of the replica set
+	// it will be handled as the direct candidate
+	if params.DirectCandidateReplica == "" {
+		params.DirectCandidateReplica = r.clusterStateReader.LocalName()
+	}
+
+	for _, replica := range writeReplicas {
+		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
+			// Local replica first is necessary due to the logic in finder where the first node is considered a "full read
+			// candidate". This means that instead of a doing a digest read we will get the "full read" (whatever that means).
+			// We handle the direct candidate here to ensure that the direct candidate is also part of the replica set
+			if replica == params.DirectCandidateReplica {
+				routingPlan.Replicas = slices.Insert(routingPlan.Replicas, 0, replica)
+				routingPlan.ReplicasHostAddrs = slices.Insert(routingPlan.ReplicasHostAddrs, 0, replicaAddr)
+			} else {
+				routingPlan.Replicas = append(routingPlan.Replicas, replica)
+				routingPlan.ReplicasHostAddrs = append(routingPlan.ReplicasHostAddrs, replicaAddr)
+			}
+		}
+	}
+	for _, replica := range additionalWriteReplicas {
+		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
+			routingPlan.AdditionalHostAddrs = append(routingPlan.AdditionalHostAddrs, replicaAddr)
+		}
+	}
+	if len(routingPlan.Replicas) == 0 {
+		return routingPlan, fmt.Errorf("no replicas found for class %s shard %s", routingPlan.Collection, routingPlan.Shard)
+	}
+
+	routingPlan.IntConsistencyLevel, err = routingPlan.ValidateConsistencyLevel()
+	return routingPlan, err
 }
 
 func (r *Router) NodeHostname(nodeName string) (string, bool) {

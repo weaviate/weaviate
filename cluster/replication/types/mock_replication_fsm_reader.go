@@ -29,7 +29,7 @@ func (_m *MockReplicationFSMReader) EXPECT() *MockReplicationFSMReader_Expecter 
 }
 
 // FilterOneShardReplicasReadWrite provides a mock function with given fields: collection, shard, shardReplicasLocation
-func (_m *MockReplicationFSMReader) FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+func (_m *MockReplicationFSMReader) FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string, []string) {
 	ret := _m.Called(collection, shard, shardReplicasLocation)
 
 	if len(ret) == 0 {
@@ -38,7 +38,8 @@ func (_m *MockReplicationFSMReader) FilterOneShardReplicasReadWrite(collection s
 
 	var r0 []string
 	var r1 []string
-	if rf, ok := ret.Get(0).(func(string, string, []string) ([]string, []string)); ok {
+	var r2 []string
+	if rf, ok := ret.Get(0).(func(string, string, []string) ([]string, []string, []string)); ok {
 		return rf(collection, shard, shardReplicasLocation)
 	}
 	if rf, ok := ret.Get(0).(func(string, string, []string) []string); ok {
@@ -57,7 +58,15 @@ func (_m *MockReplicationFSMReader) FilterOneShardReplicasReadWrite(collection s
 		}
 	}
 
-	return r0, r1
+	if rf, ok := ret.Get(2).(func(string, string, []string) []string); ok {
+		r2 = rf(collection, shard, shardReplicasLocation)
+	} else {
+		if ret.Get(2) != nil {
+			r2 = ret.Get(2).([]string)
+		}
+	}
+
+	return r0, r1, r2
 }
 
 // MockReplicationFSMReader_FilterOneShardReplicasReadWrite_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'FilterOneShardReplicasReadWrite'
@@ -80,12 +89,12 @@ func (_c *MockReplicationFSMReader_FilterOneShardReplicasReadWrite_Call) Run(run
 	return _c
 }
 
-func (_c *MockReplicationFSMReader_FilterOneShardReplicasReadWrite_Call) Return(_a0 []string, _a1 []string) *MockReplicationFSMReader_FilterOneShardReplicasReadWrite_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockReplicationFSMReader_FilterOneShardReplicasReadWrite_Call) Return(_a0 []string, _a1 []string, _a2 []string) *MockReplicationFSMReader_FilterOneShardReplicasReadWrite_Call {
+	_c.Call.Return(_a0, _a1, _a2)
 	return _c
 }
 
-func (_c *MockReplicationFSMReader_FilterOneShardReplicasReadWrite_Call) RunAndReturn(run func(string, string, []string) ([]string, []string)) *MockReplicationFSMReader_FilterOneShardReplicasReadWrite_Call {
+func (_c *MockReplicationFSMReader_FilterOneShardReplicasReadWrite_Call) RunAndReturn(run func(string, string, []string) ([]string, []string, []string)) *MockReplicationFSMReader_FilterOneShardReplicasReadWrite_Call {
 	_c.Call.Return(run)
 	return _c
 }

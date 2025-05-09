@@ -12,5 +12,5 @@
 package types
 
 type ReplicationFSMReader interface {
-	FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string)
+	FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string, []string)
 }
