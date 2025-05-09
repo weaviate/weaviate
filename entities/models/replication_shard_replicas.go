@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ReplicationShardReplicas A shard and its replicas.
+// ReplicationShardReplicas Represents a shard and lists the nodes that currently host its replicas.
 //
 // swagger:model ReplicationShardReplicas
 type ReplicationShardReplicas struct {

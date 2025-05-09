@@ -26,15 +26,15 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationReplicateDetailsReplicaStatus The status of a replication operation
+// ReplicationReplicateDetailsReplicaStatus Represents the current or historical status of a shard replica involved in a replication operation, including its operational state and any associated errors.
 //
 // swagger:model ReplicationReplicateDetailsReplicaStatus
 type ReplicationReplicateDetailsReplicaStatus struct {
 
-	// errors
+	// A list of error messages encountered by this replica during the replication operation, if any.
 	Errors []string `json:"errors"`
 
-	// state
+	// The current operational state of the replica during the replication process (e.g., HYDRATING, READY, DEHYDRATING).
 	// Enum: [READY INDEXING REPLICATION_FINALIZING REPLICATION_HYDRATING REPLICATION_DEHYDRATING]
 	State string `json:"state,omitempty"`
 }

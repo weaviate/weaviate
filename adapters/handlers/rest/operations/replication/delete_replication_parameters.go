@@ -42,7 +42,7 @@ type DeleteReplicationParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The id of the replication operation to delete.
+	/*The ID of the replication operation to delete.
 	  Required: true
 	  In: path
 	*/

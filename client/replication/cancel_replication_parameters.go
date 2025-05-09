@@ -74,7 +74,7 @@ type CancelReplicationParams struct {
 
 	/* ID.
 
-	   The id of the replication operation to cancel.
+	   The ID of the replication operation to cancel.
 
 	   Format: uuid
 	*/

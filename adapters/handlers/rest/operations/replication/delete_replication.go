@@ -45,9 +45,9 @@ func NewDeleteReplication(ctx *middleware.Context, handler DeleteReplicationHand
 /*
 	DeleteReplication swagger:route DELETE /replication/replicate/{id} replication deleteReplication
 
-Delete a replication operation.
+# Delete a replication operation
 
-Deletes a replication operation. If the operation is in progress, it is cancelled and cleaned up before being deleted.
+Removes a specific replication operation. If the operation is currently active, it will be cancelled and its resources cleaned up before the operation is deleted.
 */
 type DeleteReplication struct {
 	Context *middleware.Context

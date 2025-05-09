@@ -98,7 +98,7 @@ func (o *ReplicationDetailsUnauthorized) WriteResponse(rw http.ResponseWriter, p
 const ReplicationDetailsForbiddenCode int = 403
 
 /*
-ReplicationDetailsForbidden Forbidden
+ReplicationDetailsForbidden Forbidden.
 
 swagger:response replicationDetailsForbidden
 */
@@ -143,7 +143,7 @@ func (o *ReplicationDetailsForbidden) WriteResponse(rw http.ResponseWriter, prod
 const ReplicationDetailsNotFoundCode int = 404
 
 /*
-ReplicationDetailsNotFound Shard replica operation not found
+ReplicationDetailsNotFound Shard replica operation not found.
 
 swagger:response replicationDetailsNotFound
 */

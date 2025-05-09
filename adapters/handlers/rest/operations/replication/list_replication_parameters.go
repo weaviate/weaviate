@@ -51,7 +51,7 @@ type ListReplicationParams struct {
 	  In: query
 	*/
 	IncludeHistory *bool
-	/*The id of the target node to get details for.
+	/*The ID of the target node to get details for.
 	  In: query
 	*/
 	NodeID *string

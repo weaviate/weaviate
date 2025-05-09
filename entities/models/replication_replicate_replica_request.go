@@ -26,28 +26,28 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationReplicateReplicaRequest Request body to add a replica of given shard of a given collection
+// ReplicationReplicateReplicaRequest Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and destination node, the collection and type of transfer.
 //
 // swagger:model ReplicationReplicateReplicaRequest
 type ReplicationReplicateReplicaRequest struct {
 
-	// The collection name holding the shard
+	// The unique identifier (name) of the collection to which the target shard belongs.
 	// Required: true
 	CollectionID *string `json:"collectionId"`
 
-	// The node to add a copy of the replica on
+	// The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.
 	// Required: true
 	DestinationNodeName *string `json:"destinationNodeName"`
 
-	// The shard id holding the replica to be copied
+	// The ID of the shard whose replica is to be moved or copied.
 	// Required: true
 	ShardID *string `json:"shardId"`
 
-	// The node containing the replica
+	// The name of the Weaviate node currently hosting the shard replica that needs to be moved or copied.
 	// Required: true
 	SourceNodeName *string `json:"sourceNodeName"`
 
-	// The type of transfer to perform: 'COPY' or 'MOVE'. Defaults to 'COPY' if not specified.
+	// Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.
 	// Enum: [COPY MOVE]
 	TransferType *string `json:"transferType,omitempty"`
 }
