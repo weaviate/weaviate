@@ -14,6 +14,7 @@ package cluster
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
@@ -64,8 +65,17 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // Apply should apply the log to the FSM. Apply must be deterministic and
 // produce the same result on all peers in the cluster.
 // The returned value is returned to the client as the ApplyFuture.Response.
-func (st *Store) Apply(l *raft.Log) interface{} {
+func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
+
+	start := time.Now()
+	defer func() {
+		if ret.Error != nil {
+			st.metrics.applyFailures.Inc()
+		}
+		st.metrics.applyDuration.Observe(float64(time.Since(start)))
+	}()
+
 	if l.Type != raft.LogCommand {
 		st.log.WithFields(logrus.Fields{
 			"type":  l.Type,
@@ -111,6 +121,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
+		st.metrics.lastAppliedIndex.Set(float64(l.Index))
 	}()
 
 	cmd.Version = l.Index
