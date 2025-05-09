@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/global"
 )
 
 var _NUMCPU = runtime.NumCPU()
@@ -91,6 +92,9 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) (map[int]error, error) {
+	if global.Manager().ShouldRejectRequests() {
+		return nil, fmt.Errorf("cannot update vector, shutdown in progress")
+	}
 	modConfigs, err := p.getModuleConfigs(class)
 	if err != nil {
 		return nil, err
@@ -280,6 +284,9 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 	findObjectFn modulecapabilities.FindObjectFn,
 	logger logrus.FieldLogger,
 ) error {
+	if global.Manager().ShouldRejectRequests() {
+		return fmt.Errorf("cannot update vector, shutdown in progress")
+	}
 	eg := enterrors.NewErrorGroupWrapper(logger)
 	eg.SetLimit(_NUMCPU)
 
@@ -354,6 +361,9 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 	findObjectFn modulecapabilities.FindObjectFn,
 	targetVector string, modConfig map[string]interface{},
 ) error {
+	if global.Manager().IsShutdownInProgress() {
+		return fmt.Errorf("cannot vectorize, shutdown in progress")
+	}
 	found := p.getModule(modConfig)
 	if found == nil {
 		return fmt.Errorf(

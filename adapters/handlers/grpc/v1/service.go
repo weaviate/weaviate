@@ -21,6 +21,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/global"
 
 	"github.com/sirupsen/logrus"
 	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
@@ -69,6 +70,9 @@ func NewService(traverser *traverser.Traverser, authComposer composer.TokenFunc,
 }
 
 func (s *Service) Aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.AggregateReply, error) {
+	if global.Manager().ShouldRejectRequests() {
+		return nil, global.ErrServerShuttingDown
+	}
 	var result *pb.AggregateReply
 	var errInner error
 
@@ -118,6 +122,9 @@ func (s *Service) aggregate(ctx context.Context, req *pb.AggregateRequest) (*pb.
 }
 
 func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*pb.TenantsGetReply, error) {
+	if global.Manager().ShouldRejectRequests() {
+		return nil, global.ErrServerShuttingDown
+	}
 	before := time.Now()
 
 	principal, err := s.principalFromContext(ctx)
@@ -139,6 +146,9 @@ func (s *Service) TenantsGet(ctx context.Context, req *pb.TenantsGetRequest) (*p
 }
 
 func (s *Service) BatchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (*pb.BatchDeleteReply, error) {
+	if global.Manager().ShouldRejectRequests() {
+		return nil, global.ErrServerShuttingDown
+	}
 	var result *pb.BatchDeleteReply
 	var errInner error
 
@@ -190,6 +200,9 @@ func (s *Service) batchDelete(ctx context.Context, req *pb.BatchDeleteRequest) (
 }
 
 func (s *Service) BatchObjects(ctx context.Context, req *pb.BatchObjectsRequest) (*pb.BatchObjectsReply, error) {
+	if global.Manager().ShouldRejectRequests() {
+		return nil, global.ErrServerShuttingDown
+	}
 	var result *pb.BatchObjectsReply
 	var errInner error
 
@@ -281,6 +294,9 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 }
 
 func (s *Service) Search(ctx context.Context, req *pb.SearchRequest) (*pb.SearchReply, error) {
+	if global.Manager().ShouldRejectRequests() {
+		return nil, global.ErrServerShuttingDown
+	}
 	var result *pb.SearchReply
 	var errInner error
 

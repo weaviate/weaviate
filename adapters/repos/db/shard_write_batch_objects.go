@@ -23,6 +23,7 @@ import (
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
+	"github.com/weaviate/weaviate/usecases/global"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -34,6 +35,9 @@ import (
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
+	if global.Manager().ShouldRejectRequests() {
+		return []error{global.ErrServerShuttingDown}
+	}
 	s.activityTracker.Add(1)
 	if err := s.isReadOnly(); err != nil {
 		return []error{err}
@@ -107,6 +111,9 @@ func newObjectsBatcher(s ShardLike) *objectsBatcher {
 func (ob *objectsBatcher) Objects(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
+	if global.Manager().ShouldRejectRequests() {
+		return []error{global.ErrServerShuttingDown}
+	}
 	beforeBatch := time.Now()
 	defer ob.shard.Metrics().BatchObject(beforeBatch, len(objects))
 

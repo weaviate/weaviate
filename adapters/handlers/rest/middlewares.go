@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/global"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -106,6 +107,19 @@ func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Ha
 	}
 }
 
+func refuseRequestsIfShuttingDown() func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if global.Manager().ShouldRejectRequests() {
+				w.WriteHeader(http.StatusServiceUnavailable)
+				w.Write([]byte(fmt.Sprintf(`{"error":"%v"}`, global.ErrServerShuttingDown)))
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 // The middleware configuration happens before anything, this middleware also applies to serving the swagger.json document.
 // So this is a good place to plug in a panic handling middleware, logging and metrics
 // Contains "x-api-key", "x-api-token" for legacy reasons, older interfaces might need these headers.
@@ -144,6 +158,8 @@ func makeSetupGlobalMiddleware(appState *state.State, context *middleware.Contex
 		if appState.ServerConfig.Config.Sentry.Enabled {
 			handler = addSentryHandler(handler)
 		}
+
+		handler = refuseRequestsIfShuttingDown()(handler)
 
 		return handler
 	}
