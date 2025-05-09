@@ -150,8 +150,8 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 }
 
 func StartAndListen(s *grpc.Server, state *state.State) error {
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%d",
-		state.ServerConfig.Config.GRPC.Port))
+	// Use wildcard address to listen on all interfaces (IPv4 and IPv6)
+	lis, err := net.Listen("tcp", fmt.Sprintf(":%d", state.ServerConfig.Config.GRPC.Port))
 	if err != nil {
 		return err
 	}

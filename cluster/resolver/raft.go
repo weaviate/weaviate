@@ -12,7 +12,6 @@
 package resolver
 
 import (
-	"fmt"
 	"net"
 	"sync"
 	"time"
@@ -73,9 +72,11 @@ func (a *raft) ServerAddr(id raftImpl.ServerID) (raftImpl.ServerAddress, error) 
 	// If we are not running a local cluster we can immediately return, otherwise we need to lookup the port of the node
 	// as we can't use the default raft port locally.
 	if !a.IsLocalCluster {
-		return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.RaftPort)), nil
+		// Format the address with proper IPv6 handling
+		return raftImpl.ServerAddress(FormatAddressWithPort(addr, uint16(a.RaftPort))), nil
 	}
-	return raftImpl.ServerAddress(fmt.Sprintf("%s:%d", addr, a.NodeNameToPortMap[string(id)])), nil
+	// Format the address with proper IPv6 handling
+	return raftImpl.ServerAddress(FormatAddressWithPort(addr, uint16(a.NodeNameToPortMap[string(id)]))), nil
 }
 
 // NewTCPTransport returns a new raft.NetworkTransportConfig that utilizes
