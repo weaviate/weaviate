@@ -535,6 +535,23 @@ func (s *schema) Restore(r io.Reader, parser Parser) error {
 	if err := json.NewDecoder(r).Decode(&snap); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %v", err)
 	}
+
+	if len(snap.Schema) > 0 {
+		if len(s.classes) == 0 {
+			s.classes = make(map[string]*metaClass, len(snap.Schema))
+		}
+
+		for _, cls := range snap.Schema {
+			mClass := cls.(*metaClass)
+			snap.Classes[mClass.Class.Class] = &metaClass{
+				Class:        mClass.Class,
+				ClassVersion: mClass.ClassVersion,
+				Sharding:     mClass.Sharding.DeepCopy(),
+				ShardVersion: mClass.ShardVersion,
+			}
+		}
+	}
+
 	for _, cls := range snap.Classes {
 		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
 			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
