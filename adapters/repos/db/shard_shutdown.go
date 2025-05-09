@@ -157,17 +157,18 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 	}
 
 	s.RefCountAdd()
-	return func() { s.RefCountSub()}, nil
+	return func() { s.RefCountSub() }, nil
 }
 
 func (s *Shard) RefCountAdd() {
 	s.inUseCounter.Add(1)
 }
+
 func (s *Shard) RefCountSub() {
 	s.inUseCounter.Add(-1)
 	// if the counter is 0, we can shutdown
 	if s.inUseCounter.Load() == 0 {
-		//s.Shutdown(context.TODO())
+		// s.Shutdown(context.TODO())
 	}
 }
 
