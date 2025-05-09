@@ -156,8 +156,19 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 		return func() {}, errAlreadyShutdown
 	}
 
+	s.RefCountAdd()
+	return func() { s.RefCountSub()}, nil
+}
+
+func (s *Shard) RefCountAdd() {
 	s.inUseCounter.Add(1)
-	return func() { s.inUseCounter.Add(-1) }, nil
+}
+func (s *Shard) RefCountSub() {
+	s.inUseCounter.Add(-1)
+	// if the counter is 0, we can shutdown
+	if s.inUseCounter.Load() == 0 {
+		//s.Shutdown(context.TODO())
+	}
 }
 
 func (s *Shard) waitForShutdown(ctx context.Context) error {
