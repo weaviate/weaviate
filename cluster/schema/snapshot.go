@@ -24,7 +24,7 @@ import (
 type snapshot struct {
 	NodeID     string                `json:"node_id"`
 	SnapshotID string                `json:"snapshot_id"`
-	Classes    map[string]*metaClass `json:"classes"`
+	Classes    map[string]*metaClass `json:"classes,omitempty"`
 	Schema     map[string]any        `json:"schema,omitempty"`
 }
 
