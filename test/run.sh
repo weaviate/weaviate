@@ -160,19 +160,32 @@ function main() {
     echo_green "Python tests successful"
   fi
 
-  if $only_module; then
-    mod=${only_module_value//--only-module-/}
-    echo_green "Running module acceptance tests for $mod..."
-    for pkg in $(go list ./test/modules/... | grep '/modules/'${mod}); do
-      build_docker_image_for_tests
-      echo_green "Weaviate image successfully built, run module tests for $mod..."
-      if ! go test -count 1 -race -timeout 15m -v "$pkg"; then
-        echo "Test for $pkg failed" >&2
-        return 1
-      fi
-      echo_green "Module acceptance tests for $mod successful"
+if $only_module; then
+  mod=${only_module_value//--only-module-/}
+  echo_green "Running module acceptance tests for $mod..."
+  for pkg in $(go list ./test/modules/... | grep '/modules/'${mod}); do
+    build_docker_image_for_tests
+    echo_green "Weaviate image successfully built, running tests individually for $mod..."
+
+    pkg_dir=$(go list -f '{{.Dir}}' "$pkg")
+
+    for test_file in $(find "$pkg_dir" -name '*_test.go'); do
+      test_file_name=$(basename "$test_file")
+
+      # find test functions inside this file
+      test_funcs=$(grep -E '^func (Test[A-Za-z0-9_]+)' "$test_file" | awk '{print $2}' | cut -d'(' -f1)
+
+      for test_func in $test_funcs; do
+        echo_green "Running $test_func from $test_file..."
+        if ! go test -count 1 -race -timeout 15m -v "$pkg" -run "^$test_func$"; then
+          echo "Test $test_func in $test_file failed" >&2
+          return 1
+        fi
+        echo_green "Test $test_func successful"
+      done
     done
-  fi
+  done
+fi
   if $run_module_tests; then
     echo_green "Running module acceptance tests..."
     build_docker_image_for_tests

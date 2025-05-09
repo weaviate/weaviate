@@ -99,6 +99,11 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsbjtestbucketoverride")
 		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+		defer moduleshelper.DeleteGCSBucket(ctx, t, "gcsbjtestbucketoverride")
+
+		if t.Failed() {
+			return
+		}
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
@@ -106,12 +111,18 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"gcs", gcsBackupJourneyClassName, gcsBackupJourneyBackupIDSingleNode+overrideBucket, nil, override, overrideBucket, overridePath)
 		})
+		if t.Failed() {
+			return
+		}
 
 		t.Run("cancel after restart", func(t *testing.T) {
 			helper.SetupClient(compose.GetWeaviate().URI())
 			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstggcs.Name)
 		})
 	})
+	if t.Failed() {
+		return
+	}
 
 	t.Run("multiple node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
@@ -139,8 +150,13 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsbjtestbucketoverride")
 		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+		defer moduleshelper.DeleteGCSBucket(ctx, t, "gcsbjtestbucketoverride")
 
 		helper.SetupClient(compose.GetWeaviate().URI())
+
+		if t.Failed() {
+			return
+		}
 
 		t.Run("backup-gcs", func(t *testing.T) {
 			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
