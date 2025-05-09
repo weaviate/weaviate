@@ -189,7 +189,7 @@ func NewDeleteReplicationForbidden() *DeleteReplicationForbidden {
 /*
 DeleteReplicationForbidden describes a response with status code 403, with default header values.
 
-Forbidden
+Forbidden.
 */
 type DeleteReplicationForbidden struct {
 	Payload *models.ErrorResponse
@@ -257,7 +257,7 @@ func NewDeleteReplicationNotFound() *DeleteReplicationNotFound {
 /*
 DeleteReplicationNotFound describes a response with status code 404, with default header values.
 
-Shard replica operation not found
+Shard replica operation not found.
 */
 type DeleteReplicationNotFound struct {
 }

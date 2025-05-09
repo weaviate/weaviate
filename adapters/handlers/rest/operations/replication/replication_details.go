@@ -45,9 +45,9 @@ func NewReplicationDetails(ctx *middleware.Context, handler ReplicationDetailsHa
 /*
 	ReplicationDetails swagger:route GET /replication/replicate/{id} replication replicationDetails
 
-Get the details of a replication operation.
+# Retrieve a replication operation
 
-Returns the details of a replication operation for a given shard, identified by the provided replication operation id.
+Fetches the current status and detailed information for a specific replication operation, identified by its unique ID. Optionally includes historical data of the operation's progress if requested.
 */
 type ReplicationDetails struct {
 	Context *middleware.Context

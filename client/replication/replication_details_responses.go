@@ -201,7 +201,7 @@ func NewReplicationDetailsForbidden() *ReplicationDetailsForbidden {
 /*
 ReplicationDetailsForbidden describes a response with status code 403, with default header values.
 
-Forbidden
+Forbidden.
 */
 type ReplicationDetailsForbidden struct {
 	Payload *models.ErrorResponse
@@ -269,7 +269,7 @@ func NewReplicationDetailsNotFound() *ReplicationDetailsNotFound {
 /*
 ReplicationDetailsNotFound describes a response with status code 404, with default header values.
 
-Shard replica operation not found
+Shard replica operation not found.
 */
 type ReplicationDetailsNotFound struct {
 }
