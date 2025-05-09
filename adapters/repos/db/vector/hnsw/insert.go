@@ -45,10 +45,6 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 	dims := int(atomic.LoadInt32(&h.dims))
 
-	if h.muvera.Load() {
-		return nil
-	}
-
 	// no vectors exist
 	if dims == 0 {
 		vecDimensions := make(map[int]struct{})
@@ -59,6 +55,10 @@ func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
 			return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
 		}
 		return nil
+	}
+
+	if h.muvera.Load() {
+		dims = h.muveraEncoder.Dimensions()
 	}
 
 	// check if vector length is the same as existing nodes
@@ -171,6 +171,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	}
 
 	if h.muvera.Load() {
+
 		h.trackMuveraOnce.Do(func() {
 			h.muveraEncoder.InitEncoder(len(vectors[0][0]))
 			h.Lock()
