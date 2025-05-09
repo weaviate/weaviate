@@ -537,19 +537,12 @@ func (s *schema) Restore(r io.Reader, parser Parser) error {
 	}
 
 	if len(snap.Schema) > 0 {
-		if len(s.classes) == 0 {
-			s.classes = make(map[string]*metaClass, len(snap.Schema))
+		// handle new version of schema
+		var classes map[string]*metaClass
+		if err := json.Unmarshal(snap.Schema, &classes); err != nil {
+			return fmt.Errorf("restore snapshot: decode json: %w", err)
 		}
-
-		for _, cls := range snap.Schema {
-			mClass := cls.(*metaClass)
-			snap.Classes[mClass.Class.Class] = &metaClass{
-				Class:        mClass.Class,
-				ClassVersion: mClass.ClassVersion,
-				Sharding:     mClass.Sharding.DeepCopy(),
-				ShardVersion: mClass.ShardVersion,
-			}
-		}
+		s.classes = classes
 	}
 
 	for _, cls := range snap.Classes {
