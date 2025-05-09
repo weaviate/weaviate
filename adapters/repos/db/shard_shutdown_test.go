@@ -100,20 +100,16 @@ func TestShardShutdownWithInUseRefTimeout(t *testing.T) {
 		shutdownErrCh <- err
 	}()
 
-	fmt.Printf("Waiting for shutdown to complete at %v\n", time.Now())
+
 	// Wait for 33s which should be long enough for the shutdown timeout (30s)
 	time.Sleep(33 * time.Second)
-	fmt.Printf("Shutdown timeout reached, waiting for shutdown to complete...\n")
+
 
 	select {
 	case err := <-shutdownErrCh:
-		fmt.Printf("Shutdown completed at %v\n", time.Now())
-		fmt.Printf("Shutdown error: %v\n", err)
-		fmt.Printf("Shard state: %v\n", shard.(*LazyLoadShard).shard.shut)
 		require.NoError(t, err)
 		require.True(t, shard.(*LazyLoadShard).shard.shut, "shard should be marked as shut down due to timeout")
 	case <-time.After(5 * time.Second):
-		fmt.Printf("Shutdown did not complete in time after timeout\n")
 		// This is a failure case, we expect the shutdown to complete
 		t.Fatal("shutdown did not complete in time after timeout")
 	}
