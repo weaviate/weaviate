@@ -28,7 +28,7 @@ import (
 const ListReplicationOKCode int = 200
 
 /*
-ListReplicationOK The details of the replication operation.
+ListReplicationOK The details of the replication operations.
 
 swagger:response listReplicationOK
 */
@@ -76,7 +76,7 @@ func (o *ListReplicationOK) WriteResponse(rw http.ResponseWriter, producer runti
 const ListReplicationBadRequestCode int = 400
 
 /*
-ListReplicationBadRequest Bad request
+ListReplicationBadRequest Bad request.
 
 swagger:response listReplicationBadRequest
 */
@@ -191,7 +191,7 @@ func (o *ListReplicationForbidden) WriteResponse(rw http.ResponseWriter, produce
 const ListReplicationNotFoundCode int = 404
 
 /*
-ListReplicationNotFound Shard replica operation not found
+ListReplicationNotFound Shard replica operation not found.
 
 swagger:response listReplicationNotFound
 */

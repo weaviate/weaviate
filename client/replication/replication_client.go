@@ -59,7 +59,7 @@ type ClientService interface {
 /*
 CancelReplication cancels a replication operation
 
-Cancels an in-progress replication operation as soon as possible but does not delete it leaving it in the unresumable CANCELLED state.
+Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the 'CANCELLED' state (can't be resumed) and will not be automatically deleted.
 */
 func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CancelReplicationNoContent, error) {
 	// TODO: Validate the params before sending
@@ -100,7 +100,7 @@ func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo run
 /*
 DeleteReplication deletes a replication operation
 
-Deletes a replication operation. If the operation is in progress, it is cancelled and cleaned up before being deleted.
+Removes a specific replication operation. If the operation is currently active, it will be cancelled and its resources cleaned up before the operation is deleted.
 */
 func (a *Client) DeleteReplication(params *DeleteReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteReplicationNoContent, error) {
 	// TODO: Validate the params before sending
@@ -139,9 +139,9 @@ func (a *Client) DeleteReplication(params *DeleteReplicationParams, authInfo run
 }
 
 /*
-GetCollectionShardingState gets the sharding state for a collection and optionally a shard
+GetCollectionShardingState gets sharding state
 
-Get the sharding state for a collection and optionally a shard.
+Fetches the current sharding state, including replica locations and statuses, for all collections or a specified collection. If a shard name is provided along with a collection, the state for that specific shard is returned.
 */
 func (a *Client) GetCollectionShardingState(params *GetCollectionShardingStateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetCollectionShardingStateOK, error) {
 	// TODO: Validate the params before sending
@@ -180,9 +180,9 @@ func (a *Client) GetCollectionShardingState(params *GetCollectionShardingStatePa
 }
 
 /*
-ListReplication gets the details of all ongoing replication operations based on query params
+ListReplication lists replication operations
 
-Returns the details of all ongoing replication operations. This endpoint only supports filtering by (collection, [shard]) or (nodeId)
+Retrieves a list of currently registered replication operations, optionally filtered by collection, shard, or node ID.
 */
 func (a *Client) ListReplication(params *ListReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListReplicationOK, error) {
 	// TODO: Validate the params before sending
@@ -221,7 +221,9 @@ func (a *Client) ListReplication(params *ListReplicationParams, authInfo runtime
 }
 
 /*
-Replicate starts the async operation to replicate a replica between two nodes
+Replicate initiates a replica movement
+
+Begins an asynchronous operation to move or copy a specific shard replica from its current node to a designated target node. The operation involves copying data, synchronizing, and potentially decommissioning the source replica.
 */
 func (a *Client) Replicate(params *ReplicateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateOK, error) {
 	// TODO: Validate the params before sending
@@ -260,9 +262,9 @@ func (a *Client) Replicate(params *ReplicateParams, authInfo runtime.ClientAuthI
 }
 
 /*
-ReplicationDetails gets the details of a replication operation
+ReplicationDetails retrieves a replication operation
 
-Returns the details of a replication operation for a given shard, identified by the provided replication operation id.
+Fetches the current status and detailed information for a specific replication operation, identified by its unique ID. Optionally includes historical data of the operation's progress if requested.
 */
 func (a *Client) ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error) {
 	// TODO: Validate the params before sending

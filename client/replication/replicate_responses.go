@@ -83,7 +83,7 @@ func NewReplicateOK() *ReplicateOK {
 /*
 ReplicateOK describes a response with status code 200, with default header values.
 
-Replication operation registered successfully
+Replication operation registered successfully. ID of the operation is returned.
 */
 type ReplicateOK struct {
 	Payload *models.ReplicationReplicateReplicaResponse

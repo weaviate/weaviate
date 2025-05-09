@@ -83,7 +83,7 @@ func NewListReplicationOK() *ListReplicationOK {
 /*
 ListReplicationOK describes a response with status code 200, with default header values.
 
-The details of the replication operation.
+The details of the replication operations.
 */
 type ListReplicationOK struct {
 	Payload []*models.ReplicationReplicateDetailsReplicaResponse
@@ -149,7 +149,7 @@ func NewListReplicationBadRequest() *ListReplicationBadRequest {
 /*
 ListReplicationBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Bad request.
 */
 type ListReplicationBadRequest struct {
 	Payload *models.ErrorResponse
@@ -341,7 +341,7 @@ func NewListReplicationNotFound() *ListReplicationNotFound {
 /*
 ListReplicationNotFound describes a response with status code 404, with default header values.
 
-Shard replica operation not found
+Shard replica operation not found.
 */
 type ListReplicationNotFound struct {
 	Payload *models.ErrorResponse

@@ -83,7 +83,7 @@ func NewGetCollectionShardingStateOK() *GetCollectionShardingStateOK {
 /*
 GetCollectionShardingStateOK describes a response with status code 200, with default header values.
 
-Successfully retrieved.
+Successfully retrieved sharding state.
 */
 type GetCollectionShardingStateOK struct {
 	Payload *models.ReplicationShardingStateResponse
@@ -151,7 +151,7 @@ func NewGetCollectionShardingStateBadRequest() *GetCollectionShardingStateBadReq
 /*
 GetCollectionShardingStateBadRequest describes a response with status code 400, with default header values.
 
-Bad request
+Bad request.
 */
 type GetCollectionShardingStateBadRequest struct {
 	Payload *models.ErrorResponse
@@ -343,7 +343,7 @@ func NewGetCollectionShardingStateNotFound() *GetCollectionShardingStateNotFound
 /*
 GetCollectionShardingStateNotFound describes a response with status code 404, with default header values.
 
-Shard replica operation not found
+Collection or shard not found.
 */
 type GetCollectionShardingStateNotFound struct {
 	Payload *models.ErrorResponse

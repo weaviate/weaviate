@@ -25,20 +25,20 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationDeleteReplicaRequest Request body to delete a replica of given shard of a given collection
+// ReplicationDeleteReplicaRequest Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.
 //
 // swagger:model ReplicationDeleteReplicaRequest
 type ReplicationDeleteReplicaRequest struct {
 
-	// The collection name holding the replica to be delete
+	// The name of the collection to which the shard replica belongs.
 	// Required: true
 	CollectionID *string `json:"collectionId"`
 
-	// The node containing the replica to be deleted
+	// The name of the Weaviate node from which the shard replica will be deleted.
 	// Required: true
 	NodeName *string `json:"nodeName"`
 
-	// The shard id holding the replica to be deleted
+	// The ID of the shard whose replica is to be deleted.
 	// Required: true
 	ShardID *string `json:"shardId"`
 }

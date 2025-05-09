@@ -25,20 +25,20 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationDisableReplicaRequest Request body to disable (soft-delete) a replica of given shard of a given collection
+// ReplicationDisableReplicaRequest Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.
 //
 // swagger:model ReplicationDisableReplicaRequest
 type ReplicationDisableReplicaRequest struct {
 
-	// The collection name holding the replica to be disabled
+	// The name of the collection to which the shard replica belongs.
 	// Required: true
 	CollectionID *string `json:"collectionId"`
 
-	// The node containing the replica to be disabled
+	// The name of the Weaviate node hosting the shard replica that is to be disabled.
 	// Required: true
 	NodeName *string `json:"nodeName"`
 
-	// The shard id holding the replica to be disabled
+	// The ID of the shard whose replica is to be disabled.
 	// Required: true
 	ShardID *string `json:"shardId"`
 }

@@ -74,7 +74,7 @@ type DeleteReplicationParams struct {
 
 	/* ID.
 
-	   The id of the replication operation to delete.
+	   The ID of the replication operation to delete.
 
 	   Format: uuid
 	*/

@@ -24,7 +24,7 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ReplicationShardingStateResponse The OK response of GET /replication/shardingstate
+// ReplicationShardingStateResponse Provides the detailed sharding state for one or more collections, including the distribution of shards and their replicas across the cluster nodes.
 //
 // swagger:model ReplicationShardingStateResponse
 type ReplicationShardingStateResponse struct {

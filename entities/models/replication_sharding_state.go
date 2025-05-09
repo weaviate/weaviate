@@ -25,15 +25,15 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// ReplicationShardingState A collection and its shards.
+// ReplicationShardingState Details the sharding layout for a specific collection, mapping each shard to its set of replicas across the cluster.
 //
 // swagger:model ReplicationShardingState
 type ReplicationShardingState struct {
 
-	// collection
+	// The name of the collection.
 	Collection string `json:"collection,omitempty"`
 
-	// shards
+	// An array detailing each shard within the collection and the nodes hosting its replicas.
 	Shards []*ReplicationShardReplicas `json:"shards"`
 }
 
