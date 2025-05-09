@@ -17,7 +17,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -25,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/ctxlock"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -403,7 +403,7 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 		return nil
 	})
 
-	mutex := sync.RWMutex{}
+	mutex := ctxlock.NewMeteredRWMutex("coordinator_can_commit")
 	nodes := make(map[string]string, len(groups))
 	for pair := range reqChan {
 		pair := pair

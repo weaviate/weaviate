@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/ctxlock"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entlsmkv "github.com/weaviate/weaviate/entities/lsmkv"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -57,7 +58,7 @@ type flat struct {
 	rootPath            string
 	dims                int32
 	metadata            *bolt.DB
-	metadataLock        *sync.RWMutex
+	metadataLock        *ctxlock.MeteredRWMutex
 	store               *lsmkv.Store
 	logger              logrus.FieldLogger
 	distancerProvider   distancer.Provider
@@ -94,7 +95,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		rootPath:             cfg.RootPath,
 		logger:               logger,
 		distancerProvider:    cfg.DistanceProvider,
-		metadataLock:         &sync.RWMutex{},
+		metadataLock:         ctxlock.NewMeteredRWMutex("flatvector"),
 		rescore:              extractCompressionRescore(uc),
 		pqResults:            common.NewPqMaxPool(100),
 		compression:          extractCompression(uc),

@@ -13,7 +13,6 @@ package cache
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"time"
 	"unsafe"
@@ -24,6 +23,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/entities/ctxlock"
 )
 
 type shardedLockCache[T float32 | byte | uint64] struct {
@@ -40,7 +40,7 @@ type shardedLockCache[T float32 | byte | uint64] struct {
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
-	maintenanceLock sync.RWMutex
+	maintenanceLock *ctxlock.MeteredRWMutex
 }
 
 const (
@@ -74,7 +74,7 @@ func NewShardedFloat32LockCache(vecForID common.VectorForID[float32], maxSize in
 		cancel:           make(chan bool),
 		logger:           logger,
 		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
-		maintenanceLock:  sync.RWMutex{},
+		maintenanceLock:  ctxlock.NewMeteredRWMutex("shardedLockCache"),
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
 	}
@@ -96,7 +96,7 @@ func NewShardedByteLockCache(vecForID common.VectorForID[byte], maxSize int, pag
 		cancel:           make(chan bool),
 		logger:           logger,
 		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
-		maintenanceLock:  sync.RWMutex{},
+		maintenanceLock:  ctxlock.NewMeteredRWMutex("shardedLockCache"),
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
 	}
@@ -118,7 +118,7 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 		cancel:           make(chan bool),
 		logger:           logger,
 		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
-		maintenanceLock:  sync.RWMutex{},
+		maintenanceLock:  ctxlock.NewMeteredRWMutex("shardedLockCache"),
 		deletionInterval: deletionInterval,
 		allocChecker:     allocChecker,
 	}
@@ -436,7 +436,7 @@ type shardedMultipleLockCache[T float32 | uint64 | byte] struct {
 
 	// The maintenanceLock makes sure that only one maintenance operation, such
 	// as growing the cache or clearing the cache happens at the same time.
-	maintenanceLock sync.RWMutex
+	maintenanceLock *ctxlock.MeteredRWMutex
 }
 
 func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[[]float32], maxSize int,
@@ -465,7 +465,7 @@ func NewShardedMultiFloat32LockCache(multipleVecForID common.VectorForID[[]float
 		maxSize:             int64(maxSize),
 		logger:              logger,
 		shardedLocks:        common.NewDefaultShardedRWLocks(),
-		maintenanceLock:     sync.RWMutex{},
+		maintenanceLock:     ctxlock.NewMeteredRWMutex("shardedMultipleLockCache"),
 		deletionInterval:    deletionInterval,
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),
@@ -498,7 +498,7 @@ func NewShardedMultiUInt64LockCache(multipleVecForID common.VectorForID[uint64],
 		maxSize:             int64(maxSize),
 		logger:              logger,
 		shardedLocks:        common.NewDefaultShardedRWLocks(),
-		maintenanceLock:     sync.RWMutex{},
+		maintenanceLock:     ctxlock.NewMeteredRWMutex("shardedMultipleLockCache"),
 		deletionInterval:    deletionInterval,
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),
@@ -531,7 +531,7 @@ func NewShardedMultiByteLockCache(multipleVecForID common.VectorForID[byte], max
 		maxSize:             int64(maxSize),
 		logger:              logger,
 		shardedLocks:        common.NewDefaultShardedRWLocks(),
-		maintenanceLock:     sync.RWMutex{},
+		maintenanceLock:     ctxlock.NewMeteredRWMutex("shardedMultipleLockCache"),
 		deletionInterval:    deletionInterval,
 		allocChecker:        allocChecker,
 		vectorDocID:         make([]CacheKeys, InitialSize),

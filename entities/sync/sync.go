@@ -13,6 +13,8 @@ package sync
 
 import (
 	"sync"
+
+	"github.com/weaviate/weaviate/entities/ctxlock"
 )
 
 // KeyLocker it is a thread safe wrapper of sync.Map
@@ -37,17 +39,17 @@ func NewKeyLocker() *KeyLocker {
 //
 //	do not forget calling Unlock() after locking it.
 func (s *KeyLocker) Lock(ID string) {
-	iLock := &sync.Mutex{}
+	iLock := ctxlock.NewMeteredRWMutex("keylocker")
 	iLocks, _ := s.m.LoadOrStore(ID, iLock)
 
-	iLock = iLocks.(*sync.Mutex)
+	iLock = iLocks.(*ctxlock.MeteredRWMutex)
 	iLock.Lock()
 }
 
 // Unlock it unlocks a specific item by it's ID
 func (s *KeyLocker) Unlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
-	iLock := iLocks.(*sync.Mutex)
+	iLock := iLocks.(*ctxlock.MeteredRWMutex)
 	iLock.Unlock()
 }
 
@@ -78,17 +80,17 @@ func NewKeyRWLocker() *KeyRWLocker {
 //
 //	do not forget calling Unlock() after locking it.
 func (s *KeyRWLocker) Lock(ID string) {
-	iLock := &sync.RWMutex{}
+	iLock := ctxlock.NewMeteredRWMutex("bucketid")
 	iLocks, _ := s.m.LoadOrStore(ID, iLock)
 
-	iLock = iLocks.(*sync.RWMutex)
+	iLock = iLocks.(*ctxlock.MeteredRWMutex)
 	iLock.Lock()
 }
 
 // Unlock it unlocks a specific item by it's ID
 func (s *KeyRWLocker) Unlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
-	iLock := iLocks.(*sync.RWMutex)
+	iLock := iLocks.(*ctxlock.MeteredRWMutex)
 	iLock.Unlock()
 }
 
@@ -97,16 +99,16 @@ func (s *KeyRWLocker) Unlock(ID string) {
 //
 //	do not forget calling RUnlock() after rlocking it.
 func (s *KeyRWLocker) RLock(ID string) {
-	iLock := &sync.RWMutex{}
+	iLock := ctxlock.NewMeteredRWMutex("bucketidR")
 	iLocks, _ := s.m.LoadOrStore(ID, iLock)
 
-	iLock = iLocks.(*sync.RWMutex)
+	iLock = iLocks.(*ctxlock.MeteredRWMutex)
 	iLock.RLock()
 }
 
 // RUnlock it runlocks a specific item by it's ID
 func (s *KeyRWLocker) RUnlock(ID string) {
 	iLocks, _ := s.m.Load(ID)
-	iLock := iLocks.(*sync.RWMutex)
+	iLock := iLocks.(*ctxlock.MeteredRWMutex)
 	iLock.RUnlock()
 }
