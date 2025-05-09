@@ -320,19 +320,22 @@ func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 	return nil
 }
 
-func writeWithChecksum(writer byteops.ReadWriter, path string, observeWrite diskio.MeteredWriterCallback) error {
+// writeWithChecksum expects the data in the buffer to start at position byteops.Uint32Len so the
+// checksum can be added into the same buffer at its start and everything can be written to the file
+// in one go
+func writeWithChecksum(bufWriter byteops.ReadWriter, path string, observeFileWriter diskio.MeteredWriterCallback) error {
 	// checksum needs to be at the start of the file
-	chksm := crc32.ChecksumIEEE(writer.Buffer[byteops.Uint32Len:])
-	writer.MoveBufferToAbsolutePosition(0)
-	writer.WriteUint32(chksm)
+	chksm := crc32.ChecksumIEEE(bufWriter.Buffer[byteops.Uint32Len:])
+	bufWriter.MoveBufferToAbsolutePosition(0)
+	bufWriter.WriteUint32(chksm)
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("open file for writing: %w", err)
 	}
 
-	meteredW := diskio.NewMeteredWriter(f, observeWrite)
+	meteredW := diskio.NewMeteredWriter(f, observeFileWriter)
 
-	if _, err := meteredW.Write(writer.Buffer); err != nil {
+	if _, err := meteredW.Write(bufWriter.Buffer); err != nil {
 		// ignoring f.Close() error here, as we don't care about whether the file
 		// was flushed, the call is mainly intended to prevent a file descriptor
 		// leak.  We still want to return the original error below.
@@ -373,6 +376,7 @@ func loadWithChecksum(path string, lengthCheck int) ([]byte, error) {
 }
 
 func getBloomFilterSize(bf *bloom.BloomFilter) int {
+	// size of the bloom filter is size of the underlying bitSet and two uint64 parameters
 	bs := bf.BitSet()
 	bsSize := bs.BinaryStorageSize()
 	return bsSize + 2*byteops.Uint64Len
