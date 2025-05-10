@@ -233,8 +233,11 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		principal,
 		allTenants,
 		authorization.READ,
-		func(tenant *models.TenantResponse) string {
-			return authorization.ShardsMetadata(class, tenant.Tenant.Name)[0]
+		func(tr *models.TenantResponse) string {
+			if tr.Tenant == nil {
+				return authorization.ShardsMetadata(class, "")[0]
+			}
+			return authorization.ShardsMetadata(class, tr.Tenant.Name)[0]
 		},
 	)
 
