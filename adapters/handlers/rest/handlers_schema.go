@@ -301,7 +301,7 @@ func (s *schemaHandlers) getTenants(params schema.TenantsGetParams,
 	}
 
 	s.metricRequestsTotal.logOk(params.ClassName)
-	return schema.NewTenantsGetOK().WithPayload(schemaUC.TenantResponsesToTenants(tenants))
+	return schema.NewTenantsGetOK().WithPayload(tenants)
 }
 
 func (s *schemaHandlers) getTenant(

@@ -17,6 +17,7 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/mock"
+
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -152,9 +153,9 @@ func (f *fakeSchemaManager) QueryClassVersions(classes ...string) (map[string]ui
 	return models.(map[string]uint64), nil
 }
 
-func (f *fakeSchemaManager) QueryTenants(class string, tenants []string) ([]*models.TenantResponse, uint64, error) {
+func (f *fakeSchemaManager) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
 	args := f.Called(class, tenants)
-	return args.Get(0).([]*models.TenantResponse), 0, args.Error(2)
+	return args.Get(0).([]*models.Tenant), 0, args.Error(2)
 }
 
 func (f *fakeSchemaManager) QueryShardOwner(class, shard string) (string, uint64, error) {
