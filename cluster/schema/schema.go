@@ -566,8 +566,8 @@ func (s *schema) restore(classes map[string]*metaClass, parser Parser) error {
 }
 
 // makeTenant creates a tenant with the given name and status
-func makeTenant(name, status string) models.Tenant {
-	return models.Tenant{
+func makeTenant(name, status string) *models.Tenant {
+	return &models.Tenant{
 		Name:           name,
 		ActivityStatus: status,
 	}

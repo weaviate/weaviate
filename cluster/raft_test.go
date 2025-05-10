@@ -131,7 +131,7 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsAll)
 	assert.Equal(t, []*models.TenantResponse{{
-		Tenant: models.Tenant{
+		Tenant: &models.Tenant{
 			Name:           "T0",
 			ActivityStatus: models.TenantActivityStatusHOT,
 		},
@@ -143,7 +143,7 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsOne)
 	assert.Equal(t, []*models.TenantResponse{{
-		Tenant: models.Tenant{
+		Tenant: &models.Tenant{
 			Name:           "T0",
 			ActivityStatus: models.TenantActivityStatusHOT,
 		},
