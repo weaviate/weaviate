@@ -253,14 +253,14 @@ func Test_getURL(t *testing.T) {
 			config: ent.VectorizationConfig{
 				Model: "sentence-transformers/facebook-dpr-ctx_encoder-multiset-base",
 			},
-			want: "https://api-inference.huggingface.co/pipeline/feature-extraction/sentence-transformers/facebook-dpr-ctx_encoder-multiset-base",
+			want: "https://router.huggingface.co/hf-inference/models/sentence-transformers/facebook-dpr-ctx_encoder-multiset-base/pipeline/feature-extraction",
 		},
 		{
 			name: "BERT base model (uncased)",
 			config: ent.VectorizationConfig{
 				Model: "bert-base-uncased",
 			},
-			want: "https://api-inference.huggingface.co/pipeline/feature-extraction/bert-base-uncased",
+			want: "https://router.huggingface.co/hf-inference/models/bert-base-uncased/pipeline/feature-extraction",
 		},
 		{
 			name: "BERT base model (uncased)",

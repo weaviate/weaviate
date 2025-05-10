@@ -85,7 +85,7 @@ func composeModules() (composeModules *docker.Compose) {
 		WithText2VecCohere(os.Getenv("COHERE_APIKEY")).
 		WithText2VecVoyageAI(os.Getenv("VOYAGEAI_APIKEY")).
 		WithText2VecGoogle(os.Getenv("GOOGLE_APIKEY")).
-		WithText2VecHuggingFace().
+		WithText2VecHuggingFace(os.Getenv("HUGGINGFACE_APIKEY")).
 		WithText2VecAWS(os.Getenv("AWS_ACCESS_KEY_ID"), os.Getenv("AWS_SECRET_ACCESS_KEY"), os.Getenv("AWS_SESSION_TOKEN")).
 		WithGenerativeOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
 		WithGenerativeCohere(os.Getenv("COHERE_APIKEY")).

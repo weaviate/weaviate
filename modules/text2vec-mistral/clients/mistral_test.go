@@ -173,7 +173,7 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	assert.NotEmpty(f.t, req.Input)
 
 	resp := embeddingsResponse{
-		Data:  []embeddingsDataResponse{{Embeddings: []float32{0.1, 0.2, 0.3}}},
+		Data:  []embeddingsDataResponse{{Embedding: []float32{0.1, 0.2, 0.3}}},
 		Model: "model",
 	}
 	outBytes, err := json.Marshal(resp)
