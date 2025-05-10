@@ -464,36 +464,42 @@ func (s *schema) updateTenantsProcess(class string, v uint64, req *command.Tenan
 	return err
 }
 
-func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantResponse, error) {
+func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
 		return nil, err
 	}
 
 	// Read tenants using the meta lock guard
-	var res []*models.TenantResponse
+	var res []*models.Tenant
 	f := func(_ *models.Class, ss *sharding.State) error {
 		if len(tenants) == 0 {
-			res = make([]*models.TenantResponse, len(ss.Physical))
+			res = make([]*models.Tenant, len(ss.Physical))
 			i := 0
-			for tenant, physical := range ss.Physical {
+			for tenantName, physical := range ss.Physical {
 				// Ensure we copy the belongs to nodes array to avoid it being modified
 				cpy := make([]string, len(physical.BelongsToNodes))
 				copy(cpy, physical.BelongsToNodes)
 
-				res[i] = MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy)
+				res[i] = &models.Tenant{
+					Name:           tenantName,
+					ActivityStatus: entSchema.ActivityStatus(physical.Status),
+				}
 
 				// Increment our result iterator
 				i++
 			}
 		} else {
-			res = make([]*models.TenantResponse, 0, len(tenants))
-			for _, tenant := range tenants {
-				if physical, ok := ss.Physical[tenant]; ok {
+			res = make([]*models.Tenant, 0, len(tenants))
+			for _, tenantName := range tenants {
+				if physical, ok := ss.Physical[tenantName]; ok {
 					// Ensure we copy the belongs to nodes array to avoid it being modified
 					cpy := make([]string, len(physical.BelongsToNodes))
 					copy(cpy, physical.BelongsToNodes)
-					res = append(res, MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy))
+					res = append(res, &models.Tenant{
+						Name:           tenantName,
+						ActivityStatus: entSchema.ActivityStatus(physical.Status),
+					})
 				}
 			}
 		}
@@ -563,20 +569,4 @@ func (s *schema) restore(classes map[string]*metaClass, parser Parser) error {
 	}
 	s.replaceClasses(classes)
 	return nil
-}
-
-// makeTenant creates a tenant with the given name and status
-func makeTenant(name, status string) models.Tenant {
-	return models.Tenant{
-		Name:           name,
-		ActivityStatus: status,
-	}
-}
-
-// MakeTenantWithBelongsToNodes creates a tenant with the given name, status, and belongsToNodes
-func MakeTenantWithBelongsToNodes(name, status string, belongsToNodes []string) *models.TenantResponse {
-	return &models.TenantResponse{
-		Tenant:         makeTenant(name, status),
-		BelongsToNodes: belongsToNodes,
-	}
 }
