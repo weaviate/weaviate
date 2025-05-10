@@ -314,7 +314,8 @@ func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Co
 	return d
 }
 
-func (d *Compose) WithText2VecHuggingFace() *Compose {
+func (d *Compose) WithText2VecHuggingFace(apiKey string) *Compose {
+	d.weaviateEnvs["HUGGINGFACE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modhuggingface.Name)
 	return d
 }
