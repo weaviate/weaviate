@@ -6288,22 +6288,18 @@ func init() {
     "TenantResponse": {
       "description": "attributes representing a single tenant response within weaviate",
       "type": "object",
-      "allOf": [
-        {
+      "properties": {
+        "Tenant": {
           "$ref": "#/definitions/Tenant"
         },
-        {
-          "properties": {
-            "belongsToNodes": {
-              "description": "The list of nodes that owns that tenant data.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
+        "belongsToNodes": {
+          "description": "The list of nodes that owns that tenant data.",
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
-      ]
+      }
     },
     "UserOwnInfo": {
       "type": "object",
@@ -13334,22 +13330,18 @@ func init() {
     "TenantResponse": {
       "description": "attributes representing a single tenant response within weaviate",
       "type": "object",
-      "allOf": [
-        {
+      "properties": {
+        "Tenant": {
           "$ref": "#/definitions/Tenant"
         },
-        {
-          "properties": {
-            "belongsToNodes": {
-              "description": "The list of nodes that owns that tenant data.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
+        "belongsToNodes": {
+          "description": "The list of nodes that owns that tenant data.",
+          "type": "array",
+          "items": {
+            "type": "string"
           }
         }
-      ]
+      }
     },
     "UserOwnInfo": {
       "type": "object",
