@@ -254,8 +254,8 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 	}
 
 	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+		if t.Tenant.ActivityStatus == models.TenantActivityStatusFROZEN ||
+			t.Tenant.ActivityStatus == models.TenantActivityStatusFREEZING {
 			hasFrozen = true
 			break
 		}
@@ -364,7 +364,7 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 
 	tenants := make([]*models.Tenant, len(tenantsResponse))
 	for i := range tenantsResponse {
-		tenants[i] = &tenantsResponse[i].Tenant
+		tenants[i] = tenantsResponse[i].Tenant
 	}
 
 	return s.apply(

@@ -233,8 +233,11 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		principal,
 		allTenants,
 		authorization.READ,
-		func(tenant *models.TenantResponse) string {
-			return authorization.ShardsMetadata(class, tenant.Name)[0]
+		func(tr *models.TenantResponse) string {
+			if tr.Tenant == nil {
+				return authorization.ShardsMetadata(class, "")[0]
+			}
+			return authorization.ShardsMetadata(class, tr.Tenant.Name)[0]
 		},
 	)
 
@@ -321,9 +324,12 @@ func convertNewTenantNames(status string) string {
 
 // tenantResponseToTenant converts a TenantResponse to a Tenant
 func tenantResponseToTenant(tenantResponse *models.TenantResponse) *models.Tenant {
+	if tenantResponse.Tenant == nil {
+		return &models.Tenant{}
+	}
 	return &models.Tenant{
-		Name:           tenantResponse.Name,
-		ActivityStatus: tenantResponse.ActivityStatus,
+		Name:           tenantResponse.Tenant.Name,
+		ActivityStatus: tenantResponse.Tenant.ActivityStatus,
 	}
 }
 
