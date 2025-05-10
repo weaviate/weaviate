@@ -387,7 +387,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 					applyRequest = &api.ApplyRequest{
 						SubCommand: subCommand,
 					}
-					err = manager.RegisterError(errReq.Id, applyRequest)
+					err = manager.RegisterError(applyRequest)
 					if expectedErr != nil {
 						assert.ErrorAs(t, err, &expectedErr)
 					} else {
@@ -543,7 +543,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					var originalReq api.ReplicationRegisterErrorRequest
 					err := json.Unmarshal(req.SubCommand, &originalReq)
 					require.NoError(t, err)
-					err = manager.RegisterError(originalReq.Id, req)
+					err = manager.RegisterError(req)
 					assert.NoError(t, err)
 				default:
 					t.Fatalf("unknown apply request type: %v", req.Type)
@@ -566,7 +566,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					var originalReq api.ReplicationRegisterErrorRequest
 					err := json.Unmarshal(req.SubCommand, &originalReq)
 					require.NoError(t, err)
-					err = manager.RegisterError(originalReq.Id, req)
+					err = manager.RegisterError(req)
 					assert.NoError(t, err)
 				default:
 					t.Fatalf("unknown apply request type: %v", req.Type)
