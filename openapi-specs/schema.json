@@ -2401,7 +2401,7 @@
       }
     },
     "Tenant": {
-      "type": "object",
+      "type": "object",      
       "description": "attributes representing a single tenant within weaviate",
       "properties": {
         "name": {
@@ -2430,8 +2430,8 @@
       "type": "object",
       "description": "attributes representing a single tenant response within weaviate",
         "properties": {
-          "Tenant": {
-            "$ref": "#/definitions/Tenant"
+          "tenant": {
+            "$ref": "#/definitions/Tenant"            
           },
           "belongsToNodes": {
               "description": "The list of nodes that owns that tenant data.",
@@ -2440,7 +2440,7 @@
                   "type": "string"
               }
           }
-        }      
+        }
     }
   },
   "externalDocs": {

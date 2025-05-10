@@ -324,6 +324,9 @@ func convertNewTenantNames(status string) string {
 
 // tenantResponseToTenant converts a TenantResponse to a Tenant
 func tenantResponseToTenant(tenantResponse *models.TenantResponse) *models.Tenant {
+	if tenantResponse.Tenant == nil {
+		return &models.Tenant{}
+	}
 	return &models.Tenant{
 		Name:           tenantResponse.Tenant.Name,
 		ActivityStatus: tenantResponse.Tenant.ActivityStatus,

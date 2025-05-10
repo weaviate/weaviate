@@ -29,11 +29,11 @@ import (
 // swagger:model TenantResponse
 type TenantResponse struct {
 
-	// tenant
-	Tenant *Tenant `json:"Tenant,omitempty"`
-
 	// The list of nodes that owns that tenant data.
 	BelongsToNodes []string `json:"belongsToNodes"`
+
+	// tenant
+	Tenant *Tenant `json:"tenant,omitempty"`
 }
 
 // Validate validates this tenant response
@@ -58,9 +58,9 @@ func (m *TenantResponse) validateTenant(formats strfmt.Registry) error {
 	if m.Tenant != nil {
 		if err := m.Tenant.Validate(formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("Tenant")
+				return ve.ValidateName("tenant")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("Tenant")
+				return ce.ValidateName("tenant")
 			}
 			return err
 		}
@@ -88,9 +88,9 @@ func (m *TenantResponse) contextValidateTenant(ctx context.Context, formats strf
 	if m.Tenant != nil {
 		if err := m.Tenant.ContextValidate(ctx, formats); err != nil {
 			if ve, ok := err.(*errors.Validation); ok {
-				return ve.ValidateName("Tenant")
+				return ve.ValidateName("tenant")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
-				return ce.ValidateName("Tenant")
+				return ce.ValidateName("tenant")
 			}
 			return err
 		}
