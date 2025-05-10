@@ -104,17 +104,17 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 	case cmd.QueryRequest_TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION:
 		payload, err = st.replicationManager.GetReplicationDetailsByCollection(req)
 		if err != nil {
-			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication operation details: %w", err)
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication operation details by collection: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION_AND_SHARD:
 		payload, err = st.replicationManager.GetReplicationDetailsByCollectionAndShard(req)
 		if err != nil {
-			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication operation details: %w", err)
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication operation details by collection and shards: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_REPLICATION_DETAILS_BY_TARGET_NODE:
 		payload, err = st.replicationManager.GetReplicationDetailsByTargetNode(req)
 		if err != nil {
-			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication operation details: %w", err)
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication operation details by target node: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_SHARDING_STATE_BY_COLLECTION:
 		payload, err = st.replicationManager.QueryShardingStateByCollection(req)
@@ -125,6 +125,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		payload, err = st.replicationManager.QueryShardingStateByCollectionAndShard(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get sharding state by collection and shard: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_GET_ALL_REPLICATION_DETAILS:
+		payload, err = st.replicationManager.GetAllReplicationDetails(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get all replication operation details: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_DISTRIBUTED_TASK_LIST:
 		payload, err = st.distributedTasksManager.ListDistributedTasksPayload(context.Background())

@@ -152,6 +152,28 @@ func (s *Raft) GetReplicationDetailsByTargetNode(node string) ([]api.Replication
 	return response, nil
 }
 
+func (s *Raft) GetAllReplicationDetails() ([]api.ReplicationDetailsResponse, error) {
+	command := &api.QueryRequest{
+		Type: api.QueryRequest_TYPE_GET_ALL_REPLICATION_DETAILS,
+	}
+
+	queryResponse, err := s.Query(context.Background(), command)
+	if err != nil {
+		if strings.Contains(err.Error(), replicationTypes.ErrReplicationOperationNotFound.Error()) {
+			return []api.ReplicationDetailsResponse{}, fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrReplicationOperationNotFound)
+		}
+		return []api.ReplicationDetailsResponse{}, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := []api.ReplicationDetailsResponse{}
+	err = json.Unmarshal(queryResponse.Payload, &response)
+	if err != nil {
+		return []api.ReplicationDetailsResponse{}, fmt.Errorf("failed to unmarshal query response: %w", err)
+	}
+
+	return response, nil
+}
+
 func (s *Raft) QueryShardingStateByCollection(collection string) (api.ShardingState, error) {
 	request := &api.ReplicationQueryShardingStateByCollectionRequest{
 		Collection: collection,

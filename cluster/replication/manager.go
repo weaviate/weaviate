@@ -189,6 +189,20 @@ func (m *Manager) GetReplicationDetailsByTargetNode(c *cmd.QueryRequest) ([]byte
 	return payload, nil
 }
 
+func (m *Manager) GetAllReplicationDetails(c *cmd.QueryRequest) ([]byte, error) {
+	statusByOps := m.replicationFSM.GetStatusByOps()
+	responses := make([]cmd.ReplicationDetailsResponse, 0, len(statusByOps))
+	for op, status := range statusByOps {
+		responses = append(responses, makeReplicationDetailsResponse(&op, &status))
+	}
+
+	payload, err := json.Marshal(responses)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
 func (m *Manager) QueryShardingStateByCollection(c *cmd.QueryRequest) ([]byte, error) {
 	subCommand := cmd.ReplicationQueryShardingStateByCollectionRequest{}
 	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
@@ -251,6 +265,20 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 	return payload, nil
 }
 
+func makeReplicationDetailsResponse(op *ShardReplicationOp, status *ShardReplicationOpStatus) cmd.ReplicationDetailsResponse {
+	return cmd.ReplicationDetailsResponse{
+		Uuid:          op.UUID,
+		Id:            op.ID,
+		ShardId:       op.SourceShard.ShardId,
+		Collection:    op.SourceShard.CollectionId,
+		SourceNodeId:  op.SourceShard.NodeId,
+		TargetNodeId:  op.TargetShard.NodeId,
+		TransferType:  op.TransferType.String(),
+		Status:        status.GetCurrent().ToAPIFormat(),
+		StatusHistory: status.GetHistory().ToAPIFormat(),
+	}
+}
+
 func (m *Manager) getReplicationDetailsResponse(id uint64) (cmd.ReplicationDetailsResponse, error) {
 	op, ok := m.replicationFSM.opsById[id]
 	if !ok {
@@ -262,17 +290,7 @@ func (m *Manager) getReplicationDetailsResponse(id uint64) (cmd.ReplicationDetai
 		return cmd.ReplicationDetailsResponse{}, fmt.Errorf("unable to retrieve replication operation '%d' status", op.ID)
 	}
 
-	return cmd.ReplicationDetailsResponse{
-		Uuid:          op.UUID,
-		Id:            op.ID,
-		ShardId:       op.SourceShard.ShardId,
-		Collection:    op.SourceShard.CollectionId,
-		SourceNodeId:  op.SourceShard.NodeId,
-		TargetNodeId:  op.TargetShard.NodeId,
-		TransferType:  op.TransferType.String(),
-		Status:        status.GetCurrent().ToAPIFormat(),
-		StatusHistory: status.GetHistory().ToAPIFormat(),
-	}, nil
+	return makeReplicationDetailsResponse(&op, &status), nil
 }
 
 func (m *Manager) CancelReplication(c *cmd.ApplyRequest) error {
@@ -293,6 +311,16 @@ func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
 
 	// Trigger deletion of the replication operation in the FSM
 	return m.replicationFSM.DeleteReplication(req)
+}
+
+func (m *Manager) DeleteAllReplications(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationDeleteAllRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Trigger deletion of all replication operation in the FSM
+	return m.replicationFSM.DeleteAllReplications(req)
 }
 
 func (m *Manager) RemoveReplicaOp(c *cmd.ApplyRequest) error {

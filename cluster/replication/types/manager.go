@@ -66,6 +66,13 @@ type Manager interface {
 	//   - error: Returns an error if fetching the replication details failed.
 	GetReplicationDetailsByTargetNode(node string) ([]api.ReplicationDetailsResponse, error)
 
+	// GetAllReplicationDetails retrieves the details of all replication operations.
+	//
+	// Returns:
+	//   - []api.ReplicationDetailsResponse: A list of replication details for the given target node. Returns an empty list if there are no replication operations for the given target node.
+	//   - error: Returns an error if fetching the replication details failed.
+	GetAllReplicationDetails() ([]api.ReplicationDetailsResponse, error)
+
 	// CancelReplication cancels a replication operation meaning that the operation is stopped, cleaned-up on the target, and moved to the CANCELLED state.
 	//
 	// Parameters:
@@ -82,4 +89,9 @@ type Manager interface {
 	//   - error: Returns ErrReplicationOperationNotFound if the operation doesn't exist,
 	//     or another error explaining why cancelling the replication operation failed.
 	DeleteReplication(uuid strfmt.UUID) error
+	// DeleteReplication removes all replication operation from the FSM. If they are in progress, then they are cancelled first.
+	//
+	// Returns:
+	//   - error: any error explaining why cancelling the replication operation failed.
+	DeleteAllReplications() error
 }

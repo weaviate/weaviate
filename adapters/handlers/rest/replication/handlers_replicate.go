@@ -178,6 +178,23 @@ func (h *replicationHandler) deleteReplication(params replication.DeleteReplicat
 	return replication.NewDeleteReplicationNoContent()
 }
 
+func (h *replicationHandler) deleteAllReplications(_ replication.DeleteAllReplicationsParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata()...); err != nil {
+		return replication.NewDeleteAllReplicationsForbidden()
+	}
+
+	if err := h.replicationManager.DeleteAllReplications(); err != nil {
+		return replication.NewDeleteAllReplicationsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "delete_all_operations",
+	}).Info("delete all replication operations")
+
+	return replication.NewDeleteAllReplicationsNoContent()
+}
+
 func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
 	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata()...); err != nil {
 		return replication.NewCancelReplicationForbidden()
@@ -204,15 +221,12 @@ func (h *replicationHandler) listReplication(params replication.ListReplicationP
 		return replication.NewListReplicationForbidden()
 	}
 
-	// Validate query params
-	if params.Collection != nil && params.Shard != nil && params.NodeID != nil {
-		return replication.NewListReplicationBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("no query params provided")))
-	}
-
-	// Start the query based on the provided query params
 	var response []api.ReplicationDetailsResponse
 	var err error
-	if params.Collection != nil {
+
+	if params.Collection == nil && params.Shard == nil && params.NodeID == nil {
+		response, err = h.replicationManager.GetAllReplicationDetails()
+	} else if params.Collection != nil {
 		if params.Shard != nil {
 			response, err = h.replicationManager.GetReplicationDetailsByCollectionAndShard(*params.Collection, *params.Shard)
 		} else {

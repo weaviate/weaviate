@@ -188,6 +188,12 @@ func (s *ShardReplicationFSM) GetOpsForTargetNode(node string) ([]ShardReplicati
 	return val, ok
 }
 
+func (s *ShardReplicationFSM) GetStatusByOps() map[ShardReplicationOp]ShardReplicationOpStatus {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+	return maps.Clone(s.opsStatus)
+}
+
 // ShouldConsumeOps returns true if the operation should be consumed by the consumer
 //
 // It checks the following two conditions:
