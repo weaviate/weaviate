@@ -61,6 +61,13 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	return resp.Version, resp.Error
 }
 
+// StoreConfiguration is invoked once a log entry containing a configuration
+// change is committed. It takes the index at which the configuration was
+// written and the configuration value.
+func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
+	st.metrics.lastAppliedIndex.Set(float64(index))
+}
+
 // Apply is called once a log entry is committed by a majority of the cluster.
 // Apply should apply the log to the FSM. Apply must be deterministic and
 // produce the same result on all peers in the cluster.
@@ -70,9 +77,6 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	start := time.Now()
 	defer func() {
-		if ret.Error != nil {
-			st.metrics.applyFailures.Inc()
-		}
 		st.metrics.applyDuration.Observe(float64(time.Since(start)))
 	}()
 
@@ -97,6 +101,7 @@ func (st *Store) Apply(l *raft.Log) any {
 	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
 		if ret.Error != nil {
+			st.metrics.applyFailures.Inc()
 			st.log.WithFields(logrus.Fields{
 				"log_type":      l.Type,
 				"log_name":      l.Type.String(),
