@@ -89,7 +89,7 @@ func NewCreateUserCreated() *CreateUserCreated {
 /*
 CreateUserCreated describes a response with status code 201, with default header values.
 
-User created successfully
+User created successfully and API key returned.
 */
 type CreateUserCreated struct {
 	Payload *models.UserAPIKey
@@ -349,7 +349,7 @@ func NewCreateUserConflict() *CreateUserConflict {
 /*
 CreateUserConflict describes a response with status code 409, with default header values.
 
-User already exists
+A user with the specified name already exists.
 */
 type CreateUserConflict struct {
 	Payload *models.ErrorResponse

@@ -337,7 +337,7 @@ func NewDeleteUserNotFound() *DeleteUserNotFound {
 /*
 DeleteUserNotFound describes a response with status code 404, with default header values.
 
-user not found
+User not found.
 */
 type DeleteUserNotFound struct {
 }

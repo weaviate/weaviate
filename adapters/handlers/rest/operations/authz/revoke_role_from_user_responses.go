@@ -28,7 +28,7 @@ import (
 const RevokeRoleFromUserOKCode int = 200
 
 /*
-RevokeRoleFromUserOK Role revoked successfully
+RevokeRoleFromUserOK Roles revoked successfully.
 
 swagger:response revokeRoleFromUserOK
 */
@@ -53,7 +53,7 @@ func (o *RevokeRoleFromUserOK) WriteResponse(rw http.ResponseWriter, producer ru
 const RevokeRoleFromUserBadRequestCode int = 400
 
 /*
-RevokeRoleFromUserBadRequest Bad request
+RevokeRoleFromUserBadRequest Malformed request.
 
 swagger:response revokeRoleFromUserBadRequest
 */
@@ -168,7 +168,7 @@ func (o *RevokeRoleFromUserForbidden) WriteResponse(rw http.ResponseWriter, prod
 const RevokeRoleFromUserNotFoundCode int = 404
 
 /*
-RevokeRoleFromUserNotFound role or user is not found.
+RevokeRoleFromUserNotFound Specified role or user not found.
 
 swagger:response revokeRoleFromUserNotFound
 */

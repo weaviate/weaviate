@@ -74,7 +74,7 @@ type DeleteUserParams struct {
 
 	/* UserID.
 
-	   user name
+	   The name of the user.
 	*/
 	UserID string
 

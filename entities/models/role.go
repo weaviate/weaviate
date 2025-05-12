@@ -31,7 +31,7 @@ import (
 // swagger:model Role
 type Role struct {
 
-	// role name
+	// The name (ID) of the role.
 	// Required: true
 	Name *string `json:"name"`
 

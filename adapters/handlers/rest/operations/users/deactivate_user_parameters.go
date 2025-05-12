@@ -47,7 +47,7 @@ type DeactivateUserParams struct {
 	  In: body
 	*/
 	Body DeactivateUserBody
-	/*user id
+	/*The name of the user.
 	  Required: true
 	  In: path
 	*/

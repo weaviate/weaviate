@@ -28,7 +28,7 @@ import (
 const DeactivateUserOKCode int = 200
 
 /*
-DeactivateUserOK users successfully deactivated
+DeactivateUserOK User successfully deactivated.
 
 swagger:response deactivateUserOK
 */
@@ -168,7 +168,7 @@ func (o *DeactivateUserForbidden) WriteResponse(rw http.ResponseWriter, producer
 const DeactivateUserNotFoundCode int = 404
 
 /*
-DeactivateUserNotFound user not found
+DeactivateUserNotFound User not found.
 
 swagger:response deactivateUserNotFound
 */
@@ -193,7 +193,7 @@ func (o *DeactivateUserNotFound) WriteResponse(rw http.ResponseWriter, producer 
 const DeactivateUserConflictCode int = 409
 
 /*
-DeactivateUserConflict user already deactivated
+DeactivateUserConflict User already deactivated.
 
 swagger:response deactivateUserConflict
 */

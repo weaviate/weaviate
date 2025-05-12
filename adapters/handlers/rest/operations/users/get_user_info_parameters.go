@@ -55,7 +55,7 @@ type GetUserInfoParams struct {
 	  Default: false
 	*/
 	IncludeLastUsedTime *bool
-	/*user id
+	/*The name of the user.
 	  Required: true
 	  In: path
 	*/

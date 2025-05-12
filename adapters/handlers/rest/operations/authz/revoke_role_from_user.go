@@ -49,7 +49,9 @@ func NewRevokeRoleFromUser(ctx *middleware.Context, handler RevokeRoleFromUserHa
 /*
 	RevokeRoleFromUser swagger:route POST /authz/users/{id}/revoke authz revokeRoleFromUser
 
-Revoke a role from a user
+# Revoke a role from a user
+
+Remove one or more roles from a user.
 */
 type RevokeRoleFromUser struct {
 	Context *middleware.Context
@@ -90,7 +92,7 @@ func (o *RevokeRoleFromUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) 
 // swagger:model RevokeRoleFromUserBody
 type RevokeRoleFromUserBody struct {
 
-	// the roles that revoked from the key or user
+	// The roles to revoke from the specified user.
 	Roles []string `json:"roles" yaml:"roles"`
 
 	// user type

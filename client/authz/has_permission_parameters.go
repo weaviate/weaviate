@@ -74,12 +74,15 @@ HasPermissionParams contains all the parameters to send to the API endpoint
 */
 type HasPermissionParams struct {
 
-	// Body.
+	/* Body.
+
+	   The permissions to be checked.
+	*/
 	Body *models.Permission
 
 	/* ID.
 
-	   role name
+	   The name of the role.
 	*/
 	ID string
 
