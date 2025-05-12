@@ -19,7 +19,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type compactorSet struct {
@@ -50,12 +53,20 @@ func newCompactorSetCollection(w io.WriteSeeker,
 	scratchSpacePath string, cleanupTombstones bool,
 	enableChecksumValidation bool, maxNewFileSize int64,
 ) *compactorSet {
-	writer, mw := compactor.NewWriter(w, maxNewFileSize)
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"operation": "compaction",
+		"strategy":  StrategySetCollection,
+	})
+	writeCB := func(written int64) {
+		observeWrite.Observe(float64(written))
+	}
+	meteredW := diskio.NewMeteredWriter(w, writeCB)
+	writer, mw := compactor.NewWriter(meteredW, maxNewFileSize)
 
 	return &compactorSet{
 		c1:                       c1,
 		c2:                       c2,
-		w:                        w,
+		w:                        meteredW,
 		bufw:                     writer,
 		mw:                       mw,
 		currentLevel:             level,
@@ -200,6 +211,10 @@ func (c *compactorSet) writeIndexes(f *segmentindex.SegmentFile,
 		Keys:                keys,
 		SecondaryIndexCount: c.secondaryIndexCount,
 		ScratchSpacePath:    c.scratchSpacePath,
+		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+			"strategy":  StrategySetCollection,
+			"operation": "writeIndices",
+		}),
 	}
 	_, err := f.WriteIndexes(indexes)
 	return err

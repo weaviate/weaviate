@@ -18,8 +18,12 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func (m *Memtable) flush() (rerr error) {
@@ -56,8 +60,14 @@ func (m *Memtable) flush() (rerr error) {
 		}
 	}()
 
+	observeWrite := m.metrics.writeMemtable
+	cb := func(written int64) {
+		observeWrite(written)
+	}
+	meteredF := diskio.NewMeteredWriter(f, cb)
+
 	segmentFile := segmentindex.NewSegmentFile(
-		segmentindex.WithBufferedWriter(bufio.NewWriter(f)),
+		segmentindex.WithBufferedWriter(bufio.NewWriter(meteredF)),
 		segmentindex.WithChecksumsDisabled(!m.enableChecksumValidation),
 	)
 
@@ -100,6 +110,10 @@ func (m *Memtable) flush() (rerr error) {
 			Keys:                keys,
 			SecondaryIndexCount: m.secondaryIndices,
 			ScratchSpacePath:    m.path + ".scratch.d",
+			ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+				"strategy":  m.strategy,
+				"operation": "writeIndices",
+			}),
 		}
 
 		if _, err := segmentFile.WriteIndexes(indexes); err != nil {
