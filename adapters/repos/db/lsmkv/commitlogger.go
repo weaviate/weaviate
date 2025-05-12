@@ -212,13 +212,21 @@ func (cl *commitLogger) Size() int64 {
 	return cl.n.Load()
 }
 
+func (cl *commitLogger) sync() error {
+	if cl.paused {
+		return fmt.Errorf("commit logger paused")
+	}
+
+	if err := cl.writer.Flush(); err != nil {
+		return err
+	}
+
+	return cl.file.Sync()
+}
+
 func (cl *commitLogger) close() error {
 	if !cl.paused {
-		if err := cl.writer.Flush(); err != nil {
-			return err
-		}
-
-		if err := cl.file.Sync(); err != nil {
+		if err := cl.sync(); err != nil {
 			return err
 		}
 	}

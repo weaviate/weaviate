@@ -1044,14 +1044,20 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 }
 
-// flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
-func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
-	b.flushLock.RLock()
+func (b *Bucket) shouldSwitchMemtableDueToSizing() bool {
 	commitLogSize := b.active.commitlog.Size()
 	memtableTooLarge := b.active.Size() >= b.memtableThreshold
 	walTooLarge := uint64(commitLogSize) >= b.walThreshold
+	return memtableTooLarge || walTooLarge
+}
+
+// flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
+func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAbortCallback) bool {
+	b.flushLock.RLock()
+
+	sizeTooBig := b.shouldSwitchMemtableDueToSizing()
 	dirtyTooLong := b.active.DirtyDuration() >= b.flushDirtyAfter
-	shouldSwitch := memtableTooLarge || walTooLarge || dirtyTooLong
+	shouldSwitch := b.shouldSwitchMemtableDueToSizing() || dirtyTooLong
 
 	// If true, the parent shard has indicated that it has
 	// entered an immutable state. During this time, the
@@ -1069,7 +1075,22 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 		return false
 	}
 
+	if dirtyTooLong && !sizeTooBig {
+		err := b.active.commitlog.sync()
+		if err != nil {
+			b.logger.WithField("action", "lsm_memtable_flush").
+				WithField("path", b.dir).
+				WithError(err).
+				Errorf("flush and switch failed")
+			b.flushLock.RUnlock()
+			return false
+		}
+		b.flushLock.RUnlock()
+		return true
+	}
+
 	b.flushLock.RUnlock()
+
 	if shouldSwitch {
 		b.haltedFlushTimer.Reset()
 		cycleLength := b.active.ActiveDuration()
