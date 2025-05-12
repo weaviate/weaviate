@@ -114,8 +114,14 @@ func (u *UserConfig) SetDefaults() {
 		u.FilterStrategy = FilterStrategySweeping
 	}
 	u.Multivector = MultivectorConfig{
-		Enabled:     DefaultMultivectorEnabled,
 		Aggregation: DefaultMultivectorAggregation,
+		Enabled:     DefaultMultivectorEnabled,
+		MuveraConfig: MuveraConfig{
+			Enabled:      DefaultMultivectorMuveraEnabled,
+			KSim:         DefaultMultivectorKSim,
+			DProjections: DefaultMultivectorDProjections,
+			Repetitions:  DefaultMultivectorRepetitions,
+		},
 	}
 }
 
@@ -262,6 +268,10 @@ func (u *UserConfig) validate() error {
 	}
 	if enabled > 1 {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
+	}
+
+	if u.Multivector.MuveraConfig.Enabled && u.Multivector.MuveraConfig.KSim > 10 {
+		return fmt.Errorf("invalid hnsw config: ksim must be less than 10")
 	}
 
 	return nil

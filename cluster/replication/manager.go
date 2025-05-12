@@ -64,14 +64,14 @@ func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
 	return m.replicationFSM.Replicate(logId, req)
 }
 
-func (m *Manager) RegisterError(logId uint64, c *cmd.ApplyRequest) error {
+func (m *Manager) RegisterError(c *cmd.ApplyRequest) error {
 	req := &cmd.ReplicationRegisterErrorRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
 	// Store an op's error emitted by the consumer in the FSM
-	return m.replicationFSM.RegisterError(logId, req)
+	return m.replicationFSM.RegisterError(req)
 }
 
 func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {

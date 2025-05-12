@@ -76,6 +76,21 @@ func TestUserConfigUpdates(t *testing.T) {
 						"attempted change from \"false\" to \"true\""),
 			},
 			{
+				name: "attempting to change muvera",
+				initial: ent.UserConfig{Multivector: ent.MultivectorConfig{
+					Enabled: true,
+				}},
+				update: ent.UserConfig{Multivector: ent.MultivectorConfig{
+					Enabled: true,
+					MuveraConfig: ent.MuveraConfig{
+						Enabled: true,
+					},
+				}},
+				expectedError: errors.Errorf(
+					"muvera enabled is immutable: " +
+						"attempted change from \"false\" to \"true\""),
+			},
+			{
 				name:          "changing ef",
 				initial:       ent.UserConfig{EF: 100},
 				update:        ent.UserConfig{EF: -1},
