@@ -537,7 +537,7 @@ func (s *schema) Restore(r io.Reader, parser Parser) error {
 	}
 
 	if len(snap.Schema) > 0 {
-		// handle new version of schema
+		// handle new version of schema snapshot
 		var classes map[string]*metaClass
 		if err := json.Unmarshal(snap.Schema, &classes); err != nil {
 			return fmt.Errorf("restore snapshot: decode json: %w", err)
