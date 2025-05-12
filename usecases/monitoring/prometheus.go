@@ -73,6 +73,8 @@ type PrometheusMetrics struct {
 	BackupRestoreDataTransferred        *prometheus.CounterVec
 	BackupStoreDataTransferred          *prometheus.CounterVec
 	FileIOWrites                        *prometheus.SummaryVec
+	MmapOperations                      *prometheus.CounterVec
+	MmapProcMaps                        prometheus.Gauge
 
 	// offload metric
 	TenantCloudOffloadDurations       *prometheus.SummaryVec
@@ -483,6 +485,14 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "file_io_writes_total_bytes",
 			Help: "Total number of bytes written to disk",
 		}, []string{"operation", "strategy"}),
+		MmapOperations: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "mmap_operations_total",
+			Help: "Total number of mmap operations",
+		}, []string{"operation", "strategy"}),
+		MmapProcMaps: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "mmap_proc_maps",
+			Help: "Number of entries in /proc/self/maps",
+		}),
 
 		// Async indexing metrics
 		IndexQueuePushDuration: promauto.NewSummaryVec(prometheus.SummaryOpts{
