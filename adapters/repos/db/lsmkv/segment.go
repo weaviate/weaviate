@@ -206,6 +206,14 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		"operation": "segmentMetadata",
 	})
 
+	if unMapContents {
+		// a map was created, track it
+		monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
+			"operation": "mmap",
+			"strategy":  stratLabel,
+		}).Inc()
+	}
+
 	seg := &segment{
 		level:                 header.Level,
 		path:                  path,
@@ -282,6 +290,11 @@ func (s *segment) close() error {
 	if s.unMapContents {
 		m := mmap.MMap(s.contents)
 		munmapErr = m.Unmap()
+		stratLabel := s.strategy.String()
+		monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
+			"operation": "munmap",
+			"strategy":  stratLabel,
+		}).Inc()
 	}
 	if s.contentFile != nil {
 		fileCloseErr = s.contentFile.Close()
