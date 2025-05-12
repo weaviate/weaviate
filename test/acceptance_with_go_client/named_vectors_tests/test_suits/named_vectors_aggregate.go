@@ -27,6 +27,7 @@ import (
 const (
 	UUID1 = "f47ac10b-58cc-0372-8567-0e02b2c3d479"
 	UUID2 = "f47ac10b-58cc-0372-8567-0e02b2c3d480"
+	UUIDX = "f47ac10b-58cc-0372-8567-0e02b2c3d481"
 )
 
 func testAggregate(host string) func(t *testing.T) {

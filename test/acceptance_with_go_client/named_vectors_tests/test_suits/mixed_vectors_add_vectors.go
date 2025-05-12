@@ -201,6 +201,15 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 				Do(ctx)
 			require.NoError(t, err)
 
+			_, err = client.Data().Creator().
+				WithID(UUIDX).
+				WithClassName(className).
+				WithProperties(map[string]interface{}{
+					"text": "I love pizza",
+				}).
+				Do(ctx)
+			require.NoError(t, err)
+
 			class.VectorConfig["multi"] = models.VectorConfig{
 				VectorIndexConfig: map[string]interface{}{
 					"multivector": map[string]interface{}{
