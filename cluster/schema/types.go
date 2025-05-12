@@ -15,7 +15,6 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -36,7 +35,7 @@ type Indexer interface {
 	AddProperty(class string, req api.AddPropertyRequest) error
 	AddTenants(class string, req *api.AddTenantsRequest) error
 	UpdateTenants(class string, req *api.UpdateTenantsRequest) error
-	DeleteTenants(class string, tenants []*cmd.Tenant) error
+	DeleteTenants(class string, tenants []*api.Tenant) error
 	UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
