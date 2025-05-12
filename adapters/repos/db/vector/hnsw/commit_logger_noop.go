@@ -125,3 +125,5 @@ func (n *NoopCommitLogger) RootPath() string {
 func (n *NoopCommitLogger) SwitchCommitLogs(force bool) error {
 	return nil
 }
+
+func (n *NoopCommitLogger) InitMaintenance() {}

@@ -49,6 +49,7 @@ type hnswCommitLogger struct {
 
 	switchLogsCallbackCtrl   cyclemanager.CycleCallbackCtrl
 	maintainLogsCallbackCtrl cyclemanager.CycleCallbackCtrl
+	maintenanceCallbacks     cyclemanager.CycleCallbackGroup
 
 	allocChecker memwatch.AllocChecker
 
@@ -82,10 +83,11 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	maintenanceCallbacks cyclemanager.CycleCallbackGroup, opts ...CommitlogOption,
 ) (*hnswCommitLogger, error) {
 	l := &hnswCommitLogger{
-		rootPath:  rootPath,
-		id:        name,
-		condensor: NewMemoryCondensor(logger),
-		logger:    logger,
+		rootPath:             rootPath,
+		id:                   name,
+		condensor:            NewMemoryCondensor(logger),
+		logger:               logger,
+		maintenanceCallbacks: maintenanceCallbacks,
 
 		// both can be overwritten using functional options
 		maxSizeIndividual: defaultCommitLogSize / 5,
@@ -106,22 +108,24 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 	if err != nil {
 		return nil, err
 	}
-
-	id := func(elems ...string) string {
-		elems = append([]string{"commit_logger"}, elems...)
-		elems = append(elems, l.id)
-		return strings.Join(elems, "/")
-	}
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
 
 	if err := l.initSnapshotData(); err != nil {
 		return nil, errors.Wrapf(err, "init snapshot data")
 	}
 
-	l.switchLogsCallbackCtrl = maintenanceCallbacks.Register(id("switch_logs"), l.startSwitchLogs)
-	l.maintainLogsCallbackCtrl = maintenanceCallbacks.Register(id("maintain_logs"), l.startCommitLogsMaintenance)
-
 	return l, nil
+}
+
+func (l *hnswCommitLogger) InitMaintenance() {
+	id := func(elems ...string) string {
+		elems = append([]string{"commit_logger"}, elems...)
+		elems = append(elems, l.id)
+		return strings.Join(elems, "/")
+	}
+
+	l.switchLogsCallbackCtrl = l.maintenanceCallbacks.Register(id("switch_logs"), l.startSwitchLogs)
+	l.maintainLogsCallbackCtrl = l.maintenanceCallbacks.Register(id("maintain_logs"), l.startCommitLogsMaintenance)
 }
 
 func commitLogFileName(rootPath, indexName, fileName string) string {
@@ -480,11 +484,15 @@ func (l *hnswCommitLogger) Reset() error {
 // scheduling. The caller can be sure that state on disk is immutable after
 // calling Shutdown().
 func (l *hnswCommitLogger) Shutdown(ctx context.Context) error {
-	if err := l.switchLogsCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(err, "failed to unregister commitlog switch from maintenance cycle")
+	if l.switchLogsCallbackCtrl != nil {
+		if err := l.switchLogsCallbackCtrl.Unregister(ctx); err != nil {
+			return errors.Wrap(err, "failed to unregister commitlog switch from maintenance cycle")
+		}
 	}
-	if err := l.maintainLogsCallbackCtrl.Unregister(ctx); err != nil {
-		return errors.Wrap(err, "failed to unregister commitlog condense from maintenance cycle")
+	if l.maintainLogsCallbackCtrl != nil {
+		if err := l.maintainLogsCallbackCtrl.Unregister(ctx); err != nil {
+			return errors.Wrap(err, "failed to unregister commitlog condense from maintenance cycle")
+		}
 	}
 	return nil
 }

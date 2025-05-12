@@ -219,6 +219,7 @@ type CommitLogger interface {
 	AddPQCompression(compressionhelpers.PQData) error
 	AddSQCompression(compressionhelpers.SQData) error
 	AddMuvera(multivector.MuveraData) error
+	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)
 	CreateAndLoadSnapshot() (*DeserializationResult, int64, error)

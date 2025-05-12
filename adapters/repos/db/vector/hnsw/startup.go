@@ -38,7 +38,6 @@ func (h *hnsw) init(cfg Config) error {
 	if err := h.restoreFromDisk(cl); err != nil {
 		return errors.Wrapf(err, "restore hnsw index %q", cfg.ID)
 	}
-
 	h.commitLog = cl
 
 	// report the vector_index_size at server startup.
@@ -338,6 +337,7 @@ func (h *hnsw) resetTombstoneMetric() {
 // vector cache, however, depend on the shard being ready as they will call
 // getVectorForID.
 func (h *hnsw) PostStartup() {
+	h.commitLog.InitMaintenance()
 	h.prefillCache()
 }
 
