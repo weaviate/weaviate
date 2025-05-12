@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"math"
 	"path/filepath"
-	"sync"
 	"time"
 
 	"github.com/pkg/errors"
@@ -24,12 +23,13 @@ import (
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
+	"github.com/weaviate/weaviate/entities/ctxlock"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
 )
 
 type Memtable struct {
-	sync.RWMutex
+	*ctxlock.MeteredRWMutex
 	key                *binarySearchTree
 	keyMulti           *binarySearchTreeMulti
 	keyMap             *binarySearchTreeMap
@@ -77,6 +77,9 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		enableChecksumValidation: enableChecksumValidation,
 		bm25config:               bm25config,
 	}
+
+	m.MeteredRWMutex = ctxlock.NewMeteredRWMutex("memtable")
+	m.CtxRWLocation("memtable")
 
 	if m.secondaryIndices > 0 {
 		m.secondaryToPrimary = make([]map[string][]byte, m.secondaryIndices)
