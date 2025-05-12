@@ -22,6 +22,13 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
+
+func (s *Shard) Shutdown(ctx context.Context) (err error) {
+	s.WantShutdown.Store(true)
+	s.ActuallyShutdown(ctx)
+	return nil
+}
+
 /*
 
 	batch
@@ -45,7 +52,20 @@ import (
 // idempotent Shutdown methods. In other parts, it explicitly checks if a
 // component was initialized. If not, it turns it into a noop to prevent
 // blocking.
-func (s *Shard) Shutdown(ctx context.Context) (err error) {
+func (s *Shard) ActuallyShutdown(ctx context.Context) (err error) {
+	s.shutdownLock.Lock()
+	defer s.shutdownLock.Unlock()
+	if ! s.WantShutdown.Load() {
+		return fmt.Errorf("shard %q is not marked for shutdown", s.name)
+	}
+	if s.shut.Load() {
+		return fmt.Errorf("shard %q is already shut down", s.name)
+	}
+	if s.inUseCounter.Load() > 0 {
+		return fmt.Errorf("shard %q is still in use", s.name)
+	}
+	s.shut.Store(true)
+	s.WantShutdown.Store(false)
 	start := time.Now()
 	defer func() {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
@@ -56,11 +76,6 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 
 		s.UpdateStatus(storagestate.StatusShutdown.String())
 	}()
-
-	if err = s.waitForShutdown(ctx); err != nil {
-		return
-	}
-
 	ec := errorcompounder.New()
 
 	err = s.GetPropertyLengthTracker().Close()
@@ -152,7 +167,7 @@ func (s *Shard) preventShutdown() (release func(), err error) {
 	s.shutdownLock.RLock()
 	defer s.shutdownLock.RUnlock()
 
-	if s.shut {
+	if s.shut.Load() {
 		return func() {}, errAlreadyShutdown
 	}
 
@@ -168,57 +183,12 @@ func (s *Shard) RefCountSub() {
 	s.inUseCounter.Add(-1)
 	// if the counter is 0, we can shutdown
 	if s.inUseCounter.Load() == 0 {
-		// s.Shutdown(context.TODO())
-	}
-}
-
-func (s *Shard) waitForShutdown(ctx context.Context) error {
-	checkInterval := 50 * time.Millisecond
-	timeout := 30 * time.Second
-
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-
-	if eligible, err := s.checkEligibleForShutdown(); err != nil {
-		return err
-	} else if !eligible {
-		ticker := time.NewTicker(checkInterval)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				s.shut = true
-				return nil
-			case <-ticker.C:
-				if eligible, err := s.checkEligibleForShutdown(); err != nil {
-					return err
-				} else if eligible {
-					return nil
-				}
-			}
+		if s.WantShutdown.Load() {
+			s.Shutdown(context.TODO())
 		}
 	}
-	return nil
 }
 
-// checks whether shutdown can be executed
-// (shard is not in use at the moment)
-func (s *Shard) checkEligibleForShutdown() (eligible bool, err error) {
-	s.shutdownLock.Lock()
-	defer s.shutdownLock.Unlock()
-
-	if s.shut {
-		return false, errAlreadyShutdown
-	}
-
-	if s.inUseCounter.Load() == 0 {
-		s.shut = true
-		return true, nil
-	}
-
-	return false, nil
-}
 
 // // cleanupPartialInit is called when the shard was only partially initialized.
 // // Internally it just uses [Shutdown], but also adds some logging.
