@@ -207,7 +207,7 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
 			Help:        "Time to apply cluster store FSM state in local node",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
-			Buckets:     prometheus.ExponentialBuckets(0.01, 5, 10), // 10ms, 50ms, 250ms, 1.25s, 6.25s
+			Buckets:     prometheus.ExponentialBuckets(0.001, 5, 5), // 1ms, 5ms, 25ms, 125ms, 625ms
 		}),
 		applyFailures: r.NewCounter(prometheus.CounterOpts{
 			Name:        "weaviate_cluster_store_fsm_apply_failures_total",
