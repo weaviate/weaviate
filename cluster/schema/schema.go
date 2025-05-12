@@ -21,6 +21,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
+	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -464,41 +465,41 @@ func (s *schema) updateTenantsProcess(class string, v uint64, req *command.Tenan
 	return err
 }
 
-func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
+func (s *schema) getTenants(class string, tenants []string) ([]*cmd.Tenant, error) {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
 		return nil, err
 	}
 
 	// Read tenants using the meta lock guard
-	var res []*models.Tenant
+	var res []*cmd.Tenant
 	f := func(_ *models.Class, ss *sharding.State) error {
 		if len(tenants) == 0 {
-			res = make([]*models.Tenant, len(ss.Physical))
+			res = make([]*cmd.Tenant, len(ss.Physical))
 			i := 0
 			for tenantName, physical := range ss.Physical {
 				// Ensure we copy the belongs to nodes array to avoid it being modified
 				cpy := make([]string, len(physical.BelongsToNodes))
 				copy(cpy, physical.BelongsToNodes)
 
-				res[i] = &models.Tenant{
-					Name:           tenantName,
-					ActivityStatus: entSchema.ActivityStatus(physical.Status),
+				res[i] = &cmd.Tenant{
+					Name:   tenantName,
+					Status: entSchema.ActivityStatus(physical.Status),
 				}
 
 				// Increment our result iterator
 				i++
 			}
 		} else {
-			res = make([]*models.Tenant, 0, len(tenants))
+			res = make([]*cmd.Tenant, 0, len(tenants))
 			for _, tenantName := range tenants {
 				if physical, ok := ss.Physical[tenantName]; ok {
 					// Ensure we copy the belongs to nodes array to avoid it being modified
 					cpy := make([]string, len(physical.BelongsToNodes))
 					copy(cpy, physical.BelongsToNodes)
-					res = append(res, &models.Tenant{
-						Name:           tenantName,
-						ActivityStatus: entSchema.ActivityStatus(physical.Status),
+					res = append(res, &cmd.Tenant{
+						Name:   tenantName,
+						Status: entSchema.ActivityStatus(physical.Status),
 					})
 				}
 			}

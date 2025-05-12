@@ -254,8 +254,8 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 	}
 
 	for _, t := range tenants {
-		if t.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			t.ActivityStatus == models.TenantActivityStatusFREEZING {
+		if t.Status == models.TenantActivityStatusFROZEN ||
+			t.Status == models.TenantActivityStatusFREEZING {
 			hasFrozen = true
 			break
 		}

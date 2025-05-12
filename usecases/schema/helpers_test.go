@@ -129,7 +129,7 @@ func (f *fakeDB) UpdateTenantsProcess(class string, req *command.TenantProcessRe
 	return nil
 }
 
-func (f *fakeDB) DeleteTenants(class string, tenants []*models.Tenant) error {
+func (f *fakeDB) DeleteTenants(class string, tenants []*command.Tenant) error {
 	return nil
 }
 
@@ -294,7 +294,7 @@ func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, u
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
+func (f *fakeMigrator) DeleteTenants(ctx context.Context, class string, tenants []*command.Tenant) error {
 	args := f.Called(ctx, class, tenants)
 	return args.Error(0)
 }

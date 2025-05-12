@@ -17,6 +17,7 @@ package schema
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -47,7 +48,7 @@ type Migrator interface {
 
 	NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error
 	UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error
-	DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error
+	DeleteTenants(ctx context.Context, class string, tenants []*api.Tenant) error
 
 	GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error)
 	UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error
