@@ -37,17 +37,17 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 	return s.writeOpIntoFSM(op, NewShardReplicationStatus(api.REGISTERED))
 }
 
-func (s *ShardReplicationFSM) RegisterError(id uint64, c *api.ReplicationRegisterErrorRequest) error {
+func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
-	op, ok := s.opsById[id]
+	op, ok := s.opsById[c.Id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
+		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
-		return fmt.Errorf("could not find op status for op %d", id)
+		return fmt.Errorf("could not find op status for op %d", c.Id)
 	}
 	if err := status.AddError(c.Error); err != nil {
 		return err

@@ -288,21 +288,8 @@ func (_c *MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call) RunAndReturn(
 }
 
 // RemoveLocalReplica provides a mock function with given fields: ctx, sourceCollection, sourceShard
-func (_m *MockReplicaCopier) RemoveLocalReplica(ctx context.Context, sourceCollection string, sourceShard string) error {
-	ret := _m.Called(ctx, sourceCollection, sourceShard)
-
-	if len(ret) == 0 {
-		panic("no return value specified for RemoveLocalReplica")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, sourceCollection, sourceShard)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
+func (_m *MockReplicaCopier) RemoveLocalReplica(ctx context.Context, sourceCollection string, sourceShard string) {
+	_m.Called(ctx, sourceCollection, sourceShard)
 }
 
 // MockReplicaCopier_RemoveLocalReplica_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveLocalReplica'
@@ -325,13 +312,13 @@ func (_c *MockReplicaCopier_RemoveLocalReplica_Call) Run(run func(ctx context.Co
 	return _c
 }
 
-func (_c *MockReplicaCopier_RemoveLocalReplica_Call) Return(_a0 error) *MockReplicaCopier_RemoveLocalReplica_Call {
-	_c.Call.Return(_a0)
+func (_c *MockReplicaCopier_RemoveLocalReplica_Call) Return() *MockReplicaCopier_RemoveLocalReplica_Call {
+	_c.Call.Return()
 	return _c
 }
 
-func (_c *MockReplicaCopier_RemoveLocalReplica_Call) RunAndReturn(run func(context.Context, string, string) error) *MockReplicaCopier_RemoveLocalReplica_Call {
-	_c.Call.Return(run)
+func (_c *MockReplicaCopier_RemoveLocalReplica_Call) RunAndReturn(run func(context.Context, string, string)) *MockReplicaCopier_RemoveLocalReplica_Call {
+	_c.Run(run)
 	return _c
 }
 
