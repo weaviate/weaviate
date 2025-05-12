@@ -14,10 +14,15 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"hash/crc32"
+	"io"
+	"io/fs"
 	"os"
 	"sync/atomic"
 
+	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -97,7 +102,17 @@ func newCommitLogger(path string, strategy string) (*commitLogger, error) {
 		path: path + ".wal",
 	}
 
-	f, err := os.OpenFile(out.path, os.O_CREATE|os.O_RDWR, 0o666)
+	fileInfo, err := os.Stat(out.path)
+	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, err
+		}
+		// empty wal
+	} else {
+		out.n.Swap(fileInfo.Size())
+	}
+
+	f, err := os.OpenFile(out.path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o666)
 	if err != nil {
 		return nil, err
 	}
@@ -114,7 +129,25 @@ func newCommitLogger(path string, strategy string) (*commitLogger, error) {
 	})
 
 	out.writer = bufio.NewWriter(meteredF)
-	out.checksumWriter = integrity.NewCRC32Writer(out.writer)
+
+	if out.n.Load() == 0 {
+		out.checksumWriter = integrity.NewCRC32Writer(out.writer)
+	} else {
+		_, err = out.file.Seek(-crc32.Size, io.SeekEnd)
+		if err != nil {
+			return nil, err
+		}
+
+		var checksum [crc32.Size]byte
+		_, err = io.ReadFull(out.file, checksum[:])
+		if err != nil {
+			return nil, err
+		}
+
+		seed := binary.BigEndian.Uint32(checksum[:])
+
+		out.checksumWriter = integrity.NewCRC32WriterWithSeed(out.writer, seed)
+	}
 
 	out.bufNode = bytes.NewBuffer(nil)
 	out.tmpBuf = make([]byte, byteops.Uint8Len+byteops.Uint8Len+byteops.Uint32Len)
@@ -210,6 +243,10 @@ func (cl *commitLogger) add(node *roaringset.SegmentNodeList) error {
 // automatically resets the logger.
 func (cl *commitLogger) Size() int64 {
 	return cl.n.Load()
+}
+
+func (cl *commitLogger) sync() error {
+	return cl.file.Sync()
 }
 
 func (cl *commitLogger) close() error {
