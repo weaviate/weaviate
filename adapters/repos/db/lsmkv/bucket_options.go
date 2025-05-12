@@ -173,6 +173,13 @@ func WithSegmentsChecksumValidationEnabled(enable bool) BucketOption {
 	}
 }
 
+func WithActiveMemtableReuseDisabled(disableActiveMemtableReuse bool) BucketOption {
+	return func(b *Bucket) error {
+		b.disableActiveMemtableReuse = disableActiveMemtableReuse
+		return nil
+	}
+}
+
 /*
 Background for this option:
 
