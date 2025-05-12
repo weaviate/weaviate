@@ -201,14 +201,15 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
 	commitCh := c.commitAll(context.Background(), nodeCh, com)
 	var additionalHostsCommitCh <-chan _Result[T]
-	additionalHostsLevel := 0
+	additionalHostsLevel := 1
+	// TODO decide from routing plan or something like that?
 	requireAdditionalHostsSuccess := false
 	if len(routingPlan.AdditionalHostAddrs) > 0 {
-		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, level)
+		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, additionalHostsLevel)
 		additionalHostsCommitCh = c.commitAll(context.Background(), additionalHostsBroadcast, com)
-		additionalHostsLevel = len(routingPlan.AdditionalHostAddrs)
-		// TODO decide from routing plan or something like that?
-		requireAdditionalHostsSuccess = false
+		if requireAdditionalHostsSuccess {
+			additionalHostsLevel = len(routingPlan.AdditionalHostAddrs)
+		}
 	}
 	return commitCh, level, additionalHostsCommitCh, additionalHostsLevel, requireAdditionalHostsSuccess, nil
 }

@@ -755,6 +755,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		return nil
 	}
 
+	// TODO how to handle RF 1
+
 	// no replication, remote shard (or local not yet inited)
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
