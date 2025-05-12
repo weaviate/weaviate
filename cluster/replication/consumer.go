@@ -167,7 +167,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					// Continue to ensure we don't accidentally re-spawn the operation in a new worker
 					continue
 				}
-				// Otherwise, the operation is not in-flight and should therefore be processed in a worker where cancellation happens
+				// Otherwise, the operation is not in-flight and should therefore be processed in a worker where clean-up happens
 			}
 
 			c.engineOpCallbacks.OnOpPending(c.nodeId)
@@ -201,7 +201,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					defer func() {
 						<-c.tokens // Release token when completed
 						// Delete the operation from the ongoingOps map when the operation processing is complete
-						c.ongoingOps.Remove(op.Op.ID)
+						c.ongoingOps.DeleteInFlight(op.Op.ID)
 						wg.Done()
 					}()
 
@@ -364,7 +364,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 // or have been cancelled but not yet processed without introducing new intermediate states to the FSM.
 func (c *CopyOpConsumer) cancelOp(ctx context.Context, op ShardReplicationOpAndStatus, logger *logrus.Entry) {
 	defer func() {
-		c.ongoingOps.RemoveHasBeenCancelled(op.Op.ID)
+		c.ongoingOps.DeleteHasBeenCancelled(op.Op.ID)
 		c.engineOpCallbacks.OnOpCancelled(c.nodeId)
 	}()
 
