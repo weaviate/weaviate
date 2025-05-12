@@ -46,6 +46,13 @@ func WithMinMMapSize(minMMapSize int64) BucketOption {
 	}
 }
 
+func WithMinWalThreshold(threshold uint64) BucketOption {
+	return func(b *Bucket) error {
+		b.minWalThreshold = threshold
+		return nil
+	}
+}
+
 func WithWalThreshold(threshold uint64) BucketOption {
 	return func(b *Bucket) error {
 		b.walThreshold = threshold
