@@ -337,6 +337,8 @@ func verifySchemaRestoration(t *testing.T, source, target MockStore) {
 				assert.Equal(t, len(sourceShardingState.Physical), len(targetShardingState.Physical),
 					"Number of tenants should match for class %s", sourceClass.Class)
 
+				assert.Equal(t, sourceShardingState.ReplicationFactor, targetShardingState.ReplicationFactor,
+					"Replication factor should match for class %s", sourceClass.Class)
 				// Compare each tenant's configuration
 				for tenantName, sourceTenant := range sourceShardingState.Physical {
 					targetTenant, exists := targetShardingState.Physical[tenantName]
@@ -347,6 +349,7 @@ func verifySchemaRestoration(t *testing.T, source, target MockStore) {
 							"Tenant status should match for %s in class %s", tenantName, sourceClass.Class)
 						assert.Equal(t, len(sourceTenant.BelongsToNodes), len(targetTenant.BelongsToNodes),
 							"Node count should match for tenant %s in class %s", tenantName, sourceClass.Class)
+						assert.Equal(t, sourceShardingState.NumberOfReplicas(sourceTenant.Name), targetShardingState.NumberOfReplicas(targetTenant.Name))
 					}
 				}
 			}
