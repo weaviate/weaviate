@@ -74,6 +74,9 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
+	fmt.Sprintf(`^%s/collections/.*$`, authorization.ReplicationsDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.ReplicationsDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.ReplicationsDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -140,6 +143,19 @@ func CasbinSchema(collection, shard string) string {
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
 	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.SchemaDomain, collection, shard)
+}
+
+func CasbinReplications(collection, shard string) string {
+	collection = schema.UppercaseClassesNames(collection)[0]
+	if collection == "" {
+		collection = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	shard = strings.ReplaceAll(shard, "*", ".*")
+	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.ReplicationsDomain, collection, shard)
 }
 
 func CasbinData(collection, shard, object string) string {
@@ -277,6 +293,18 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			}
 		}
 		resource = CasbinNodes(verbosity, collection)
+	case authorization.ReplicationsDomain:
+		collection := "*"
+		shard := "*"
+		if permission.Replication != nil {
+			if permission.Replication.Collection != nil {
+				collection = schema.UppercaseClassName(*permission.Replication.Collection)
+			}
+			if permission.Replication.Shard != nil {
+				shard = *permission.Replication.Shard
+			}
+		}
+		resource = CasbinReplications(collection, shard)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 
@@ -378,6 +406,11 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 	case authorization.UsersDomain:
 		permission.Users = &models.PermissionUsers{
 			Users: &splits[1],
+		}
+	case authorization.ReplicationsDomain:
+		permission.Replication = &models.PermissionReplication{
+			Collection: &splits[2],
+			Shard:      &splits[4],
 		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
