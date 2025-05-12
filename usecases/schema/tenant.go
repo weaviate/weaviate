@@ -20,6 +20,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -188,7 +189,14 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
-	return uTenants, err
+	var tenantsToReturn []*models.Tenant
+	for _, tenant := range uTenants {
+		tenantsToReturn = append(tenantsToReturn, &models.Tenant{
+			Name:           tenant.Name,
+			ActivityStatus: schema.ActivityStatus(tenant.Status),
+		})
+	}
+	return tenantsToReturn, err
 }
 
 // DeleteTenants is used to delete tenants of a class.
@@ -214,7 +222,8 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 }
 
 func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
-	var allTenants []*models.Tenant
+	var tenantsToReturn []*models.Tenant
+	var allTenants []*command.Tenant
 	var err error
 
 	if consistency {
@@ -227,11 +236,18 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		return nil, err
 	}
 
+	for _, tenant := range allTenants {
+		tenantsToReturn = append(tenantsToReturn, &models.Tenant{
+			Name:           tenant.Name,
+			ActivityStatus: schema.ActivityStatus(tenant.Status),
+		})
+	}
+
 	resourceFilter := filter.New[*models.Tenant](h.Authorizer, h.config.Authorization.Rbac)
 	filteredTenants := resourceFilter.Filter(
 		h.logger,
 		principal,
-		allTenants,
+		tenantsToReturn,
 		authorization.READ,
 		func(tenant *models.Tenant) string {
 			return authorization.ShardsMetadata(class, tenant.Name)[0]
@@ -260,7 +276,7 @@ func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.
 		return err
 	}
 
-	var tenants []*models.Tenant
+	var tenants []*command.Tenant
 	var err error
 	if consistency {
 		tenants, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
@@ -285,22 +301,22 @@ func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
 		phys.Status == models.TenantActivityStatusHOT
 }
 
-func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Tenant, error) {
+func (h *Handler) getTenantsByNames(class string, names []string) ([]*command.Tenant, error) {
 	info, err := h.multiTenancy(class)
 	if err != nil || info.Tenants == 0 {
 		return nil, err
 	}
 
-	ts := make([]*models.Tenant, 0, len(names))
+	ts := make([]*command.Tenant, 0, len(names))
 	f := func(_ *models.Class, ss *sharding.State) error {
 		for _, name := range names {
 			if _, ok := ss.Physical[name]; !ok {
 				continue
 			}
 			physical := ss.Physical[name]
-			ts = append(ts, &models.Tenant{
-				Name:           name,
-				ActivityStatus: schema.ActivityStatus(physical.Status),
+			ts = append(ts, &command.Tenant{
+				Name:   name,
+				Status: schema.ActivityStatus(physical.Status),
 			})
 		}
 		return nil

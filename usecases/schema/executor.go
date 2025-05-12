@@ -253,7 +253,7 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 	return nil
 }
 
-func (e *executor) DeleteTenants(class string, tenants []*models.Tenant) error {
+func (e *executor) DeleteTenants(class string, tenants []*api.Tenant) error {
 	ctx := context.Background()
 	if err := e.migrator.DeleteTenants(ctx, class, tenants); err != nil {
 		e.logger.WithFields(logrus.Fields{

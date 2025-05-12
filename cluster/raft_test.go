@@ -130,25 +130,25 @@ func TestRaftEndpoints(t *testing.T) {
 	getTenantsAll, _, err := srv.QueryTenants(cls.Class, []string{})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsAll)
-	assert.Equal(t, []*models.Tenant{{
-		Name:           "T0",
-		ActivityStatus: models.TenantActivityStatusHOT,
+	assert.Equal(t, []*command.Tenant{{
+		Name:   "T0",
+		Status: models.TenantActivityStatusHOT,
 	}}, getTenantsAll)
 
 	// QueryTenants one
 	getTenantsOne, _, err := srv.QueryTenants(cls.Class, []string{"T0"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsOne)
-	assert.Equal(t, []*models.Tenant{{
-		Name:           "T0",
-		ActivityStatus: models.TenantActivityStatusHOT,
+	assert.Equal(t, []*command.Tenant{{
+		Name:   "T0",
+		Status: models.TenantActivityStatusHOT,
 	}}, getTenantsOne)
 
 	// QueryTenants one
 	getTenantsNone, _, err := srv.QueryTenants(cls.Class, []string{"T"})
 	assert.NoError(t, err)
 	assert.NotNil(t, getTenantsNone)
-	assert.Equal(t, []*models.Tenant{}, getTenantsNone)
+	assert.Equal(t, []*command.Tenant{}, getTenantsNone)
 
 	// Query ShardTenant
 	getTenantShards, _, err := srv.QueryTenantsShards(cls.Class, "T0")

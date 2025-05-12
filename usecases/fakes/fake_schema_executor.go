@@ -77,7 +77,7 @@ func (m *MockSchemaExecutor) UpdateTenantsProcess(class string, req *cmd.TenantP
 	return args.Error(0)
 }
 
-func (m *MockSchemaExecutor) DeleteTenants(class string, tenants []*models.Tenant) error {
+func (m *MockSchemaExecutor) DeleteTenants(class string, tenants []*cmd.Tenant) error {
 	args := m.Called(class, tenants)
 	return args.Error(0)
 }

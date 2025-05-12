@@ -121,7 +121,7 @@ func (s *Raft) QuerySchema() (models.Schema, error) {
 
 // QueryTenants build a Query to read the tenants of a given class that will be directed to the leader to ensure we
 // will read the class with strong consistency
-func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, uint64, error) {
+func (s *Raft) QueryTenants(class string, tenants []string) ([]*cmd.Tenant, uint64, error) {
 	ctx := context.Background()
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
@@ -137,7 +137,7 @@ func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, u
 	req := cmd.QueryTenantsRequest{Class: class, Tenants: tenants}
 	subCommand, err := json.Marshal(&req)
 	if err != nil {
-		return []*models.Tenant{}, 0, fmt.Errorf("marshal request: %w", err)
+		return []*cmd.Tenant{}, 0, fmt.Errorf("marshal request: %w", err)
 	}
 	command := &cmd.QueryRequest{
 		Type:       cmd.QueryRequest_TYPE_GET_TENANTS,
@@ -145,14 +145,14 @@ func (s *Raft) QueryTenants(class string, tenants []string) ([]*models.Tenant, u
 	}
 	queryResp, err := s.Query(ctx, command)
 	if err != nil {
-		return []*models.Tenant{}, 0, fmt.Errorf("failed to execute query: %w", err)
+		return []*cmd.Tenant{}, 0, fmt.Errorf("failed to execute query: %w", err)
 	}
 
 	// Unmarshal the response
 	resp := cmd.QueryTenantsResponse{}
 	err = json.Unmarshal(queryResp.Payload, &resp)
 	if err != nil {
-		return []*models.Tenant{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
+		return []*cmd.Tenant{}, 0, fmt.Errorf("failed to unmarshal query result: %w", err)
 	}
 
 	return resp.Tenants, resp.ShardVersion, nil

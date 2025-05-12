@@ -126,14 +126,14 @@ func TestExecutor(t *testing.T) {
 
 	t.Run("DeleteTenants", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		tenants := []*models.Tenant{}
+		tenants := []*api.Tenant{}
 		migrator.On("DeleteTenants", Anything, "A", tenants).Return(nil)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.DeleteTenants("A", tenants))
 	})
 	t.Run("DeleteTenantsWithError", func(t *testing.T) {
 		migrator := &fakeMigrator{}
-		tenants := []*models.Tenant{}
+		tenants := []*api.Tenant{}
 		migrator.On("DeleteTenants", Anything, "A", tenants).Return(ErrAny)
 		x := newMockExecutor(migrator, store)
 		assert.Nil(t, x.DeleteTenants("A", tenants))

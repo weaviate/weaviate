@@ -545,7 +545,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 // DeleteTenants deletes tenants
 // CAUTION: will not delete inactive tenants (shard files will not be removed)
-func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
+func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*command.Tenant) error {
 	indexID := indexID(schema.ClassName(class))
 
 	m.classLocks.Lock(indexID)
@@ -562,8 +562,8 @@ func (m *Migrator) DeleteTenants(ctx context.Context, class string, tenants []*m
 
 	for _, tenant := range tenants {
 		allTenantNames = append(allTenantNames, tenant.Name)
-		if tenant.ActivityStatus == models.TenantActivityStatusFROZEN ||
-			tenant.ActivityStatus == models.TenantActivityStatusFREEZING {
+		if tenant.Status == models.TenantActivityStatusFROZEN ||
+			tenant.Status == models.TenantActivityStatusFREEZING {
 			frozenTenants = append(frozenTenants, tenant.Name)
 		}
 	}
