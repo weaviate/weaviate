@@ -232,11 +232,12 @@ type Shard struct {
 	activityTracker atomic.Int32
 
 	// indicates whether shard is shut down or dropped (or ongoing)
-	shut bool
+	shut atomic.Bool
 	// indicates whether shard in being used at the moment (e.g. write request)
 	inUseCounter atomic.Int64
 	// allows concurrent shut read/write
 	shutdownLock *sync.RWMutex
+	WantShutdown atomic.Bool
 }
 
 func (s *Shard) ID() string {
