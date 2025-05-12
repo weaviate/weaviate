@@ -18,6 +18,7 @@ import (
 
 	"github.com/hashicorp/go-multierror"
 	"github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/replication/types"
 )
 
 var ErrShardAlreadyReplicating = errors.New("target shard is already being replicated")
@@ -42,7 +43,7 @@ func (s *ShardReplicationFSM) RegisterError(id uint64, c *api.ReplicationRegiste
 
 	op, ok := s.opsById[id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOperationNotFound)
+		return fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
@@ -66,7 +67,11 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	s.idsByUuid[op.UUID] = op.ID
 	s.opsBySource[op.SourceShard.NodeId] = append(s.opsBySource[op.SourceShard.NodeId], op)
 	s.opsByTarget[op.TargetShard.NodeId] = append(s.opsByTarget[op.TargetShard.NodeId], op)
-	s.opsByShard[op.SourceShard.ShardId] = append(s.opsByShard[op.SourceShard.ShardId], op)
+	// Make sure the nested map exists and is initialized
+	if _, ok := s.opsByCollectionAndShard[op.SourceShard.CollectionId]; !ok {
+		s.opsByCollectionAndShard[op.SourceShard.CollectionId] = make(map[string][]ShardReplicationOp)
+	}
+	s.opsByCollectionAndShard[op.SourceShard.CollectionId][op.SourceShard.ShardId] = append(s.opsByCollectionAndShard[op.SourceShard.CollectionId][op.SourceShard.ShardId], op)
 	s.opsByCollection[op.SourceShard.CollectionId] = append(s.opsByCollection[op.SourceShard.CollectionId], op)
 	s.opsByTargetFQDN[op.TargetShard] = op
 	s.opsBySourceFQDN[op.SourceShard] = op
@@ -84,7 +89,7 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 
 	op, ok := s.opsById[c.Id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", c.Id, ErrReplicationOperationNotFound)
+		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
@@ -105,11 +110,11 @@ func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest)
 
 	id, ok := s.idsByUuid[c.Uuid]
 	if !ok {
-		return ErrReplicationOperationNotFound
+		return types.ErrReplicationOperationNotFound
 	}
 	op, ok := s.opsById[id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOperationNotFound)
+		return fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
@@ -127,11 +132,11 @@ func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest)
 
 	id, ok := s.idsByUuid[c.Uuid]
 	if !ok {
-		return ErrReplicationOperationNotFound
+		return types.ErrReplicationOperationNotFound
 	}
 	op, ok := s.opsById[id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", id, ErrReplicationOperationNotFound)
+		return fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
@@ -153,7 +158,7 @@ func (s *ShardReplicationFSM) CancellationComplete(c *api.ReplicationCancellatio
 
 	op, ok := s.opsById[c.Id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", c.Id, ErrReplicationOperationNotFound)
+		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
 	}
 	status, ok := s.opsStatus[op]
 	if !ok {
@@ -173,7 +178,7 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	var err error
 	op, ok := s.opsById[id]
 	if !ok {
-		return ErrReplicationOperationNotFound
+		return types.ErrReplicationOperationNotFound
 	}
 
 	ops, ok := s.opsByTarget[op.SourceShard.NodeId]
@@ -203,13 +208,18 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 		s.opsByCollection[op.SourceShard.CollectionId] = opsReplace
 	}
 
-	ops, ok = s.opsByShard[op.SourceShard.ShardId]
+	shardOps, ok := s.opsByCollectionAndShard[op.SourceShard.CollectionId]
 	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op in ops by shard, this should not happen"))
-	}
-	opsReplace, ok = findAndDeleteOp(op.ID, ops)
-	if ok {
-		s.opsByShard[op.SourceShard.ShardId] = opsReplace
+		err = multierror.Append(err, fmt.Errorf("could not find op in ops by collection and shard, this should not happen"))
+	} else {
+		ops, ok = shardOps[op.SourceShard.ShardId]
+		if !ok {
+			err = multierror.Append(err, fmt.Errorf("could not find op in ops by shard, this should not happen"))
+		}
+		opsReplace, ok = findAndDeleteOp(op.ID, ops)
+		if ok {
+			s.opsByCollectionAndShard[op.SourceShard.CollectionId][op.SourceShard.ShardId] = opsReplace
+		}
 	}
 
 	status, ok := s.opsStatus[op]

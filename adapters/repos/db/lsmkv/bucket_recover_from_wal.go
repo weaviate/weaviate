@@ -83,7 +83,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 	for _, fname := range walFileNames {
 		path := filepath.Join(b.dir, strings.TrimSuffix(fname, ".wal"))
 
-		cl, err := newCommitLogger(path)
+		cl, err := newCommitLogger(path, b.strategy)
 		if err != nil {
 			return errors.Wrap(err, "init commit logger")
 		}

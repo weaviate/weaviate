@@ -125,6 +125,123 @@ func (_c *MockManager_DeleteReplication_Call) RunAndReturn(run func(strfmt.UUID)
 	return _c
 }
 
+// GetReplicationDetailsByCollection provides a mock function with given fields: collection
+func (_m *MockManager) GetReplicationDetailsByCollection(collection string) ([]api.ReplicationDetailsResponse, error) {
+	ret := _m.Called(collection)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetReplicationDetailsByCollection")
+	}
+
+	var r0 []api.ReplicationDetailsResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) ([]api.ReplicationDetailsResponse, error)); ok {
+		return rf(collection)
+	}
+	if rf, ok := ret.Get(0).(func(string) []api.ReplicationDetailsResponse); ok {
+		r0 = rf(collection)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]api.ReplicationDetailsResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(collection)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockManager_GetReplicationDetailsByCollection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReplicationDetailsByCollection'
+type MockManager_GetReplicationDetailsByCollection_Call struct {
+	*mock.Call
+}
+
+// GetReplicationDetailsByCollection is a helper method to define mock.On call
+//   - collection string
+func (_e *MockManager_Expecter) GetReplicationDetailsByCollection(collection interface{}) *MockManager_GetReplicationDetailsByCollection_Call {
+	return &MockManager_GetReplicationDetailsByCollection_Call{Call: _e.mock.On("GetReplicationDetailsByCollection", collection)}
+}
+
+func (_c *MockManager_GetReplicationDetailsByCollection_Call) Run(run func(collection string)) *MockManager_GetReplicationDetailsByCollection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_GetReplicationDetailsByCollection_Call) Return(_a0 []api.ReplicationDetailsResponse, _a1 error) *MockManager_GetReplicationDetailsByCollection_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockManager_GetReplicationDetailsByCollection_Call) RunAndReturn(run func(string) ([]api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByCollection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetReplicationDetailsByCollectionAndShard provides a mock function with given fields: collection, shard
+func (_m *MockManager) GetReplicationDetailsByCollectionAndShard(collection string, shard string) ([]api.ReplicationDetailsResponse, error) {
+	ret := _m.Called(collection, shard)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetReplicationDetailsByCollectionAndShard")
+	}
+
+	var r0 []api.ReplicationDetailsResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) ([]api.ReplicationDetailsResponse, error)); ok {
+		return rf(collection, shard)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) []api.ReplicationDetailsResponse); ok {
+		r0 = rf(collection, shard)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]api.ReplicationDetailsResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(collection, shard)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockManager_GetReplicationDetailsByCollectionAndShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReplicationDetailsByCollectionAndShard'
+type MockManager_GetReplicationDetailsByCollectionAndShard_Call struct {
+	*mock.Call
+}
+
+// GetReplicationDetailsByCollectionAndShard is a helper method to define mock.On call
+//   - collection string
+//   - shard string
+func (_e *MockManager_Expecter) GetReplicationDetailsByCollectionAndShard(collection interface{}, shard interface{}) *MockManager_GetReplicationDetailsByCollectionAndShard_Call {
+	return &MockManager_GetReplicationDetailsByCollectionAndShard_Call{Call: _e.mock.On("GetReplicationDetailsByCollectionAndShard", collection, shard)}
+}
+
+func (_c *MockManager_GetReplicationDetailsByCollectionAndShard_Call) Run(run func(collection string, shard string)) *MockManager_GetReplicationDetailsByCollectionAndShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_GetReplicationDetailsByCollectionAndShard_Call) Return(_a0 []api.ReplicationDetailsResponse, _a1 error) *MockManager_GetReplicationDetailsByCollectionAndShard_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockManager_GetReplicationDetailsByCollectionAndShard_Call) RunAndReturn(run func(string, string) ([]api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByCollectionAndShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetReplicationDetailsByReplicationId provides a mock function with given fields: uuid
 func (_m *MockManager) GetReplicationDetailsByReplicationId(uuid strfmt.UUID) (api.ReplicationDetailsResponse, error) {
 	ret := _m.Called(uuid)
@@ -177,6 +294,177 @@ func (_c *MockManager_GetReplicationDetailsByReplicationId_Call) Return(_a0 api.
 }
 
 func (_c *MockManager_GetReplicationDetailsByReplicationId_Call) RunAndReturn(run func(strfmt.UUID) (api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByReplicationId_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetReplicationDetailsByTargetNode provides a mock function with given fields: node
+func (_m *MockManager) GetReplicationDetailsByTargetNode(node string) ([]api.ReplicationDetailsResponse, error) {
+	ret := _m.Called(node)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetReplicationDetailsByTargetNode")
+	}
+
+	var r0 []api.ReplicationDetailsResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) ([]api.ReplicationDetailsResponse, error)); ok {
+		return rf(node)
+	}
+	if rf, ok := ret.Get(0).(func(string) []api.ReplicationDetailsResponse); ok {
+		r0 = rf(node)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]api.ReplicationDetailsResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(node)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockManager_GetReplicationDetailsByTargetNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetReplicationDetailsByTargetNode'
+type MockManager_GetReplicationDetailsByTargetNode_Call struct {
+	*mock.Call
+}
+
+// GetReplicationDetailsByTargetNode is a helper method to define mock.On call
+//   - node string
+func (_e *MockManager_Expecter) GetReplicationDetailsByTargetNode(node interface{}) *MockManager_GetReplicationDetailsByTargetNode_Call {
+	return &MockManager_GetReplicationDetailsByTargetNode_Call{Call: _e.mock.On("GetReplicationDetailsByTargetNode", node)}
+}
+
+func (_c *MockManager_GetReplicationDetailsByTargetNode_Call) Run(run func(node string)) *MockManager_GetReplicationDetailsByTargetNode_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_GetReplicationDetailsByTargetNode_Call) Return(_a0 []api.ReplicationDetailsResponse, _a1 error) *MockManager_GetReplicationDetailsByTargetNode_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockManager_GetReplicationDetailsByTargetNode_Call) RunAndReturn(run func(string) ([]api.ReplicationDetailsResponse, error)) *MockManager_GetReplicationDetailsByTargetNode_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// QueryShardingStateByCollection provides a mock function with given fields: collection
+func (_m *MockManager) QueryShardingStateByCollection(collection string) (api.ShardingState, error) {
+	ret := _m.Called(collection)
+
+	if len(ret) == 0 {
+		panic("no return value specified for QueryShardingStateByCollection")
+	}
+
+	var r0 api.ShardingState
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) (api.ShardingState, error)); ok {
+		return rf(collection)
+	}
+	if rf, ok := ret.Get(0).(func(string) api.ShardingState); ok {
+		r0 = rf(collection)
+	} else {
+		r0 = ret.Get(0).(api.ShardingState)
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(collection)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockManager_QueryShardingStateByCollection_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'QueryShardingStateByCollection'
+type MockManager_QueryShardingStateByCollection_Call struct {
+	*mock.Call
+}
+
+// QueryShardingStateByCollection is a helper method to define mock.On call
+//   - collection string
+func (_e *MockManager_Expecter) QueryShardingStateByCollection(collection interface{}) *MockManager_QueryShardingStateByCollection_Call {
+	return &MockManager_QueryShardingStateByCollection_Call{Call: _e.mock.On("QueryShardingStateByCollection", collection)}
+}
+
+func (_c *MockManager_QueryShardingStateByCollection_Call) Run(run func(collection string)) *MockManager_QueryShardingStateByCollection_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_QueryShardingStateByCollection_Call) Return(_a0 api.ShardingState, _a1 error) *MockManager_QueryShardingStateByCollection_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockManager_QueryShardingStateByCollection_Call) RunAndReturn(run func(string) (api.ShardingState, error)) *MockManager_QueryShardingStateByCollection_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// QueryShardingStateByCollectionAndShard provides a mock function with given fields: collection, shard
+func (_m *MockManager) QueryShardingStateByCollectionAndShard(collection string, shard string) (api.ShardingState, error) {
+	ret := _m.Called(collection, shard)
+
+	if len(ret) == 0 {
+		panic("no return value specified for QueryShardingStateByCollectionAndShard")
+	}
+
+	var r0 api.ShardingState
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string, string) (api.ShardingState, error)); ok {
+		return rf(collection, shard)
+	}
+	if rf, ok := ret.Get(0).(func(string, string) api.ShardingState); ok {
+		r0 = rf(collection, shard)
+	} else {
+		r0 = ret.Get(0).(api.ShardingState)
+	}
+
+	if rf, ok := ret.Get(1).(func(string, string) error); ok {
+		r1 = rf(collection, shard)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockManager_QueryShardingStateByCollectionAndShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'QueryShardingStateByCollectionAndShard'
+type MockManager_QueryShardingStateByCollectionAndShard_Call struct {
+	*mock.Call
+}
+
+// QueryShardingStateByCollectionAndShard is a helper method to define mock.On call
+//   - collection string
+//   - shard string
+func (_e *MockManager_Expecter) QueryShardingStateByCollectionAndShard(collection interface{}, shard interface{}) *MockManager_QueryShardingStateByCollectionAndShard_Call {
+	return &MockManager_QueryShardingStateByCollectionAndShard_Call{Call: _e.mock.On("QueryShardingStateByCollectionAndShard", collection, shard)}
+}
+
+func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) Run(run func(collection string, shard string)) *MockManager_QueryShardingStateByCollectionAndShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) Return(_a0 api.ShardingState, _a1 error) *MockManager_QueryShardingStateByCollectionAndShard_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) RunAndReturn(run func(string, string) (api.ShardingState, error)) *MockManager_QueryShardingStateByCollectionAndShard_Call {
 	_c.Call.Return(run)
 	return _c
 }

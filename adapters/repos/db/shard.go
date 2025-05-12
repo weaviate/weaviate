@@ -48,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -91,10 +92,12 @@ type ShardLike interface {
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairResponse, err error)
 	ID() string // Get the shard id
 	drop() error
-	HaltForTransfer(ctx context.Context, offloading bool) error
+	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
+	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
+	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
@@ -216,6 +219,12 @@ type Shard struct {
 	lastComparedHostsMux              sync.RWMutex
 	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
 	//
+
+	haltForTransferMux               sync.Mutex
+	haltForTransferInactivityTimeout time.Duration
+	haltForTransferInactivityTimer   *time.Timer
+	haltForTransferCount             int
+	haltForTransferCancel            func()
 
 	status              ShardStatus
 	statusLock          sync.RWMutex

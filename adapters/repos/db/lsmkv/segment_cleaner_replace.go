@@ -17,9 +17,11 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type segmentCleanerReplace struct {
@@ -151,6 +153,10 @@ func (p *segmentCleanerReplace) writeIndexes(f *segmentindex.SegmentFile,
 		Keys:                keys,
 		SecondaryIndexCount: p.secondaryIndexCount,
 		ScratchSpacePath:    p.scratchSpacePath,
+		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+			"strategy":  StrategyReplace,
+			"operation": "cleanupWriteIndices",
+		}),
 	}
 	_, err := f.WriteIndexes(indexes)
 	return err
