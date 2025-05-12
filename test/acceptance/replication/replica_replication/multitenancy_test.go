@@ -333,7 +333,7 @@ func (suite *ReplicaMultitenancyTestSuite) TestReplicaMovementDeactivatedTenantW
 	})
 }
 
-func (suite *ReplicaMultitenancyTestSuite) TestReplicaMovementDeactivatedTenantWithWithoutAutoTenantActivation() {
+func (suite *ReplicaMultitenancyTestSuite) TestReplicaMovementDeactivatedTenantWithoutAutoTenantActivation() {
 	t := suite.T()
 	mainCtx := context.Background()
 
