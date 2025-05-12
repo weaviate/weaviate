@@ -64,6 +64,9 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // StoreConfiguration is invoked once a log entry containing a configuration
 // change is committed. It takes the index at which the configuration was
 // written and the configuration value.
+
+// We implemented this to keep `lastAppliedIndex` metric to correct value
+// to also handle `LogConfiguration` type of Raft command.
 func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
 	st.metrics.lastAppliedIndex.Set(float64(index))
 }
@@ -77,7 +80,9 @@ func (st *Store) Apply(l *raft.Log) any {
 
 	start := time.Now()
 	defer func() {
-		st.metrics.applyDuration.Observe(float64(time.Since(start)))
+		// this defer is final one that called before returning and thus capturing the
+		// applyDuration correctly.
+		st.metrics.applyDuration.Observe(float64(time.Since(start).Seconds()))
 	}()
 
 	if l.Type != raft.LogCommand {

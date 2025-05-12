@@ -624,6 +624,27 @@ func TestStoreMetrics(t *testing.T) {
 		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
 	})
 
+	t.Run("last_applied_index on Configuration LogType", func(t *testing.T) {
+		appliedIndex := 34 // after successful apply, this node should have 34 as last applied index metric
+
+		doBefore := func(m *MockStore) {
+			m.indexer.On("AddClass", mock.Anything).Return(nil)
+			m.parser.On("ParseClass", mock.Anything).Return(nil)
+			m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		}
+		nodeID := t.Name()
+
+		ms := NewMockStore(t, nodeID, 9092)
+		store := ms.Store(doBefore)
+
+		// before
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		store.StoreConfiguration(uint64(appliedIndex), raft.Configuration{})
+
+		// after
+		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+	})
+
 	t.Run("apply_failures", func(t *testing.T) {
 		doBefore := func(m *MockStore) {
 			m.indexer.On("AddClass", mock.Anything).Return(nil)
