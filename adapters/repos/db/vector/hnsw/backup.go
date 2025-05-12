@@ -80,10 +80,48 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 	}
 	delete(found, path)
 
-	files, i := make([]string, len(found)), 0
+	snapshotFiles, err := h.listSnapshotFiles(ctx, basePath)
+	if err != nil {
+		return nil, fmt.Errorf("list snapshot files: %w", err)
+	}
+
+	files = make([]string, 0, len(found)+len(snapshotFiles))
 	for file := range found {
-		files[i] = file
-		i++
+		files = append(files, file)
+	}
+	files = append(files, snapshotFiles...)
+
+	return files, nil
+}
+
+func (h *hnsw) listSnapshotFiles(ctx context.Context, basePath string) ([]string, error) {
+	var (
+		snapshotDir = snapshotDirectory(h.commitLog.RootPath(), h.commitLog.ID())
+		files       []string
+	)
+
+	err := filepath.WalkDir(snapshotDir, func(path string, d fs.DirEntry, err error) error {
+		if d.IsDir() {
+			return nil
+		}
+		info, statErr := os.Stat(path)
+		if statErr != nil {
+			return statErr
+		}
+		if info.Size() == 0 {
+			return nil
+		}
+
+		// only list non-empty files
+		rel, relErr := filepath.Rel(basePath, path)
+		if relErr != nil {
+			return relErr
+		}
+		files = append(files, rel)
+		return nil
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to list files for hnsw snapshot: %w", err)
 	}
 
 	return files, nil
