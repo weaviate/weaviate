@@ -33,7 +33,6 @@ type State struct {
 	Physical            map[string]Physical `json:"physical"`
 	Virtual             []Virtual           `json:"virtual"`
 	PartitioningEnabled bool                `json:"partitioningEnabled"`
-	NumberOfReplicas    int64               `json:"numberOfReplicas"`
 	ReplicationFactor   int64               `json:"replicationFactor"`
 
 	// different for each node, not to be serialized
@@ -88,7 +87,6 @@ func (s *State) AddReplicaToShard(shard string, replica string) error {
 		return err
 	}
 	s.Physical[shard] = phys
-	s.NumberOfReplicas = int64(len(s.Physical[shard].BelongsToNodes))
 	return nil
 }
 
@@ -98,7 +96,7 @@ func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
 
-	if s.NumberOfReplicas <= s.ReplicationFactor {
+	if s.NumberOfReplicas(shard) <= s.ReplicationFactor {
 		return fmt.Errorf("unable to delete replica from shard, minimum replication factor %d", s.ReplicationFactor)
 	}
 
@@ -107,6 +105,10 @@ func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
 	}
 	s.Physical[shard] = phys
 	return nil
+}
+
+func (s *State) NumberOfReplicas(shard string) int64 {
+	return int64(len(s.Physical[shard].BelongsToNodes))
 }
 
 func (p *Physical) AddReplica(replica string) error {
@@ -201,8 +203,6 @@ func InitState(id string, config config.Config, nodeLocalName string, names []st
 	out.distributeVirtualAmongPhysical()
 
 	out.ReplicationFactor = int64(replFactor)
-	out.NumberOfReplicas = int64(replFactor)
-
 	return out, nil
 }
 
@@ -565,7 +565,6 @@ func (s State) DeepCopy() State {
 		Physical:            physicalCopy,
 		Virtual:             virtualCopy,
 		PartitioningEnabled: s.PartitioningEnabled,
-		NumberOfReplicas:    s.NumberOfReplicas,
 		ReplicationFactor:   s.ReplicationFactor,
 	}
 }

@@ -182,7 +182,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 					VectorIndexingStatus: shard.GetStatus().String(),
 					Loaded:               false,
 					ReplicationFactor:    int64(shardingState.ReplicationFactor),
-					NumberOfReplicas:     int64(shardingState.NumberOfReplicas),
+					NumberOfReplicas:     shardingState.NumberOfReplicas(shard.Name()),
 				}
 				*status = append(*status, shardStatus)
 				shardCount++
@@ -219,7 +219,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			Loaded:                 true,
 			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
 			ReplicationFactor:      int64(shardingState.ReplicationFactor),
-			NumberOfReplicas:       int64(shardingState.NumberOfReplicas),
+			NumberOfReplicas:       shardingState.NumberOfReplicas(shard.Name()),
 		}
 		*status = append(*status, shardStatus)
 		shardCount++
