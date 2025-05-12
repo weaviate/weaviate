@@ -54,6 +54,7 @@ import (
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
 	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -317,7 +318,8 @@ func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Co
 	return d
 }
 
-func (d *Compose) WithText2VecHuggingFace() *Compose {
+func (d *Compose) WithText2VecHuggingFace(apiKey string) *Compose {
+	d.weaviateEnvs["HUGGINGFACE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modhuggingface.Name)
 	return d
 }
@@ -368,6 +370,12 @@ func (d *Compose) WithRerankerNvidia(apiKey string) *Compose {
 func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
 	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modnvidia.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecMistral(apiKey string) *Compose {
+	d.weaviateEnvs["MISTRAL_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmistral.Name)
 	return d
 }
 
