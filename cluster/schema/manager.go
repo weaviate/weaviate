@@ -123,10 +123,11 @@ func (s *SchemaManager) ReloadDBFromSchema() error {
 		i++
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
+	s.log.Info("reload local db: update schema ...")
 	if err := s.db.ReloadLocalDB(context.Background(), cs); err != nil {
 		return fmt.Errorf("reload local db: %w", err)
 	}
-	s.log.Info("reload local db: update schema ...")
+	s.log.Info("successfully reloaded local db: update schema")
 	return nil
 }
 
