@@ -13,7 +13,9 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -305,4 +307,117 @@ func TestBucketGetBySecondary(t *testing.T) {
 
 	_, err = b.GetBySecondary(1, []byte("bonjour"))
 	require.Error(t, err)
+}
+
+func TestBucketWalReload(t *testing.T) {
+	ctx := context.Background()
+	dirName := t.TempDir()
+
+	logger, _ := test.NewNullLogger()
+
+	// initial bucket, always create segment, even if it is just a single entry
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+
+	require.NoError(t, b.Put([]byte("hello"), []byte("world"), WithSecondaryKey(0, []byte("bonjour"))))
+	require.NoError(t, b.Shutdown(ctx))
+
+	entries, err := os.ReadDir(dirName)
+	require.NoError(t, err)
+	require.Len(t, entries, 2, "single segment file should be created")
+
+	// start fresh with a new memtable, new entries will stay in way until size is reached
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+
+	require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
+	require.NoError(t, b.Shutdown(ctx))
+
+	entries, err = os.ReadDir(dirName)
+	require.NoError(t, err)
+	fileTypes := map[string]int{}
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	require.Equal(t, fileTypes[".db"], 0, "single segment file")
+	require.Equal(t, fileTypes[".mem"], 1, "single segment file")
+	require.Equal(t, fileTypes[".wal"], 1, "single wal file")
+
+	// will load wal and reuse memtable
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+
+	require.NoError(t, b.Put([]byte("hello3"), []byte("world3"), WithSecondaryKey(0, []byte("bonjour3"))))
+	require.NoError(t, b.Shutdown(ctx))
+
+	entries, err = os.ReadDir(dirName)
+	require.NoError(t, err)
+	clear(fileTypes)
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	require.Equal(t, fileTypes[".mem"], 1, "single segment file")
+	require.Equal(t, fileTypes[".wal"], 1, "single wal file")
+
+	// now add a lot of entries to hit .wal file limit
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+
+	for i := 4; i < 120; i++ { // larger than pagesize
+		require.NoError(t, b.Put([]byte(fmt.Sprintf("hello%d", i)), []byte(fmt.Sprintf("world%d", i)), WithSecondaryKey(0, []byte(fmt.Sprintf("bonjour%d", i)))))
+	}
+	require.NoError(t, b.Shutdown(ctx))
+
+	entries, err = os.ReadDir(dirName)
+	require.NoError(t, err)
+	clear(fileTypes)
+	for _, entry := range entries {
+		fileTypes[filepath.Ext(entry.Name())] += 1
+	}
+	require.Equal(t, fileTypes[".mem"], 1, "single memtable file")
+	require.Equal(t, fileTypes[".wal"], 1, "single wal file")
+
+	// recover from memtable and check that files are there
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+
+	get, err := b.Get([]byte("hello3"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world3"), get)
+
+	get, err = b.Get([]byte("hello4"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world4"), get)
+	require.NoError(t, b.Shutdown(ctx))
+
+	// delete .mem file and recover from .wal
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".mem" {
+			err := os.Remove(dirName + "/" + entry.Name())
+			require.NoError(t, err)
+		}
+	}
+
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+		WithStrategy(StrategyReplace), WithSecondaryIndices(1))
+	require.NoError(t, err)
+
+	get, err = b.Get([]byte("hello4"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world4"), get)
+
+	get, err = b.Get([]byte("hello3"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world3"), get)
 }
