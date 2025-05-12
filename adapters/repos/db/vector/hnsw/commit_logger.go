@@ -56,7 +56,9 @@ type hnswCommitLogger struct {
 	// whether snapshots are enabled and should be periodically created
 	snapshotEnabled bool
 	// minimum interval to create next snapshot out of last one and new commitlogs
-	snapshotInterval time.Duration
+	snapshotCreateInterval time.Duration
+	// minimal interval to check if next snapshot should be created
+	snapshotCheckInterval time.Duration
 	// minimum number of delta commitlogs required to create new snapshot
 	snapshotMinDeltaCommitlogsNumber int
 	// minimum percentage size of delta commitlogs (compared to last snapshot) required to create new one
@@ -64,6 +66,8 @@ type hnswCommitLogger struct {
 	// time that last snapshot was created at (based on its name, which is based on last included commitlog name;
 	// not the actual snapshot file creation time)
 	snapshotLastCreatedAt time.Time
+	// time that last check if snapshot should be created was made
+	snapshotLastCheckedAt time.Time
 	// partitions mark commitlogs (left ones) that should not be combined with
 	// logs on the right side (newer ones).
 	// example: given logs 0001.condensed, 0002.condensed, 0003.condensed and 0004.condensed
@@ -109,12 +113,13 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		return strings.Join(elems, "/")
 	}
 	l.commitLogger = commitlog.NewLoggerWithFile(fd)
-	l.switchLogsCallbackCtrl = maintenanceCallbacks.Register(id("switch_logs"), l.startSwitchLogs)
-	l.maintainLogsCallbackCtrl = maintenanceCallbacks.Register(id("maintain_logs"), l.startCommitLogsMaintenance)
 
 	if err := l.initSnapshotData(); err != nil {
 		return nil, errors.Wrapf(err, "init snapshot data")
 	}
+
+	l.switchLogsCallbackCtrl = maintenanceCallbacks.Register(id("switch_logs"), l.startSwitchLogs)
+	l.maintainLogsCallbackCtrl = maintenanceCallbacks.Register(id("maintain_logs"), l.startCommitLogsMaintenance)
 
 	return l, nil
 }
@@ -646,15 +651,16 @@ func (l *hnswCommitLogger) createSnapshot(shouldAbort cyclemanager.ShouldAbortCa
 		return false, nil
 	}
 
-	if !time.Now().Add(-l.snapshotInterval).After(l.snapshotLastCreatedAt) {
+	if !time.Now().Add(-l.snapshotCheckInterval).After(l.snapshotLastCheckedAt) {
+		return false, nil
+	}
+	l.snapshotLastCheckedAt = time.Now()
+
+	if !time.Now().Add(-l.snapshotCreateInterval).After(l.snapshotLastCreatedAt) {
 		return false, nil
 	}
 
-	created, createdAt, err := l.CreateSnapshot()
-	if created {
-		l.snapshotLastCreatedAt = time.Unix(createdAt, 0)
-		l.snapshotPartitions = []string{fmt.Sprintf("%d", createdAt)}
-	}
+	created, _, err := l.CreateSnapshot()
 	return created, err
 }
 

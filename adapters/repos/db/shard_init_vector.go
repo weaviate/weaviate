@@ -112,7 +112,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						// consistent with previous logic where the individual limit is 1/5 of the combined limit
 						hnsw.WithCommitlogThreshold(s.index.Config.HNSWMaxLogSize/5),
 						hnsw.WithSnapshotEnabled(!s.index.Config.HNSWDisableSnapshots),
-						hnsw.WithSnapshotInterval(time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds)*time.Second),
+						hnsw.WithSnapshotCreateInterval(time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds)*time.Second),
 						hnsw.WithSnapshotMinDeltaCommitlogsNumer(s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber),
 						hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
 					)

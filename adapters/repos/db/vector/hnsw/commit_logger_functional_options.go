@@ -54,9 +54,9 @@ func WithSnapshotEnabled(enabled bool) CommitlogOption {
 	}
 }
 
-func WithSnapshotInterval(interval time.Duration) CommitlogOption {
+func WithSnapshotCreateInterval(interval time.Duration) CommitlogOption {
 	return func(l *hnswCommitLogger) error {
-		l.snapshotInterval = interval
+		l.snapshotCreateInterval = interval
 		return nil
 	}
 }

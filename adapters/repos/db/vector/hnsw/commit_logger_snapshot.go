@@ -34,9 +34,10 @@ import (
 )
 
 const (
-	checkpointChunkSize = 100_000
-	snapshotConcurrency = 8 // number of goroutines handling snapshot's checkpoints reading
-	snapshotDirSuffix   = ".hnsw.snapshot.d"
+	checkpointChunkSize   = 100_000
+	snapshotConcurrency   = 8 // number of goroutines handling snapshot's checkpoints reading
+	snapshotDirSuffix     = ".hnsw.snapshot.d"
+	snapshotCheckInterval = 10 * time.Minute
 )
 
 const (
@@ -87,12 +88,7 @@ func (l *hnswCommitLogger) CreateSnapshot() (created bool, createdAt int64, err 
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_snapshot"})
 	defer func() { onFinish(err) }()
 
-	snapshotPath, createdAt, err := l.getLastSnapshot()
-	if err != nil {
-		return false, 0, errors.Wrapf(err, "get last snapshot")
-	}
-
-	state, createdAt, err := l.createAndOptionallyLoadSnapshotOnLastOne(logger, false, snapshotPath, createdAt)
+	state, createdAt, err := l.createAndOptionallyLoadSnapshot(logger, false)
 	return state != nil, createdAt, err
 }
 
@@ -103,12 +99,7 @@ func (l *hnswCommitLogger) CreateAndLoadSnapshot() (state *DeserializationResult
 	logger, onFinish := l.setupSnapshotLogger(logrus.Fields{"method": "create_and_load_snapshot"})
 	defer func() { onFinish(err) }()
 
-	snapshotPath, createdAt, err := l.getLastSnapshot()
-	if err != nil {
-		return nil, 0, errors.Wrapf(err, "get last snapshot")
-	}
-
-	return l.createAndOptionallyLoadSnapshotOnLastOne(logger, true, snapshotPath, createdAt)
+	return l.createAndOptionallyLoadSnapshot(logger, true)
 }
 
 func (l *hnswCommitLogger) setupSnapshotLogger(fields logrus.Fields) (logger logrus.FieldLogger, onFinish func(err error)) {
@@ -126,12 +117,27 @@ func (l *hnswCommitLogger) setupSnapshotLogger(fields logrus.Fields) (logger log
 	}
 }
 
+func (l *hnswCommitLogger) createAndOptionallyLoadSnapshot(logger logrus.FieldLogger, load bool,
+) (*DeserializationResult, int64, error) {
+	lastSnapshotPath, lastCreatedAt, err := l.getLastSnapshot()
+	if err != nil {
+		return nil, 0, errors.Wrapf(err, "get last snapshot")
+	}
+
+	state, path, createdAt, err := l.createAndOptionallyLoadSnapshotOnLastOne(logger, load, lastSnapshotPath, lastCreatedAt)
+	if path != "" {
+		l.snapshotLastCreatedAt = time.Now()
+		l.snapshotPartitions = []string{snapshotName(path)}
+	}
+	return state, createdAt, err
+}
+
 func (l *hnswCommitLogger) createAndOptionallyLoadSnapshotOnLastOne(logger logrus.FieldLogger,
 	load bool, snapshotPath string, createdAt int64,
-) (*DeserializationResult, int64, error) {
+) (*DeserializationResult, string, int64, error) {
 	commitlogPaths, err := l.getDeltaCommitlogs(createdAt)
 	if err != nil {
-		return nil, 0, errors.Wrapf(err, "get delta commitlogs")
+		return nil, "", 0, errors.Wrapf(err, "get delta commitlogs")
 	}
 
 	// skip allocCheck on forced loading
@@ -145,7 +151,7 @@ func (l *hnswCommitLogger) createAndOptionallyLoadSnapshotOnLastOne(logger logru
 			state, err = l.readSnapshot(snapshotPath)
 			if err != nil {
 				if err = l.handleReadSnapshotError(logger, snapshotPath, createdAt, err); err != nil {
-					return nil, 0, errors.Wrapf(err, "read snapshot")
+					return nil, "", 0, errors.Wrapf(err, "read snapshot")
 				}
 				// call again without last snapshot
 				return l.createAndOptionallyLoadSnapshotOnLastOne(logger, load, "", 0)
@@ -156,22 +162,22 @@ func (l *hnswCommitLogger) createAndOptionallyLoadSnapshotOnLastOne(logger logru
 	}
 
 	if !shouldCreateSnapshot {
-		return state, createdAt, nil
+		return state, "", createdAt, nil
 	}
 
 	newState, err := loadCommitLoggerState(l.logger, commitlogPaths, state, nil)
 	if err != nil {
-		return nil, 0, errors.Wrapf(err, "apply delta commitlogs")
+		return nil, "", 0, errors.Wrapf(err, "apply delta commitlogs")
 	}
 
 	ln := len(commitlogPaths)
 	newSnapshotPath := l.snapshotFileName(commitlogPaths[ln-1])
 	newCreatedAt, err := snapshotTimestamp(newSnapshotPath)
 	if err != nil {
-		return nil, 0, errors.Wrapf(err, "get new snapshot timestamp")
+		return nil, "", 0, errors.Wrapf(err, "get new snapshot timestamp")
 	}
 	if err := l.writeSnapshot(newState, newSnapshotPath); err != nil {
-		return nil, 0, errors.Wrapf(err, "write new snapshot")
+		return nil, "", 0, errors.Wrapf(err, "write new snapshot")
 	}
 	logger.WithFields(logrus.Fields{
 		"delta_commitlogs": ln,
@@ -180,10 +186,10 @@ func (l *hnswCommitLogger) createAndOptionallyLoadSnapshotOnLastOne(logger logru
 	}).Info("new snapshot created")
 
 	if err = l.cleanupSnapshots(newCreatedAt); err != nil {
-		return newState, newCreatedAt, errors.Wrapf(err, "cleanup previous snapshot")
+		return newState, newSnapshotPath, newCreatedAt, errors.Wrapf(err, "cleanup previous snapshot")
 	}
 
-	return newState, newCreatedAt, nil
+	return newState, newSnapshotPath, newCreatedAt, nil
 }
 
 // TODO al:snapshot add automated tests (commitlogs number+size, allocChecker)
@@ -236,7 +242,14 @@ func (l *hnswCommitLogger) initSnapshotData() error {
 		}
 
 		l.snapshotLastCreatedAt = time.Unix(createdAt, 0)
+		l.snapshotLastCheckedAt = l.snapshotLastCreatedAt
 		l.snapshotPartitions = []string{}
+
+		if l.snapshotCreateInterval == 0 || l.snapshotCreateInterval > snapshotCheckInterval {
+			l.snapshotCheckInterval = snapshotCheckInterval
+		} else {
+			l.snapshotCheckInterval = l.snapshotCreateInterval
+		}
 
 		if path != "" {
 			l.snapshotPartitions = append(l.snapshotPartitions, snapshotName(path))
@@ -252,6 +265,15 @@ func (l *hnswCommitLogger) initSnapshotData() error {
 			"id":     l.id,
 			"path":   filepath.Join(dirs...),
 		})
+
+		l.snapshotLogger.WithFields(logrus.Fields{
+			"check_interval":  l.snapshotCheckInterval,
+			"create_interval": l.snapshotCreateInterval,
+			"last_created_at": l.snapshotLastCreatedAt,
+			"last_checked_at": l.snapshotLastCheckedAt,
+			"partitions":      l.snapshotPartitions,
+			"last_snapshot":   path,
+		}).Debug("snapshot config")
 	}
 	return nil
 }
