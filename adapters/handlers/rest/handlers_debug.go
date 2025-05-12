@@ -251,7 +251,7 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		// tenant map: tenantName -> *models.TenantResponse
-		tenantMap := make(map[string]*models.TenantResponse)
+		tenantMap := make(map[string]*models.Tenant)
 
 		if info.MultiTenancy.Enabled {
 
@@ -267,10 +267,8 @@ func setupDebugHandlers(appState *state.State) {
 			}
 		} else {
 			for name := range paths {
-				tenantMap[name] = &models.TenantResponse{
-					Tenant: models.Tenant{
-						Name: name,
-					},
+				tenantMap[name] = &models.Tenant{
+					Name: name,
 				}
 			}
 		}

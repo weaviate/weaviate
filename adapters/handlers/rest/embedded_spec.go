@@ -4146,7 +4146,7 @@ func init() {
           "200": {
             "description": "load the tenant given the specified class",
             "schema": {
-              "$ref": "#/definitions/TenantResponse"
+              "$ref": "#/definitions/Tenant"
             }
           },
           "401": {
@@ -6925,26 +6925,6 @@ func init() {
           "type": "string"
         }
       }
-    },
-    "TenantResponse": {
-      "description": "attributes representing a single tenant response within weaviate",
-      "type": "object",
-      "allOf": [
-        {
-          "$ref": "#/definitions/Tenant"
-        },
-        {
-          "properties": {
-            "belongsToNodes": {
-              "description": "The list of nodes that owns that tenant data.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      ]
     },
     "UserApiKey": {
       "type": "object",
@@ -11558,7 +11538,7 @@ func init() {
           "200": {
             "description": "load the tenant given the specified class",
             "schema": {
-              "$ref": "#/definitions/TenantResponse"
+              "$ref": "#/definitions/Tenant"
             }
           },
           "401": {
@@ -14640,26 +14620,6 @@ func init() {
           "type": "string"
         }
       }
-    },
-    "TenantResponse": {
-      "description": "attributes representing a single tenant response within weaviate",
-      "type": "object",
-      "allOf": [
-        {
-          "$ref": "#/definitions/Tenant"
-        },
-        {
-          "properties": {
-            "belongsToNodes": {
-              "description": "The list of nodes that owns that tenant data.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      ]
     },
     "UserApiKey": {
       "type": "object",
