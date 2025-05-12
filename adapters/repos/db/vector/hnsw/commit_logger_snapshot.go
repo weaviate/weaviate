@@ -421,42 +421,57 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 	for i, fileName := range fileNames {
 		beforeIndividual := time.Now()
 
-		fd, err := os.Open(fileName)
-		if err != nil {
-			return nil, errors.Wrapf(err, "open commit log %q for reading", fileName)
-		}
-		defer fd.Close()
-
-		var fdMetered io.Reader = fd
-		if metrics != nil {
-			fdMetered = diskio.NewMeteredReader(fd,
-				metrics.TrackStartupReadCommitlogDiskIO)
-		}
-		fdBuf := bufio.NewReaderSize(fdMetered, 256*1024)
-
-		var valid int
-		state, valid, err = NewDeserializer(logger).Do(fdBuf, state, false)
-		if err != nil {
-			if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
-				// we need to check for both EOF or UnexpectedEOF, as we don't know where
-				// the commit log got corrupted, a field ending that weset a longer
-				// encoding for would return EOF, whereas a field read with binary.Read
-				// with a fixed size would return UnexpectedEOF. From our perspective both
-				// are unexpected.
-
-				logger.WithField("action", "hnsw_load_commit_log_corruption").
-					WithField("path", fileName).
-					Error("write-ahead-log ended abruptly, some elements may not have been recovered")
-
-				// we need to truncate the file to its valid length!
-				if err := os.Truncate(fileName, int64(valid)); err != nil {
-					return nil, errors.Wrapf(err, "truncate corrupt commit log %q", fileName)
-				}
-			} else {
-				// only return an actual error on non-EOF errors, otherwise we'll end
-				// up in a startup crashloop
-				return nil, errors.Wrapf(err, "deserialize commit log %q", fileName)
+		err = func() error {
+			fd, err := os.Open(fileName)
+			if err != nil {
+				return errors.Wrapf(err, "open commit log %q for reading", fileName)
 			}
+			defer fd.Close()
+
+			info, err := fd.Stat()
+			if err != nil {
+				errors.Wrapf(err, "get commit log %qsize", fileName)
+			}
+			if info.Size() == 0 {
+				// nothing to do
+				return nil
+			}
+
+			var fdMetered io.Reader = fd
+			if metrics != nil {
+				fdMetered = diskio.NewMeteredReader(fd,
+					metrics.TrackStartupReadCommitlogDiskIO)
+			}
+			fdBuf := bufio.NewReaderSize(fdMetered, 256*1024)
+
+			var valid int
+			state, valid, err = NewDeserializer(logger).Do(fdBuf, state, false)
+			if err != nil {
+				if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+					// we need to check for both EOF or UnexpectedEOF, as we don't know where
+					// the commit log got corrupted, a field ending that weset a longer
+					// encoding for would return EOF, whereas a field read with binary.Read
+					// with a fixed size would return UnexpectedEOF. From our perspective both
+					// are unexpected.
+
+					logger.WithField("action", "hnsw_load_commit_log_corruption").
+						WithField("path", fileName).
+						Error("write-ahead-log ended abruptly, some elements may not have been recovered")
+
+					// we need to truncate the file to its valid length!
+					if err := os.Truncate(fileName, int64(valid)); err != nil {
+						return errors.Wrapf(err, "truncate corrupt commit log %q", fileName)
+					}
+				} else {
+					// only return an actual error on non-EOF errors, otherwise we'll end
+					// up in a startup crashloop
+					return errors.Wrapf(err, "deserialize commit log %q", fileName)
+				}
+			}
+			return nil
+		}()
+		if err != nil {
+			return nil, err
 		}
 
 		if metrics != nil {
