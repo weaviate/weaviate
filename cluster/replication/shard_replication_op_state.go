@@ -110,7 +110,7 @@ func (s *ShardReplicationOpStatus) OnlyCancellation() bool {
 
 // ShouldCleanup returns true if the current state is not READY
 func (s *ShardReplicationOpStatus) ShouldCleanup() bool {
-	return s.GetCurrentState() != api.READY
+	return s.GetCurrentState() != api.READY && s.GetCurrentState() != api.DEHYDRATING
 }
 
 // GetHistory returns the history of the state changes of the shard replication operation
