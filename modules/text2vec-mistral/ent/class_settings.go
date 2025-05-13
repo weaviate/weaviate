@@ -12,7 +12,6 @@
 package ent
 
 import (
-	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	basesettings "github.com/weaviate/weaviate/usecases/modulecomponents/settings"
@@ -24,16 +23,9 @@ const (
 	DefaultMistralModel          = "mistral-embed"
 	DefaultBaseURL               = "https://api.mistral.ai/v1/embeddings"
 	DefaultVectorizeClassName    = true
-	DefaultPropertyIndexed       = true
+	DefaultPropertyIndexed       = false
 	DefaultVectorizePropertyName = false
 	LowerCaseInput               = false
-)
-
-var (
-	availableMistralModels = []string{
-		"mistral-embed",
-	}
-	experimentalMistralModels = []string{}
 )
 
 type classSettings struct {
@@ -53,12 +45,6 @@ func (cs *classSettings) Validate(class *models.Class) error {
 	if err := cs.BaseClassSettings.Validate(class); err != nil {
 		return err
 	}
-
-	model := cs.Model()
-	if !basesettings.ValidateSetting[string](model, append(availableMistralModels, experimentalMistralModels...)) {
-		return errors.Errorf("wrong VoyageAI model name, available model names are: %v", availableMistralModels)
-	}
-
 	return nil
 }
 
