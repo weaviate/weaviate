@@ -34,12 +34,12 @@ func TestCollectEndpoints(t *testing.T) {
 
 func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	adminKey := "admin-key"
-	// adminUser := "admin-user"
+	adminUser := "admin-user"
 	customKey := "custom-key"
-	// customUser := "custom-user"
+	customUser := "custom-user"
 
-	// compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	// defer down()
+	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	defer down()
 
 	// create class via admin
 	className := "ABC"
@@ -88,7 +88,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	}
 
 	for _, endpoint := range endpoints {
-		url := fmt.Sprintf("http://%s/v1%s", "localhost:8081", endpoint.path)
+		url := fmt.Sprintf("http://%s/v1%s", compose.GetWeaviate().URI(), endpoint.path)
 		url = strings.ReplaceAll(url, "/objects/{className}/{id}", fmt.Sprintf("/objects/%s/%s", className, UUID1.String()))
 		url = strings.ReplaceAll(url, "/objects/{id}", fmt.Sprintf("/objects/%s", UUID1.String()))
 		url = strings.ReplaceAll(url, "/replication/replicate/{id}", fmt.Sprintf("/replication/replicate/%s", UUID1.String()))
