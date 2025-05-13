@@ -107,7 +107,9 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 				"log_index":                    l.Index,
 				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			}).Info("reloading local DB as RAFT and local DB are now caught up")
-			st.reloadDBFromSchema()
+			if err := st.reloadDBFromSchema(); err != nil {
+				st.log.WithError(err).Error("reload DB from schema")
+			}
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
