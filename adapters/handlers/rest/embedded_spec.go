@@ -3505,6 +3505,48 @@ func init() {
         "x-serviceIds": [
           "weaviate.replication.replicate"
         ]
+      },
+      "delete": {
+        "tags": [
+          "replication"
+        ],
+        "summary": "Schedules all replication operations for deletion across all collections, shards, and nodes.",
+        "operationId": "deleteAllReplications",
+        "responses": {
+          "204": {
+            "description": "Replication operation registered successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.deleteAllReplications"
+        ]
       }
     },
     "/replication/replicate/list": {
@@ -4489,7 +4531,7 @@ func init() {
           "200": {
             "description": "load the tenant given the specified class",
             "schema": {
-              "$ref": "#/definitions/TenantResponse"
+              "$ref": "#/definitions/Tenant"
             }
           },
           "401": {
@@ -7597,26 +7639,6 @@ func init() {
           "type": "string"
         }
       }
-    },
-    "TenantResponse": {
-      "description": "attributes representing a single tenant response within weaviate",
-      "type": "object",
-      "allOf": [
-        {
-          "$ref": "#/definitions/Tenant"
-        },
-        {
-          "properties": {
-            "belongsToNodes": {
-              "description": "The list of nodes that owns that tenant data.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      ]
     },
     "UserApiKey": {
       "type": "object",
@@ -11593,6 +11615,48 @@ func init() {
         "x-serviceIds": [
           "weaviate.replication.replicate"
         ]
+      },
+      "delete": {
+        "tags": [
+          "replication"
+        ],
+        "summary": "Schedules all replication operations for deletion across all collections, shards, and nodes.",
+        "operationId": "deleteAllReplications",
+        "responses": {
+          "204": {
+            "description": "Replication operation registered successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.deleteAllReplications"
+        ]
       }
     },
     "/replication/replicate/list": {
@@ -12577,7 +12641,7 @@ func init() {
           "200": {
             "description": "load the tenant given the specified class",
             "schema": {
-              "$ref": "#/definitions/TenantResponse"
+              "$ref": "#/definitions/Tenant"
             }
           },
           "401": {
@@ -15988,26 +16052,6 @@ func init() {
           "type": "string"
         }
       }
-    },
-    "TenantResponse": {
-      "description": "attributes representing a single tenant response within weaviate",
-      "type": "object",
-      "allOf": [
-        {
-          "$ref": "#/definitions/Tenant"
-        },
-        {
-          "properties": {
-            "belongsToNodes": {
-              "description": "The list of nodes that owns that tenant data.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      ]
     },
     "UserApiKey": {
       "type": "object",

@@ -225,7 +225,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
 	})
 
-	t.Run("create and delete replication operation", func(t *testing.T) {
+	t.Run("create one op and immediately delete all replication ops", func(t *testing.T) {
 		created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(getRequest(t, paragraphClass.Class)), nil)
 		require.Nil(t, err)
 		require.NotNil(t, created)
@@ -233,7 +233,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		require.NotNil(t, created.Payload.ID)
 		id = *created.Payload.ID
 
-		deleted, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(id), nil)
+		deleted, err := helper.Client(t).Replication.DeleteAllReplications(replication.NewDeleteAllReplicationsParams(), nil)
 		require.Nil(t, err)
 		require.NotNil(t, deleted)
 	})
@@ -244,6 +244,14 @@ func (suite *ReplicaReplicationTestSuite) TestReplicationReplicateEndpoints() {
 			require.NotNil(ct, err)
 			assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
 		}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
+	})
+
+	t.Run("assert that there are no replication operations", func(t *testing.T) {
+		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams(), nil)
+		require.Nil(t, err)
+		require.NotNil(t, details)
+		require.NotNil(t, details.Payload)
+		require.Len(t, details.Payload, 0)
 	})
 }
 
