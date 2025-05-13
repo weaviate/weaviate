@@ -22,7 +22,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
-
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	s.WantShutdown.Store(true)
 	s.ActuallyShutdown(ctx)
@@ -55,7 +54,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 func (s *Shard) ActuallyShutdown(ctx context.Context) (err error) {
 	s.shutdownLock.Lock()
 	defer s.shutdownLock.Unlock()
-	if ! s.WantShutdown.Load() {
+	if !s.WantShutdown.Load() {
 		return fmt.Errorf("shard %q is not marked for shutdown", s.name)
 	}
 	if s.shut.Load() {
@@ -188,7 +187,6 @@ func (s *Shard) RefCountSub() {
 		}
 	}
 }
-
 
 // // cleanupPartialInit is called when the shard was only partially initialized.
 // // Internally it just uses [Shutdown], but also adds some logging.
