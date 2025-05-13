@@ -246,7 +246,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:
 		f = func() {
-			ret.Error = st.replicationManager.RegisterError(l.Index, &cmd)
+			ret.Error = st.replicationManager.RegisterError(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:
 		f = func() {

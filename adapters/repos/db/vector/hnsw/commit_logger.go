@@ -26,6 +26,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/commitlog"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -278,6 +279,7 @@ const (
 	AddLinksAtLevel   // added in v1.8.0-rc.1, see https://github.com/weaviate/weaviate/issues/1705
 	AddPQ
 	AddSQ
+	AddMuvera
 )
 
 func (t HnswCommitType) String() string {
@@ -308,6 +310,8 @@ func (t HnswCommitType) String() string {
 		return "AddProductQuantizer"
 	case AddSQ:
 		return "AddScalarQuantizer"
+	case AddMuvera:
+		return "AddMuvera"
 	}
 	return "unknown commit type"
 }
@@ -328,6 +332,13 @@ func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) erro
 	defer l.Unlock()
 
 	return l.commitLogger.AddSQCompression(data)
+}
+
+func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddMuvera(data)
 }
 
 // AddNode adds an empty node
