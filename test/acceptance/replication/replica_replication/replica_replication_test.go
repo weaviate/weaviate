@@ -166,7 +166,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 				continue
 			}
 
-			transferType := api.COPY.String()
+			transferType := api.MOVE.String()
 			for _, shard := range node.Shards {
 				if shard.Class != paragraphClass.Class {
 					continue
@@ -632,7 +632,8 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 	}
 
 	// Create a new POST request
-	req, err := http.NewRequest("POST", "http://"+uri+"/v1/objects", bytes.NewBuffer(jsonData))
+	// TODO one vs quorum vs all
+	req, err := http.NewRequest("POST", "http://"+uri+"/v1/objects?consistency_level=ALL", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}
@@ -738,13 +739,13 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 						newWriteId,
 						"tenant0",
 					)
-					// fmt.Println("NATEE newWriteId", newWriteId, err)
 					require.NoError(t, err)
 					constantWriteIDs = append(constantWriteIDs, newWriteId)
 					containerId++
 					if containerId >= 4 {
 						containerId = 1
 					}
+					// TODO remove sleep?
 					time.Sleep(1 * time.Millisecond)
 				}
 			}
@@ -753,12 +754,19 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 
 	// any node can be chosen as the tenant source node (even if that node is down at the time of creation)
 	// so we dynamically find the source and target nodes
-	sourceNodes := []int{}
-	sourceNodeURIs := []string{}
-	var targetNodeIndex int
-	var targetNode string
-	var targetNodeURI string
 	var opUuid strfmt.UUID
+	var shardName string
+	type nodeInfo struct {
+		nodeContainerIndex int
+		nodeURI            string
+		nodeName           string
+	}
+	sourceNode := nodeInfo{}
+	targetNode := nodeInfo{}
+	replicaNode := nodeInfo{}
+	allNodeInfos := []nodeInfo{}
+	// TODO move vs copy?
+	transferType := api.MOVE.String()
 	t.Run("start replica replication to node3 for paragraph", func(t *testing.T) {
 		verbose := verbosity.OutputVerbose
 		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
@@ -771,6 +779,8 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 
 		// Find two source nodes that have shards
 		for i, node := range body.Payload.Nodes {
+			containerIndex := i + 1
+			allNodeInfos = append(allNodeInfos, nodeInfo{nodeURI: compose.ContainerURI(containerIndex), nodeName: node.Name, nodeContainerIndex: containerIndex})
 			if len(node.Shards) >= 1 {
 				hasFoundNode = true
 				for _, shard := range node.Shards {
@@ -778,76 +788,71 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 						continue
 					}
 					hasFoundShard = true
+					shardName = shard.Name
 					// i + 1 because stop/start routine are 1 based not 0
-					sourceNodes = append(sourceNodes, i+1)
-					sourceNodeURIs = append(sourceNodeURIs, compose.ContainerURI(i+1))
-					if len(sourceNodes) == 2 {
-						break
+					if sourceNode.nodeName == "" {
+						sourceNode = nodeInfo{nodeURI: compose.ContainerURI(containerIndex), nodeName: node.Name, nodeContainerIndex: containerIndex}
+					} else {
+						replicaNode = nodeInfo{nodeURI: compose.ContainerURI(containerIndex), nodeName: node.Name, nodeContainerIndex: containerIndex}
 					}
 				}
-			}
-			if len(sourceNodes) == 2 {
-				break
 			}
 		}
 
 		require.True(t, hasFoundShard, "could not find shard for class %s", paragraphClass.Class)
 		require.True(t, hasFoundNode, "could not find node with shards for paragraph")
-		require.Len(t, sourceNodes, 2, "could not find two source nodes with shards for paragraph")
+		require.NotEmpty(t, sourceNode.nodeName, "could not find two source nodes with shards for paragraph")
+		require.NotEmpty(t, sourceNode.nodeURI, "could not find two source nodes with shards for paragraph")
+		require.NotEmpty(t, replicaNode.nodeName, "could not find two source nodes with shards for paragraph")
+		require.NotEmpty(t, replicaNode.nodeURI, "could not find two source nodes with shards for paragraph")
+		require.NotEqual(t, sourceNode.nodeName, replicaNode.nodeName, "source and replica nodes are the same")
+		require.NotEqual(t, sourceNode.nodeURI, replicaNode.nodeURI, "source and replica nodes are the same")
 
 		// Choose a target node that is not one of the source nodes
 		for i, node := range body.Payload.Nodes {
-			if i+1 == sourceNodes[0] || i+1 == sourceNodes[1] {
+			if node.Name == sourceNode.nodeName || node.Name == replicaNode.nodeName {
 				continue
 			}
-			targetNode = node.Name
-			targetNodeURI = compose.ContainerURI(i + 1)
-			targetNodeIndex = i + 1
+			targetNode = nodeInfo{nodeURI: compose.ContainerURI(i + 1), nodeName: node.Name}
 			break
 		}
 
 		require.NotEmpty(t, targetNode, "could not find a target node different from the source nodes")
 
-		for i, node := range body.Payload.Nodes {
-			// use sourceNodes[0] for the source node of the replica movement
-			if node.Name == targetNode || i+1 == sourceNodes[1] {
-				continue
-			}
-
-			for _, shard := range node.Shards {
-				if shard.Class != paragraphClass.Class {
-					continue
-				}
-
-				// TODO move vs copy?
-				transferType := api.MOVE.String()
-				t.Logf("Starting replica replication from %s to %s for shard %s", node.Name, targetNode, shard.Name)
-				resp, err := helper.Client(t).Replication.Replicate(
-					replication.NewReplicateParams().WithBody(
-						&models.ReplicationReplicateReplicaRequest{
-							CollectionID:        &paragraphClass.Class,
-							SourceNodeName:      &node.Name,
-							DestinationNodeName: &targetNode,
-							ShardID:             &shard.Name,
-							TransferType:        &transferType,
-						},
-					),
-					nil,
-				)
-				require.NoError(t, err)
-				require.Equal(t, http.StatusOK, resp.Code(), "replication replicate operation didn't return 200 OK")
-				require.NotNil(t, resp.Payload)
-				require.NotNil(t, resp.Payload.ID)
-				require.NotEmpty(t, *resp.Payload.ID)
-				opUuid = *resp.Payload.ID
-			}
-		}
+		t.Logf("Starting replica replication from %s to %s for shard %s", sourceNode.nodeName, targetNode.nodeName, shardName)
+		resp, err := helper.Client(t).Replication.Replicate(
+			replication.NewReplicateParams().WithBody(
+				&models.ReplicationReplicateReplicaRequest{
+					CollectionID:        &paragraphClass.Class,
+					SourceNodeName:      &sourceNode.nodeName,
+					DestinationNodeName: &targetNode.nodeName,
+					ShardID:             &shardName,
+					TransferType:        &transferType,
+				},
+			),
+			nil,
+		)
+		require.NoError(t, err)
+		require.Equal(t, http.StatusOK, resp.Code(), "replication replicate operation didn't return 200 OK")
+		require.NotNil(t, resp.Payload)
+		require.NotNil(t, resp.Payload.ID)
+		require.NotEmpty(t, *resp.Payload.ID)
+		opUuid = *resp.Payload.ID
 	})
 
-	// If didn't find needed info fail now
-	if len(sourceNodes) != 2 || targetNode == "" || targetNodeURI == "" || opUuid.String() == "" {
-		t.FailNow()
-	}
+	require.NotEmpty(t, opUuid, "opUuid is empty")
+	require.NotEmpty(t, sourceNode.nodeName, "sourceNode is empty")
+	require.NotEmpty(t, sourceNode.nodeURI, "sourceNode is empty")
+	require.NotEmpty(t, targetNode.nodeName, "targetNode is empty")
+	require.NotEmpty(t, targetNode.nodeURI, "targetNode is empty")
+	require.NotEmpty(t, replicaNode.nodeName, "replicaNode is empty")
+	require.NotEmpty(t, replicaNode.nodeURI, "replicaNode is empty")
+	require.NotEqual(t, sourceNode.nodeName, replicaNode.nodeName, "source and replica nodes are the same")
+	require.NotEqual(t, sourceNode.nodeURI, replicaNode.nodeURI, "source and replica nodes are the same")
+	require.NotEqual(t, targetNode.nodeName, sourceNode.nodeName, "target and source nodes are the same")
+	require.NotEqual(t, targetNode.nodeURI, sourceNode.nodeURI, "target and source nodes are the same")
+	require.NotEqual(t, targetNode.nodeName, replicaNode.nodeName, "target and replica nodes are the same")
+	require.NotEqual(t, targetNode.nodeURI, replicaNode.nodeURI, "target and replica nodes are the same")
 
 	// Wait for the replication to finish
 	t.Run("waiting for replication to finish", func(t *testing.T) {
@@ -868,39 +873,50 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 	})
 
 	// Kills the original node with the data to ensure we have only one replica available (the new one)
-	// t.Run(fmt.Sprintf("stop node %d", sourceNodes[0]), func(t *testing.T) {
-	// 	common.StopNodeAt(ctx, t, compose, sourceNodes[0])
+	// t.Run(fmt.Sprintf("stop node %s", sourceNode.nodeName), func(t *testing.T) {
+	// 	common.StopNodeAt(mainCtx, t, compose, sourceNode.nodeContainerIndex)
 	// })
 	t.Run("all constant writes are available", func(t *testing.T) {
-		verbose := verbosity.OutputVerbose
-		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
-		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
-		require.NoError(t, clientErr)
-		require.NotNil(t, body.Payload)
 		numConstantWrites := len(constantWriteIDs)
-		require.True(t, numConstantWrites > 1000, "expected at least 1000 constant writes")
-		// TODO flaky
-		require.Equal(t, int64(numConstantWrites+len(paragraphIDs)), common.CountTenantObjects(t, compose.ContainerURI(sourceNodes[0]), paragraphClass.Class, "tenant0"), fmt.Sprintf("expected %d objects on node %d", numConstantWrites+len(paragraphIDs), sourceNodes[0]))
-		require.Equal(t, int64(numConstantWrites+len(paragraphIDs)), common.CountTenantObjects(t, compose.ContainerURI(sourceNodes[1]), paragraphClass.Class, "tenant0"), fmt.Sprintf("expected %d objects on node %d", numConstantWrites+len(paragraphIDs), sourceNodes[1]))
-		require.Equal(t, int64(numConstantWrites+len(paragraphIDs)), common.CountTenantObjects(t, compose.ContainerURI(targetNodeIndex), paragraphClass.Class, "tenant0"), fmt.Sprintf("expected %d objects on node %d", numConstantWrites+len(paragraphIDs), targetNodeIndex))
-		for _, id := range constantWriteIDs {
-			// TODO not sure if nodeIndex+1 in container URIs and node name actually match?
-			for nodeIndex, node := range body.Payload.Nodes {
-				// TODO this is a hack to skip the source node for now
-				if nodeIndex == sourceNodes[0]+1 {
+		assert.True(t, numConstantWrites > 1000, "expected at least 1000 constant writes")
+		for _, nodeInfo := range allNodeInfos {
+			// TODO in a move, sourceNodes[0] no longer has the data? should we skip it?
+			if transferType == api.MOVE.String() && nodeInfo.nodeName == sourceNode.nodeName {
+				continue
+			}
+
+			// TODO flaky w possible bug
+			assert.Equal(t, int64(numConstantWrites+len(paragraphIDs)), common.CountTenantObjects(t, nodeInfo.nodeURI, paragraphClass.Class, "tenant0"), fmt.Sprintf("expected %d objects on node %s", numConstantWrites+len(paragraphIDs), nodeInfo.nodeName))
+		}
+		for _, nodeInfo := range allNodeInfos {
+			firstMissingObjectForNode := ""
+			numMissingObjectsForNode := 0
+			for _, id := range constantWriteIDs {
+				// TODO in a copy, sourceNodes[0] no longer has the data? should we skip it?
+				if transferType == api.MOVE.String() && nodeInfo.nodeName == sourceNode.nodeName {
 					continue
 				}
-				obj, err := common.GetTenantObjectFromNode(t, compose.ContainerURI(nodeIndex+1), paragraphClass.Class, strfmt.UUID(id), node.Name, "tenant0")
-				require.Nil(t, err, "error getting object from node %s", node.Name)
-				require.NotNil(t, obj, "object not found on node %s", node.Name)
+
+				// TODO flaky w possible bug
+				obj, err := common.GetTenantObjectFromNode(t, nodeInfo.nodeURI, paragraphClass.Class, strfmt.UUID(id), nodeInfo.nodeName, "tenant0")
+				if err != nil || obj == nil {
+					numMissingObjectsForNode++
+					if firstMissingObjectForNode == "" {
+						assert.Nil(t, err, "error getting object from node %s", nodeInfo.nodeName, id, err)
+						assert.NotNil(t, obj, "object not found on node", nodeInfo.nodeName, id)
+						firstMissingObjectForNode = id
+					}
+				}
 			}
+			assert.Equal(t, 0, numMissingObjectsForNode, "expected no missing objects on node %s", nodeInfo.nodeName)
+			assert.Empty(t, firstMissingObjectForNode, "expected no missing objects on node %s", nodeInfo.nodeName)
 		}
 	})
 
 	t.Run("assert data is available for paragraph on node3 with consistency level one", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, objId := range paragraphIDs {
-				obj, err := common.GetTenantObjectFromNode(t, targetNodeURI, paragraphClass.Class, objId, targetNode, "tenant0")
+				obj, err := common.GetTenantObjectFromNode(t, targetNode.nodeURI, paragraphClass.Class, objId, targetNode.nodeName, "tenant0")
 				assert.Nil(ct, err)
 				assert.NotNil(ct, obj)
 			}

@@ -192,6 +192,7 @@ func GetObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, nodename st
 }
 
 func GetTenantObjectFromNode(t *testing.T, class string, uuid strfmt.UUID, nodename, tenant string) (*models.Object, error) {
+	// TODO test cl one vs quorum vs all
 	req := objects.NewObjectsClassGetParams().WithID(uuid).
 		WithClassName(class).
 		WithNodeName(&nodename).
