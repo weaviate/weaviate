@@ -28,7 +28,7 @@ import (
 const GetCollectionShardingStateOKCode int = 200
 
 /*
-GetCollectionShardingStateOK Successfully retrieved.
+GetCollectionShardingStateOK Successfully retrieved sharding state.
 
 swagger:response getCollectionShardingStateOK
 */
@@ -73,7 +73,7 @@ func (o *GetCollectionShardingStateOK) WriteResponse(rw http.ResponseWriter, pro
 const GetCollectionShardingStateBadRequestCode int = 400
 
 /*
-GetCollectionShardingStateBadRequest Bad request
+GetCollectionShardingStateBadRequest Bad request.
 
 swagger:response getCollectionShardingStateBadRequest
 */
@@ -188,7 +188,7 @@ func (o *GetCollectionShardingStateForbidden) WriteResponse(rw http.ResponseWrit
 const GetCollectionShardingStateNotFoundCode int = 404
 
 /*
-GetCollectionShardingStateNotFound Shard replica operation not found
+GetCollectionShardingStateNotFound Collection or shard not found.
 
 swagger:response getCollectionShardingStateNotFound
 */

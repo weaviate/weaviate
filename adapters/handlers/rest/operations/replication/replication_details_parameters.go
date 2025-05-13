@@ -44,7 +44,7 @@ type ReplicationDetailsParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The id of the replication operation to get details for.
+	/*The ID of the replication operation to get details for.
 	  Required: true
 	  In: path
 	*/
