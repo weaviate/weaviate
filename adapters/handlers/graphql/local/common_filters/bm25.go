@@ -34,7 +34,7 @@ func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.
 	args.AdditionalExplanations = explainScore
 	args.Type = "bm25"
 
-	operator, ok := source["operator"]
+	operator, ok := source["search_operator"]
 	if ok {
 		args.SearchOperator = operator.(string)
 	} else {

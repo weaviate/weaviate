@@ -106,6 +106,15 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	if bm25 := req.Bm25Search; bm25 != nil {
 		// TODO amourao: add support for bm25 search with operator and minimum_should_match
 		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
+		if bm25.SearchOperator != nil {
+			out.KeywordRanking.SearchOperator = string(*bm25.SearchOperator)
+		} else {
+			out.KeywordRanking.SearchOperator = "or"
+		}
+
+		if bm25.MinimumShouldMatch != nil {
+			out.KeywordRanking.MinimumShouldMatch = int(*bm25.MinimumShouldMatch)
+		}
 	}
 
 	if nv := req.NearVector; nv != nil {
@@ -289,6 +298,14 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			TargetVectors:   targetVectors,
 			Distance:        distance,
 			WithDistance:    withDistance,
+		}
+
+		if hs.MinimumShouldMatch != nil {
+			out.HybridSearch.MinimumShouldMatch = int(*hs.MinimumShouldMatch)
+		}
+
+		if hs.SearchOperator != nil {
+			out.HybridSearch.SearchOperator = string(*hs.SearchOperator)
 		}
 
 		if nearVec != nil {
