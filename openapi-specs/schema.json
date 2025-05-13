@@ -2783,27 +2783,7 @@
           ]
         }
       }
-    },
-    "TenantResponse": {
-      "type": "object",
-      "description": "attributes representing a single tenant response within weaviate",
-      "allOf": [
-        {
-          "$ref": "#/definitions/Tenant"
-        },
-        {
-          "properties": {
-            "belongsToNodes": {
-              "description": "The list of nodes that owns that tenant data.",
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            }
-          }
-        }
-      ]
-    }
+    }    
   },
   "externalDocs": {
     "url": "https://github.com/weaviate/weaviate"
@@ -7205,7 +7185,7 @@
           "200": {
             "description": "load the tenant given the specified class",
             "schema": {
-              "$ref": "#/definitions/TenantResponse"
+              "$ref": "#/definitions/Tenant"
             }
           },
           "401": {

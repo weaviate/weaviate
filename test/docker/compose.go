@@ -54,6 +54,7 @@ import (
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
 	modmodel2vec "github.com/weaviate/weaviate/modules/text2vec-model2vec"
 	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
@@ -321,7 +322,8 @@ func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Co
 	return d
 }
 
-func (d *Compose) WithText2VecHuggingFace() *Compose {
+func (d *Compose) WithText2VecHuggingFace(apiKey string) *Compose {
+	d.weaviateEnvs["HUGGINGFACE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modhuggingface.Name)
 	return d
 }
@@ -379,6 +381,12 @@ func (d *Compose) WithText2VecModel2Vec() *Compose {
 	d.withModel2Vec = true
 	d.enableModules = append(d.enableModules, modmodel2vec.Name)
 	d.defaultVectorizerModule = Text2VecModel2Vec
+	return d
+}
+
+func (d *Compose) WithText2VecMistral(apiKey string) *Compose {
+	d.weaviateEnvs["MISTRAL_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmistral.Name)
 	return d
 }
 
