@@ -163,8 +163,16 @@ func getLatestCommitFileOrCreate(rootPath, name string) (*os.File, error) {
 }
 
 // getCommitFileNames in order, from old to new
-func getCommitFileNames(rootPath, name string, createdAfter int64) ([]string, error) {
-	dir := commitLogDirectory(rootPath, name)
+func getCommitFileNames(rootPath, id string, createdAfter int64) ([]string, error) {
+	files, err := getCommitFiles(rootPath, id, createdAfter)
+	if err != nil {
+		return nil, err
+	}
+	return commitLogFileNames(rootPath, id, files), nil
+}
+
+func getCommitFiles(rootPath, id string, createdAfter int64) ([]os.DirEntry, error) {
+	dir := commitLogDirectory(rootPath, id)
 	err := os.MkdirAll(dir, os.ModePerm)
 	if err != nil {
 		return nil, errors.Wrap(err, "create commit logger directory")
@@ -209,12 +217,15 @@ func getCommitFileNames(rootPath, name string, createdAfter int64) ([]string, er
 		return nil, err
 	}
 
+	return files, nil
+}
+
+func commitLogFileNames(rootPath, id string, files []os.DirEntry) []string {
 	out := make([]string, len(files))
 	for i, file := range files {
-		out[i] = commitLogFileName(rootPath, name, file.Name())
+		out[i] = commitLogFileName(rootPath, id, file.Name())
 	}
-
-	return out, nil
+	return out
 }
 
 // getCurrentCommitLogFileName returns the fileName and true if a file was
@@ -260,20 +271,36 @@ func getCurrentCommitLogFileName(dirPath string) (string, bool, error) {
 func skipTmpScratchOrHiddenFiles(in []os.DirEntry) []os.DirEntry {
 	out := make([]os.DirEntry, len(in))
 	i := 0
-	for _, info := range in {
-		if strings.HasSuffix(info.Name(), ".scratch.tmp") {
+	for _, entry := range in {
+		if strings.HasSuffix(entry.Name(), ".scratch.tmp") {
 			continue
 		}
 
-		if strings.HasPrefix(info.Name(), ".") {
+		if strings.HasPrefix(entry.Name(), ".") {
 			continue
 		}
 
-		out[i] = info
+		out[i] = entry
 		i++
 	}
-
 	return out[:i]
+}
+
+func skipEmptyFiles(in []os.DirEntry) ([]os.DirEntry, error) {
+	out := make([]os.DirEntry, len(in))
+	i := 0
+	for _, entry := range in {
+		info, err := entry.Info()
+		if err != nil {
+			return nil, errors.Wrap(err, "get file info")
+		}
+		if info.Size() == 0 {
+			continue
+		}
+		out[i] = entry
+		i++
+	}
+	return out[:i], nil
 }
 
 func removeTmpCombiningFiles(dirPath string, in []os.DirEntry) ([]os.DirEntry, error) {

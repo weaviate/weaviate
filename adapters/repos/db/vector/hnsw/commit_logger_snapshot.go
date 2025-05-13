@@ -169,6 +169,9 @@ func (l *hnswCommitLogger) createAndOptionallyLoadSnapshotOnLastOne(logger logru
 	if err != nil {
 		return nil, "", 0, errors.Wrapf(err, "apply delta commitlogs")
 	}
+	if newState == nil {
+		return nil, "", 0, errors.New("empty state")
+	}
 
 	ln := len(commitlogPaths)
 	newSnapshotPath := l.snapshotFileName(commitlogPaths[ln-1])
@@ -242,17 +245,16 @@ func (l *hnswCommitLogger) initSnapshotData() error {
 		}
 
 		l.snapshotLastCreatedAt = time.Unix(createdAt, 0)
-		l.snapshotLastCheckedAt = l.snapshotLastCreatedAt
+		l.snapshotLastCheckedAt = time.Now()
 		l.snapshotPartitions = []string{}
+		if path != "" {
+			l.snapshotPartitions = append(l.snapshotPartitions, snapshotName(path))
+		}
 
 		if l.snapshotCreateInterval == 0 || l.snapshotCreateInterval > snapshotCheckInterval {
 			l.snapshotCheckInterval = snapshotCheckInterval
 		} else {
 			l.snapshotCheckInterval = l.snapshotCreateInterval
-		}
-
-		if path != "" {
-			l.snapshotPartitions = append(l.snapshotPartitions, snapshotName(path))
 		}
 
 		dirs := strings.Split(filepath.Clean(l.rootPath), string(os.PathSeparator))
@@ -367,15 +369,21 @@ func (l *hnswCommitLogger) getLastSnapshot() (path string, createdAt int64, err 
 }
 
 func (l *hnswCommitLogger) getDeltaCommitlogs(createdAfter int64) (paths []string, err error) {
-	paths, err = getCommitFileNames(l.rootPath, l.id, createdAfter)
+	files, err := getCommitFiles(l.rootPath, l.id, createdAfter)
 	if err != nil {
-		return nil, errors.Wrapf(err, "get commit log files")
+		return nil, err
 	}
-	if l := len(paths); l > 1 {
-		// skip last file, may still be in use and mutable
-		return paths[:l-1], nil
+	// skip last file, may still be in use and mutable
+	if ln := len(files); ln > 1 {
+		files = files[:ln-1]
+	} else {
+		return []string{}, nil
 	}
-	return []string{}, nil
+	files, err = skipEmptyFiles(files)
+	if err != nil {
+		return nil, err
+	}
+	return commitLogFileNames(l.rootPath, l.id, files), nil
 }
 
 // cleanupSnapshots removes all snapshots, checkpoints and temporary files older than the given timestamp.
