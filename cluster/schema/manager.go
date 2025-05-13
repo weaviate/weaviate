@@ -276,7 +276,9 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { s.schema.deleteClass(cmd.Class); return nil },
 			updateStore: func() error {
-				if err := s.replicationsDeleter.DeleteReplicationsByCollection(cmd.Class); err != nil {
+				if s.replicationsDeleter == nil {
+					return fmt.Errorf("replication deleter is not set, this should never happen")
+				} else if err := s.replicationsDeleter.DeleteReplicationsByCollection(cmd.Class); err != nil {
 					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
 					s.log.WithField("error", err).WithField("class", cmd.Class).Error("could not delete replication operations for deleted class")
 				}
@@ -427,7 +429,9 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
 			updateStore: func() error {
-				if err := s.replicationsDeleter.DeleteReplicationsByTenants(cmd.Class, req.Tenants); err != nil {
+				if s.replicationsDeleter == nil {
+					return fmt.Errorf("replication deleter is not set, this should never happen")
+				} else if err := s.replicationsDeleter.DeleteReplicationsByTenants(cmd.Class, req.Tenants); err != nil {
 					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
 					s.log.WithField("error", err).WithField("class", cmd.Class).WithField("tenants", tenants).Error("could not delete replication operations for deleted tenants")
 				}
