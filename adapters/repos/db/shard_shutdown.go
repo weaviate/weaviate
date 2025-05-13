@@ -183,7 +183,7 @@ func (s *Shard) RefCountSub() {
 	// if the counter is 0, we can shutdown
 	if s.inUseCounter.Load() == 0 {
 		if s.WantShutdown.Load() {
-			s.Shutdown(context.TODO())
+			s.ActuallyShutdown(context.TODO())
 		}
 	}
 }
