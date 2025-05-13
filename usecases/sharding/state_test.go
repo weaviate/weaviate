@@ -571,7 +571,9 @@ func TestShardReplicationFactor(t *testing.T) {
 		require.NoErrorf(t, err, "unexpected error while initializing state")
 
 		shardName := state.AllPhysicalShards()[0]
-		require.Equal(t, int64(2), state.NumberOfReplicas(shardName), "unexpected replication factor")
+		numberOfReplicas, err := state.NumberOfReplicas(shardName)
+		require.NoErrorf(t, err, "error while getting number of replicas for shard %s", shardName)
+		require.Equal(t, int64(2), numberOfReplicas, "unexpected replication factor")
 		require.Equal(t, int64(2), state.ReplicationFactor, "unexpected minimum replication factor")
 
 		initialReplicaCount := len(state.Physical[shardName].BelongsToNodes)
@@ -580,7 +582,9 @@ func TestShardReplicationFactor(t *testing.T) {
 		err = state.AddReplicaToShard(shardName, "test-replica")
 		require.NoErrorf(t, err, "unexpected error while adding a replica")
 
-		require.Equal(t, int64(3), state.NumberOfReplicas(shardName))
+		numberOfReplicas, err = state.NumberOfReplicas(shardName)
+		require.NoErrorf(t, err, "error while getting number of replicas for shard %s", shardName)
+		require.Equal(t, int64(3), numberOfReplicas)
 		require.Equal(t, 3, len(state.Physical[shardName].BelongsToNodes))
 	})
 
@@ -593,7 +597,9 @@ func TestShardReplicationFactor(t *testing.T) {
 		require.NoErrorf(t, err, "unexpected error while initializing state")
 
 		shardName := state.AllPhysicalShards()[0]
-		require.Equal(t, int64(2), state.NumberOfReplicas(shardName), "unexpected replication factor")
+		numberOfReplicas, err := state.NumberOfReplicas(shardName)
+		require.NoErrorf(t, err, "error while getting number of replicas for shard %s", shardName)
+		require.Equal(t, int64(2), numberOfReplicas, "unexpected replication factor")
 		require.Equal(t, int64(2), state.ReplicationFactor, "unexpected minimum replication factor")
 
 		initialReplicaCount := len(state.Physical[shardName].BelongsToNodes)
@@ -602,15 +608,20 @@ func TestShardReplicationFactor(t *testing.T) {
 		err = state.AddReplicaToShard(shardName, "test-replica")
 		require.NoErrorf(t, err, "unexpected error while adding a replica")
 
-		require.Equal(t, int64(3), state.NumberOfReplicas(shardName))
+		numberOfReplicas, err = state.NumberOfReplicas(shardName)
+		require.NoErrorf(t, err, "error while getting number of replicas for shard %s", shardName)
+		require.Equal(t, int64(3), numberOfReplicas)
 		require.Equal(t, 3, len(state.Physical[shardName].BelongsToNodes))
 
 		err = state.AddReplicaToShard(shardName, "test-replica")
 		require.Errorf(t, err, "expected a failure while adding exisiting shard")
 
-		require.Equal(t, int64(3), state.NumberOfReplicas(shardName))
 		require.Equal(t, 3, len(state.Physical[shardName].BelongsToNodes))
 		require.Truef(t, strings.Contains(err.Error(), "already exists"), "expected already existing replica error")
+
+		numberOfReplicas, err = state.NumberOfReplicas(shardName)
+		require.NoErrorf(t, err, "error while getting number of replicas for shard %s", shardName)
+		require.Equal(t, int64(3), numberOfReplicas)
 	})
 
 	t.Run("delete replica", func(t *testing.T) {

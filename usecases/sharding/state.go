@@ -96,7 +96,12 @@ func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
 
-	if s.NumberOfReplicas(shard) <= s.ReplicationFactor {
+	numberOfReplcias, err := s.NumberOfReplicas(shard)
+	if err != nil {
+		return fmt.Errorf("error while getting number of replicas for shard %s: %w", shard, err)
+	}
+
+	if numberOfReplcias <= s.ReplicationFactor {
 		return fmt.Errorf("unable to delete replica from shard, minimum replication factor %d", s.ReplicationFactor)
 	}
 
@@ -107,8 +112,13 @@ func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
 	return nil
 }
 
-func (s *State) NumberOfReplicas(shard string) int64 {
-	return int64(len(s.Physical[shard].BelongsToNodes))
+func (s *State) NumberOfReplicas(shard string) (int64, error) {
+	phys, ok := s.Physical[shard]
+	if !ok {
+		return 0, fmt.Errorf("could not find shard %s", shard)
+	}
+
+	return int64(len(phys.BelongsToNodes)), nil
 }
 
 func (p *Physical) AddReplica(replica string) error {

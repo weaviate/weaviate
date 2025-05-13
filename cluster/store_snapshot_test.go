@@ -349,7 +349,11 @@ func verifySchemaRestoration(t *testing.T, source, target MockStore) {
 							"Tenant status should match for %s in class %s", tenantName, sourceClass.Class)
 						assert.Equal(t, len(sourceTenant.BelongsToNodes), len(targetTenant.BelongsToNodes),
 							"Node count should match for tenant %s in class %s", tenantName, sourceClass.Class)
-						assert.Equal(t, sourceShardingState.NumberOfReplicas(sourceTenant.Name), targetShardingState.NumberOfReplicas(targetTenant.Name))
+						sourceTenantNumberOfReplicas, err := sourceShardingState.NumberOfReplicas(sourceTenant.Name)
+						assert.Nil(t, err, "error while getting number of replicas for source tenant %s", sourceTenant.Name)
+						targetTenantNumberOfReplicas, err := targetShardingState.NumberOfReplicas(targetTenant.Name)
+						assert.Nil(t, err, "error while getting number of replicas for target tenant %s", targetTenant.Name)
+						assert.Equal(t, sourceTenantNumberOfReplicas, targetTenantNumberOfReplicas)
 					}
 				}
 			}

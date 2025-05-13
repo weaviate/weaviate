@@ -176,13 +176,17 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			if !lazy.isLoaded() {
 				class := shard.Index().Config.ClassName.String()
 				shardingState := shard.Index().getSchema.CopyShardingState(class)
+				numberOfReplicas, err := shardingState.NumberOfReplicas(shard.Name())
+				if err != nil {
+					i.logger.Errorf("error while getting number of replicas for shard %s: %w", shard.Name(), err)
+				}
 				shardStatus := &models.NodeShardStatus{
 					Name:                 name,
 					Class:                class,
 					VectorIndexingStatus: shard.GetStatus().String(),
 					Loaded:               false,
 					ReplicationFactor:    int64(shardingState.ReplicationFactor),
-					NumberOfReplicas:     shardingState.NumberOfReplicas(shard.Name()),
+					NumberOfReplicas:     numberOfReplicas,
 				}
 				*status = append(*status, shardStatus)
 				shardCount++
@@ -208,6 +212,10 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 
 		class := shard.Index().Config.ClassName.String()
 		shardingState := shard.Index().getSchema.CopyShardingState(class)
+		numberOfReplicas, err := shardingState.NumberOfReplicas(shard.Name())
+		if err != nil {
+			i.logger.Errorf("error while getting number of replicas for shard %s: %w", shard.Name(), err)
+		}
 
 		shardStatus := &models.NodeShardStatus{
 			Name:                   name,
@@ -219,7 +227,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			Loaded:                 true,
 			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
 			ReplicationFactor:      int64(shardingState.ReplicationFactor),
-			NumberOfReplicas:       shardingState.NumberOfReplicas(shard.Name()),
+			NumberOfReplicas:       numberOfReplicas,
 		}
 		*status = append(*status, shardStatus)
 		shardCount++
