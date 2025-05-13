@@ -196,6 +196,7 @@ type storeMetrics struct {
 	applyDuration    prometheus.Histogram
 	applyFailures    prometheus.Counter
 	lastAppliedIndex prometheus.Gauge
+	maxAppliedIndex  prometheus.Gauge
 }
 
 // newStoreMetrics cretes and registers the store related metrics on
@@ -217,6 +218,11 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 		lastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
 			Name:        "weaviate_cluster_store_fsm_last_applied_index",
 			Help:        "Current applied index of cluster store FSM in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		maxAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_fsm_max_applied_index",
+			Help:        "Current max applied index of the cluster store FSM in local node",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}),
 	}
@@ -284,7 +290,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
 
-	st.lastAppliedIndexToDB.Store(st.lastIndex())
+	li := st.lastIndex()
+	st.lastAppliedIndexToDB.Store(li)
+	st.metrics.maxAppliedIndex.Set(float64(li))
 
 	// we have to open the DB before constructing new raft in case of restore calls
 	st.openDatabase(ctx)
@@ -703,7 +711,10 @@ func (st *Store) reloadDBFromSchema() {
 	if err != nil {
 		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
 	}
-	st.lastAppliedIndexToDB.Store(max(lastSnapshotIndex(st.snapshotStore), lastLogApplied))
+
+	val := max(lastSnapshotIndex(st.snapshotStore), lastLogApplied)
+	st.lastAppliedIndexToDB.Store(val)
+	st.metrics.maxAppliedIndex.Set(float64(val))
 }
 
 type Response struct {

@@ -142,7 +142,7 @@ func (st *Store) Apply(l *raft.Log) any {
 	// This can happen for example if quorum is lost briefly.
 	// By checking lastAppliedIndexToDB we ensure that we never print past that index
 	if !st.Ready() && l.Index <= st.lastAppliedIndexToDB.Load() {
-		st.log.Infof("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
+		st.log.Debugf("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
 	}
 	st.log.WithFields(logrus.Fields{
 		"log_type":        l.Type,
