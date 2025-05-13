@@ -63,12 +63,16 @@ func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string
 }
 
 // RemoveLocalReplica removes the local replica of a shard on this node.
+//
+// This method is a best effort and will not return an error if the shard does not exist nor if the index doesn't exist.
+//
+// It is used during cleanup after a replication is cancelled or deleted. Since replications must be cancelled when indexes
+// are dropped, the index could be gone by the time this method is called meaning that this cleanup is not necessary; hence the no-op.
 func (c *Copier) RemoveLocalReplica(ctx context.Context, collectionName, shardName string) {
 	index := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
 	if index == nil {
 		return // no index found, nothing to do
 	}
-
 	err := index.DropShard(shardName)
 	if err != nil {
 		return // no shard found, nothing to do
@@ -212,6 +216,7 @@ func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName
 		return fmt.Errorf("index for collection %s not found", collectionName)
 	}
 
+	// TODO: check that this does not create a shard if it does not exist (I think it does)
 	shard, release, err := index.GetShard(ctx, shardName)
 	if err != nil || shard == nil {
 		return fmt.Errorf("get shard %s: %w", shardName, err)
