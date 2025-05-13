@@ -243,7 +243,7 @@ func (l *hnswCommitLogger) initSnapshotData() error {
 		"id":     l.id,
 		"path":   filepath.Join(dirs...),
 	})
-	fields := logrus.Fields{"enabled": l.snapshotEnabled}
+	fields := logrus.Fields{"enabled": !l.snapshotDisabled}
 
 	defer func() {
 		snapshotLogger.WithFields(fields).Debug("snapshot config")
@@ -261,7 +261,7 @@ func (l *hnswCommitLogger) initSnapshotData() error {
 	fields["last_snapshot"] = snapshotPath
 	fields["partitions"] = l.snapshotPartitions
 
-	if l.snapshotEnabled {
+	if !l.snapshotDisabled {
 		if err := os.MkdirAll(snapshotDirectory(l.rootPath, l.id), 0o755); err != nil {
 			return errors.Wrapf(err, "make snapshot directory")
 		}

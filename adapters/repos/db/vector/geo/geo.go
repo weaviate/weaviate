@@ -111,7 +111,7 @@ func makeCommitLoggerFromConfig(config Config, maintenanceCallbacks cyclemanager
 	if !config.DisablePersistence {
 		makeCL = func() (hnsw.CommitLogger, error) {
 			return hnsw.NewCommitLogger(config.RootPath, config.ID, config.Logger, maintenanceCallbacks,
-				hnsw.WithSnapshotEnabled(!config.SnapshotDisabled),
+				hnsw.WithSnapshotDisabled(config.SnapshotDisabled),
 				hnsw.WithSnapshotCreateInterval(config.SnapshotCreateInterval),
 				hnsw.WithSnapshotMinDeltaCommitlogsNumer(config.SnapshotMinDeltaCommitlogsNumer),
 				hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(config.SnapshotMinDeltaCommitlogsSizePercentage),

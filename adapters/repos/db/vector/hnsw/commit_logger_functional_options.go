@@ -47,9 +47,9 @@ func WithCondensor(condensor Condensor) CommitlogOption {
 	}
 }
 
-func WithSnapshotEnabled(enabled bool) CommitlogOption {
+func WithSnapshotDisabled(disabled bool) CommitlogOption {
 	return func(l *hnswCommitLogger) error {
-		l.snapshotEnabled = enabled
+		l.snapshotDisabled = disabled
 		return nil
 	}
 }

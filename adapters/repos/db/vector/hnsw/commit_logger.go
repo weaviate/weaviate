@@ -54,8 +54,8 @@ type hnswCommitLogger struct {
 	allocChecker memwatch.AllocChecker
 
 	snapshotLogger logrus.FieldLogger
-	// whether snapshots are enabled and should be periodically created
-	snapshotEnabled bool
+	// whether snapshots are disabled
+	snapshotDisabled bool
 	// minimum interval to create next snapshot out of last one and new commitlogs, 0 = no periodic snapshots
 	snapshotCreateInterval time.Duration
 	// minimal interval to check if next snapshot should be created
@@ -93,7 +93,6 @@ func NewCommitLogger(rootPath, name string, logger logrus.FieldLogger,
 		maxSizeIndividual: defaultCommitLogSize / 5,
 		maxSizeCombining:  defaultCommitLogSize,
 
-		snapshotEnabled:                          true,
 		snapshotMinDeltaCommitlogsNumber:         1,
 		snapshotMinDeltaCommitlogsSizePercentage: 0,
 	}
@@ -682,7 +681,7 @@ func (l *hnswCommitLogger) combineLogs() (bool, error) {
 
 // TODO al:snapshot handle should abort
 func (l *hnswCommitLogger) createSnapshot(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
-	if !l.snapshotEnabled || l.snapshotCreateInterval <= 0 {
+	if l.snapshotDisabled || l.snapshotCreateInterval <= 0 {
 		return false, nil
 	}
 

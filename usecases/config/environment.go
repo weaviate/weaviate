@@ -326,8 +326,9 @@ func FromEnv(config *Config) error {
 	}
 
 	// ---- HNSW snapshots ----
-	if entcfg.Enabled(os.Getenv("PERSISTENCE_HNSW_DISABLE_SNAPSHOTS")) {
-		config.Persistence.HNSWDisableSnapshots = true
+	config.Persistence.HNSWDisableSnapshots = DefaultHNSWSnapshotDisabled
+	if v := os.Getenv("PERSISTENCE_HNSW_DISABLE_SNAPSHOTS"); v != "" {
+		config.Persistence.HNSWDisableSnapshots = entcfg.Enabled(v)
 	}
 
 	if err := parseNonNegativeInt(

@@ -28,7 +28,7 @@ func createTestCommitLoggerForSnapshots(t *testing.T, dir string) *hnswCommitLog
 		WithCommitlogThreshold(1000),
 		WithCommitlogThresholdForCombining(200),
 		WithCondensor(&fakeCondensor{}),
-		WithSnapshotEnabled(true),
+		WithSnapshotDisabled(false),
 		WithAllocChecker(fakeAllocChecker{}),
 	}
 
