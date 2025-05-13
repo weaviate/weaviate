@@ -112,7 +112,7 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-func (s *SchemaManager) ReloadDBFromSchema() error {
+func (s *SchemaManager) ReloadDBFromSchema() {
 	classes := s.schema.MetaClasses()
 
 	cs := make([]command.UpdateClassRequest, len(classes))
@@ -124,11 +124,7 @@ func (s *SchemaManager) ReloadDBFromSchema() error {
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
-	if err := s.db.ReloadLocalDB(context.Background(), cs); err != nil {
-		return fmt.Errorf("reload local db: %w", err)
-	}
-	s.log.Info("successfully reloaded local db: update schema")
-	return nil
+	s.db.ReloadLocalDB(context.Background(), cs)
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
@@ -432,13 +428,8 @@ func (s *SchemaManager) apply(op applyOp) error {
 	if !op.schemaOnly {
 		if err := op.updateStore(); err != nil {
 			// If store update fails, rollback schema changes and return the error
-			if err := s.Rollback(op, schemaSnapshot); err != nil {
-				// If rollback fails, we panic to avoid in consistency between
-				// schema and db, in theory that shall not happen, however
-				// we don't want to leave the node in an inconsistent state
-				panic(fmt.Sprintf("failed to rollback schema changes. node could be in an inconsistent state: operation=%s, error=%v", op.op, err))
-			}
-
+			s.schema.rollback(schemaSnapshot)
+			s.ReloadDBFromSchema()
 			if op.enableSchemaCallback {
 				// TriggerSchemaUpdateCallbacks is concurrent and at
 				// this point of time schema shall be up to date.
@@ -449,13 +440,6 @@ func (s *SchemaManager) apply(op applyOp) error {
 	}
 
 	return nil
-}
-
-// Rollback rolls back the schema and db to the previous state.
-// It is used to rollback the schema and db in case of an error during the apply operation.
-func (s *SchemaManager) Rollback(op applyOp, schemaSnapshot map[string]metaClass) error {
-	s.schema.rollback(schemaSnapshot)
-	return s.ReloadDBFromSchema()
 }
 
 // migratePropertiesIfNecessary migrate properties and set default values for them.

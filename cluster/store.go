@@ -22,17 +22,17 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/cluster/log"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 const (
@@ -648,12 +648,9 @@ func (st *Store) openDatabase(ctx context.Context) {
 // on constructing raft.NewRaft(..) the raft lib. will
 // call Restore() first to restore from snapshots if there is any and
 // then later will call Apply() on any new committed log
-func (st *Store) reloadDBFromSchema() error {
+func (st *Store) reloadDBFromSchema() {
 	if !st.cfg.MetadataOnlyVoters {
-		if err := st.schemaManager.ReloadDBFromSchema(); err != nil {
-			st.log.WithField("error", err).Warn("can't reload DB from schema")
-			return err
-		}
+		st.schemaManager.ReloadDBFromSchema()
 	} else {
 		st.log.Info("skipping reload DB from schema as the node is metadata only")
 	}
@@ -663,7 +660,7 @@ func (st *Store) reloadDBFromSchema() error {
 	// or forced Restore()
 	if st.raft != nil {
 		// we don't update lastAppliedIndexToDB if not a restore
-		return nil
+		return
 	}
 
 	// restore requests from snapshots before init new RAFT node
@@ -672,7 +669,6 @@ func (st *Store) reloadDBFromSchema() error {
 		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
 	}
 	st.lastAppliedIndexToDB.Store(max(lastSnapshotIndex(st.snapshotStore), lastLogApplied))
-	return nil
 }
 
 type Response struct {
