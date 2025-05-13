@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -737,6 +738,91 @@ func TestCondensorWithPQInformation(t *testing.T) {
 		}
 
 		assert.Equal(t, expected, *res.CompressionPQData)
+	})
+}
+
+func TestCondensorWithMUVERAInformation(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer uncondensed.Shutdown(ctx)
+
+	gaussians := [][][]float32{
+		{
+			{1, 2, 3, 4, 5}, // cluster 1
+			{1, 2, 3, 4, 5}, // cluster 2
+		}, // rep 1
+		{
+			{5, 6, 7, 8, 9}, // cluster 1
+			{5, 6, 7, 8, 9}, // cluster 2
+		}, // rep 2
+	} // (repetitions, kSim, dimensions)
+
+	s := [][][]float32{
+		{
+			{-1, 1, 1, -1, 1}, // dprojection 1
+			{1, -1, 1, 1, -1}, // dprojection 2
+		}, // rep 1
+		{
+			{-1, 1, 1, -1, 1}, // dprojection 1
+			{1, -1, 1, 1, -1}, // dprojection 2
+		}, // rep 2
+	} // (repetitions, dProjections, dimensions)
+
+	t.Run("add muvera info", func(t *testing.T) {
+		uncondensed.AddMuvera(multivector.MuveraData{
+			KSim:         2,
+			NumClusters:  4,
+			Dimensions:   5,
+			DProjections: 2,
+			Repetitions:  2,
+			Gaussians:    gaussians,
+			S:            s,
+		})
+
+		require.Nil(t, uncondensed.Flush())
+	})
+
+	t.Run("condense the original and verify the MUVERA info is present", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
+		require.Nil(t, err)
+
+		actual, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(actual, ".condensed"),
+			"commit log is now saved as condensed")
+
+		initialState := DeserializationResult{}
+		fd, err := os.Open(commitLogFileName(rootPath, "uncondensed", actual))
+		require.Nil(t, err)
+
+		bufr := bufio.NewReader(fd)
+		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
+		require.Nil(t, err)
+
+		assert.True(t, res.MuveraEnabled)
+		expected := multivector.MuveraData{
+			KSim:         2,
+			NumClusters:  4,
+			Dimensions:   5,
+			DProjections: 2,
+			Repetitions:  2,
+			Gaussians:    gaussians,
+			S:            s,
+		}
+
+		assert.Equal(t, expected, *res.EncoderMuvera)
 	})
 }
 
