@@ -339,12 +339,12 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	writeIndex := 0
 	for i, requestTenant := range req.Tenants {
 		oldTenant, ok := m.Sharding.Physical[requestTenant.Name]
-		oldStatus := oldTenant.Status
 		// If we can't find the shard add it to missing shards to error later
 		if !ok {
 			missingShards = append(missingShards, requestTenant.Name)
 			continue
 		}
+		oldStatus := oldTenant.Status
 
 		// validate status
 		switch oldTenant.ActivityStatus() {
