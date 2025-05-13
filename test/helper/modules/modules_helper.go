@@ -141,11 +141,17 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 func CreateAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
 	t.Log("Creating azure container", containerName)
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		// First try to create a client to check if Azurite is ready
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
 		assert.NoError(collect, err, "Failed to create Azure client")
 
-		// Try to create the container - if it already exists, that's fine
+		// Try to list containers to verify connection
+		pager := client.NewListContainersPager(nil)
+		_, err = pager.NextPage(ctx)
+		assert.NoError(collect, err, "Failed to list containers (Azurite might not be ready)")
+
+		// Now try to create the container
 		_, err = client.CreateContainer(ctx, containerName, nil)
 		if err != nil {
 			var respErr *azcore.ResponseError
