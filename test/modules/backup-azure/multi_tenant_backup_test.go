@@ -53,11 +53,14 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 	t.Run("single node", func(t *testing.T) {
 		ctx := context.Background()
 		t.Log("pre-instance env setup")
-		azureBackupJourneyContainerName := "azure-single-node"
-		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
+		containerToUse := containerName
+		if override {
+			containerToUse = overrideBucket
+		}
+		t.Setenv(envAzureContainer, containerToUse)
 
 		compose, err := docker.New().
-			WithBackendAzure(azureBackupJourneyContainerName).
+			WithBackendAzure(containerToUse).
 			WithText2VecContextionary().
 			WithWeaviate().
 			Start(ctx)
@@ -71,8 +74,8 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, azuriteEndpoint))
 
-		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
-		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, containerToUse)
+		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, containerToUse)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
@@ -84,11 +87,14 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 	t.Run("multiple node", func(t *testing.T) {
 		ctx := context.Background()
 		t.Log("pre-instance env setup")
-		azureBackupJourneyContainerName := "azure-multiple-nodes"
-		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
+		containerToUse := containerName
+		if override {
+			containerToUse = overrideBucket
+		}
+		t.Setenv(envAzureContainer, containerToUse)
 
 		compose, err := docker.New().
-			WithBackendAzure(azureBackupJourneyContainerName).
+			WithBackendAzure(containerToUse).
 			WithText2VecContextionary().
 			WithWeaviateCluster(3).
 			Start(ctx)
@@ -102,8 +108,8 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, azuriteEndpoint))
 
-		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
-		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, containerToUse)
+		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, containerToUse)
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
