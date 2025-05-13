@@ -29,7 +29,7 @@ func TestHandler_AddProperty(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("adds property of each data type", func(t *testing.T) {
-		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 		class := models.Class{
 			Class:      "NewClass",
@@ -76,7 +76,7 @@ func TestHandler_AddProperty(t *testing.T) {
 	})
 
 	t.Run("fails adding property of existing name", func(t *testing.T) {
-		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 		class := models.Class{
 			Class: "NewClass",
@@ -128,7 +128,7 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 	ctx := context.Background()
 
 	t.Run("adds property of each object data type", func(t *testing.T) {
-		handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
+		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 		class := models.Class{
 			Class:      "NewClass",
@@ -179,7 +179,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 	runTestCases := func(t *testing.T, testCases []testCase) {
 		for _, tc := range testCases {
 			// Set up schema independently for each test
-			handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 			fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&class)
 
 			strTokenization := "empty"
@@ -396,7 +396,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	ctx := context.Background()
 
-	handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
+	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 	class := models.Class{
 		Class:      "NewClass",
@@ -474,7 +474,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 	}
 
 	runTestCases := func(t *testing.T, testCases []testCase) {
-		handler, _, _ := newTestHandler(t, &fakeDB{})
+		handler, _ := newTestHandler(t, &fakeDB{})
 		for _, tc := range testCases {
 			t.Run(tc.name, func(t *testing.T) {
 				err := handler.validatePropertyTokenization(tc.tokenization, tc.propertyDataType)
@@ -621,7 +621,7 @@ func Test_Validation_PropertyIndexing(t *testing.T) {
 	vFalse := false
 	vTrue := true
 
-	handler, _, _ := newTestHandler(t, &fakeDB{})
+	handler, _ := newTestHandler(t, &fakeDB{})
 
 	t.Run("validates indexInverted + indexFilterable + indexSearchable combinations", func(t *testing.T) {
 		type testCase struct {

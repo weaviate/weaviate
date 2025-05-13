@@ -141,7 +141,7 @@ func TestAddTenants(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Isolate schema for each tests
-			handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 			test.mockCalls(fakeSchemaManager)
 
@@ -311,7 +311,7 @@ func TestUpdateTenants(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Isolate schema for each tests
-			handler, fakeSchemaManager, _ := newTestHandler(t, &fakeDB{})
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 			test.mockCalls(fakeSchemaManager)
 
 			_, err := handler.UpdateTenants(ctx, nil, test.class, test.updateTenants)
@@ -374,7 +374,7 @@ func TestDeleteTenants(t *testing.T) {
 		tenants         []*models.Tenant
 		errMsgs         []string
 		expectedTenants []*models.Tenant
-		mockCalls       func(fakeSchemaManager *fakeSchemaManager, fakeReplicationsDeleter *fakeReplicationsDeleter)
+		mockCalls       func(fakeSchemaManager *fakeSchemaManager)
 	}
 
 	tests := []test{
@@ -384,9 +384,8 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager, fakeReplicationsDeleter *fakeReplicationsDeleter) {
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
 				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeReplicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -395,9 +394,8 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager, fakeReplicationsDeleter *fakeReplicationsDeleter) {
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
 				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeReplicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -406,9 +404,8 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants,
 			errMsgs:         nil,
 			expectedTenants: tenants,
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager, fakeReplicationsDeleter *fakeReplicationsDeleter) {
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
 				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeReplicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -421,7 +418,7 @@ func TestDeleteTenants(t *testing.T) {
 			},
 			errMsgs:         []string{"empty tenant name at index 1"},
 			expectedTenants: tenants,
-			mockCalls:       func(fakeSchemaManager *fakeSchemaManager, fakeReplicationsDeleter *fakeReplicationsDeleter) {},
+			mockCalls:       func(fakeSchemaManager *fakeSchemaManager) {},
 		},
 		{
 			name:            "Success",
@@ -429,9 +426,8 @@ func TestDeleteTenants(t *testing.T) {
 			tenants:         tenants[:2],
 			errMsgs:         []string{},
 			expectedTenants: tenants[2:],
-			mockCalls: func(fakeSchemaManager *fakeSchemaManager, fakeReplicationsDeleter *fakeReplicationsDeleter) {
+			mockCalls: func(fakeSchemaManager *fakeSchemaManager) {
 				fakeSchemaManager.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
-				fakeReplicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 	}
@@ -439,8 +435,8 @@ func TestDeleteTenants(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			// Isolate schema for each tests
-			handler, fakeSchemaManager, fakeReplicationsDeleter := newTestHandler(t, &fakeDB{})
-			test.mockCalls(fakeSchemaManager, fakeReplicationsDeleter)
+			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
+			test.mockCalls(fakeSchemaManager)
 
 			tenantNames := make([]string, len(test.tenants))
 			for i := range test.tenants {

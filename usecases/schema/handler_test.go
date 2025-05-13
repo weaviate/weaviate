@@ -27,7 +27,7 @@ import (
 
 var schemaTests = []struct {
 	name string
-	fn   func(*testing.T, *Handler, *fakeSchemaManager, *fakeReplicationsDeleter)
+	fn   func(*testing.T, *Handler, *fakeSchemaManager)
 }{
 	{name: "AddObjectClass", fn: testAddObjectClass},
 	{name: "AddObjectClassWithExplicitVectorizer", fn: testAddObjectClassExplicitVectorizer},
@@ -44,7 +44,7 @@ var schemaTests = []struct {
 	{name: "DropProperty", fn: testDropProperty},
 }
 
-func testAddObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testAddObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
 	class := &models.Class{
@@ -63,7 +63,7 @@ func testAddObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fakeS
 	assert.Nil(t, err)
 }
 
-func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
 	class := &models.Class{
@@ -82,7 +82,7 @@ func testAddObjectClassExplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 	assert.Nil(t, err)
 }
 
-func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 	handler.config.DefaultVectorizerModule = config.VectorizerModuleText2VecContextionary
 	class := &models.Class{
@@ -100,7 +100,7 @@ func testAddObjectClassImplicitVectorizer(t *testing.T, handler *Handler, fakeSc
 	assert.Nil(t, err)
 }
 
-func testAddObjectClassWrongVectorizer(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testAddObjectClassWrongVectorizer(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
 	class := &models.Class{
@@ -117,7 +117,7 @@ func testAddObjectClassWrongVectorizer(t *testing.T, handler *Handler, fakeSchem
 	assert.Error(t, err)
 }
 
-func testAddObjectClassWrongIndexType(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testAddObjectClassWrongIndexType(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
 	class := &models.Class{
@@ -134,7 +134,7 @@ func testAddObjectClassWrongIndexType(t *testing.T, handler *Handler, fakeSchema
 	assert.Equal(t, "unrecognized or unsupported vectorIndexType \"vector-index-2-million\"", err.Error())
 }
 
-func testRemoveObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, fakeReplicationsDeleter *fakeReplicationsDeleter) {
+func testRemoveObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
 	class := &models.Class{
@@ -154,12 +154,11 @@ func testRemoveObjectClass(t *testing.T, handler *Handler, fakeSchemaManager *fa
 
 	// Now delete the class
 	fakeSchemaManager.On("DeleteClass", "Car").Return(nil)
-	fakeReplicationsDeleter.On("DeleteReplicationsByCollection", "Car").Return(nil)
 	err = handler.DeleteClass(context.Background(), nil, "Car")
 	assert.Nil(t, err)
 }
 
-func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
 	reset := fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
@@ -198,7 +197,7 @@ func testCantAddSameClassTwice(t *testing.T, handler *Handler, fakeSchemaManager
 	assert.NotNil(t, err)
 }
 
-func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 	ctx := context.Background()
 	class := &models.Class{
@@ -227,7 +226,7 @@ func testCantAddSameClassTwiceDifferentKinds(t *testing.T, handler *Handler, fak
 	assert.NotNil(t, err)
 }
 
-func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
 	vFalse := false
@@ -289,7 +288,7 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 	assert.Nil(t, err)
 }
 
-func testAddPropertyWithTargetVectorConfig(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testAddPropertyWithTargetVectorConfig(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
 	class := &models.Class{
@@ -319,7 +318,7 @@ func testAddPropertyWithTargetVectorConfig(t *testing.T, handler *Handler, fakeS
 	require.NoError(t, err)
 }
 
-func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
 	properties := []*models.Property{
@@ -333,7 +332,7 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeSc
 	assert.NotNil(t, err)
 }
 
-func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
 	properties := []*models.Property{
@@ -347,7 +346,7 @@ func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, handler
 	assert.NotNil(t, err)
 }
 
-func testDropProperty(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager, _ *fakeReplicationsDeleter) {
+func testDropProperty(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	// TODO: https://github.com/weaviate/weaviate/issues/973
 	// Remove skip
 
@@ -380,10 +379,10 @@ func TestSchema(t *testing.T) {
 		for _, testCase := range schemaTests {
 			// Run each test independently with their own handler
 			t.Run(testCase.name, func(t *testing.T) {
-				handler, fakeSchemaManager, fakeReplicationsDeleter := newTestHandler(t, &fakeDB{})
+				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 				defer fakeSchemaManager.AssertExpectations(t)
-				testCase.fn(t, handler, fakeSchemaManager, fakeReplicationsDeleter)
+				testCase.fn(t, handler, fakeSchemaManager)
 			})
 		}
 	})

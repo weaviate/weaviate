@@ -188,11 +188,11 @@ func (s *ShardReplicationFSM) CancellationComplete(c *api.ReplicationCancellatio
 	return nil
 }
 
-func (s *ShardReplicationFSM) DeleteReplicationsByCollection(req *api.ReplicationsDeleteByCollectionRequest) error {
+func (s *ShardReplicationFSM) DeleteReplicationsByCollection(collection string) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
-	ops, ok := s.opsByCollection[req.Collection]
+	ops, ok := s.opsByCollection[collection]
 	if !ok {
 		return nil // nothing to do
 	}
@@ -209,13 +209,13 @@ func (s *ShardReplicationFSM) DeleteReplicationsByCollection(req *api.Replicatio
 	return nil
 }
 
-func (s *ShardReplicationFSM) DeleteReplicationsByTenants(req *api.ReplicationsDeleteByTenantsRequest) error {
+func (s *ShardReplicationFSM) DeleteReplicationsByTenants(collection string, tenants []string) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
 	ops := make([]ShardReplicationOp, 0)
-	for _, tenant := range req.Tenants {
-		opsPerTenant, ok := s.opsByCollectionAndShard[req.Collection][tenant]
+	for _, tenant := range tenants {
+		opsPerTenant, ok := s.opsByCollectionAndShard[collection][tenant]
 		if !ok {
 			continue
 		}

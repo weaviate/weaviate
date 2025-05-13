@@ -554,7 +554,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Modules, appState.Cluster, scaler,
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
-		appState.ClusterService.Raft,
 	)
 	if err != nil {
 		appState.Logger.

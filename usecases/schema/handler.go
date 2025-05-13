@@ -114,11 +114,6 @@ type validator interface {
 	ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig) error
 }
 
-type replicationsDeleter interface {
-	DeleteReplicationsByCollection(collection string) error
-	DeleteReplicationsByTenants(collection string, tenants []string) error
-}
-
 // The handler manages API requests for manipulating class schemas.
 // This separation of responsibilities helps decouple these tasks
 // from the Manager class, which combines many unrelated functions.
@@ -144,7 +139,6 @@ type Handler struct {
 	scaleOut                scaleOut
 	parser                  Parser
 	classGetter             *ClassGetter
-	replicationsDeleter     replicationsDeleter
 
 	asyncIndexingEnabled bool
 }
@@ -161,7 +155,7 @@ func NewHandler(
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
-	parser Parser, classGetter *ClassGetter, replicationsDeleter replicationsDeleter,
+	parser Parser, classGetter *ClassGetter,
 ) (Handler, error) {
 	handler := Handler{
 		config:                  config,
@@ -180,7 +174,6 @@ func NewHandler(
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
 		classGetter:             classGetter,
-		replicationsDeleter:     replicationsDeleter,
 
 		asyncIndexingEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
 	}

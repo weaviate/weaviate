@@ -20,7 +20,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/proto/api"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -212,7 +211,6 @@ func NewManager(validator validator,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser,
 	collectionRetrievalStrategyFF *configRuntime.FeatureFlag[string],
-	replicationManager replicationTypes.Manager,
 ) (*Manager, error) {
 	handler, err := NewHandler(
 		schemaReader,
@@ -222,7 +220,6 @@ func NewManager(validator validator,
 		schemaConfig,
 		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
-		replicationManager,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)

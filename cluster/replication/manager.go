@@ -350,7 +350,7 @@ func (m *Manager) DeleteReplicationsByCollection(c *cmd.ApplyRequest) error {
 	}
 
 	// Trigger deletion of all replication operations for the specified class in the FSM
-	return m.replicationFSM.DeleteReplicationsByCollection(req)
+	return m.replicationFSM.DeleteReplicationsByCollection(req.Collection)
 }
 
 func (m *Manager) DeleteReplicationsByTenants(c *cmd.ApplyRequest) error {
@@ -360,5 +360,5 @@ func (m *Manager) DeleteReplicationsByTenants(c *cmd.ApplyRequest) error {
 	}
 
 	// Trigger deletion of all replication operations for the specified class in the FSM
-	return m.replicationFSM.DeleteReplicationsByTenants(req)
+	return m.replicationFSM.DeleteReplicationsByTenants(req.Collection, req.Tenants)
 }
