@@ -33,9 +33,7 @@ const (
 	envAzureStorageConnectionString = "AZURE_STORAGE_CONNECTION_STRING"
 	connectionString                = "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 
-	azureBackupJourneyClassName          = "AzureBackup"
-	azureBackupJourneyBackupIDSingleNode = "azure-backup-single-node"
-	azureBackupJourneyBackupIDCluster    = "azure-backup-cluster"
+	azureBackupJourneyClassName = "AzureBackup"
 )
 
 func Test_BackupJourney(t *testing.T) {
