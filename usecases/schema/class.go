@@ -924,7 +924,3 @@ func validateLegacyVectorIndexConfigImmutableFields(initial, updated *models.Cla
 		},
 	}...)
 }
-
-func experimentBackwardsCompatibleNamedVectorsEnabled() bool {
-	return entcfg.Enabled(os.Getenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS"))
-}

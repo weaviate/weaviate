@@ -57,7 +57,6 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		compose, err := docker.New().
 			WithBackendAzure(azureBackupJourneyContainerName).
 			WithText2VecContextionary().
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -87,7 +86,6 @@ func multiTenantBackupJourneyStart(t *testing.T, ctx context.Context, override b
 		compose, err := docker.New().
 			WithBackendAzure(azureBackupJourneyContainerName).
 			WithText2VecContextionary().
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)
