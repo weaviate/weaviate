@@ -14,6 +14,7 @@ package moduleshelper
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -143,20 +145,36 @@ func CreateAzureContainer(ctx context.Context, t *testing.T, endpoint, container
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
-		assert.Nil(t, err)
+		assert.NoError(collect, err, "Failed to create Azure client")
 
+		// Try to create the container - if it already exists, that's fine
 		_, err = client.CreateContainer(ctx, containerName, nil)
-		assert.Nil(t, err)
-	}, 5*time.Second, 500*time.Millisecond)
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.ErrorCode == "ContainerAlreadyExists" {
+				// Container already exists, we're good
+				return
+			}
+			assert.NoError(collect, err, "Failed to create container %s", containerName)
+		}
+	}, 10*time.Second, 1*time.Second)
 }
 
 func DeleteAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
+	t.Log("Deleting azure container", containerName)
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
-		assert.Nil(t, err)
+		assert.NoError(collect, err, "Failed to create Azure client")
 
 		_, err = client.DeleteContainer(ctx, containerName, nil)
-		assert.Nil(t, err)
-	}, 5*time.Second, 500*time.Millisecond)
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.ErrorCode == "ContainerNotFound" {
+				// Container doesn't exist, which is fine for deletion
+				return
+			}
+			assert.NoError(collect, err, "Failed to delete container %s", containerName)
+		}
+	}, 10*time.Second, 1*time.Second)
 }
