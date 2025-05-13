@@ -409,7 +409,6 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			HTTPRequest: &http.Request{},
 		}
 
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		mockReplicationManager.On("GetReplicationDetailsByReplicationId", id).Return(api.ReplicationDetailsResponse{}, types.ErrReplicationOperationNotFound)
 
 		// WHEN
@@ -429,7 +428,6 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			HTTPRequest: &http.Request{},
 		}
 
-		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		mockReplicationManager.On("GetReplicationDetailsByReplicationId", id).Return(api.ReplicationDetailsResponse{}, errors.New("internal error"))
 
 		// WHEN
@@ -442,13 +440,15 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 
 	t.Run("authorization error", func(t *testing.T) {
 		// GIVEN
-		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
+		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
 		id := uuid4()
 		params := replication.ReplicationDetailsParams{
 			ID:          id,
 			HTTPRequest: &http.Request{},
 		}
 
+		// Retrieves details first by ID then authorizes on the collection/shard of the replication
+		mockReplicationManager.On("GetReplicationDetailsByReplicationId", id).Return(api.ReplicationDetailsResponse{}, nil)
 		mockAuthorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("forbidden access"))
 
 		// WHEN
