@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -27,9 +28,10 @@ func TestQuantileKeysSingleSegment(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
 	b, err := NewBucketCreator().NewBucket(
-		ctx, dir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(),
+		ctx, dir, "", logger, nil, walMetrics, cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
@@ -69,9 +71,10 @@ func TestQuantileKeysMultipleSegmentsUniqueEntries(t *testing.T) {
 	dir := t.TempDir()
 	ctx := context.Background()
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
 	b, err := NewBucketCreator().NewBucket(
-		ctx, dir, "", logger, nil, cyclemanager.NewCallbackGroupNoop(),
+		ctx, dir, "", logger, nil, walMetrics, cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 

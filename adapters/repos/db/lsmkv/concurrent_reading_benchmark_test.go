@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -62,7 +63,8 @@ func prepareBucket(b *testing.B) (bucket *Bucket, cleanup func()) {
 		fmt.Println(err)
 	}()
 
-	bucket, err := NewBucketCreator().NewBucket(testCtxB(), dirName, "", nullLoggerB(), nil,
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
+	bucket, err := NewBucketCreator().NewBucket(testCtxB(), dirName, "", nullLoggerB(), nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		WithStrategy(StrategyMapCollection),
 		WithMemtableThreshold(5000))

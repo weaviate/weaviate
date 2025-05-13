@@ -15,6 +15,7 @@ import (
 	"path"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,9 +26,10 @@ import (
 // https://www.youtube.com/watch?v=OS8taasZl8k
 func Test_MemtableSecondaryKeyBug(t *testing.T) {
 	dir := t.TempDir()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
 	logger, _ := test.NewNullLogger()
-	cl, err := newCommitLogger(dir, StrategyReplace)
+	cl, err := newCommitLogger(dir, StrategyReplace, walMetrics)
 	require.NoError(t, err)
 
 	m, err := newMemtable(path.Join(dir, "will-never-flush"), StrategyReplace, 1, cl, nil, logger, false)
