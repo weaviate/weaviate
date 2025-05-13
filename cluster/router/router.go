@@ -106,7 +106,6 @@ func (r *Router) routingPlanFromReplicas(
 	consistencyLevel types.ConsistencyLevel,
 	directCandidateReplica string,
 ) (types.RoutingPlan, error) {
-
 	routingPlan := types.RoutingPlan{
 		Collection:        collection,
 		Shard:             shard,

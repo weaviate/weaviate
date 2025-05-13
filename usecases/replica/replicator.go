@@ -125,6 +125,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 		WithField("shard", shard).WithField("uuid", obj.ID())
 	return handlePushResponses(pushResp, additionalHostsPushResp, handleResp, logEntry)
 }
+
 func (r *Replicator) MergeObject(ctx context.Context,
 	shard string,
 	doc *objects.MergeDocument,
