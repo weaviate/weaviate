@@ -25,7 +25,10 @@ type snapshot struct {
 	NodeID     string                `json:"node_id"`
 	SnapshotID string                `json:"snapshot_id"`
 	Classes    map[string]*metaClass `json:"classes,omitempty"`
-	Schema     []byte                `json:"schema,omitempty"`
+	// Schema is added for backward compatibility, we have changed the schema snapshot
+	// format in 1.28.13 and this field is added to be able to read schema snapshot
+	// created in newer versions.
+	Schema []byte `json:"schema,omitempty"`
 }
 
 // LegacySnapshot returns a ready-to-use in-memory Raft snapshot based on the provided legacy schema
