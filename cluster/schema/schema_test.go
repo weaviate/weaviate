@@ -12,6 +12,8 @@
 package schema
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -240,4 +242,111 @@ func Test_schemaDeepCopy(t *testing.T) {
 		}
 		<-done
 	})
+}
+
+func TestSchemaRestoreWithNewVersion(t *testing.T) {
+	// Initialize schema with a test class
+	s := NewSchema("testNode", nil, prometheus.NewPedanticRegistry())
+	class := &models.Class{
+		Class: "TestClass",
+		Properties: []*models.Property{
+			{Name: "prop1", DataType: []string{"string"}},
+		},
+	}
+	shardState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			"shard1": {
+				Name:           "shard1",
+				Status:         "HOT",
+				BelongsToNodes: []string{"node1"},
+			},
+		},
+	}
+	require.NoError(t, s.addClass(class, shardState, 1))
+
+	t.Run("restore new format snapshot", func(t *testing.T) {
+		// Create a snapshot with the new format (using Schema field)
+		snap := snapshot{
+			NodeID:     "testNode",
+			SnapshotID: "test",
+			Schema:     mustMarshalJSON(s.MetaClasses()),
+		}
+
+		// Encode the snapshot
+		buf := &bytes.Buffer{}
+		require.NoError(t, json.NewEncoder(buf).Encode(&snap))
+
+		// Restore into a new schema instance
+		s2 := NewSchema("testNode", nil, prometheus.NewPedanticRegistry())
+		require.NoError(t, s2.Restore(buf, &mockParser{}))
+
+		// Verify the restored schema matches the original
+		restoredClass, _ := s2.ReadOnlyClass("TestClass")
+		require.NotNil(t, restoredClass)
+		assert.Equal(t, class.Class, restoredClass.Class)
+		assert.Equal(t, len(class.Properties), len(restoredClass.Properties))
+		assert.Equal(t, class.Properties[0].Name, restoredClass.Properties[0].Name)
+		assert.Equal(t, class.Properties[0].DataType, restoredClass.Properties[0].DataType)
+
+		// Verify sharding state was restored
+		shard, version, err := s2.ShardOwner("TestClass", "shard1")
+		require.NoError(t, err)
+		assert.Equal(t, "node1", shard)
+		assert.Greater(t, version, uint64(0))
+	})
+
+	t.Run("restore old format snapshot", func(t *testing.T) {
+		// Create a snapshot with the old format (using Classes field)
+		snap := snapshot{
+			NodeID:     "testNode",
+			SnapshotID: "test",
+			Classes:    s.MetaClasses(),
+		}
+
+		// Encode the snapshot
+		buf := &bytes.Buffer{}
+		require.NoError(t, json.NewEncoder(buf).Encode(&snap))
+
+		// Restore into a new schema instance
+		s2 := NewSchema("testNode", nil, prometheus.NewPedanticRegistry())
+		require.NoError(t, s2.Restore(buf, &mockParser{}))
+
+		// Verify the restored schema matches the original
+		restoredClass, _ := s2.ReadOnlyClass("TestClass")
+		require.NotNil(t, restoredClass)
+		assert.Equal(t, class.Class, restoredClass.Class)
+		assert.Equal(t, len(class.Properties), len(restoredClass.Properties))
+		assert.Equal(t, class.Properties[0].Name, restoredClass.Properties[0].Name)
+		assert.Equal(t, class.Properties[0].DataType, restoredClass.Properties[0].DataType)
+
+		// Verify sharding state was restored
+		shard, version, err := s2.ShardOwner("TestClass", "shard1")
+		require.NoError(t, err)
+		assert.Equal(t, "node1", shard)
+		assert.Greater(t, version, uint64(0))
+	})
+}
+
+func TestSchemaRestoreError(t *testing.T) {
+	// Test error case with invalid JSON in Schema field
+	invalidSnap := snapshot{
+		NodeID:     "testNode",
+		SnapshotID: "test",
+		Schema:     []byte(`{"invalid": json}`),
+	}
+	buf := &bytes.Buffer{}
+	require.NoError(t, json.NewEncoder(buf).Encode(&invalidSnap))
+
+	s := NewSchema("testNode", nil, prometheus.NewPedanticRegistry())
+	err := s.Restore(buf, &mockParser{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "decode json")
+}
+
+func mustMarshalJSON(v interface{}) []byte {
+	b, err := json.Marshal(v)
+	if err != nil {
+		panic(err)
+	}
+	return b
 }
