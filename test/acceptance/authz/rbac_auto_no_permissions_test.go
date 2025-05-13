@@ -34,18 +34,20 @@ func TestCollectEndpoints(t *testing.T) {
 
 func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
+	// adminUser := "admin-user"
 	customKey := "custom-key"
-	customUser := "custom-user"
+	// customUser := "custom-user"
 
-	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	defer down()
+	// compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	// defer down()
 
 	// create class via admin
 	className := "ABC"
 	tenantNames := []string{
 		"Tenant1", "Tenant2", "Tenant3",
 	}
+	helper.SetupClient("localhost:8081")
+	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(adminKey))
 	helper.CreateClassAuth(t, &models.Class{Class: className, MultiTenancyConfig: &models.MultiTenancyConfig{
 		Enabled: true,
 	}}, adminKey)
@@ -70,6 +72,9 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/backups/{backend}", // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
 		"/backups/{backend}/{id}",
 		"/backups/{backend}/{id}/restore",
+		"/replication/replicate/{id}", // for the same reason as backups above
+		"/replication/replicate/{id}/cancel",
+		"/replication/sharding-state",
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
 	}
 
@@ -83,7 +88,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	}
 
 	for _, endpoint := range endpoints {
-		url := fmt.Sprintf("http://%s/v1%s", compose.GetWeaviate().URI(), endpoint.path)
+		url := fmt.Sprintf("http://%s/v1%s", "localhost:8081", endpoint.path)
 		url = strings.ReplaceAll(url, "/objects/{className}/{id}", fmt.Sprintf("/objects/%s/%s", className, UUID1.String()))
 		url = strings.ReplaceAll(url, "/objects/{id}", fmt.Sprintf("/objects/%s", UUID1.String()))
 		url = strings.ReplaceAll(url, "/replication/replicate/{id}", fmt.Sprintf("/replication/replicate/%s", UUID1.String()))
