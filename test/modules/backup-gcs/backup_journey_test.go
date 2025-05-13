@@ -37,41 +37,48 @@ const (
 	gcsBackupJourneyProjectID          = "gcs_backup_journey"
 )
 
-func Test_BackupJourney(t *testing.T) {
-	tests := []struct {
-		name           string
-		overrideBucket bool
-		bucket         string
-		bucketOverride string
-		pathOverride   string
-	}{
-		{
-			name:           "default backup",
-			overrideBucket: false,
-			bucket:         "backups",
-			bucketOverride: "",
-			pathOverride:   "",
-		},
-		{
-			name:           "with override bucket and path",
-			overrideBucket: true,
-			bucket:         "backups",
-			bucketOverride: "gcsbjtestbucketoverride",
-			pathOverride:   "gcsbjtstBuckPathOveride",
-		},
-	}
+var tests = []struct {
+	name           string
+	overrideBucket bool
+	bucket         string
+	bucketOverride string
+	pathOverride   string
+}{
+	{
+		name:           "default backup",
+		overrideBucket: false,
+		bucket:         "backups",
+		bucketOverride: "",
+		pathOverride:   "",
+	},
+	{
+		name:           "with override bucket and path",
+		overrideBucket: true,
+		bucket:         "backups",
+		bucketOverride: "gcsbjtestbucketoverride",
+		pathOverride:   "gcsbjtstBuckPathOveride",
+	},
+}
 
+func Test_BackupJourneySingle(t *testing.T) {
 	ctx := context.Background()
 
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			runBackupJourney(t, ctx, tt.overrideBucket, tt.bucket, tt.bucketOverride, tt.pathOverride)
-		})
+		singleNodeTests(t, ctx, tt.overrideBucket, tt.bucket, tt.bucketOverride, tt.pathOverride)
+
 	}
 }
 
-func runBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-	gcsBackupJourneyBucketName := containerName
+func Test_BackupJourneyMulti(t *testing.T) {
+	ctx := context.Background()
+
+	for _, tt := range tests {
+		multiNodeTests(t, ctx, tt.overrideBucket, tt.bucket, tt.bucketOverride, tt.pathOverride)
+
+	}
+}
+
+func singleNodeTests(t *testing.T, ctx context.Context, override bool, gcsBackupJourneyBucketName, overrideBucket, overridePath string) {
 
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
@@ -99,6 +106,11 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsbjtestbucketoverride")
 		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+		defer moduleshelper.DeleteGCSBucket(ctx, t, "gcsbjtestbucketoverride")
+
+		if t.Failed() {
+			return
+		}
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
@@ -106,12 +118,21 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 			journey.BackupJourneyTests_SingleNode(t, compose.GetWeaviate().URI(),
 				"gcs", gcsBackupJourneyClassName, gcsBackupJourneyBackupIDSingleNode+overrideBucket, nil, override, overrideBucket, overridePath)
 		})
+		if t.Failed() {
+			return
+		}
 
 		t.Run("cancel after restart", func(t *testing.T) {
 			helper.SetupClient(compose.GetWeaviate().URI())
 			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstggcs.Name)
 		})
 	})
+	if t.Failed() {
+		return
+	}
+
+}
+func multiNodeTests(t *testing.T, ctx context.Context, override bool, gcsBackupJourneyBucketName, overrideBucket, overridePath string) {
 
 	t.Run("multiple node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
@@ -139,12 +160,16 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, gcsBackupJourneyBucketName)
 		moduleshelper.CreateGCSBucket(ctx, t, gcsBackupJourneyProjectID, "gcsbjtestbucketoverride")
 		defer moduleshelper.DeleteGCSBucket(ctx, t, gcsBackupJourneyBucketName)
+		defer moduleshelper.DeleteGCSBucket(ctx, t, "gcsbjtestbucketoverride")
 
 		helper.SetupClient(compose.GetWeaviate().URI())
 
-		t.Run("backup-gcs", func(t *testing.T) {
-			journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
-				gcsBackupJourneyBackupIDCluster+overrideBucket, nil, override, overrideBucket, overridePath, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
-		})
+		if t.Failed() {
+			return
+		}
+
+		journey.BackupJourneyTests_Cluster(t, "gcs", gcsBackupJourneyClassName,
+			gcsBackupJourneyBackupIDCluster+overrideBucket, nil, override, overrideBucket, overridePath, compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
+
 	})
 }
