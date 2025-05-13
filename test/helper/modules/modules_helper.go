@@ -128,9 +128,7 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 			if err == iterator.Done {
 				break
 			}
-			if err != nil {
-				return
-			}
+			assert.Nil(t, err)
 
 			obj := bucket.Object(objAttrs.Name)
 			err = obj.Delete(ctx)
