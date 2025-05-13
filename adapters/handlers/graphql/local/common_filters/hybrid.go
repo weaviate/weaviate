@@ -163,6 +163,20 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 		}
 	}
 
+	operator, ok := source["searchOperator"]
+	if ok {
+		args.SearchOperator = operator.(string)
+	} else {
+		args.SearchOperator = "or"
+	}
+
+	minimumShouldMatch, ok := source["minimumShouldMatch"]
+	if ok {
+		args.MinimumShouldMatch = int(minimumShouldMatch.(int))
+	} else {
+		args.MinimumShouldMatch = 1
+	}
+
 	args.Type = "hybrid"
 
 	if args.NearTextParams != nil && args.NearVectorParams != nil {
