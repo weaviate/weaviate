@@ -123,7 +123,7 @@ func (o *CancelReplicationForbidden) WriteResponse(rw http.ResponseWriter, produ
 const CancelReplicationNotFoundCode int = 404
 
 /*
-CancelReplicationNotFound Shard replica operation not found
+CancelReplicationNotFound Shard replica operation not found.
 
 swagger:response cancelReplicationNotFound
 */
