@@ -175,6 +175,7 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 }
 
 func DoWand(limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
+	minimumShouldMatch int,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
@@ -185,9 +186,9 @@ func DoWand(limit int, results *terms.Terms, averagePropLength float64, addition
 			return topKHeap
 		}
 
-		id, score, additional := results.ScoreNext(averagePropLength, additionalExplanations)
+		id, score, additional, ok := results.ScoreNext(averagePropLength, additionalExplanations, minimumShouldMatch)
 		results.SortFull()
-		if topKHeap.ShouldEnqueue(float32(score), limit) {
+		if topKHeap.ShouldEnqueue(float32(score), limit) && ok {
 			topKHeap.InsertAndPop(id, score, limit, &worstDist, additional)
 		}
 	}
