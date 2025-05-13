@@ -75,8 +75,16 @@ func backupJourneyStart(t *testing.T, ctx context.Context, override bool, contai
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, azuriteEndpoint))
 
+		// Create the default container
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
 		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+
+		// If using override, create the override container as well
+		if override {
+			moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, overrideBucket)
+			defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, overrideBucket)
+		}
+
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
@@ -110,8 +118,16 @@ func backupJourneyStart(t *testing.T, ctx context.Context, override bool, contai
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, azuriteEndpoint))
 
+		// Create the default container
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
 		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+
+		// If using override, create the override container as well
+		if override {
+			moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, overrideBucket)
+			defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, overrideBucket)
+		}
+
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
