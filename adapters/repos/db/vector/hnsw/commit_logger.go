@@ -56,7 +56,7 @@ type hnswCommitLogger struct {
 	snapshotLogger logrus.FieldLogger
 	// whether snapshots are enabled and should be periodically created
 	snapshotEnabled bool
-	// minimum interval to create next snapshot out of last one and new commitlogs
+	// minimum interval to create next snapshot out of last one and new commitlogs, 0 = no periodic snapshots
 	snapshotCreateInterval time.Duration
 	// minimal interval to check if next snapshot should be created
 	snapshotCheckInterval time.Duration
@@ -682,7 +682,7 @@ func (l *hnswCommitLogger) combineLogs() (bool, error) {
 
 // TODO al:snapshot handle should abort
 func (l *hnswCommitLogger) createSnapshot(shouldAbort cyclemanager.ShouldAbortCallback) (bool, error) {
-	if !l.snapshotEnabled {
+	if !l.snapshotEnabled || l.snapshotCreateInterval <= 0 {
 		return false, nil
 	}
 

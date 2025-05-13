@@ -234,48 +234,50 @@ func (l *hnswCommitLogger) shouldCreateSnapshot(logger logrus.FieldLogger,
 }
 
 func (l *hnswCommitLogger) initSnapshotData() error {
+	dirs := strings.Split(filepath.Clean(l.rootPath), string(os.PathSeparator))
+	if ln := len(dirs); ln > 2 {
+		dirs = dirs[ln-2:]
+	}
+	snapshotLogger := l.logger.WithFields(logrus.Fields{
+		"action": "hnsw_commit_log_snapshot",
+		"id":     l.id,
+		"path":   filepath.Join(dirs...),
+	})
+	fields := logrus.Fields{"enabled": l.snapshotEnabled}
+
+	defer func() {
+		snapshotLogger.WithFields(fields).Debug("snapshot config")
+	}()
+
+	snapshotPath, createdAt, err := l.getLastSnapshot()
+	if err != nil {
+		return errors.Wrapf(err, "get last snapshot")
+	}
+	l.snapshotPartitions = []string{}
+	if snapshotPath != "" {
+		l.snapshotPartitions = append(l.snapshotPartitions, snapshotName(snapshotPath))
+	}
+
+	fields["last_snapshot"] = snapshotPath
+	fields["partitions"] = l.snapshotPartitions
+
 	if l.snapshotEnabled {
 		if err := os.MkdirAll(snapshotDirectory(l.rootPath, l.id), 0o755); err != nil {
 			return errors.Wrapf(err, "make snapshot directory")
 		}
 
-		path, createdAt, err := l.getLastSnapshot()
-		if err != nil {
-			return errors.Wrapf(err, "get last snapshot")
+		l.snapshotLogger = snapshotLogger
+		if l.snapshotCreateInterval > 0 {
+			l.snapshotLastCreatedAt = time.Unix(createdAt, 0)
+			l.snapshotLastCheckedAt = time.Now()
+			l.snapshotCheckInterval = min(snapshotCheckInterval, l.snapshotCreateInterval)
+
+			fields["last_created_at"] = l.snapshotLastCreatedAt
+			fields["last_checked_at"] = l.snapshotLastCheckedAt
+			fields["check_interval"] = l.snapshotCheckInterval
 		}
 
-		l.snapshotLastCreatedAt = time.Unix(createdAt, 0)
-		l.snapshotLastCheckedAt = time.Now()
-		l.snapshotPartitions = []string{}
-		if path != "" {
-			l.snapshotPartitions = append(l.snapshotPartitions, snapshotName(path))
-		}
-
-		if l.snapshotCreateInterval == 0 || l.snapshotCreateInterval > snapshotCheckInterval {
-			l.snapshotCheckInterval = snapshotCheckInterval
-		} else {
-			l.snapshotCheckInterval = l.snapshotCreateInterval
-		}
-
-		dirs := strings.Split(filepath.Clean(l.rootPath), string(os.PathSeparator))
-		if ln := len(dirs); ln > 2 {
-			dirs = dirs[ln-2:]
-		}
-
-		l.snapshotLogger = l.logger.WithFields(logrus.Fields{
-			"action": "hnsw_commit_log_snapshot",
-			"id":     l.id,
-			"path":   filepath.Join(dirs...),
-		})
-
-		l.snapshotLogger.WithFields(logrus.Fields{
-			"check_interval":  l.snapshotCheckInterval,
-			"create_interval": l.snapshotCreateInterval,
-			"last_created_at": l.snapshotLastCreatedAt,
-			"last_checked_at": l.snapshotLastCheckedAt,
-			"partitions":      l.snapshotPartitions,
-			"last_snapshot":   path,
-		}).Debug("snapshot config")
+		fields["create_interval"] = l.snapshotCreateInterval
 	}
 	return nil
 }

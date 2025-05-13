@@ -330,7 +330,7 @@ func FromEnv(config *Config) error {
 		config.Persistence.HNSWDisableSnapshots = true
 	}
 
-	if err := parsePositiveInt(
+	if err := parseNonNegativeInt(
 		"PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS",
 		func(seconds int) { config.Persistence.HNSWSnapshotIntervalSeconds = seconds },
 		DefaultHNSWSnapshotIntervalSeconds,
