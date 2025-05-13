@@ -263,7 +263,7 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "DeleteClass/Success",
+			name: "DeleteClass/Success/NoErrorDeletingReplications",
 			req: raft.Log{Data: cmdAsBytes("C1",
 				cmd.ApplyRequest_TYPE_DELETE_CLASS, nil,
 				nil)},
@@ -272,6 +272,25 @@ func TestStoreApply(t *testing.T) {
 				m.indexer.On("DeleteClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 				m.replicationsDeleter.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
+			},
+			doAfter: func(ms *MockStore) error {
+				class := ms.store.SchemaReader().ReadOnlyClass("C1")
+				if class != nil {
+					return fmt.Errorf("class still exists")
+				}
+				return nil
+			},
+		},
+		{
+			name: "DeleteClass/Success/ErrorDeletingReplications",
+			req: raft.Log{Data: cmdAsBytes("C1",
+				cmd.ApplyRequest_TYPE_DELETE_CLASS, nil,
+				nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.indexer.On("DeleteClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.replicationsDeleter.On("DeleteReplicationsByCollection", mock.Anything).Return(fmt.Errorf("any error"))
 			},
 			doAfter: func(ms *MockStore) error {
 				class := ms.store.SchemaReader().ReadOnlyClass("C1")
@@ -505,7 +524,7 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "DeleteTenant/Success",
+			name: "DeleteTenant/Success/NoErrorDeletingReplications",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT,
 				nil, &cmd.DeleteTenantsRequest{Tenants: []string{"T1", "T2"}})},
 			resp: Response{Error: nil},
@@ -521,6 +540,32 @@ func TestStoreApply(t *testing.T) {
 				})
 				m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
 				m.replicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
+			},
+			doAfter: func(ms *MockStore) error {
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if len(shardingState.Physical) != 0 {
+					return fmt.Errorf("sharding state mus be empty after deletion")
+				}
+				return nil
+			},
+		},
+		{
+			name: "DeleteTenant/Success/ErrorDeletingReplications",
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT,
+				nil, &cmd.DeleteTenantsRequest{Tenants: []string{"T1", "T2"}})},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				doFirst(m)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{
+						Class: cls, State: &sharding.State{
+							Physical: map[string]sharding.Physical{"T1": {}},
+						},
+					}, nil),
+				})
+				m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
+				m.replicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(fmt.Errorf("any error"))
 			},
 			doAfter: func(ms *MockStore) error {
 				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
