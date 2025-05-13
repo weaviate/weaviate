@@ -171,9 +171,9 @@ func (h *replicationHandler) deleteReplication(params replication.DeleteReplicat
 
 	if err := h.replicationManager.DeleteReplication(params.ID); err != nil {
 		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
-			return h.handleOperationNotFoundError(params.ID, err)
+			return replication.NewDeleteReplicationNoContent()
 		}
-		return h.handleInternalServerError(params.ID, err)
+		return replication.NewDeleteReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	h.logger.WithFields(logrus.Fields{
