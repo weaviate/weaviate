@@ -34,7 +34,6 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 	defer down()
 
 	// create class via admin
-	helper.SetupClient("localhost:8081")
 	className := "ABC"
 	tenantNames := []string{
 		"Tenant1", "Tenant2", "Tenant3",
