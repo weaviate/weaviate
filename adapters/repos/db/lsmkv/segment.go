@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
@@ -30,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/mmap"
 	"github.com/weaviate/weaviate/usecases/monitoring"
-	"github.com/willf/bloom"
 )
 
 type segment struct {
@@ -206,6 +206,14 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		"operation": "segmentMetadata",
 	})
 
+	if unMapContents {
+		// a map was created, track it
+		monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
+			"operation": "mmap",
+			"strategy":  stratLabel,
+		}).Inc()
+	}
+
 	seg := &segment{
 		level:                 header.Level,
 		path:                  path,
@@ -282,6 +290,11 @@ func (s *segment) close() error {
 	if s.unMapContents {
 		m := mmap.MMap(s.contents)
 		munmapErr = m.Unmap()
+		stratLabel := s.strategy.String()
+		monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
+			"operation": "munmap",
+			"strategy":  stratLabel,
+		}).Inc()
 	}
 	if s.contentFile != nil {
 		fileCloseErr = s.contentFile.Close()
