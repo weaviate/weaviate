@@ -465,6 +465,10 @@ func testContent(t *testing.T, strategy string, b *Bucket, maxObject int) {
 			get, err := b.Get(key)
 			require.NoError(t, err)
 			require.Equal(t, val, get)
+
+			secondary, err := b.GetBySecondary(0, []byte(fmt.Sprintf("bonjour%d", i)))
+			require.NoError(t, err)
+			require.Equal(t, val, secondary)
 		} else if strategy == StrategySetCollection {
 			get, err := b.SetList(key)
 			require.NoError(t, err)
