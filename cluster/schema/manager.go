@@ -433,13 +433,6 @@ func (s *SchemaManager) apply(op applyOp) error {
 	return nil
 }
 
-// Rollback rolls back the schema and db to the previous state.
-// It is used to rollback the schema and db in case of an error during the apply operation.
-func (s *SchemaManager) Rollback(op applyOp, schemaSnapshot map[string]metaClass) error {
-	s.schema.rollback(schemaSnapshot)
-	return s.ReloadDBFromSchema()
-}
-
 // migratePropertiesIfNecessary migrate properties and set default values for them.
 // This is useful when adding new properties to ensure that their default value is properly set.
 // Current migrated properties:
