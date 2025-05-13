@@ -12,6 +12,7 @@
 package monitoring
 
 import (
+	"fmt"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -379,6 +380,7 @@ func GetMetrics() *PrometheusMetrics {
 }
 
 func newPrometheusMetrics() *PrometheusMetrics {
+	fmt.Println("Debug!!!!!!!!!!!!!!!", "I'm here")
 	return &PrometheusMetrics{
 		Registerer: prometheus.DefaultRegisterer,
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{

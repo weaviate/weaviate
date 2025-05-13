@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	_ "net/http/pprof"
@@ -926,7 +927,7 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := &state.State{}
 
-	logger := logger()
+	logger := nullLogger()
 	appState.Logger = logger
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
@@ -1032,6 +1033,13 @@ func logger() *logrus.Logger {
 		level = logrus.InfoLevel
 	}
 	logger.SetLevel(level)
+
+	return nullLogger()
+}
+
+func nullLogger() *logrus.Logger {
+	logger := logrus.New()
+	logger.SetOutput(io.Discard)
 	return logger
 }
 
