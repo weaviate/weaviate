@@ -112,7 +112,7 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-func (s *SchemaManager) ReloadDBFromSchema() {
+func (s *SchemaManager) ReloadDBFromSchema() error {
 	classes := s.schema.MetaClasses()
 
 	cs := make([]command.UpdateClassRequest, len(classes))
@@ -124,7 +124,11 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
-	s.db.ReloadLocalDB(context.Background(), cs)
+	if err := s.db.ReloadLocalDB(context.Background(), cs); err != nil {
+		return fmt.Errorf("reload local db: %w", err)
+	}
+	s.log.Info("successfully reloaded local db: update schema")
+	return nil
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
@@ -427,6 +431,13 @@ func (s *SchemaManager) apply(op applyOp) error {
 	}
 
 	return nil
+}
+
+// Rollback rolls back the schema and db to the previous state.
+// It is used to rollback the schema and db in case of an error during the apply operation.
+func (s *SchemaManager) Rollback(op applyOp, schemaSnapshot map[string]metaClass) error {
+	s.schema.rollback(schemaSnapshot)
+	return s.ReloadDBFromSchema()
 }
 
 // migratePropertiesIfNecessary migrate properties and set default values for them.

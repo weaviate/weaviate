@@ -18,6 +18,7 @@ import (
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
+
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
@@ -63,7 +64,10 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		snapIndex := lastSnapshotIndex(st.snapshotStore)
 		if st.lastAppliedIndexToDB.Load() <= snapIndex {
 			// db shall reload after snapshot applied to schema
-			st.reloadDBFromSchema()
+			if err := st.reloadDBFromSchema(); err != nil {
+				st.log.WithError(err).Error("reload DB from schema")
+				return fmt.Errorf("reload DB from schema: %w", err)
+			}
 		}
 
 		st.log.WithFields(logrus.Fields{
