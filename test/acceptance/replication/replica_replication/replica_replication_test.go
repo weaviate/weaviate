@@ -166,7 +166,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 				continue
 			}
 
-			transferType := api.MOVE.String()
+			transferType := api.COPY.String()
 			for _, shard := range node.Shards {
 				if shard.Class != paragraphClass.Class {
 					continue
