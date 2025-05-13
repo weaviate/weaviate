@@ -17,6 +17,8 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+
+	"github.com/pkg/errors"
 )
 
 // SwitchCommitLogs makes sure that the previously writeable commitlog is
@@ -95,34 +97,31 @@ func (h *hnsw) ListFiles(ctx context.Context, basePath string) ([]string, error)
 }
 
 func (h *hnsw) listSnapshotFiles(ctx context.Context, basePath string) ([]string, error) {
-	var (
-		snapshotDir = snapshotDirectory(h.commitLog.RootPath(), h.commitLog.ID())
-		files       []string
-	)
-
-	err := filepath.WalkDir(snapshotDir, func(path string, d fs.DirEntry, err error) error {
-		if d.IsDir() {
-			return nil
-		}
-		info, statErr := os.Stat(path)
-		if statErr != nil {
-			return statErr
-		}
-		if info.Size() == 0 {
-			return nil
-		}
-
-		// only list non-empty files
-		rel, relErr := filepath.Rel(basePath, path)
-		if relErr != nil {
-			return relErr
-		}
-		files = append(files, rel)
-		return nil
-	})
+	snapshotDir := snapshotDirectory(h.commitLog.RootPath(), h.commitLog.ID())
+	entries, err := os.ReadDir(snapshotDir)
 	if err != nil {
-		return nil, fmt.Errorf("failed to list files for hnsw snapshot: %w", err)
+		if errors.Is(err, os.ErrNotExist) {
+			// no snapshot directory, no files
+			return []string{}, nil
+		}
+		return nil, errors.Wrapf(err, "read snapshot directory %q", snapshotDir)
 	}
 
+	files := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		info, err := entry.Info()
+		if err != nil {
+			return nil, errors.Wrap(err, "direntry info")
+		}
+		if info.Size() == 0 {
+			continue
+		}
+
+		file, err := filepath.Rel(basePath, filepath.Join(snapshotDir, entry.Name()))
+		if err != nil {
+			return nil, errors.Wrap(err, "relative path")
+		}
+		files = append(files, file)
+	}
 	return files, nil
 }
