@@ -83,7 +83,6 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 			WithBackendGCS(gcsBackupJourneyBucketName).
 			WithText2VecContextionary().
 			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -123,7 +122,6 @@ func runBackupJourney(t *testing.T, ctx context.Context, override bool, containe
 			WithBackendGCS(gcsBackupJourneyBucketName).
 			WithText2VecContextionary().
 			WithWeaviateEnv("ENABLE_CLEANUP_UNFINISHED_BACKUPS", "true").
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviateCluster(3).
 			Start(ctx)
 		require.Nil(t, err)
