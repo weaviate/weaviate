@@ -188,7 +188,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 	if err != nil {
 		return nil, err
 	}
-	return TenantResponsesToTenants(uTenants), err
+	return uTenants, err
 }
 
 // DeleteTenants is used to delete tenants of a class.
@@ -221,8 +221,8 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 	return nil
 }
 
-func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.TenantResponse, error) {
-	var allTenants []*models.TenantResponse
+func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
+	var allTenants []*models.Tenant
 	var err error
 
 	if consistency {
@@ -235,13 +235,13 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 		return nil, err
 	}
 
-	resourceFilter := filter.New[*models.TenantResponse](h.Authorizer, h.config.Authorization.Rbac)
+	resourceFilter := filter.New[*models.Tenant](h.Authorizer, h.config.Authorization.Rbac)
 	filteredTenants := resourceFilter.Filter(
 		h.logger,
 		principal,
 		allTenants,
 		authorization.READ,
-		func(tenant *models.TenantResponse) string {
+		func(tenant *models.Tenant) string {
 			return authorization.ShardsMetadata(class, tenant.Name)[0]
 		},
 	)
@@ -249,12 +249,12 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	return filteredTenants, nil
 }
 
-func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.TenantResponse, error) {
+func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.Tenant, error) {
 	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
 		return nil, err
 	}
 
-	var allTenants []*models.TenantResponse
+	var allTenants []*models.Tenant
 	var err error
 
 	tenants := []string{tenant}
@@ -295,18 +295,18 @@ func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.
 		return err
 	}
 
-	var tenantResponses []*models.TenantResponse
+	var tenants []*models.Tenant
 	var err error
 	if consistency {
-		tenantResponses, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
+		tenants, _, err = h.schemaManager.QueryTenants(class, []string{tenant})
 	} else {
 		// If non consistent, fallback to the default implementation
-		tenantResponses, err = h.getTenantsByNames(class, []string{tenant})
+		tenants, err = h.getTenantsByNames(class, []string{tenant})
 	}
 	if err != nil {
 		return err
 	}
-	if len(tenantResponses) == 1 {
+	if len(tenants) == 1 {
 		return nil
 	}
 
@@ -320,20 +320,23 @@ func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
 		phys.Status == models.TenantActivityStatusHOT
 }
 
-func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.TenantResponse, error) {
+func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Tenant, error) {
 	info, err := h.multiTenancy(class)
 	if err != nil || info.Tenants == 0 {
 		return nil, err
 	}
 
-	ts := make([]*models.TenantResponse, 0, len(names))
+	ts := make([]*models.Tenant, 0, len(names))
 	f := func(_ *models.Class, ss *sharding.State) error {
 		for _, name := range names {
 			if _, ok := ss.Physical[name]; !ok {
 				continue
 			}
 			physical := ss.Physical[name]
-			ts = append(ts, clusterSchema.MakeTenantWithBelongsToNodes(name, schema.ActivityStatus(physical.Status), physical.BelongsToNodes))
+			ts = append(ts, &models.Tenant{
+				Name:           name,
+				ActivityStatus: schema.ActivityStatus(physical.Status),
+			})
 		}
 		return nil
 	}
@@ -352,21 +355,4 @@ func convertNewTenantNames(status string) string {
 		return models.TenantActivityStatusFROZEN
 	}
 	return status
-}
-
-// tenantResponseToTenant converts a TenantResponse to a Tenant
-func tenantResponseToTenant(tenantResponse *models.TenantResponse) *models.Tenant {
-	return &models.Tenant{
-		Name:           tenantResponse.Name,
-		ActivityStatus: tenantResponse.ActivityStatus,
-	}
-}
-
-// TenantResponsesToTenants converts a slice of TenantResponses to a slice of Tenants
-func TenantResponsesToTenants(tenantResponses []*models.TenantResponse) []*models.Tenant {
-	tenants := make([]*models.Tenant, len(tenantResponses))
-	for i, tenantResponse := range tenantResponses {
-		tenants[i] = tenantResponseToTenant(tenantResponse)
-	}
-	return tenants
 }

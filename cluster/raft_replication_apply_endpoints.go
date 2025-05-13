@@ -181,6 +181,25 @@ func (s *Raft) ReplicationRemoveReplicaOp(id uint64) error {
 	return nil
 }
 
+func (s *Raft) DeleteAllReplications() error {
+	req := &api.ReplicationDeleteAllRequest{
+		Version: api.ReplicationCommandVersionV0,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_ALL,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Raft) DeleteReplicationsByCollection(collection string) error {
 	req := &api.ReplicationsDeleteByCollectionRequest{
 		Version:    api.ReplicationCommandVersionV0,

@@ -160,3 +160,7 @@ type ReplicationQueryShardingStateByCollectionAndShardRequest struct {
 	Collection string
 	Shard      string
 }
+
+type ReplicationDeleteAllRequest struct {
+	Version int
+}

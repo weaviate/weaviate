@@ -79,6 +79,51 @@ func (_c *MockManager_CancelReplication_Call) RunAndReturn(run func(strfmt.UUID)
 	return _c
 }
 
+// DeleteAllReplications provides a mock function with no fields
+func (_m *MockManager) DeleteAllReplications() error {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteAllReplications")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_DeleteAllReplications_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteAllReplications'
+type MockManager_DeleteAllReplications_Call struct {
+	*mock.Call
+}
+
+// DeleteAllReplications is a helper method to define mock.On call
+func (_e *MockManager_Expecter) DeleteAllReplications() *MockManager_DeleteAllReplications_Call {
+	return &MockManager_DeleteAllReplications_Call{Call: _e.mock.On("DeleteAllReplications")}
+}
+
+func (_c *MockManager_DeleteAllReplications_Call) Run(run func()) *MockManager_DeleteAllReplications_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockManager_DeleteAllReplications_Call) Return(_a0 error) *MockManager_DeleteAllReplications_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_DeleteAllReplications_Call) RunAndReturn(run func() error) *MockManager_DeleteAllReplications_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // DeleteReplication provides a mock function with given fields: uuid
 func (_m *MockManager) DeleteReplication(uuid strfmt.UUID) error {
 	ret := _m.Called(uuid)
@@ -214,6 +259,63 @@ func (_c *MockManager_DeleteReplicationsByTenants_Call) Return(_a0 error) *MockM
 }
 
 func (_c *MockManager_DeleteReplicationsByTenants_Call) RunAndReturn(run func(string, []string) error) *MockManager_DeleteReplicationsByTenants_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// GetAllReplicationDetails provides a mock function with no fields
+func (_m *MockManager) GetAllReplicationDetails() ([]api.ReplicationDetailsResponse, error) {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetAllReplicationDetails")
+	}
+
+	var r0 []api.ReplicationDetailsResponse
+	var r1 error
+	if rf, ok := ret.Get(0).(func() ([]api.ReplicationDetailsResponse, error)); ok {
+		return rf()
+	}
+	if rf, ok := ret.Get(0).(func() []api.ReplicationDetailsResponse); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]api.ReplicationDetailsResponse)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func() error); ok {
+		r1 = rf()
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockManager_GetAllReplicationDetails_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetAllReplicationDetails'
+type MockManager_GetAllReplicationDetails_Call struct {
+	*mock.Call
+}
+
+// GetAllReplicationDetails is a helper method to define mock.On call
+func (_e *MockManager_Expecter) GetAllReplicationDetails() *MockManager_GetAllReplicationDetails_Call {
+	return &MockManager_GetAllReplicationDetails_Call{Call: _e.mock.On("GetAllReplicationDetails")}
+}
+
+func (_c *MockManager_GetAllReplicationDetails_Call) Run(run func()) *MockManager_GetAllReplicationDetails_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockManager_GetAllReplicationDetails_Call) Return(_a0 []api.ReplicationDetailsResponse, _a1 error) *MockManager_GetAllReplicationDetails_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockManager_GetAllReplicationDetails_Call) RunAndReturn(run func() ([]api.ReplicationDetailsResponse, error)) *MockManager_GetAllReplicationDetails_Call {
 	_c.Call.Return(run)
 	return _c
 }
