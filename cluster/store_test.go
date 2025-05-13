@@ -271,6 +271,7 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				m.indexer.On("DeleteClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.replicationsDeleter.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				class := ms.store.SchemaReader().ReadOnlyClass("C1")
@@ -497,8 +498,11 @@ func TestStoreApply(t *testing.T) {
 			name: "DeleteTenant/ClassNotFound",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT,
 				nil, &cmd.DeleteTenantsRequest{Tenants: []string{"T1", "T2"}})},
-			resp:     Response{Error: schema.ErrSchema},
-			doBefore: doFirst,
+			resp: Response{Error: schema.ErrSchema},
+			doBefore: func(m *MockStore) {
+				doFirst(m)
+				m.replicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
+			},
 		},
 		{
 			name: "DeleteTenant/Success",
@@ -516,6 +520,7 @@ func TestStoreApply(t *testing.T) {
 					}, nil),
 				})
 				m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
+				m.replicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
@@ -759,11 +764,12 @@ func TestStoreApply(t *testing.T) {
 }
 
 type MockStore struct {
-	indexer *fakes.MockSchemaExecutor
-	parser  *fakes.MockParser
-	logger  *logrus.Logger
-	cfg     Config
-	store   *Store
+	indexer             *fakes.MockSchemaExecutor
+	parser              *fakes.MockParser
+	logger              *logrus.Logger
+	cfg                 Config
+	store               *Store
+	replicationsDeleter *fakes.MockReplicationsDeleter
 }
 
 func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
@@ -791,6 +797,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
 		},
+		replicationsDeleter: fakes.NewMockReplicationsDeleter(),
 	}
 	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry())
 	ms.store = &s
