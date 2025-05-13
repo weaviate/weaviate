@@ -150,4 +150,6 @@ message NearIMUSearch {
 message BM25 {
   string query = 1;
   repeated string properties = 2;
+  optional string operator = 3;
+  optional int32 minimum_should_match = 4;
 }

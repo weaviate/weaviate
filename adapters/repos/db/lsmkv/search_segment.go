@@ -20,7 +20,7 @@ import (
 )
 
 func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additionalExplanations bool,
-	termCount int,
+	termCount, minimumShouldMatch int,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	var docInfos []*terms.DocPointerWithScore
 	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
@@ -79,10 +79,12 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 			}
 			if pivotID == results[firstNonExhausted].idPointer {
 				score := 0.0
+				termsMatched := 0
 				for _, term := range results {
 					if term.idPointer != pivotID {
 						break
 					}
+					termsMatched++
 					_, s, d := term.Score(averagePropLength, additionalExplanations)
 					score += s
 					upperBound -= term.currentBlockImpact - float32(s)
@@ -101,7 +103,7 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 					}
 					term.Advance()
 				}
-				if topKHeap.ShouldEnqueue(float32(score), limit) {
+				if topKHeap.ShouldEnqueue(float32(score), limit) && termsMatched >= minimumShouldMatch {
 					topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
 				}
 

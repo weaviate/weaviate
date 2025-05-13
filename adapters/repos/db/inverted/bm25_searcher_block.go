@@ -70,6 +70,7 @@ func (b *BM25Searcher) wandBlock(
 
 	allResults := make([][][]*lsmkv.SegmentBlockMax, 0, len(params.Properties))
 	termCounts := make([][]string, 0, len(params.Properties))
+	minimumShouldMatchByProperty := make([]int, 0, len(params.Properties))
 
 	// These locks are the segmentCompactions locks for the searched properties
 	// The old search process locked the compactions and read the full postings list into memory.
@@ -107,6 +108,13 @@ func (b *BM25Searcher) wandBlock(
 
 				allResults = append(allResults, results)
 				termCounts = append(termCounts, queryTerms)
+
+				minimumShouldMatch := params.MinimumShouldMatch
+				if params.SearchOperator == "and" {
+					minimumShouldMatch = len(queryTerms)
+				}
+
+				minimumShouldMatchByProperty = append(minimumShouldMatchByProperty, minimumShouldMatch)
 				for _, term := range queryTerms {
 					globalIdfCounts[term] += idfCounts[term]
 					if idfCounts[term] > 0 {
@@ -194,8 +202,14 @@ func (b *BM25Searcher) wandBlock(
 			if len(allResults[i][j]) == 0 {
 				continue
 			}
+
+			// return early if there aren't enough terms to match
+			if len(allResults[i][j]) < minimumShouldMatchByProperty[i] {
+				continue
+			}
+
 			eg.Go(func() (err error) {
-				topKHeap := lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]))
+				topKHeap := lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumShouldMatchByProperty[i])
 				ids, scores, explanations, err := b.getTopKIds(topKHeap)
 				if err != nil {
 					return err
