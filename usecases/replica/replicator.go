@@ -112,31 +112,19 @@ func (r *Replicator) PutObject(ctx context.Context,
 		}
 		return nil
 	}
-	replyCh, replyLevel, additionalHostsCommitCh, additionalHostsLevel, requireAdditionalHostsSuccess, err := coord.Push(ctx, l, isReady, r.simpleCommit(shard))
+	pushResp, additionalHostsPushResp, err := coord.Push(ctx, l, isReady, r.simpleCommit(shard))
 	if err != nil {
 		r.log.WithField("op", "push.one").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
 		return fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
-	err = r.stream.readErrors(1, replyLevel, replyCh)[0]
-	if err != nil {
-		r.log.WithField("op", "put").WithField("class", r.class).
-			WithField("shard", shard).WithField("uuid", obj.ID()).Error(err)
-		return err
+	handleResp := func(resp pushResponse[SimpleResponse]) error {
+		return r.stream.readErrors(1, resp.level, resp.commitCh)[0]
 	}
-	if additionalHostsLevel > 0 {
-		err = r.stream.readErrors(1, additionalHostsLevel, additionalHostsCommitCh)[0]
-		if err != nil {
-			r.log.WithField("op", "put").WithField("class", r.class).
-				WithField("shard", shard).WithField("uuid", obj.ID()).Error(err)
-			if requireAdditionalHostsSuccess {
-				return err
-			}
-		}
-	}
-	return nil
+	logEntry := r.log.WithField("op", "put").WithField("class", r.class).
+		WithField("shard", shard).WithField("uuid", obj.ID())
+	return handlePushResponses(pushResp, additionalHostsPushResp, handleResp, logEntry)
 }
-
 func (r *Replicator) MergeObject(ctx context.Context,
 	shard string,
 	doc *objects.MergeDocument,
@@ -154,22 +142,25 @@ func (r *Replicator) MergeObject(ctx context.Context,
 		}
 		return nil
 	}
-	replyCh, level, _, _, _, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
+	pushResp, additionalHostsPushResp, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
 	if err != nil {
 		r.log.WithField("op", "push.merge").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
 		return fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
-	err = r.stream.readErrors(1, level, replyCh)[0]
-	if err != nil {
-		r.log.WithField("op", "merge").WithField("class", r.class).
-			WithField("shard", shard).WithField("uuid", doc.ID).Error(err)
-		var replicaErr *Error
-		if errors.As(err, &replicaErr) && replicaErr != nil && replicaErr.Code == StatusObjectNotFound {
-			return objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
+	handleResp := func(resp pushResponse[SimpleResponse]) error {
+		pushErr := r.stream.readErrors(1, pushResp.level, pushResp.commitCh)[0]
+		if pushErr != nil {
+			var replicaErr *Error
+			if errors.As(pushErr, &replicaErr) && replicaErr != nil && replicaErr.Code == StatusObjectNotFound {
+				return objects.NewErrDirtyWriteOfDeletedObject(replicaErr)
+			}
 		}
+		return pushErr
 	}
-	return err
+	logEntry := r.log.WithField("op", "merge").WithField("class", r.class).
+		WithField("shard", shard).WithField("uuid", doc.ID)
+	return handlePushResponses(pushResp, additionalHostsPushResp, handleResp, logEntry)
 }
 
 func (r *Replicator) DeleteObject(ctx context.Context,
@@ -190,18 +181,18 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 		}
 		return nil
 	}
-	replyCh, level, _, _, _, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
+	pushResp, additionalHostsPushResp, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
 	if err != nil {
 		r.log.WithField("op", "push.delete").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
 		return fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
-	err = r.stream.readErrors(1, level, replyCh)[0]
-	if err != nil {
-		r.log.WithField("op", "put").WithField("class", r.class).
-			WithField("shard", shard).WithField("uuid", id).Error(err)
+	handleResp := func(resp pushResponse[SimpleResponse]) error {
+		return r.stream.readErrors(1, resp.level, resp.commitCh)[0]
 	}
-	return err
+	logEntry := r.log.WithField("op", "delete").WithField("class", r.class).
+		WithField("shard", shard).WithField("uuid", id)
+	return handlePushResponses(pushResp, additionalHostsPushResp, handleResp, logEntry)
 }
 
 func (r *Replicator) PutObjects(ctx context.Context,
@@ -222,7 +213,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 		return nil
 	}
 
-	replyCh, level, _, _, _, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
+	pushResp, additionalHostsPushResp, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
 	if err != nil {
 		r.log.WithField("op", "push.many").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -233,12 +224,16 @@ func (r *Replicator) PutObjects(ctx context.Context,
 		}
 		return errs
 	}
-	errs := r.stream.readErrors(len(objs), level, replyCh)
-	if err := firstError(errs); err != nil {
-		r.log.WithField("op", "put.many").WithField("class", r.class).
-			WithField("shard", shard).Error(errs)
+	handleResp := func(resp pushResponse[SimpleResponse]) []error {
+		errs := r.stream.readErrors(len(objs), resp.level, resp.commitCh)
+		return errs
 	}
-	return errs
+	return handleBatchPushResponses(
+		pushResp,
+		additionalHostsPushResp,
+		handleResp,
+		r.log.WithField("op", "put.many").WithField("class", r.class).WithField("shard", shard),
+	)
 }
 
 func (r *Replicator) DeleteObjects(ctx context.Context,
@@ -272,7 +267,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 		return resp, err
 	}
 
-	replyCh, level, _, _, _, err := coord.Push(ctx, l, op, commit)
+	pushResp, additionalHostsPushResp, err := coord.Push(ctx, l, op, commit)
 	if err != nil {
 		r.log.WithField("op", "push.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -283,10 +278,21 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 		}
 		return errs
 	}
-	rs := r.stream.readDeletions(len(uuids), level, replyCh)
+	rs := r.stream.readDeletions(len(uuids), pushResp.level, pushResp.commitCh)
 	if err := firstBatchError(rs); err != nil {
 		r.log.WithField("op", "put.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(rs)
+		return rs
+	}
+	if additionalHostsPushResp != nil {
+		additionalHostRs := r.stream.readDeletions(len(uuids), additionalHostsPushResp.level, additionalHostsPushResp.commitCh)
+		if additionalHostErr := firstBatchError(additionalHostRs); additionalHostErr != nil {
+			r.log.WithField("op", "put.deletes").WithField("class", r.class).
+				WithField("shard", shard).Error(additionalHostRs)
+		}
+		if additionalHostsPushResp.requireSuccess {
+			return additionalHostRs
+		}
 	}
 	return rs
 }
@@ -308,7 +314,7 @@ func (r *Replicator) AddReferences(ctx context.Context,
 		}
 		return nil
 	}
-	replyCh, level, _, _, _, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
+	pushResp, additionalHostsPushResp, err := coord.Push(ctx, l, op, r.simpleCommit(shard))
 	if err != nil {
 		r.log.WithField("op", "push.refs").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
@@ -319,12 +325,15 @@ func (r *Replicator) AddReferences(ctx context.Context,
 		}
 		return errs
 	}
-	errs := r.stream.readErrors(len(refs), level, replyCh)
-	if err := firstError(errs); err != nil {
-		r.log.WithField("op", "put.refs").WithField("class", r.class).
-			WithField("shard", shard).Error(errs)
+	handleResp := func(resp pushResponse[SimpleResponse]) []error {
+		return r.stream.readErrors(len(refs), resp.level, resp.commitCh)
 	}
-	return errs
+	return handleBatchPushResponses(
+		pushResp,
+		additionalHostsPushResp,
+		handleResp,
+		r.log.WithField("op", "put.refs").WithField("class", r.class).WithField("shard", shard),
+	)
 }
 
 // simpleCommit generate commit function for the coordinator
@@ -352,4 +361,67 @@ func (r *Replicator) requestID(op opID) string {
 		op,
 		time.Now().UnixMilli(),
 		r.requestCounter.Add(1))
+}
+
+func handlePushResponses[T any](
+	pushResp pushResponse[T],
+	additionalHostsPushResp *pushResponse[T],
+	respHandler func(resp pushResponse[T]) error,
+	logEntry *logrus.Entry,
+) error {
+	checkResp := func(resp pushResponse[T]) error {
+		checkErr := respHandler(resp)
+		if checkErr != nil {
+			logEntry.WithFields(logrus.Fields{
+				"additionalHosts": false,
+				"requireSuccess":  resp.requireSuccess,
+				"level":           resp.level,
+			}).Error(checkErr)
+			if resp.requireSuccess {
+				return checkErr
+			}
+		}
+		return nil
+	}
+	err := checkResp(pushResp)
+	if err != nil {
+		return err
+	}
+	if additionalHostsPushResp != nil {
+		return checkResp(*additionalHostsPushResp)
+	}
+	return nil
+}
+
+// handleBatchPushResponses handles a batch of push responses.
+// respHandler should always return a slice of errors whose length is the same as the number of objects in the batch
+func handleBatchPushResponses[T any](
+	pushResp pushResponse[T],
+	additionalHostsPushResp *pushResponse[T],
+	respHandler func(resp pushResponse[T]) []error,
+	logEntry *logrus.Entry,
+) []error {
+	checkResp := func(resp pushResponse[T]) []error {
+		checkErrs := respHandler(resp)
+		if err := firstError(checkErrs); err != nil {
+			logEntry.WithFields(logrus.Fields{
+				"additionalHosts": false,
+				"requireSuccess":  resp.requireSuccess,
+				"level":           resp.level,
+			}).Error(checkErrs)
+			if resp.requireSuccess {
+				return checkErrs
+			}
+		}
+		// return nil for all objects in batch
+		return make([]error, len(checkErrs))
+	}
+	errs := checkResp(pushResp)
+	if err := firstError(errs); err != nil {
+		return errs
+	}
+	if additionalHostsPushResp != nil {
+		return checkResp(*additionalHostsPushResp)
+	}
+	return errs
 }

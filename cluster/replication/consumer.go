@@ -409,7 +409,6 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	}
 	defer c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId)
 
-	// TODO start best effort writes before upper time bound is hit
 	// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
 	// received during movement work as expected
 	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()

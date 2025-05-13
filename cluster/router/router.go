@@ -73,46 +73,10 @@ func (r *Router) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (typ
 		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas location from sharding state: %w", err)
 	}
 
-	routingPlan := types.RoutingPlan{
-		Collection:        params.Collection,
-		Shard:             params.Shard,
-		Replicas:          make([]string, 0, len(replicas)),
-		ConsistencyLevel:  params.ConsistencyLevel,
-		ReplicasHostAddrs: make([]string, 0, len(replicas)),
-	}
-
-	// If there was no local replica first specified, put the local node as direct candidate. If the local node is part of the replica set
-	// it will be handled as the direct candidate
-	if params.DirectCandidateReplica == "" {
-		params.DirectCandidateReplica = r.clusterStateReader.LocalName()
-	}
-
-	for _, replica := range replicas {
-		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
-			// Local replica first is necessary due to the logic in finder where the first node is considered a "full read
-			// candidate". This means that instead of a doing a digest read we will get the "full read" (whatever that means).
-			// We handle the direct candidate here to ensure that the direct candidate is also part of the replica set
-			if replica == params.DirectCandidateReplica {
-				routingPlan.Replicas = slices.Insert(routingPlan.Replicas, 0, replica)
-				routingPlan.ReplicasHostAddrs = slices.Insert(routingPlan.ReplicasHostAddrs, 0, replicaAddr)
-			} else {
-				routingPlan.Replicas = append(routingPlan.Replicas, replica)
-				routingPlan.ReplicasHostAddrs = append(routingPlan.ReplicasHostAddrs, replicaAddr)
-			}
-		}
-	}
-	if len(routingPlan.Replicas) == 0 {
-		return routingPlan, fmt.Errorf("no replicas found for class %s shard %s", routingPlan.Collection, routingPlan.Shard)
-	}
-
-	routingPlan.IntConsistencyLevel, err = routingPlan.ValidateConsistencyLevel()
-	return routingPlan, err
+	return r.routingPlanFromReplicas(params.Collection, params.Shard, replicas, params.ConsistencyLevel, params.DirectCandidateReplica)
 }
 
 func (r *Router) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	// TODO: See if there is any sense in having writes be propagated to the "new" shard currently.
-	// For now discarding that idea because we need doc id synced to avoid colisions
-	// return r.BuildReadRoutingPlan(params)
 	if err := params.Validate(); err != nil {
 		return types.RoutingPlan{}, err
 	}
@@ -122,27 +86,47 @@ func (r *Router) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (ty
 		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas location from sharding state: %w", err)
 	}
 
+	routingPlan, err := r.routingPlanFromReplicas(params.Collection, params.Shard, writeReplicas, params.ConsistencyLevel, params.DirectCandidateReplica)
+	if err != nil {
+		return types.RoutingPlan{}, err
+	}
+
+	for _, replica := range additionalWriteReplicas {
+		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
+			routingPlan.AdditionalHostAddrs = append(routingPlan.AdditionalHostAddrs, replicaAddr)
+		}
+	}
+
+	return routingPlan, nil
+}
+
+func (r *Router) routingPlanFromReplicas(
+	collection, shard string,
+	replicas []string,
+	consistencyLevel types.ConsistencyLevel,
+	directCandidateReplica string,
+) (types.RoutingPlan, error) {
+
 	routingPlan := types.RoutingPlan{
-		Collection:          params.Collection,
-		Shard:               params.Shard,
-		Replicas:            make([]string, 0, len(writeReplicas)),
-		ConsistencyLevel:    params.ConsistencyLevel,
-		ReplicasHostAddrs:   make([]string, 0, len(writeReplicas)),
-		AdditionalHostAddrs: make([]string, 0, len(additionalWriteReplicas)),
+		Collection:        collection,
+		Shard:             shard,
+		Replicas:          make([]string, 0, len(replicas)),
+		ConsistencyLevel:  consistencyLevel,
+		ReplicasHostAddrs: make([]string, 0, len(replicas)),
 	}
 
 	// If there was no local replica first specified, put the local node as direct candidate. If the local node is part of the replica set
 	// it will be handled as the direct candidate
-	if params.DirectCandidateReplica == "" {
-		params.DirectCandidateReplica = r.clusterStateReader.LocalName()
+	if directCandidateReplica == "" {
+		directCandidateReplica = r.clusterStateReader.LocalName()
 	}
 
-	for _, replica := range writeReplicas {
+	for _, replica := range replicas {
 		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
 			// Local replica first is necessary due to the logic in finder where the first node is considered a "full read
 			// candidate". This means that instead of a doing a digest read we will get the "full read" (whatever that means).
 			// We handle the direct candidate here to ensure that the direct candidate is also part of the replica set
-			if replica == params.DirectCandidateReplica {
+			if replica == directCandidateReplica {
 				routingPlan.Replicas = slices.Insert(routingPlan.Replicas, 0, replica)
 				routingPlan.ReplicasHostAddrs = slices.Insert(routingPlan.ReplicasHostAddrs, 0, replicaAddr)
 			} else {
@@ -151,16 +135,14 @@ func (r *Router) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (ty
 			}
 		}
 	}
-	for _, replica := range additionalWriteReplicas {
-		if replicaAddr, ok := r.clusterStateReader.NodeHostname(replica); ok {
-			routingPlan.AdditionalHostAddrs = append(routingPlan.AdditionalHostAddrs, replicaAddr)
-		}
-	}
 	if len(routingPlan.Replicas) == 0 {
 		return routingPlan, fmt.Errorf("no replicas found for class %s shard %s", routingPlan.Collection, routingPlan.Shard)
 	}
-
-	routingPlan.IntConsistencyLevel, err = routingPlan.ValidateConsistencyLevel()
+	cl, err := routingPlan.ValidateConsistencyLevel()
+	if err != nil {
+		return types.RoutingPlan{}, err
+	}
+	routingPlan.IntConsistencyLevel = cl
 	return routingPlan, err
 }
 

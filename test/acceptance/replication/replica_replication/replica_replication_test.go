@@ -544,6 +544,8 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFi
 								"contents": fmt.Sprintf("paragraph#%d", numParagraphsInsertedBeforeStart+i),
 							},
 							uuid.New().String(),
+							// TODO handle
+							"",
 						)
 						require.NoError(t, err)
 						time.Sleep(time.Millisecond)
@@ -606,12 +608,13 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFi
 	})
 }
 
-func createObjectThreadSafe(uri string, class string, properties map[string]interface{}, id string) error {
+func createObjectThreadSafe(uri string, class string, properties map[string]interface{}, id string, tenant string) error {
 	// Define the data structure for the request body
 	type Object struct {
 		Class      string                 `json:"class"`
 		Properties map[string]interface{} `json:"properties"`
 		ID         string                 `json:"id"`
+		Tenant     string                 `json:"tenant"`
 	}
 
 	// Create an instance of the object with sample data
@@ -619,6 +622,7 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 		Class:      class,
 		Properties: properties,
 		ID:         id,
+		Tenant:     tenant,
 	}
 
 	// Marshal the object to JSON
@@ -650,4 +654,258 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 	}
 
 	return nil
+}
+
+func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrites() {
+	t := suite.T()
+	mainCtx := context.Background()
+	logger, _ := logrustest.NewNullLogger()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithText2VecContextionary().
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	_, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	defer cancel()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	paragraphClass := articles.ParagraphsClass()
+	articleClass := articles.ArticlesClass()
+
+	t.Run("create schema", func(t *testing.T) {
+		paragraphClass.ReplicationConfig = &models.ReplicationConfig{
+			Factor:       2,
+			AsyncEnabled: false,
+		}
+		paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: true,
+			AutoTenantCreation:   true,
+		}
+		paragraphClass.Vectorizer = "text2vec-contextionary"
+		helper.CreateClass(t, paragraphClass)
+		articleClass.ReplicationConfig = &models.ReplicationConfig{
+			Factor:       2,
+			AsyncEnabled: false,
+		}
+		articleClass.MultiTenancyConfig = &models.MultiTenancyConfig{
+			Enabled:              true,
+			AutoTenantActivation: true,
+			AutoTenantCreation:   true,
+		}
+		helper.CreateClass(t, articleClass)
+	})
+
+	t.Run("insert initial paragraphs", func(t *testing.T) {
+		batch := make([]*models.Object, len(paragraphIDs))
+		for i, id := range paragraphIDs {
+			batch[i] = articles.NewParagraph().
+				WithID(id).
+				WithContents(fmt.Sprintf("paragraph#%d", i)).
+				WithTenant("tenant0").
+				Object()
+		}
+		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
+	})
+
+	constantWriteWg := sync.WaitGroup{}
+	constantWriteIDs := []string{}
+	replicationDone := make(chan struct{})
+	t.Run("start constant writes", func(t *testing.T) {
+		constantWriteWg.Add(1)
+		enterrors.GoWrapper(func() {
+			defer constantWriteWg.Done()
+			containerId := 1
+			for {
+				select {
+				case <-replicationDone:
+					return
+				default:
+					newWriteId := uuid.New().String()
+					err = createObjectThreadSafe(
+						compose.ContainerURI(containerId),
+						paragraphClass.Class,
+						map[string]interface{}{
+							"contents": fmt.Sprintf("paragraph#%d", len(paragraphIDs)+len(constantWriteIDs)),
+						},
+						newWriteId,
+						"tenant0",
+					)
+					// fmt.Println("NATEE newWriteId", newWriteId, err)
+					require.NoError(t, err)
+					constantWriteIDs = append(constantWriteIDs, newWriteId)
+					containerId++
+					if containerId >= 4 {
+						containerId = 1
+					}
+					time.Sleep(1 * time.Millisecond)
+				}
+			}
+		}, logger)
+	})
+
+	// any node can be chosen as the tenant source node (even if that node is down at the time of creation)
+	// so we dynamically find the source and target nodes
+	sourceNodes := []int{}
+	sourceNodeURIs := []string{}
+	var targetNodeIndex int
+	var targetNode string
+	var targetNodeURI string
+	var opUuid strfmt.UUID
+	t.Run("start replica replication to node3 for paragraph", func(t *testing.T) {
+		verbose := verbosity.OutputVerbose
+		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
+		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		require.NoError(t, clientErr)
+		require.NotNil(t, body.Payload)
+
+		hasFoundNode := false
+		hasFoundShard := false
+
+		// Find two source nodes that have shards
+		for i, node := range body.Payload.Nodes {
+			if len(node.Shards) >= 1 {
+				hasFoundNode = true
+				for _, shard := range node.Shards {
+					if shard.Class != paragraphClass.Class {
+						continue
+					}
+					hasFoundShard = true
+					// i + 1 because stop/start routine are 1 based not 0
+					sourceNodes = append(sourceNodes, i+1)
+					sourceNodeURIs = append(sourceNodeURIs, compose.ContainerURI(i+1))
+					if len(sourceNodes) == 2 {
+						break
+					}
+				}
+			}
+			if len(sourceNodes) == 2 {
+				break
+			}
+		}
+
+		require.True(t, hasFoundShard, "could not find shard for class %s", paragraphClass.Class)
+		require.True(t, hasFoundNode, "could not find node with shards for paragraph")
+		require.Len(t, sourceNodes, 2, "could not find two source nodes with shards for paragraph")
+
+		// Choose a target node that is not one of the source nodes
+		for i, node := range body.Payload.Nodes {
+			if i+1 == sourceNodes[0] || i+1 == sourceNodes[1] {
+				continue
+			}
+			targetNode = node.Name
+			targetNodeURI = compose.ContainerURI(i + 1)
+			targetNodeIndex = i + 1
+			break
+		}
+
+		require.NotEmpty(t, targetNode, "could not find a target node different from the source nodes")
+
+		for i, node := range body.Payload.Nodes {
+			// use sourceNodes[0] for the source node of the replica movement
+			if node.Name == targetNode || i+1 == sourceNodes[1] {
+				continue
+			}
+
+			for _, shard := range node.Shards {
+				if shard.Class != paragraphClass.Class {
+					continue
+				}
+
+				// TODO move vs copy?
+				transferType := api.MOVE.String()
+				t.Logf("Starting replica replication from %s to %s for shard %s", node.Name, targetNode, shard.Name)
+				resp, err := helper.Client(t).Replication.Replicate(
+					replication.NewReplicateParams().WithBody(
+						&models.ReplicationReplicateReplicaRequest{
+							CollectionID:        &paragraphClass.Class,
+							SourceNodeName:      &node.Name,
+							DestinationNodeName: &targetNode,
+							ShardID:             &shard.Name,
+							TransferType:        &transferType,
+						},
+					),
+					nil,
+				)
+				require.NoError(t, err)
+				require.Equal(t, http.StatusOK, resp.Code(), "replication replicate operation didn't return 200 OK")
+				require.NotNil(t, resp.Payload)
+				require.NotNil(t, resp.Payload.ID)
+				require.NotEmpty(t, *resp.Payload.ID)
+				opUuid = *resp.Payload.ID
+			}
+		}
+	})
+
+	// If didn't find needed info fail now
+	if len(sourceNodes) != 2 || targetNode == "" || targetNodeURI == "" || opUuid.String() == "" {
+		t.FailNow()
+	}
+
+	// Wait for the replication to finish
+	t.Run("waiting for replication to finish", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			details, err := helper.Client(t).Replication.ReplicationDetails(
+				replication.NewReplicationDetailsParams().WithID(opUuid), nil,
+			)
+			assert.Nil(t, err, "failed to get replication details %s", err)
+			assert.NotNil(t, details, "expected replication details to be not nil")
+			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
+			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
+			assert.Equal(ct, "READY", details.Payload.Status.State, "expected replication status to be READY")
+			fmt.Println("NATEE replication details status state", details.Payload.Status.State)
+		}, 240*time.Second, 1*time.Second, "replication operation %s not finished in time", opUuid)
+		time.Sleep(30 * time.Second)
+		close(replicationDone) // Signal that replication is complete
+		constantWriteWg.Wait()
+	})
+
+	// Kills the original node with the data to ensure we have only one replica available (the new one)
+	// t.Run(fmt.Sprintf("stop node %d", sourceNodes[0]), func(t *testing.T) {
+	// 	common.StopNodeAt(ctx, t, compose, sourceNodes[0])
+	// })
+	t.Run("all constant writes are available", func(t *testing.T) {
+		verbose := verbosity.OutputVerbose
+		params := nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class)
+		body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
+		require.NoError(t, clientErr)
+		require.NotNil(t, body.Payload)
+		numConstantWrites := len(constantWriteIDs)
+		require.True(t, numConstantWrites > 1000, "expected at least 1000 constant writes")
+		// TODO flaky
+		require.Equal(t, int64(numConstantWrites+len(paragraphIDs)), common.CountTenantObjects(t, compose.ContainerURI(sourceNodes[0]), paragraphClass.Class, "tenant0"), fmt.Sprintf("expected %d objects on node %d", numConstantWrites+len(paragraphIDs), sourceNodes[0]))
+		require.Equal(t, int64(numConstantWrites+len(paragraphIDs)), common.CountTenantObjects(t, compose.ContainerURI(sourceNodes[1]), paragraphClass.Class, "tenant0"), fmt.Sprintf("expected %d objects on node %d", numConstantWrites+len(paragraphIDs), sourceNodes[1]))
+		require.Equal(t, int64(numConstantWrites+len(paragraphIDs)), common.CountTenantObjects(t, compose.ContainerURI(targetNodeIndex), paragraphClass.Class, "tenant0"), fmt.Sprintf("expected %d objects on node %d", numConstantWrites+len(paragraphIDs), targetNodeIndex))
+		for _, id := range constantWriteIDs {
+			// TODO not sure if nodeIndex+1 in container URIs and node name actually match?
+			for nodeIndex, node := range body.Payload.Nodes {
+				// TODO this is a hack to skip the source node for now
+				if nodeIndex == sourceNodes[0]+1 {
+					continue
+				}
+				obj, err := common.GetTenantObjectFromNode(t, compose.ContainerURI(nodeIndex+1), paragraphClass.Class, strfmt.UUID(id), node.Name, "tenant0")
+				require.Nil(t, err, "error getting object from node %s", node.Name)
+				require.NotNil(t, obj, "object not found on node %s", node.Name)
+			}
+		}
+	})
+
+	t.Run("assert data is available for paragraph on node3 with consistency level one", func(t *testing.T) {
+		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+			for _, objId := range paragraphIDs {
+				obj, err := common.GetTenantObjectFromNode(t, targetNodeURI, paragraphClass.Class, objId, targetNode, "tenant0")
+				assert.Nil(ct, err)
+				assert.NotNil(ct, obj)
+			}
+		}, 10*time.Second, 1*time.Second, "node3 doesn't have paragraph data")
+	})
+	// fmt.Println("NATEE sleeping")
+	// time.Sleep(9999 * time.Second)
 }
