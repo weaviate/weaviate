@@ -427,7 +427,7 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
 			updateStore: func() error {
-				if err := s.replicationsDeleter.DeleteReplicationsByCollection(cmd.Class); err != nil {
+				if err := s.replicationsDeleter.DeleteReplicationsByTenants(cmd.Class, req.Tenants); err != nil {
 					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
 					s.log.WithField("error", err).WithField("class", cmd.Class).WithField("tenants", tenants).Error("could not delete replication operations for deleted tenants")
 				}
