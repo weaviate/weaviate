@@ -96,12 +96,12 @@ func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
 
-	numberOfReplcias, err := s.NumberOfReplicas(shard)
+	numberOfReplicas, err := s.NumberOfReplicas(shard)
 	if err != nil {
 		return fmt.Errorf("error while getting number of replicas for shard %s: %w", shard, err)
 	}
 
-	if numberOfReplcias <= s.ReplicationFactor {
+	if numberOfReplicas <= s.ReplicationFactor {
 		return fmt.Errorf("unable to delete replica from shard, minimum replication factor %d", s.ReplicationFactor)
 	}
 
