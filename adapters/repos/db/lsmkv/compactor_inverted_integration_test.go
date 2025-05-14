@@ -73,7 +73,7 @@ func validateMapPairListVsBlockMaxSearch(ctx context.Context, bucket *Bucket, ex
 		avgPropLen := 1.0
 		queries := []string{string(mapKey)}
 		duplicateTextBoosts := make([]int, 1)
-		diskTerms, _, release, err := bucket.CreateDiskTerm(float64(N), nil, queries, "", 1, duplicateTextBoosts, avgPropLen, bm25config, ctx)
+		diskTerms, _, release, err := bucket.CreateDiskTerm(float64(N), nil, queries, "", 1, duplicateTextBoosts, bm25config, ctx)
 
 		defer func() {
 			release()
