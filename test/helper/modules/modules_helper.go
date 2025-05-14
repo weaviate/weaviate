@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"cloud.google.com/go/storage"
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -107,6 +108,8 @@ func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName st
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 		assert.Nil(t, err)
+		defer client.Close()
+
 		assert.Nil(t, client.Bucket(bucketName).Create(ctx, projectID, nil))
 	}, 5*time.Second, 500*time.Millisecond)
 }
@@ -115,6 +118,7 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
 		assert.Nil(t, err)
+		defer client.Close()
 
 		bucket := client.Bucket(bucketName)
 		// we do iterate over objects because GCP doesn't allow deleting non-empty buckets
@@ -137,22 +141,44 @@ func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 func CreateAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
 	t.Log("Creating azure container", containerName)
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
+		// First try to create a client to check if Azurite is ready
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
-		assert.Nil(t, err)
+		assert.NoError(collect, err, "Failed to create Azure client")
 
+		// Try to list containers to verify connection
+		pager := client.NewListContainersPager(nil)
+		_, err = pager.NextPage(ctx)
+		assert.NoError(collect, err, "Failed to list containers (Azurite might not be ready)")
+
+		// Now try to create the container
 		_, err = client.CreateContainer(ctx, containerName, nil)
-		assert.Nil(t, err)
-	}, 5*time.Second, 500*time.Millisecond)
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.ErrorCode == "ContainerAlreadyExists" {
+				// Container already exists, we're good
+				return
+			}
+			assert.NoError(collect, err, "Failed to create container %s", containerName)
+		}
+	}, 10*time.Second, 1*time.Second)
 }
 
 func DeleteAzureContainer(ctx context.Context, t *testing.T, endpoint, containerName string) {
+	t.Log("Deleting azure container", containerName)
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
 		connectionString := "DefaultEndpointsProtocol=http;AccountName=devstoreaccount1;AccountKey=Eby8vdM02xNOcqFlqUwJPLlmEtlCDXJ1OUzFT50uSRZ6IFsuFq2UVErCz4I6tq/K1SZFPTOtr/KBHBeksoGMGw==;BlobEndpoint=http://%s/devstoreaccount1;"
 		client, err := azblob.NewClientFromConnectionString(fmt.Sprintf(connectionString, endpoint), nil)
-		assert.Nil(t, err)
+		assert.NoError(collect, err, "Failed to create Azure client")
 
 		_, err = client.DeleteContainer(ctx, containerName, nil)
-		assert.Nil(t, err)
-	}, 5*time.Second, 500*time.Millisecond)
+		if err != nil {
+			var respErr *azcore.ResponseError
+			if errors.As(err, &respErr) && respErr.ErrorCode == "ContainerNotFound" {
+				// Container doesn't exist, which is fine for deletion
+				return
+			}
+			assert.NoError(collect, err, "Failed to delete container %s", containerName)
+		}
+	}, 10*time.Second, 1*time.Second)
 }
