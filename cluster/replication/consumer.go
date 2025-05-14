@@ -507,7 +507,11 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 
 	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
 
-	// start async replication from source node to target node
+	// Async replication was started in processFinalizingOp, but here we want to "increase" the upper time bound
+	// to make sure any writes received by the source node before the op entered the DEHYDRATING state are
+	// propagated to the target node. We assume writes will complete or time out (default 90s) within the
+	// asyncReplicationMinimumWait time (default 100s). The source node should not receive any writes after the op
+	// enters the DEHYDRATING state.
 	targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
 		CollectionID:   op.Op.SourceShard.CollectionId,
 		ShardID:        op.Op.TargetShard.ShardId,
