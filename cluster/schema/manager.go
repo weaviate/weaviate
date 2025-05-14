@@ -112,7 +112,7 @@ func (s *SchemaManager) Load(ctx context.Context, nodeID string) error {
 	return nil
 }
 
-func (s *SchemaManager) ReloadDBFromSchema() {
+func (s *SchemaManager) ReloadDBFromSchema() error {
 	classes := s.schema.MetaClasses()
 
 	cs := make([]command.UpdateClassRequest, len(classes))
@@ -124,7 +124,11 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
 	s.log.Info("reload local db: update schema ...")
-	s.db.ReloadLocalDB(context.Background(), cs)
+	if err := s.db.ReloadLocalDB(context.Background(), cs); err != nil {
+		return fmt.Errorf("reload local db: %w", err)
+	}
+	s.log.Info("successfully reloaded local db: update schema")
+	return nil
 }
 
 func (s *SchemaManager) Close(ctx context.Context) (err error) {
