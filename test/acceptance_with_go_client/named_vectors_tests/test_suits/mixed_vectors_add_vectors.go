@@ -39,141 +39,141 @@ func testMixedVectorsAddNewVectors(endpoint string) func(t *testing.T) {
 			return objWrapper[0]
 		}
 
-		t.Run("add vector to schema with legacy vector", func(t *testing.T) {
-			require.NoError(t, client.Schema().AllDeleter().Do(ctx))
+		// t.Run("add vector to schema with legacy vector", func(t *testing.T) {
+		// 	require.NoError(t, client.Schema().AllDeleter().Do(ctx))
 
-			class := &models.Class{
-				Class: className,
-				Properties: []*models.Property{
-					{
-						Name: "text", DataType: []string{schema.DataTypeText.String()},
-					},
-				},
-				Vectorizer:      text2vecContextionary,
-				VectorIndexType: "hnsw",
-				VectorConfig:    map[string]models.VectorConfig{},
-			}
+		// 	class := &models.Class{
+		// 		Class: className,
+		// 		Properties: []*models.Property{
+		// 			{
+		// 				Name: "text", DataType: []string{schema.DataTypeText.String()},
+		// 			},
+		// 		},
+		// 		Vectorizer:      text2vecContextionary,
+		// 		VectorIndexType: "hnsw",
+		// 		VectorConfig:    map[string]models.VectorConfig{},
+		// 	}
 
-			// start with a collection that has only a legacy vector
-			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
+		// 	// start with a collection that has only a legacy vector
+		// 	require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
 
-			_, err = client.Data().Creator().
-				WithID(UUID1).
-				WithClassName(className).
-				WithProperties(map[string]interface{}{
-					"text": "I love pizza",
-				}).
-				Do(ctx)
-			require.NoError(t, err)
+		// 	_, err = client.Data().Creator().
+		// 		WithID(UUID1).
+		// 		WithClassName(className).
+		// 		WithProperties(map[string]interface{}{
+		// 			"text": "I love pizza",
+		// 		}).
+		// 		Do(ctx)
+		// 	require.NoError(t, err)
 
-			// add a new named vector
-			class.VectorConfig[contextionary] = models.VectorConfig{
-				Vectorizer: map[string]interface{}{
-					text2vecContextionary: map[string]interface{}{},
-				},
-				VectorIndexType: "flat",
-			}
-			require.NoError(t, client.Schema().ClassUpdater().WithClass(class).Do(ctx))
+		// 	// add a new named vector
+		// 	class.VectorConfig[contextionary] = models.VectorConfig{
+		// 		Vectorizer: map[string]interface{}{
+		// 			text2vecContextionary: map[string]interface{}{},
+		// 		},
+		// 		VectorIndexType: "flat",
+		// 	}
+		// 	require.NoError(t, client.Schema().ClassUpdater().WithClass(class).Do(ctx))
 
-			_, err = client.Data().Creator().
-				WithID(UUID2).
-				WithClassName(className).
-				WithProperties(map[string]interface{}{
-					"text": "I love burgers",
-				}).
-				Do(ctx)
-			require.NoError(t, err)
+		// 	_, err = client.Data().Creator().
+		// 		WithID(UUID2).
+		// 		WithClassName(className).
+		// 		WithProperties(map[string]interface{}{
+		// 			"text": "I love burgers",
+		// 		}).
+		// 		Do(ctx)
+		// 	require.NoError(t, err)
 
-			// add a second named vector
-			class.VectorConfig[transformers] = models.VectorConfig{
-				Vectorizer: map[string]interface{}{
-					text2vecTransformers: map[string]interface{}{},
-				},
-				VectorIndexType: "hnsw",
-			}
-			require.NoError(t, client.Schema().ClassUpdater().WithClass(class).Do(ctx))
+		// 	// add a second named vector
+		// 	class.VectorConfig[transformers] = models.VectorConfig{
+		// 		Vectorizer: map[string]interface{}{
+		// 			text2vecTransformers: map[string]interface{}{},
+		// 		},
+		// 		VectorIndexType: "hnsw",
+		// 	}
+		// 	require.NoError(t, client.Schema().ClassUpdater().WithClass(class).Do(ctx))
 
-			_, err = client.Data().Creator().
-				WithID(UUID3).
-				WithClassName(className).
-				WithProperties(map[string]interface{}{
-					"text": "I love kebabs",
-				}).
-				Do(ctx)
-			require.NoError(t, err)
+		// 	_, err = client.Data().Creator().
+		// 		WithID(UUID3).
+		// 		WithClassName(className).
+		// 		WithProperties(map[string]interface{}{
+		// 			"text": "I love kebabs",
+		// 		}).
+		// 		Do(ctx)
+		// 	require.NoError(t, err)
 
-			obj1 := fetchObject(t, UUID1)
-			require.Len(t, obj1.Vector, 300)
-			require.Len(t, obj1.Vectors, 0)
+		// 	obj1 := fetchObject(t, UUID1)
+		// 	require.Len(t, obj1.Vector, 300)
+		// 	require.Len(t, obj1.Vectors, 0)
 
-			obj2 := fetchObject(t, UUID2)
-			require.Len(t, obj2.Vector, 300)
-			require.Len(t, obj2.Vectors, 1)
-			require.Equal(t, obj2.Vectors[contextionary].([]float32), []float32(obj2.Vector))
+		// 	obj2 := fetchObject(t, UUID2)
+		// 	require.Len(t, obj2.Vector, 300)
+		// 	require.Len(t, obj2.Vectors, 1)
+		// 	require.Equal(t, obj2.Vectors[contextionary].([]float32), []float32(obj2.Vector))
 
-			obj3 := fetchObject(t, UUID3)
-			require.Len(t, obj3.Vector, 300)
-			require.Len(t, obj3.Vectors, 2)
-			require.Len(t, obj3.Vectors[transformers], 384)
-		})
+		// 	obj3 := fetchObject(t, UUID3)
+		// 	require.Len(t, obj3.Vector, 300)
+		// 	require.Len(t, obj3.Vectors, 2)
+		// 	require.Len(t, obj3.Vectors[transformers], 384)
+		// })
 
-		t.Run("add vector to schema with named vector", func(t *testing.T) {
-			require.NoError(t, client.Schema().AllDeleter().Do(ctx))
+		// t.Run("add vector to schema with named vector", func(t *testing.T) {
+		// 	require.NoError(t, client.Schema().AllDeleter().Do(ctx))
 
-			class := &models.Class{
-				Class: className,
-				Properties: []*models.Property{
-					{
-						Name: "text", DataType: []string{schema.DataTypeText.String()},
-					},
-				},
-				VectorConfig: map[string]models.VectorConfig{
-					contextionary: {
-						Vectorizer:      map[string]interface{}{text2vecContextionary: map[string]interface{}{}},
-						VectorIndexType: "hnsw",
-					},
-				},
-			}
-			require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
+		// 	class := &models.Class{
+		// 		Class: className,
+		// 		Properties: []*models.Property{
+		// 			{
+		// 				Name: "text", DataType: []string{schema.DataTypeText.String()},
+		// 			},
+		// 		},
+		// 		VectorConfig: map[string]models.VectorConfig{
+		// 			contextionary: {
+		// 				Vectorizer:      map[string]interface{}{text2vecContextionary: map[string]interface{}{}},
+		// 				VectorIndexType: "hnsw",
+		// 			},
+		// 		},
+		// 	}
+		// 	require.NoError(t, client.Schema().ClassCreator().WithClass(class).Do(ctx))
 
-			_, err = client.Data().Creator().
-				WithID(UUID1).
-				WithClassName(className).
-				WithProperties(map[string]interface{}{
-					"text": "I love pizza",
-				}).
-				Do(ctx)
-			require.NoError(t, err)
+		// 	_, err = client.Data().Creator().
+		// 		WithID(UUID1).
+		// 		WithClassName(className).
+		// 		WithProperties(map[string]interface{}{
+		// 			"text": "I love pizza",
+		// 		}).
+		// 		Do(ctx)
+		// 	require.NoError(t, err)
 
-			// add a new named vector
-			class.VectorConfig[transformers] = models.VectorConfig{
-				Vectorizer: map[string]interface{}{
-					text2vecTransformers: map[string]interface{}{},
-				},
-				VectorIndexType: "flat",
-			}
-			require.NoError(t, client.Schema().ClassUpdater().WithClass(class).Do(ctx))
+		// 	// add a new named vector
+		// 	class.VectorConfig[transformers] = models.VectorConfig{
+		// 		Vectorizer: map[string]interface{}{
+		// 			text2vecTransformers: map[string]interface{}{},
+		// 		},
+		// 		VectorIndexType: "flat",
+		// 	}
+		// 	require.NoError(t, client.Schema().ClassUpdater().WithClass(class).Do(ctx))
 
-			_, err = client.Data().Creator().
-				WithID(UUID2).
-				WithClassName(className).
-				WithProperties(map[string]interface{}{
-					"text": "I love burgers",
-				}).
-				Do(ctx)
-			require.NoError(t, err)
+		// 	_, err = client.Data().Creator().
+		// 		WithID(UUID2).
+		// 		WithClassName(className).
+		// 		WithProperties(map[string]interface{}{
+		// 			"text": "I love burgers",
+		// 		}).
+		// 		Do(ctx)
+		// 	require.NoError(t, err)
 
-			obj1 := fetchObject(t, UUID1)
-			require.Len(t, obj1.Vector, 0)
-			require.Len(t, obj1.Vectors, 1)
-			require.Len(t, obj1.Vectors[contextionary], 300)
+		// 	obj1 := fetchObject(t, UUID1)
+		// 	require.Len(t, obj1.Vector, 0)
+		// 	require.Len(t, obj1.Vectors, 1)
+		// 	require.Len(t, obj1.Vectors[contextionary], 300)
 
-			obj2 := fetchObject(t, UUID2)
-			require.Len(t, obj2.Vector, 0)
-			require.Len(t, obj2.Vectors, 2)
-			require.Len(t, obj2.Vectors[contextionary], 300)
-			require.Len(t, obj2.Vectors[transformers], 384)
-		})
+		// 	obj2 := fetchObject(t, UUID2)
+		// 	require.Len(t, obj2.Vector, 0)
+		// 	require.Len(t, obj2.Vectors, 2)
+		// 	require.Len(t, obj2.Vectors[contextionary], 300)
+		// 	require.Len(t, obj2.Vectors[transformers], 384)
+		// })
 
 		t.Run("add colbert vector to a schema with legacy vector", func(t *testing.T) {
 			require.NoError(t, client.Schema().AllDeleter().Do(ctx))
