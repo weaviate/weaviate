@@ -76,6 +76,7 @@ function main() {
               "--acceptance-go-client-named-vectors | -agnv"\
               "--acceptance-only-graphql | -aog"\
               "--acceptance-only-replication| -aor"\
+              "--acceptance-only-replica-replication|-aorr"\
               "--acceptance-only-async-replication| -aoar"\
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
