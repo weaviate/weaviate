@@ -434,7 +434,7 @@ func (i *Index) IncomingAddAsyncReplicationTargetNode(
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
 	// TODO do we want to init the shard if it's deactivated (eg on disk) or has been deleted in the meantime?
-	localShard, release, err := i.getNoInitLocalShard(shardName)
+	localShard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return err
 	}

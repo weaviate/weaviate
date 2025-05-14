@@ -73,7 +73,7 @@ type ShardReplicationFSM struct {
 	// opsByTargetFQDN stores the registered ShardReplicationOp (if any) for each destination replica
 	opsByTargetFQDN map[shardFQDN]ShardReplicationOp
 	// opsBySourceFQDN stores the registered ShardReplicationOp (if any) for each source replica
-	opsBySourceFQDN map[shardFQDN]ShardReplicationOp
+	opsBySourceFQDN map[shardFQDN][]ShardReplicationOp
 	// opsById stores opId -> replicationOp
 	opsById map[uint64]ShardReplicationOp
 	// opsStatus stores op -> opStatus
@@ -90,7 +90,7 @@ func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 		opsByCollection:         make(map[string][]ShardReplicationOp),
 		opsByCollectionAndShard: make(map[string]map[string][]ShardReplicationOp),
 		opsByTargetFQDN:         make(map[shardFQDN]ShardReplicationOp),
-		opsBySourceFQDN:         make(map[shardFQDN]ShardReplicationOp),
+		opsBySourceFQDN:         make(map[shardFQDN][]ShardReplicationOp),
 		opsById:                 make(map[uint64]ShardReplicationOp),
 		statusById:              make(map[uint64]ShardReplicationOpStatus),
 	}
@@ -333,26 +333,26 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 // if found is true it means there's a source replication op for that replica and readOk and writeOk should be considered
 func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, collection string, shard string) (bool, bool) {
 	replicaFQDN := newShardFQDN(node, collection, shard)
-	op, ok := s.opsBySourceFQDN[replicaFQDN]
+	ops, ok := s.opsBySourceFQDN[replicaFQDN]
 	// No source replication ops for that replica it can be used for both read and writes
 	if !ok {
 		return true, true
 	}
 
-	opState, ok := s.statusById[op.ID]
-	if !ok {
-		// TODO: This should never happens
-		return true, true
-	}
-
-	// Filter read/write based on the state of the replica op
 	readOk := true
 	writeOk := true
-	switch opState.GetCurrentState() {
-	case api.DEHYDRATING:
-		readOk = false
-		writeOk = false
-	default:
+	for _, op := range ops {
+		opState, ok := s.statusById[op.ID]
+		if !ok {
+			// This should never happen
+			continue
+		}
+		switch opState.GetCurrentState() {
+		case api.DEHYDRATING:
+			readOk = false
+			writeOk = false
+		default:
+		}
 	}
 	return readOk, writeOk
 }
