@@ -73,11 +73,11 @@ type ShardReplicationFSM struct {
 	// opsByTargetFQDN stores the registered ShardReplicationOp (if any) for each destination replica
 	opsByTargetFQDN map[shardFQDN]ShardReplicationOp
 	// opsBySourceFQDN stores the registered ShardReplicationOp (if any) for each source replica
-	opsBySourceFQDN map[shardFQDN]ShardReplicationOp
+	opsBySourceFQDN map[shardFQDN][]ShardReplicationOp
 	// opsById stores opId -> replicationOp
 	opsById map[uint64]ShardReplicationOp
 	// opsStatus stores op -> opStatus
-	opsStatus map[ShardReplicationOp]ShardReplicationOpStatus
+	statusById map[uint64]ShardReplicationOpStatus
 
 	opsByStateGauge *prometheus.GaugeVec
 }
@@ -90,9 +90,9 @@ func newShardReplicationFSM(reg prometheus.Registerer) *ShardReplicationFSM {
 		opsByCollection:         make(map[string][]ShardReplicationOp),
 		opsByCollectionAndShard: make(map[string]map[string][]ShardReplicationOp),
 		opsByTargetFQDN:         make(map[shardFQDN]ShardReplicationOp),
-		opsBySourceFQDN:         make(map[shardFQDN]ShardReplicationOp),
+		opsBySourceFQDN:         make(map[shardFQDN][]ShardReplicationOp),
 		opsById:                 make(map[uint64]ShardReplicationOp),
-		opsStatus:               make(map[ShardReplicationOp]ShardReplicationOpStatus),
+		statusById:              make(map[uint64]ShardReplicationOpStatus),
 	}
 
 	fsm.opsByStateGauge = promauto.With(reg).NewGaugeVec(prometheus.GaugeOpts{
@@ -110,7 +110,15 @@ type snapshot struct {
 
 func (s *ShardReplicationFSM) Snapshot() ([]byte, error) {
 	s.opsLock.RLock()
-	ops := maps.Clone(s.opsStatus)
+	ops := make(map[ShardReplicationOp]ShardReplicationOpStatus, len(s.statusById))
+	for id, status := range s.statusById {
+		op, ok := s.opsById[id]
+		if !ok {
+			s.opsLock.RUnlock()
+			return nil, fmt.Errorf("op %d not found in opsById", op.ID)
+		}
+		ops[op] = status
+	}
 	s.opsLock.RUnlock()
 
 	return json.Marshal(&snapshot{Ops: ops})
@@ -149,7 +157,7 @@ func (s *ShardReplicationFSM) resetState() {
 	maps.Clear(s.opsByTargetFQDN)
 	maps.Clear(s.opsBySourceFQDN)
 	maps.Clear(s.opsById)
-	maps.Clear(s.opsStatus)
+	maps.Clear(s.statusById)
 
 	s.opsByStateGauge.Reset()
 }
@@ -191,7 +199,15 @@ func (s *ShardReplicationFSM) GetOpsForTargetNode(node string) ([]ShardReplicati
 func (s *ShardReplicationFSM) GetStatusByOps() map[ShardReplicationOp]ShardReplicationOpStatus {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	return maps.Clone(s.opsStatus)
+	opsStatus := make(map[ShardReplicationOp]ShardReplicationOpStatus, len(s.statusById))
+	for id, status := range s.statusById {
+		op, ok := s.opsById[id]
+		if !ok {
+			continue
+		}
+		opsStatus[op] = status
+	}
+	return opsStatus
 }
 
 // ShouldConsumeOps returns true if the operation should be consumed by the consumer
@@ -213,7 +229,7 @@ func (s ShardReplicationOpStatus) ShouldConsumeOps() bool {
 func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicationOpStatus, bool) {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
-	v, ok := s.opsStatus[op]
+	v, ok := s.statusById[op.ID]
 	return v, ok
 }
 
@@ -253,7 +269,7 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 		return s.filterOneReplicaAsSourceReadWrite(node, collection, shard)
 	}
 
-	opState, ok := s.opsStatus[op]
+	opState, ok := s.statusById[op.ID]
 	if !ok {
 		// TODO: This should never happens
 		return true, true
@@ -277,26 +293,26 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 // if found is true it means there's a source replication op for that replica and readOk and writeOk should be considered
 func (s *ShardReplicationFSM) filterOneReplicaAsSourceReadWrite(node string, collection string, shard string) (bool, bool) {
 	replicaFQDN := newShardFQDN(node, collection, shard)
-	op, ok := s.opsBySourceFQDN[replicaFQDN]
+	ops, ok := s.opsBySourceFQDN[replicaFQDN]
 	// No source replication ops for that replica it can be used for both read and writes
 	if !ok {
 		return true, true
 	}
 
-	opState, ok := s.opsStatus[op]
-	if !ok {
-		// TODO: This should never happens
-		return true, true
-	}
-
-	// Filter read/write based on the state of the replica op
 	readOk := true
 	writeOk := true
-	switch opState.GetCurrentState() {
-	case api.DEHYDRATING:
-		readOk = false
-		writeOk = false
-	default:
+	for _, op := range ops {
+		opState, ok := s.statusById[op.ID]
+		if !ok {
+			// This should never happen
+			continue
+		}
+		switch opState.GetCurrentState() {
+		case api.DEHYDRATING:
+			readOk = false
+			writeOk = false
+		default:
+		}
 	}
 	return readOk, writeOk
 }

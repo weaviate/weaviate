@@ -433,7 +433,7 @@ func (i *Index) IncomingAddAsyncReplicationTargetNode(
 	shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
-	// TODO do we want to init the shard if it's deactivated (eg on disk)?
+	// TODO do we want to init the shard if it's deactivated (eg on disk) or has been deleted in the meantime?
 	localShard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
 		return err

@@ -239,6 +239,8 @@ type Store struct {
 
 func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), reg)
+	schemaManager.SetReplicationsDeleter(replicationManager.GetReplicationFSM())
 
 	return Store{
 		cfg:          cfg,
@@ -256,7 +258,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		authZController:    authZController,
 		authZManager:       rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
-		replicationManager: replication.NewManager(schemaManager.NewSchemaReader(), reg),
+		replicationManager: replicationManager,
 		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
 			Clock:            clockwork.NewRealClock(),
 			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,

@@ -209,8 +209,11 @@ func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal
 		Tenants: tenants,
 	}
 
-	_, err := h.schemaManager.DeleteTenants(ctx, class, &req)
-	return err
+	if _, err := h.schemaManager.DeleteTenants(ctx, class, &req); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Principal, class string, consistency bool, tenants []string) ([]*models.Tenant, error) {
