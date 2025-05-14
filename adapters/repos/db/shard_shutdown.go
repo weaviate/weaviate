@@ -172,6 +172,9 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 }
 
 func (s *Shard) preventShutdown() (release func(), err error) {
+	if s.WantShutdown.Load() {
+		return func() {}, errShutdownInProgress
+	}
 	s.shutdownLock.RLock()
 	defer s.shutdownLock.RUnlock()
 
