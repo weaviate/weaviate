@@ -20,6 +20,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -276,13 +277,13 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 				break wait
 			default:
 				statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
-				helper.AssertRequestOk(t, resp, err, func() {
+				helper.AssertRequestOk(t, statusResp, err, func() {
 					require.NotNil(t, statusResp)
 					require.NotNil(t, statusResp.Payload)
 					require.NotNil(t, statusResp.Payload.Status)
 				})
 
-				if *resp.Payload.Status == string(backup.Cancelled) {
+				if *statusResp.Payload.Status == string(backup.Cancelled) {
 					break wait
 				}
 				time.Sleep(500 * time.Millisecond)
@@ -290,7 +291,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 		}
 
 		statusResp, err := helper.CreateBackupStatus(t, backend, backupID, overrideBucket, overridePath)
-		helper.AssertRequestOk(t, resp, err, func() {
+		helper.AssertRequestOk(t, statusResp, err, func() {
 			require.NotNil(t, statusResp)
 			require.NotNil(t, statusResp.Payload)
 			require.NotNil(t, statusResp.Payload.Status)
