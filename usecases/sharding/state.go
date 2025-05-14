@@ -212,7 +212,7 @@ func InitState(id string, config config.Config, nodeLocalName string, names []st
 	out.initVirtual()
 	out.distributeVirtualAmongPhysical()
 
-	out.ReplicationFactor = int64(replFactor)
+	out.ReplicationFactor = replFactor
 	return out, nil
 }
 
