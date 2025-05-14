@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-var ErrShardAlreadyReplicating = errors.New("target shard is already being replicated")
+var ErrShardAlreadyReplicating = errors.New("replica is already being replicated")
 
 func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateShardRequest) error {
 	s.opsLock.Lock()
@@ -64,6 +64,34 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 		return ErrShardAlreadyReplicating
 	}
 
+	if existingOps, ok := s.opsBySourceFQDN[op.SourceShard]; ok {
+		for _, existingOp := range existingOps {
+			// First check the status of the existing op. If it's READY or CANCELLED we can accept a new op
+			// If it's ongoing we need to check if it's a move, in which case we can't accept any new op
+			// Otherwise we can accept a copy if the existing op is also a copy
+			if existingOpStatus, ok := s.opsStatus[existingOp]; !ok {
+				// This should never happen
+				return fmt.Errorf("could not find op status for op %d", existingOp.ID)
+			} else if existingOpStatus.GetCurrentState() == api.CANCELLED {
+				continue
+			} else if existingOpStatus.GetCurrentState() == api.READY && existingOp.TransferType == api.COPY {
+				continue
+			}
+
+			// If any of the ops we're handling is a move we can't accept any new op
+			if existingOp.TransferType == api.MOVE {
+				return ErrShardAlreadyReplicating
+			}
+
+			// At this point we know the existing op is a copy, if our new op is a move we can't accept it
+			if op.TransferType == api.MOVE {
+				return ErrShardAlreadyReplicating
+			}
+
+			// Existing op is an ongoing copy, our new op is also a copy, we can accept it
+		}
+	}
+
 	s.idsByUuid[op.UUID] = op.ID
 	s.opsBySource[op.SourceShard.NodeId] = append(s.opsBySource[op.SourceShard.NodeId], op)
 	s.opsByTarget[op.TargetShard.NodeId] = append(s.opsByTarget[op.TargetShard.NodeId], op)
@@ -74,7 +102,7 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	s.opsByCollectionAndShard[op.SourceShard.CollectionId][op.SourceShard.ShardId] = append(s.opsByCollectionAndShard[op.SourceShard.CollectionId][op.SourceShard.ShardId], op)
 	s.opsByCollection[op.SourceShard.CollectionId] = append(s.opsByCollection[op.SourceShard.CollectionId], op)
 	s.opsByTargetFQDN[op.TargetShard] = op
-	s.opsBySourceFQDN[op.SourceShard] = op
+	s.opsBySourceFQDN[op.SourceShard] = append(s.opsBySourceFQDN[op.SourceShard], op)
 	s.opsById[op.ID] = op
 	s.opsStatus[op] = status
 
@@ -206,6 +234,15 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	opsReplace, ok = findAndDeleteOp(op.ID, ops)
 	if ok {
 		s.opsByCollection[op.SourceShard.CollectionId] = opsReplace
+	}
+
+	ops, ok = s.opsBySourceFQDN[op.SourceShard]
+	if !ok {
+		err = multierror.Append(err, fmt.Errorf("could not find op in ops by source fqdn, this should not happen"))
+	}
+	opsReplace, ok = findAndDeleteOp(op.ID, ops)
+	if ok {
+		s.opsBySourceFQDN[op.SourceShard] = opsReplace
 	}
 
 	shardOps, ok := s.opsByCollectionAndShard[op.SourceShard.CollectionId]
