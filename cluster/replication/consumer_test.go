@@ -715,8 +715,9 @@ func TestConsumerOpCancellation(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationCancellationComplete(uint64(1)).
 		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything)
+	mockFSMUpdater.EXPECT().
+		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(0, nil)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once
@@ -827,8 +828,9 @@ func TestConsumerOpDeletion(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationRemoveReplicaOp(uint64(1)).
 		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything)
+	mockFSMUpdater.EXPECT().
+		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(0, nil)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once

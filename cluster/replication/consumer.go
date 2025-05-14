@@ -368,10 +368,10 @@ func (c *CopyOpConsumer) cancelOp(ctx context.Context, op ShardReplicationOpAndS
 		c.engineOpCallbacks.OnOpCancelled(c.nodeId)
 	}()
 
-	// If the operation should be cleaned up, remove the local replica
-	// Only not true if the state is READY and ShouldDelete is true
-	if op.Status.ShouldCleanup() {
-		c.replicaCopier.RemoveLocalReplica(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId)
+	// Ensure that the local state of the shard in the store is in-sync with the state of the schema through a RAFT communication
+	// This handles cleaning up for ghost shards that are in the store but not in the schema that may have been created by index.getOptInitShard
+	if _, err := c.leaderClient.SyncShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.SourceShard.NodeId); err != nil {
+		logger.WithError(err).Error("failure while cleaning up replica shard")
 	}
 
 	// If the operation is only being cancelled then notify the FSM so it can update its state

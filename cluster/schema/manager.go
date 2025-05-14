@@ -458,6 +458,32 @@ func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOn
 	)
 }
 
+func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.SyncShardRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	shardAbsent := false
+	if shards, _ := s.schema.TenantsShards(cmd.Class, req.Shard); len(shards) == 0 {
+		shardAbsent = true
+	}
+
+	return s.apply(
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return nil },
+			updateStore: func() error {
+				if shardAbsent {
+					return s.db.DeleteReplicaFromShard(cmd.Class, req.Shard, req.NodeId)
+				}
+				return nil
+			},
+			schemaOnly: schemaOnly,
+		},
+	)
+}
+
 type applyOp struct {
 	op                   string
 	updateSchema         func() error

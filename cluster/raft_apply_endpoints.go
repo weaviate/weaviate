@@ -152,6 +152,27 @@ func (s *Raft) DeleteReplicaFromShard(ctx context.Context, class, shard, targetN
 	return s.Execute(ctx, command)
 }
 
+func (s *Raft) SyncShard(ctx context.Context, collection, shard, nodeId string) (uint64, error) {
+	if collection == "" || shard == "" || nodeId == "" {
+		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode : %w", schema.ErrBadRequest)
+	}
+	req := cmd.SyncShardRequest{
+		Collection: collection,
+		Shard:      shard,
+		NodeId:     nodeId,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD,
+		Class:      req.Collection,
+		SubCommand: subCommand,
+	}
+	return s.Execute(ctx, command)
+}
+
 func (s *Raft) UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error) {
 	if class == "" || shard == "" {
 		return 0, fmt.Errorf("empty class or shard : %w", schema.ErrBadRequest)
