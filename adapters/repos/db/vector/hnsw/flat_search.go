@@ -149,11 +149,7 @@ func (h *hnsw) flatMultiSearch(ctx context.Context, queryVector [][]float32, lim
 	beforeIter := time.Now()
 	// first extract all candidates, this reduces the amount of coordination
 	// needed for the workers
-	candidates := make([]uint64, 0, allowList.Len())
-	it := allowList.Iterator()
-	for candidate, ok := it.Next(); ok; candidate, ok = it.Next() {
-		candidates = append(candidates, candidate)
-	}
+	candidates := allowList.Slice()
 
 	eg := enterrors.NewErrorGroupWrapper(h.logger)
 	for workerID := 0; workerID < h.flatSearchConcurrency; workerID++ {
