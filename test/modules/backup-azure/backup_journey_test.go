@@ -18,6 +18,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/require"
+
 	modstgazure "github.com/weaviate/weaviate/modules/backup-azure"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -45,7 +46,6 @@ func Test_BackupJourney(t *testing.T) {
 }
 
 func backupJourneyStart(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-	azureBackupJourneyContainerName := containerName
 	azureBackupJourneyBackupIDCluster := "azure-backup-cluster"
 	azureBackupJourneyBackupIDSingleNode := "azure-backup-single-node"
 	if override {
@@ -55,6 +55,7 @@ func backupJourneyStart(t *testing.T, ctx context.Context, override bool, contai
 
 	t.Run("single node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
+		azureBackupJourneyContainerName := "azure-single-node"
 		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
 		t.Logf("BACKUP_AZURE_CONTAINER old test is set to %s", os.Getenv("BACKUP_AZURE_CONTAINER"))
 
@@ -75,8 +76,16 @@ func backupJourneyStart(t *testing.T, ctx context.Context, override bool, contai
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, azuriteEndpoint))
 
+		// Create the default container
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
 		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+
+		// If using override, create the override container as well
+		if override {
+			moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, overrideBucket)
+			defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, overrideBucket)
+		}
+
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
@@ -92,6 +101,7 @@ func backupJourneyStart(t *testing.T, ctx context.Context, override bool, contai
 
 	t.Run("multiple node", func(t *testing.T) {
 		t.Log("pre-instance env setup")
+		azureBackupJourneyContainerName := "azure-multiple-nodes"
 		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
 
 		compose, err := docker.New().
@@ -110,8 +120,16 @@ func backupJourneyStart(t *testing.T, ctx context.Context, override bool, contai
 		t.Setenv(envAzureEndpoint, azuriteEndpoint)
 		t.Setenv(envAzureStorageConnectionString, fmt.Sprintf(connectionString, azuriteEndpoint))
 
+		// Create the default container
 		moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
 		defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, azureBackupJourneyContainerName)
+
+		// If using override, create the override container as well
+		if override {
+			moduleshelper.CreateAzureContainer(ctx, t, azuriteEndpoint, overrideBucket)
+			defer moduleshelper.DeleteAzureContainer(ctx, t, azuriteEndpoint, overrideBucket)
+		}
+
 		helper.SetupClient(compose.GetWeaviate().URI())
 
 		t.Run("backup-azure", func(t *testing.T) {
