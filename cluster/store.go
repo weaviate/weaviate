@@ -25,6 +25,7 @@ import (
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -206,6 +207,39 @@ type Store struct {
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
+
+	metrics *storeMetrics
+}
+
+// storeMetrics exposes RAFT store related prometheus metrics
+type storeMetrics struct {
+	applyDuration    prometheus.Histogram
+	applyFailures    prometheus.Counter
+	lastAppliedIndex prometheus.Gauge
+}
+
+// newStoreMetrics cretes and registers the store related metrics on
+// given prometheus registry.
+func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
+	r := promauto.With(reg)
+	return &storeMetrics{
+		applyDuration: r.NewHistogram(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
+			Help:        "Time to apply cluster store FSM state in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets:     prometheus.ExponentialBuckets(0.001, 5, 5), // 1ms, 5ms, 25ms, 125ms, 625ms
+		}),
+		applyFailures: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_failures_total",
+			Help:        "Total failure count of cluster store FSM state apply in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		lastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_fsm_last_applied_index",
+			Help:        "Current applied index of cluster store FSM in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+	}
 }
 
 func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
@@ -225,6 +259,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		schemaManager:  schemaManager,
 		authZManager:   rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager: dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
+		metrics:        newStoreMetrics(cfg.NodeID, reg),
 	}
 }
 
@@ -760,6 +795,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 		authZManager:  st.authZManager,
 		logStore:      st.logStore,
 		logCache:      st.logCache,
+		metrics:       st.metrics,
 	}, st.logCache,
 		st.logStore,
 		st.snapshotStore,

@@ -14,6 +14,7 @@ package cluster
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
@@ -60,12 +61,30 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	return resp.Version, resp.Error
 }
 
+// StoreConfiguration is invoked once a log entry containing a configuration
+// change is committed. It takes the index at which the configuration was
+// written and the configuration value.
+
+// We implemented this to keep `lastAppliedIndex` metric to correct value
+// to also handle `LogConfiguration` type of Raft command.
+func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
+	st.metrics.lastAppliedIndex.Set(float64(index))
+}
+
 // Apply is called once a log entry is committed by a majority of the cluster.
 // Apply should apply the log to the FSM. Apply must be deterministic and
 // produce the same result on all peers in the cluster.
 // The returned value is returned to the client as the ApplyFuture.Response.
-func (st *Store) Apply(l *raft.Log) interface{} {
+func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
+
+	start := time.Now()
+	defer func() {
+		// this defer is final one that called before returning and thus capturing the
+		// applyDuration correctly.
+		st.metrics.applyDuration.Observe(float64(time.Since(start).Seconds()))
+	}()
+
 	if l.Type != raft.LogCommand {
 		st.log.WithFields(logrus.Fields{
 			"type":  l.Type,
@@ -87,6 +106,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
 		if ret.Error != nil {
+			st.metrics.applyFailures.Inc()
 			st.log.WithFields(logrus.Fields{
 				"log_type":      l.Type,
 				"log_name":      l.Type.String(),
@@ -111,6 +131,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
+		st.metrics.lastAppliedIndex.Set(float64(l.Index))
 	}()
 
 	cmd.Version = l.Index
