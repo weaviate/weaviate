@@ -78,7 +78,7 @@ func (o *DeleteReplicationUnauthorized) WriteResponse(rw http.ResponseWriter, pr
 const DeleteReplicationForbiddenCode int = 403
 
 /*
-DeleteReplicationForbidden Forbidden
+DeleteReplicationForbidden Forbidden.
 
 swagger:response deleteReplicationForbidden
 */
@@ -123,7 +123,7 @@ func (o *DeleteReplicationForbidden) WriteResponse(rw http.ResponseWriter, produ
 const DeleteReplicationNotFoundCode int = 404
 
 /*
-DeleteReplicationNotFound Shard replica operation not found
+DeleteReplicationNotFound Shard replica operation not found.
 
 swagger:response deleteReplicationNotFound
 */

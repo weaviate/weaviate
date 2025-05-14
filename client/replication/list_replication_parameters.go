@@ -87,7 +87,7 @@ type ListReplicationParams struct {
 
 	/* NodeID.
 
-	   The id of the target node to get details for.
+	   The ID of the target node to get details for.
 	*/
 	NodeID *string
 

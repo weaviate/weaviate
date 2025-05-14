@@ -32,7 +32,6 @@ func Test_MultiTenantBackup(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendFilesystem().
 			WithText2VecContextionary().
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
@@ -59,7 +58,6 @@ func Test_MultiTenantBackup(t *testing.T) {
 		compose, err := docker.New().
 			WithBackendFilesystem().
 			WithText2VecContextionary().
-			WithWeaviateEnv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS", "true").
 			WithWeaviate().
 			Start(ctx)
 		require.Nil(t, err)
