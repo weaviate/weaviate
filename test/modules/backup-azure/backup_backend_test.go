@@ -23,6 +23,7 @@ import (
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	mod "github.com/weaviate/weaviate/modules/backup-azure"
@@ -108,7 +109,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath strin
 	dataDir := t.TempDir()
 	className := "BackupClass"
 	backupID := "backup_id"
-	containerName := "container"
+	containerName := "container-level-store-backup-meta"
 	if overrideBucket != "" {
 		containerName = overrideBucket
 	}
@@ -195,7 +196,7 @@ func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath string) {
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
-	containerName := "container"
+	containerName := "container-level-copy-objects"
 	if overrideBucket != "" {
 		containerName = overrideBucket
 	}
@@ -235,7 +236,7 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath string) {
 	dataDir := t.TempDir()
 	key := "moduleLevelCopyFiles"
 	backupID := "backup_id"
-	containerName := "container"
+	containerName := "container-level-copy-files"
 	if overrideBucket != "" {
 		containerName = overrideBucket
 	}
