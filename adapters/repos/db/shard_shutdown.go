@@ -55,12 +55,21 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.shutdownLock.Lock()
 	defer s.shutdownLock.Unlock()
 	if !s.WantShutdown.Load() {
+		s.index.logger.
+			WithField("action", "shutdown").
+			Debugf("shard %q is not marked for shutdown", s.name)
 		return fmt.Errorf("shard %q is not marked for shutdown", s.name)
 	}
 	if s.shut.Load() {
+		s.index.logger.
+			WithField("action", "shutdown").
+			Debugf("shard %q is already shut down", s.name)
 		return fmt.Errorf("shard %q is already shut down", s.name)
 	}
 	if s.inUseCounter.Load() > 0 {
+		s.index.logger.
+			WithField("action", "shutdown").
+			Debugf("shard %q is still in use", s.name)
 		return fmt.Errorf("shard %q is still in use", s.name)
 	}
 	s.shut.Store(true)
