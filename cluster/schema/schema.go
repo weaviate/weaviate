@@ -22,6 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
 	entSchema "github.com/weaviate/weaviate/entities/schema"
@@ -409,9 +410,16 @@ func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica
 	defer s.mu.Unlock()
 	meta := s.classes[class]
 	if meta == nil {
-		return ErrClassNotFound
+		return fmt.Errorf("%w: %w for class %q", replicationTypes.ErrNotFound, ErrClassNotFound, class)
 	}
-	return meta.AddReplicaToShard(v, shard, replica)
+	err := meta.AddReplicaToShard(v, shard, replica)
+	if err != nil {
+		if errors.Is(err, sharding.ErrNotFound) {
+			return fmt.Errorf("%w: %w", replicationTypes.ErrNotFound, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *schema) deleteReplicaFromShard(class string, v uint64, shard string, replica string) error {
@@ -419,9 +427,16 @@ func (s *schema) deleteReplicaFromShard(class string, v uint64, shard string, re
 	defer s.mu.Unlock()
 	meta := s.classes[class]
 	if meta == nil {
-		return ErrClassNotFound
+		return fmt.Errorf("%w: %w for class %q", replicationTypes.ErrNotFound, ErrClassNotFound, class)
 	}
-	return meta.DeleteReplicaFromShard(v, shard, replica)
+	err := meta.DeleteReplicaFromShard(v, shard, replica)
+	if err != nil {
+		if errors.Is(err, sharding.ErrNotFound) {
+			return fmt.Errorf("%w: %w", replicationTypes.ErrNotFound, err)
+		}
+		return err
+	}
+	return nil
 }
 
 func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {

@@ -12,6 +12,7 @@
 package sharding
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -26,6 +27,8 @@ import (
 )
 
 const shardNameLength = 12
+
+var ErrNotFound = errors.New("shard not found")
 
 type State struct {
 	IndexID             string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
@@ -80,7 +83,7 @@ func (p Physical) BelongsToNode() string {
 func (s *State) AddReplicaToShard(shard string, replica string) error {
 	phys, ok := s.Physical[shard]
 	if !ok {
-		return fmt.Errorf("could not find shard %s", shard)
+		return fmt.Errorf("%w: shard %s not found", ErrNotFound, shard)
 	}
 	if err := phys.AddReplica(replica); err != nil {
 		return err
@@ -92,7 +95,7 @@ func (s *State) AddReplicaToShard(shard string, replica string) error {
 func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
 	phys, ok := s.Physical[shard]
 	if !ok {
-		return fmt.Errorf("could not find shard %s", shard)
+		return fmt.Errorf("%w: shard %s not found", ErrNotFound, shard)
 	}
 	if err := phys.DeleteReplica(replica); err != nil {
 		return err
@@ -111,7 +114,7 @@ func (p *Physical) AddReplica(replica string) error {
 
 func (p *Physical) DeleteReplica(replica string) error {
 	if !slices.Contains(p.BelongsToNodes, replica) {
-		return nil // replica not found, nothing to do
+		return fmt.Errorf("%w: replica %s not found", ErrNotFound, replica)
 	}
 	idx := slices.Index(p.BelongsToNodes, replica)
 	p.BelongsToNodes = slices.Delete(p.BelongsToNodes, idx, idx+1)

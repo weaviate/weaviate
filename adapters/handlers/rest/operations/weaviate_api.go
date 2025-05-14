@@ -137,6 +137,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ReplicationDeleteAllReplicationsHandler: replication.DeleteAllReplicationsHandlerFunc(func(params replication.DeleteAllReplicationsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.DeleteAllReplications has not yet been implemented")
 		}),
+		ReplicationDeleteReplicaHandler: replication.DeleteReplicaHandlerFunc(func(params replication.DeleteReplicaParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.DeleteReplica has not yet been implemented")
+		}),
 		ReplicationDeleteReplicationHandler: replication.DeleteReplicationHandlerFunc(func(params replication.DeleteReplicationParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.DeleteReplication has not yet been implemented")
 		}),
@@ -437,6 +440,8 @@ type WeaviateAPI struct {
 	UsersDeactivateUserHandler users.DeactivateUserHandler
 	// ReplicationDeleteAllReplicationsHandler sets the operation handler for the delete all replications operation
 	ReplicationDeleteAllReplicationsHandler replication.DeleteAllReplicationsHandler
+	// ReplicationDeleteReplicaHandler sets the operation handler for the delete replica operation
+	ReplicationDeleteReplicaHandler replication.DeleteReplicaHandler
 	// ReplicationDeleteReplicationHandler sets the operation handler for the delete replication operation
 	ReplicationDeleteReplicationHandler replication.DeleteReplicationHandler
 	// AuthzDeleteRoleHandler sets the operation handler for the delete role operation
@@ -712,6 +717,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ReplicationDeleteAllReplicationsHandler == nil {
 		unregistered = append(unregistered, "replication.DeleteAllReplicationsHandler")
+	}
+	if o.ReplicationDeleteReplicaHandler == nil {
+		unregistered = append(unregistered, "replication.DeleteReplicaHandler")
 	}
 	if o.ReplicationDeleteReplicationHandler == nil {
 		unregistered = append(unregistered, "replication.DeleteReplicationHandler")
@@ -1090,6 +1098,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/replication/replicate"] = replication.NewDeleteAllReplications(o.context, o.ReplicationDeleteAllReplicationsHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/replication/replica"] = replication.NewDeleteReplica(o.context, o.ReplicationDeleteReplicaHandler)
 	if o.handlers["DELETE"] == nil {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}

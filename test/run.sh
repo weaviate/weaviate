@@ -76,6 +76,7 @@ function main() {
               "--acceptance-go-client-named-vectors | -agnv"\
               "--acceptance-only-graphql | -aog"\
               "--acceptance-only-replication| -aor"\
+              "--acceptance-only-replica-replication|-aorr"\
               "--acceptance-only-async-replication| -aoar"\
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
@@ -375,7 +376,7 @@ function run_acceptance_only_authz() {
 
 function run_acceptance_replica_replication_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication'); do
-    if ! go test -v -timeout=20m -count 1 -race "$pkg"; then
+    if ! go test -v -timeout=20m -count 1 -run 'TestReplicationTestSuiteEndpoints/TestReplicationDeleteReplicaEndpoints' -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi

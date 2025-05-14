@@ -3376,6 +3376,71 @@
         }
       }
     },
+    "/replication/replica": {
+      "delete": {
+        "summary": "Delete a replica of a shard",
+        "description": "Deletes a replica of a shard from the cluster. This will remove the replica from the cluster. Deletion will fail if deleting the replica mean going below the minimum replication factor configured for the collection.",
+        "operationId": "deleteReplica",
+        "x-serviceIds": [
+          "weaviate.replication.replica.delete"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "parameters": [
+          {
+            "name": "collection",
+            "in": "query",
+            "description": "The collection to delete the shard from.",
+            "type": "string"
+          },
+          {
+            "name": "shard",
+            "in": "query",
+            "description": "The shard to delete.",
+            "type": "string"
+          },
+          {
+            "name": "nodeId",
+            "in": "query",
+            "description": "The node ID to delete the replica from.",
+            "type": "string"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or shard or replica not found.", 
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/users/own-info": {
       "get": {
         "summary": "get info relevant to own user, e.g. username, roles",

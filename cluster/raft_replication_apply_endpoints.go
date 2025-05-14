@@ -51,14 +51,6 @@ func (s *Raft) ReplicationReplicateReplica(uuid strfmt.UUID, sourceNode string, 
 	return nil
 }
 
-func (s *Raft) ReplicationDisableReplica(node string, collection string, shard string) error {
-	return fmt.Errorf("not implemented")
-}
-
-func (s *Raft) ReplicationDeleteReplica(node string, collection string, shard string) error {
-	return fmt.Errorf("not implemented")
-}
-
 func (s *Raft) ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplicationState) error {
 	req := &api.ReplicationUpdateOpStateRequest{
 		Version: api.ReplicationCommandVersionV0,

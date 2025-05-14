@@ -14,8 +14,11 @@
 package types
 
 import (
-	mock "github.com/stretchr/testify/mock"
+	context "context"
+
 	api "github.com/weaviate/weaviate/cluster/proto/api"
+
+	mock "github.com/stretchr/testify/mock"
 
 	strfmt "github.com/go-openapi/strfmt"
 )
@@ -120,6 +123,65 @@ func (_c *MockManager_DeleteAllReplications_Call) Return(_a0 error) *MockManager
 }
 
 func (_c *MockManager_DeleteAllReplications_Call) RunAndReturn(run func() error) *MockManager_DeleteAllReplications_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// DeleteReplicaFromShard provides a mock function with given fields: ctx, class, shard, targetNode
+func (_m *MockManager) DeleteReplicaFromShard(ctx context.Context, class string, shard string, targetNode string) (uint64, error) {
+	ret := _m.Called(ctx, class, shard, targetNode)
+
+	if len(ret) == 0 {
+		panic("no return value specified for DeleteReplicaFromShard")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (uint64, error)); ok {
+		return rf(ctx, class, shard, targetNode)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) uint64); ok {
+		r0 = rf(ctx, class, shard, targetNode)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, class, shard, targetNode)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockManager_DeleteReplicaFromShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'DeleteReplicaFromShard'
+type MockManager_DeleteReplicaFromShard_Call struct {
+	*mock.Call
+}
+
+// DeleteReplicaFromShard is a helper method to define mock.On call
+//   - ctx context.Context
+//   - class string
+//   - shard string
+//   - targetNode string
+func (_e *MockManager_Expecter) DeleteReplicaFromShard(ctx interface{}, class interface{}, shard interface{}, targetNode interface{}) *MockManager_DeleteReplicaFromShard_Call {
+	return &MockManager_DeleteReplicaFromShard_Call{Call: _e.mock.On("DeleteReplicaFromShard", ctx, class, shard, targetNode)}
+}
+
+func (_c *MockManager_DeleteReplicaFromShard_Call) Run(run func(ctx context.Context, class string, shard string, targetNode string)) *MockManager_DeleteReplicaFromShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockManager_DeleteReplicaFromShard_Call) Return(_a0 uint64, _a1 error) *MockManager_DeleteReplicaFromShard_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockManager_DeleteReplicaFromShard_Call) RunAndReturn(run func(context.Context, string, string, string) (uint64, error)) *MockManager_DeleteReplicaFromShard_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -660,102 +722,6 @@ func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) Return(_a0 ap
 }
 
 func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) RunAndReturn(run func(string, string) (api.ShardingState, error)) *MockManager_QueryShardingStateByCollectionAndShard_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ReplicationDeleteReplica provides a mock function with given fields: node, collection, shard
-func (_m *MockManager) ReplicationDeleteReplica(node string, collection string, shard string) error {
-	ret := _m.Called(node, collection, shard)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReplicationDeleteReplica")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string, string) error); ok {
-		r0 = rf(node, collection, shard)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockManager_ReplicationDeleteReplica_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationDeleteReplica'
-type MockManager_ReplicationDeleteReplica_Call struct {
-	*mock.Call
-}
-
-// ReplicationDeleteReplica is a helper method to define mock.On call
-//   - node string
-//   - collection string
-//   - shard string
-func (_e *MockManager_Expecter) ReplicationDeleteReplica(node interface{}, collection interface{}, shard interface{}) *MockManager_ReplicationDeleteReplica_Call {
-	return &MockManager_ReplicationDeleteReplica_Call{Call: _e.mock.On("ReplicationDeleteReplica", node, collection, shard)}
-}
-
-func (_c *MockManager_ReplicationDeleteReplica_Call) Run(run func(node string, collection string, shard string)) *MockManager_ReplicationDeleteReplica_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockManager_ReplicationDeleteReplica_Call) Return(_a0 error) *MockManager_ReplicationDeleteReplica_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockManager_ReplicationDeleteReplica_Call) RunAndReturn(run func(string, string, string) error) *MockManager_ReplicationDeleteReplica_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ReplicationDisableReplica provides a mock function with given fields: node, collection, shard
-func (_m *MockManager) ReplicationDisableReplica(node string, collection string, shard string) error {
-	ret := _m.Called(node, collection, shard)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReplicationDisableReplica")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(string, string, string) error); ok {
-		r0 = rf(node, collection, shard)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockManager_ReplicationDisableReplica_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationDisableReplica'
-type MockManager_ReplicationDisableReplica_Call struct {
-	*mock.Call
-}
-
-// ReplicationDisableReplica is a helper method to define mock.On call
-//   - node string
-//   - collection string
-//   - shard string
-func (_e *MockManager_Expecter) ReplicationDisableReplica(node interface{}, collection interface{}, shard interface{}) *MockManager_ReplicationDisableReplica_Call {
-	return &MockManager_ReplicationDisableReplica_Call{Call: _e.mock.On("ReplicationDisableReplica", node, collection, shard)}
-}
-
-func (_c *MockManager_ReplicationDisableReplica_Call) Run(run func(node string, collection string, shard string)) *MockManager_ReplicationDisableReplica_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockManager_ReplicationDisableReplica_Call) Return(_a0 error) *MockManager_ReplicationDisableReplica_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockManager_ReplicationDisableReplica_Call) RunAndReturn(run func(string, string, string) error) *MockManager_ReplicationDisableReplica_Call {
 	_c.Call.Return(run)
 	return _c
 }

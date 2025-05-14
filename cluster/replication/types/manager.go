@@ -12,6 +12,8 @@
 package types
 
 import (
+	context "context"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -20,9 +22,8 @@ type Manager interface {
 	QueryShardingStateByCollection(collection string) (api.ShardingState, error)
 	QueryShardingStateByCollectionAndShard(collection string, shard string) (api.ShardingState, error)
 
+	DeleteReplicaFromShard(ctx context.Context, class, shard, targetNode string) (uint64, error)
 	ReplicationReplicateReplica(opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error
-	ReplicationDisableReplica(node string, collection string, shard string) error
-	ReplicationDeleteReplica(node string, collection string, shard string) error
 
 	// GetReplicationDetailsByReplicationId retrieves the details of a replication operation by its UUID.
 	//

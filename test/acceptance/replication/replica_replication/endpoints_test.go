@@ -43,6 +43,101 @@ func TestReplicationTestSuiteEndpoints(t *testing.T) {
 	suite.Run(t, new(ReplicationTestSuiteEndpoints))
 }
 
+func (suite *ReplicationTestSuiteEndpoints) TestReplicationDeleteReplicaEndpoints() {
+	t := suite.T()
+
+	mainCtx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	paragraphClass := articles.ParagraphsClass()
+	paragraphClass.ReplicationConfig = &models.ReplicationConfig{
+		Factor: 3,
+	}
+
+	t.Run("create schema", func(t *testing.T) {
+		helper.DeleteClass(t, paragraphClass.Class)
+		helper.CreateClass(t, paragraphClass)
+	})
+
+	t.Run("delete replica going below RF", func(t *testing.T) {
+		request := getRequest(t, paragraphClass.Class)
+		_, err := helper.Client(t).Replication.DeleteReplica(replication.NewDeleteReplicaParams().WithCollection(&paragraphClass.Class).WithNodeID(request.SourceNodeName).WithShard(request.ShardID), nil)
+		require.Error(t, err)
+	})
+
+	t.Run("delete replica no class", func(t *testing.T) {
+		request := getRequest(t, paragraphClass.Class)
+		deleted, err := helper.Client(t).Replication.DeleteReplica(replication.NewDeleteReplicaParams().WithNodeID(request.DestinationNodeName).WithShard(request.ShardID), nil)
+		require.NotNil(t, err)
+		require.IsType(t, replication.NewDeleteReplicaBadRequest(), err)
+		require.Nil(t, deleted)
+	})
+
+	t.Run("delete replica no shard", func(t *testing.T) {
+		request := getRequest(t, paragraphClass.Class)
+		deleted, err := helper.Client(t).Replication.DeleteReplica(replication.NewDeleteReplicaParams().WithCollection(&paragraphClass.Class).WithNodeID(request.DestinationNodeName), nil)
+		require.NotNil(t, err)
+		require.IsType(t, replication.NewDeleteReplicaBadRequest(), err)
+		require.Nil(t, deleted)
+	})
+
+	t.Run("delete replica no node ID", func(t *testing.T) {
+		request := getRequest(t, paragraphClass.Class)
+		deleted, err := helper.Client(t).Replication.DeleteReplica(replication.NewDeleteReplicaParams().WithCollection(&paragraphClass.Class).WithShard(request.ShardID), nil)
+		require.NotNil(t, err)
+		require.IsType(t, replication.NewDeleteReplicaBadRequest(), err)
+		require.Nil(t, deleted)
+	})
+
+	t.Run("delete replica with invalid collection", func(t *testing.T) {
+		nonExistingCollection := "non-existing"
+		request := getRequest(t, paragraphClass.Class)
+		resp, err := helper.Client(t).Replication.DeleteReplica(replication.NewDeleteReplicaParams().WithCollection(&nonExistingCollection).WithNodeID(request.DestinationNodeName).WithShard(request.ShardID), nil)
+		require.NotNil(t, err)
+		require.IsType(t, replication.NewDeleteReplicaNotFound(), err)
+		require.Nil(t, resp)
+	})
+
+	t.Run("delete replica with invalid node ID", func(t *testing.T) {
+		nonExistingNodeID := "non-existing"
+		request := getRequest(t, paragraphClass.Class)
+		resp, err := helper.Client(t).Replication.DeleteReplica(replication.NewDeleteReplicaParams().WithCollection(&paragraphClass.Class).WithNodeID(&nonExistingNodeID).WithShard(request.ShardID), nil)
+		require.NotNil(t, err)
+		require.IsType(t, replication.NewDeleteReplicaNotFound(), err)
+		require.Nil(t, resp)
+	})
+
+	t.Run("delete replica with invalid shard", func(t *testing.T) {
+		nonExistingShard := "non-existing"
+		request := getRequest(t, paragraphClass.Class)
+		resp, err := helper.Client(t).Replication.DeleteReplica(replication.NewDeleteReplicaParams().WithCollection(&paragraphClass.Class).WithNodeID(request.DestinationNodeName).WithShard(&nonExistingShard), nil)
+		require.NotNil(t, err)
+		require.IsType(t, replication.NewDeleteReplicaNotFound(), err)
+		require.Nil(t, resp)
+	})
+
+	t.Run("delete replica with all invalid parameters", func(t *testing.T) {
+		nonExistingCollection := "non-existing"
+		nonExistingNodeID := "non-existing"
+		nonExistingShard := "non-existing"
+		resp, err := helper.Client(t).Replication.DeleteReplica(replication.NewDeleteReplicaParams().WithCollection(&nonExistingCollection).WithNodeID(&nonExistingNodeID).WithShard(&nonExistingShard), nil)
+		require.NotNil(t, err)
+		require.IsType(t, replication.NewDeleteReplicaNotFound(), err)
+		require.Nil(t, resp)
+	})
+}
+
 func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateEndpoints() {
 	t := suite.T()
 	mainCtx := context.Background()
@@ -266,13 +361,17 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateEndpoints() 
 }
 
 func getRequest(t *testing.T, className string) *models.ReplicationReplicateReplicaRequest {
+	t.Helper()
+
 	verbose := verbosity.OutputVerbose
 	nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className), nil)
 	require.Nil(t, err)
+	transferType := models.ReplicationReplicateReplicaRequestTransferTypeCOPY
 	return &models.ReplicationReplicateReplicaRequest{
 		CollectionID:        &className,
 		SourceNodeName:      &nodes.Payload.Nodes[0].Name,
 		DestinationNodeName: &nodes.Payload.Nodes[1].Name,
 		ShardID:             &nodes.Payload.Nodes[0].Shards[0].Name,
+		TransferType:        &transferType,
 	}
 }

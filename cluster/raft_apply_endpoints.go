@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -24,6 +25,7 @@ import (
 	"google.golang.org/protobuf/proto"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -128,7 +130,14 @@ func (s *Raft) AddReplicaToShard(ctx context.Context, class, shard, targetNode s
 		Class:      req.Class,
 		SubCommand: subCommand,
 	}
-	return s.Execute(ctx, command)
+	v, err := s.Execute(ctx, command)
+	if err != nil {
+		if strings.Contains(err.Error(), replicationTypes.ErrNotFound.Error()) {
+			return 0, fmt.Errorf("%w: %w", types.ErrNotFound, err)
+		}
+		return 0, fmt.Errorf("failed to execute query: %w", err)
+	}
+	return v, nil
 }
 
 func (s *Raft) DeleteReplicaFromShard(ctx context.Context, class, shard, targetNode string) (uint64, error) {
@@ -149,7 +158,14 @@ func (s *Raft) DeleteReplicaFromShard(ctx context.Context, class, shard, targetN
 		Class:      req.Class,
 		SubCommand: subCommand,
 	}
-	return s.Execute(ctx, command)
+	v, err := s.Execute(ctx, command)
+	if err != nil {
+		if strings.Contains(err.Error(), replicationTypes.ErrNotFound.Error()) {
+			return 0, fmt.Errorf("%w: %w", types.ErrNotFound, err)
+		}
+		return 0, fmt.Errorf("failed to execute query: %w", err)
+	}
+	return v, nil
 }
 
 func (s *Raft) UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error) {

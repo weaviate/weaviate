@@ -298,3 +298,31 @@ func (h *replicationHandler) getCollectionShardingState(params replication.GetCo
 
 	return replication.NewGetCollectionShardingStateOK().WithPayload(h.generateShardingStateResponse(shardingState.Collection, shardingState.Shards))
 }
+
+func (h *replicationHandler) deleteReplica(params replication.DeleteReplicaParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.CollectionsMetadata()...); err != nil {
+		return replication.NewDeleteReplicaForbidden()
+	}
+
+	if params.Collection == nil {
+		return replication.NewDeleteReplicaBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("collection is required")))
+	}
+
+	if params.Shard == nil {
+		return replication.NewDeleteReplicaBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("shard is required")))
+	}
+
+	if params.NodeID == nil {
+		return replication.NewDeleteReplicaBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("node id is required")))
+	}
+
+	if _, err := h.replicationManager.DeleteReplicaFromShard(params.HTTPRequest.Context(), *params.Collection, *params.Shard, *params.NodeID); err != nil {
+		if errors.Is(err, replicationTypes.ErrNotFound) {
+			return replication.NewDeleteReplicaNotFound()
+		} else {
+			return replication.NewDeleteReplicaInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+	}
+
+	return replication.NewDeleteReplicaNoContent()
+}

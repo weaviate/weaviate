@@ -3449,6 +3449,71 @@ func init() {
         ]
       }
     },
+    "/replication/replica": {
+      "delete": {
+        "description": "Deletes a replica of a shard from the cluster. This will remove the replica from the cluster. Deletion will fail if deleting the replica mean going below the minimum replication factor configured for the collection.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete a replica of a shard",
+        "operationId": "deleteReplica",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The collection to delete the shard from.",
+            "name": "collection",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The shard to delete.",
+            "name": "shard",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The node ID to delete the replica from.",
+            "name": "nodeId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or shard or replica not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replica.delete"
+        ]
+      }
+    },
     "/replication/replicate": {
       "post": {
         "description": "Begins an asynchronous operation to move or copy a specific shard replica from its current node to a designated target node. The operation involves copying data, synchronizing, and potentially decommissioning the source replica.",
@@ -11556,6 +11621,71 @@ func init() {
         "x-available-in-websocket": false,
         "x-serviceIds": [
           "weaviate.local.manipulate"
+        ]
+      }
+    },
+    "/replication/replica": {
+      "delete": {
+        "description": "Deletes a replica of a shard from the cluster. This will remove the replica from the cluster. Deletion will fail if deleting the replica mean going below the minimum replication factor configured for the collection.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Delete a replica of a shard",
+        "operationId": "deleteReplica",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "The collection to delete the shard from.",
+            "name": "collection",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The shard to delete.",
+            "name": "shard",
+            "in": "query"
+          },
+          {
+            "type": "string",
+            "description": "The node ID to delete the replica from.",
+            "name": "nodeId",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successfully deleted."
+          },
+          "400": {
+            "description": "Bad request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Collection or shard or replica not found.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replica.delete"
         ]
       }
     },
