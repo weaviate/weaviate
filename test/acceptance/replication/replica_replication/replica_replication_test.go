@@ -542,7 +542,6 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFi
 								"contents": fmt.Sprintf("paragraph#%d", numParagraphsInsertedBeforeStart+i),
 							},
 							uuid.New().String(),
-							// TODO handle
 							"",
 						)
 						require.NoError(t, err)
@@ -612,7 +611,7 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 		Class      string                 `json:"class"`
 		Properties map[string]interface{} `json:"properties"`
 		ID         string                 `json:"id"`
-		Tenant     string                 `json:"tenant"`
+		Tenant     string                 `json:"tenant,omitempty"`
 	}
 
 	// Create an instance of the object with sample data
@@ -630,8 +629,7 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 	}
 
 	// Create a new POST request
-	// TODO one vs quorum vs all
-	req, err := http.NewRequest("POST", "http://"+uri+"/v1/objects?consistency_level=ALL", bytes.NewBuffer(jsonData))
+	req, err := http.NewRequest("POST", "http://"+uri+"/v1/objects", bytes.NewBuffer(jsonData))
 	if err != nil {
 		return fmt.Errorf("error creating request: %w", err)
 	}

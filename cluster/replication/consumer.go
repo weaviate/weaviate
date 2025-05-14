@@ -408,6 +408,8 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), err
 	}
 
+	// this time will be used to make sure async replication has propagated any writes which
+	// were received during the hydrating phase
 	asyncReplicationUpperTimeBoundUnixMillis := time.Now().UnixMilli()
 
 	// start async replication from source node to target node
@@ -472,8 +474,6 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	logger := getLoggerForOp(c.logger.Logger, op.Op)
 	logger.Info("processing dehydrating replication operation")
 
-	// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
-	// received during movement work as expected
 	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
 
 	// start async replication from source node to target node
@@ -487,7 +487,6 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	defer c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride)
 	defer c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId)
 
-	// TODO do i need a bunch of these everywhere?
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
 		return api.ShardReplicationState(""), ctx.Err()
@@ -510,7 +509,6 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	// we only check the status of the async replication every 5 seconds to avoid
 	// spamming with too many requests too quickly
 	err := backoff.Retry(func() error {
-		// TOOD check if ctx/etc done here or inside do?
 		if do() {
 			return nil
 		}
