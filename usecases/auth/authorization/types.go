@@ -80,6 +80,10 @@ var (
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
 	}
+	AllReplications = &models.PermissionReplication{
+		Collection: All,
+		Shard:      All,
+	}
 
 	ComponentName = "RBAC"
 
