@@ -24,7 +24,7 @@ import (
 
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	s.WantShutdown.Store(true)
-	s.PerformShutdown(ctx)
+	s.performShutdown(ctx)
 	return nil
 }
 
@@ -51,7 +51,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 // idempotent Shutdown methods. In other parts, it explicitly checks if a
 // component was initialized. If not, it turns it into a noop to prevent
 // blocking.
-func (s *Shard) PerformShutdown(ctx context.Context) (err error) {
+func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.shutdownLock.Lock()
 	defer s.shutdownLock.Unlock()
 	if !s.WantShutdown.Load() {
@@ -183,7 +183,7 @@ func (s *Shard) refCountSub() {
 	// if the counter is 0, we can shutdown
 	if s.inUseCounter.Load() == 0 {
 		if s.WantShutdown.Load() {
-			s.PerformShutdown(context.TODO())
+			s.performShutdown(context.TODO())
 		}
 	}
 }
