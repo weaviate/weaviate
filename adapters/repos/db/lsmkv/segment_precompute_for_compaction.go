@@ -18,10 +18,12 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/mmap"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // preComputeSegmentMeta has no side-effects for an already running store. As a
@@ -122,6 +124,12 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		dataEndPos = invertedHeader.TombstoneOffset
 	}
 
+	stratLabel := header.Strategy.String()
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"strategy":  stratLabel,
+		"operation": "compactionMetadata",
+	})
+
 	seg := &segment{
 		level: header.Level,
 		// trim the .tmp suffix to make sure the naming rules for the files we
@@ -146,6 +154,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		calcCountNetAdditions: calcCountNetAdditions,
 		invertedHeader:        invertedHeader,
 		invertedData:          &segmentInvertedData{},
+		observeMetaWrite:      func(n int64) { observeWrite.Observe(float64(n)) },
 	}
 
 	if seg.secondaryIndexCount > 0 {

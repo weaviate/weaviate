@@ -405,6 +405,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
 		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
+		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
@@ -484,7 +485,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
-	replicaCopier := copier.New(remoteIndexClient, appState.Cluster, dataPath, appState.DB)
+	replicaCopier := copier.New(remoteIndexClient, appState.Cluster, dataPath, appState.DB, appState.Logger)
 	rConfig := rCluster.Config{
 		WorkDir:                              filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                               nodeName,
@@ -516,6 +517,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		DynamicUserController:                appState.APIKey.Dynamic,
 		ReplicaCopier:                        replicaCopier,
 		AuthNConfig:                          appState.ServerConfig.Config.Authentication,
+		ReplicationEngineMaxWorkers:          appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:                     appState.ServerConfig.Config.DistributedTasks,
 		ReplicaMovementMinimumFinalizingWait: appState.ServerConfig.Config.ReplicaMovementMinimumFinalizingWait,
 	}

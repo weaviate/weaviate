@@ -36,8 +36,8 @@ import (
 
 const (
 	// TODO: consider exposing these as settings
-	replicationEngineMaxWorkers      = 5
 	shardReplicationEngineBufferSize = 16
+	fsmOpProducerPollingInterval     = 5 * time.Second
 	replicationEngineShutdownTimeout = 10 * time.Minute
 	replicationOperationTimeout      = 24 * time.Hour
 	catchUpInterval                  = 5 * time.Second
@@ -76,7 +76,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	fsmOpProducer := replication.NewFSMOpProducer(
 		cfg.Logger,
 		fsm.replicationManager.GetReplicationFSM(),
-		replicationEngineMaxWorkers*time.Second,
+		fsmOpProducerPollingInterval,
 		cfg.NodeSelector.LocalName(),
 	)
 	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
@@ -87,7 +87,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		&backoff.StopBackOff{},
 		replication.NewOpsCache(),
 		replicationOperationTimeout,
-		replicationEngineMaxWorkers,
+		cfg.ReplicationEngineMaxWorkers,
 		cfg.ReplicaMovementMinimumFinalizingWait,
 		metrics.NewReplicationEngineOpsCallbacks(prometheus.DefaultRegisterer),
 	)
@@ -97,7 +97,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		fsmOpProducer,
 		replicaCopyOpConsumer,
 		shardReplicationEngineBufferSize,
-		replicationEngineMaxWorkers,
+		cfg.ReplicationEngineMaxWorkers,
 		replicationEngineShutdownTimeout,
 		metrics.NewReplicationEngineCallbacks(prometheus.DefaultRegisterer),
 	)

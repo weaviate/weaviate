@@ -42,7 +42,7 @@ func setupDebugHandlers(appState *state.State) {
 			http.Error(w, "sourceNodeName, collectionName, and shardName are required", http.StatusBadRequest)
 			return
 		}
-		c := copier.New(appState.DB.GetRemoteIndex(), appState.Cluster, appState.DB.GetConfig().RootPath, appState.DB)
+		c := copier.New(appState.DB.GetRemoteIndex(), appState.Cluster, appState.DB.GetConfig().RootPath, appState.DB, appState.Logger)
 		err := c.CopyReplica(context.Background(), sourceNodeName, collectionName, shardName)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -272,7 +272,7 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		// tenant map: tenantName -> *models.TenantResponse
-		tenantMap := make(map[string]*models.TenantResponse)
+		tenantMap := make(map[string]*models.Tenant)
 
 		if info.MultiTenancy.Enabled {
 
@@ -288,10 +288,8 @@ func setupDebugHandlers(appState *state.State) {
 			}
 		} else {
 			for name := range paths {
-				tenantMap[name] = &models.TenantResponse{
-					Tenant: models.Tenant{
-						Name: name,
-					},
+				tenantMap[name] = &models.Tenant{
+					Name: name,
 				}
 			}
 		}

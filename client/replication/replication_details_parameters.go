@@ -75,7 +75,7 @@ type ReplicationDetailsParams struct {
 
 	/* ID.
 
-	   The id of the replication operation to get details for.
+	   The ID of the replication operation to get details for.
 
 	   Format: uuid
 	*/

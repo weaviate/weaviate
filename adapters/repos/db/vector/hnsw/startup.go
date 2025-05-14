@@ -120,8 +120,14 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	h.tombstoneLock.Unlock()
 
 	if h.multivector.Load() {
-		if err := h.restoreDocMappings(); err != nil {
-			return errors.Wrapf(err, "restore doc mappings %q", h.id)
+		if !h.muvera.Load() {
+			if err := h.restoreDocMappings(); err != nil {
+				return errors.Wrapf(err, "restore doc mappings %q", h.id)
+			}
+		} else if state.MuveraEnabled {
+			h.trackMuveraOnce.Do(func() {
+				h.muveraEncoder.LoadMuveraConfig(*state.EncoderMuvera)
+			})
 		}
 	}
 
@@ -137,7 +143,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 				if h.pqConfig.Segments == 0 {
 					h.pqConfig.Segments = int(data.Dimensions)
 				}
-				if !h.multivector.Load() {
+				if !h.multivector.Load() || h.muvera.Load() {
 					h.compressor, err = compressionhelpers.RestoreHNSWPQCompressor(
 						h.pqConfig,
 						h.distancerProvider,
@@ -168,7 +174,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		} else if state.CompressionSQData != nil {
 			data := state.CompressionSQData
 			h.dims = int32(data.Dimensions)
-			if !h.multivector.Load() {
+			if !h.multivector.Load() || h.muvera.Load() {
 				h.compressor, err = compressionhelpers.RestoreHNSWSQCompressor(
 					h.distancerProvider,
 					1e12,
@@ -203,7 +209,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		// make sure the cache fits the current size
 		h.cache.Grow(uint64(len(h.nodes)))
 
-		if h.multivector.Load() {
+		if h.multivector.Load() && !h.muvera.Load() {
 			h.populateKeys()
 		}
 		if len(h.nodes) > 0 {
@@ -213,7 +219,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		}
 	}
 
-	if h.compressed.Load() && h.multivector.Load() {
+	if h.compressed.Load() && h.multivector.Load() && !h.muvera.Load() {
 		h.compressor.GrowCache(uint64(len(h.nodes)))
 		h.populateKeys()
 	}
@@ -349,7 +355,7 @@ func (h *hnsw) prefillCache() {
 
 		var err error
 		if h.compressed.Load() {
-			if !h.multivector.Load() {
+			if !h.multivector.Load() || h.muvera.Load() {
 				h.compressor.PrefillCache()
 			} else {
 				h.compressor.PrefillMultiCache(h.docIDVectors)

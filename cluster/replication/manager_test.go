@@ -29,6 +29,7 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/fakes"
@@ -268,7 +269,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 					registerErrorRequests: []*api.ReplicationRegisterErrorRequest{
 						{Id: 1, Error: "test error"},
 					},
-					registerErrorExpectedError: []error{replication.ErrReplicationOperationNotFound, nil},
+					registerErrorExpectedError: []error{types.ErrReplicationOperationNotFound, nil},
 				},
 			},
 		},
@@ -334,7 +335,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 			updateStatusRequests: []*stateChangeAndErrors{
 				{
 					stateChangeRequest:       &api.ReplicationUpdateOpStateRequest{Id: 1, State: api.ShardReplicationState(api.REGISTERED)},
-					stateChangeExpectedError: replication.ErrReplicationOperationNotFound,
+					stateChangeExpectedError: types.ErrReplicationOperationNotFound,
 				},
 			},
 		},
@@ -386,7 +387,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 					applyRequest = &api.ApplyRequest{
 						SubCommand: subCommand,
 					}
-					err = manager.RegisterError(errReq.Id, applyRequest)
+					err = manager.RegisterError(applyRequest)
 					if expectedErr != nil {
 						assert.ErrorAs(t, err, &expectedErr)
 					} else {
@@ -542,7 +543,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					var originalReq api.ReplicationRegisterErrorRequest
 					err := json.Unmarshal(req.SubCommand, &originalReq)
 					require.NoError(t, err)
-					err = manager.RegisterError(originalReq.Id, req)
+					err = manager.RegisterError(req)
 					assert.NoError(t, err)
 				default:
 					t.Fatalf("unknown apply request type: %v", req.Type)
@@ -565,7 +566,7 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					var originalReq api.ReplicationRegisterErrorRequest
 					err := json.Unmarshal(req.SubCommand, &originalReq)
 					require.NoError(t, err)
-					err = manager.RegisterError(originalReq.Id, req)
+					err = manager.RegisterError(req)
 					assert.NoError(t, err)
 				default:
 					t.Fatalf("unknown apply request type: %v", req.Type)

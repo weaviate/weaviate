@@ -1103,7 +1103,7 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 func (b *Bucket) setNewActiveMemtable() error {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
-	cl, err := newLazyCommitLogger(path)
+	cl, err := newLazyCommitLogger(path, b.strategy)
 	if err != nil {
 		return errors.Wrap(err, "init commit logger")
 	}
@@ -1600,7 +1600,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }
 
-func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
 	release := func() {}
 
 	defer func() {
@@ -1615,6 +1615,12 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+
+	averagePropLength, err := b.GetAveragePropertyLength()
+	if err != nil {
+		release()
+		return nil, nil, func() {}, err
+	}
 
 	// The lock is necessary, as data is being read from the disk during blockmax wand search.
 	// BlockMax is ran outside this function, so, the lock is returned to the caller.

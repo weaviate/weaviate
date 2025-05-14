@@ -671,6 +671,7 @@ type IndexConfig struct {
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
 	ForceFullReplicasSearch             bool
+	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 	ShardLoadLimiter                    ShardLoadLimiter
@@ -2047,6 +2048,31 @@ func (i *Index) getOrInitShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
 	return i.getOptInitLocalShard(ctx, shardName, true)
+}
+
+// getNoInitLocalShard returns the local shard with the given name.
+// This method returns the shard if it is in memory.
+// If, for whatever reason, it is not in memory (e.g. on disk, deleted, lazy loading), then
+// shard not found error is returned
+func (i *Index) getNoInitLocalShard(shardName string) (ShardLike, func(), error) {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return nil, func() {}, errAlreadyShutdown
+	}
+
+	shard := i.shards.Load(shardName)
+	if shard == nil {
+		return nil, func() {}, fmt.Errorf("get local shard %q, not found", shardName)
+	}
+
+	release, err := shard.preventShutdown()
+	if err != nil {
+		return nil, func() {}, fmt.Errorf("get local shard %q, no shutdown: %w", shardName, err)
+	}
+
+	return shard, release, nil
 }
 
 // getOptInitLocalShard returns the local shard with the given name.

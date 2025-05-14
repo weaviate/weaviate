@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"bufio"
+	"bytes"
 	"encoding/binary"
 	"fmt"
 	"io"
@@ -22,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
 
@@ -68,6 +70,11 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			}
 		} else {
 			return errors.Wrap(err, "unavailable compression data")
+		}
+	}
+	if res.MuveraEnabled {
+		if err := c.AddMuvera(*res.EncoderMuvera); err != nil {
+			return fmt.Errorf("write muvera data: %w", err)
 		}
 	}
 
@@ -333,6 +340,43 @@ func (c *MemoryCondensor) AddSQCompression(data compressionhelpers.SQData) error
 	binary.LittleEndian.PutUint32(toWrite[5:], math.Float32bits(data.B))
 	binary.LittleEndian.PutUint16(toWrite[9:], data.Dimensions)
 	_, err := c.newLog.Write(toWrite)
+	return err
+}
+
+func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
+	gSize := 4 * data.Repetitions * data.KSim * data.Dimensions
+	dSize := 4 * data.Repetitions * data.DProjections * data.Dimensions
+	var buf bytes.Buffer
+	buf.Grow(21 + int(gSize) + int(dSize))
+
+	buf.WriteByte(byte(AddMuvera))                             // 1
+	binary.Write(&buf, binary.LittleEndian, data.KSim)         // 4
+	binary.Write(&buf, binary.LittleEndian, data.NumClusters)  // 4
+	binary.Write(&buf, binary.LittleEndian, data.Dimensions)   // 4
+	binary.Write(&buf, binary.LittleEndian, data.DProjections) // 4
+	binary.Write(&buf, binary.LittleEndian, data.Repetitions)  // 4
+
+	i := 0
+	for _, gaussian := range data.Gaussians {
+		for _, cluster := range gaussian {
+			for _, el := range cluster {
+				binary.Write(&buf, binary.LittleEndian, math.Float32bits(el))
+				i++
+			}
+		}
+	}
+
+	i = 0
+	for _, matrix := range data.S {
+		for _, vector := range matrix {
+			for _, el := range vector {
+				binary.Write(&buf, binary.LittleEndian, math.Float32bits(el))
+				i++
+			}
+		}
+	}
+
+	_, err := c.newLog.Write(buf.Bytes())
 	return err
 }
 

@@ -52,6 +52,12 @@ func (s *Shard) drop() (err error) {
 
 	s.mayStopAsyncReplication()
 
+	s.haltForTransferMux.Lock()
+	if s.haltForTransferCancel != nil {
+		s.haltForTransferCancel()
+	}
+	s.haltForTransferMux.Unlock()
+
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()
 

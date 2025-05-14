@@ -15,6 +15,7 @@ import (
 	"context"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 )
 
 // NoopCommitLogger implements the CommitLogger interface, but does not
@@ -30,6 +31,10 @@ func (n *NoopCommitLogger) AddPQCompression(data compressionhelpers.PQData) erro
 }
 
 func (n *NoopCommitLogger) AddSQCompression(data compressionhelpers.SQData) error {
+	return nil
+}
+
+func (n *NoopCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	return nil
 }
 

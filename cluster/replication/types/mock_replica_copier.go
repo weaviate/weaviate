@@ -36,6 +36,53 @@ func (_m *MockReplicaCopier) EXPECT() *MockReplicaCopier_Expecter {
 	return &MockReplicaCopier_Expecter{mock: &_m.Mock}
 }
 
+// AddAsyncReplicationTargetNode provides a mock function with given fields: ctx, targetNodeOverride
+func (_m *MockReplicaCopier) AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	ret := _m.Called(ctx, targetNodeOverride)
+
+	if len(ret) == 0 {
+		panic("no return value specified for AddAsyncReplicationTargetNode")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, additional.AsyncReplicationTargetNodeOverride) error); ok {
+		r0 = rf(ctx, targetNodeOverride)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockReplicaCopier_AddAsyncReplicationTargetNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'AddAsyncReplicationTargetNode'
+type MockReplicaCopier_AddAsyncReplicationTargetNode_Call struct {
+	*mock.Call
+}
+
+// AddAsyncReplicationTargetNode is a helper method to define mock.On call
+//   - ctx context.Context
+//   - targetNodeOverride additional.AsyncReplicationTargetNodeOverride
+func (_e *MockReplicaCopier_Expecter) AddAsyncReplicationTargetNode(ctx interface{}, targetNodeOverride interface{}) *MockReplicaCopier_AddAsyncReplicationTargetNode_Call {
+	return &MockReplicaCopier_AddAsyncReplicationTargetNode_Call{Call: _e.mock.On("AddAsyncReplicationTargetNode", ctx, targetNodeOverride)}
+}
+
+func (_c *MockReplicaCopier_AddAsyncReplicationTargetNode_Call) Run(run func(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride)) *MockReplicaCopier_AddAsyncReplicationTargetNode_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(additional.AsyncReplicationTargetNodeOverride))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_AddAsyncReplicationTargetNode_Call) Return(_a0 error) *MockReplicaCopier_AddAsyncReplicationTargetNode_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicaCopier_AddAsyncReplicationTargetNode_Call) RunAndReturn(run func(context.Context, additional.AsyncReplicationTargetNodeOverride) error) *MockReplicaCopier_AddAsyncReplicationTargetNode_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // AsyncReplicationStatus provides a mock function with given fields: ctx, srcNodeId, targetNodeId, collectionName, shardName
 func (_m *MockReplicaCopier) AsyncReplicationStatus(ctx context.Context, srcNodeId string, targetNodeId string, collectionName string, shardName string) (models.AsyncReplicationStatus, error) {
 	ret := _m.Called(ctx, srcNodeId, targetNodeId, collectionName, shardName)
@@ -193,22 +240,56 @@ func (_c *MockReplicaCopier_InitAsyncReplicationLocally_Call) RunAndReturn(run f
 	return _c
 }
 
-// RemoveLocalReplica provides a mock function with given fields: ctx, sourceCollection, sourceShard
-func (_m *MockReplicaCopier) RemoveLocalReplica(ctx context.Context, sourceCollection string, sourceShard string) error {
-	ret := _m.Called(ctx, sourceCollection, sourceShard)
+// RemoveAsyncReplicationTargetNode provides a mock function with given fields: ctx, targetNodeOverride
+func (_m *MockReplicaCopier) RemoveAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	ret := _m.Called(ctx, targetNodeOverride)
 
 	if len(ret) == 0 {
-		panic("no return value specified for RemoveLocalReplica")
+		panic("no return value specified for RemoveAsyncReplicationTargetNode")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
-		r0 = rf(ctx, sourceCollection, sourceShard)
+	if rf, ok := ret.Get(0).(func(context.Context, additional.AsyncReplicationTargetNodeOverride) error); ok {
+		r0 = rf(ctx, targetNodeOverride)
 	} else {
 		r0 = ret.Error(0)
 	}
 
 	return r0
+}
+
+// MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveAsyncReplicationTargetNode'
+type MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call struct {
+	*mock.Call
+}
+
+// RemoveAsyncReplicationTargetNode is a helper method to define mock.On call
+//   - ctx context.Context
+//   - targetNodeOverride additional.AsyncReplicationTargetNodeOverride
+func (_e *MockReplicaCopier_Expecter) RemoveAsyncReplicationTargetNode(ctx interface{}, targetNodeOverride interface{}) *MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call {
+	return &MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call{Call: _e.mock.On("RemoveAsyncReplicationTargetNode", ctx, targetNodeOverride)}
+}
+
+func (_c *MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call) Run(run func(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride)) *MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(additional.AsyncReplicationTargetNodeOverride))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call) Return(_a0 error) *MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call) RunAndReturn(run func(context.Context, additional.AsyncReplicationTargetNodeOverride) error) *MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// RemoveLocalReplica provides a mock function with given fields: ctx, sourceCollection, sourceShard
+func (_m *MockReplicaCopier) RemoveLocalReplica(ctx context.Context, sourceCollection string, sourceShard string) {
+	_m.Called(ctx, sourceCollection, sourceShard)
 }
 
 // MockReplicaCopier_RemoveLocalReplica_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveLocalReplica'
@@ -231,27 +312,27 @@ func (_c *MockReplicaCopier_RemoveLocalReplica_Call) Run(run func(ctx context.Co
 	return _c
 }
 
-func (_c *MockReplicaCopier_RemoveLocalReplica_Call) Return(_a0 error) *MockReplicaCopier_RemoveLocalReplica_Call {
-	_c.Call.Return(_a0)
+func (_c *MockReplicaCopier_RemoveLocalReplica_Call) Return() *MockReplicaCopier_RemoveLocalReplica_Call {
+	_c.Call.Return()
 	return _c
 }
 
-func (_c *MockReplicaCopier_RemoveLocalReplica_Call) RunAndReturn(run func(context.Context, string, string) error) *MockReplicaCopier_RemoveLocalReplica_Call {
-	_c.Call.Return(run)
+func (_c *MockReplicaCopier_RemoveLocalReplica_Call) RunAndReturn(run func(context.Context, string, string)) *MockReplicaCopier_RemoveLocalReplica_Call {
+	_c.Run(run)
 	return _c
 }
 
-// SetAsyncReplicationTargetNode provides a mock function with given fields: ctx, targetNodeOverride
-func (_m *MockReplicaCopier) SetAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
-	ret := _m.Called(ctx, targetNodeOverride)
+// RevertAsyncReplicationLocally provides a mock function with given fields: ctx, collectionName, shardName
+func (_m *MockReplicaCopier) RevertAsyncReplicationLocally(ctx context.Context, collectionName string, shardName string) error {
+	ret := _m.Called(ctx, collectionName, shardName)
 
 	if len(ret) == 0 {
-		panic("no return value specified for SetAsyncReplicationTargetNode")
+		panic("no return value specified for RevertAsyncReplicationLocally")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, additional.AsyncReplicationTargetNodeOverride) error); ok {
-		r0 = rf(ctx, targetNodeOverride)
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, collectionName, shardName)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -259,31 +340,32 @@ func (_m *MockReplicaCopier) SetAsyncReplicationTargetNode(ctx context.Context, 
 	return r0
 }
 
-// MockReplicaCopier_SetAsyncReplicationTargetNode_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetAsyncReplicationTargetNode'
-type MockReplicaCopier_SetAsyncReplicationTargetNode_Call struct {
+// MockReplicaCopier_RevertAsyncReplicationLocally_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RevertAsyncReplicationLocally'
+type MockReplicaCopier_RevertAsyncReplicationLocally_Call struct {
 	*mock.Call
 }
 
-// SetAsyncReplicationTargetNode is a helper method to define mock.On call
+// RevertAsyncReplicationLocally is a helper method to define mock.On call
 //   - ctx context.Context
-//   - targetNodeOverride additional.AsyncReplicationTargetNodeOverride
-func (_e *MockReplicaCopier_Expecter) SetAsyncReplicationTargetNode(ctx interface{}, targetNodeOverride interface{}) *MockReplicaCopier_SetAsyncReplicationTargetNode_Call {
-	return &MockReplicaCopier_SetAsyncReplicationTargetNode_Call{Call: _e.mock.On("SetAsyncReplicationTargetNode", ctx, targetNodeOverride)}
+//   - collectionName string
+//   - shardName string
+func (_e *MockReplicaCopier_Expecter) RevertAsyncReplicationLocally(ctx interface{}, collectionName interface{}, shardName interface{}) *MockReplicaCopier_RevertAsyncReplicationLocally_Call {
+	return &MockReplicaCopier_RevertAsyncReplicationLocally_Call{Call: _e.mock.On("RevertAsyncReplicationLocally", ctx, collectionName, shardName)}
 }
 
-func (_c *MockReplicaCopier_SetAsyncReplicationTargetNode_Call) Run(run func(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride)) *MockReplicaCopier_SetAsyncReplicationTargetNode_Call {
+func (_c *MockReplicaCopier_RevertAsyncReplicationLocally_Call) Run(run func(ctx context.Context, collectionName string, shardName string)) *MockReplicaCopier_RevertAsyncReplicationLocally_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(additional.AsyncReplicationTargetNodeOverride))
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
 	})
 	return _c
 }
 
-func (_c *MockReplicaCopier_SetAsyncReplicationTargetNode_Call) Return(_a0 error) *MockReplicaCopier_SetAsyncReplicationTargetNode_Call {
+func (_c *MockReplicaCopier_RevertAsyncReplicationLocally_Call) Return(_a0 error) *MockReplicaCopier_RevertAsyncReplicationLocally_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockReplicaCopier_SetAsyncReplicationTargetNode_Call) RunAndReturn(run func(context.Context, additional.AsyncReplicationTargetNodeOverride) error) *MockReplicaCopier_SetAsyncReplicationTargetNode_Call {
+func (_c *MockReplicaCopier_RevertAsyncReplicationLocally_Call) RunAndReturn(run func(context.Context, string, string) error) *MockReplicaCopier_RevertAsyncReplicationLocally_Call {
 	_c.Call.Return(run)
 	return _c
 }

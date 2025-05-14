@@ -21,10 +21,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 
 	"github.com/go-openapi/strfmt"
-	"github.com/google/uuid"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -54,19 +54,19 @@ var paragraphIDs = []strfmt.UUID{
 	strfmt.UUID("50566856-5d0a-4fb1-a390-e099bc236f66"),
 }
 
-type ReplicaReplicationTestSuite struct {
+type ReplicationTestSuite struct {
 	suite.Suite
 }
 
-func (suite *ReplicaReplicationTestSuite) SetupTest() {
+func (suite *ReplicationTestSuite) SetupTest() {
 	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 }
 
-func TestReplicaReplicationTestSuite(t *testing.T) {
-	suite.Run(t, new(ReplicaReplicationTestSuite))
+func TestReplicationTestSuite(t *testing.T) {
+	suite.Run(t, new(ReplicationTestSuite))
 }
 
-func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
+func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
 	t := suite.T()
 	mainCtx := context.Background()
 
@@ -81,7 +81,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 10*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 20*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -239,7 +239,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementHappyPath() {
 	})
 }
 
-func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
+func (suite *ReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
 	t := suite.T()
 	mainCtx := context.Background()
 
@@ -254,7 +254,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
 		}
 	}()
 
-	ctx, cancel := context.WithTimeout(mainCtx, 5*time.Minute)
+	ctx, cancel := context.WithTimeout(mainCtx, 20*time.Minute)
 	defer cancel()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -419,7 +419,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
 	})
 }
 
-func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy() {
+func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy() {
 	t := suite.T()
 	mainCtx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
