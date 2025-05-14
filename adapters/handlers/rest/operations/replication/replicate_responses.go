@@ -28,7 +28,7 @@ import (
 const ReplicateOKCode int = 200
 
 /*
-ReplicateOK Replication operation registered successfully
+ReplicateOK Replication operation registered successfully. ID of the operation is returned.
 
 swagger:response replicateOK
 */

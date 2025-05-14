@@ -246,7 +246,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:
 		f = func() {
-			ret.Error = st.replicationManager.RegisterError(l.Index, &cmd)
+			ret.Error = st.replicationManager.RegisterError(&cmd)
 		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:
 		f = func() {
@@ -260,6 +260,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.replicationManager.DeleteReplication(&cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_ALL:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteAllReplications(&cmd)
+		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE:
 		f = func() {
 			ret.Error = st.replicationManager.RemoveReplicaOp(&cmd)
@@ -267,6 +271,14 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE:
 		f = func() {
 			ret.Error = st.replicationManager.ReplicationCancellationComplete(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteReplicationsByCollection(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteReplicationsByTenants(&cmd)
 		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:

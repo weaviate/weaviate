@@ -64,14 +64,14 @@ func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
 	return m.replicationFSM.Replicate(logId, req)
 }
 
-func (m *Manager) RegisterError(logId uint64, c *cmd.ApplyRequest) error {
+func (m *Manager) RegisterError(c *cmd.ApplyRequest) error {
 	req := &cmd.ReplicationRegisterErrorRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
 	// Store an op's error emitted by the consumer in the FSM
-	return m.replicationFSM.RegisterError(logId, req)
+	return m.replicationFSM.RegisterError(req)
 }
 
 func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
@@ -189,6 +189,20 @@ func (m *Manager) GetReplicationDetailsByTargetNode(c *cmd.QueryRequest) ([]byte
 	return payload, nil
 }
 
+func (m *Manager) GetAllReplicationDetails(c *cmd.QueryRequest) ([]byte, error) {
+	statusByOps := m.replicationFSM.GetStatusByOps()
+	responses := make([]cmd.ReplicationDetailsResponse, 0, len(statusByOps))
+	for op, status := range statusByOps {
+		responses = append(responses, makeReplicationDetailsResponse(&op, &status))
+	}
+
+	payload, err := json.Marshal(responses)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
 func (m *Manager) QueryShardingStateByCollection(c *cmd.QueryRequest) ([]byte, error) {
 	subCommand := cmd.ReplicationQueryShardingStateByCollectionRequest{}
 	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
@@ -251,17 +265,7 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 	return payload, nil
 }
 
-func (m *Manager) getReplicationDetailsResponse(id uint64) (cmd.ReplicationDetailsResponse, error) {
-	op, ok := m.replicationFSM.opsById[id]
-	if !ok {
-		return cmd.ReplicationDetailsResponse{}, fmt.Errorf("%w: %d", types.ErrReplicationOperationNotFound, id)
-	}
-
-	status, ok := m.replicationFSM.opsStatus[op]
-	if !ok {
-		return cmd.ReplicationDetailsResponse{}, fmt.Errorf("unable to retrieve replication operation '%d' status", op.ID)
-	}
-
+func makeReplicationDetailsResponse(op *ShardReplicationOp, status *ShardReplicationOpStatus) cmd.ReplicationDetailsResponse {
 	return cmd.ReplicationDetailsResponse{
 		Uuid:          op.UUID,
 		Id:            op.ID,
@@ -272,7 +276,21 @@ func (m *Manager) getReplicationDetailsResponse(id uint64) (cmd.ReplicationDetai
 		TransferType:  op.TransferType.String(),
 		Status:        status.GetCurrent().ToAPIFormat(),
 		StatusHistory: status.GetHistory().ToAPIFormat(),
-	}, nil
+	}
+}
+
+func (m *Manager) getReplicationDetailsResponse(id uint64) (cmd.ReplicationDetailsResponse, error) {
+	op, ok := m.replicationFSM.opsById[id]
+	if !ok {
+		return cmd.ReplicationDetailsResponse{}, fmt.Errorf("%w: %d", types.ErrReplicationOperationNotFound, id)
+	}
+
+	status, ok := m.replicationFSM.statusById[op.ID]
+	if !ok {
+		return cmd.ReplicationDetailsResponse{}, fmt.Errorf("unable to retrieve replication operation '%d' status", op.ID)
+	}
+
+	return makeReplicationDetailsResponse(&op, &status), nil
 }
 
 func (m *Manager) CancelReplication(c *cmd.ApplyRequest) error {
@@ -295,6 +313,16 @@ func (m *Manager) DeleteReplication(c *cmd.ApplyRequest) error {
 	return m.replicationFSM.DeleteReplication(req)
 }
 
+func (m *Manager) DeleteAllReplications(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationDeleteAllRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Trigger deletion of all replication operation in the FSM
+	return m.replicationFSM.DeleteAllReplications(req)
+}
+
 func (m *Manager) RemoveReplicaOp(c *cmd.ApplyRequest) error {
 	req := &cmd.ReplicationRemoveOpRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
@@ -313,4 +341,24 @@ func (m *Manager) ReplicationCancellationComplete(c *cmd.ApplyRequest) error {
 
 	// Mark the replication operation as cancelled in the FSM
 	return m.replicationFSM.CancellationComplete(req)
+}
+
+func (m *Manager) DeleteReplicationsByCollection(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationsDeleteByCollectionRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Trigger deletion of all replication operations for the specified class in the FSM
+	return m.replicationFSM.DeleteReplicationsByCollection(req.Collection)
+}
+
+func (m *Manager) DeleteReplicationsByTenants(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationsDeleteByTenantsRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Trigger deletion of all replication operations for the specified class in the FSM
+	return m.replicationFSM.DeleteReplicationsByTenants(req.Collection, req.Tenants)
 }
