@@ -185,7 +185,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 					Class:                class,
 					VectorIndexingStatus: shard.GetStatus().String(),
 					Loaded:               false,
-					ReplicationFactor:    int64(shardingState.ReplicationFactor),
+					ReplicationFactor:    shardingState.ReplicationFactor,
 					NumberOfReplicas:     numberOfReplicas,
 				}
 				*status = append(*status, shardStatus)
@@ -226,7 +226,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			Compressed:             compressed,
 			Loaded:                 true,
 			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
-			ReplicationFactor:      int64(shardingState.ReplicationFactor),
+			ReplicationFactor:      shardingState.ReplicationFactor,
 			NumberOfReplicas:       numberOfReplicas,
 		}
 		*status = append(*status, shardStatus)
