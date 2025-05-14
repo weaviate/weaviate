@@ -653,7 +653,7 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 	return nil
 }
 
-func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantParallelWrites() {
+func (suite *ReplicationTestSuite) TestReplicaMovementTenantParallelWrites() {
 	t := suite.T()
 	mainCtx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
