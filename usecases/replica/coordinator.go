@@ -175,25 +175,19 @@ func (c *coordinator[T]) commitAll(ctx context.Context,
 	return replyCh
 }
 
-type pushResponse[T any] struct {
-	commitCh       <-chan _Result[T]
-	level          int
-	requireSuccess bool
-}
-
 // Push pushes updates to all replicas of a specific shard
 func (c *coordinator[T]) Push(ctx context.Context,
 	cl types.ConsistencyLevel,
 	ask readyOp,
 	com commitOp[T],
-) (pushResponse[T], *pushResponse[T], error) {
+) (<-chan _Result[T], int, error) {
 	routingPlan, err := c.Router.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:       c.Class,
 		Shard:            c.Shard,
 		ConsistencyLevel: cl,
 	})
 	if err != nil {
-		return pushResponse[T]{}, nil, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
+		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
 	level := routingPlan.IntConsistencyLevel
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
@@ -203,36 +197,17 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		"duration": 20 * time.Second,
 		"level":    level,
 	}).Debug("context.WithTimeout")
-
-	fmt.Println("NATEE coordinator Push replicas", routingPlan.ReplicasHostAddrs)
 	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
 	commitCh := c.commitAll(context.Background(), nodeCh, com)
-	pushResp := pushResponse[T]{
-		commitCh:       commitCh,
-		level:          level,
-		requireSuccess: true,
-	}
 
-	// TODO decide from routing plan or config or something like that? toggling this
-	// swaps between "best effort" writes and "sync follower" writes.
-	// Could use CL one v quorum v all to decide (eg level == len(routingPlan.ReplicasHostAddrs))
-	requireAdditionalHostsSuccess := false
-
-	var additionalHostsPushResp *pushResponse[T]
+	// if there are additional hosts, we do a "best effort" write to them
+	// where we don't wait for a response because they are not part of the
+	// replicas used to reach level consistency
 	if len(routingPlan.AdditionalHostAddrs) > 0 {
-		fmt.Println("NATEE coordinator Push additionalHostsPushResp", routingPlan.AdditionalHostAddrs)
 		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
-		additionalHostsCommitCh := c.commitAll(context.Background(), additionalHostsBroadcast, com)
-		if requireAdditionalHostsSuccess {
-			additionalHostsPushResp = &pushResponse[T]{
-				commitCh:       additionalHostsCommitCh,
-				level:          len(routingPlan.AdditionalHostAddrs),
-				requireSuccess: requireAdditionalHostsSuccess,
-			}
-		}
+		c.commitAll(context.Background(), additionalHostsBroadcast, com)
 	}
-
-	return pushResp, additionalHostsPushResp, nil
+	return commitCh, level, nil
 }
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls

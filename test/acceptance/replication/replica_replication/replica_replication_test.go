@@ -532,8 +532,6 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFi
 				wg.Add(1)
 				enterrors.GoWrapper(func() {
 					defer wg.Done()
-					// TODO replace/remove this sleep once we have a test that constantly inserts in parallel
-					// during shard replica movement
 					// sleep 20s so that the source node has paused compaction but not resumed yet
 					time.Sleep(20 * time.Second)
 					for i := 0; i < numParagraphsInsertedWhileStarting; i++ {
@@ -657,7 +655,7 @@ func createObjectThreadSafe(uri string, class string, properties map[string]inte
 	return nil
 }
 
-func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrites() {
+func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantParallelWrites() {
 	t := suite.T()
 	mainCtx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
@@ -666,7 +664,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 	compose, err := docker.New().
 		WithWeaviateCluster(clusterSize).
 		WithText2VecContextionary().
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT", "10s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "10s").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -718,13 +716,13 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
 	})
 
-	constantWriteWg := sync.WaitGroup{}
-	constantWriteIDs := []string{}
+	parallelWriteWg := sync.WaitGroup{}
+	parallelWriteIDs := []string{}
 	replicationDone := make(chan struct{})
-	t.Run("start constant writes", func(t *testing.T) {
-		constantWriteWg.Add(1)
+	t.Run("start parallel writes", func(t *testing.T) {
+		parallelWriteWg.Add(1)
 		enterrors.GoWrapper(func() {
-			defer constantWriteWg.Done()
+			defer parallelWriteWg.Done()
 			containerId := 1
 			for {
 				select {
@@ -736,19 +734,17 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 						compose.ContainerURI(containerId),
 						paragraphClass.Class,
 						map[string]interface{}{
-							"contents": fmt.Sprintf("paragraph#%d", len(paragraphIDs)+len(constantWriteIDs)),
+							"contents": fmt.Sprintf("paragraph#%d", len(paragraphIDs)+len(parallelWriteIDs)),
 						},
 						newWriteId,
 						"tenant0",
 					)
 					assert.NoError(t, err, "error creating object on node with id %d", containerId)
-					constantWriteIDs = append(constantWriteIDs, newWriteId)
+					parallelWriteIDs = append(parallelWriteIDs, newWriteId)
 					containerId++
 					if containerId >= clusterSize+1 {
 						containerId = 1
 					}
-					// TODO remove sleep?
-					time.Sleep(1 * time.Millisecond)
 				}
 			}
 		}, logger)
@@ -767,7 +763,7 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 	targetNode := nodeInfo{}
 	replicaNode := nodeInfo{}
 	allNodeInfos := []nodeInfo{}
-	// TODO move vs copy?
+	// TODO test copy as well
 	transferType := api.MOVE.String()
 	t.Run("start replica replication to node3 for paragraph", func(t *testing.T) {
 		verbose := verbosity.OutputVerbose
@@ -867,42 +863,34 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
 			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
 			assert.Equal(ct, "READY", details.Payload.Status.State, "expected replication status to be READY")
-			fmt.Println("NATEE replication details status state", details.Payload.Status.State)
 		}, 240*time.Second, 1*time.Second, "replication operation %s not finished in time", opUuid)
-		time.Sleep(30 * time.Second)
-		close(replicationDone) // Signal that replication is complete
-		constantWriteWg.Wait()
+		// let some writes keep going for a few seconds after the op is ready
+		time.Sleep(5 * time.Second)
+		// now stop the writes
+		close(replicationDone)
+		parallelWriteWg.Wait()
 	})
 
-	// Kills the original node with the data to ensure we have only one replica available (the new one)
-	// t.Run(fmt.Sprintf("stop node %s", sourceNode.nodeName), func(t *testing.T) {
-	// 	common.StopNodeAt(mainCtx, t, compose, sourceNode.nodeContainerIndex)
-	// })
-	t.Run("all constant writes are available", func(t *testing.T) {
-		// TODO copy v move
-		// TODO timing of missed write (file copy, async repl, best effort, end, etc)
-		// TODO log by id an grep to simulate dist tracing
-		numConstantWrites := len(constantWriteIDs)
-		assert.True(t, numConstantWrites > 1000, "expected at least 1000 constant writes")
+	t.Run("all parallel writes are available", func(t *testing.T) {
+		numParallelWrites := len(parallelWriteIDs)
+		assert.True(t, numParallelWrites > 1000, "expected at least 1000 parallel writes")
 		for _, nodeInfo := range allNodeInfos {
-			// TODO in a move, sourceNodes[0] no longer has the data? should we skip it?
+			// in a move, sourceNode no longer has the shard replica, so we skip it
 			if transferType == api.MOVE.String() && nodeInfo.nodeName == sourceNode.nodeName {
 				continue
 			}
 
-			// TODO flaky w possible bug
-			assert.Equal(t, int64(numConstantWrites+len(paragraphIDs)), common.CountTenantObjects(t, nodeInfo.nodeURI, paragraphClass.Class, "tenant0"), fmt.Sprintf("expected %d objects on node %s", numConstantWrites+len(paragraphIDs), nodeInfo.nodeName))
+			assert.Equal(t, int64(numParallelWrites+len(paragraphIDs)), common.CountTenantObjects(t, nodeInfo.nodeURI, paragraphClass.Class, "tenant0"), fmt.Sprintf("expected %d objects on node %s", numParallelWrites+len(paragraphIDs), nodeInfo.nodeName))
 		}
 		for _, nodeInfo := range allNodeInfos {
 			firstMissingObjectForNode := ""
 			numMissingObjectsForNode := 0
-			for _, id := range constantWriteIDs {
-				// TODO in a copy, sourceNodes[0] no longer has the data? should we skip it?
+			for _, id := range parallelWriteIDs {
+				// in a move, sourceNode no longer has the shard replica, so we skip it
 				if transferType == api.MOVE.String() && nodeInfo.nodeName == sourceNode.nodeName {
 					continue
 				}
 
-				// TODO flaky w possible bug
 				obj, err := common.GetTenantObjectFromNode(t, nodeInfo.nodeURI, paragraphClass.Class, strfmt.UUID(id), nodeInfo.nodeName, "tenant0")
 				if err != nil || obj == nil {
 					numMissingObjectsForNode++
@@ -927,6 +915,4 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 			}
 		}, 10*time.Second, 1*time.Second, "node3 doesn't have paragraph data")
 	})
-	// fmt.Println("NATEE sleeping")
-	// time.Sleep(9999 * time.Second)
 }

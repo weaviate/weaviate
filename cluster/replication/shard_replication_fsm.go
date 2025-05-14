@@ -211,17 +211,55 @@ func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicatio
 	return v, ok
 }
 
-func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string, []string) {
+func (s *ShardReplicationFSM) FilterOneShardReplicasRead(collection string, shard string, shardReplicasLocation []string) []string {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
-	ops, ok := s.opsByCollectionAndShard[collection][shard]
 	// Check if the specified shard is current undergoing replication at all.
-	// If not we can return early as all replicas can be used for read/writes
+	// If not we can return early as all replicas can be used for reads
+	byCollection, ok := s.opsByCollectionAndShard[collection]
 	if !ok {
-		return shardReplicasLocation, shardReplicasLocation, []string{}
+		return shardReplicasLocation
+	}
+	_, ok = byCollection[shard]
+	if !ok {
+		return shardReplicasLocation
+	}
+	readReplicas, _ := s.readWriteReplicas(collection, shard, shardReplicasLocation)
+	return readReplicas
+}
+
+func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	// Check if the specified shard is current undergoing replication at all.
+	// If not we can return early as all replicas can be used for writes
+	byCollection, ok := s.opsByCollectionAndShard[collection]
+	if !ok {
+		return shardReplicasLocation, []string{}
+	}
+	ops, ok := byCollection[shard]
+	if !ok {
+		return shardReplicasLocation, []string{}
 	}
 
+	_, writeReplicas := s.readWriteReplicas(collection, shard, shardReplicasLocation)
+
+	additionalWriteReplicas := []string{}
+	for _, op := range ops {
+		opState, ok := s.GetOpState(op)
+		if !ok {
+			continue
+		}
+		if opState.GetCurrentState() == api.FINALIZING {
+			additionalWriteReplicas = append(additionalWriteReplicas, op.TargetShard.NodeId)
+		}
+	}
+	return writeReplicas, additionalWriteReplicas
+}
+
+func (s *ShardReplicationFSM) readWriteReplicas(collection, shard string, shardReplicasLocation []string) ([]string, []string) {
 	readReplicas := make([]string, 0, len(shardReplicasLocation))
 	writeReplicas := make([]string, 0, len(shardReplicasLocation))
 	for _, shardReplicaLocation := range shardReplicasLocation {
@@ -233,20 +271,7 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string,
 			writeReplicas = append(writeReplicas, shardReplicaLocation)
 		}
 	}
-	additionalWriteReplicas := []string{}
-	for _, op := range ops {
-		opState, ok := s.GetOpState(op)
-		if !ok {
-			continue
-		}
-		if opState.GetCurrentState() == api.FINALIZING {
-			additionalWriteReplicas = append(additionalWriteReplicas, op.TargetShard.NodeId)
-		}
-	}
-	// fmt.Println("NATEE shardReplicationFSM FilterOneShardReplicasReadWrite read", readReplicas)
-	fmt.Println("NATEE shardReplicationFSM FilterOneShardReplicasReadWrite write", writeReplicas)
-	fmt.Println("NATEE shardReplicationFSM FilterOneShardReplicasReadWrite additionalWrite", additionalWriteReplicas)
-	return readReplicas, writeReplicas, additionalWriteReplicas
+	return readReplicas, writeReplicas
 }
 
 // filterOneReplicaAsTargetReadWrite returns whether the replica node for collection and shard is usable for read and write

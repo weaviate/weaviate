@@ -168,8 +168,9 @@ type Config struct {
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
 
-	// ReplicaMovementMinimumFinalizingWait is the upper time bound duration for replica movement operations.
-	ReplicaMovementMinimumFinalizingWait *runtime.DynamicValue[time.Duration]
+	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
+	// async replication can complete.
+	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration]
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
