@@ -37,15 +37,11 @@ func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.
 	operator, ok := source["searchOperator"]
 	if ok {
 		args.SearchOperator = operator.(string)
-	} else {
-		args.SearchOperator = "or"
 	}
 
 	minimumShouldMatch, ok := source["minimumShouldMatch"]
 	if ok {
 		args.MinimumShouldMatch = int(minimumShouldMatch.(int))
-	} else {
-		args.MinimumShouldMatch = 1
 	}
 
 	return args
