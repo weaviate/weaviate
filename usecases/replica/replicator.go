@@ -103,6 +103,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 ) error {
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObject), r.log)
 	isReady := func(ctx context.Context, host, requestID string) error {
+		fmt.Println("NATEE replicator putobject isReady", obj.ID().String())
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)
 		if err == nil {
 			err = resp.FirstError()
@@ -389,6 +390,7 @@ func handlePushResponses[T any](
 		return err
 	}
 	if additionalHostsPushResp != nil {
+		fmt.Println("NATEE replicator handlePushResponses additionalHostsPushResp not nil")
 		return checkResp(*additionalHostsPushResp)
 	}
 	return nil

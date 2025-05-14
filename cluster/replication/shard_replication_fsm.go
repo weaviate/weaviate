@@ -243,6 +243,9 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasReadWrite(collection string,
 			additionalWriteReplicas = append(additionalWriteReplicas, op.TargetShard.NodeId)
 		}
 	}
+	// fmt.Println("NATEE shardReplicationFSM FilterOneShardReplicasReadWrite read", readReplicas)
+	fmt.Println("NATEE shardReplicationFSM FilterOneShardReplicasReadWrite write", writeReplicas)
+	fmt.Println("NATEE shardReplicationFSM FilterOneShardReplicasReadWrite additionalWrite", additionalWriteReplicas)
 	return readReplicas, writeReplicas, additionalWriteReplicas
 }
 
@@ -268,6 +271,9 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	switch opState.GetCurrentState() {
 	case api.FINALIZING:
 		writeOk = true
+	case api.DEHYDRATING:
+		writeOk = true
+		readOk = true
 	case api.READY:
 		readOk = true
 		writeOk = true

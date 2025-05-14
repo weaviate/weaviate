@@ -204,6 +204,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		"level":    level,
 	}).Debug("context.WithTimeout")
 
+	fmt.Println("NATEE coordinator Push replicas", routingPlan.ReplicasHostAddrs)
 	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
 	commitCh := c.commitAll(context.Background(), nodeCh, com)
 	pushResp := pushResponse[T]{
@@ -213,11 +214,13 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	}
 
 	// TODO decide from routing plan or config or something like that? toggling this
-	// swaps between "best effort" writes and "sync follower" writes
+	// swaps between "best effort" writes and "sync follower" writes.
+	// Could use CL one v quorum v all to decide (eg level == len(routingPlan.ReplicasHostAddrs))
 	requireAdditionalHostsSuccess := false
 
 	var additionalHostsPushResp *pushResponse[T]
 	if len(routingPlan.AdditionalHostAddrs) > 0 {
+		fmt.Println("NATEE coordinator Push additionalHostsPushResp", routingPlan.AdditionalHostAddrs)
 		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
 		additionalHostsCommitCh := c.commitAll(context.Background(), additionalHostsBroadcast, com)
 		if requireAdditionalHostsSuccess {

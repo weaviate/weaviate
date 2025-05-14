@@ -662,9 +662,11 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 	mainCtx := context.Background()
 	logger, _ := logrustest.NewNullLogger()
 
+	clusterSize := 3
 	compose, err := docker.New().
-		WithWeaviateCluster(3).
+		WithWeaviateCluster(clusterSize).
 		WithText2VecContextionary().
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT", "10s").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -739,10 +741,10 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 						newWriteId,
 						"tenant0",
 					)
-					require.NoError(t, err)
+					assert.NoError(t, err, "error creating object on node with id %d", containerId)
 					constantWriteIDs = append(constantWriteIDs, newWriteId)
 					containerId++
-					if containerId >= 4 {
+					if containerId >= clusterSize+1 {
 						containerId = 1
 					}
 					// TODO remove sleep?
@@ -877,6 +879,9 @@ func (suite *ReplicaReplicationTestSuite) TestReplicaMovementTenantConstantWrite
 	// 	common.StopNodeAt(mainCtx, t, compose, sourceNode.nodeContainerIndex)
 	// })
 	t.Run("all constant writes are available", func(t *testing.T) {
+		// TODO copy v move
+		// TODO timing of missed write (file copy, async repl, best effort, end, etc)
+		// TODO log by id an grep to simulate dist tracing
 		numConstantWrites := len(constantWriteIDs)
 		assert.True(t, numConstantWrites > 1000, "expected at least 1000 constant writes")
 		for _, nodeInfo := range allNodeInfos {

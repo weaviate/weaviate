@@ -407,11 +407,8 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		logger.WithError(err).Error("failure while initializing async replication on local node")
 		return api.ShardReplicationState(""), err
 	}
-	defer c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId)
 
-	// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
-	// received during movement work as expected
-	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
+	asyncReplicationUpperTimeBoundUnixMillis := time.Now().UnixMilli()
 
 	// start async replication from source node to target node
 	targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
@@ -424,7 +421,6 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
 		return api.ShardReplicationState(""), err
 	}
-	defer c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride)
 
 	do := func() bool {
 		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
@@ -461,6 +457,8 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	switch op.Op.TransferType {
 	case api.COPY:
+		c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId)
+		c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride)
 		return api.READY, nil
 	case api.MOVE:
 		return api.DEHYDRATING, nil
@@ -473,6 +471,55 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOp(c.logger.Logger, op.Op)
 	logger.Info("processing dehydrating replication operation")
+
+	// TODO make sure/test reads sent to target node do not use target node until op is ready/done and that writes
+	// received during movement work as expected
+	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
+
+	// start async replication from source node to target node
+	targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
+		CollectionID:   op.Op.SourceShard.CollectionId,
+		ShardID:        op.Op.TargetShard.ShardId,
+		TargetNode:     op.Op.TargetShard.NodeId,
+		SourceNode:     op.Op.SourceShard.NodeId,
+		UpperTimeBound: asyncReplicationUpperTimeBoundUnixMillis,
+	}
+	defer c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride)
+	defer c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId)
+
+	// TODO do i need a bunch of these everywhere?
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		return api.ShardReplicationState(""), ctx.Err()
+	}
+
+	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
+		return api.ShardReplicationState(""), err
+	}
+
+	do := func() bool {
+		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
+		c.logger.WithFields(logrus.Fields{"err": err, "objects_propagated": asyncReplicationStatus.ObjectsPropagated, "start_diff_time_unix_millis": asyncReplicationStatus.StartDiffTimeUnixMillis, "upper_time_bound_unix_millis": asyncReplicationUpperTimeBoundUnixMillis}).Info("async replication status")
+		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
+	}
+
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
+		return api.ShardReplicationState(""), ctx.Err()
+	}
+	// we only check the status of the async replication every 5 seconds to avoid
+	// spamming with too many requests too quickly
+	err := backoff.Retry(func() error {
+		// TOOD check if ctx/etc done here or inside do?
+		if do() {
+			return nil
+		}
+		return errors.New("async replication not done")
+	}, backoff.WithContext(backoff.NewConstantBackOff(asyncStatusInterval), ctx))
+	if err != nil {
+		logger.WithError(err).Error("failure while waiting for async replication to complete")
+		return api.ShardReplicationState(""), err
+	}
 
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
