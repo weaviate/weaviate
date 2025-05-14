@@ -49,6 +49,8 @@ func TestRaftEndpoints(t *testing.T) {
 	m.indexer.On("UpdateTenants", Anything, Anything).Return(nil)
 	m.indexer.On("DeleteTenants", Anything, Anything).Return(nil)
 	m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+	m.indexer.On("AddReplicaToShard", Anything, Anything, Anything).Return(nil)
+	m.indexer.On("DeleteReplicaFromShard", Anything, Anything, Anything).Return(nil)
 
 	m.parser.On("ParseClass", mock.Anything).Return(nil)
 	m.parser.On("ParseClassUpdate", mock.Anything, mock.Anything).Return(mock.Anything, nil)
@@ -241,6 +243,38 @@ func TestRaftEndpoints(t *testing.T) {
 	info.ShardVersion = version
 	info.Tenants += 1
 	assert.Equal(t, info, schemaReader.ClassInfo("C"))
+
+	// AddReplicaToShard
+	_, err = srv.AddReplicaToShard(ctx, "", "", "")
+	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	version, err = srv.AddReplicaToShard(ctx, "C", "T2", "Node-2")
+	assert.Nil(t, err)
+	info.ShardVersion = version
+	assert.Equal(t, info, schemaReader.ClassInfo("C"))
+	assert.Equal(t, []string{"Node-1", "Node-2"}, schemaReader.CopyShardingState("C").Physical["T2"].BelongsToNodes)
+
+	// DeleteReplicaFromShard
+	_, err = srv.DeleteReplicaFromShard(ctx, "", "", "")
+	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	version, err = srv.DeleteReplicaFromShard(ctx, "C", "T2", "Node-2")
+	assert.Nil(t, err)
+	info.ShardVersion = version
+	assert.Equal(t, info, schemaReader.ClassInfo("C"))
+	assert.Equal(t, []string{"Node-1"}, schemaReader.CopyShardingState("C").Physical["T2"].BelongsToNodes)
+
+	// SyncShard with present tenant
+	_, err = srv.SyncShard(ctx, "", "", "")
+	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	m.indexer.On("DeleteReplicaFromShard", mock.Anything, "C", "T2", "Node-1").Return(nil).Times(0)
+	_, err = srv.SyncShard(ctx, "C", "T2", "Node-1")
+	assert.Nil(t, err)
+
+	// SyncShard with absent tenant
+	_, err = srv.SyncShard(ctx, "", "", "")
+	assert.ErrorIs(t, err, schema.ErrBadRequest)
+	m.indexer.On("DeleteReplicaFromShard", mock.Anything, "C", "T0", "Node-1").Return(nil).Times(1)
+	_, err = srv.SyncShard(ctx, "C", "T0", "Node-1")
+	assert.Nil(t, err)
 
 	// UpdateTenants
 	_, err = srv.UpdateTenants(ctx, "", &command.UpdateTenantsRequest{})
