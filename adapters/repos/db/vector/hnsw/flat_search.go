@@ -143,7 +143,6 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 func (h *hnsw) flatMultiSearch(ctx context.Context, queryVector [][]float32, limit int,
 	allowList helpers.AllowList,
 ) ([]uint64, []float32, error) {
-
 	aggregateMu := &sync.Mutex{}
 	results := priorityqueue.NewMax[any](limit)
 
