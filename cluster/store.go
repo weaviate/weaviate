@@ -800,6 +800,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 		authZManager:  st.authZManager,
 		logStore:      st.logStore,
 		logCache:      st.logCache,
+		metrics:       st.metrics,
 	}, st.logCache,
 		st.logStore,
 		st.snapshotStore,
