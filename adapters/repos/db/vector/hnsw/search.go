@@ -829,9 +829,6 @@ func (h *hnsw) computeLateInteraction(queryVectors [][]float32, k int, candidate
 }
 
 func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, error) {
-	h.RLock()
-	vecIDs := h.docIDVectors[docID]
-	h.RUnlock()
 	var docVecs [][]float32
 	if h.compressed.Load() {
 		slice := h.pools.tempVectors.Get(int(h.dims))
@@ -843,6 +840,9 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 		h.pools.tempVectors.Put(slice)
 	} else {
 		if !h.muvera.Load() {
+			h.RLock()
+			vecIDs := h.docIDVectors[docID]
+			h.RUnlock()
 			var errs []error
 			docVecs, errs = h.multiVectorForID(context.Background(), vecIDs)
 			for _, err := range errs {
