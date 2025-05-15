@@ -30,7 +30,6 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		// this retry to make sure it's retried in case
 		// the performShutdown() returned shard still in use
 		return s.performShutdown(ctx)
-
 	}, backoff.WithContext(backoff.WithMaxRetries(
 		// this will try with max 2 seconds could be configurable later on
 		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
