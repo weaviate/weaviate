@@ -33,7 +33,7 @@ import (
 
 func (s *Raft) AddClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	if cls == nil || cls.Class == "" {
-		return 0, fmt.Errorf("nil class or empty class name : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
 	}
 
 	req := cmd.AddClassRequest{Class: cls, State: ss}
@@ -51,7 +51,7 @@ func (s *Raft) AddClass(ctx context.Context, cls *models.Class, ss *sharding.Sta
 
 func (s *Raft) UpdateClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	if cls == nil || cls.Class == "" {
-		return 0, fmt.Errorf("nil class or empty class name : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
 	}
 	req := cmd.UpdateClassRequest{Class: cls, State: ss}
 	subCommand, err := json.Marshal(&req)
@@ -76,7 +76,7 @@ func (s *Raft) DeleteClass(ctx context.Context, name string) (uint64, error) {
 
 func (s *Raft) RestoreClass(ctx context.Context, cls *models.Class, ss *sharding.State) (uint64, error) {
 	if cls == nil || cls.Class == "" {
-		return 0, fmt.Errorf("nil class or empty class name : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
 	}
 	req := cmd.AddClassRequest{Class: cls, State: ss}
 	subCommand, err := json.Marshal(&req)
@@ -94,7 +94,7 @@ func (s *Raft) RestoreClass(ctx context.Context, cls *models.Class, ss *sharding
 func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.Property) (uint64, error) {
 	for _, p := range props {
 		if p == nil || p.Name == "" || class == "" {
-			return 0, fmt.Errorf("empty property or empty class name : %w", schema.ErrBadRequest)
+			return 0, fmt.Errorf("empty property or empty class name: %w", schema.ErrBadRequest)
 		}
 	}
 	req := cmd.AddPropertyRequest{Properties: props}
@@ -112,7 +112,7 @@ func (s *Raft) AddProperty(ctx context.Context, class string, props ...*models.P
 
 func (s *Raft) AddReplicaToShard(ctx context.Context, class, shard, targetNode string) (uint64, error) {
 	if class == "" || shard == "" || targetNode == "" {
-		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode: %w", schema.ErrBadRequest)
 	}
 	req := cmd.AddReplicaToShard{
 		Class:      class,
@@ -133,7 +133,7 @@ func (s *Raft) AddReplicaToShard(ctx context.Context, class, shard, targetNode s
 
 func (s *Raft) DeleteReplicaFromShard(ctx context.Context, class, shard, targetNode string) (uint64, error) {
 	if class == "" || shard == "" || targetNode == "" {
-		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode: %w", schema.ErrBadRequest)
 	}
 	req := cmd.DeleteReplicaFromShard{
 		Class:      class,
@@ -154,7 +154,7 @@ func (s *Raft) DeleteReplicaFromShard(ctx context.Context, class, shard, targetN
 
 func (s *Raft) SyncShard(ctx context.Context, collection, shard, nodeId string) (uint64, error) {
 	if collection == "" || shard == "" || nodeId == "" {
-		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode: %w", schema.ErrBadRequest)
 	}
 	req := cmd.SyncShardRequest{
 		Collection: collection,
@@ -175,7 +175,7 @@ func (s *Raft) SyncShard(ctx context.Context, collection, shard, nodeId string) 
 
 func (s *Raft) UpdateShardStatus(ctx context.Context, class, shard, status string) (uint64, error) {
 	if class == "" || shard == "" {
-		return 0, fmt.Errorf("empty class or shard : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("empty class or shard: %w", schema.ErrBadRequest)
 	}
 	req := cmd.UpdateShardStatusRequest{Class: class, Shard: shard, Status: status}
 	subCommand, err := json.Marshal(&req)
@@ -192,7 +192,7 @@ func (s *Raft) UpdateShardStatus(ctx context.Context, class, shard, status strin
 
 func (s *Raft) AddTenants(ctx context.Context, class string, req *cmd.AddTenantsRequest) (uint64, error) {
 	if class == "" || req == nil {
-		return 0, fmt.Errorf("empty class name or nil request : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("empty class name or nil request: %w", schema.ErrBadRequest)
 	}
 	subCommand, err := proto.Marshal(req)
 	if err != nil {
@@ -208,7 +208,7 @@ func (s *Raft) AddTenants(ctx context.Context, class string, req *cmd.AddTenants
 
 func (s *Raft) UpdateTenants(ctx context.Context, class string, req *cmd.UpdateTenantsRequest) (uint64, error) {
 	if class == "" || req == nil {
-		return 0, fmt.Errorf("empty class name or nil request : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("empty class name or nil request: %w", schema.ErrBadRequest)
 	}
 	subCommand, err := proto.Marshal(req)
 	if err != nil {
@@ -224,7 +224,7 @@ func (s *Raft) UpdateTenants(ctx context.Context, class string, req *cmd.UpdateT
 
 func (s *Raft) DeleteTenants(ctx context.Context, class string, req *cmd.DeleteTenantsRequest) (uint64, error) {
 	if class == "" || req == nil {
-		return 0, fmt.Errorf("empty class name or nil request : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("empty class name or nil request: %w", schema.ErrBadRequest)
 	}
 	subCommand, err := proto.Marshal(req)
 	if err != nil {
@@ -240,7 +240,7 @@ func (s *Raft) DeleteTenants(ctx context.Context, class string, req *cmd.DeleteT
 
 func (s *Raft) UpdateTenantsProcess(ctx context.Context, class string, req *cmd.TenantProcessRequest) (uint64, error) {
 	if class == "" || req == nil {
-		return 0, fmt.Errorf("empty class name or nil request : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("empty class name or nil request: %w", schema.ErrBadRequest)
 	}
 	subCommand, err := proto.Marshal(req)
 	if err != nil {
