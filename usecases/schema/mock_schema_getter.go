@@ -17,10 +17,9 @@ import (
 	context "context"
 
 	mock "github.com/stretchr/testify/mock"
+
 	entitiesschema "github.com/weaviate/weaviate/entities/schema"
-
 	models "github.com/weaviate/weaviate/entities/models"
-
 	sharding "github.com/weaviate/weaviate/usecases/sharding"
 )
 

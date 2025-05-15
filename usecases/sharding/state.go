@@ -18,6 +18,7 @@ import (
 	"sort"
 
 	"github.com/spaolacci/murmur3"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -125,6 +126,16 @@ func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
 
 func (p *Physical) ActivityStatus() string {
 	return schema.ActivityStatus(p.Status)
+}
+
+func (p *Physical) IsLocalShard(nodeName string) bool {
+	for _, node := range p.BelongsToNodes {
+		if node == nodeName {
+			return true
+		}
+	}
+
+	return false
 }
 
 func InitState(id string, config config.Config, nodeLocalName string, names []string, replFactor int64, partitioningEnabled bool) (*State, error) {
