@@ -21,7 +21,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/types"
 )
 
-var ErrShardAlreadyReplicating = errors.New("target shard is already being replicated")
+var ErrShardAlreadyReplicating = errors.New("replica is already being replicated")
 
 func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateShardRequest) error {
 	s.opsLock.Lock()
@@ -45,14 +45,14 @@ func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorReque
 	if !ok {
 		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
 	}
-	status, ok := s.opsStatus[op]
+	status, ok := s.statusById[op.ID]
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", c.Id)
 	}
 	if err := status.AddError(c.Error); err != nil {
 		return err
 	}
-	s.opsStatus[op] = status
+	s.statusById[op.ID] = status
 
 	return nil
 }
@@ -62,6 +62,34 @@ func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorReque
 func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status ShardReplicationOpStatus) error {
 	if _, ok := s.opsByTargetFQDN[op.TargetShard]; ok {
 		return ErrShardAlreadyReplicating
+	}
+
+	if existingOps, ok := s.opsBySourceFQDN[op.SourceShard]; ok {
+		for _, existingOp := range existingOps {
+			// First check the status of the existing op. If it's READY or CANCELLED we can accept a new op
+			// If it's ongoing we need to check if it's a move, in which case we can't accept any new op
+			// Otherwise we can accept a copy if the existing op is also a copy
+			if existingOpStatus, ok := s.statusById[existingOp.ID]; !ok {
+				// This should never happen
+				return fmt.Errorf("could not find op status for op %d", existingOp.ID)
+			} else if existingOpStatus.GetCurrentState() == api.CANCELLED {
+				continue
+			} else if existingOpStatus.GetCurrentState() == api.READY && existingOp.TransferType == api.COPY {
+				continue
+			}
+
+			// If any of the ops we're handling is a move we can't accept any new op
+			if existingOp.TransferType == api.MOVE {
+				return ErrShardAlreadyReplicating
+			}
+
+			// At this point we know the existing op is a copy, if our new op is a move we can't accept it
+			if op.TransferType == api.MOVE {
+				return ErrShardAlreadyReplicating
+			}
+
+			// Existing op is an ongoing copy, our new op is also a copy, we can accept it
+		}
 	}
 
 	s.idsByUuid[op.UUID] = op.ID
@@ -74,9 +102,9 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 	s.opsByCollectionAndShard[op.SourceShard.CollectionId][op.SourceShard.ShardId] = append(s.opsByCollectionAndShard[op.SourceShard.CollectionId][op.SourceShard.ShardId], op)
 	s.opsByCollection[op.SourceShard.CollectionId] = append(s.opsByCollection[op.SourceShard.CollectionId], op)
 	s.opsByTargetFQDN[op.TargetShard] = op
-	s.opsBySourceFQDN[op.SourceShard] = op
+	s.opsBySourceFQDN[op.SourceShard] = append(s.opsBySourceFQDN[op.SourceShard], op)
 	s.opsById[op.ID] = op
-	s.opsStatus[op] = status
+	s.statusById[op.ID] = status
 
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
@@ -91,14 +119,18 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	if !ok {
 		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
 	}
-	status, ok := s.opsStatus[op]
+	status, ok := s.statusById[op.ID]
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", c.Id)
 	}
 
+	if status.GetCurrentState() == api.CANCELLED {
+		return fmt.Errorf("cannot update op %d state, it is already cancelled", c.Id)
+	}
+
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Dec()
 	status.ChangeState(c.State)
-	s.opsStatus[op] = status
+	s.statusById[op.ID] = status
 	s.opsByStateGauge.WithLabelValues(status.GetCurrentState().String()).Inc()
 
 	return nil
@@ -116,12 +148,12 @@ func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest)
 	if !ok {
 		return fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
-	status, ok := s.opsStatus[op]
+	status, ok := s.statusById[op.ID]
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", id)
 	}
 	status.TriggerCancellation()
-	s.opsStatus[op] = status
+	s.statusById[op.ID] = status
 
 	return nil
 }
@@ -138,17 +170,31 @@ func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest)
 	if !ok {
 		return fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
-	status, ok := s.opsStatus[op]
+	status, ok := s.statusById[op.ID]
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", id)
 	}
 	status.TriggerDeletion()
-	s.opsStatus[op] = status
+	s.statusById[op.ID] = status
 
 	return nil
 }
 
+func (s *ShardReplicationFSM) DeleteAllReplications(c *api.ReplicationDeleteAllRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	for id, status := range s.statusById {
+		status.TriggerDeletion()
+		s.statusById[id] = status
+	}
+	return nil
+}
+
 func (s *ShardReplicationFSM) RemoveReplicationOp(c *api.ReplicationRemoveOpRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
 	return s.removeReplicationOp(c.Id)
 }
 
@@ -160,39 +206,85 @@ func (s *ShardReplicationFSM) CancellationComplete(c *api.ReplicationCancellatio
 	if !ok {
 		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
 	}
-	status, ok := s.opsStatus[op]
+	status, ok := s.statusById[op.ID]
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", c.Id)
 	}
 	status.CompleteCancellation()
-	s.opsStatus[op] = status
+	s.statusById[op.ID] = status
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) DeleteReplicationsByCollection(collection string) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	ops, ok := s.opsByCollection[collection]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	for _, op := range ops {
+		status, ok := s.statusById[op.ID]
+		if !ok {
+			return fmt.Errorf("could not find op status for op %d", op.ID)
+		}
+		status.TriggerDeletion()
+		s.statusById[op.ID] = status
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) DeleteReplicationsByTenants(collection string, tenants []string) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	ops := make([]ShardReplicationOp, 0)
+	for _, tenant := range tenants {
+		opsPerTenant, ok := s.opsByCollectionAndShard[collection][tenant]
+		if !ok {
+			continue
+		}
+		ops = append(ops, opsPerTenant...)
+	}
+	if len(ops) == 0 {
+		return nil // nothing to do
+	}
+
+	for _, op := range ops {
+		status, ok := s.statusById[op.ID]
+		if !ok {
+			return fmt.Errorf("could not find op status for op %d", op.ID)
+		}
+		status.TriggerDeletion()
+		s.statusById[op.ID] = status
+	}
 
 	return nil
 }
 
 // TODO: Improve the error handling in that function
 func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
-	s.opsLock.Lock()
-	defer s.opsLock.Unlock()
-
 	var err error
 	op, ok := s.opsById[id]
 	if !ok {
 		return types.ErrReplicationOperationNotFound
 	}
 
-	ops, ok := s.opsByTarget[op.SourceShard.NodeId]
+	ops, ok := s.opsByTarget[op.TargetShard.NodeId]
 	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op in ops by target, this should not happen"))
+		err = multierror.Append(err, fmt.Errorf("could not find op %d in ops by target %s, this should not happen", op.ID, op.SourceShard.NodeId))
 	}
 	opsReplace, ok := findAndDeleteOp(op.ID, ops)
 	if ok {
-		s.opsByTarget[op.SourceShard.NodeId] = opsReplace
+		s.opsByTarget[op.TargetShard.NodeId] = opsReplace
 	}
 
-	ops, ok = s.opsBySource[op.TargetShard.NodeId]
+	ops, ok = s.opsBySource[op.SourceShard.NodeId]
 	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op in ops by source, this should not happen"))
+		err = multierror.Append(err, fmt.Errorf("could not find op %d in ops by source %s, this should not happen", op.ID, op.TargetShard.NodeId))
 	}
 	opsReplace, ok = findAndDeleteOp(op.ID, ops)
 	if ok {
@@ -201,11 +293,20 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 
 	ops, ok = s.opsByCollection[op.SourceShard.CollectionId]
 	if !ok {
-		err = multierror.Append(err, fmt.Errorf("could not find op in ops by collection, this should not happen"))
+		err = multierror.Append(err, fmt.Errorf("could not find op %d in ops by collection %s, this should not happen", op.ID, op.SourceShard.CollectionId))
 	}
 	opsReplace, ok = findAndDeleteOp(op.ID, ops)
 	if ok {
 		s.opsByCollection[op.SourceShard.CollectionId] = opsReplace
+	}
+
+	ops, ok = s.opsBySourceFQDN[op.SourceShard]
+	if !ok {
+		err = multierror.Append(err, fmt.Errorf("could not find op in ops by source fqdn, this should not happen"))
+	}
+	opsReplace, ok = findAndDeleteOp(op.ID, ops)
+	if ok {
+		s.opsBySourceFQDN[op.SourceShard] = opsReplace
 	}
 
 	shardOps, ok := s.opsByCollectionAndShard[op.SourceShard.CollectionId]
@@ -222,7 +323,7 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 		}
 	}
 
-	status, ok := s.opsStatus[op]
+	status, ok := s.statusById[op.ID]
 	if !ok {
 		err = multierror.Append(err, fmt.Errorf("could not find op status for op %d", id))
 	} else {
@@ -232,7 +333,7 @@ func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	delete(s.idsByUuid, op.UUID)
 	delete(s.opsByTargetFQDN, op.TargetShard)
 	delete(s.opsById, op.ID)
-	delete(s.opsStatus, op)
+	delete(s.statusById, op.ID)
 
 	return err
 }
@@ -249,7 +350,7 @@ func findAndDeleteOp(id uint64, ops []ShardReplicationOp) ([]ShardReplicationOp,
 		}
 	}
 	if ok {
-		ops = slices.Delete(ops, indexToDelete, indexToDelete)
+		ops = slices.Delete(ops, indexToDelete, indexToDelete+1)
 	}
 	return ops, ok
 }

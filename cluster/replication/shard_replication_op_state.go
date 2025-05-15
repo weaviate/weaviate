@@ -103,8 +103,14 @@ func (s *ShardReplicationOpStatus) TriggerDeletion() {
 	s.ShouldDelete = true
 }
 
+// OnlyCancellation returns true if ShouldCancel is true and ShouldDelete is false
 func (s *ShardReplicationOpStatus) OnlyCancellation() bool {
 	return s.ShouldCancel && !s.ShouldDelete
+}
+
+// ShouldCleanup returns true if the current state is not READY
+func (s *ShardReplicationOpStatus) ShouldCleanup() bool {
+	return s.GetCurrentState() != api.READY && s.GetCurrentState() != api.DEHYDRATING
 }
 
 // GetHistory returns the history of the state changes of the shard replication operation

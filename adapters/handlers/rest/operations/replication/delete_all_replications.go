@@ -24,42 +24,40 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// ListReplicationHandlerFunc turns a function with the right signature into a list replication handler
-type ListReplicationHandlerFunc func(ListReplicationParams, *models.Principal) middleware.Responder
+// DeleteAllReplicationsHandlerFunc turns a function with the right signature into a delete all replications handler
+type DeleteAllReplicationsHandlerFunc func(DeleteAllReplicationsParams, *models.Principal) middleware.Responder
 
 // Handle executing the request and returning a response
-func (fn ListReplicationHandlerFunc) Handle(params ListReplicationParams, principal *models.Principal) middleware.Responder {
+func (fn DeleteAllReplicationsHandlerFunc) Handle(params DeleteAllReplicationsParams, principal *models.Principal) middleware.Responder {
 	return fn(params, principal)
 }
 
-// ListReplicationHandler interface for that can handle valid list replication params
-type ListReplicationHandler interface {
-	Handle(ListReplicationParams, *models.Principal) middleware.Responder
+// DeleteAllReplicationsHandler interface for that can handle valid delete all replications params
+type DeleteAllReplicationsHandler interface {
+	Handle(DeleteAllReplicationsParams, *models.Principal) middleware.Responder
 }
 
-// NewListReplication creates a new http.Handler for the list replication operation
-func NewListReplication(ctx *middleware.Context, handler ListReplicationHandler) *ListReplication {
-	return &ListReplication{Context: ctx, Handler: handler}
+// NewDeleteAllReplications creates a new http.Handler for the delete all replications operation
+func NewDeleteAllReplications(ctx *middleware.Context, handler DeleteAllReplicationsHandler) *DeleteAllReplications {
+	return &DeleteAllReplications{Context: ctx, Handler: handler}
 }
 
 /*
-	ListReplication swagger:route GET /replication/replicate/list replication listReplication
+	DeleteAllReplications swagger:route DELETE /replication/replicate replication deleteAllReplications
 
-# List replication operations
-
-Retrieves a list of currently registered replication operations, optionally filtered by collection, shard, or node ID.
+Schedules all replication operations for deletion across all collections, shards, and nodes.
 */
-type ListReplication struct {
+type DeleteAllReplications struct {
 	Context *middleware.Context
-	Handler ListReplicationHandler
+	Handler DeleteAllReplicationsHandler
 }
 
-func (o *ListReplication) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
+func (o *DeleteAllReplications) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	route, rCtx, _ := o.Context.RouteInfo(r)
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	var Params = NewListReplicationParams()
+	var Params = NewDeleteAllReplicationsParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
