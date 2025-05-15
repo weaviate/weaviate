@@ -290,11 +290,12 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
 		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		statusOptions := []string{
+			models.ReplicationReplicateDetailsReplicaStatusStateREGISTERED,
+			models.ReplicationReplicateDetailsReplicaStatusStateHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateFINALIZING,
+			models.ReplicationReplicateDetailsReplicaStatusStateDEHYDRATING,
 			models.ReplicationReplicateDetailsReplicaStatusStateREADY,
-			models.ReplicationReplicateDetailsReplicaStatusStateINDEXING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONDEHYDRATING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONFINALIZING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateCANCELLED,
 		}
 		status := randomString(statusOptions)
 		transferType := randomTransferType()
@@ -350,11 +351,12 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
 		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		statusOptions := []string{
+			models.ReplicationReplicateDetailsReplicaStatusStateREGISTERED,
+			models.ReplicationReplicateDetailsReplicaStatusStateHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateFINALIZING,
+			models.ReplicationReplicateDetailsReplicaStatusStateDEHYDRATING,
 			models.ReplicationReplicateDetailsReplicaStatusStateREADY,
-			models.ReplicationReplicateDetailsReplicaStatusStateINDEXING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONDEHYDRATING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONFINALIZING,
-			models.ReplicationReplicateDetailsReplicaStatusStateREPLICATIONHYDRATING,
+			models.ReplicationReplicateDetailsReplicaStatusStateCANCELLED,
 		}
 		status := randomString(statusOptions)
 		historyStatus := randomString(statusOptions)
