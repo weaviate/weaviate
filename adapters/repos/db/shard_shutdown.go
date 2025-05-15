@@ -25,18 +25,21 @@ import (
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	s.WantShutdown.Store(true)
 	for i := 0; (i < 30) && !s.shut.Load(); i++ {
-		err = s.performShutdown(ctx)
+		s.performShutdown(ctx)
 		time.Sleep(1 * time.Second)
 	}
 
-	s.shutdownLock.Lock()
-	defer s.shutdownLock.Unlock()
 	if !s.shut.Load() {
-		s.WantShutdown.Store(false)
-		s.index.logger.
-			WithField("action", "shutdown").
-			Debugf("shard %q did not shutdown", s.name)
-		return err
+		err = s.performShutdown(ctx)
+		s.shutdownLock.Lock()
+		defer s.shutdownLock.Unlock()
+		if !s.shut.Load() {
+			s.WantShutdown.Store(false)
+			s.index.logger.
+				WithField("action", "shutdown").
+				Debugf("shard %q did not shutdown", s.name)
+			return err
+		}
 	}
 
 	return nil
