@@ -165,7 +165,8 @@ type hnsw struct {
 	acornSearch      atomic.Bool
 	acornFilterRatio float64
 
-	disableSnapshots bool
+	disableSnapshots  bool
+	snapshotOnStartup bool
 
 	compressor compressionhelpers.VectorCompressor
 	pqConfig   ent.PQConfig
@@ -217,9 +218,12 @@ type CommitLogger interface {
 	SwitchCommitLogs(bool) error
 	AddPQCompression(compressionhelpers.PQData) error
 	AddSQCompression(compressionhelpers.SQData) error
-	CreateSnapshot() (*DeserializationResult, int64, error)
-	CreateOrLoadSnapshot() (*DeserializationResult, int64, error)
 	AddMuvera(multivector.MuveraData) error
+	InitMaintenance()
+
+	CreateSnapshot() (bool, int64, error)
+	CreateAndLoadSnapshot() (*DeserializationResult, int64, error)
+	LoadSnapshot() (*DeserializationResult, int64, error)
 }
 
 type BufferedLinksLogger interface {
@@ -291,6 +295,7 @@ func New(cfg Config, uc ent.UserConfig,
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
 		acornFilterRatio:      cfg.AcornFilterRatio,
 		disableSnapshots:      cfg.DisableSnapshots,
+		snapshotOnStartup:     cfg.SnapshotOnStartup,
 		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
