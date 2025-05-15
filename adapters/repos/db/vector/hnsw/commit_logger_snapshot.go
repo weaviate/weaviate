@@ -43,6 +43,7 @@ const (
 const (
 	SnapshotCompressionTypePQ = iota + 1
 	SnapshotCompressionTypeSQ
+	SnapshotEncoderTypeMuvera
 )
 
 func snapshotName(path string) string {
@@ -787,6 +788,64 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 				return 0, err
 			}
 			offset += writeUint32Size
+		} else if state.EncoderMuvera != nil { // Muvera
+			// first byte is the encoder type
+			if err := writeByte(w, byte(SnapshotEncoderTypeMuvera)); err != nil {
+				return 0, err
+			}
+			offset += writeByteSize
+
+			if err := writeUint32(w, state.EncoderMuvera.Dimensions); err != nil {
+				return 0, err
+			}
+			offset += writeUint32Size
+
+			if err := writeUint32(w, state.EncoderMuvera.KSim); err != nil {
+				return 0, err
+			}
+			offset += writeUint32Size
+
+			if err := writeUint32(w, state.EncoderMuvera.NumClusters); err != nil {
+				return 0, err
+			}
+			offset += writeUint32Size
+
+			if err := writeUint32(w, state.EncoderMuvera.DProjections); err != nil {
+				return 0, err
+			}
+			offset += writeUint32Size
+
+			if err := writeUint32(w, state.EncoderMuvera.Repetitions); err != nil {
+				return 0, err
+			}
+			offset += writeUint32Size
+
+			for _, gaussian := range state.EncoderMuvera.Gaussians {
+				for _, cluster := range gaussian {
+					for _, el := range cluster {
+						if err := writeUint32(w, math.Float32bits(el)); err != nil {
+							return 0, err
+						}
+						offset += writeUint32Size
+					}
+				}
+			}
+
+			for _, matrix := range state.EncoderMuvera.S {
+				for _, vector := range matrix {
+					for _, el := range vector {
+						if err := writeUint32(w, math.Float32bits(el)); err != nil {
+							return 0, err
+						}
+						offset += writeUint32Size
+					}
+				}
+			}
+		} else { // no compression
+			if err := writeByte(w, 0); err != nil {
+				return 0, err
+			}
+			offset += writeByteSize
 		}
 	}
 
