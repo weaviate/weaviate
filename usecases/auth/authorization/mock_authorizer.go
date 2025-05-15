@@ -234,7 +234,8 @@ func (_c *MockAuthorizer_FilterAuthorizedResources_Call) RunAndReturn(run func(*
 func NewMockAuthorizer(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockAuthorizer {
+},
+) *MockAuthorizer {
 	mock := &MockAuthorizer{}
 	mock.Mock.Test(t)
 

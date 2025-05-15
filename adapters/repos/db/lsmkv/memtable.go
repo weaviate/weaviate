@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/global"
 )
 
 type Memtable struct {
@@ -332,6 +333,9 @@ func (m *Memtable) append(key []byte, values []value) error {
 
 	m.Lock()
 	defer m.Unlock()
+	if global.Manager().IsShutdownInProgress() {
+		return errors.New("server is shutting down")
+	}
 	if err := m.commitlog.append(segmentCollectionNode{
 		primaryKey: key,
 		values:     values,

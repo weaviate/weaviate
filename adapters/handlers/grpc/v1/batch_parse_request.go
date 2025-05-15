@@ -17,6 +17,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/global"
 
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -34,6 +35,11 @@ func sliceToInterface[T any](values []T) []interface{} {
 }
 
 func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string, string) (*models.Class, error)) ([]*models.Object, map[int]int, map[int]error) {
+	if global.Manager().ShouldRejectRequests() {
+		return nil, nil, map[int]error{
+			0: global.ErrServerShuttingDown,
+		}
+	}
 	objectsBatch := req.Objects
 	objs := make([]*models.Object, 0, len(objectsBatch))
 	objOriginalIndex := make(map[int]int)
