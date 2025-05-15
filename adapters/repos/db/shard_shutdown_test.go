@@ -19,11 +19,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/require"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
+	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -102,9 +102,11 @@ func TestShardShutdownWithInactivity(t *testing.T) {
 	require.Nil(t, err)
 	require.NotNil(t, shard)
 
+	releaseDone := make(chan struct{})
 	go func() {
 		time.Sleep(5 * time.Second)
 		release()
+		close(releaseDone)
 	}()
 	shard.Shutdown(context.Background())
 	s := shard.(*LazyLoadShard).shard
@@ -114,9 +116,13 @@ func TestShardShutdownWithInactivity(t *testing.T) {
 	require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down while still in use")
 
 	// Wait for release to happen
-	time.Sleep(6 * time.Second)
+	<-releaseDone
+
+	// Wait for shard to be fully shut down
+	require.Eventually(t, func() bool {
+		return shard.(*LazyLoadShard).shard.shut.Load()
+	}, 2*time.Second, 100*time.Millisecond, "shard should eventually be marked as shut down")
 	require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should still be marked for shut down")
-	require.True(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should be marked as shut down after release")
 }
 
 func TestShardShutdownFailure(t *testing.T) {
