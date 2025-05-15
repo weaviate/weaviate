@@ -29,6 +29,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
@@ -1006,6 +1007,74 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				Dimensions: dims,
 				A:          a,
 				B:          b,
+			}
+		case SnapshotEncoderTypeMuvera:
+			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.Dimensions
+			if err != nil {
+				return nil, errors.Wrapf(err, "read Muvera.Dimensions")
+			}
+			dims := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:2]) // Muvera.KSim
+			if err != nil {
+				return nil, errors.Wrapf(err, "read Muvera.KSim")
+			}
+			kSim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.NumClusters
+			if err != nil {
+				return nil, errors.Wrapf(err, "read Muvera.NumClusters")
+			}
+			numClusters := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.DProjections
+			if err != nil {
+				return nil, errors.Wrapf(err, "read Muvera.DProjections")
+			}
+			dProjections := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.Repetitions
+			if err != nil {
+				return nil, errors.Wrapf(err, "read Muvera.Repetitions")
+			}
+			repetitions := binary.LittleEndian.Uint32(b[:4])
+
+			gaussians := make([][][]float32, repetitions)
+			for i := uint32(0); i < repetitions; i++ {
+				gaussians[i] = make([][]float32, kSim)
+				for j := uint32(0); j < kSim; j++ {
+					gaussians[i][j] = make([]float32, dims)
+					for k := uint32(0); k < dims; k++ {
+						gaussians[i][j][k], err = readFloat32(r)
+						if err != nil {
+							return nil, errors.Wrapf(err, "read Muvera.Gaussians")
+						}
+					}
+				}
+			}
+
+			s := make([][][]float32, repetitions)
+			for i := uint32(0); i < repetitions; i++ {
+				s[i] = make([][]float32, dProjections)
+				for j := uint32(0); j < dProjections; j++ {
+					s[i][j] = make([]float32, dims)
+					for k := uint32(0); k < dims; k++ {
+						s[i][j][k], err = readFloat32(r)
+						if err != nil {
+							return nil, errors.Wrapf(err, "read Muvera.S")
+						}
+					}
+				}
+			}
+
+			res.EncoderMuvera = &multivector.MuveraData{
+				Dimensions:   dims,
+				NumClusters:  numClusters,
+				KSim:         kSim,
+				DProjections: dProjections,
+				Repetitions:  repetitions,
+				Gaussians:    gaussians,
+				S:            s,
 			}
 		default:
 			return nil, fmt.Errorf("unsupported compression type %d", b[0])
