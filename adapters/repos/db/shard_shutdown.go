@@ -37,7 +37,7 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q did not shutdown", s.name)
-			return err
+		return err
 	}
 
 	return nil

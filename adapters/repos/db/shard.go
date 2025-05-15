@@ -54,8 +54,10 @@ import (
 
 const IdLockPoolSize = 128
 
-var errAlreadyShutdown = errors.New("already shut or dropped")
-var errShutdownInProgress = errors.New("shard shutdown in progress")
+var (
+	errAlreadyShutdown    = errors.New("already shut or dropped")
+	errShutdownInProgress = errors.New("shard shutdown in progress")
+)
 
 type ShardLike interface {
 	Index() *Index                  // Get the parent index
