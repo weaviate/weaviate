@@ -103,15 +103,13 @@ func TestShardShutdownWithInactivity(t *testing.T) {
 	require.NotNil(t, shard)
 
 	go func() {
-		time.Sleep(5*time.Second)
+		time.Sleep(5 * time.Second)
 		release()
 	}()
 	shard.Shutdown(context.Background())
 	require.True(t, shard.(*LazyLoadShard).shard.WantShutdown.Load(), "shard should be marked for shut down")
 	require.True(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should  be marked as shut down ")
 }
-
-
 
 func TestShardShutdownFailure(t *testing.T) {
 	r := getRandomSeed()
@@ -181,11 +179,10 @@ func TestShardShutdownFailure(t *testing.T) {
 		return nil
 	})
 	t.Logf("testShard: %s", testShard)
-	shard, release, err := index.GetShard(context.TODO(), testShard)
+	shard, _, err := index.GetShard(context.TODO(), testShard)
 	require.Nil(t, err)
 	require.NotNil(t, shard)
 
-	release()
 	t.Logf("Shard: %+v\n", shard)
 	shard.Shutdown(context.Background())
 	require.False(t, shard.(*LazyLoadShard).shard.WantShutdown.Load(), "shard should not be marked for shut down")
