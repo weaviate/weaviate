@@ -440,7 +440,7 @@ func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
 		}
 		r, err = s.bytesReaderFrom(contents)
 	} else {
-		r, err = s.bufferedReaderAt(offset.start)
+		r, err = s.bufferedReaderAt(offset.start, "segmentRead")
 	}
 	if err != nil {
 		return nil, fmt.Errorf("new nodeReader: %w", err)
@@ -468,11 +468,14 @@ func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
 	return bytes.NewReader(in), nil
 }
 
-func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
+func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, error) {
 	if s.contentFile == nil {
 		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
 	}
 
 	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
-	return bufio.NewReader(r), nil
+
+	meteredF := diskio.NewMeteredReader(bufio.NewReader(r), diskio.MeteredReaderCallback(s.metrics.ReadObserver(operation)))
+
+	return meteredF, nil
 }

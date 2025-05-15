@@ -21,7 +21,7 @@ type memtableMetrics struct {
 	getMap          NsObserver
 	getCollection   NsObserver
 	size            Setter
-	writeMemtable   BytesObserver
+	writeMemtable   BytesWriteObserver
 }
 
 // newMemtableMetrics curries the prometheus-functions just once to make sure
