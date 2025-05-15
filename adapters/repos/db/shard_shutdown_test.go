@@ -186,6 +186,7 @@ func TestShardShutdownFailure(t *testing.T) {
 	require.NotNil(t, shard)
 
 	release()
+	t.Logf("Shard: %+v\n", shard)
 	shard.Shutdown(context.Background())
 	require.False(t, shard.(*LazyLoadShard).shard.WantShutdown.Load(), "shard should not be marked for shut down")
 	require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down ")
