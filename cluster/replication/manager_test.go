@@ -176,6 +176,141 @@ func TestManager_Replicate(t *testing.T) {
 	}
 }
 
+func TestManager_ReplicateMultipleOps(t *testing.T) {
+	tests := []struct {
+		name              string
+		schemaSetup       func(*testing.T, *schema.SchemaManager) error
+		requests          []*api.ReplicationReplicateShardRequest
+		expectedLastError error
+	}{
+		{
+			name: "source shard is already moving",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+						},
+					}), "node1", true, false)
+			},
+			requests: []*api.ReplicationReplicateShardRequest{
+				{
+					Uuid:             uuid4(),
+					SourceCollection: "TestCollection",
+					SourceShard:      "shard1",
+					SourceNode:       "node1",
+					TargetNode:       "node2",
+					TransferType:     api.MOVE.String(),
+				},
+				{
+					Uuid:             uuid4(),
+					SourceCollection: "TestCollection",
+					SourceShard:      "shard1",
+					SourceNode:       "node1",
+					TargetNode:       "node3",
+					TransferType:     api.MOVE.String(),
+				},
+			},
+			expectedLastError: replication.ErrShardAlreadyReplicating,
+		},
+		{
+			name: "source shard can accept multiple copies",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+						},
+					}), "node1", true, false)
+			},
+			requests: []*api.ReplicationReplicateShardRequest{
+				{
+					Uuid:             uuid4(),
+					SourceCollection: "TestCollection",
+					SourceShard:      "shard1",
+					SourceNode:       "node1",
+					TargetNode:       "node2",
+					TransferType:     api.COPY.String(),
+				},
+				{
+					Uuid:             uuid4(),
+					SourceCollection: "TestCollection",
+					SourceShard:      "shard1",
+					SourceNode:       "node1",
+					TargetNode:       "node3",
+					TransferType:     api.COPY.String(),
+				},
+			},
+			expectedLastError: nil,
+		},
+		{
+			name: "source shard is copying and can't accept a new move",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+						State: &sharding.State{
+							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+						},
+					}), "node1", true, false)
+			},
+			requests: []*api.ReplicationReplicateShardRequest{
+				{
+					Uuid:             uuid4(),
+					SourceCollection: "TestCollection",
+					SourceShard:      "shard1",
+					SourceNode:       "node1",
+					TargetNode:       "node2",
+					TransferType:     api.COPY.String(),
+				},
+				{
+					Uuid:             uuid4(),
+					SourceCollection: "TestCollection",
+					SourceShard:      "shard1",
+					SourceNode:       "node1",
+					TargetNode:       "node3",
+					TransferType:     api.MOVE.String(),
+				},
+			},
+			expectedLastError: replication.ErrShardAlreadyReplicating,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			reg := prometheus.NewPedanticRegistry()
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaReader := schemaManager.NewSchemaReader()
+			manager := replication.NewManager(schemaReader, reg)
+			if tt.schemaSetup != nil {
+				tt.schemaSetup(t, schemaManager)
+			}
+
+			for i, request := range tt.requests {
+				// Create ApplyRequest
+				subCommand, _ := json.Marshal(request)
+				applyRequest := &api.ApplyRequest{
+					SubCommand: subCommand,
+				}
+
+				// Execute
+				err := manager.Replicate(uint64(i), applyRequest)
+				if i == len(tt.requests)-1 && tt.expectedLastError != nil {
+					assert.ErrorAs(t, err, &tt.expectedLastError)
+				} else {
+					assert.NoError(t, err)
+				}
+			}
+		})
+	}
+}
+
 func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 	type stateChangeAndErrors struct {
 		stateChangeRequest       *api.ReplicationUpdateOpStateRequest

@@ -761,6 +761,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		return nil
 	}
 
+	// TODO how to support "additional host writes" with RF 1 during shard replica movement?
+
 	// no replication, remote shard (or local not yet inited)
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {

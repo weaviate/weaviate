@@ -46,8 +46,8 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
-	DefaultReplicationEngineMaxWorkers          = 5
-	DefaultReplicaMovementMinimumFinalizingWait = 100 * time.Second
+	DefaultReplicationEngineMaxWorkers     = 5
+	DefaultReplicaMovementMinimumAsyncWait = 100 * time.Second
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 )
@@ -722,17 +722,17 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT"); v != "" {
+	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {
 		duration, err := time.ParseDuration(v)
 		if err != nil {
-			return fmt.Errorf("parse REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT as time.Duration: %w", err)
+			return fmt.Errorf("parse REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT as time.Duration: %w", err)
 		}
 		if duration < 0 {
-			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT must be a positive duration")
+			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT must be a positive duration")
 		}
-		config.ReplicaMovementMinimumFinalizingWait = runtime.NewDynamicValue(duration)
+		config.ReplicaMovementMinimumAsyncWait = runtime.NewDynamicValue(duration)
 	} else {
-		config.ReplicaMovementMinimumFinalizingWait = runtime.NewDynamicValue(DefaultReplicaMovementMinimumFinalizingWait)
+		config.ReplicaMovementMinimumAsyncWait = runtime.NewDynamicValue(DefaultReplicaMovementMinimumAsyncWait)
 	}
 
 	return nil

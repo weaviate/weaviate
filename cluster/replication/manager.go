@@ -60,6 +60,7 @@ func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
 	if err := ValidateReplicationReplicateShard(m.schemaReader, req); err != nil {
 		return err
 	}
+
 	// Store the shard replication op in the FSM
 	return m.replicationFSM.Replicate(logId, req)
 }
