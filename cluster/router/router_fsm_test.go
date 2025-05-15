@@ -60,10 +60,9 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			expectedReplicas: []string{"node1", "node2"},
 		},
 		{
-			name:          "dehydrating",
-			allShardNodes: []string{"node1", "node2"},
-			opStatus:      api.DEHYDRATING,
-			// expectedErrorStr: "no replicas found for class collection1 shard shard1",
+			name:             "dehydrating",
+			allShardNodes:    []string{"node1", "node2"},
+			opStatus:         api.DEHYDRATING,
 			expectedReplicas: []string{"node2"},
 		},
 		{
@@ -84,18 +83,6 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			},
 			expectedReplicas: []string{"node1", "node2"},
 		},
-		// {
-		// 	name:          "hydrating deleted",
-		// 	allShardNodes: []string{"node1", "node2"},
-		// 	opStatus:      api.HYDRATING,
-		// 	preRoutingPlanAction: func(fsm *replication.ShardReplicationFSM) {
-		// 		fsm.DeleteReplicationOp(&api.ReplicationDeleteOpRequest{
-		// 			Version: api.ReplicationCommandVersionV0,
-		// 			Id:      1,
-		// 		})
-		// 	},
-		// 	expectedReplicas: []string{"node1", "node2"},
-		// },
 		{
 			name:             "registered extra node",
 			allShardNodes:    []string{"node1", "node2", "node3"},

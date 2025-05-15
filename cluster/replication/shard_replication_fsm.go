@@ -318,9 +318,6 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	switch opState.GetCurrentState() {
 	case api.FINALIZING:
 		writeOk = true
-	case api.DEHYDRATING:
-		writeOk = true
-		readOk = true
 	case api.READY:
 		readOk = true
 		writeOk = true
