@@ -90,7 +90,6 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		return fmt.Errorf("shard %q is still in use", s.name)
 	}
 	s.shut.Store(true)
-	s.WantShutdown.Store(false)
 	start := time.Now()
 	defer func() {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
