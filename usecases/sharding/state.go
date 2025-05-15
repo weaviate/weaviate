@@ -108,16 +108,13 @@ func (s *State) MigrateShardingStateReplicationFactor() error {
 	return nil
 }
 
-// getShardReplicationFactor returns the replication factor to use for a given shard.
-// If the state's ReplicationFactor is unset (<1), it returns 1.
-// Otherwise, it returns the current value.
+// getShardReplicationFactor determines the number of replicas assigned to a given shard.
+// It is used during migration to verify consistency across shards.
 //
-// Parameters:
-//   - shard: the name of the shard
+// If the state's ReplicationFactor is unset (<1), it assumes a default of 1 as we do not want
+// any shard to end-up having no replica at all. Otherwise, it returns the current ReplicationFactor.
 //
-// Returns:
-//   - int64: the replication factor to use
-//   - error: if the shard is not found
+// Returns an error if the specified shard does not exist.
 func (s *State) getShardReplicationFactor(shard string) (int64, error) {
 	_, ok := s.Physical[shard]
 	if !ok {
