@@ -16,13 +16,11 @@ package db
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -31,109 +29,108 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-func TestShardShutdownWithInactivity(t *testing.T) {
-	r := getRandomSeed()
+func TestShardShutdownWhenIdle(t *testing.T) {
 	dirName := t.TempDir()
+	index, cleanup := initIndexAndPopulate(t, dirName)
+	defer cleanup()
 
-	shardState := singleShardState()
-	logger := logrus.New()
-	schemaGetter := &fakeSchemaGetter{
-		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: shardState,
-	}
-	repo, err := New(logger, Config{
-		RootPath:                  dirName,
-		QueryMaximumResults:       10000,
-		MaxImportGoroutinesFactor: 1,
-		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
-	require.Nil(t, err)
-	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer repo.Shutdown(context.Background())
-
-	migrator := NewMigrator(repo, logger)
-
-	t.Run("set schema", func(t *testing.T) {
-		class := &models.Class{
-			Class:               "Test",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-		}
-		schema := schema.Schema{
-			Objects: &models.Schema{
-				Classes: []*models.Class{class},
-			},
-		}
-
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
-
-		schemaGetter.schema = schema
-	})
-
-	t.Run("import objects with d=128", func(t *testing.T) {
-		dim := 128
-		for i := 0; i < 100; i++ {
-			vec := make([]float32, dim)
-			for j := range vec {
-				vec[j] = r.Float32()
-			}
-
-			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
-			require.Nil(t, err)
-		}
-		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
-		require.Equal(t, 12800, dimAfter, "dimensions should not have changed")
-		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
-		require.Equal(t, 6400, quantDimAfter, "quantized dimensions should not have changed")
-	})
-
-	require.Nil(t, err)
-	index := repo.GetIndex(schema.ClassName("Test"))
-	var testShard string
-	index.shards.Range(func(name string, shard ShardLike) error {
-		testShard = name
+	var shardName string
+	index.shards.Range(func(name string, _ ShardLike) error {
+		shardName = name
 		return nil
 	})
-	t.Logf("testShard: %s", testShard)
-	shard, release, err := index.GetShard(context.TODO(), testShard)
-	require.Nil(t, err)
+
+	// use shard
+	shard, release1, err := index.GetShard(context.Background(), shardName)
+	require.NoError(t, err)
 	require.NotNil(t, shard)
+	require.NotNil(t, release1)
 
-	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
-		time.Sleep(5 * time.Second) // This is the only sleep we need
-		release()
-	}()
+	// use same shard
+	sameShard, release2, err := index.GetShard(context.Background(), shardName)
+	require.NoError(t, err)
+	require.NotNil(t, sameShard)
+	require.NotNil(t, release2)
 
-	shard.Shutdown(context.Background())
-	s := shard.(*LazyLoadShard).shard
-	t.Logf("Shard %+v\n", s)
-	t.Logf("Shard shut: %v, wantshut: %v, loaded: %v\n", s.shut.Load(), s.shutdownRequested.Load(), shard.(*LazyLoadShard).loaded)
-	require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
-	require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down while still in use")
+	// sanity check, no flags marked
+	requireShardShutdownRequested(t, shard, false)
+	requireShardShut(t, shard, false)
 
-	// Wait for both release and shutdown to complete
-	require.Eventually(t, func() bool {
-		wg.Wait() // Wait for release to complete
-		return shard.(*LazyLoadShard).shard.shut.Load()
-	}, 3*time.Second, 100*time.Millisecond, "shard should eventually be marked as shut down")
+	// release shard 2x
+	release1()
+	release2()
 
-	// Final state check
-	require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should still be marked for shut down")
+	// shutdown succeeds, shard idle
+	err = shard.Shutdown(context.Background())
+	require.NoError(t, err)
+	requireShardShutdownRequested(t, shard, false)
+	requireShardShut(t, shard, true)
 }
 
-func TestShardShutdownFailure(t *testing.T) {
-	r := getRandomSeed()
+func TestShardShutdownWhenIdleEventually(t *testing.T) {
 	dirName := t.TempDir()
+	index, cleanup := initIndexAndPopulate(t, dirName)
+	defer cleanup()
 
+	var shardName string
+	index.shards.Range(func(name string, _ ShardLike) error {
+		shardName = name
+		return nil
+	})
+
+	// use shard
+	shard, release1, err := index.GetShard(context.Background(), shardName)
+	require.NoError(t, err)
+	require.NotNil(t, shard)
+	require.NotNil(t, release1)
+
+	// use same shard
+	sameShard, release2, err := index.GetShard(context.Background(), shardName)
+	require.NoError(t, err)
+	require.NotNil(t, sameShard)
+	require.NotNil(t, release2)
+
+	// sanity check, no flags marked
+	requireShardShutdownRequested(t, shard, false)
+	requireShardShut(t, shard, false)
+
+	// shutdown fails, shard in use 2x
+	err = shard.Shutdown(context.Background())
+	require.ErrorContains(t, err, "still in use")
+	requireShardShutdownRequested(t, shard, true)
+	requireShardShut(t, shard, false)
+
+	// getting shard fails, shutdown in progress
+	sameShardAgain, _, err := index.GetShard(context.Background(), shardName)
+	require.ErrorIs(t, err, errShutdownInProgress)
+	require.Nil(t, sameShardAgain)
+
+	// release shard 1x
+	release1()
+
+	// shutdown still in progress, shard in use 1x
+	requireShardShutdownRequested(t, shard, true)
+	requireShardShut(t, shard, false)
+
+	// release shard 1x
+	release2()
+
+	// shutdown eventually completed, shard idle
+	requireShardShutdownRequested(t, shard, false)
+	requireShardShut(t, shard, true)
+
+	// getting shard fails, shutdown completed
+	sameShardYetAgain, _, err := index.GetShard(context.Background(), shardName)
+	require.ErrorIs(t, err, errAlreadyShutdown)
+	require.Nil(t, sameShardYetAgain)
+}
+
+func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup func()) {
+	logger, _ := test.NewNullLogger()
+	className := "Test"
+
+	// create db
 	shardState := singleShardState()
-	logger := logrus.New()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
@@ -143,71 +140,69 @@ func TestShardShutdownFailure(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
-	require.Nil(t, err)
+	},
+		&fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{},
+		&fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+	)
+	require.NoError(t, err)
+
 	repo.SetSchemaGetter(schemaGetter)
-	require.Nil(t, repo.WaitForStartup(testCtx()))
-	defer repo.Shutdown(context.Background())
+	err = repo.WaitForStartup(testCtx())
+	require.NoError(t, err)
+
+	cleanup = func() { repo.Shutdown(context.Background()) }
+	runCleanup := true // run cleanup if method fails
+	defer func() {
+		if runCleanup {
+			cleanup()
+		}
+	}()
+
+	// set schema
+	class := &models.Class{
+		Class:               className,
+		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
+		InvertedIndexConfig: invertedConfig(),
+	}
+	sch := schema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{class},
+		},
+	}
 
 	migrator := NewMigrator(repo, logger)
+	err = migrator.AddClass(context.Background(), class, schemaGetter.shardState)
+	require.NoError(t, err)
+	schemaGetter.schema = sch
 
-	t.Run("set schema", func(t *testing.T) {
-		class := &models.Class{
-			Class:               "Test",
-			VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),
-			InvertedIndexConfig: invertedConfig(),
-		}
-		schema := schema.Schema{
-			Objects: &models.Schema{
-				Classes: []*models.Class{class},
-			},
-		}
+	// import objects
+	for i := 0; i < 10; i++ {
+		v := float32(i)
+		vec := []float32{v, v + 1, v + 2, v + 3}
 
-		require.Nil(t,
-			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
+		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
+		obj := &models.Object{Class: className, ID: id}
+		err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
+		require.NoError(t, err)
+	}
 
-		schemaGetter.schema = schema
-	})
+	index = repo.GetIndex(schema.ClassName(className))
+	runCleanup = false // all good, let caller cleanup
+	return index, cleanup
+}
 
-	t.Run("import objects with d=128", func(t *testing.T) {
-		dim := 128
-		for i := 0; i < 100; i++ {
-			vec := make([]float32, dim)
-			for j := range vec {
-				vec[j] = r.Float32()
-			}
+func requireShardShutdownRequested(t *testing.T, shard ShardLike, expected bool) {
+	if expected {
+		require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
+	} else {
+		require.False(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should not be marked for shut down")
+	}
+}
 
-			id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
-			obj := &models.Object{Class: "Test", ID: id}
-			err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
-			require.Nil(t, err)
-		}
-		dimAfter := GetDimensionsFromRepo(context.Background(), repo, "Test")
-		require.Equal(t, 12800, dimAfter, "dimensions should not have changed")
-		quantDimAfter := GetQuantizedDimensionsFromRepo(context.Background(), repo, "Test", 64)
-		require.Equal(t, 6400, quantDimAfter, "quantized dimensions should not have changed")
-	})
-
-	require.Nil(t, err)
-	index := repo.GetIndex(schema.ClassName("Test"))
-	var testShardName string
-	index.shards.Range(func(name string, shard ShardLike) error {
-		testShardName = name
-		return nil
-	})
-	t.Logf("testShard: %s", testShardName)
-	shard, release, err := index.GetShard(context.TODO(), testShardName)
-	require.Nil(t, err)
-	require.NotNil(t, shard)
-
-	t.Logf("Shard: %+v\n", shard)
-	err = shard.Shutdown(context.Background())
-	require.ErrorContains(t, err, "still in use")
-	require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
-	require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down ")
-
-	// shard eventually shut when idle
-	release()
-	require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
-	require.True(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should be marked as shut down ")
+func requireShardShut(t *testing.T, shard ShardLike, expected bool) {
+	if expected {
+		require.True(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should be marked as shut down")
+	} else {
+		require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down")
+	}
 }
