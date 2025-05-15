@@ -107,7 +107,9 @@ func TestShardShutdownWithInactivity(t *testing.T) {
 		release()
 	}()
 	shard.Shutdown(context.Background())
-	t.Logf("Shard %+v\n", shard)
+	s := shard.(*LazyLoadShard).shard
+	t.Logf("Shard %+v\n", s)
+	t.Logf("Shard shut: %v, wantshut: %v, loaded: %v\n", s.shut.Load(), s.WantShutdown.Load(), shard.(*LazyLoadShard).loaded)
 	require.True(t, shard.(*LazyLoadShard).shard.WantShutdown.Load(), "shard should be marked for shut down")
 	require.True(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should  be marked as shut down ")
 }
