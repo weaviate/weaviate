@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -145,10 +146,12 @@ func Test_schemaShardMetrics(t *testing.T) {
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
 
 	// update tenant status
+	fsm := NewMockreplicationFSM(t)
+	fsm.On("HasOngoingReplication", mock.Anything, mock.Anything, mock.Anything).Return(false)
 	err = s.updateTenants(c2.Class, 0, &api.UpdateTenantsRequest{
 		Tenants:      []*api.Tenant{{Name: "tenant2", Status: "HOT"}}, // FROZEN -> HOT
 		ClusterNodes: []string{"testNode"},
-	})
+	}, fsm)
 	require.NoError(t, err)
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("UNFREEZING")))
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))

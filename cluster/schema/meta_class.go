@@ -347,7 +347,7 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	return sc, nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (map[string]int, error) {
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, replicationFSM replicationFSM, v uint64) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -391,6 +391,10 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			if requestTenant.Status == statusInProgress {
 				continue
 			}
+		}
+
+		if req.Tenants[i].Status == models.TenantActivityStatusINACTIVE && replicationFSM.HasOngoingReplication(m.Class.Class, requestTenant.Name, nodeID) {
+			continue
 		}
 
 		existedSharedFrozen := oldTenant.ActivityStatus() == models.TenantActivityStatusFROZEN || oldTenant.ActivityStatus() == models.TenantActivityStatusFREEZING

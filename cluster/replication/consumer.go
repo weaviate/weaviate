@@ -451,33 +451,35 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), err
 	}
 
-	do := func() bool {
-		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
-		asyncReplicationIsPastUpperTimeBound := asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
-		logger.WithFields(logrus.Fields{
-			"err":                                     err,
-			"objects_propagated":                      asyncReplicationStatus.ObjectsPropagated,
-			"start_diff_time_unix_millis":             asyncReplicationStatus.StartDiffTimeUnixMillis,
-			"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
-			"async_replication_past_upper_time_bound": asyncReplicationIsPastUpperTimeBound,
-		}).Info("async replication finalizing status")
-		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
-	}
-
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 	// we only check the status of the async replication every 5 seconds to avoid
 	// spamming with too many requests too quickly
+	acceptError := 0
 	err := backoff.Retry(func() error {
-		if ctx.Err() != nil {
-			logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
-			return backoff.Permanent(ctx.Err())
+		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
+		if err != nil {
+			asyncReplicationIsPastUpperTimeBound := asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
+			logger.WithFields(logrus.Fields{
+				"err":                                     err,
+				"objects_propagated":                      asyncReplicationStatus.ObjectsPropagated,
+				"start_diff_time_unix_millis":             asyncReplicationStatus.StartDiffTimeUnixMillis,
+				"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
+				"async_replication_past_upper_time_bound": asyncReplicationIsPastUpperTimeBound,
+			}).Info("async replication finalizing status")
+			acceptError++
+			if acceptError > 3 {
+				return backoff.Permanent(err)
+			}
+			return err
 		}
-		if do() {
+
+		if asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis {
 			return nil
 		}
+
 		return errors.New("async replication not done")
 	}, backoff.WithContext(backoff.NewConstantBackOff(asyncStatusInterval), ctx))
 	if err != nil {
@@ -546,29 +548,35 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		return api.ShardReplicationState(""), err
 	}
 
-	do := func() bool {
-		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
-		asyncReplicationIsPastUpperTimeBound := asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
-		logger.WithFields(logrus.Fields{
-			"err":                                     err,
-			"objects_propagated":                      asyncReplicationStatus.ObjectsPropagated,
-			"start_diff_time_unix_millis":             asyncReplicationStatus.StartDiffTimeUnixMillis,
-			"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
-			"async_replication_past_upper_time_bound": asyncReplicationIsPastUpperTimeBound,
-		}).Info("async replication dehydrating status")
-		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
-	}
-
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 	// we only check the status of the async replication every 5 seconds to avoid
 	// spamming with too many requests too quickly
+	acceptError := 0
 	err := backoff.Retry(func() error {
-		if do() {
+		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
+		if err != nil {
+			asyncReplicationIsPastUpperTimeBound := asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
+			logger.WithFields(logrus.Fields{
+				"err":                                     err,
+				"objects_propagated":                      asyncReplicationStatus.ObjectsPropagated,
+				"start_diff_time_unix_millis":             asyncReplicationStatus.StartDiffTimeUnixMillis,
+				"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
+				"async_replication_past_upper_time_bound": asyncReplicationIsPastUpperTimeBound,
+			}).Info("async replication dehydrating status")
+			acceptError++
+			if acceptError > 3 {
+				return backoff.Permanent(err)
+			}
+			return err
+		}
+
+		if asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis {
 			return nil
 		}
+
 		return errors.New("async replication not done")
 	}, backoff.WithContext(backoff.NewConstantBackOff(asyncStatusInterval), ctx))
 	if err != nil {

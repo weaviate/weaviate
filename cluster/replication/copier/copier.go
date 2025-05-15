@@ -250,19 +250,37 @@ func (c *Copier) AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNo
 		return models.AsyncReplicationStatus{}, err
 	}
 
+	if len(status.Shards) == 0 {
+		return models.AsyncReplicationStatus{}, fmt.Errorf("stats are empty for node %s", srcNodeId)
+	}
+
+	shardFound := false
 	for _, shard := range status.Shards {
-		if shard.Name == shardName && shard.Class == collectionName {
-			for _, asyncReplicationStatus := range shard.AsyncReplicationStatus {
-				if asyncReplicationStatus.TargetNode == targetNodeId {
-					return models.AsyncReplicationStatus{
-						ObjectsPropagated:       asyncReplicationStatus.ObjectsPropagated,
-						StartDiffTimeUnixMillis: asyncReplicationStatus.StartDiffTimeUnixMillis,
-						TargetNode:              asyncReplicationStatus.TargetNode,
-					}, nil
-				}
+		if shard.Name != shardName || shard.Class != collectionName {
+			continue
+		}
+
+		shardFound = true
+		if len(shard.AsyncReplicationStatus) == 0 {
+			return models.AsyncReplicationStatus{}, fmt.Errorf("async replication status empty for shard %s in node %s", shardName, srcNodeId)
+		}
+
+		for _, asyncReplicationStatus := range shard.AsyncReplicationStatus {
+			if asyncReplicationStatus.TargetNode != targetNodeId {
+				continue
 			}
+
+			return models.AsyncReplicationStatus{
+				ObjectsPropagated:       asyncReplicationStatus.ObjectsPropagated,
+				StartDiffTimeUnixMillis: asyncReplicationStatus.StartDiffTimeUnixMillis,
+				TargetNode:              asyncReplicationStatus.TargetNode,
+			}, nil
 		}
 	}
 
-	return models.AsyncReplicationStatus{}, fmt.Errorf("shard %s or collection %s not found in node %s or stats are nil", shardName, collectionName, srcNodeId)
+	if !shardFound {
+		return models.AsyncReplicationStatus{}, fmt.Errorf("shard %s not found in node %s", shardName, srcNodeId)
+	}
+
+	return models.AsyncReplicationStatus{}, fmt.Errorf("async replication status not found for shard %s in node %s", shardName, srcNodeId)
 }

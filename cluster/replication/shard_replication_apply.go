@@ -265,6 +265,35 @@ func (s *ShardReplicationFSM) DeleteReplicationsByTenants(collection string, ten
 	return nil
 }
 
+func (s *ShardReplicationFSM) HasOngoingReplication(collection string, shard string, replica string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	sourceFQDN := newShardFQDN(replica, collection, shard)
+	ops, ok := s.opsBySourceFQDN[sourceFQDN]
+	if !ok {
+		return false
+	}
+
+	ongoingOp := false
+	for _, op := range ops {
+		status, ok := s.statusById[op.ID]
+		if !ok {
+			return false
+		}
+		switch status.GetCurrentState() {
+		case api.CANCELLED:
+			continue
+		case api.READY:
+			continue
+		default:
+			ongoingOp = true
+		}
+	}
+
+	return ongoingOp
+}
+
 // TODO: Improve the error handling in that function
 func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	var err error
