@@ -316,8 +316,6 @@ func (s *ShardReplicationFSM) filterOneReplicaReadWrite(node string, collection 
 	readOk := false
 	writeOk := false
 	switch opState.GetCurrentState() {
-	case api.FINALIZING:
-		writeOk = true
 	case api.READY:
 		readOk = true
 		writeOk = true
