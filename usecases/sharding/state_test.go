@@ -339,6 +339,7 @@ func TestStateDeepCopy(t *testing.T) {
 				AssignedToPhysical: "original",
 			},
 		},
+		ReplicationFactor: 3,
 	}
 
 	control := State{
@@ -371,6 +372,7 @@ func TestStateDeepCopy(t *testing.T) {
 				AssignedToPhysical: "original",
 			},
 		},
+		ReplicationFactor: 3,
 	}
 
 	assert.Equal(t, control, original, "control matches initially")
