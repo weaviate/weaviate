@@ -257,7 +257,7 @@ func NewCancelReplicationNotFound() *CancelReplicationNotFound {
 /*
 CancelReplicationNotFound describes a response with status code 404, with default header values.
 
-Shard replica operation not found
+Shard replica operation not found.
 */
 type CancelReplicationNotFound struct {
 }

@@ -42,7 +42,7 @@ type CancelReplicationParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The id of the replication operation to cancel.
+	/*The ID of the replication operation to cancel.
 	  Required: true
 	  In: path
 	*/
