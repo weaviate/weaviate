@@ -17,6 +17,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 )
@@ -49,7 +50,12 @@ func (m *Manager) updateRefVector(ctx context.Context, principal *models.Princip
 			return fmt.Errorf("error waiting for local schema to catch up to version %d: %w", schemaVersion, err)
 		}
 
-		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, obj.Vectors, nil, schemaVersion); err != nil {
+		vectors, multiVectors, err := dto.GetVectors(obj.Vectors)
+		if err != nil {
+			return fmt.Errorf("put object: cannot get vectors: %w", err)
+		}
+
+		if err := m.vectorRepo.PutObject(ctx, obj, obj.Vector, vectors, multiVectors, nil, schemaVersion); err != nil {
 			return fmt.Errorf("put object: %w", err)
 		}
 

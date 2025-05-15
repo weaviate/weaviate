@@ -12,9 +12,11 @@
 package rbac
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/casbin/casbin/v2"
@@ -26,7 +28,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/build"
 )
+
+const DEFAULT_POLICY_VERSION = "1.29.0"
 
 const (
 	// MODEL is the used model for casbin to store roles, permissions, users and comparisons patterns
@@ -87,13 +92,14 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	}
 	enforcer.EnableCache(true)
 
-	rbacStoragePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
+	rbacStoragePath := fmt.Sprintf("%s/rbac", policyPath)
+	rbacStorageFilePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
 
-	if err := createStorage(rbacStoragePath); err != nil {
-		return nil, errors.Wrapf(err, "create storage path: %v", rbacStoragePath)
+	if err := createStorage(rbacStorageFilePath); err != nil {
+		return nil, errors.Wrapf(err, "create storage path: %v", rbacStorageFilePath)
 	}
 
-	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStoragePath))
+	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStorageFilePath))
 
 	if err := enforcer.LoadPolicy(); err != nil {
 		return nil, err
@@ -101,6 +107,31 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
+
+	version, err := getVersion(rbacStoragePath)
+	if err != nil {
+		return nil, err
+	}
+
+	versionParts := strings.Split(version, ".")
+	minorVersion, err := strconv.Atoi(versionParts[1])
+	if err != nil {
+		return nil, err
+	}
+
+	if minorVersion == 30 {
+		if err := downgradesAssignmentsFrom130(enforcer, false); err != nil {
+			return nil, err
+		}
+		if err := downgradeRolesFrom130(enforcer, false); err != nil {
+			return nil, err
+		}
+	}
+
+	err = writeVersion(rbacStoragePath, build.Version)
+	if err != nil {
+		return nil, err
+	}
 
 	// remove preexisting root role including assignments
 	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
@@ -111,6 +142,8 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	if err != nil {
 		return nil, err
 	}
+
+	// remove assignments to namespaces to allow for downgrades (added in 1.30+)
 
 	// add pre existing roles
 	for name, verb := range conv.BuiltInPolicies {
@@ -173,4 +206,142 @@ func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
 	name2 := args[1].(string)
 
 	return (bool)(WeaviateMatcher(name1, name2)), nil
+}
+
+func downgradesAssignmentsFrom130(enforcer *casbin.SyncedCachedEnforcer, keepInternalRoles bool) error {
+	// remove build-in roles with potentially changed verbs. These will be re-added in the next step
+	policies, err := enforcer.GetPolicy()
+	if err != nil {
+		return err
+	}
+
+	if !keepInternalRoles {
+		for _, policy := range policies {
+			roleName := conv.TrimRoleNamePrefix(policy[0])
+			if _, ok := conv.BuiltInPolicies[roleName]; ok {
+				if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, policy[0]); err != nil {
+					return err
+				}
+			}
+		}
+	}
+
+	// clear out assignments to namespaces that have been introduced in 1.30. This code should not be part of 1.30+
+	roles, _ := enforcer.GetAllSubjects()
+	for _, role := range roles {
+		users, err := enforcer.GetUsersForRole(role)
+		if err != nil {
+			return err
+		}
+
+		for _, user := range users {
+			// internal user assignments (for empty roles) need to be converted back from namespaced assignment
+			// these assignments are only added for the db namespace
+			if strings.Contains(user, conv.InternalPlaceHolder) {
+				if _, err := enforcer.DeleteRoleForUser(user, role); err != nil {
+					return err
+				}
+
+				if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(conv.InternalPlaceHolder), role); err != nil {
+					return err
+				}
+			}
+
+			// other internal assignments
+			if strings.HasPrefix(user, "db:") || strings.HasPrefix(user, "oidc:") {
+				if _, err := enforcer.DeleteRoleForUser(user, role); err != nil {
+					return err
+				}
+			}
+			if strings.HasPrefix(user, "db:") {
+				userWithoutPrefix := strings.TrimPrefix(user, "db:")
+				if _, err := enforcer.AddRoleForUser(conv.PrefixUserName(userWithoutPrefix), role); err != nil {
+					return err
+				}
+			}
+		}
+	}
+	return nil
+}
+
+func downgradeRolesFrom130(enforcer *casbin.SyncedCachedEnforcer, keepBuildInRoles bool) error {
+	policies, err := enforcer.GetPolicy()
+	if err != nil {
+		return err
+	}
+
+	policiesToAdd := make([][]string, 0, len(policies))
+	for _, policy := range policies {
+		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, policy[0]); err != nil {
+			return err
+		}
+
+		// undo the migration from UPDATE to ASSIGN
+		if policy[3] == authorization.UsersDomain && policy[2] == "A" {
+			policy[2] = authorization.UPDATE
+		}
+		policiesToAdd = append(policiesToAdd, policy)
+	}
+
+	// re-add policy with changed server version, leave out build-in roles
+	for _, policy := range policiesToAdd {
+		roleName := conv.TrimRoleNamePrefix(policy[0])
+		if _, ok := conv.BuiltInPolicies[roleName]; ok {
+			if !keepBuildInRoles {
+				continue
+			} else if policy[2] == "(C)|(R)|(U)|(D)|(A)" {
+				policy[2] = conv.CRUD
+			}
+		}
+
+		if _, err := enforcer.AddNamedPolicy("p", policy[0], policy[1], policy[2], policy[3]); err != nil {
+			return fmt.Errorf("readd policy: %w", err)
+		}
+	}
+
+	return nil
+}
+
+func writeVersion(path, version string) error {
+	tmpFile, err := os.CreateTemp(path, "policy-temp-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempFilename := tmpFile.Name()
+
+	defer func() {
+		tmpFile.Close()
+		os.Remove(tempFilename) // Remove temp file if it still exists
+	}()
+
+	writer := bufio.NewWriter(tmpFile)
+	if _, err := fmt.Fprint(writer, version); err != nil {
+		return err
+	}
+
+	// Flush the writer to ensure all data is written, then sync and flush tmpfile and atomically rename afterwards
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tempFilename, path+"/version")
+}
+
+func getVersion(path string) (string, error) {
+	filePath := path + "/version"
+	_, err := os.Stat(filePath)
+	if err != nil { // file exists
+		return DEFAULT_POLICY_VERSION, nil
+	}
+	b, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
 }

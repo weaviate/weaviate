@@ -34,7 +34,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
-var ErrNotFound = errors.New("not found")
+var (
+	ErrNotFound           = errors.New("not found")
+	ErrUnexpectedMultiple = errors.New("unexpected multiple results")
+)
 
 // SchemaManager is responsible for consistent schema operations.
 // It allows reading and writing the schema while directly talking to the leader, no matter which node it is.

@@ -243,7 +243,7 @@ func (b *classBuilder) additionalVectorsField(class *models.Class) *graphql.Fiel
 		for targetVector := range class.VectorConfig {
 			fields[targetVector] = &graphql.Field{
 				Name: fmt.Sprintf("%sAdditionalVectors%s", class.Class, targetVector),
-				Type: graphql.NewList(graphql.Float),
+				Type: common_filters.Vector(fmt.Sprintf("%s%s", class.Class, targetVector)),
 			}
 		}
 		return &graphql.Field{

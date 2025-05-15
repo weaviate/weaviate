@@ -139,15 +139,22 @@ func (r *repairer) repairOne(ctx context.Context,
 		gr.Go(func() error {
 			var latestObject *models.Object
 			var vector []float32
-			var vectors models.Vectors
+			var vectors map[string][]float32
+			var multiVectors map[string][][]float32
 
 			if !updates.Deleted {
 				latestObject = &updates.Object.Object
 				vector = updates.Object.Vector
 				if updates.Object.Vectors != nil {
-					vectors = make(models.Vectors, len(updates.Object.Vectors))
-					for i, v := range updates.Object.Vectors {
-						vectors[i] = v
+					vectors = make(map[string][]float32, len(updates.Object.Vectors))
+					for targetVector, v := range updates.Object.Vectors {
+						vectors[targetVector] = v
+					}
+				}
+				if updates.Object.MultiVectors != nil {
+					multiVectors = make(map[string][][]float32, len(updates.Object.MultiVectors))
+					for targetVector, v := range updates.Object.MultiVectors {
+						multiVectors[targetVector] = v
 					}
 				}
 			}
@@ -159,6 +166,7 @@ func (r *repairer) repairOne(ctx context.Context,
 				LatestObject:            latestObject,
 				Vector:                  vector,
 				Vectors:                 vectors,
+				MultiVectors:            multiVectors,
 				StaleUpdateTime:         vote.UTime,
 			}}
 			resp, err := cl.Overwrite(ctx, vote.sender, r.class, shard, ups)
@@ -270,15 +278,22 @@ func (r *repairer) repairExist(ctx context.Context,
 		gr.Go(func() error {
 			var latestObject *models.Object
 			var vector []float32
-			var vectors models.Vectors
+			var vectors map[string][]float32
+			var multiVectors map[string][][]float32
 
 			if !resp.Deleted {
 				latestObject = &resp.Object.Object
 				vector = resp.Object.Vector
 				if resp.Object.Vectors != nil {
-					vectors = make(models.Vectors, len(resp.Object.Vectors))
-					for i, v := range resp.Object.Vectors {
-						vectors[i] = v
+					vectors = make(map[string][]float32, len(resp.Object.Vectors))
+					for targetVector, v := range resp.Object.Vectors {
+						vectors[targetVector] = v
+					}
+				}
+				if resp.Object.MultiVectors != nil {
+					multiVectors = make(map[string][][]float32, len(resp.Object.MultiVectors))
+					for targetVector, v := range resp.Object.MultiVectors {
+						multiVectors[targetVector] = v
 					}
 				}
 			}
@@ -290,6 +305,7 @@ func (r *repairer) repairExist(ctx context.Context,
 				LatestObject:            latestObject,
 				Vector:                  vector,
 				Vectors:                 vectors,
+				MultiVectors:            multiVectors,
 				StaleUpdateTime:         vote.UTime,
 			}}
 
@@ -463,7 +479,8 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 			if x.T != cTime && vote.Count[j] == nVotes {
 				var latestObject *models.Object
 				var vector []float32
-				var vectors models.Vectors
+				var vectors map[string][]float32
+				var multiVectors map[string][][]float32
 
 				deleted := x.Deleted && lastDeletionTimes[j] == x.T
 
@@ -471,9 +488,15 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 					latestObject = &result[j].Object
 					vector = result[j].Vector
 					if result[j].Vectors != nil {
-						vectors = make(models.Vectors, len(result[j].Vectors))
-						for i, v := range result[j].Vectors {
-							vectors[i] = v
+						vectors = make(map[string][]float32, len(result[j].Vectors))
+						for targetVector, v := range result[j].Vectors {
+							vectors[targetVector] = v
+						}
+					}
+					if result[j].MultiVectors != nil {
+						multiVectors = make(map[string][][]float32, len(result[j].MultiVectors))
+						for targetVector, v := range result[j].MultiVectors {
+							multiVectors[targetVector] = v
 						}
 					}
 				}
@@ -485,6 +508,7 @@ func (r *repairer) repairBatchPart(ctx context.Context,
 					LatestObject:            latestObject,
 					Vector:                  vector,
 					Vectors:                 vectors,
+					MultiVectors:            multiVectors,
 					StaleUpdateTime:         cTime,
 				}
 				query = append(query, &obj)

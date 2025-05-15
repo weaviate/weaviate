@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"path/filepath"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
@@ -27,6 +28,7 @@ import (
 	dynamicent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"go.etcd.io/bbolt"
 )
 
 func (s *Shard) initVectorIndex(ctx context.Context,
@@ -76,15 +78,17 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			vecIdxID := s.vectorIndexID(targetVector)
 
 			vi, err := hnsw.New(hnsw.Config{
-				Logger:               s.index.logger,
-				RootPath:             s.path(),
-				ID:                   vecIdxID,
-				ShardName:            s.name,
-				ClassName:            s.index.Config.ClassName.String(),
-				PrometheusMetrics:    s.promMetrics,
-				VectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
-				TempVectorForIDThunk: hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
-				DistanceProvider:     distProv,
+				Logger:                    s.index.logger,
+				RootPath:                  s.path(),
+				ID:                        vecIdxID,
+				ShardName:                 s.name,
+				ClassName:                 s.index.Config.ClassName.String(),
+				PrometheusMetrics:         s.promMetrics,
+				VectorForIDThunk:          hnsw.NewVectorForIDThunk(targetVector, s.vectorByIndexID),
+				MultiVectorForIDThunk:     hnsw.NewVectorForIDThunk(targetVector, s.multiVectorByIndexID),
+				TempVectorForIDThunk:      hnsw.NewTempVectorForIDThunk(targetVector, s.readVectorByIndexIDIntoSlice),
+				TempMultiVectorForIDThunk: hnsw.NewTempMultiVectorForIDThunk(targetVector, s.readMultiVectorByIndexIDIntoSlice),
+				DistanceProvider:          distProv,
 				MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
 					return hnsw.NewCommitLogger(s.path(), vecIdxID,
 						s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks,
@@ -97,6 +101,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				AllocChecker:           s.index.allocChecker,
 				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
 				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
+				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
 				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
@@ -146,6 +151,11 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		// here we label the main vector index as such.
 		vecIdxID := s.vectorIndexID(targetVector)
 
+		sharedDB, err := s.getOrInitDynamicVectorIndexDB()
+		if err != nil {
+			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
+		}
+
 		vi, err := dynamic.New(dynamic.Config{
 			ID:                   vecIdxID,
 			TargetVector:         targetVector,
@@ -162,6 +172,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 			},
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			SharedDB:           sharedDB,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
@@ -173,6 +184,21 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 	}
 	defer vectorIndex.PostStartup()
 	return vectorIndex, nil
+}
+
+func (s *Shard) getOrInitDynamicVectorIndexDB() (*bbolt.DB, error) {
+	if s.dynamicVectorIndexDB == nil {
+		path := filepath.Join(s.path(), "index.db")
+
+		db, err := bbolt.Open(path, 0o600, nil)
+		if err != nil {
+			return nil, errors.Wrapf(err, "open %q", path)
+		}
+
+		s.dynamicVectorIndexDB = db
+	}
+
+	return s.dynamicVectorIndexDB, nil
 }
 
 func (s *Shard) hasTargetVectors() bool {

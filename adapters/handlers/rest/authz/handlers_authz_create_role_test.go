@@ -212,7 +212,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "invalid permission",
+			expectedError: "invalid role",
 		},
 		{
 			name: "cannot create role with the same name as builtin role",
@@ -227,7 +227,7 @@ func TestCreateRoleBadRequest(t *testing.T) {
 					},
 				},
 			},
-			expectedError: "you can not create role with the same name as built-in role",
+			expectedError: "you cannot create role with the same name as built-in role",
 		},
 	}
 

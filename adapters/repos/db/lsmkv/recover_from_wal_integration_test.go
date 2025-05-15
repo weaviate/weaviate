@@ -645,16 +645,19 @@ func TestRoaringSetRangeStrategy_RecoverFromWAL(t *testing.T) {
 			reader := b.ReaderRoaringSetRange()
 			defer reader.Close()
 
-			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
+			bm1, release1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release1()
 			assert.ElementsMatch(t, orig1, bm1.ToArray())
 
-			bm2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
+			bm2, release2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release2()
 			assert.ElementsMatch(t, orig2, bm2.ToArray())
 
-			bm3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
+			bm3, release3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release3()
 			assert.ElementsMatch(t, orig3, bm3.ToArray())
 		})
 
@@ -693,16 +696,19 @@ func TestRoaringSetRangeStrategy_RecoverFromWAL(t *testing.T) {
 			reader := b.ReaderRoaringSetRange()
 			defer reader.Close()
 
-			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
+			bm1, release1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release1()
 			assert.ElementsMatch(t, expected1, bm1.ToArray())
 
-			bm2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
+			bm2, release2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release2()
 			assert.ElementsMatch(t, expected2, bm2.ToArray())
 
-			bm3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
+			bm3, release3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release3()
 			assert.ElementsMatch(t, expected3, bm3.ToArray())
 		})
 
@@ -750,16 +756,19 @@ func TestRoaringSetRangeStrategy_RecoverFromWAL(t *testing.T) {
 			reader := bRec.ReaderRoaringSetRange()
 			defer reader.Close()
 
-			bm1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
+			bm1, release1, err := reader.Read(testCtx(), key1, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release1()
 			assert.ElementsMatch(t, expected1, bm1.ToArray())
 
-			bm2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
+			bm2, release2, err := reader.Read(testCtx(), key2, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release2()
 			assert.ElementsMatch(t, expected2, bm2.ToArray())
 
-			bm3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
+			bm3, release3, err := reader.Read(testCtx(), key3, filters.OperatorEqual)
 			require.NoError(t, err)
+			defer release3()
 			assert.ElementsMatch(t, expected3, bm3.ToArray())
 		})
 	})

@@ -31,10 +31,11 @@ import (
 )
 
 func (db *DB) PutObject(ctx context.Context, obj *models.Object,
-	vector []float32, vectors models.Vectors, repl *additional.ReplicationProperties,
+	vector []float32, vectors map[string][]float32, multivectors map[string][][]float32,
+	repl *additional.ReplicationProperties,
 	schemaVersion uint64,
 ) error {
-	object := storobj.FromObject(obj, vector, vectors)
+	object := storobj.FromObject(obj, vector, vectors, multivectors)
 	idx := db.GetIndex(object.Class())
 	if idx == nil {
 		return fmt.Errorf("import into non-existing index for %s", object.Class())

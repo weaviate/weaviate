@@ -223,7 +223,7 @@ func (fmp *fakeModulesProvider) ExtractAdditionalField(className, name string, p
 }
 
 func (fmp *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, in []search.Result,
-	moduleParams map[string]interface{}, searchVector []float32,
+	moduleParams map[string]interface{}, searchVector models.Vector,
 	argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) ([]search.Result, error) {
 	return fmp.additionalExtend(ctx, in, moduleParams, searchVector, "ExploreGet", argumentModuleParams, nil)
@@ -231,7 +231,7 @@ func (fmp *fakeModulesProvider) GetExploreAdditionalExtend(ctx context.Context, 
 
 func (fmp *fakeModulesProvider) additionalExtend(ctx context.Context,
 	in search.Results, moduleParams map[string]interface{},
-	searchVector []float32, capability string, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
+	searchVector models.Vector, capability string, argumentModuleParams map[string]interface{}, cfg moduletools.ClassConfig,
 ) (search.Results, error) {
 	txt2vec := &mockText2vecContextionaryModule{}
 	additionalProperties := txt2vec.AdditionalProperties()
@@ -239,8 +239,8 @@ func (fmp *fakeModulesProvider) additionalExtend(ctx context.Context,
 		additionalPropertyFn := fmp.getAdditionalPropertyFn(additionalProperties[name], capability)
 		if additionalPropertyFn != nil && value != nil {
 			searchValue := value
-			if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector); ok {
-				searchVectorValue.SetSearchVector(searchVector)
+			if searchVectorValue, ok := value.(modulecapabilities.AdditionalPropertyWithSearchVector[[]float32]); ok {
+				searchVectorValue.SetSearchVector(searchVector.([]float32))
 				searchValue = searchVectorValue
 			}
 			resArray, err := additionalPropertyFn(ctx, in, searchValue, nil, nil, nil)

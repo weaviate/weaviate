@@ -31,7 +31,7 @@ import (
 // method to keep drop behaviour consistent.
 func (s *Shard) drop() (err error) {
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
-	s.metrics.baseMetrics.StartUnloadingShard(s.index.Config.ClassName.String())
+	s.metrics.baseMetrics.StartUnloadingShard()
 	s.replicationMap.clear()
 
 	if s.index.Config.TrackVectorDimensions {
@@ -127,7 +127,7 @@ func (s *Shard) drop() (err error) {
 		return fmt.Errorf("delete shard dir: %w", err)
 	}
 
-	s.metrics.baseMetrics.FinishUnloadingShard(s.index.Config.ClassName.String())
+	s.metrics.baseMetrics.FinishUnloadingShard()
 
 	s.index.logger.WithFields(logrus.Fields{
 		"action": "drop_shard",

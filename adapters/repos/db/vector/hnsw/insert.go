@@ -13,6 +13,7 @@ package hnsw
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"math"
 	"sync/atomic"
@@ -40,9 +41,38 @@ func (h *hnsw) ValidateBeforeInsert(vector []float32) error {
 	return nil
 }
 
+func (h *hnsw) ValidateMultiBeforeInsert(vector [][]float32) error {
+	dims := int(atomic.LoadInt32(&h.dims))
+
+	// no vectors exist
+	if dims == 0 {
+		vecDimensions := make(map[int]struct{})
+		for i := range vector {
+			vecDimensions[len(vector[i])] = struct{}{}
+		}
+		if len(vecDimensions) > 1 {
+			return fmt.Errorf("multi vector array consists of vectors with varying dimensions")
+		}
+		return nil
+	}
+
+	// check if vector length is the same as existing nodes
+	for i := range vector {
+		if dims != len(vector[i]) {
+			return fmt.Errorf("new node has a multi vector with length %v at position %v. "+
+				"Existing nodes have vectors with length %v", len(vector[i]), i, dims)
+		}
+	}
+
+	return nil
+}
+
 func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	if h.multivector.Load() {
+		return errors.Errorf("AddBatch called on multivector index")
 	}
 	if len(ids) != len(vectors) {
 		return errors.Errorf("ids and vectors sizes does not match")
@@ -50,9 +80,25 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 	if len(ids) == 0 {
 		return errors.Errorf("insertBatch called with empty lists")
 	}
+
+	var err error
 	h.trackDimensionsOnce.Do(func() {
-		atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+		dims := len(vectors[0])
+		for _, vec := range vectors {
+			if len(vec) != dims {
+				err = errors.Errorf("addBatch called with vectors of different lengths")
+				return
+			}
+		}
+		if err == nil {
+			atomic.StoreInt32(&h.dims, int32(len(vectors[0])))
+		}
 	})
+
+	if err != nil {
+		return err
+	}
+
 	levels := make([]int, len(ids))
 	maxId := uint64(0)
 	for i, id := range ids {
@@ -102,6 +148,146 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 
 		h.insertMetrics.total(globalBefore)
 	}
+	return nil
+}
+
+func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][]float32) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if !h.multivector.Load() {
+		return errors.Errorf("addMultiBatch called on non-multivector index")
+	}
+	if len(docIDs) != len(vectors) {
+		return errors.Errorf("ids and vectors sizes does not match")
+	}
+	if len(docIDs) == 0 {
+		return errors.Errorf("addMultiBatch called with empty lists")
+	}
+
+	var err error
+	h.trackDimensionsOnce.Do(func() {
+		dim := len(vectors[0][0])
+		for _, doc := range vectors {
+			for _, vec := range doc {
+				if len(vec) != dim {
+					err = errors.Errorf("addMultiBatch called with vectors of different lengths")
+					return
+				}
+			}
+		}
+		if err == nil {
+			atomic.StoreInt32(&h.dims, int32(len(vectors[0][0])))
+		}
+	})
+
+	if err != nil {
+		return err
+	}
+
+	for i, docID := range docIDs {
+		numVectors := len(vectors[i])
+		levels := make([]int, numVectors)
+		for j := range numVectors {
+			levels[j] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
+		}
+
+		h.Lock()
+		counter := h.vecIDcounter
+		h.vecIDcounter += uint64(numVectors)
+		h.Unlock()
+
+		maxId := counter + uint64(numVectors)
+
+		h.RLock()
+		if maxId >= uint64(len(h.nodes)) {
+			h.RUnlock()
+			h.Lock()
+			if maxId >= uint64(len(h.nodes)) {
+				err := h.growIndexToAccomodateNode(maxId, h.logger)
+				if err != nil {
+					h.Unlock()
+					return errors.Wrapf(err, "grow HNSW index to accommodate node %d", maxId)
+				}
+			}
+			h.Unlock()
+		} else {
+			h.RUnlock()
+		}
+
+		h.RLock()
+		if docID >= h.maxDocID {
+			h.RUnlock()
+			h.Lock()
+			if docID >= h.maxDocID {
+				h.maxDocID = docID
+				if h.compressed.Load() {
+					h.compressor.GrowMultiCache(docID)
+				} else {
+					h.cache.GrowMultiCache(docID)
+				}
+			}
+			h.Unlock()
+		} else {
+			h.RUnlock()
+		}
+
+		ids := make([]uint64, numVectors)
+		for id := range ids {
+			ids[id] = counter + uint64(id)
+		}
+		if h.compressed.Load() {
+			h.compressor.PreloadMulti(docID, ids, vectors[i])
+		} else {
+			h.cache.PreloadMulti(docID, ids, vectors[i])
+		}
+		for j := range numVectors {
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+
+			vector := vectors[i][j]
+
+			globalBefore := time.Now()
+			if len(vector) == 0 {
+				return errors.Errorf("insert called with nil-vector")
+			}
+
+			h.metrics.InsertVector()
+
+			vector = h.normalizeVec(vector)
+
+			nodeId := counter
+			counter++
+
+			node := &vertex{
+				id:    uint64(nodeId),
+				level: levels[j],
+			}
+
+			h.Lock()
+			h.docIDVectors[docID] = append(h.docIDVectors[docIDs[i]], nodeId)
+			h.Unlock()
+
+			nodeIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(nodeIDBytes, nodeId)
+			docIDBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(docIDBytes, docID)
+			err := h.store.Bucket(h.id+"_mv_mappings").Put(nodeIDBytes, docIDBytes)
+			if err != nil {
+				return errors.Wrap(err, fmt.Sprintf("failed to put %s_mv_mappings into the bucket", h.id))
+			}
+
+			err = h.addOne(ctx, vector, node)
+			if err != nil {
+				return err
+			}
+
+			h.insertMetrics.total(globalBefore)
+		}
+
+	}
+
 	return nil
 }
 
@@ -165,10 +351,12 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.nodes[nodeId] = node
 	h.shardedNodeLocks.Unlock(nodeId)
 
-	if h.compressed.Load() {
+	if h.compressed.Load() && !h.multivector.Load() {
 		h.compressor.Preload(node.id, vector)
 	} else {
-		h.cache.Preload(node.id, vector)
+		if !h.multivector.Load() {
+			h.cache.Preload(node.id, vector)
+		}
 	}
 
 	h.insertMetrics.prepareAndInsertNode(before)
@@ -227,6 +415,10 @@ func (h *hnsw) Add(ctx context.Context, id uint64, vector []float32) error {
 	return h.AddBatch(ctx, []uint64{id}, [][]float32{vector})
 }
 
+func (h *hnsw) AddMulti(ctx context.Context, id uint64, vector [][]float32) error {
+	return h.AddMultiBatch(ctx, []uint64{id}, [][][]float32{vector})
+}
+
 func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.Lock()
 	defer h.Unlock()
@@ -254,10 +446,12 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 	h.nodes[node.id] = node
 	h.shardedNodeLocks.Unlock(node.id)
 
-	if h.compressed.Load() {
+	if h.compressed.Load() && !h.multivector.Load() {
 		h.compressor.Preload(node.id, nodeVec)
 	} else {
-		h.cache.Preload(node.id, nodeVec)
+		if !h.multivector.Load() {
+			h.cache.Preload(node.id, nodeVec)
+		}
 	}
 
 	// go h.insertHook(node.id, 0, node.connections)

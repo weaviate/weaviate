@@ -140,6 +140,30 @@ func (h *hnsw) flatSearch(ctx context.Context, queryVector []float32, k, limit i
 	return ids, dists, nil
 }
 
+func (h *hnsw) flatMultiSearch(ctx context.Context, queryVectors [][]float32, k int,
+	allowList helpers.AllowList,
+) ([]uint64, []float32, error) {
+	kPrime := k
+	candidateSet := make(map[uint64]struct{})
+	for _, vec := range queryVectors {
+		ids, _, err := h.flatSearch(ctx, vec, kPrime, h.searchTimeEF(kPrime), allowList)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, id := range ids {
+			var docId uint64
+			if !h.compressed.Load() {
+				docId, _ = h.cache.GetKeys(id)
+			} else {
+				docId, _ = h.compressor.GetKeys(id)
+			}
+			candidateSet[docId] = struct{}{}
+		}
+	}
+
+	return h.computeLateInteraction(queryVectors, k, candidateSet)
+}
+
 func addResult(results *priorityqueue.Queue[any], id uint64, dist float32, limit int) {
 	if results.Len() < limit {
 		results.Insert(id, dist)

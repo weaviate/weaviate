@@ -21,6 +21,7 @@ import (
 type VectorIndexConfig interface {
 	IndexType() string
 	DistanceName() string
+	IsMultiVector() bool
 }
 
 func TypeAssertVectorIndex(class *models.Class, targetVectors []string) ([]VectorIndexConfig, error) {

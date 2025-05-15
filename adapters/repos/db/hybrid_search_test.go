@@ -102,7 +102,7 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 
 		data := map[string]interface{}{"document": doc.Document, "code": doc.DocID}
 		obj := &models.Object{Class: "StandardTest", ID: id, Properties: data, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
-		err := repo.PutObject(context.Background(), obj, nil, nil, nil, 0)
+		err := repo.PutObject(context.Background(), obj, nil, nil, nil, nil, 0)
 		require.Nil(t, err)
 	}
 	return props
@@ -202,7 +202,7 @@ func addObj(repo *DB, i int, props map[string]interface{}, vec []float32) error 
 
 	obj := &models.Object{Class: "MyClass", ID: id, Properties: props, CreationTimeUnix: 1565612833955, LastUpdateTimeUnix: 10000020}
 	vector := vec
-	err := repo.PutObject(context.Background(), obj, vector, nil, nil, 0)
+	err := repo.PutObject(context.Background(), obj, vector, nil, nil, nil, 0)
 	return err
 }
 
@@ -424,7 +424,7 @@ func TestRFJourney(t *testing.T) {
 				Properties: []search.SelectProperty{{Name: "title"}, {Name: "description"}},
 			},
 			[]string{""},
-			[][]float32{PeanutsVector()},
+			[]models.Vector{PeanutsVector()},
 		)
 
 		require.Nil(t, err)
@@ -439,7 +439,7 @@ func TestRFJourney(t *testing.T) {
 				Properties: []search.SelectProperty{{Name: "title"}, {Name: "description"}},
 			},
 			[]string{""},
-			[][]float32{JourneyVector()},
+			[]models.Vector{JourneyVector()},
 		)
 		require.Nil(t, err)
 
@@ -927,11 +927,11 @@ func (f *fakeObjectSearcher) Search(context.Context, dto.GetParams) ([]search.Re
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, []string, [][]float32) ([]search.Result, error) {
+func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, []string, []models.Vector) ([]search.Result, error) {
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, []float32, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
+func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, models.Vector, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
 	return nil, nil
 }
 

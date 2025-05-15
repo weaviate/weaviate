@@ -640,10 +640,12 @@ type IndexConfig struct {
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
+	IndexRangeableInMemory              bool
 	MaxSegmentSize                      int64
 	HNSWMaxLogSize                      int64
 	HNSWWaitForCachePrefill             bool
 	HNSWFlatSearchConcurrency           int
+	HNSWAcornFilterRatio                float64
 	VisitedListPoolMaxSize              int
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
@@ -1581,7 +1583,7 @@ func (i *Index) mergeGroups(objects []*storobj.Object, dists []float32,
 	return newGroupMerger(objects, dists, groupBy).Do()
 }
 
-func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVectors [][]float32,
+func (i *Index) singleLocalShardObjectVectorSearch(ctx context.Context, searchVectors []models.Vector,
 	targetVectors []string, dist float32, limit int, filters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	shard ShardLike, targetCombination *dto.TargetCombination, properties []string,
@@ -1625,7 +1627,7 @@ func (i *Index) targetShardNames(ctx context.Context, tenant string) ([]string, 
 		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
-func (i *Index) localShardSearch(ctx context.Context, searchVectors [][]float32,
+func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vector,
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, shardName string,
@@ -1652,7 +1654,11 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors [][]float32,
 	return localShardResult, localShardScores, nil
 }
 
-func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32, targetVectors []string, distance float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties, targetCombination *dto.TargetCombination, properties []string, shardName string) ([]*storobj.Object, []float32, error) {
+func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Vector,
+	targetVectors []string, distance float32, limit int, localFilters *filters.LocalFilter,
+	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
+	targetCombination *dto.TargetCombination, properties []string, shardName string,
+) ([]*storobj.Object, []float32, error) {
 	var outObjects []*storobj.Object
 	var outScores []float32
 
@@ -1699,7 +1705,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors [][]float32
 	return outObjects, outScores, nil
 }
 
-func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float32,
+func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.Vector,
 	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter, sort []filters.Sort,
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
@@ -1844,7 +1850,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors [][]float3
 }
 
 func (i *Index) IncomingSearch(ctx context.Context, shardName string,
-	searchVectors [][]float32, targetVectors []string, distance float32, limit int,
+	searchVectors []models.Vector, targetVectors []string, distance float32, limit int,
 	filters *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,

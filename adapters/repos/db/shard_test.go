@@ -31,6 +31,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	hnswindex "github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -283,7 +284,7 @@ func TestShard_DebugResetVectorIndex(t *testing.T) {
 
 	// make sure the new index does not contain any of the objects
 	for _, obj := range objs {
-		if newIdx.ContainsNode(obj.DocID) {
+		if newIdx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should not be in the vector index", obj.DocID)
 		}
 	}
@@ -359,7 +360,7 @@ func TestShard_DebugResetVectorIndex_WithTargetVectors(t *testing.T) {
 
 	// make sure the new index does not contain any of the objects
 	for _, obj := range objs {
-		if newIdx.ContainsNode(obj.DocID) {
+		if newIdx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should not be in the vector index", obj.DocID)
 		}
 	}
@@ -375,47 +376,64 @@ func TestShard_RepairIndex(t *testing.T) {
 	tests := []struct {
 		name           string
 		targetVector   string
+		multiVector    bool
 		cfg            schemaConfig.VectorIndexConfig
 		idxOpt         func(*Index)
 		getQueue       func(ShardLike) *VectorIndexQueue
 		getVectorIndex func(ShardLike) VectorIndex
 	}{
 		{
-			"hnsw",
-			"",
-			hnsw.UserConfig{},
-			nil,
-			func(s ShardLike) *VectorIndexQueue {
+			name: "hnsw",
+			cfg:  hnsw.UserConfig{},
+			getQueue: func(s ShardLike) *VectorIndexQueue {
 				return s.Queue()
 			},
-			func(s ShardLike) VectorIndex {
+			getVectorIndex: func(s ShardLike) VectorIndex {
 				return s.VectorIndex()
 			},
 		},
 		{
-			"hnsw with target vectors",
-			"foo",
-			hnsw.UserConfig{},
-			func(i *Index) {
+			name:         "hnsw with target vectors",
+			targetVector: "foo",
+			cfg:          hnsw.UserConfig{},
+			idxOpt: func(i *Index) {
 				i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
 				i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{}
 			},
-			func(s ShardLike) *VectorIndexQueue {
+			getQueue: func(s ShardLike) *VectorIndexQueue {
 				return s.Queues()["foo"]
 			},
-			func(s ShardLike) VectorIndex {
+			getVectorIndex: func(s ShardLike) VectorIndex {
 				return s.VectorIndexes()["foo"]
 			},
 		},
 		{
-			"flat",
-			"",
-			flat.NewDefaultUserConfig(),
-			nil,
-			func(s ShardLike) *VectorIndexQueue {
+			name:         "hnsw with multi vectors",
+			targetVector: "foo",
+			multiVector:  true,
+			cfg:          hnsw.UserConfig{},
+			idxOpt: func(i *Index) {
+				i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
+				i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{
+					Multivector: hnsw.MultivectorConfig{
+						Enabled: true,
+					},
+				}
+			},
+			getQueue: func(s ShardLike) *VectorIndexQueue {
+				return s.Queues()["foo"]
+			},
+			getVectorIndex: func(s ShardLike) VectorIndex {
+				return s.VectorIndexes()["foo"]
+			},
+		},
+		{
+			name: "flat",
+			cfg:  flat.NewDefaultUserConfig(),
+			getQueue: func(s ShardLike) *VectorIndexQueue {
 				return s.Queue()
 			},
-			func(s ShardLike) VectorIndex {
+			getVectorIndex: func(s ShardLike) VectorIndex {
 				return s.VectorIndex()
 			},
 		},
@@ -444,8 +462,14 @@ func TestShard_RepairIndex(t *testing.T) {
 			for i := 0; i < amount; i++ {
 				obj := testObject(className)
 				if test.targetVector != "" {
-					obj.Vectors = map[string][]float32{
-						test.targetVector: {1, 2, 3},
+					if test.multiVector {
+						obj.MultiVectors = map[string][][]float32{
+							test.targetVector: {{1, 2, 3}, {4, 5, 6}},
+						}
+					} else {
+						obj.Vectors = map[string][]float32{
+							test.targetVector: {1, 2, 3},
+						}
 					}
 				}
 				objs = append(objs, obj)
@@ -469,8 +493,13 @@ func TestShard_RepairIndex(t *testing.T) {
 
 			// remove some objects from the vector index
 			for i := 400; i < 600; i++ {
-				err := vidx.Delete(uint64(i))
-				require.NoError(t, err)
+				if test.multiVector {
+					err := vidx.DeleteMulti(uint64(i))
+					require.NoError(t, err)
+				} else {
+					err := vidx.Delete(uint64(i))
+					require.NoError(t, err)
+				}
 			}
 
 			// remove some objects from the store
@@ -505,15 +534,177 @@ func TestShard_RepairIndex(t *testing.T) {
 			// make sure all objects except >= 100 < 300 are back in the vector index
 			for i := 0; i < amount; i++ {
 				if i >= 100 && i < 300 {
-					if vidx.ContainsNode(uint64(i)) {
-						t.Fatalf("node %d should not be in the vector index", i)
+					if vidx.ContainsDoc(uint64(i)) {
+						t.Fatalf("doc %d should not be in the vector index", i)
 					}
 					continue
 				}
 
-				if !vidx.ContainsNode(uint64(i)) {
-					t.Fatalf("node %d should be in the vector index", i)
+				if !vidx.ContainsDoc(uint64(i)) {
+					t.Fatalf("doc %d should be in the vector index", i)
 				}
+			}
+
+			require.Nil(t, idx.drop())
+			require.Nil(t, os.RemoveAll(idx.Config.RootPath))
+		})
+	}
+}
+
+func TestShard_FillQueue(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+	t.Setenv("ASYNC_INDEXING_STALE_TIMEOUT", "200ms")
+
+	tests := []struct {
+		name           string
+		targetVector   string
+		multiVector    bool
+		cfg            schemaConfig.VectorIndexConfig
+		idxOpt         func(*Index)
+		getQueue       func(ShardLike) *VectorIndexQueue
+		getVectorIndex func(ShardLike) VectorIndex
+	}{
+		{
+			name: "hnsw",
+			cfg:  hnsw.UserConfig{},
+			getQueue: func(s ShardLike) *VectorIndexQueue {
+				return s.Queue()
+			},
+			getVectorIndex: func(s ShardLike) VectorIndex {
+				return s.VectorIndex()
+			},
+		},
+		{
+			name:         "hnsw with target vectors",
+			targetVector: "foo",
+			cfg:          hnsw.UserConfig{},
+			idxOpt: func(i *Index) {
+				i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
+				i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{}
+			},
+			getQueue: func(s ShardLike) *VectorIndexQueue {
+				return s.Queues()["foo"]
+			},
+			getVectorIndex: func(s ShardLike) VectorIndex {
+				return s.VectorIndexes()["foo"]
+			},
+		},
+		{
+			name:         "hnsw with multi vectors",
+			targetVector: "foo",
+			multiVector:  true,
+			cfg:          hnsw.UserConfig{},
+			idxOpt: func(i *Index) {
+				i.vectorIndexUserConfigs = make(map[string]schemaConfig.VectorIndexConfig)
+				i.vectorIndexUserConfigs["foo"] = hnsw.UserConfig{
+					Multivector: hnsw.MultivectorConfig{
+						Enabled: true,
+					},
+				}
+			},
+			getQueue: func(s ShardLike) *VectorIndexQueue {
+				return s.Queues()["foo"]
+			},
+			getVectorIndex: func(s ShardLike) VectorIndex {
+				return s.VectorIndexes()["foo"]
+			},
+		},
+		{
+			name: "flat",
+			cfg:  flat.NewDefaultUserConfig(),
+			getQueue: func(s ShardLike) *VectorIndexQueue {
+				return s.Queue()
+			},
+			getVectorIndex: func(s ShardLike) VectorIndex {
+				return s.VectorIndex()
+			},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			ctx := context.Background()
+			className := "TestClass"
+			var opts []func(*Index)
+			if test.idxOpt != nil {
+				opts = append(opts, test.idxOpt)
+			}
+			shd, idx := testShardWithSettings(t, ctx, &models.Class{Class: className}, test.cfg, false, true /* withCheckpoints */, opts...)
+
+			amount := 1000
+
+			defer func(path string) {
+				err := os.RemoveAll(path)
+				if err != nil {
+					fmt.Println(err)
+				}
+			}(shd.Index().Config.RootPath)
+
+			var objs []*storobj.Object
+			for i := 0; i < amount; i++ {
+				obj := testObject(className)
+				if test.targetVector != "" {
+					if test.multiVector {
+						obj.MultiVectors = map[string][][]float32{
+							test.targetVector: {{1, 2, 3}, {4, 5, 6}},
+						}
+					} else {
+						obj.Vectors = map[string][]float32{
+							test.targetVector: {1, 2, 3},
+						}
+					}
+				}
+				objs = append(objs, obj)
+			}
+
+			errs := shd.PutObjectBatch(ctx, objs)
+			for _, err := range errs {
+				require.Nil(t, err)
+			}
+
+			vidx := test.getVectorIndex(shd)
+			q := test.getQueue(shd)
+
+			// wait for the queue to be empty
+			require.EventuallyWithT(t, func(t *assert.CollectT) {
+				assert.Zero(t, q.Size())
+			}, 5*time.Second, 100*time.Millisecond)
+
+			// remove most of the objects from the vector index
+			for i := 100; i < amount; i++ {
+				if test.multiVector {
+					err := vidx.DeleteMulti(uint64(i))
+					require.NoError(t, err)
+				} else {
+					err := vidx.Delete(uint64(i))
+					require.NoError(t, err)
+				}
+			}
+
+			// we need to delete tombstones so the vectors with the same doc ids could be inserted
+			if hnswindex.IsHNSWIndex(vidx) {
+				err := hnswindex.AsHNSWIndex(vidx).CleanUpTombstonedNodes(func() bool { return false })
+				require.NoError(t, err)
+			}
+
+			// refill only subset of the objects
+			err := shd.FillQueue(test.targetVector, 150)
+			require.NoError(t, err)
+
+			require.EventuallyWithT(t, func(t *assert.CollectT) {
+				assert.Zero(t, q.Size())
+			}, 5*time.Second, 100*time.Millisecond)
+
+			// wait for the worker to index
+			time.Sleep(500 * time.Millisecond)
+
+			// make sure all objects except >= 100 < 150 are back in the vector index
+			for i := 0; i < amount; i++ {
+				if 100 <= i && i < 150 {
+					require.Falsef(t, vidx.ContainsDoc(uint64(i)), "doc %d should not be in the vector index", i)
+					continue
+				}
+				require.Truef(t, vidx.ContainsDoc(uint64(i)), "doc %d should be in the vector index", i)
 			}
 
 			require.Nil(t, idx.drop())
@@ -591,7 +782,7 @@ func TestShard_UpgradeIndex(t *testing.T) {
 	t.Setenv("QUEUE_SCHEDULER_INTERVAL", "1ms")
 
 	cfg := dynamic.NewDefaultUserConfig()
-	cfg.Threshold = 1000
+	cfg.Threshold = 400
 
 	ctx := context.Background()
 	className := "SomeClass"
@@ -609,7 +800,7 @@ func TestShard_UpgradeIndex(t *testing.T) {
 		}
 	}(shd.Index().Config.RootPath)
 
-	amount := 1000
+	amount := 400
 	for i := 0; i < 3; i++ {
 		objs := make([]*storobj.Object, 0, amount)
 		for j := 0; j < amount; j++ {

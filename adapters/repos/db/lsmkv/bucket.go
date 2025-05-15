@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -146,6 +147,14 @@ type Bucket struct {
 	// ensuring segment files have integrity before reading them.
 	enableChecksumValidation bool
 
+	// keep segments in memory for more performant search
+	// (currently used by roaringsetrange inverted indexes)
+	keepSegmentsInMemory bool
+
+	// pool of buffers for bitmaps merges
+	// (currently used by roaringsetrange inverted indexes)
+	bitmapBufPool roaringset.BitmapBufPool
+
 	bm25Config *models.BM25Config
 }
 
@@ -210,8 +219,9 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			maxSegmentSize:           b.maxSegmentSize,
 			cleanupInterval:          b.segmentsCleanupInterval,
 			enableChecksumValidation: b.enableChecksumValidation,
-			bm25config:               b.bm25Config,
+			keepSegmentsInMemory:     b.keepSegmentsInMemory,
 			MinMMapSize:              b.minMMapSize,
+			bm25config:               b.bm25Config,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -1398,23 +1408,34 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("precompute metadata: %w", err)
 	}
 
+	flushing := b.flushing
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
 	}
 
-	if b.strategy == StrategyInverted && !tombstones.IsEmpty() {
-		if err = func() error {
-			b.disk.maintenanceLock.RLock()
-			defer b.disk.maintenanceLock.RUnlock()
-			// add flushing memtable tombstones to all segments
-			for _, seg := range b.disk.segments {
-				if _, err := seg.MergeTombstones(tombstones); err != nil {
-					return fmt.Errorf("merge tombstones: %w", err)
+	switch b.strategy {
+	case StrategyInverted:
+		if !tombstones.IsEmpty() {
+			if err = func() error {
+				b.disk.maintenanceLock.RLock()
+				defer b.disk.maintenanceLock.RUnlock()
+				// add flushing memtable tombstones to all segments
+				for _, seg := range b.disk.segments {
+					if _, err := seg.MergeTombstones(tombstones); err != nil {
+						return fmt.Errorf("merge tombstones: %w", err)
+					}
 				}
+				return nil
+			}(); err != nil {
+				return fmt.Errorf("add tombstones: %w", err)
 			}
-			return nil
-		}(); err != nil {
-			return fmt.Errorf("add tombstones: %w", err)
+		}
+
+	case StrategyRoaringSetRange:
+		if b.keepSegmentsInMemory {
+			if err := b.disk.roaringSetRangeSegmentInMemory.MergeMemtable(flushing.roaringSetRange); err != nil {
+				return fmt.Errorf("merge roaringsetrange memtable to segment-in-memory: %w", err)
+			}
 		}
 	}
 

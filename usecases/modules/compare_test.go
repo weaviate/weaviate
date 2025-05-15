@@ -80,7 +80,8 @@ func TestCompareRevectorize(t *testing.T) {
 			if tt.oldProps != nil {
 				objsToReturn[uid.String()] = tt.oldProps
 			}
-			different, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, nil, "", findObject)
+			different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, nil, "", findObject)
+			require.NoError(t, err)
 			require.Equal(t, different, tt.different)
 		})
 	}
@@ -154,7 +155,8 @@ func TestCompareRevectorizeNamedVectors(t *testing.T) {
 			if tt.oldProps != nil {
 				objsToReturn[uid.String()] = tt.oldProps
 			}
-			different, _, _ := reVectorize(context.Background(), cfg, module, objNew, class, tt.targetVectors, "", findObject)
+			different, _, _, err := reVectorize(context.Background(), cfg, module, objNew, class, tt.targetVectors, "", findObject)
+			require.NoError(t, err)
 			require.Equal(t, different, tt.different)
 		})
 	}

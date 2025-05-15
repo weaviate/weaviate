@@ -37,6 +37,7 @@ const (
 	DefaultRaftBootstrapTimeout = 600
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
+	DefaultHNSWAcornFilterRatio = 0.4
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -302,6 +303,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
 	}
 
+	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
+		config.Persistence.IndexRangeableInMemory = true
+	}
+
 	if err := parseInt(
 		"HNSW_VISITED_LIST_POOL_MAX_SIZE",
 		func(size int) { config.HNSWVisitedListPoolMaxSize = size },
@@ -314,6 +319,14 @@ func FromEnv(config *Config) error {
 		"HNSW_FLAT_SEARCH_CONCURRENCY",
 		func(val int) { config.HNSWFlatSearchConcurrency = val },
 		DefaultHNSWFlatSearchConcurrency,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePercentage(
+		"HNSW_ACORN_FILTER_RATIO",
+		func(val float64) { config.HNSWAcornFilterRatio = val },
+		DefaultHNSWAcornFilterRatio,
 	); err != nil {
 		return err
 	}
@@ -759,6 +772,33 @@ func (c *Config) parseMemtableConfig() error {
 		return err
 	}
 
+	return nil
+}
+
+func parsePercentage(envName string, cb func(val float64), defaultValue float64) error {
+	return parseFloat64(envName, defaultValue, func(val float64) error {
+		if val < 0 || val > 1 {
+			return fmt.Errorf("%s must be between 0 and 1", envName)
+		}
+		return nil
+	}, cb)
+}
+
+func parseFloat64(envName string, defaultValue float64, verify func(val float64) error, cb func(val float64)) error {
+	var err error
+	asFloat := defaultValue
+
+	if v := os.Getenv(envName); v != "" {
+		asFloat, err = strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse %s as float64: %w", envName, err)
+		}
+		if err = verify(asFloat); err != nil {
+			return err
+		}
+	}
+
+	cb(asFloat)
 	return nil
 }
 

@@ -9,11 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package dynamic_test
+package dynamic
 
 import (
 	"context"
 	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 
@@ -21,7 +22,6 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
@@ -30,6 +30,7 @@ import (
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"go.etcd.io/bbolt"
 )
 
 func TestBackup_Integration(t *testing.T) {
@@ -62,7 +63,15 @@ func TestBackup_Integration(t *testing.T) {
 		VectorCacheMaxObjects: 1_000_000,
 	}
 
-	config := dynamic.Config{
+	tmpDir := t.TempDir()
+	dbPath := filepath.Join(tmpDir, "index.db")
+	db, err := bbolt.Open(dbPath, 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	config := Config{
 		RootPath:         dirName,
 		ID:               indexID,
 		Logger:           logger,
@@ -79,6 +88,7 @@ func TestBackup_Integration(t *testing.T) {
 		},
 		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
 		TombstoneCallbacks:   noopCallback,
+		SharedDB:             db,
 	}
 
 	uc := ent.UserConfig{
@@ -90,7 +100,7 @@ func TestBackup_Integration(t *testing.T) {
 
 	store := testinghelpers.NewDummyStore(t)
 
-	idx, err := dynamic.New(config, uc, store)
+	idx, err := New(config, uc, store)
 	require.Nil(t, err)
 	idx.PostStartup()
 
@@ -109,7 +119,13 @@ func TestBackup_Integration(t *testing.T) {
 
 	assert.Nil(t, idx.Flush())
 	assert.Nil(t, idx.Shutdown(context.Background()))
-	idx, err = dynamic.New(config, uc, store)
+
+	// open the db again
+	db, err = bbolt.Open(dbPath, 0o666, nil)
+	require.NoError(t, err)
+	config.SharedDB = db
+
+	idx, err = New(config, uc, store)
 	require.Nil(t, err)
 	idx.PostStartup()
 

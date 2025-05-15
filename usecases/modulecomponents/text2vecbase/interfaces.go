@@ -14,22 +14,22 @@ package text2vecbase
 import (
 	"context"
 
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 )
 
-type TextVectorizer[T types.Embedding] interface {
+type TextVectorizer[T dto.Embedding] interface {
 	Object(ctx context.Context, object *models.Object,
 		cfg moduletools.ClassConfig) (T, models.AdditionalProperties, error)
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) (T, error)
 }
 
-type TextVectorizerBatch[T types.Embedding] interface {
+type TextVectorizerBatch[T dto.Embedding] interface {
 	Texts(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) (T, error)
 	Object(ctx context.Context, object *models.Object,
@@ -41,7 +41,7 @@ type MetaProvider interface {
 	MetaInfo() (map[string]interface{}, error)
 }
 
-type BatchVectorizer[T types.Embedding] struct {
+type BatchVectorizer[T dto.Embedding] struct {
 	client           BatchClient[T]
 	objectVectorizer *objectsvectorizer.ObjectVectorizer
 	batchVectorizer  *batch.Batch[T]
@@ -49,7 +49,7 @@ type BatchVectorizer[T types.Embedding] struct {
 	encoderCache     *batch.EncoderCache
 }
 
-type BatchClient[T types.Embedding] interface {
+type BatchClient[T dto.Embedding] interface {
 	batch.BatchClient[T]
 	VectorizeQuery(ctx context.Context, input []string,
 		cfg moduletools.ClassConfig) (*modulecomponents.VectorizationResult[T], error)

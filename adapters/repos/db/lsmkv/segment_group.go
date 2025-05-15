@@ -25,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -87,7 +88,8 @@ type SegmentGroup struct {
 	lastCleanupCall    time.Time
 	lastCompactionCall time.Time
 
-	bm25config *schema.BM25Config
+	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
+	bm25config                     *schema.BM25Config
 }
 
 type sgConfig struct {
@@ -103,8 +105,9 @@ type sgConfig struct {
 	maxSegmentSize           int64
 	cleanupInterval          time.Duration
 	enableChecksumValidation bool
-	bm25config               *models.BM25Config
+	keepSegmentsInMemory     bool
 	MinMMapSize              int64
+	bm25config               *models.BM25Config
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -373,7 +376,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		sg.strategy = StrategyMapCollection
 	}
 
-	if sg.strategy == StrategyInverted {
+	switch sg.strategy {
+	case StrategyInverted:
 		// start with last but one segment, as the last one doesn't need tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
 			// avoid crashing if segment has no tombstones
@@ -384,6 +388,23 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			if _, err := sg.segments[i].MergeTombstones(tombstonesNext); err != nil {
 				return nil, fmt.Errorf("init segment %s: merge tombstones %w", sg.segments[i].path, err)
 			}
+		}
+
+	case StrategyRoaringSetRange:
+		if cfg.keepSegmentsInMemory {
+			t := time.Now()
+			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory()
+			for _, seg := range sg.segments {
+				cursor := seg.newRoaringSetRangeCursor()
+				if err := sg.roaringSetRangeSegmentInMemory.MergeSegmentByCursor(cursor); err != nil {
+					return nil, fmt.Errorf("build segment-in-memory of strategy '%s': %w", sg.strategy, err)
+				}
+			}
+			logger.WithFields(logrus.Fields{
+				"took":    time.Since(t).String(),
+				"bucket":  filepath.Base(cfg.dir),
+				"size_mb": fmt.Sprintf("%.3f", float64(sg.roaringSetRangeSegmentInMemory.Size())/1024/1024),
+			}).Debug("rangeable segment-in-memory built")
 		}
 	}
 

@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 
@@ -192,8 +193,11 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-
-	return m.authZ.AddRolesForUser(req.User, req.Roles)
+	req = downgradeAssignments(req)
+	if req != nil {
+		return m.authZ.AddRolesForUser(req.User, req.Roles)
+	}
+	return nil
 }
 
 func (m *Manager) RemovePermissions(c *cmd.ApplyRequest) error {
@@ -226,6 +230,17 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 	req := &cmd.RevokeRolesForUserRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// handle downgrades from 1.30. The upgrade introduces namespaces and doubles assignments from user: to db: and oidc:.
+	// to handle downgrades remove the db:/oidc prefixes, the RevokeRolesForUser function will add the old user: prefix.
+	// Double removal is not a problem.
+	//
+	// This code should NOT be present in 1.30+
+	if strings.HasPrefix(req.User, "db:") {
+		req.User = strings.TrimPrefix(req.User, "db:")
+	} else if strings.HasPrefix(req.User, "oidc:") {
+		req.User = strings.TrimPrefix(req.User, "oidc:")
 	}
 
 	return m.authZ.RevokeRolesForUser(req.User, req.Roles...)

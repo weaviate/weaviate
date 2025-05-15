@@ -129,16 +129,13 @@ func (s *Searcher) objectsByDocID(ctx context.Context, it docIDsIterator,
 	out := make([]*storobj.Object, outlen)
 	docIDBytes := make([]byte, 8)
 
-	propStrings := make([]string, len(properties))
-	propStringsList := make([][]string, len(properties))
+	propertyPaths := make([][]string, len(properties))
 	for j := range properties {
-		propStrings[j] = properties[j]
-		propStringsList[j] = []string{properties[j]}
+		propertyPaths[j] = []string{properties[j]}
 	}
 
 	props := &storobj.PropertyExtraction{
-		PropStrings:     propStrings,
-		PropStringsList: propStringsList,
+		PropertyPaths: propertyPaths,
 	}
 
 	i := 0

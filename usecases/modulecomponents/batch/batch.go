@@ -19,7 +19,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 
@@ -27,6 +26,7 @@ import (
 	objectsvectorizer "github.com/weaviate/weaviate/usecases/modulecomponents/vectorizer"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -36,7 +36,7 @@ var _NUMCPU = runtime.GOMAXPROCS(0)
 
 const BatchChannelSize = 100
 
-type BatchJob[T types.Embedding] struct {
+type BatchJob[T dto.Embedding] struct {
 	texts      []string
 	tokens     []int
 	ctx        context.Context
@@ -66,14 +66,14 @@ func (b BatchJob[T]) copy() BatchJob[T] {
 	}
 }
 
-type BatchClient[T types.Embedding] interface {
+type BatchClient[T dto.Embedding] interface {
 	Vectorize(ctx context.Context, input []string,
 		config moduletools.ClassConfig) (*modulecomponents.VectorizationResult[T], *modulecomponents.RateLimits, int, error)
 	GetVectorizerRateLimit(ctx context.Context, config moduletools.ClassConfig) *modulecomponents.RateLimits
 	GetApiKeyHash(ctx context.Context, config moduletools.ClassConfig) [32]byte
 }
 
-func NewBatchVectorizer[T types.Embedding](client BatchClient[T], maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch[T] {
+func NewBatchVectorizer[T dto.Embedding](client BatchClient[T], maxBatchTime time.Duration, settings Settings, logger logrus.FieldLogger, label string) *Batch[T] {
 	batch := Batch[T]{
 		client:            client,
 		objectVectorizer:  objectsvectorizer.New(),
@@ -108,7 +108,7 @@ type endOfBatchJob struct {
 	concurrentBatch   bool
 }
 
-type Batch[T types.Embedding] struct {
+type Batch[T dto.Embedding] struct {
 	client            BatchClient[T]
 	objectVectorizer  *objectsvectorizer.ObjectVectorizer
 	jobQueueCh        chan BatchJob[T]

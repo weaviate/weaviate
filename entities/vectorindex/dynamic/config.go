@@ -41,6 +41,10 @@ func (u UserConfig) DistanceName() string {
 	return u.Distance
 }
 
+func (u UserConfig) IsMultiVector() bool {
+	return false
+}
+
 // SetDefaults in the user-specifyable part of the config
 func (u *UserConfig) SetDefaults() {
 	u.Threshold = DefaultThreshold
@@ -57,7 +61,7 @@ func NewDefaultUserConfig() UserConfig {
 
 // ParseAndValidateConfig from an unknown input value, as this is not further
 // specified in the API to allow of exchanging the index type
-func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, error) {
+func ParseAndValidateConfig(input interface{}, isMultiVector bool) (schemaConfig.VectorIndexConfig, error) {
 	uc := UserConfig{}
 	uc.SetDefaults()
 
@@ -84,7 +88,7 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 
 	hnswConfig, ok := asMap["hnsw"]
 	if ok && hnswConfig != nil {
-		hnswUC, err := hnsw.ParseAndValidateConfig(hnswConfig)
+		hnswUC, err := hnsw.ParseAndValidateConfig(hnswConfig, isMultiVector)
 		if err != nil {
 			return uc, err
 		}
@@ -94,6 +98,10 @@ func ParseAndValidateConfig(input interface{}) (schemaConfig.VectorIndexConfig, 
 			return uc, fmt.Errorf("invalid hnsw configuration")
 		}
 		uc.HnswUC = castedHnswUC
+		if uc.HnswUC.Multivector.Enabled {
+			return uc, fmt.Errorf("multi vector index is not supported for dynamic index")
+		}
+
 	}
 
 	flatConfig, ok := asMap["flat"]

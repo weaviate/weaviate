@@ -83,14 +83,14 @@ func (f *fakeTxt2VecVectorizer) MoveAwayFrom(source []float32, target []float32,
 
 type fakeVectorSearcher struct {
 	mock.Mock
-	calledWithVector []float32
+	calledWithVector models.Vector
 	calledWithLimit  int
 	calledWithOffset int
 	results          []search.Result
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
-	vector []float32, targetVector string, offset, limit int, filters *filters.LocalFilter,
+	vector models.Vector, targetVector string, offset, limit int, filters *filters.LocalFilter,
 ) ([]search.Result, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
@@ -106,7 +106,7 @@ func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) VectorSearch(ctx context.Context,
-	params dto.GetParams, targetVectors []string, searchVectors [][]float32,
+	params dto.GetParams, targetVectors []string, searchVectors []models.Vector,
 ) ([]search.Result, error) {
 	args := f.Called(params, searchVectors)
 	return args.Get(0).([]search.Result), args.Error(1)

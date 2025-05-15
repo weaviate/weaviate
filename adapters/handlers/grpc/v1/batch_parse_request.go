@@ -82,16 +82,36 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 		var vector []float32 = nil
 		// bytes vector has precedent for being more efficient
 		if len(obj.VectorBytes) > 0 {
-			vector = byteops.Float32FromByteVector(obj.VectorBytes)
+			vector = byteops.Fp32SliceFromBytes(obj.VectorBytes)
 		} else if len(obj.Vector) > 0 {
 			vector = obj.Vector
 		}
 
 		var vectors models.Vectors = nil
 		if len(obj.Vectors) > 0 {
-			vectors = make(models.Vectors, len(obj.Vectors))
+			parsedVectors := make(map[string][]float32)
+			parsedMultiVectors := make(map[string][][]float32)
 			for _, vec := range obj.Vectors {
-				vectors[vec.Name] = byteops.Float32FromByteVector(vec.VectorBytes)
+				switch vec.Type {
+				case *pb.Vectors_VECTOR_TYPE_UNSPECIFIED.Enum(), *pb.Vectors_VECTOR_TYPE_SINGLE_FP32.Enum():
+					parsedVectors[vec.Name] = byteops.Fp32SliceFromBytes(vec.VectorBytes)
+				case *pb.Vectors_VECTOR_TYPE_MULTI_FP32.Enum():
+					out, err := byteops.Fp32SliceOfSlicesFromBytes(vec.VectorBytes)
+					if err != nil {
+						objectErrors[i] = err
+						continue
+					}
+					parsedMultiVectors[vec.Name] = out
+				default:
+					// do nothing
+				}
+			}
+			vectors = make(models.Vectors, len(parsedVectors)+len(parsedMultiVectors))
+			for targetVector, vector := range parsedVectors {
+				vectors[targetVector] = vector
+			}
+			for targetVector, multiVector := range parsedMultiVectors {
+				vectors[targetVector] = multiVector
 			}
 		}
 
@@ -167,7 +187,7 @@ func extractPrimitiveProperties(properties *pb.ObjectPropertiesValue) map[string
 		var values []float64
 
 		if len(inputValuesBytes) > 0 {
-			values = byteops.Float64FromByteVector(inputValuesBytes)
+			values = byteops.Fp64SliceFromBytes(inputValuesBytes)
 		} else {
 			values = properties.NumberArrayProperties[j].Values
 		}

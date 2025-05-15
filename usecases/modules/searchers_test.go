@@ -19,11 +19,11 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/entities/types"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/generictypes"
 )
 
@@ -259,14 +259,14 @@ func multiFakeFindVector(ctx context.Context, className string, id strfmt.UUID, 
 	return [][]float32{{0.1, 0.2, 0.3}, {0.11, 0.22, 0.33}}, targetVector, nil
 }
 
-func newSearcherModule[T types.Embedding](name string) *dummySearcherModule[T] {
+func newSearcherModule[T dto.Embedding](name string) *dummySearcherModule[T] {
 	return &dummySearcherModule[T]{
 		dummyGraphQLModule: newGraphQLModule(name),
 		searchers:          map[string]modulecapabilities.VectorForParams[T]{},
 	}
 }
 
-type dummySearcherModule[T types.Embedding] struct {
+type dummySearcherModule[T dto.Embedding] struct {
 	*dummyGraphQLModule
 	searchers map[string]modulecapabilities.VectorForParams[T]
 }

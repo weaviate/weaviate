@@ -561,7 +561,7 @@ func Test_GetClass_WithFilters(t *testing.T) {
 				params := dto.GetParams{
 					ClassName: "ClassOne",
 					NearVector: &searchparams.NearVector{
-						Vectors: [][]float32{{0.8, 0.2, 0.7}},
+						Vectors: []models.Vector{[]float32{0.8, 0.2, 0.7}},
 					},
 					Pagination: &filters.Pagination{Limit: 100},
 					Filters:    test.filters,

@@ -243,7 +243,7 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 			vectorfmt, ok2 := vector.([]float32)
 			if ok2 {
 				addProps.Metadata.Vector = vectorfmt // deprecated, remove in a bit
-				addProps.Metadata.VectorBytes = byteops.Float32ToByteVector(vectorfmt)
+				addProps.Metadata.VectorBytes = byteops.Fp32SliceToBytes(vectorfmt)
 			}
 		}
 	}
@@ -259,18 +259,30 @@ func (r *Replier) extractAdditionalProps(asMap map[string]any, additionalPropsPa
 			}
 			if ok2 {
 				addProps.Metadata.Vectors = make([]*pb.Vectors, 0, len(additionalPropsParams.Vectors))
-				for _, vector := range additionalPropsParams.Vectors {
-					vec := vectorfmt[vector]
-					if len(vec) == 0 {
-						continue
+				for _, name := range additionalPropsParams.Vectors {
+					vector := vectorfmt[name]
+					switch vec := vector.(type) {
+					case []float32:
+						if len(vec) != 0 {
+							addProps.Metadata.Vectors = append(addProps.Metadata.Vectors, &pb.Vectors{
+								VectorBytes: byteops.Fp32SliceToBytes(vec),
+								Name:        name,
+								Type:        pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
+							})
+						}
+					case [][]float32:
+						if len(vec) != 0 {
+							addProps.Metadata.Vectors = append(addProps.Metadata.Vectors, &pb.Vectors{
+								VectorBytes: byteops.Fp32SliceOfSlicesToBytes(vec),
+								Name:        name,
+								Type:        pb.Vectors_VECTOR_TYPE_MULTI_FP32,
+							})
+						}
+					default:
+						// do nothing
 					}
-					addProps.Metadata.Vectors = append(addProps.Metadata.Vectors, &pb.Vectors{
-						VectorBytes: byteops.Float32ToByteVector(vec),
-						Name:        vector,
-					})
 				}
 			}
-
 		}
 	}
 
@@ -836,7 +848,7 @@ func extractArrayTypes(rawProps map[string]interface{}, props *pb.ObjectProperti
 			}
 			props.NumberArrayProperties = append(
 				props.NumberArrayProperties,
-				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: byteops.Float64ToByteVector(propFloat), Values: propFloat},
+				&pb.NumberArrayProperties{PropName: propName, ValuesBytes: byteops.Fp64SliceToBytes(propFloat), Values: propFloat},
 			)
 			delete(rawProps, propName)
 		case schema.DataTypeStringArray, schema.DataTypeTextArray, schema.DataTypeDateArray, schema.DataTypeUUIDArray:

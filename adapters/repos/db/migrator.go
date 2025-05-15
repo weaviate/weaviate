@@ -121,10 +121,12 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			SegmentsCleanupIntervalSeconds:      m.db.config.SegmentsCleanupIntervalSeconds,
 			SeparateObjectsCompactions:          m.db.config.SeparateObjectsCompactions,
 			CycleManagerRoutinesFactor:          m.db.config.CycleManagerRoutinesFactor,
+			IndexRangeableInMemory:              m.db.config.IndexRangeableInMemory,
 			MaxSegmentSize:                      m.db.config.MaxSegmentSize,
 			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill:             m.db.config.HNSWWaitForCachePrefill,
 			HNSWFlatSearchConcurrency:           m.db.config.HNSWFlatSearchConcurrency,
+			HNSWAcornFilterRatio:                m.db.config.HNSWAcornFilterRatio,
 			VisitedListPoolMaxSize:              m.db.config.VisitedListPoolMaxSize,
 			TrackVectorDimensions:               m.db.config.TrackVectorDimensions,
 			AvoidMMap:                           m.db.config.AvoidMMap,
@@ -711,6 +713,16 @@ func (m *Migrator) RecalculateVectorDimensions(ctx context.Context) error {
 			if shard.hasTargetVectors() {
 				for vecName, vec := range object.Vectors {
 					if err := shard.extendDimensionTrackerForVecLSM(len(vec), object.DocID, vecName); err != nil {
+						return err
+					}
+				}
+				var dims int
+				for vecName, vec := range object.MultiVectors {
+					dims = 0
+					for _, v := range vec {
+						dims += len(v)
+					}
+					if err := shard.extendDimensionTrackerForVecLSM(dims, object.DocID, vecName); err != nil {
 						return err
 					}
 				}

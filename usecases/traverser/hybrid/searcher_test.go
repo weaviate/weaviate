@@ -46,7 +46,7 @@ func TestSearcher(t *testing.T) {
 					Class: class,
 				}
 				sparse := func() ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-				dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
+				dense := func(models.Vector) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
 				provider := &fakeModuleProvider{}
 				schemaGetter := newFakeSchemaManager()
 				targetVectorParamHelper := newFakeTargetVectorParamHelper()
@@ -78,7 +78,7 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
-				dense := func([]float32) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
+				dense := func(models.Vector) ([]*storobj.Object, []float32, error) { return nil, nil, nil }
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
 				require.Nil(t, err)
 				assert.Len(t, res, 1)
@@ -102,7 +102,7 @@ func TestSearcher(t *testing.T) {
 					Class: class,
 				}
 				sparse := func() ([]*storobj.Object, []float32, error) { return nil, nil, nil }
-				dense := func([]float32) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 					return []*storobj.Object{
 						{
 							Object: models.Object{
@@ -151,7 +151,7 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
-				dense := func([]float32) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 					return []*storobj.Object{
 						{
 							Object: models.Object{
@@ -207,7 +207,7 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
-				dense := func([]float32) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 					return []*storobj.Object{
 						{
 							Object: models.Object{
@@ -261,7 +261,7 @@ func TestSearcher(t *testing.T) {
 						},
 					}, []float32{0.008}, nil
 				}
-				dense := func([]float32) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 					return nil, nil, nil
 				}
 				res, err := Search(ctx, params, logger, sparse, dense, nil, nil, nil, nil)
@@ -292,7 +292,7 @@ func TestSearcher(t *testing.T) {
 				sparse := func() ([]*storobj.Object, []float32, error) {
 					return nil, nil, nil
 				}
-				dense := func([]float32) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 					return []*storobj.Object{
 						{
 							Object: models.Object{
@@ -328,7 +328,7 @@ func TestSearcher(t *testing.T) {
 						Type:          "hybrid",
 						Alpha:         1.0,
 						NearVectorParams: &searchparams.NearVector{
-							Vectors:   [][]float32{{1, 2, 3}},
+							Vectors:   []models.Vector{[]float32{1, 2, 3}},
 							Certainty: 0.8,
 						},
 					},
@@ -337,7 +337,7 @@ func TestSearcher(t *testing.T) {
 				sparse := func() ([]*storobj.Object, []float32, error) {
 					return nil, nil, nil
 				}
-				dense := func([]float32) ([]*storobj.Object, []float32, error) {
+				dense := func(models.Vector) ([]*storobj.Object, []float32, error) {
 					return []*storobj.Object{
 						{
 							Object: models.Object{
@@ -377,4 +377,12 @@ type fakeModuleProvider struct {
 
 func (f *fakeModuleProvider) VectorFromInput(ctx context.Context, className, input, targetVector string) ([]float32, error) {
 	return f.vector, nil
+}
+
+func (f *fakeModuleProvider) MultiVectorFromInput(ctx context.Context, className, input, targetVector string) ([][]float32, error) {
+	panic("not implemented")
+}
+
+func (f *fakeModuleProvider) IsTargetVectorMultiVector(className, targetVector string) (bool, error) {
+	return false, nil
 }

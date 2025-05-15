@@ -241,6 +241,33 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 	return filteredTenants, nil
 }
 
+func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.Tenant, error) {
+	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
+		return nil, err
+	}
+
+	var allTenants []*models.Tenant
+	var err error
+
+	tenants := []string{tenant}
+	if consistency {
+		allTenants, _, err = h.schemaManager.QueryTenants(class, tenants)
+	} else {
+		// If non consistent, fallback to the default implementation
+		allTenants, err = h.getTenantsByNames(class, tenants)
+	}
+	if err != nil {
+		return nil, err
+	}
+	if len(allTenants) == 0 {
+		return nil, ErrNotFound
+	}
+	if len(allTenants) > 1 {
+		return nil, ErrUnexpectedMultiple
+	}
+	return allTenants[0], nil
+}
+
 func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 	info := h.schemaReader.ClassInfo(class)
 	if !info.Exists {

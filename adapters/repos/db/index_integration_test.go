@@ -152,7 +152,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -214,7 +214,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&thing, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
+			&thing, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -325,7 +325,7 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		}
 
 		err := index.putObject(ctx, storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -482,7 +482,7 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		}
 
 		err := index.putObject(context.TODO(), storobj.FromObject(
-			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil), nil, 0)
+			&product, []float32{0.1, 0.2, 0.01, 0.2}, nil, nil), nil, 0)
 		require.Nil(t, err)
 	}
 
@@ -593,7 +593,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -614,7 +614,7 @@ func TestIndex_DebugResetVectorIndex(t *testing.T) {
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -685,7 +685,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	// make sure the new index contains all the objects
 	vidx := shard.VectorIndexes()["foo"]
 	for _, obj := range objs {
-		if !vidx.ContainsNode(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -708,7 +708,7 @@ func TestIndex_DebugResetVectorIndexTargetVector(t *testing.T) {
 	// make sure the new index contains all the objects
 	vidx = shard.VectorIndexes()["foo"]
 	for _, obj := range objs {
-		if !vidx.ContainsNode(obj.DocID) {
+		if !vidx.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -803,7 +803,7 @@ func TestIndex_DebugResetVectorIndexPQ(t *testing.T) {
 
 	// make sure the new index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -891,7 +891,7 @@ func TestIndex_ConvertQueue(t *testing.T) {
 
 	// make sure the index contains all the objects
 	for _, obj := range objs {
-		if !shard.VectorIndex().ContainsNode(obj.DocID) {
+		if !shard.VectorIndex().ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}
@@ -957,7 +957,7 @@ func TestIndex_ConvertQueueTargetVector(t *testing.T) {
 
 	// make sure the index contains all the objects
 	for _, obj := range objs {
-		if !vectorIndex.ContainsNode(obj.DocID) {
+		if !vectorIndex.ContainsDoc(obj.DocID) {
 			t.Fatalf("node %d should be in the vector index", obj.DocID)
 		}
 	}

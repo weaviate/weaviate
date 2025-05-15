@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.28.15"
+    "version": "1.29.7"
   },
   "basePath": "/v1",
   "paths": {
@@ -6314,11 +6314,7 @@ func init() {
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "number",
-        "format": "float"
-      }
+      "type": "object"
     },
     "VectorConfig": {
       "type": "object",
@@ -6664,7 +6660,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.28.15"
+    "version": "1.29.7"
   },
   "basePath": "/v1",
   "paths": {
@@ -13340,11 +13336,7 @@ func init() {
     },
     "Vector": {
       "description": "A vector representation of the object. If provided at object creation, this wil take precedence over any vectorizer setting.",
-      "type": "array",
-      "items": {
-        "type": "number",
-        "format": "float"
-      }
+      "type": "object"
     },
     "VectorConfig": {
       "type": "object",

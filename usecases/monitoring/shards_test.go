@@ -12,46 +12,24 @@
 package monitoring
 
 import (
-	"fmt"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
 )
 
 func TestShards(t *testing.T) {
 	m := GetMetrics()
-	// we share global `*prometheusMetrics` (GetMetrics()) in all the tests.
-	// creating some weird `label` to avoid collition. Still the best effort.
-	classNamePrefix := "test_shards_xyz"
 
 	t.Run("start_loading_shard", func(t *testing.T) {
-		className := fmt.Sprintf("%s-%s", classNamePrefix, t.Name())
-		labels := prometheus.Labels{
-			"class_name": className,
-		}
-		t.Cleanup(func() {
-			m.ShardsLoading.DeletePartialMatch(labels)
-			m.ShardsUnloaded.DeletePartialMatch(labels)
-		})
-
-		// invariant:
-		// 1. `shards_loading` should be incremented
-		// 2. `shards_unloaded` should be decremented
-
 		// Setting base values
-		mv, err := m.ShardsLoading.GetMetricWith(labels)
-		require.NoError(t, err)
+		mv := m.ShardsLoading
 		mv.Set(1)
 
-		mv, err = m.ShardsUnloaded.GetMetricWith(labels)
-		require.NoError(t, err)
+		mv = m.ShardsUnloaded
 		mv.Set(1)
 
-		err = m.StartLoadingShard(className)
-		require.NoError(t, err)
+		m.StartLoadingShard()
 
 		loadingCount := testutil.ToFloat64(m.ShardsLoading)
 		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
@@ -61,30 +39,18 @@ func TestShards(t *testing.T) {
 	})
 
 	t.Run("finish_loading_shard", func(t *testing.T) {
-		className := fmt.Sprintf("%s-%s", classNamePrefix, t.Name())
-		labels := prometheus.Labels{
-			"class_name": className,
-		}
-		t.Cleanup(func() {
-			m.ShardsLoading.DeletePartialMatch(labels)
-			m.ShardsLoaded.DeletePartialMatch(labels)
-		})
-
 		// invariant:
 		// 1. `shards_loading` should be decremented
 		// 2. `shards_loaded` should be incremented
 
 		// Setting base values
-		mv, err := m.ShardsLoading.GetMetricWith(labels)
-		require.NoError(t, err)
+		mv := m.ShardsLoading
 		mv.Set(1)
 
-		mv, err = m.ShardsLoaded.GetMetricWith(labels)
-		require.NoError(t, err)
+		mv = m.ShardsLoaded
 		mv.Set(1)
 
-		err = m.FinishLoadingShard(className)
-		require.NoError(t, err)
+		m.FinishLoadingShard()
 
 		loadingCount := testutil.ToFloat64(m.ShardsLoading)
 		loadedCount := testutil.ToFloat64(m.ShardsLoaded)
@@ -94,30 +60,18 @@ func TestShards(t *testing.T) {
 	})
 
 	t.Run("start_unloading_shard", func(t *testing.T) {
-		className := fmt.Sprintf("%s-%s", classNamePrefix, t.Name())
-		labels := prometheus.Labels{
-			"class_name": className,
-		}
-		t.Cleanup(func() {
-			m.ShardsLoaded.DeletePartialMatch(labels)
-			m.ShardsUnloading.DeletePartialMatch(labels)
-		})
-
 		// invariant:
 		// 1. `shards_loaded` should be decremented
 		// 2. `shards_unloading` should be incremented
 
 		// Setting base values
-		mv, err := m.ShardsLoaded.GetMetricWith(labels)
-		require.NoError(t, err)
+		mv := m.ShardsLoaded
 		mv.Set(1)
 
-		mv, err = m.ShardsUnloading.GetMetricWith(labels)
-		require.NoError(t, err)
+		mv = m.ShardsUnloading
 		mv.Set(1)
 
-		err = m.StartUnloadingShard(className)
-		require.NoError(t, err)
+		m.StartUnloadingShard()
 
 		loadedCount := testutil.ToFloat64(m.ShardsLoaded)
 		unloadingCount := testutil.ToFloat64(m.ShardsUnloading)
@@ -127,30 +81,18 @@ func TestShards(t *testing.T) {
 	})
 
 	t.Run("finish_unloading_shard", func(t *testing.T) {
-		className := fmt.Sprintf("%s-%s", classNamePrefix, t.Name())
-		labels := prometheus.Labels{
-			"class_name": className,
-		}
-		t.Cleanup(func() {
-			m.ShardsUnloading.DeletePartialMatch(labels)
-			m.ShardsUnloaded.DeletePartialMatch(labels)
-		})
-
 		// invariant:
 		// 1. `shards_unloading` should be decremented
 		// 2. `shards_unloaded` should be incremented
 
 		// Setting base values
-		mv, err := m.ShardsUnloading.GetMetricWith(labels)
-		require.NoError(t, err)
+		mv := m.ShardsUnloading
 		mv.Set(1)
 
-		mv, err = m.ShardsUnloaded.GetMetricWith(labels)
-		require.NoError(t, err)
+		mv = m.ShardsUnloaded
 		mv.Set(1)
 
-		err = m.FinishUnloadingShard(className)
-		require.NoError(t, err)
+		m.FinishUnloadingShard()
 
 		unloadingCount := testutil.ToFloat64(m.ShardsUnloading)
 		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
@@ -160,24 +102,14 @@ func TestShards(t *testing.T) {
 	})
 
 	t.Run("new_unloaded_shard", func(t *testing.T) {
-		className := fmt.Sprintf("%s-%s", classNamePrefix, t.Name())
-		labels := prometheus.Labels{
-			"class_name": className,
-		}
-		t.Cleanup(func() {
-			m.ShardsUnloaded.DeletePartialMatch(labels)
-		})
-
 		// invariant:
 		// 1. `shards_unloaded` should be incremented
 
 		// Setting base values
-		mv, err := m.ShardsUnloaded.GetMetricWith(labels)
-		require.NoError(t, err)
+		mv := m.ShardsUnloaded
 		mv.Set(1)
 
-		err = m.NewUnloadedshard(className)
-		require.NoError(t, err)
+		m.NewUnloadedshard()
 
 		unloadedCount := testutil.ToFloat64(m.ShardsUnloaded)
 
