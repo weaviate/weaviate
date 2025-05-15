@@ -2,7 +2,7 @@ module acceptance_tests_with_client
 
 go 1.24
 
-// commenting this line due to:
+// commenting this line due to undefined symbols which are in v1.30:
 // vendor/github.com/weaviate/weaviate-go-client/v5/weaviate/rbac/roles.go:13:43: undefined: models.UserTypeOutputDbUser
 // vendor/github.com/weaviate/weaviate-go-client/v5/weaviate/rbac/roles.go:14:43: undefined: models.UserTypeOutputDbEnvUser
 // vendor/github.com/weaviate/weaviate-go-client/v5/weaviate/rbac/roles.go:15:43: undefined: models.UserTypeOutputOidc
