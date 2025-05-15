@@ -7276,14 +7276,15 @@ func init() {
           }
         },
         "state": {
-          "description": "The current operational state of the replica during the replication process (e.g., HYDRATING, READY, DEHYDRATING).",
+          "description": "The current operational state of the replica during the replication process.",
           "type": "string",
           "enum": [
+            "REGISTERED",
+            "HYDRATING",
+            "FINALIZING",
+            "DEHYDRATING",
             "READY",
-            "INDEXING",
-            "REPLICATION_FINALIZING",
-            "REPLICATION_HYDRATING",
-            "REPLICATION_DEHYDRATING"
+            "CANCELLED"
           ]
         }
       }
@@ -15707,14 +15708,15 @@ func init() {
           }
         },
         "state": {
-          "description": "The current operational state of the replica during the replication process (e.g., HYDRATING, READY, DEHYDRATING).",
+          "description": "The current operational state of the replica during the replication process.",
           "type": "string",
           "enum": [
+            "REGISTERED",
+            "HYDRATING",
+            "FINALIZING",
+            "DEHYDRATING",
             "READY",
-            "INDEXING",
-            "REPLICATION_FINALIZING",
-            "REPLICATION_HYDRATING",
-            "REPLICATION_DEHYDRATING"
+            "CANCELLED"
           ]
         }
       }
