@@ -54,19 +54,12 @@ func (s *State) MigrateFromOldFormat() {
 	}
 }
 
-// MigrateShardingStateReplicationFactor ensures that the ReplicationFactor field is correctly initialized
-// for states created with older versions. It sets the ReplicationFactor based on the number of
-// nodes that the given shard belongs to. If the ReplicationFactor is already set (non-zero),
-// it will return immediately. If the calculated value is less than 1, it defaults to 1
-// to ensure at least one replica exists per shard.
-//
-// This function should be called during state deserialization or when applying snapshots/log entries
-// from older versions. Those versions are likely missing such value or have a default value of 0.
-// We do not want to have a ReplicationFactor equal to 0, as it would result in shards without any replica
-// (a.k.a a shard without data).
+// MigrateShardingStateReplicationFactor sets the ReplicationFactor field if it is unset (zero).
+// For partitioned states, it defaults to 1. For non-partitioned states, it checks that all shards
+// have a consistent number of physical replicas and uses that as the replication factor.
 //
 // Returns:
-//   - error: An error if physical shards are missing in a non-partitioned state or if shard replica counts are inconsistent
+//   - error: if physical shards are missing in a non-partitioned state or if shard replica counts are inconsistent
 func (s *State) MigrateShardingStateReplicationFactor() error {
 	if s.ReplicationFactor > 0 {
 		return nil
@@ -115,16 +108,16 @@ func (s *State) MigrateShardingStateReplicationFactor() error {
 	return nil
 }
 
-// migrateShardingStateReplicationFactor provides the appropriate replication factor value for migration.
-// It returns 1 as the default value if the current replication factor is less than 1 (uninitialized or zero).
-// Otherwise, it returns the current replication factor value to preserve explicitly set values.
+// migrateShardingStateReplicationFactor returns the replication factor to use for a given shard.
+// If the state's ReplicationFactor is unset (<1), it returns 1.
+// Otherwise, it returns the current value.
 //
 // Parameters:
-//   - shard: The name of the physical shard (used for validation)
+//   - shard: the name of the shard
 //
 // Returns:
-//   - int64: The replication factor to use (1 if uninitialized, or existing value if already set)
-//   - error: An error if the specified shard doesn't exist
+//   - int64: the replication factor to use
+//   - error: if the shard is not found
 func (s *State) migrateShardingStateReplicationFactor(shard string) (int64, error) {
 	_, ok := s.Physical[shard]
 	if !ok {
