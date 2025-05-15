@@ -111,7 +111,12 @@ func TestShardShutdownWithInactivity(t *testing.T) {
 	t.Logf("Shard %+v\n", s)
 	t.Logf("Shard shut: %v, wantshut: %v, loaded: %v\n", s.shut.Load(), s.shutdownRequested.Load(), shard.(*LazyLoadShard).loaded)
 	require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
-	require.True(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should  be marked as shut down ")
+	require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down while still in use")
+
+	// Wait for release to happen
+	time.Sleep(6 * time.Second)
+	require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should still be marked for shut down")
+	require.True(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should be marked as shut down after release")
 }
 
 func TestShardShutdownFailure(t *testing.T) {
