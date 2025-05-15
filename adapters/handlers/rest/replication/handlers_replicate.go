@@ -326,7 +326,7 @@ func (h *replicationHandler) getCollectionShardingState(params replication.GetCo
 
 func (h *replicationHandler) authorize(principal *models.Principal, verb, collection, shard string) error {
 	if err := h.authorizer.Authorize(principal, verb, authorization.Replications(collection, shard)); err != nil {
-		return fmt.Errorf("access denied: %w", err)
+		return err
 	}
 	return nil
 }
