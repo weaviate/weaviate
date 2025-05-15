@@ -239,7 +239,8 @@ type Shard struct {
 	// indicates whether shard in being used at the moment (e.g. write request)
 	inUseCounter atomic.Int64
 	// allows concurrent shut read/write
-	shutdownLock      *sync.RWMutex
+	shutdownLock *sync.RWMutex
+	// shutdownRequested marks shard as requested for shutdown
 	shutdownRequested atomic.Bool
 }
 
