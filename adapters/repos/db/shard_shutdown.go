@@ -24,7 +24,7 @@ import (
 
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
 	s.WantShutdown.Store(true)
-	for i := 0; i < 30; i++ {
+	for i := 0; (i < 30) && !s.shut.Load(); i++ {
 		s.performShutdown(ctx)
 		time.Sleep(1 * time.Second)
 	}
