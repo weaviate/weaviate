@@ -181,12 +181,12 @@ func TestShardShutdownFailure(t *testing.T) {
 		return nil
 	})
 	t.Logf("testShard: %s", testShard)
-	shard, _, err := index.GetShard(context.TODO(), testShard)
+	shard, release, err := index.GetShard(context.TODO(), testShard)
 	require.Nil(t, err)
 	require.NotNil(t, shard)
 
+	release()
 	shard.Shutdown(context.Background())
-
 	require.False(t, shard.(*LazyLoadShard).shard.WantShutdown.Load(), "shard should not be marked for shut down")
-	require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should  not be marked as shut down ")
+	require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down ")
 }
