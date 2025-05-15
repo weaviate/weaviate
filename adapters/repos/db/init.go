@@ -172,9 +172,3 @@ func (db *DB) migrateToHierarchicalFS() error {
 		Debugf("fs migration took %s\n", time.Since(before))
 	return nil
 }
-
-// func NewAtomicInt64(val int64) atomic.Int64 {
-// 	aval := &atomic.Int64{}
-// 	aval.Store(val)
-// 	return *aval
-// }
