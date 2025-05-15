@@ -204,6 +204,10 @@ func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
+
+	idx.shardCreateLocks.Lock(shard)
+	defer idx.shardCreateLocks.Unlock(shard)
+
 	shardLike, ok := idx.shards.LoadAndDelete(shard)
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
