@@ -81,7 +81,7 @@ func (s *State) MigrateShardingStateReplicationFactor() error {
 	isFirstShard := true
 
 	for shard := range s.Physical {
-		shardReplicationFactor, err := s.migrateShardingStateReplicationFactor(shard)
+		shardReplicationFactor, err := s.getShardReplicationFactor(shard)
 		if err != nil {
 			return err
 		}
@@ -108,7 +108,7 @@ func (s *State) MigrateShardingStateReplicationFactor() error {
 	return nil
 }
 
-// migrateShardingStateReplicationFactor returns the replication factor to use for a given shard.
+// getShardReplicationFactor returns the replication factor to use for a given shard.
 // If the state's ReplicationFactor is unset (<1), it returns 1.
 // Otherwise, it returns the current value.
 //
@@ -118,7 +118,7 @@ func (s *State) MigrateShardingStateReplicationFactor() error {
 // Returns:
 //   - int64: the replication factor to use
 //   - error: if the shard is not found
-func (s *State) migrateShardingStateReplicationFactor(shard string) (int64, error) {
+func (s *State) getShardReplicationFactor(shard string) (int64, error) {
 	_, ok := s.Physical[shard]
 	if !ok {
 		return 0, fmt.Errorf("could not find shard %s", shard)
