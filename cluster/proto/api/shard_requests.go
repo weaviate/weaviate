@@ -164,3 +164,9 @@ type ReplicationQueryShardingStateByCollectionAndShardRequest struct {
 type ReplicationDeleteAllRequest struct {
 	Version int
 }
+
+type ReplicationStoreSchemaVersionRequest struct {
+	Version       int
+	SchemaVersion uint64
+	Id            uint64
+}

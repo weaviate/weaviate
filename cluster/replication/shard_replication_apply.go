@@ -136,6 +136,24 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	return nil
 }
 
+func (s *ShardReplicationFSM) StoreSchemaVersion(c *api.ReplicationStoreSchemaVersionRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	op, ok := s.opsById[c.Id]
+	if !ok {
+		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
+	}
+	status, ok := s.statusById[op.ID]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d", c.Id)
+	}
+	status.SchemaVersion = c.SchemaVersion
+	s.statusById[op.ID] = status
+
+	return nil
+}
+
 func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
@@ -263,6 +281,61 @@ func (s *ShardReplicationFSM) DeleteReplicationsByTenants(collection string, ten
 	}
 
 	return nil
+}
+
+func (s *ShardReplicationFSM) hasOngoingSourceReplication(sourceFQDN shardFQDN) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	ops, ok := s.opsBySourceFQDN[sourceFQDN]
+	if !ok {
+		return false
+	}
+
+	ongoingOp := false
+	for _, op := range ops {
+		status, ok := s.statusById[op.ID]
+		if !ok {
+			return false
+		}
+		switch status.GetCurrentState() {
+		case api.READY:
+			continue
+		default:
+			ongoingOp = true
+		}
+	}
+
+	return ongoingOp
+}
+
+func (s *ShardReplicationFSM) hasOngoingTargetReplication(targetFQDN shardFQDN) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	op, ok := s.opsByTargetFQDN[targetFQDN]
+	if !ok {
+		return false
+	}
+	status, ok := s.statusById[op.ID]
+	if !ok {
+		return false
+	}
+
+	switch status.GetCurrentState() {
+	case api.READY:
+		return false
+	default:
+		return true
+	}
+}
+
+func (s *ShardReplicationFSM) HasOngoingReplication(collection string, shard string, replica string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	FQDN := newShardFQDN(replica, collection, shard)
+	return s.hasOngoingSourceReplication(FQDN) || s.hasOngoingTargetReplication(FQDN)
 }
 
 // TODO: Improve the error handling in that function

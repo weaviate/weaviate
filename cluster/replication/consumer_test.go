@@ -18,12 +18,17 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/fakes"
+	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -38,6 +43,17 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
 		mockFSMUpdater := types.NewMockFSMUpdater(t)
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaReader := schemaManager.NewSchemaReader()
+		schemaManager.AddClass(
+			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+				Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+				State: &sharding.State{
+					Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+				},
+			}), "node1", true, false)
 
 		opId, err := randInt(t, 100, 200)
 		require.NoError(t, err, "error generating random operation id")
@@ -60,6 +76,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				"node1",
 				"TestCollection",
 				mock.Anything,
+				mock.Anything,
 			).
 			Once().
 			Return(nil)
@@ -73,7 +90,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
 			}, nil)
 		mockReplicaCopier.EXPECT().
-			AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+			AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		mockReplicaCopier.EXPECT().
 			RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 		mockReplicaCopier.EXPECT().
@@ -129,6 +146,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			1,
 			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
+			schemaReader,
 		)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -176,6 +194,17 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
 		mockFSMUpdater := types.NewMockFSMUpdater(t)
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaReader := schemaManager.NewSchemaReader()
+		schemaManager.AddClass(
+			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+				Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+				State: &sharding.State{
+					Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+				},
+			}), "node1", true, false)
 
 		opId, err := randInt(t, 100, 200)
 		require.NoError(t, err, "error generating random operation id")
@@ -189,6 +218,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				"node1",
 				"TestCollection",
 				"test-shard",
+				mock.Anything,
 			).
 			Once().
 			Return(errors.New("simulated copy failure"))
@@ -245,6 +275,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			1,
 			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
+			schemaReader,
 		)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -292,6 +323,17 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
 		mockFSMUpdater := types.NewMockFSMUpdater(t)
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaReader := schemaManager.NewSchemaReader()
+		schemaManager.AddClass(
+			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+				Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+				State: &sharding.State{
+					Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+				},
+			}), "node1", true, false)
 
 		randomNumberOfOps, err := randInt(t, 10, 20)
 		require.NoError(t, err, "error while generating random number of operations")
@@ -310,7 +352,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				ReplicationUpdateReplicaOpStatus(opId, api.READY).
 				Return(nil)
 			mockReplicaCopier.EXPECT().
-				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
 			mockFSMUpdater.EXPECT().
 				AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -325,7 +367,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
 			mockReplicaCopier.EXPECT().
-				AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+				AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			mockReplicaCopier.EXPECT().
 				RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 			mockReplicaCopier.EXPECT().
@@ -382,6 +424,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			1,
 			runtime.NewDynamicValue(time.Second*100),
 			metricsCallbacks,
+			schemaReader,
 		)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -432,6 +475,17 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
 		mockFSMUpdater := types.NewMockFSMUpdater(t)
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaReader := schemaManager.NewSchemaReader()
+		schemaManager.AddClass(
+			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+				Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+				State: &sharding.State{
+					Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+				},
+			}), "node1", true, false)
 
 		totalOps, err := randInt(t, 10, 20)
 		require.NoError(t, err, "error while generating random number of operations")
@@ -500,6 +554,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			1,
 			runtime.NewDynamicValue(time.Second*100),
 			callbacks,
+			schemaReader,
 		)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -544,6 +599,17 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		logger, _ := logrustest.NewNullLogger()
 		mockFSMUpdater := types.NewMockFSMUpdater(t)
 		mockReplicaCopier := types.NewMockReplicaCopier(t)
+		parser := fakes.NewMockParser()
+		parser.On("ParseClass", mock.Anything).Return(nil)
+		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+		schemaReader := schemaManager.NewSchemaReader()
+		schemaManager.AddClass(
+			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+				Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+				State: &sharding.State{
+					Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+				},
+			}), "node1", true, false)
 
 		totalOps, err := randInt(t, 10, 20)
 		require.NoError(t, err, "error while generating random number of operations")
@@ -584,7 +650,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(opID, api.READY).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, "node1", "TestCollection", mock.Anything).
+					CopyReplica(mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
 					AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, "node2").
@@ -596,7 +662,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 						StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
 					}, nil)
 				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 				mockReplicaCopier.EXPECT().
@@ -656,6 +722,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			1,
 			runtime.NewDynamicValue(time.Second*100),
 			callbacks,
+			schemaReader,
 		)
 
 		ctx, cancel := context.WithCancel(context.Background())
@@ -711,6 +778,17 @@ func TestConsumerOpCancellation(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	mockFSMUpdater := types.NewMockFSMUpdater(t)
 	mockReplicaCopier := types.NewMockReplicaCopier(t)
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaReader := schemaManager.NewSchemaReader()
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false)
 
 	mockFSMUpdater.EXPECT().
 		ReplicationCancellationComplete(uint64(1)).
@@ -761,6 +839,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 		1,
 		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
+		schemaReader,
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -775,8 +854,8 @@ func TestConsumerOpCancellation(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
 				if ctx.Err() != nil {
@@ -823,6 +902,17 @@ func TestConsumerOpDeletion(t *testing.T) {
 	logger, _ := logrustest.NewNullLogger()
 	mockFSMUpdater := types.NewMockFSMUpdater(t)
 	mockReplicaCopier := types.NewMockReplicaCopier(t)
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaReader := schemaManager.NewSchemaReader()
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false)
 
 	mockFSMUpdater.EXPECT().
 		ReplicationRemoveReplicaOp(uint64(1)).
@@ -873,6 +963,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 		1,
 		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
+		schemaReader,
 	)
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -887,8 +978,8 @@ func TestConsumerOpDeletion(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
 				if ctx.Err() != nil {

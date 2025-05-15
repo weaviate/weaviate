@@ -1021,3 +1021,254 @@ func uuid4() strfmt.UUID {
 	}
 	return strfmt.UUID(id.String())
 }
+
+func TestReplicationFSM_HasOngoingReplication(t *testing.T) {
+	type hasOngoingReplicationParams struct {
+		collection string
+		shard      string
+		replica    string
+		expected   bool
+	}
+
+	tests := []struct {
+		name                        string
+		status                      api.ShardReplicationState
+		hasOngoingReplicationParams []hasOngoingReplicationParams
+		expectedError               error
+	}{
+		{
+			name:   "op is REGISTERED",
+			status: api.REGISTERED,
+			hasOngoingReplicationParams: []hasOngoingReplicationParams{
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   true,
+				},
+				{
+					collection: "non-existing-collection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "non-existing-shard",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "non-existing-replica",
+					expected:   false,
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			name:   "op is HYDRATING",
+			status: api.HYDRATING,
+			hasOngoingReplicationParams: []hasOngoingReplicationParams{
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   true,
+				},
+				{
+					collection: "non-existing-collection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "non-existing-shard",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "non-existing-replica",
+					expected:   false,
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			name:   "op is DEHYDRATING",
+			status: api.DEHYDRATING,
+			hasOngoingReplicationParams: []hasOngoingReplicationParams{
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   true,
+				},
+				{
+					collection: "non-existing-collection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "non-existing-shard",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "non-existing-replica",
+					expected:   false,
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			name:   "op is FINALIZING",
+			status: api.FINALIZING,
+			hasOngoingReplicationParams: []hasOngoingReplicationParams{
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   true,
+				},
+				{
+					collection: "non-existing-collection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "non-existing-shard",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "non-existing-replica",
+					expected:   false,
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			name:   "op is CANCELLED",
+			status: api.CANCELLED,
+			hasOngoingReplicationParams: []hasOngoingReplicationParams{
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   true,
+				},
+				{
+					collection: "non-existing-collection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "non-existing-shard",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "non-existing-replica",
+					expected:   false,
+				},
+			},
+			expectedError: nil,
+		},
+		{
+			name:   "op is READY",
+			status: api.READY,
+			hasOngoingReplicationParams: []hasOngoingReplicationParams{
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "non-existing-collection",
+					shard:      "shard1",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "non-existing-shard",
+					replica:    "node1",
+					expected:   false,
+				},
+				{
+					collection: "TestCollection",
+					shard:      "shard1",
+					replica:    "non-existing-replica",
+					expected:   false,
+				},
+			},
+			expectedError: nil,
+		},
+	}
+
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.name, func(t *testing.T) {
+			// Setup
+			reg := prometheus.NewPedanticRegistry()
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaReader := schemaManager.NewSchemaReader()
+			manager := replication.NewManager(schemaReader, reg)
+			schemaManager.AddClass(
+				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+					Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+					State: &sharding.State{
+						Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+					},
+				}), "node1", true, false)
+
+			// Create ApplyRequest
+			subCommand, _ := json.Marshal(&api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
+				SourceCollection: "TestCollection",
+				SourceShard:      "shard1",
+				SourceNode:       "node1",
+				TargetNode:       "node2",
+				TransferType:     api.COPY.String(),
+			})
+			applyRequest := &api.ApplyRequest{
+				SubCommand: subCommand,
+			}
+
+			// Execute
+			err := manager.Replicate(0, applyRequest)
+			assert.NoError(t, err)
+
+			manager.GetReplicationFSM().UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+				Id:      0,
+				Version: 0,
+				State:   tt.status,
+			})
+
+			for _, param := range tt.hasOngoingReplicationParams {
+				actual := manager.GetReplicationFSM().HasOngoingReplication(param.collection, param.shard, param.replica)
+				assert.Equal(t, param.expected, actual)
+			}
+		})
+	}
+}
