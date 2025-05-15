@@ -24,6 +24,7 @@ import (
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
@@ -464,9 +465,8 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	shardAbsent := false
-	if shards, _ := s.schema.TenantsShards(cmd.Class, req.Shard); len(shards) == 0 {
-		shardAbsent = true
+	if req.NodeId != s.schema.nodeID {
+		return nil
 	}
 
 	return s.apply(
@@ -474,10 +474,27 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return nil },
 			updateStore: func() error {
-				if shardAbsent {
-					return s.db.DeleteReplicaFromShard(cmd.Class, req.Shard, req.NodeId)
-				}
-				return nil
+				return s.schema.Read(req.Collection, func(class *models.Class, state *sharding.State) error {
+					physical, ok := state.Physical[req.Shard]
+					// shard does not exist in the sharding state, shut it down
+					if !ok {
+						return s.db.ShutdownShard(cmd.Class, req.Shard)
+					}
+					// collection is single-tenant and the shard is in the sharding state, load it
+					if !state.PartitioningEnabled {
+						// collection is single-tenant and the shard is in the sharding state, load it
+						return s.db.LoadShard(cmd.Class, req.Shard)
+					}
+					// collection has multi-tenancy enabled
+					switch physical.ActivityStatus() {
+					case models.TenantActivityStatusACTIVE: // tenant is active, load it
+						return s.db.LoadShard(cmd.Class, req.Shard)
+					case models.TenantActivityStatusINACTIVE: // tenant is inactive, shut it down
+						return s.db.ShutdownShard(cmd.Class, req.Shard)
+					default: // tenant is in some other state, do nothing
+						return nil
+					}
+				})
 			},
 			schemaOnly: schemaOnly,
 		},

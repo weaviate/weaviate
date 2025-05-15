@@ -210,8 +210,7 @@ message CleanUpDistributedTaskRequest {
 }
 
 message SyncShardRequest {
-  uint64 version = 1;
-  string collection = 2;
-  string shard = 3;
-  string node_id = 4;
+  string collection = 1;
+  string shard = 2;
+  string node_id = 3;
 }

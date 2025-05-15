@@ -178,7 +178,7 @@ func (m *metaClass) AddReplicaToShard(v uint64, shard string, replica string) er
 	if err != nil {
 		return err
 	}
-	m.ShardVersion = v
+	m.ClassVersion = v
 	return nil
 }
 
@@ -190,7 +190,7 @@ func (m *metaClass) DeleteReplicaFromShard(v uint64, shard string, replica strin
 	if err != nil {
 		return err
 	}
-	m.ShardVersion = v
+	m.ClassVersion = v
 	return nil
 }
 
