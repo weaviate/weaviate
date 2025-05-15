@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/entities/additional"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -209,7 +210,12 @@ func (b *BM25Searcher) wandBlock(
 			}
 
 			eg.Go(func() (err error) {
-				topKHeap := lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumShouldMatchByProperty[i])
+				var topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]
+				if params.SearchOperator == "and" {
+					topKHeap = lsmkv.DoBlockMaxAnd(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]))
+				} else {
+					topKHeap = lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumShouldMatchByProperty[i])
+				}
 				ids, scores, explanations, err := b.getTopKIds(topKHeap)
 				if err != nil {
 					return err

@@ -174,6 +174,83 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 	}
 }
 
+func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, additionalExplanations bool,
+	termCount int,
+) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
+	results := TermsBySize(resultsByTerm)
+	var docInfos []*terms.DocPointerWithScore
+	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
+	worstDist := float64(-10000) // tf score can be negative
+	sort.Sort(results)
+	iterations := 0
+	pivotID := uint64(0)
+	upperBound := float32(0)
+
+	for {
+		iterations++
+
+		for i := 0; i < len(results); i++ {
+			if results[i].exhausted {
+				return topKHeap
+			}
+		}
+
+		results[0].AdvanceAtLeast(pivotID)
+		pivotID = results[0].idPointer
+
+		for i := 1; i < len(results); i++ {
+			results[i].AdvanceAtLeastShallow(pivotID)
+		}
+
+		upperBound = float32(0)
+		for i := 0; i < len(results); i++ {
+			upperBound += results[i].currentBlockImpact
+		}
+
+		if topKHeap.ShouldEnqueue(upperBound, limit) {
+			isCandidate := true
+			for i := 1; i < len(results); i++ {
+				results[i].AdvanceAtLeast(pivotID)
+				if results[i].idPointer != pivotID {
+					isCandidate = false
+					break
+				}
+			}
+			if isCandidate {
+				score := 0.0
+				if additionalExplanations {
+					docInfos = make([]*terms.DocPointerWithScore, termCount)
+				}
+				for _, term := range results {
+					_, s, d := term.Score(averagePropLength, additionalExplanations)
+					score += s
+					if additionalExplanations {
+						docInfos[term.QueryTermIndex()] = d
+					}
+					term.Advance()
+				}
+				if topKHeap.ShouldEnqueue(float32(score), limit) {
+					topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
+				}
+			} else {
+				pivotID += 1
+			}
+		} else {
+
+			// max uint
+			pivotID = uint64(math.MaxUint64)
+
+			for i := 0; i < len(results); i++ {
+				if results[i].currentBlockMaxId < pivotID {
+					pivotID = results[i].currentBlockMaxId
+				}
+			}
+
+			pivotID += 1
+		}
+	}
+}
+
 func DoWand(limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
 	minimumShouldMatch int,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
@@ -206,5 +283,20 @@ func (t Terms) Less(i, j int) bool {
 }
 
 func (t Terms) Swap(i, j int) {
+	t[i], t[j] = t[j], t[i]
+}
+
+type TermsBySize []*SegmentBlockMax
+
+// provide sort interface for
+func (t TermsBySize) Len() int {
+	return len(t)
+}
+
+func (t TermsBySize) Less(i, j int) bool {
+	return t[i].Count() < t[j].Count()
+}
+
+func (t TermsBySize) Swap(i, j int) {
 	t[i], t[j] = t[j], t[i]
 }
