@@ -14,7 +14,6 @@ package schema
 import (
 	"context"
 	"fmt"
-	"slices"
 	"strings"
 
 	"github.com/sirupsen/logrus"
@@ -303,13 +302,6 @@ func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.
 	}
 
 	return ErrNotFound
-}
-
-// IsLocalActiveTenant determines whether a given physical partition
-// represents a tenant that is expected to be active
-func IsLocalActiveTenant(phys *sharding.Physical, localNode string) bool {
-	return slices.Contains(phys.BelongsToNodes, localNode) &&
-		phys.Status == models.TenantActivityStatusHOT
 }
 
 func (h *Handler) getTenantsByNames(class string, names []string) ([]*models.Tenant, error) {

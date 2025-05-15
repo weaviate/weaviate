@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -174,8 +173,8 @@ func (db *DB) migrateToHierarchicalFS() error {
 	return nil
 }
 
-func NewAtomicInt64(val int64) *atomic.Int64 {
-	aval := &atomic.Int64{}
-	aval.Store(val)
-	return aval
-}
+// func NewAtomicInt64(val int64) atomic.Int64 {
+// 	aval := &atomic.Int64{}
+// 	aval.Store(val)
+// 	return *aval
+// }
