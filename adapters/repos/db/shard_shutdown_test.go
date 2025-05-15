@@ -176,18 +176,24 @@ func TestShardShutdownFailure(t *testing.T) {
 
 	require.Nil(t, err)
 	index := repo.GetIndex(schema.ClassName("Test"))
-	var testShard string
+	var testShardName string
 	index.shards.Range(func(name string, shard ShardLike) error {
-		testShard = name
+		testShardName = name
 		return nil
 	})
-	t.Logf("testShard: %s", testShard)
-	shard, _, err := index.GetShard(context.TODO(), testShard)
+	t.Logf("testShard: %s", testShardName)
+	shard, release, err := index.GetShard(context.TODO(), testShardName)
 	require.Nil(t, err)
 	require.NotNil(t, shard)
 
 	t.Logf("Shard: %+v\n", shard)
-	shard.Shutdown(context.Background())
-	require.False(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should not be marked for shut down")
+	err = shard.Shutdown(context.Background())
+	require.ErrorContains(t, err, "still in use")
+	require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
 	require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down ")
+
+	// shard eventually shut when idle
+	release()
+	require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
+	require.True(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should be marked as shut down ")
 }
