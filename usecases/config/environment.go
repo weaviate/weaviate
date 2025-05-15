@@ -272,6 +272,17 @@ func FromEnv(config *Config) error {
 		config.Persistence.MinMMapSize = DefaultPersistenceMinMMapSize
 	}
 
+	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_MAX_REUSE_WAL_SIZE: %w", err)
+		}
+
+		config.Persistence.MaxReuseWalSize = parsed
+	} else {
+		config.Persistence.MaxReuseWalSize = DefaultPersistenceMaxReuseWalSize
+	}
+
 	if err := parseInt(
 		"PERSISTENCE_LSM_CYCLEMANAGER_ROUTINES_FACTOR",
 		func(factor int) { config.Persistence.LSMCycleManagerRoutinesFactor = factor },

@@ -163,7 +163,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 ) (*Bucket, error) {
 	beforeAll := time.Now()
 	defaultMemTableThreshold := uint64(10 * 1024 * 1024)
-	defaultMinWalThreshold := uint64(4096)
 	defaultWalThreshold := uint64(1024 * 1024 * 1024)
 	defaultFlushAfterDirty := FlushAfterDirtyDefault
 	defaultStrategy := StrategyReplace
@@ -176,7 +175,6 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		dir:                   dir,
 		rootDir:               rootDir,
 		memtableThreshold:     defaultMemTableThreshold,
-		minWalThreshold:       defaultMinWalThreshold,
 		walThreshold:          defaultWalThreshold,
 		flushDirtyAfter:       defaultFlushAfterDirty,
 		strategy:              defaultStrategy,

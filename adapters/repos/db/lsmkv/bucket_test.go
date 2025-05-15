@@ -326,7 +326,7 @@ func TestBucketWalReload(t *testing.T) {
 			// initial bucket, always create segment, even if it is just a single entry
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount))
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
 			require.NoError(t, err)
 
 			if strategy == StrategyReplace {
@@ -342,7 +342,7 @@ func TestBucketWalReload(t *testing.T) {
 			} else {
 				require.Fail(t, "unknown strategy %s", strategy)
 			}
-			testContent(t, strategy, b, 2)
+			testBucketContent(t, strategy, b, 2)
 
 			require.NoError(t, b.Shutdown(ctx))
 
@@ -350,12 +350,12 @@ func TestBucketWalReload(t *testing.T) {
 			require.NoError(t, err)
 			require.Len(t, entries, 1, "single wal file should be created")
 
-			testContent(t, strategy, b, 2)
+			testBucketContent(t, strategy, b, 2)
 
-			// start fresh with a new memtable, new entries will stay in way until size is reached
+			// start fresh with a new memtable, new entries will stay in wal until size is reached
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount))
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
 			require.NoError(t, err)
 
 			if strategy == StrategyReplace {
@@ -383,10 +383,10 @@ func TestBucketWalReload(t *testing.T) {
 			// will load wal and reuse memtable
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(1))
+				WithStrategy(strategy), WithSecondaryIndices(1), WithMinWalThreshold(4096))
 			require.NoError(t, err)
 
-			testContent(t, strategy, b, 3)
+			testBucketContent(t, strategy, b, 3)
 
 			if strategy == StrategyReplace {
 				require.NoError(t, b.Put([]byte("hello3"), []byte("world3"), WithSecondaryKey(0, []byte("bonjour3"))))
@@ -417,7 +417,7 @@ func TestBucketWalReload(t *testing.T) {
 				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
 			require.NoError(t, err)
 
-			testContent(t, strategy, b, 4)
+			testBucketContent(t, strategy, b, 4)
 
 			for i := 4; i < 120; i++ { // larger than min .wal threshold
 				if strategy == StrategyReplace {
@@ -432,7 +432,7 @@ func TestBucketWalReload(t *testing.T) {
 					require.NoError(t, b.RoaringSetRangeAdd(uint64(4), uint64(4)))
 				}
 			}
-			testContent(t, strategy, b, 120)
+			testBucketContent(t, strategy, b, 120)
 
 			require.NoError(t, b.Shutdown(ctx))
 
@@ -447,15 +447,15 @@ func TestBucketWalReload(t *testing.T) {
 
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount))
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
 			require.NoError(t, err)
 
-			testContent(t, strategy, b, 120)
+			testBucketContent(t, strategy, b, 120)
 		})
 	}
 }
 
-func testContent(t *testing.T, strategy string, b *Bucket, maxObject int) {
+func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) {
 	t.Helper()
 	ctx := context.Background()
 	for i := 1; i < maxObject; i++ {
