@@ -149,6 +149,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		s.segmentCleanupConfig(),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {

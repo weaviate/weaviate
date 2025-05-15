@@ -26,6 +26,30 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
+func (m *Memtable) flushWAL() (rerr error) {
+	if err := m.commitlog.close(); err != nil {
+		return err
+	}
+
+	if m.Size() == 0 {
+		// this is an empty memtable, nothing to do
+		// however, we still have to cleanup the commit log, otherwise we will
+		// attempt to recover from it on the next cycle
+		if err := m.commitlog.delete(); err != nil {
+			return errors.Wrap(err, "delete commit log file")
+		}
+		return nil
+	}
+
+	// fsync parent directory
+	err := fsync(filepath.Dir(m.path))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
 func (m *Memtable) flush() (rerr error) {
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
