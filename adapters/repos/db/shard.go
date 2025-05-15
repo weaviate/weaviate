@@ -239,8 +239,8 @@ type Shard struct {
 	// indicates whether shard in being used at the moment (e.g. write request)
 	inUseCounter atomic.Int64
 	// allows concurrent shut read/write
-	shutdownLock *sync.RWMutex
-	WantShutdown atomic.Bool
+	shutdownLock      *sync.RWMutex
+	shutdownRequested atomic.Bool
 }
 
 func (s *Shard) ID() string {

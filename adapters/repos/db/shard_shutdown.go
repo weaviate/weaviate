@@ -16,33 +16,24 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 func (s *Shard) Shutdown(ctx context.Context) (err error) {
-	s.WantShutdown.Store(true)
-	for i := 0; (i < 30) && !s.shut.Load(); i++ {
-		s.performShutdown(ctx)
-		time.Sleep(1 * time.Second)
-	}
+	s.shutdownRequested.Store(true)
+	return backoff.Retry(func() error {
+		// this retry to make sure it's retried in case
+		// the performShutdown() returned shard still in use
+		return s.performShutdown(ctx)
 
-	if !s.shut.Load() {
-		err = s.performShutdown(ctx)
-		s.shutdownLock.Lock()
-		defer s.shutdownLock.Unlock()
-		if !s.shut.Load() {
-			s.WantShutdown.Store(false)
-			s.index.logger.
-				WithField("action", "shutdown").
-				Debugf("shard %q did not shutdown", s.name)
-			return err
-		}
-	}
-
-	return nil
+	}, backoff.WithContext(backoff.WithMaxRetries(
+		// this will try with max 2 seconds could be configurable later on
+		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
 }
 
 /*
@@ -71,17 +62,13 @@ func (s *Shard) Shutdown(ctx context.Context) (err error) {
 func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	s.shutdownLock.Lock()
 	defer s.shutdownLock.Unlock()
-	if !s.WantShutdown.Load() {
-		s.index.logger.
-			WithField("action", "shutdown").
-			Debugf("shard %q is not marked for shutdown", s.name)
-		return fmt.Errorf("shard %q is not marked for shutdown", s.name)
-	}
+
 	if s.shut.Load() {
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is already shut down", s.name)
-		return fmt.Errorf("shard %q is already shut down", s.name)
+			// shutdown is idempotent
+		return nil
 	}
 	if s.inUseCounter.Load() > 0 {
 		s.index.logger.
@@ -188,7 +175,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 }
 
 func (s *Shard) preventShutdown() (release func(), err error) {
-	if s.WantShutdown.Load() {
+	if s.shutdownRequested.Load() {
 		return func() {}, errShutdownInProgress
 	}
 	s.shutdownLock.RLock()
@@ -209,10 +196,8 @@ func (s *Shard) refCountAdd() {
 func (s *Shard) refCountSub() {
 	s.inUseCounter.Add(-1)
 	// if the counter is 0, we can shutdown
-	if s.inUseCounter.Load() == 0 {
-		if s.WantShutdown.Load() {
-			s.performShutdown(context.TODO())
-		}
+	if s.inUseCounter.Load() == 0 && s.shutdownRequested.Load() {
+		s.performShutdown(context.TODO())
 	}
 }
 
