@@ -59,7 +59,7 @@ func newClient(config *clientConfig, logger logrus.FieldLogger, dataPath, bucket
 		creds = credentials.NewEnvAWS()
 	} else {
 		creds = credentials.NewIAM("")
-		if _, err := creds.Get(); err != nil {
+		if _, err := creds.GetWithContext(nil); err != nil {
 			// can be anonymous access
 			creds = credentials.NewEnvAWS()
 		}
