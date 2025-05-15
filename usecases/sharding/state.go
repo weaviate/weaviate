@@ -33,6 +33,7 @@ type State struct {
 	Physical            map[string]Physical `json:"physical"`
 	Virtual             []Virtual           `json:"virtual"`
 	PartitioningEnabled bool                `json:"partitioningEnabled"`
+	ReplicationFactor   int64               `json:"replicationFactor"`
 
 	// different for each node, not to be serialized
 	localNodeName string // TODO: localNodeName is static it is better to store just once
@@ -51,6 +52,90 @@ func (s *State) MigrateFromOldFormat() {
 		}
 		s.Physical[shardName] = shard
 	}
+}
+
+// MigrateShardingStateReplicationFactor ensures that the ReplicationFactor field is correctly initialized
+// for states created with older versions. It sets the ReplicationFactor based on the number of
+// nodes that the given shard belongs to. If the ReplicationFactor is already set (non-zero),
+// it will return immediately. If the calculated value is less than 1, it defaults to 1
+// to ensure at least one replica exists per shard.
+//
+// This function should be called during state deserialization or when applying snapshots/log entries
+// from older versions. Those versions are likely missing such value or have a default value of 0.
+// We do not want to have a ReplicationFactor equal to 0, as it would result in shards without any replica
+// (a.k.a a shard without data).
+//
+// Returns:
+//   - error: An error if physical shards are missing in a non-partitioned state or if shard replica counts are inconsistent
+func (s *State) MigrateShardingStateReplicationFactor() error {
+	if s.ReplicationFactor > 0 {
+		return nil
+	}
+
+	if s.PartitioningEnabled {
+		// If partitioning is enabled, the ReplicationFactor is not used,
+		// but we set it to 1 just to be on the safe side.
+		s.ReplicationFactor = 1
+		return nil
+	}
+
+	if len(s.Physical) == 0 {
+		return fmt.Errorf("invalid sharding state for index %s - no physical shards found, sharding state corrupted", s.IndexID)
+	}
+
+	var firstShard string
+	var replicationFactor int64
+	isFirstShard := true
+
+	for shard := range s.Physical {
+		shardReplicationFactor, err := s.migrateShardingStateReplicationFactor(shard)
+		if err != nil {
+			return err
+		}
+
+		if isFirstShard {
+			firstShard = shard
+			replicationFactor = shardReplicationFactor
+			isFirstShard = false
+		} else if shardReplicationFactor != replicationFactor {
+			// All physical replicas of a shard should have the same replication factor since it's a
+			// cluster-wide configuration. Inconsistencies in this value indicate a corrupted sharding
+			// state that could lead to data reliability issues if not addressed or detected.
+			// This validation ensures the state is consistent and helps detect potential issues
+			// that would otherwise manifest as unpredictable behavior during operation.
+			return fmt.Errorf(
+				"inconsistent replication factors across shards: %s has %d, %s has %d",
+				firstShard, replicationFactor,
+				shard, shardReplicationFactor,
+			)
+		}
+	}
+
+	s.ReplicationFactor = replicationFactor
+	return nil
+}
+
+// migrateShardingStateReplicationFactor provides the appropriate replication factor value for migration.
+// It returns 1 as the default value if the current replication factor is less than 1 (uninitialized or zero).
+// Otherwise, it returns the current replication factor value to preserve explicitly set values.
+//
+// Parameters:
+//   - shard: The name of the physical shard (used for validation)
+//
+// Returns:
+//   - int64: The replication factor to use (1 if uninitialized, or existing value if already set)
+//   - error: An error if the specified shard doesn't exist
+func (s *State) migrateShardingStateReplicationFactor(shard string) (int64, error) {
+	_, ok := s.Physical[shard]
+	if !ok {
+		return 0, fmt.Errorf("could not find shard %s", shard)
+	}
+
+	if s.ReplicationFactor < 1 {
+		return 1, nil
+	}
+
+	return s.ReplicationFactor, nil
 }
 
 type Virtual struct {
@@ -94,11 +179,30 @@ func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
 	}
+
+	numberOfReplicas, err := s.NumberOfReplicas(shard)
+	if err != nil {
+		return fmt.Errorf("error while getting number of replicas for shard %s: %w", shard, err)
+	}
+
+	if numberOfReplicas <= s.ReplicationFactor {
+		return fmt.Errorf("unable to delete replica from shard, minimum replication factor %d", s.ReplicationFactor)
+	}
+
 	if err := phys.DeleteReplica(replica); err != nil {
 		return err
 	}
 	s.Physical[shard] = phys
 	return nil
+}
+
+func (s *State) NumberOfReplicas(shard string) (int64, error) {
+	phys, ok := s.Physical[shard]
+	if !ok {
+		return 0, fmt.Errorf("could not find shard %s", shard)
+	}
+
+	return int64(len(phys.BelongsToNodes)), nil
 }
 
 func (p *Physical) AddReplica(replica string) error {
@@ -166,6 +270,10 @@ func (p *Physical) ActivityStatus() string {
 }
 
 func InitState(id string, config config.Config, nodeLocalName string, names []string, replFactor int64, partitioningEnabled bool) (*State, error) {
+	if replFactor < 1 {
+		return nil, fmt.Errorf("replication factor must be at least 1, got %d", replFactor)
+	}
+
 	if f, n := replFactor, len(names); f > int64(n) {
 		return nil, fmt.Errorf("could not find enough weaviate nodes for replication: %d available, %d requested", len(names), f)
 	}
@@ -188,6 +296,7 @@ func InitState(id string, config config.Config, nodeLocalName string, names []st
 	out.initVirtual()
 	out.distributeVirtualAmongPhysical()
 
+	out.ReplicationFactor = replFactor
 	return out, nil
 }
 
@@ -543,14 +652,24 @@ func (s State) DeepCopy() State {
 		virtualCopy[i] = virtual.DeepCopy()
 	}
 
-	return State{
+	state := State{
 		localNodeName:       s.localNodeName,
 		IndexID:             s.IndexID,
 		Config:              s.Config.DeepCopy(),
 		Physical:            physicalCopy,
 		Virtual:             virtualCopy,
 		PartitioningEnabled: s.PartitioningEnabled,
+		ReplicationFactor:   s.ReplicationFactor,
 	}
+
+	// TODO: in case of error we return an empty sharding state temporarily. The plan is to remove this
+	// DeepCopy method in a followup PR.
+	err := state.MigrateShardingStateReplicationFactor()
+	if err != nil {
+		return State{}
+	}
+
+	return state
 }
 
 func (p Physical) DeepCopy() Physical {

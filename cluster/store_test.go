@@ -586,8 +586,8 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
 					Name:           "T1",
-					BelongsToNodes: []string{"Node-1"},
-				}}}
+					BelongsToNodes: []string{"Node-1", "Node-2"},
+				}}, ReplicationFactor: 1}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 				m.indexer.On("AddClass", mock.Anything).Return(nil)
@@ -601,8 +601,8 @@ func TestStoreApply(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if len(replicas) != 0 {
-					return fmt.Errorf("sharding state should have 0 shards for class C1")
+				if len(replicas) != 1 {
+					return fmt.Errorf("sharding state should have 1 shard for class C1 after deleting a shard")
 				}
 
 				return nil
@@ -615,8 +615,8 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
 					Name:           "T1",
-					BelongsToNodes: []string{"Node-2"},
-				}}}
+					BelongsToNodes: []string{"Node-2", "Node-3"},
+				}}, ReplicationFactor: 1}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 				m.indexer.On("AddClass", mock.Anything).Return(nil)
@@ -629,8 +629,8 @@ func TestStoreApply(t *testing.T) {
 				if err != nil {
 					return err
 				}
-				if len(replicas) != 0 {
-					return fmt.Errorf("sharding state should have 0 shards for class C1")
+				if len(replicas) != 1 {
+					return fmt.Errorf("sharding state should have 1 shard for class C1 after deleting a shard")
 				}
 
 				return nil
@@ -670,14 +670,17 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "DeleteReplicaFromShard/Success/ReplicaNotFound",
-			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, cmd.DeleteReplicaFromShard{Class: "C1", Shard: "T2", TargetNode: "Node-2"}, nil)},
-			resp: Response{Error: nil},
+			name: "DeleteReplicaFromShard/Fail/BelowMinimumReplicationFactor/SingleReplica",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, cmd.DeleteReplicaFromShard{Class: "C1", Shard: "T2", TargetNode: "Node-1"}, nil)},
+			resp: Response{Error: schema.ErrSchema}, // Expect an error
 			doBefore: func(m *MockStore) {
-				ss := &sharding.State{Physical: map[string]sharding.Physical{"T2": {
-					Name:           "T2",
-					BelongsToNodes: []string{"Node-1"},
-				}}}
+				ss := &sharding.State{
+					Physical: map[string]sharding.Physical{"T2": {
+						Name:           "T2",
+						BelongsToNodes: []string{"Node-1"},
+					}},
+					// ReplicationFactor will be migrated to 1 as the default minimum
+				}
 				m.parser.On("ParseClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
 				m.indexer.On("AddClass", mock.Anything).Return(nil)
@@ -691,7 +694,120 @@ func TestStoreApply(t *testing.T) {
 					return err
 				}
 				if len(replicas) != 1 {
-					return fmt.Errorf("sharding state should have 1 shard for class C1")
+					return fmt.Errorf("sharding state should still have 1 replica for class C1, shard T2")
+				}
+
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if shardingState.ReplicationFactor != 1 {
+					return fmt.Errorf("replication factor should be 1, got %d", shardingState.ReplicationFactor)
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "DeleteReplicaFromShard/Success/AboveMinimumReplicationFactor/DefaultReplicationFactor",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, cmd.DeleteReplicaFromShard{Class: "C1", Shard: "T2", TargetNode: "Node-2"}, nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				ss := &sharding.State{
+					Physical: map[string]sharding.Physical{"T2": {
+						Name:           "T2",
+						BelongsToNodes: []string{"Node-1", "Node-2", "Node-3"},
+					}},
+					// ReplicationFactor will be migrated to 1 as the default minimum
+				}
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				replicas, err := ms.store.SchemaReader().ShardReplicas("C1", "T2")
+				if err != nil {
+					return err
+				}
+				if len(replicas) != 2 {
+					return fmt.Errorf("sharding state should have 2 replicas after deletion, got %d", len(replicas))
+				}
+
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if shardingState.ReplicationFactor != 1 {
+					return fmt.Errorf("replication factor should be 1, got %d", shardingState.ReplicationFactor)
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "DeleteReplicaFromShard/Fail/BelowCustomReplicationFactor",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, cmd.DeleteReplicaFromShard{Class: "C1", Shard: "T2", TargetNode: "Node-2"}, nil)},
+			resp: Response{Error: schema.ErrSchema},
+			doBefore: func(m *MockStore) {
+				ss := &sharding.State{
+					Physical: map[string]sharding.Physical{"T2": {
+						Name:           "T2",
+						BelongsToNodes: []string{"Node-1", "Node-2"},
+					}},
+					ReplicationFactor: 2,
+				}
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				replicas, err := ms.store.SchemaReader().ShardReplicas("C1", "T2")
+				if err != nil {
+					return err
+				}
+				if len(replicas) != 2 {
+					return fmt.Errorf("sharding state should still have 2 replicas for class C1, shard T2")
+				}
+
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if shardingState.ReplicationFactor != 2 {
+					return fmt.Errorf("replication factor should be 2, got %d", shardingState.ReplicationFactor)
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "DeleteReplicaFromShard/Success/AboveCustomReplicationFactor",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, cmd.DeleteReplicaFromShard{Class: "C1", Shard: "T2", TargetNode: "Node-3"}, nil)},
+			resp: Response{Error: nil}, // Should succeed
+			doBefore: func(m *MockStore) {
+				ss := &sharding.State{
+					Physical: map[string]sharding.Physical{"T2": {
+						Name:           "T2",
+						BelongsToNodes: []string{"Node-1", "Node-2", "Node-3", "Node-4"},
+					}},
+					ReplicationFactor: 3,
+				}
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				replicas, err := ms.store.SchemaReader().ShardReplicas("C1", "T2")
+				if err != nil {
+					return err
+				}
+				if len(replicas) != 3 {
+					return fmt.Errorf("sharding state should have 3 replicas after deletion, got %d", len(replicas))
+				}
+
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if shardingState.ReplicationFactor != 3 {
+					return fmt.Errorf("replication factor should be 3, got %d", shardingState.ReplicationFactor)
 				}
 
 				return nil
@@ -781,6 +897,240 @@ func TestStoreApply(t *testing.T) {
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
+			},
+		},
+		{
+			name: "AddClass/MigrateReplicationFactor/Uninitialized",
+			req: raft.Log{Data: cmdAsBytes("C1",
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: cls,
+					State: &sharding.State{
+						IndexID: "C1",
+						Physical: map[string]sharding.Physical{
+							"T1": {
+								Name:           "T1",
+								BelongsToNodes: []string{"THIS", "THAT"},
+								Status:         models.TenantActivityStatusHOT,
+							},
+						},
+						// ReplicationFactor intentionally not set (uninitialized)
+					},
+				},
+				nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+			},
+			doAfter: func(ms *MockStore) error {
+				class := ms.store.SchemaReader().ReadOnlyClass("C1")
+				if class == nil {
+					return fmt.Errorf("class is missing")
+				}
+
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if shardingState == nil {
+					return fmt.Errorf("sharding state is missing")
+				}
+
+				if shardingState.ReplicationFactor != 1 {
+					return fmt.Errorf("replication factor not properly migrated, expected 1, got %d",
+						shardingState.ReplicationFactor)
+				}
+
+				for tenantName, tenant := range shardingState.Physical {
+					if len(tenant.BelongsToNodes) != 2 {
+						return fmt.Errorf("tenant %s should have 2 replicas, got %d",
+							tenantName, len(tenant.BelongsToNodes))
+					}
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "AddClass/MigrateReplicationFactor/ExplicitZero",
+			req: raft.Log{Data: cmdAsBytes("C1",
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: cls,
+					State: &sharding.State{
+						IndexID: "C1",
+						Physical: map[string]sharding.Physical{
+							"T1": {
+								Name:           "T1",
+								BelongsToNodes: []string{"THIS", "THAT", "ANOTHER"},
+								Status:         models.TenantActivityStatusHOT,
+							},
+						},
+						ReplicationFactor: 0,
+					},
+				},
+				nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+			},
+			doAfter: func(ms *MockStore) error {
+				class := ms.store.SchemaReader().ReadOnlyClass("C1")
+				if class == nil {
+					return fmt.Errorf("class is missing")
+				}
+
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if shardingState == nil {
+					return fmt.Errorf("sharding state is missing")
+				}
+
+				if shardingState.ReplicationFactor != 1 {
+					return fmt.Errorf("replication factor not properly migrated, expected 1, got %d",
+						shardingState.ReplicationFactor)
+				}
+
+				for tenantName, tenant := range shardingState.Physical {
+					if len(tenant.BelongsToNodes) != 3 {
+						return fmt.Errorf("tenant %s should have 3 replicas, got %d",
+							tenantName, len(tenant.BelongsToNodes))
+					}
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "AddClass/MigrateReplicationFactor/Partitioned",
+			req: raft.Log{Data: cmdAsBytes("C1",
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: cls,
+					State: &sharding.State{
+						IndexID:             "C1",
+						Physical:            map[string]sharding.Physical{},
+						PartitioningEnabled: true,
+						// ReplicationFactor intentionally not set (uninitialized)
+					},
+				},
+				nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+			},
+			doAfter: func(ms *MockStore) error {
+				class := ms.store.SchemaReader().ReadOnlyClass("C1")
+				if class == nil {
+					return fmt.Errorf("class is missing")
+				}
+
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if shardingState == nil {
+					return fmt.Errorf("sharding state is missing")
+				}
+
+				if shardingState.ReplicationFactor != 1 {
+					return fmt.Errorf("replication factor for partitioned state not properly migrated, expected 1, got %d",
+						shardingState.ReplicationFactor)
+				}
+
+				if !shardingState.PartitioningEnabled {
+					return fmt.Errorf("partitioning should still be enabled")
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "AddClass/PreserveReplicationFactor/NonDefault",
+			req: raft.Log{Data: cmdAsBytes("C1",
+				cmd.ApplyRequest_TYPE_ADD_CLASS,
+				cmd.AddClassRequest{
+					Class: cls,
+					State: &sharding.State{
+						IndexID: "C1",
+						Physical: map[string]sharding.Physical{
+							"T1": {
+								Name:           "T1",
+								BelongsToNodes: []string{"THIS", "THAT"},
+								Status:         models.TenantActivityStatusHOT,
+							},
+						},
+						ReplicationFactor: 5,
+					},
+				},
+				nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+			},
+			doAfter: func(ms *MockStore) error {
+				class := ms.store.SchemaReader().ReadOnlyClass("C1")
+				if class == nil {
+					return fmt.Errorf("class is missing")
+				}
+
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if shardingState == nil {
+					return fmt.Errorf("sharding state is missing")
+				}
+
+				if shardingState.ReplicationFactor != 5 {
+					return fmt.Errorf("non-default replication factor not preserved, expected 5, got %d",
+						shardingState.ReplicationFactor)
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "RestoreClass/MigrateReplicationFactor/Uninitialized",
+			req: raft.Log{Data: cmdAsBytes("C1",
+				cmd.ApplyRequest_TYPE_RESTORE_CLASS,
+				cmd.AddClassRequest{
+					Class: cls,
+					State: &sharding.State{
+						IndexID: "C1",
+						Physical: map[string]sharding.Physical{
+							"T1": {
+								Name:           "T1",
+								BelongsToNodes: []string{"THIS", "THAT"},
+								Status:         models.TenantActivityStatusHOT,
+							},
+						},
+						// ReplicationFactor intentionally not set (uninitialized)
+					},
+				},
+				nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("RestoreClassDir", cls.Class).Return(nil)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+			},
+			doAfter: func(ms *MockStore) error {
+				class := ms.store.SchemaReader().ReadOnlyClass("C1")
+				if class == nil {
+					return fmt.Errorf("class is missing")
+				}
+
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if shardingState == nil {
+					return fmt.Errorf("sharding state is missing")
+				}
+
+				if shardingState.ReplicationFactor != 1 {
+					return fmt.Errorf("replication factor not properly migrated during restore, expected 1, got %d",
+						shardingState.ReplicationFactor)
+				}
+
+				return nil
 			},
 		},
 	}

@@ -6427,11 +6427,29 @@ func init() {
           "type": "string",
           "x-omitempty": false
         },
+        "numberOfReplicas": {
+          "description": "Number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
+        },
         "objectCount": {
           "description": "The number of objects in shard.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
+        },
+        "replicationFactor": {
+          "description": "Minimum number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
@@ -14713,11 +14731,29 @@ func init() {
           "type": "string",
           "x-omitempty": false
         },
+        "numberOfReplicas": {
+          "description": "Number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
+        },
         "objectCount": {
           "description": "The number of objects in shard.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
+        },
+        "replicationFactor": {
+          "description": "Minimum number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
