@@ -63,6 +63,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 	defer s.shutdownLock.Unlock()
 
 	if s.shut.Load() {
+		s.shutdownRequested.Store(false)
 		s.index.logger.
 			WithField("action", "shutdown").
 			Debugf("shard %q is already shut down", s.name)
@@ -76,6 +77,7 @@ func (s *Shard) performShutdown(ctx context.Context) (err error) {
 		return fmt.Errorf("shard %q is still in use", s.name)
 	}
 	s.shut.Store(true)
+	s.shutdownRequested.Store(false)
 	start := time.Now()
 	defer func() {
 		s.index.metrics.ObserveUpdateShardStatus(storagestate.StatusShutdown.String(), time.Since(start))
