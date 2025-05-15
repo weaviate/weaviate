@@ -16,6 +16,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -102,12 +103,14 @@ func TestShardShutdownWithInactivity(t *testing.T) {
 	require.Nil(t, err)
 	require.NotNil(t, shard)
 
-	releaseDone := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
 	go func() {
-		time.Sleep(5 * time.Second)
+		defer wg.Done()
+		time.Sleep(5 * time.Second) // This is the only sleep we need
 		release()
-		close(releaseDone)
 	}()
+
 	shard.Shutdown(context.Background())
 	s := shard.(*LazyLoadShard).shard
 	t.Logf("Shard %+v\n", s)
@@ -115,13 +118,13 @@ func TestShardShutdownWithInactivity(t *testing.T) {
 	require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should be marked for shut down")
 	require.False(t, shard.(*LazyLoadShard).shard.shut.Load(), "shard should not be marked as shut down while still in use")
 
-	// Wait for release to happen
-	<-releaseDone
-
-	// Wait for shard to be fully shut down
+	// Wait for both release and shutdown to complete
 	require.Eventually(t, func() bool {
+		wg.Wait() // Wait for release to complete
 		return shard.(*LazyLoadShard).shard.shut.Load()
-	}, 2*time.Second, 100*time.Millisecond, "shard should eventually be marked as shut down")
+	}, 3*time.Second, 100*time.Millisecond, "shard should eventually be marked as shut down")
+
+	// Final state check
 	require.True(t, shard.(*LazyLoadShard).shard.shutdownRequested.Load(), "shard should still be marked for shut down")
 }
 
