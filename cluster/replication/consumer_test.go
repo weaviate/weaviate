@@ -54,6 +54,14 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockFSMUpdater.EXPECT().
 			AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, "node2").
 			Return(uint64(0), nil)
+		mockFSMUpdater.EXPECT().
+			SyncShard(mock.Anything, "TestCollection", mock.Anything, "node1").
+			Return(uint64(0), nil).
+			Times(1)
+		mockFSMUpdater.EXPECT().
+			SyncShard(mock.Anything, "TestCollection", mock.Anything, "node2").
+			Return(uint64(0), nil).
+			Times(1)
 		mockReplicaCopier.EXPECT().
 			CopyReplica(
 				mock.Anything,
@@ -330,6 +338,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 			mockReplicaCopier.EXPECT().
 				RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mockFSMUpdater.EXPECT().
+				SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
 		}
 
 		var (
@@ -604,6 +614,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				mockFSMUpdater.EXPECT().
+					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
 				completionWg.Add(1)
 			} else {
 				require.False(t, opsCache.LoadOrStore(opID), "operation should not be stored twice in cache")
