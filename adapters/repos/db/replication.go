@@ -389,24 +389,24 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
 	}
 
-	docIDCounterPath, err := os.OpenFile(sd.DocIDCounterPath+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
+	docIDCounter, err := os.OpenFile(shard.Counter().FileName()+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
 		return nil, err
 	}
-	defer docIDCounterPath.Close()
+	defer docIDCounter.Close()
 
-	_, err = io.Copy(docIDCounterPath, bytes.NewBuffer(sd.DocIDCounter))
+	_, err = io.Copy(docIDCounter, bytes.NewBuffer(sd.DocIDCounter))
 	if err != nil {
 		return nil, err
 	}
 
-	propLengthTrackerPath, err := os.OpenFile(sd.PropLengthTrackerPath+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
+	propLengthTracker, err := os.OpenFile(shard.GetPropertyLengthTracker().FileName()+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
 		return nil, err
 	}
-	defer propLengthTrackerPath.Close()
+	defer propLengthTracker.Close()
 
-	_, err = io.Copy(propLengthTrackerPath, bytes.NewBuffer(sd.PropLengthTracker))
+	_, err = io.Copy(propLengthTracker, bytes.NewBuffer(sd.PropLengthTracker))
 	if err != nil {
 		return nil, err
 	}
