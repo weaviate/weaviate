@@ -351,9 +351,6 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 	if err != nil {
 		return err
 	}
-	if nextState == api.ShardReplicationState("") {
-		return fmt.Errorf("empty state returned from state handler for op %s", op.Op.UUID)
-	}
 
 	if nextState == DELETED {
 		// Stop the recursion if we are in the DELETED state and don't update the state in the FSM
