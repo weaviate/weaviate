@@ -305,6 +305,7 @@ func (i *Index) IncomingReinitShard(ctx context.Context, shardName string) error
 		defer i.shardCreateLocks.Unlock(shardName)
 
 		shard, ok := i.shards.LoadAndDelete(shardName)
+		fmt.Println("NATEE index incomingReinitShard", shardName, ok)
 		if ok {
 			if err := shard.Shutdown(ctx); err != nil {
 				if !errors.Is(err, errAlreadyShutdown) {

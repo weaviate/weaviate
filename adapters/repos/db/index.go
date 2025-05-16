@@ -352,6 +352,10 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				}
 
 				i.shards.Store(shardName, shard)
+				fmt.Println("NATEE index initAndStoreShards 1", shardName, shard)
+				fmt.Println()
+				debug.PrintStack()
+				fmt.Println()
 				return nil
 			}, shardName)
 		}
@@ -378,6 +382,10 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
 			i.allocChecker, i.shardLoadLimiter, i.shardReindexer)
 		i.shards.Store(shardName, shard)
+		fmt.Println("NATEE index initAndStoreShards 2", shardName, shard)
+		fmt.Println()
+		debug.PrintStack()
+		fmt.Println()
 	}
 
 	initLazyShardsInBackground := func() {
@@ -1507,6 +1515,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				localCtx := helpers.InitSlowQueryDetails(ctx)
 				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
 				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
+				fmt.Println("NATEE index objectSearchByShard shard local", shardName, len(objs), err)
 				if err != nil {
 					return fmt.Errorf(
 						"local shard object search %s: %w", shard.ID(), err)
@@ -1518,6 +1527,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
 					sort, cursor, nil, addlProps, i.replicationEnabled(), nil, properties)
+				fmt.Println("NATEE index objectSearchByShard shard remote", shardName, len(objs), err)
 				if err != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err)
@@ -2035,6 +2045,10 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	}
 
 	i.shards.Store(shardName, shard)
+	fmt.Println("NATEE index initLocalShardWithForcedLoading", shardName, shard)
+	fmt.Println()
+	debug.PrintStack()
+	fmt.Println()
 
 	return nil
 }
@@ -2071,6 +2085,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 
 	// check if created in the meantime by concurrent call
 	shard = i.shards.Load(shardName)
+	// fmt.Println("NATEE index getOptInitLocalShard", shardName, shard)
 	if shard == nil {
 		if !ensureInit {
 			return nil, func() {}, nil
@@ -2088,6 +2103,10 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 		}
 
 		i.shards.Store(shardName, shard)
+		fmt.Println("NATEE index getOptInitLocalShard store", shardName, shard, ensureInit)
+		fmt.Println()
+		debug.PrintStack()
+		fmt.Println()
 	}
 
 	release, err = shard.preventShutdown()
@@ -2248,6 +2267,7 @@ func (i *Index) drop() error {
 			defer i.shardCreateLocks.Unlock(name)
 
 			shard, ok := i.shards.LoadAndDelete(name)
+			fmt.Println("NATEE index drop shard", name, ok)
 			if !ok {
 				return nil // shard already does not exist
 			}
@@ -2307,6 +2327,7 @@ func (i *Index) dropShards(names []string) error {
 			defer i.shardCreateLocks.Unlock(name)
 
 			shard, ok := i.shards.LoadAndDelete(name)
+			fmt.Println("NATEE index dropShards", name, ok, i.shards.Load(name))
 			if !ok {
 				return nil // shard already does not exist (or inactive)
 			}

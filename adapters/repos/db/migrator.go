@@ -520,6 +520,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				defer idx.shardCreateLocks.Unlock(name)
 
 				shard, ok := idx.shards.LoadAndDelete(name)
+				fmt.Println("NATEE migrator updateTenants delete shard", name, ok)
 				if !ok {
 					return nil // shard already does not exist or inactive
 				}

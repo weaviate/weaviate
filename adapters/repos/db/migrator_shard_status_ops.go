@@ -64,6 +64,7 @@ func (m *Migrator) frozen(ctx context.Context, idx *Index, frozen []string, ec *
 			defer idx.shardCreateLocks.Unlock(name)
 
 			idx.shards.LoadAndDelete(name)
+			fmt.Println("NATEE migrator frozen delete shard", name)
 
 			if err := shard.drop(); err != nil {
 				ec.Add(err)

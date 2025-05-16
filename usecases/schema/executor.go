@@ -117,8 +117,10 @@ func (e *executor) AddReplicaToShard(class string, shard string, targetNode stri
 func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
 	ctx := context.Background()
 	if replicas, err := e.schemaReader.ShardReplicas(class, shard); err != nil {
+		fmt.Println("NATEE executor deleteReplicaFromShard error reading replicas for collection", class, shard, err)
 		return fmt.Errorf("error reading replicas for collection %s shard %s: %w", class, shard, err)
 	} else if slices.Contains(replicas, targetNode) {
+		fmt.Println("NATEE executor deleteReplicaFromShard replica exists for collection", class, shard, targetNode)
 		return fmt.Errorf("replica %s exists for collection %s shard %s", targetNode, class, shard)
 	}
 	return e.migrator.DeleteReplicaFromShard(ctx, class, shard)

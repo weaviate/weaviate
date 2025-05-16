@@ -152,6 +152,10 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
 	} else {
 		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
+		fmt.Println("NATEE NewShard")
+		fmt.Println()
+		debug.PrintStack()
+		fmt.Println()
 	}
 
 	_ = s.reindexer.RunAfterLsmInit(ctx, s)

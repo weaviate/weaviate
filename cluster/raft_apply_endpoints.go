@@ -133,7 +133,7 @@ func (s *Raft) AddReplicaToShard(ctx context.Context, class, shard, targetNode s
 
 func (s *Raft) DeleteReplicaFromShard(ctx context.Context, class, shard, targetNode string) (uint64, error) {
 	if class == "" || shard == "" || targetNode == "" {
-		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode : %w", schema.ErrBadRequest)
+		return 0, fmt.Errorf("empty class or shard or targetNode : %w", schema.ErrBadRequest)
 	}
 	req := cmd.DeleteReplicaFromShard{
 		Class:      class,

@@ -30,6 +30,7 @@ import (
 // from shard directory, it needs to be reflected as well in LazyLoadShard::drop()
 // method to keep drop behaviour consistent.
 func (s *Shard) drop() (err error) {
+	fmt.Println("NATEE shard drop", s.name)
 	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
 
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)

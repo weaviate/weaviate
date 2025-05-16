@@ -29,6 +29,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -644,6 +645,16 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 					if (err == nil || errors.Is(err, replica.ErrNoDiffFound)) && stats != nil {
 						for _, stat := range stats {
 							if stat != nil {
+								s.index.logger.WithFields(logrus.Fields{
+									"shard":                       s.name,
+									"target_node_name":            stat.targetNodeName,
+									"objects_propagated":          stat.objectsPropagated,
+									"start_diff_time_unix_millis": stat.diffStartTime.UnixMilli(),
+									"diff_calculation_took":       stat.diffCalculationTook.String(),
+									"local_objects":               stat.localObjects,
+									"remote_objects":              stat.remoteObjects,
+									"object_progation_took":       stat.objectProgationTook.String(),
+								}).Info("updating async replication stats")
 								s.asyncReplicationStatsByTargetNode[stat.targetNodeName] = stat
 							}
 						}

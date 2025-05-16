@@ -13,6 +13,7 @@ package replication
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -84,10 +85,12 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 			p.logger.WithFields(logrus.Fields{"number_of_ops": len(ops)}).Debug("preparing op replication")
 
 			for _, op := range ops {
+				fmt.Println("NATEE producer loop", op.Op.ID, op.Op.SourceShard.ShardId)
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
 				case out <- op: // Write replication operation to channel.
+					fmt.Println("NATEE producer send done", op.Op.ID, op.Op.SourceShard.ShardId)
 				}
 			}
 		}
@@ -114,10 +117,13 @@ func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOpAndStat
 	nodeOpsSubset := make([]ShardReplicationOpAndStatus, 0, len(allNodeAsTargetOps))
 	for _, op := range allNodeAsTargetOps {
 		if opState, ok := p.fsm.GetOpState(op); ok && opState.ShouldConsumeOps() {
+			fmt.Println("NATEE allOpsForNode append", op.ID, op.SourceShard.ShardId, opState.GetCurrentState())
 			nodeOpsSubset = append(nodeOpsSubset, NewShardReplicationOpAndStatus(op, opState))
 		} else if !ok {
+			fmt.Println("NATEE allOpsForNode skip", op.ID, op.SourceShard.ShardId)
 			p.logger.WithField("op", op).Warn("skipping op as it has no state stored in FSM. It may have been deleted in the meantime.")
 		}
+		fmt.Println("NATEE allOpsForNode done", op.ID, op.SourceShard.ShardId)
 	}
 	return nodeOpsSubset
 }

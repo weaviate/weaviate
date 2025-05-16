@@ -181,6 +181,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 				// Check if the operation is already in progress
 				if c.ongoingOps.LoadOrStore(op.Op.ID) {
+					fmt.Println("NATEE replication op skipped as already running", op.Op.ID, op.Op.SourceShard.ShardId)
 					// Avoid scheduling unnecessary work or incorrectly counting metrics
 					// for operations that are already in progress or completed.
 					c.logger.WithFields(logrus.Fields{"op": op}).Debug("replication op skipped as already running")
@@ -189,6 +190,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					c.engineOpCallbacks.OnOpSkipped(c.nodeId)
 					continue
 				}
+				fmt.Println("NATEE replication op started", op.Op.ID, op.Op.SourceShard.ShardId)
 
 				wg.Add(1)
 				c.engineOpCallbacks.OnOpStart(c.nodeId)
@@ -202,6 +204,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 						<-c.tokens // Release token when completed
 						// Delete the operation from the ongoingOps map when the operation processing is complete
 						c.ongoingOps.DeleteInFlight(op.Op.ID)
+						fmt.Println("NATEE delete in flight", op.Op.ID, op.Op.SourceShard.ShardId)
 						wg.Done()
 					}()
 
@@ -268,6 +271,7 @@ func (c *CopyOpConsumer) dispatchReplicationOp(ctx context.Context, op ShardRepl
 	case api.FINALIZING:
 		return c.processStateAndTransition(ctx, op, c.processFinalizingOp)
 	case api.READY:
+		fmt.Println("NATEE dispatchReplicationOp ready", op.Op.ID, op.Op.SourceShard.ShardId)
 		return nil
 	case api.CANCELLED:
 		return c.processStateAndTransition(ctx, op, c.processCancelledOp)
@@ -344,6 +348,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 	op.Status.ChangeState(nextState)
 	if nextState == api.READY {
 		// No need to continue the recursion if we are in the READY state
+		fmt.Println("NATEE processStateAndTransition ready", op.Op.ID, op.Op.SourceShard.ShardId)
 		return nil
 	}
 
@@ -371,6 +376,7 @@ func (c *CopyOpConsumer) cancelOp(ctx context.Context, op ShardReplicationOpAndS
 	// If the operation should be cleaned up, remove the local replica
 	// Only not true if the state is READY and ShouldDelete is true
 	if op.Status.ShouldCleanup() {
+		fmt.Println("NATEE cancelOp cleanup", op.Op.ID, op.Op.SourceShard.ShardId)
 		c.replicaCopier.RemoveLocalReplica(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId)
 	}
 
@@ -402,6 +408,7 @@ func (c *CopyOpConsumer) processRegisteredOp(ctx context.Context, op ShardReplic
 // processHydratingOp is the state handler for the HYDRATING state.
 // It copies the replica shard from the source node to the target node using file copy opetaitons and then transitions the operation to the FINALIZING state.
 func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	fmt.Println("NATEE processHydratingOp start", op.Op.ID, op.Op.SourceShard.ShardId)
 	logger := getLoggerForOp(c.logger.Logger, op.Op)
 	logger.Info("processing hydrating replication operation")
 
@@ -421,6 +428,7 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 // processFinalizingOp is the state handler for the FINALIZING state.
 // It updates the sharding state and then transitions the operation to the READY state.
 func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
+	fmt.Println("NATEE processFinalizingOp start", op.Op.ID, op.Op.SourceShard.ShardId)
 	logger := getLoggerForOp(c.logger.Logger, op.Op)
 	logger.Info("processing finalizing replication operation")
 
@@ -453,7 +461,14 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	do := func() bool {
 		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
-		c.logger.WithFields(logrus.Fields{"err": err, "objects_propagated": asyncReplicationStatus.ObjectsPropagated, "start_diff_time_unix_millis": asyncReplicationStatus.StartDiffTimeUnixMillis, "upper_time_bound_unix_millis": asyncReplicationUpperTimeBoundUnixMillis}).Info("async replication status")
+		asyncReplicationIsPastUpperTimeBound := asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
+		logger.WithFields(logrus.Fields{
+			"err":                                     err,
+			"objects_propagated":                      asyncReplicationStatus.ObjectsPropagated,
+			"start_diff_time_unix_millis":             asyncReplicationStatus.StartDiffTimeUnixMillis,
+			"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
+			"async_replication_past_upper_time_bound": asyncReplicationIsPastUpperTimeBound,
+		}).Info("async replication finalizing status")
 		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
 	}
 
@@ -492,6 +507,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	case api.COPY:
 		c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId)
 		c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride)
+		fmt.Println("NATEE processFinalizingOp copy", op.Op.ID, op.Op.SourceShard.ShardId)
 		return api.READY, nil
 	case api.MOVE:
 		return api.DEHYDRATING, nil
@@ -533,8 +549,15 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 
 	do := func() bool {
 		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
-		c.logger.WithFields(logrus.Fields{"err": err, "objects_propagated": asyncReplicationStatus.ObjectsPropagated, "start_diff_time_unix_millis": asyncReplicationStatus.StartDiffTimeUnixMillis, "upper_time_bound_unix_millis": asyncReplicationUpperTimeBoundUnixMillis}).Info("async replication status")
-		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
+		asyncReplicationIsPastUpperTimeBound := asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
+		logger.WithFields(logrus.Fields{
+			"err":                                     err,
+			"objects_propagated":                      asyncReplicationStatus.ObjectsPropagated,
+			"start_diff_time_unix_millis":             asyncReplicationStatus.StartDiffTimeUnixMillis,
+			"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
+			"async_replication_past_upper_time_bound": asyncReplicationIsPastUpperTimeBound,
+		}).Info("async replication dehydrating status")
+		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationIsPastUpperTimeBound
 	}
 
 	if ctx.Err() != nil {
@@ -563,6 +586,7 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		logger.WithError(err).Error("failure while deleting replica from shard")
 		return api.ShardReplicationState(""), err
 	}
+	fmt.Println("NATEE processDehydratingOp ready", op.Op.ID, op.Op.SourceShard.ShardId)
 	return api.READY, nil
 }
 

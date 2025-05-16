@@ -361,6 +361,7 @@ func (s *SchemaManager) DeleteReplicaFromShard(cmd *command.ApplyRequest, schema
 			},
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
+					fmt.Println("NATEE cluster schema manager deleteReplicaFromShard", req.Class, req.Shard, req.TargetNode)
 					return s.db.DeleteReplicaFromShard(req.Class, req.Shard, req.TargetNode)
 				}
 				return nil
