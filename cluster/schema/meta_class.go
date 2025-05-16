@@ -286,7 +286,12 @@ func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) (
 	count := make(map[string]int)
 
 	for _, name := range req.Tenants {
-		if status, ok := m.Sharding.DeletePartition(name); ok {
+		shardingState := m.Sharding
+		status, ok, err := shardingState.DeletePartition(name)
+		if err != nil {
+			return nil, fmt.Errorf("error while migrating sharding state: %w", err)
+		}
+		if ok {
 			count[status]++
 		}
 	}
