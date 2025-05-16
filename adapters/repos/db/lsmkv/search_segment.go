@@ -175,7 +175,7 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 }
 
 func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, additionalExplanations bool,
-	termCount int,
+	termCount int, minimumShouldMatch int,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	results := TermsBySize(resultsByTerm)
 	var docInfos []*terms.DocPointerWithScore
@@ -185,6 +185,10 @@ func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, ad
 	iterations := 0
 	pivotID := uint64(0)
 	upperBound := float32(0)
+
+	if minimumShouldMatch > len(results) {
+		return topKHeap
+	}
 
 	for {
 		iterations++
@@ -196,6 +200,11 @@ func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, ad
 		}
 
 		results[0].AdvanceAtLeast(pivotID)
+
+		if results[0].idPointer == math.MaxUint64 {
+			return topKHeap
+		}
+
 		pivotID = results[0].idPointer
 
 		for i := 1; i < len(results); i++ {
