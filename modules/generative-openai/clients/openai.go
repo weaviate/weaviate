@@ -141,7 +141,7 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		vrst := monitoring.GetMetrics().ModuleExternalResponseStatus
 		vrst.WithLabelValues("generate", oaiUrl, fmt.Sprintf("%v", res.StatusCode)).Inc()
 	}
-		if err != nil {
+	if err != nil {
 		code := -1
 		if res != nil {
 			code = res.StatusCode
