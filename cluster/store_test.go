@@ -463,7 +463,7 @@ func TestStoreApply(t *testing.T) {
 			name: "UpdateTenant/HasOngoingReplication/true",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
-					{Name: "T1", Status: models.TenantActivityStatusINACTIVE},
+					{Name: "T1", Status: models.TenantActivityStatusCOLD},
 				}})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
@@ -472,7 +472,7 @@ func TestStoreApply(t *testing.T) {
 				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
 					Name:           "T1",
 					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusACTIVE,
+					Status:         models.TenantActivityStatusHOT,
 				}}}
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
@@ -484,7 +484,7 @@ func TestStoreApply(t *testing.T) {
 				want := map[string]sharding.Physical{"T1": {
 					Name:           "T1",
 					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusACTIVE,
+					Status:         models.TenantActivityStatusHOT,
 				}}
 
 				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
@@ -498,7 +498,7 @@ func TestStoreApply(t *testing.T) {
 			name: "UpdateTenant/HasOngoingReplication/false",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
-					{Name: "T1", Status: models.TenantActivityStatusINACTIVE},
+					{Name: "T1", Status: models.TenantActivityStatusCOLD},
 				}})},
 			resp: Response{Error: nil},
 			doBefore: func(m *MockStore) {
@@ -507,7 +507,7 @@ func TestStoreApply(t *testing.T) {
 				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
 					Name:           "T1",
 					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusACTIVE,
+					Status:         models.TenantActivityStatusHOT,
 				}}}
 				m.store.Apply(&raft.Log{
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
@@ -519,7 +519,7 @@ func TestStoreApply(t *testing.T) {
 				want := map[string]sharding.Physical{"T1": {
 					Name:           "T1",
 					BelongsToNodes: []string{"Node-1"},
-					Status:         models.TenantActivityStatusINACTIVE,
+					Status:         models.TenantActivityStatusCOLD,
 				}}
 
 				shardingState := ms.store.SchemaReader().CopyShardingState("C1")

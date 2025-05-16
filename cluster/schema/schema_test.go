@@ -147,7 +147,7 @@ func Test_schemaShardMetrics(t *testing.T) {
 
 	// update tenant status
 	fsm := NewMockreplicationFSM(t)
-	fsm.On("HasOngoingReplication", mock.Anything, mock.Anything, mock.Anything).Return(false)
+	fsm.On("HasOngoingReplication", mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	err = s.updateTenants(c2.Class, 0, &api.UpdateTenantsRequest{
 		Tenants:      []*api.Tenant{{Name: "tenant2", Status: "HOT"}}, // FROZEN -> HOT
 		ClusterNodes: []string{"testNode"},

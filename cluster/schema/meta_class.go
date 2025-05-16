@@ -360,6 +360,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// If the activity status is changed we will deep copy the tenant and update the status
 	missingShards := []string{}
 	writeIndex := 0
+
 	for i, requestTenant := range req.Tenants {
 		oldTenant, ok := m.Sharding.Physical[requestTenant.Name]
 		oldStatus := oldTenant.Status
@@ -393,7 +394,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			}
 		}
 
-		if req.Tenants[i].Status == models.TenantActivityStatusINACTIVE && replicationFSM.HasOngoingReplication(m.Class.Class, requestTenant.Name, nodeID) {
+		if requestTenant.Status == models.TenantActivityStatusCOLD && replicationFSM.HasOngoingReplication(m.Class.Class, requestTenant.Name, nodeID) {
 			continue
 		}
 

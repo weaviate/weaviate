@@ -338,6 +338,64 @@ func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) RunAndReturn(run
 	return _c
 }
 
+// UpdateTenants provides a mock function with given fields: ctx, class, req
+func (_m *MockFSMUpdater) UpdateTenants(ctx context.Context, class string, req *api.UpdateTenantsRequest) (uint64, error) {
+	ret := _m.Called(ctx, class, req)
+
+	if len(ret) == 0 {
+		panic("no return value specified for UpdateTenants")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, *api.UpdateTenantsRequest) (uint64, error)); ok {
+		return rf(ctx, class, req)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, *api.UpdateTenantsRequest) uint64); ok {
+		r0 = rf(ctx, class, req)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, *api.UpdateTenantsRequest) error); ok {
+		r1 = rf(ctx, class, req)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFSMUpdater_UpdateTenants_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'UpdateTenants'
+type MockFSMUpdater_UpdateTenants_Call struct {
+	*mock.Call
+}
+
+// UpdateTenants is a helper method to define mock.On call
+//   - ctx context.Context
+//   - class string
+//   - req *api.UpdateTenantsRequest
+func (_e *MockFSMUpdater_Expecter) UpdateTenants(ctx interface{}, class interface{}, req interface{}) *MockFSMUpdater_UpdateTenants_Call {
+	return &MockFSMUpdater_UpdateTenants_Call{Call: _e.mock.On("UpdateTenants", ctx, class, req)}
+}
+
+func (_c *MockFSMUpdater_UpdateTenants_Call) Run(run func(ctx context.Context, class string, req *api.UpdateTenantsRequest)) *MockFSMUpdater_UpdateTenants_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(*api.UpdateTenantsRequest))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_UpdateTenants_Call) Return(_a0 uint64, _a1 error) *MockFSMUpdater_UpdateTenants_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFSMUpdater_UpdateTenants_Call) RunAndReturn(run func(context.Context, string, *api.UpdateTenantsRequest) (uint64, error)) *MockFSMUpdater_UpdateTenants_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockFSMUpdater creates a new instance of MockFSMUpdater. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockFSMUpdater(t interface {

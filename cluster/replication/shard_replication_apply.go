@@ -265,11 +265,10 @@ func (s *ShardReplicationFSM) DeleteReplicationsByTenants(collection string, ten
 	return nil
 }
 
-func (s *ShardReplicationFSM) HasOngoingReplication(collection string, shard string, replica string) bool {
+func (s *ShardReplicationFSM) hasOngoingSourceReplication(sourceFQDN shardFQDN) bool {
 	s.opsLock.RLock()
 	defer s.opsLock.RUnlock()
 
-	sourceFQDN := newShardFQDN(replica, collection, shard)
 	ops, ok := s.opsBySourceFQDN[sourceFQDN]
 	if !ok {
 		return false
@@ -282,8 +281,6 @@ func (s *ShardReplicationFSM) HasOngoingReplication(collection string, shard str
 			return false
 		}
 		switch status.GetCurrentState() {
-		case api.CANCELLED:
-			continue
 		case api.READY:
 			continue
 		default:
@@ -292,6 +289,35 @@ func (s *ShardReplicationFSM) HasOngoingReplication(collection string, shard str
 	}
 
 	return ongoingOp
+}
+
+func (s *ShardReplicationFSM) hasOngoingTargetReplication(targetFQDN shardFQDN) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	op, ok := s.opsByTargetFQDN[targetFQDN]
+	if !ok {
+		return false
+	}
+	status, ok := s.statusById[op.ID]
+	if !ok {
+		return false
+	}
+
+	switch status.GetCurrentState() {
+	case api.READY:
+		return false
+	default:
+		return true
+	}
+}
+
+func (s *ShardReplicationFSM) HasOngoingReplication(collection string, shard string, replica string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	FQDN := newShardFQDN(replica, collection, shard)
+	return s.hasOngoingSourceReplication(FQDN) || s.hasOngoingTargetReplication(FQDN)
 }
 
 // TODO: Improve the error handling in that function

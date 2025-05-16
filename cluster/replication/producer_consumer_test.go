@@ -300,6 +300,13 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
 			mockFSMUpdater := types.NewMockFSMUpdater(t)
 			mockReplicaCopier := types.NewMockReplicaCopier(t)
+			reg := prometheus.NewPedanticRegistry()
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaReader := schemaManager.NewSchemaReader()
+			manager := replication.NewManager(schemaReader, reg)
+
 			ctx := t.Context()
 			replicateRequest := &api.ReplicationReplicateShardRequest{
 				Uuid:             strfmt.UUID(uuid.New().String()),
@@ -321,15 +328,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				1,
 				runtime.NewDynamicValue(time.Second*100),
 				metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
+				schemaReader,
 			)
 			tc.setupMocksFunc(&wg, mockFSMUpdater, mockReplicaCopier)
 
-			reg := prometheus.NewPedanticRegistry()
-			parser := fakes.NewMockParser()
-			parser.On("ParseClass", mock.Anything).Return(nil)
-			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
-			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, reg)
 			producer := replication.NewFSMOpProducer(logger, manager.GetReplicationFSM(), time.Second*1, replicateRequest.TargetNode)
 
 			// Setup the class + shard in the schema
