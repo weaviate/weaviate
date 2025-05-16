@@ -31,7 +31,7 @@ type Manager struct {
 }
 
 func NewManager(schemaReader schema.SchemaReader, reg prometheus.Registerer) *Manager {
-	replicationFSM := newShardReplicationFSM(reg)
+	replicationFSM := NewShardReplicationFSM(reg)
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
@@ -60,6 +60,7 @@ func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
 	if err := ValidateReplicationReplicateShard(m.schemaReader, req); err != nil {
 		return err
 	}
+
 	// Store the shard replication op in the FSM
 	return m.replicationFSM.Replicate(logId, req)
 }
