@@ -76,15 +76,17 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 			p.logger.Info("replication engine producer cancel request, stopping FSM producer")
 			return ctx.Err()
 		case <-ticker.C:
-			allOps := p.allOpsForNode(p.nodeId)
-			if len(allOps) <= 0 {
+			ops := p.allOpsForNode(p.nodeId)
+			if len(ops) <= 0 {
 				continue
 			}
 
-			for _, op := range allOps {
-				status, ok := p.fsm.GetOpState(op)
+			p.logger.WithFields(logrus.Fields{"number_of_ops": len(ops)}).Debug("preparing op replication")
+
+			for _, op := range ops {
+				status, ok := p.fsm.GetOpState(op) // Get most recent state to narrow the window for state change races between producer and consumer
 				if !ok {
-					p.logger.WithField("op", op).Warn("skipping op as it has no state stored in FSM. It may have been deleted in the meantime.")
+					p.logger.WithField("op", op).Debug("skipping op as it has no state stored in FSM. It may have been deleted in the meantime.")
 					continue
 				}
 				if !status.ShouldConsumeOps() {
