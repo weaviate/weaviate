@@ -12,12 +12,14 @@
 package db
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -387,6 +389,28 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
 	}
 
+	docIDCounterPath, err := os.OpenFile(sd.DocIDCounterPath+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
+	if err != nil {
+		return nil, err
+	}
+	defer docIDCounterPath.Close()
+
+	_, err = io.Copy(docIDCounterPath, bytes.NewBuffer(sd.DocIDCounter))
+	if err != nil {
+		return nil, err
+	}
+
+	propLengthTrackerPath, err := os.OpenFile(sd.PropLengthTrackerPath+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
+	if err != nil {
+		return nil, err
+	}
+	defer propLengthTrackerPath.Close()
+
+	_, err = io.Copy(propLengthTrackerPath, bytes.NewBuffer(sd.PropLengthTracker))
+	if err != nil {
+		return nil, err
+	}
+
 	files := []string{
 		sd.DocIDCounterPath,
 		sd.PropLengthTrackerPath,
@@ -406,6 +430,11 @@ func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relative
 	}
 	defer release()
 
+	if strings.HasSuffix(relativeFilePath, shard.Counter().FileName()) ||
+		strings.HasSuffix(relativeFilePath, shard.GetPropertyLengthTracker().FileName()) {
+		relativeFilePath = relativeFilePath + ".tmp"
+	}
+
 	return shard.GetFileMetadata(ctx, relativeFilePath)
 }
 
@@ -419,6 +448,11 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 		return nil, fmt.Errorf("incoming get file metadata get shard %s: %w", shardName, err)
 	}
 	defer release()
+
+	if strings.HasSuffix(relativeFilePath, shard.Counter().FileName()) ||
+		strings.HasSuffix(relativeFilePath, shard.GetPropertyLengthTracker().FileName()) {
+		relativeFilePath = relativeFilePath + ".tmp"
+	}
 
 	return shard.GetFile(ctx, relativeFilePath)
 }
