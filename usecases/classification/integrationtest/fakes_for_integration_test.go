@@ -399,7 +399,7 @@ func (f *fakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, sha
 }
 
 func (f *fakeRemoteClient) PauseFileActivity(ctx context.Context,
-	hostName, indexName, shardName string, schemaVersion uint64
+	hostName, indexName, shardName string, schemaVersion uint64,
 ) error {
 	return nil
 }
