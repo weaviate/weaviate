@@ -184,7 +184,7 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 	return nil
 }
 
-func (m *Migrator) AddReplicaToShard(ctx context.Context, class, shard string) error {
+func (m *Migrator) LoadShard(ctx context.Context, class, shard string) error {
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
@@ -192,12 +192,34 @@ func (m *Migrator) AddReplicaToShard(ctx context.Context, class, shard string) e
 	return idx.LoadLocalShard(ctx, shard)
 }
 
-func (m *Migrator) DeleteReplicaFromShard(ctx context.Context, class, shard string) error {
+func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
 	return idx.dropShards([]string{shard})
+}
+
+func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+
+	idx.shardCreateLocks.Lock(shard)
+	defer idx.shardCreateLocks.Unlock(shard)
+
+	shardLike, ok := idx.shards.LoadAndDelete(shard)
+	if !ok {
+		return fmt.Errorf("could not find shard %s", shard)
+	}
+	if err := shardLike.Shutdown(ctx); err != nil {
+		if !errors.Is(err, errAlreadyShutdown) {
+			return errors.Wrapf(err, "shutdown shard %q", shard)
+		}
+		idx.logger.WithField("shard", shardLike.Name()).Debug("was already shut or dropped")
+	}
+	return nil
 }
 
 // UpdateIndex ensures that the local index is up2date with the latest sharding
