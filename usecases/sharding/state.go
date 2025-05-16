@@ -273,6 +273,7 @@ func InitState(id string, config config.Config, nodeLocalName string, names []st
 		IndexID:             id,
 		localNodeName:       nodeLocalName,
 		PartitioningEnabled: partitioningEnabled,
+		ReplicationFactor:   replFactor,
 	}
 
 	if partitioningEnabled {
@@ -285,8 +286,6 @@ func InitState(id string, config config.Config, nodeLocalName string, names []st
 	}
 	out.initVirtual()
 	out.distributeVirtualAmongPhysical()
-
-	out.ReplicationFactor = replFactor
 	return out, nil
 }
 
