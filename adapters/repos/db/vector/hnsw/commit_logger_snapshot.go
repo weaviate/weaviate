@@ -1015,7 +1015,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 			}
 			dims := binary.LittleEndian.Uint32(b[:4])
 
-			_, err = ReadAndHash(r, hasher, b[:2]) // Muvera.KSim
+			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.KSim
 			if err != nil {
 				return nil, errors.Wrapf(err, "read Muvera.KSim")
 			}
@@ -1045,10 +1045,12 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				for j := uint32(0); j < kSim; j++ {
 					gaussians[i][j] = make([]float32, dims)
 					for k := uint32(0); k < dims; k++ {
-						gaussians[i][j][k], err = readFloat32(r)
+						_, err = ReadAndHash(r, hasher, b[:4])
 						if err != nil {
 							return nil, errors.Wrapf(err, "read Muvera.Gaussians")
 						}
+						bits := binary.LittleEndian.Uint32(b[:4])
+						gaussians[i][j][k] = math.Float32frombits(bits)
 					}
 				}
 			}
@@ -1059,10 +1061,12 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				for j := uint32(0); j < dProjections; j++ {
 					s[i][j] = make([]float32, dims)
 					for k := uint32(0); k < dims; k++ {
-						s[i][j][k], err = readFloat32(r)
+						_, err = ReadAndHash(r, hasher, b[:4])
 						if err != nil {
-							return nil, errors.Wrapf(err, "read Muvera.S")
+							return nil, errors.Wrapf(err, "read Muvera.Gaussians")
 						}
+						bits := binary.LittleEndian.Uint32(b[:4])
+						s[i][j][k] = math.Float32frombits(bits)
 					}
 				}
 			}
