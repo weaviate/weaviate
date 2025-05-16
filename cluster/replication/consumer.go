@@ -190,7 +190,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					// Check if the operation has had its state changed between being added to the channel and being processed
 					c.logger.WithFields(logrus.Fields{"op": op}).Error("error while checking status of replication op")
 					shouldSkip = true
-				} else if state != op.Status.GetCurrent().State {
+				} else if state.String() != op.Status.GetCurrent().State.String() {
 					c.logger.WithFields(logrus.Fields{"op": op}).Debug("replication op skipped as state has changed")
 					shouldSkip = true
 				}
