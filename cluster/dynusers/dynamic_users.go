@@ -136,3 +136,11 @@ func (m *Manager) CheckUserIdentifierExists(req *cmd.QueryRequest) ([]byte, erro
 	}
 	return payload, nil
 }
+
+func (m *Manager) Snapshot() ([]byte, error) {
+	return m.dynUser.Snapshot()
+}
+
+func (m *Manager) Restore(snapshot []byte) error {
+	return m.dynUser.Restore(snapshot)
+}
