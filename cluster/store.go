@@ -193,9 +193,20 @@ type Store struct {
 
 // storeMetrics exposes RAFT store related prometheus metrics
 type storeMetrics struct {
-	applyDuration    prometheus.Histogram
-	applyFailures    prometheus.Counter
-	lastAppliedIndex prometheus.Gauge
+	applyDuration prometheus.Histogram
+	applyFailures prometheus.Counter
+
+	// raftLastAppliedIndex represents current applied index of a raft cluster in local node.
+	// This includes every commands including config changes
+	raftLastAppliedIndex prometheus.Gauge
+
+	// fsmLastAppliedIndex represents current applied index of cluster store FSM in local node.
+	// This includes commands without config changes
+	fsmLastAppliedIndex prometheus.Gauge
+
+	// fsmStartupAppliedIndex represents previous applied index of the cluster store FSM in local node
+	// that any restart would try to catch up
+	fsmStartupAppliedIndex prometheus.Gauge
 }
 
 // newStoreMetrics cretes and registers the store related metrics on
@@ -214,9 +225,19 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 			Help:        "Total failure count of cluster store FSM state apply in local node",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}),
-		lastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+		raftLastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_raft_last_applied_index",
+			Help:        "Current applied index of a raft cluster in local node. This includes every commands including config changes",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		fsmLastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
 			Name:        "weaviate_cluster_store_fsm_last_applied_index",
-			Help:        "Current applied index of cluster store FSM in local node",
+			Help:        "Current applied index of cluster store FSM in local node. This includes commands without config changes",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		fsmStartupAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_fsm_startup_applied_index",
+			Help:        "Previous applied index of the cluster store FSM in local node that any restart would try to catch up",
 			ConstLabels: prometheus.Labels{"nodeID": nodeID},
 		}),
 	}
@@ -284,7 +305,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
 
-	st.lastAppliedIndexToDB.Store(st.lastIndex())
+	li := st.lastIndex()
+	st.lastAppliedIndexToDB.Store(li)
+	st.metrics.fsmStartupAppliedIndex.Set(float64(li))
 
 	// we have to open the DB before constructing new raft in case of restore calls
 	st.openDatabase(ctx)
@@ -703,7 +726,10 @@ func (st *Store) reloadDBFromSchema() {
 	if err != nil {
 		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
 	}
-	st.lastAppliedIndexToDB.Store(max(lastSnapshotIndex(st.snapshotStore), lastLogApplied))
+
+	val := max(lastSnapshotIndex(st.snapshotStore), lastLogApplied)
+	st.lastAppliedIndexToDB.Store(val)
+	st.metrics.fsmStartupAppliedIndex.Set(float64(val))
 }
 
 type Response struct {
