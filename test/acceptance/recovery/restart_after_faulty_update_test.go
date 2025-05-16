@@ -111,4 +111,34 @@ func TestUpdatePropertyFieldFailureWithRestart(t *testing.T) {
 		helper.SetupClient(compose.GetWeaviate().URI())
 		require.NotNil(t, helper.GetClass(t, className))
 	})
+
+	t.Run("create new class to make sure schema updates work even with previous failure", func(t *testing.T) {
+		helper.SetupClient(compose.GetWeaviate().URI())
+		newClass := &models.Class{
+			Class: "NewClass",
+			Properties: []*models.Property{
+				{
+					Name:     "p1",
+					DataType: []string{"text"},
+				},
+			},
+		}
+		helper.CreateClass(t, newClass)
+		returnedClass := helper.GetClass(t, newClass.Class)
+		require.NotNil(t, returnedClass)
+		require.Equal(t, newClass.Class, returnedClass.Class)
+		require.Equal(t, newClass.Properties[0].Name, returnedClass.Properties[0].Name)
+		require.Equal(t, newClass.Properties[0].DataType, returnedClass.Properties[0].DataType)
+	})
+
+	t.Run("restart node again", func(t *testing.T) {
+		common.StopNodeAt(ctx, t, compose, 0)
+		common.StartNodeAt(ctx, t, compose, 0)
+	})
+
+	t.Run("verify node is running after faulty and valid schema update", func(t *testing.T) {
+		helper.SetupClient(compose.GetWeaviate().URI())
+		require.NotNil(t, helper.GetClass(t, className))
+		require.NotNil(t, helper.GetClass(t, "NewClass"))
+	})
 }
