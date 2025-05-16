@@ -127,15 +127,24 @@ func TestCondenseLoop_WithAllocChecker_OOM(t *testing.T) {
 		WithCondensor(&fakeCondensor{}), WithAllocChecker(&fakeAllocChecker{shouldErr: true}))
 	defer shutdown()
 
-	assert.Never(t, func() bool {
-		files, err := os.ReadDir(commitLogDir)
-		assert.Nil(t, err)
-		// we're OOM the files should not change on disk
-		// the combiner can still run even when OOM, this means, we expect
-		// 1000.condensed and 1001.condensed to be condensed into a single file
-		// (1000), but all the other files(1002, 1003, 1004) should still be there
-		return len(files) < 4
-	}, 2*time.Second, 50*time.Millisecond, "files should not change")
+	// Wait 6 commit log cycles (50 ms)
+	time.Sleep(300 * time.Millisecond)
+
+	// Ensure that files 1002, 1003, and 1004 still exist and have not been
+	// condensed due to the OOM checker, we ignore 1001.condensed and 1002.condensed
+	// as combining can still occur when OOM
+	files, err := os.ReadDir(commitLogDir)
+	assert.Nil(t, err)
+	assert.Len(t, files, 4)
+
+	fileNames := make([]string, len(files))
+	for i, file := range files {
+		fileNames[i] = file.Name()
+	}
+
+	for _, expected := range []string{"1002", "1003", "1004"} {
+		assert.Contains(t, fileNames, expected)
+	}
 }
 
 type fakeCondensor struct{}
