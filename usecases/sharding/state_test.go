@@ -683,7 +683,7 @@ func TestShardReplicationFactor(t *testing.T) {
 		require.Errorf(t, err, "expected a failure while removing a replica")
 	})
 
-	t.Run("deepp copy", func(t *testing.T) {
+	t.Run("deep copy", func(t *testing.T) {
 		original := State{
 			ReplicationFactor: 2,
 		}
