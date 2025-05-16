@@ -109,19 +109,7 @@ type snapshot struct {
 }
 
 func (s *ShardReplicationFSM) Snapshot() ([]byte, error) {
-	s.opsLock.RLock()
-	ops := make(map[ShardReplicationOp]ShardReplicationOpStatus, len(s.statusById))
-	for id, status := range s.statusById {
-		op, ok := s.opsById[id]
-		if !ok {
-			s.opsLock.RUnlock()
-			return nil, fmt.Errorf("op %d not found in opsById", op.ID)
-		}
-		ops[op] = status
-	}
-	s.opsLock.RUnlock()
-
-	return json.Marshal(&snapshot{Ops: ops})
+	return json.Marshal(&snapshot{Ops: s.GetStatusByOps()})
 }
 
 func (s *ShardReplicationFSM) Restore(bytes []byte) error {
@@ -203,6 +191,7 @@ func (s *ShardReplicationFSM) GetStatusByOps() map[ShardReplicationOp]ShardRepli
 	for id, status := range s.statusById {
 		op, ok := s.opsById[id]
 		if !ok {
+			// It was deleted in the meantime between s.statusById and s.opsById
 			continue
 		}
 		opsStatus[op] = status
