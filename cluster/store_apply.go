@@ -68,7 +68,7 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 // We implemented this to keep `lastAppliedIndex` metric to correct value
 // to also handle `LogConfiguration` type of Raft command.
 func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
-	st.metrics.lastAppliedIndex.Set(float64(index))
+	st.metrics.raftLastAppliedIndex.Set(float64(index))
 }
 
 // Apply is called once a log entry is committed by a majority of the cluster.
@@ -131,7 +131,8 @@ func (st *Store) Apply(l *raft.Log) any {
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
-		st.metrics.lastAppliedIndex.Set(float64(l.Index))
+		st.metrics.fsmLastAppliedIndex.Set(float64(l.Index))
+		st.metrics.raftLastAppliedIndex.Set(float64(l.Index))
 	}()
 
 	cmd.Version = l.Index
