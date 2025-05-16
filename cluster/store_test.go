@@ -590,7 +590,7 @@ func TestStoreMetrics(t *testing.T) {
 		assert.Equal(t, 1, int(*m.Histogram.SampleCount))
 		assert.Equal(t, 0, int(testutil.ToFloat64(store.metrics.applyFailures)))
 	})
-	t.Run("last_applied_index", func(t *testing.T) {
+	t.Run("fsm_last_applied_index", func(t *testing.T) {
 		appliedIndex := 34 // after successful apply, this node should have 34 as last applied index metric
 
 		doBefore := func(m *MockStore) {
@@ -611,7 +611,9 @@ func TestStoreMetrics(t *testing.T) {
 		store := ms.Store(doBefore)
 
 		// before
-		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.fsmLastAppliedIndex)))
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.raftLastAppliedIndex)))
+
 		store.Apply(
 			&raft.Log{
 				Index: uint64(appliedIndex),
@@ -621,7 +623,8 @@ func TestStoreMetrics(t *testing.T) {
 			},
 		)
 		// after
-		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.fsmLastAppliedIndex)))
+		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.raftLastAppliedIndex)))
 	})
 
 	t.Run("last_applied_index on Configuration LogType", func(t *testing.T) {
@@ -638,11 +641,14 @@ func TestStoreMetrics(t *testing.T) {
 		store := ms.Store(doBefore)
 
 		// before
-		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.fsmLastAppliedIndex)))
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.raftLastAppliedIndex)))
+
 		store.StoreConfiguration(uint64(appliedIndex), raft.Configuration{})
 
 		// after
-		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.fsmLastAppliedIndex))) // fsm index should staty the same because it counts non-config commands.
+		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.raftLastAppliedIndex)))
 	})
 
 	t.Run("apply_failures", func(t *testing.T) {
