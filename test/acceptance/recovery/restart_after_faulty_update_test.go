@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/schema"
-	clschema "github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/acceptance/replication/common"
 	"github.com/weaviate/weaviate/test/docker"
@@ -49,13 +48,13 @@ func TestUpdatePropertyFieldFailureWithRestart(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 
 	delete := func() {
-		params := clschema.NewSchemaObjectsDeleteParams().WithClassName(className)
+		params := schema.NewSchemaObjectsDeleteParams().WithClassName(className)
 		_, err := helper.Client(t).Schema.SchemaObjectsDelete(params, nil)
 		assert.Nil(t, err)
 	}
 	defer delete()
 
-	params := clschema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{
+	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(&models.Class{
 		Class: className,
 		Properties: []*models.Property{
 			{
@@ -75,7 +74,7 @@ func TestUpdatePropertyFieldFailureWithRestart(t *testing.T) {
 	newDescription := "its updated description"
 
 	t.Run("update property and nested property data type and shall fail", func(t *testing.T) {
-		params := clschema.NewSchemaObjectsGetParams().
+		params := schema.NewSchemaObjectsGetParams().
 			WithClassName(className)
 
 		res, err := helper.Client(t).Schema.SchemaObjectsGet(params, nil)
@@ -87,7 +86,7 @@ func TestUpdatePropertyFieldFailureWithRestart(t *testing.T) {
 		prop.NestedProperties[0].Description = newDescription
 		prop.NestedProperties[0].Name = "faulty-np2"
 		prop.NestedProperties[0].DataType = []string{"boolean"}
-		updateParams := clschema.NewSchemaObjectsUpdateParams().
+		updateParams := schema.NewSchemaObjectsUpdateParams().
 			WithClassName(className).
 			WithObjectClass(&models.Class{
 				Class:      className,
