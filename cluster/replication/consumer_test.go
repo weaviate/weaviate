@@ -76,6 +76,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				"node1",
 				"TestCollection",
 				mock.Anything,
+				mock.Anything,
 			).
 			Once().
 			Return(nil)
@@ -89,7 +90,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
 			}, nil)
 		mockReplicaCopier.EXPECT().
-			AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+			AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 		mockReplicaCopier.EXPECT().
 			RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 		mockReplicaCopier.EXPECT().
@@ -217,6 +218,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				"node1",
 				"TestCollection",
 				"test-shard",
+				mock.Anything,
 			).
 			Once().
 			Return(errors.New("simulated copy failure"))
@@ -350,7 +352,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				ReplicationUpdateReplicaOpStatus(opId, api.READY).
 				Return(nil)
 			mockReplicaCopier.EXPECT().
-				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
 			mockFSMUpdater.EXPECT().
 				AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -365,7 +367,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
 			mockReplicaCopier.EXPECT().
-				AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+				AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			mockReplicaCopier.EXPECT().
 				RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 			mockReplicaCopier.EXPECT().
@@ -648,7 +650,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(opID, api.READY).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, "node1", "TestCollection", mock.Anything).
+					CopyReplica(mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
 					AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, "node2").
@@ -660,7 +662,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 						StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
 					}, nil)
 				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 				mockReplicaCopier.EXPECT().
@@ -852,8 +854,8 @@ func TestConsumerOpCancellation(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
 				if ctx.Err() != nil {
@@ -976,8 +978,8 @@ func TestConsumerOpDeletion(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
+		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
 				if ctx.Err() != nil {

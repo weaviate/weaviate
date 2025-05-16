@@ -80,13 +80,13 @@ func (c *Copier) RemoveLocalReplica(ctx context.Context, collectionName, shardNa
 }
 
 // CopyReplica copies a shard replica from the source node to this node.
-func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, shardName string) error {
+func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
 	sourceNodeHostname, ok := c.nodeSelector.NodeHostname(srcNodeId)
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", srcNodeId)
 	}
 
-	err := c.remoteIndex.PauseFileActivity(ctx, sourceNodeHostname, collectionName, shardName)
+	err := c.remoteIndex.PauseFileActivity(ctx, sourceNodeHostname, collectionName, shardName, schemaVersion)
 	if err != nil {
 		return err
 	}
@@ -191,13 +191,13 @@ func (c *Copier) syncFile(ctx context.Context, sourceNodeHostname, collectionNam
 }
 
 // AddAsyncReplicationTargetNode adds a target node override for a shard.
-func (c *Copier) AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+func (c *Copier) AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
 	srcNodeHostname, ok := c.nodeSelector.NodeHostname(targetNodeOverride.SourceNode)
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", targetNodeOverride.SourceNode)
 	}
 
-	return c.remoteIndex.AddAsyncReplicationTargetNode(ctx, srcNodeHostname, targetNodeOverride.CollectionID, targetNodeOverride.ShardID, targetNodeOverride)
+	return c.remoteIndex.AddAsyncReplicationTargetNode(ctx, srcNodeHostname, targetNodeOverride.CollectionID, targetNodeOverride.ShardID, targetNodeOverride, schemaVersion)
 }
 
 // RemoveAsyncReplicationTargetNode removes a target node override for a shard.
