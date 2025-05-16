@@ -416,7 +416,7 @@ func (f *fakeRemoteClient) ListFiles(ctx context.Context,
 	return nil, nil
 }
 
-func (f *fakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+func (f *fakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
 	return nil
 }
 

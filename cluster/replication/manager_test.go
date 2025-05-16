@@ -1168,7 +1168,7 @@ func TestReplicationFSM_HasOngoingReplication(t *testing.T) {
 					collection: "TestCollection",
 					shard:      "shard1",
 					replica:    "node1",
-					expected:   false,
+					expected:   true,
 				},
 				{
 					collection: "non-existing-collection",
