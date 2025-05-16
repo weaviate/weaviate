@@ -369,8 +369,11 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 	shardName string,
 ) ([]string, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
+	if err != nil {
 		return nil, fmt.Errorf("incoming list files get shard %s: %w", shardName, err)
+	}
+	if shard == nil {
+		return nil, fmt.Errorf("incoming list files get shard is nil: %s", shardName)
 	}
 	defer release()
 

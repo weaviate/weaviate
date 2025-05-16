@@ -72,7 +72,15 @@ func (m *Manager) RegisterError(c *cmd.ApplyRequest) error {
 	}
 
 	// Store an op's error emitted by the consumer in the FSM
-	return m.replicationFSM.RegisterError(req)
+	if err := m.replicationFSM.RegisterError(req); err != nil {
+		if errors.Is(err, ErrMaxErrorsReached) {
+			return m.replicationFSM.CancelReplication(&cmd.ReplicationCancelRequest{
+				Uuid: req.Uuid,
+			})
+		}
+		return err
+	}
+	return nil
 }
 
 func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
