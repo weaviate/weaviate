@@ -324,7 +324,7 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 		}, targetVector)
 	}
 	if ctx.Err() != nil {
-		return  fmt.Errorf("context is done: %w", ctx.Err())
+		return fmt.Errorf("context is done: %w", ctx.Err())
 	}
 	if err = eg.Wait(); err != nil {
 		return err
