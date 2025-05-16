@@ -197,7 +197,6 @@ func (l *hnswCommitLogger) createAndOptionallyLoadSnapshotOnLastOne(logger logru
 	return newState, newSnapshotPath, newCreatedAt, nil
 }
 
-// TODO al:snapshot add automated tests (commitlogs number+size, allocChecker)
 func (l *hnswCommitLogger) shouldCreateSnapshot(logger logrus.FieldLogger,
 	lastSnapshotPath string, deltaCommitlogPaths []string, skipAllocCheck bool,
 ) bool {
