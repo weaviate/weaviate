@@ -66,9 +66,8 @@ func TestReplicationTestSuite(t *testing.T) {
 	suite.Run(t, new(ReplicationTestSuite))
 }
 
-//	func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
-//		t := suite.T()
-func TestReplicaMovementHappyPath(t *testing.T) {
+func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
+	t := suite.T()
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
