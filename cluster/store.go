@@ -22,17 +22,18 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/log"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
 const (
@@ -184,8 +185,62 @@ type Store struct {
 	schemaManager *schema.SchemaManager
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
-	// / lastAppliedIndex index of latest update to the store
+	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
+
+	metrics *storeMetrics
+}
+
+// storeMetrics exposes RAFT store related prometheus metrics
+type storeMetrics struct {
+	applyDuration prometheus.Histogram
+	applyFailures prometheus.Counter
+
+	// raftLastAppliedIndex represents current applied index of a raft cluster in local node.
+	// This includes every commands including config changes
+	raftLastAppliedIndex prometheus.Gauge
+
+	// fsmLastAppliedIndex represents current applied index of cluster store FSM in local node.
+	// This includes commands without config changes
+	fsmLastAppliedIndex prometheus.Gauge
+
+	// fsmStartupAppliedIndex represents previous applied index of the cluster store FSM in local node
+	// that any restart would try to catch up
+	fsmStartupAppliedIndex prometheus.Gauge
+}
+
+// newStoreMetrics cretes and registers the store related metrics on
+// given prometheus registry.
+func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
+	r := promauto.With(reg)
+	return &storeMetrics{
+		applyDuration: r.NewHistogram(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
+			Help:        "Time to apply cluster store FSM state in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets:     prometheus.ExponentialBuckets(0.001, 5, 5), // 1ms, 5ms, 25ms, 125ms, 625ms
+		}),
+		applyFailures: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_failures_total",
+			Help:        "Total failure count of cluster store FSM state apply in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		raftLastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_raft_last_applied_index",
+			Help:        "Current applied index of a raft cluster in local node. This includes every commands including config changes",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		fsmLastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_fsm_last_applied_index",
+			Help:        "Current applied index of cluster store FSM in local node. This includes commands without config changes",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		fsmStartupAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_fsm_startup_applied_index",
+			Help:        "Previous applied index of the cluster store FSM in local node that any restart would try to catch up",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+	}
 }
 
 func NewFSM(cfg Config, reg prometheus.Registerer) Store {
@@ -214,6 +269,7 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		applyTimeout:  time.Second * 20,
 		raftResolver:  raftResolver,
 		schemaManager: schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger),
+		metrics:       newStoreMetrics(cfg.NodeID, reg),
 	}
 }
 
@@ -249,7 +305,9 @@ func (st *Store) Open(ctx context.Context) (err error) {
 		return fmt.Errorf("initialize raft store: %w", err)
 	}
 
-	st.lastAppliedIndexToDB.Store(st.lastIndex())
+	li := st.lastIndex()
+	st.lastAppliedIndexToDB.Store(li)
+	st.metrics.fsmStartupAppliedIndex.Set(float64(li))
 
 	// we have to open the DB before constructing new raft in case of restore calls
 	st.openDatabase(ctx)
@@ -668,7 +726,10 @@ func (st *Store) reloadDBFromSchema() {
 	if err != nil {
 		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
 	}
-	st.lastAppliedIndexToDB.Store(max(lastSnapshotIndex(st.snapshotStore), lastLogApplied))
+
+	val := max(lastSnapshotIndex(st.snapshotStore), lastLogApplied)
+	st.lastAppliedIndexToDB.Store(val)
+	st.metrics.fsmStartupAppliedIndex.Set(float64(val))
 }
 
 type Response struct {
@@ -745,6 +806,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 		schemaManager: st.schemaManager,
 		logStore:      st.logStore,
 		logCache:      st.logCache,
+		metrics:       st.metrics,
 	}, st.logCache,
 		st.logStore,
 		st.snapshotStore,
