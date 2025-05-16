@@ -25,4 +25,5 @@ type FSMUpdater interface {
 	ReplicationRemoveReplicaOp(id uint64) error
 	ReplicationCancellationComplete(id uint64) error
 	UpdateTenants(ctx context.Context, class string, req *api.UpdateTenantsRequest) (uint64, error)
+	ReplicationStoreSchemaVersion(id uint64, schemaVersion uint64) error
 }

@@ -413,15 +413,21 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 	logger.Info("processing hydrating replication operation")
 
 	if c.schemaReader.MultiTenancy(op.Op.TargetShard.CollectionId).Enabled {
-		if _, err := c.leaderClient.UpdateTenants(ctx, op.Op.TargetShard.CollectionId, &api.UpdateTenantsRequest{
+		schemaVersion, err := c.leaderClient.UpdateTenants(ctx, op.Op.TargetShard.CollectionId, &api.UpdateTenantsRequest{
 			Tenants: []*api.Tenant{
 				{
 					Name:   op.Op.SourceShard.ShardId,
 					Status: models.TenantActivityStatusHOT,
 				},
 			},
-		}); err != nil {
+		})
+		if err != nil {
 			logger.WithError(err).Error("failure while updating tenant to active state for hydrating operation")
+			return api.ShardReplicationState(""), err
+		}
+
+		if err := c.leaderClient.ReplicationStoreSchemaVersion(op.Op.ID, schemaVersion); err != nil {
+			logger.WithError(err).Error("failure while storing schema version for replication operation")
 			return api.ShardReplicationState(""), err
 		}
 	}

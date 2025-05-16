@@ -136,6 +136,24 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	return nil
 }
 
+func (s *ShardReplicationFSM) StoreSchemaVersion(c *api.ReplicationStoreSchemaVersionRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	op, ok := s.opsById[c.Id]
+	if !ok {
+		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
+	}
+	status, ok := s.statusById[op.ID]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d", c.Id)
+	}
+	status.SchemaVersion = c.SchemaVersion
+	s.statusById[op.ID] = status
+
+	return nil
+}
+
 func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()

@@ -291,6 +291,53 @@ func (_c *MockFSMUpdater_ReplicationRemoveReplicaOp_Call) RunAndReturn(run func(
 	return _c
 }
 
+// ReplicationStoreSchemaVersion provides a mock function with given fields: id, schemaVersion
+func (_m *MockFSMUpdater) ReplicationStoreSchemaVersion(id uint64, schemaVersion uint64) error {
+	ret := _m.Called(id, schemaVersion)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplicationStoreSchemaVersion")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(uint64, uint64) error); ok {
+		r0 = rf(id, schemaVersion)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockFSMUpdater_ReplicationStoreSchemaVersion_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationStoreSchemaVersion'
+type MockFSMUpdater_ReplicationStoreSchemaVersion_Call struct {
+	*mock.Call
+}
+
+// ReplicationStoreSchemaVersion is a helper method to define mock.On call
+//   - id uint64
+//   - schemaVersion uint64
+func (_e *MockFSMUpdater_Expecter) ReplicationStoreSchemaVersion(id interface{}, schemaVersion interface{}) *MockFSMUpdater_ReplicationStoreSchemaVersion_Call {
+	return &MockFSMUpdater_ReplicationStoreSchemaVersion_Call{Call: _e.mock.On("ReplicationStoreSchemaVersion", id, schemaVersion)}
+}
+
+func (_c *MockFSMUpdater_ReplicationStoreSchemaVersion_Call) Run(run func(id uint64, schemaVersion uint64)) *MockFSMUpdater_ReplicationStoreSchemaVersion_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(uint64), args[1].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationStoreSchemaVersion_Call) Return(_a0 error) *MockFSMUpdater_ReplicationStoreSchemaVersion_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationStoreSchemaVersion_Call) RunAndReturn(run func(uint64, uint64) error) *MockFSMUpdater_ReplicationStoreSchemaVersion_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReplicationUpdateReplicaOpStatus provides a mock function with given fields: id, state
 func (_m *MockFSMUpdater) ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplicationState) error {
 	ret := _m.Called(id, state)
