@@ -124,7 +124,7 @@ func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode
 	return e.migrator.DropShard(ctx, class, shard)
 }
 
-func (e *executor) LoadShard(class string, shard string) error {
+func (e *executor) LoadShard(class string, shard string) {
 	ctx := context.Background()
 	if err := e.migrator.LoadShard(ctx, class, shard); err != nil {
 		e.logger.WithFields(logrus.Fields{
@@ -133,10 +133,9 @@ func (e *executor) LoadShard(class string, shard string) error {
 			"shard":  shard,
 		}).WithError(err).Error("migrator")
 	}
-	return nil
 }
 
-func (e *executor) ShutdownShard(class string, shard string) error {
+func (e *executor) ShutdownShard(class string, shard string) {
 	ctx := context.Background()
 	if err := e.migrator.ShutdownShard(ctx, class, shard); err != nil {
 		e.logger.WithFields(logrus.Fields{
@@ -145,7 +144,17 @@ func (e *executor) ShutdownShard(class string, shard string) error {
 			"shard":  shard,
 		}).WithError(err).Error("migrator")
 	}
-	return nil
+}
+
+func (e *executor) DropShard(class string, shard string) {
+	ctx := context.Background()
+	if err := e.migrator.DropShard(ctx, class, shard); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "drop_shard",
+			"class":  class,
+			"shard":  shard,
+		}).WithError(err).Error("migrator")
+	}
 }
 
 // RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.

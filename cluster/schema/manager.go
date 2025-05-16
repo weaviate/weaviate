@@ -476,24 +476,38 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 			updateStore: func() error {
 				return s.schema.Read(req.Collection, func(class *models.Class, state *sharding.State) error {
 					physical, ok := state.Physical[req.Shard]
-					// shard does not exist in the sharding state, shut it down
+					// shard does not exist in the sharding state
 					if !ok {
-						return s.db.ShutdownShard(cmd.Class, req.Shard)
-					}
-					// collection is single-tenant and the shard is in the sharding state, load it
-					if !state.PartitioningEnabled {
-						// collection is single-tenant and the shard is in the sharding state, load it
-						return s.db.LoadShard(cmd.Class, req.Shard)
-					}
-					// collection has multi-tenancy enabled
-					switch physical.ActivityStatus() {
-					case models.TenantActivityStatusACTIVE: // tenant is active, load it
-						return s.db.LoadShard(cmd.Class, req.Shard)
-					case models.TenantActivityStatusINACTIVE: // tenant is inactive, shut it down
-						return s.db.ShutdownShard(cmd.Class, req.Shard)
-					default: // tenant is in some other state, do nothing
+						// TODO: can we guarantee that the shard is not in use?
+						// If so we should call s.db.DropShard(cmd.Class, req.Shard) here instead
+						// For now, to be safe and avoid data loss, we just shut it down
+						s.db.ShutdownShard(cmd.Class, req.Shard)
+						// return early
 						return nil
 					}
+					// collection is single-tenant and shard is present
+					if !state.PartitioningEnabled {
+						// load it
+						s.db.LoadShard(cmd.Class, req.Shard)
+						// return early
+						return nil
+					}
+					// collection has multi-tenancy enabled and shard is present
+					switch physical.ActivityStatus() {
+					// tenant is active
+					case models.TenantActivityStatusACTIVE:
+						// load it
+						s.db.LoadShard(cmd.Class, req.Shard)
+					// tenant is inactive
+					case models.TenantActivityStatusINACTIVE:
+						// shut it down
+						s.db.ShutdownShard(cmd.Class, req.Shard)
+					// tenant is in some other state
+					default:
+						// do nothing
+
+					}
+					return nil
 				})
 			},
 			schemaOnly: schemaOnly,

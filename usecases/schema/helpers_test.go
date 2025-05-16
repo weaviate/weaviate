@@ -107,16 +107,13 @@ func (f *fakeDB) DeleteReplicaFromShard(class string, shard string, targetNode s
 	return nil
 }
 
-func (f *fakeDB) LoadShard(class string, shard string) error {
-	return nil
+func (f *fakeDB) LoadShard(class string, shard string) {
 }
 
-func (f *fakeDB) DropShard(class string, shard string) error {
-	return nil
+func (f *fakeDB) DropShard(class string, shard string) {
 }
 
-func (f *fakeDB) ShutdownShard(class string, shard string) error {
-	return nil
+func (f *fakeDB) ShutdownShard(class string, shard string) {
 }
 
 func (f *fakeDB) UpdateClass(cmd command.UpdateClassRequest) error {
