@@ -24,8 +24,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -50,6 +48,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -495,6 +494,7 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 // Calling this method may lead to shards being force-loaded, causing
 // unexpected CPU spikes. If you only want to apply f on loaded shards,
 // call ForEachLoadedShard instead.
+// Note: except Dropping and Shutting Down
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
@@ -754,6 +754,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		}
 		return nil
 	}
+
+	// TODO how to support "additional host writes" with RF 1 during shard replica movement?
 
 	// no replication, remote shard (or local not yet inited)
 	shard, release, err := i.GetShard(ctx, shardName)
