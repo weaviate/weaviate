@@ -18,6 +18,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
+//FIXME restore this file, it didn't touch real bucket files
+
 
 type CursorSet struct {
 	innerCursors []innerCursorCollection
@@ -41,7 +43,6 @@ type cursorStateCollection struct {
 // SetCursor holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
 func (b *Bucket) SetCursor() *CursorSet {
-	b.flushLock.RLock()
 
 	if b.strategy != StrategySetCollection {
 		panic("SetCursor() called on strategy other than 'set'")

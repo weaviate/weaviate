@@ -500,8 +500,7 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return errors.Wrapf(err, "failed renaming bucket '%s' to '%s'", bucketName, replacementBucketName)
 	}
 
-	replacementBucket.flushLock.Lock()
-	defer replacementBucket.flushLock.Unlock()
+
 
 	replacementBucket.dir = newReplacementBucketDir
 
@@ -547,8 +546,7 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	currBucketDir := currBucket.dir
 	newBucketDir := s.bucketDir(newBucketName)
 
-	currBucket.flushLock.Lock()
-	defer currBucket.flushLock.Unlock()
+
 
 
 	currBucket.dir = newBucketDir

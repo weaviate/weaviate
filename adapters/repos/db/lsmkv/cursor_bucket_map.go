@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 	"encoding/json"
 
 	"github.com/weaviate/weaviate/theOneTrueFileStore"
@@ -39,8 +40,6 @@ type innerCursorMap interface {
 }
 
 func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
-	b.flushLock.RLock()
-
 	c := MapListOptionConfig{}
 	for _, cfg := range cfgs {
 		cfg(&c)
@@ -61,7 +60,7 @@ func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap {
 func (c *CursorMap) Seek(ctx context.Context, key []byte) ([]byte, []MapPair) {
 	key, val :=  c.realCursor.Seek( key)
 	out := []MapPair{}
-	json.Unmarshal(val, &out)
+	panicError(json.Unmarshal(val, &out))
 	return key, out
 
 }
@@ -72,19 +71,33 @@ func (c *CursorMap) Next(ctx context.Context) ([]byte, []MapPair) {
 	// 	fmt.Printf("-- total next took %s\n", time.Since(before))
 	// }()
 	key, val := c.realCursor.Next()
+	if key == nil {
+		return nil, nil
+	}
 	out := []MapPair{}
-	json.Unmarshal(val, &out)
+	panicError(json.Unmarshal(val, &out))
 	return key, out
 
 }
 
 func (c *CursorMap) First(ctx context.Context) ([]byte, []MapPair) {
 	key, val := c.realCursor.First()
+	if key == nil {
+		return nil, nil
+	}
 	out := []MapPair{}
-	json.Unmarshal(val, &out)
+	fmt.Printf("Unmarshalling key %s, value: %s into MapPair\n", string(key),string(val))
+	panicError(json.Unmarshal(val, &out))
+
 	return key, out
 }
 
 func (c *CursorMap) Close() {
 	c.realCursor.Close()
+}
+
+func panicError( err error) {
+	if err !=nil {
+		panic(err)
+	}
 }

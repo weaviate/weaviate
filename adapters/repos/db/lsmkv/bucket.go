@@ -54,7 +54,6 @@ type Bucket struct {
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
-	flushLock        sync.RWMutex
 	haltedFlushTimer *interval.BackoffTimer
 
 	walThreshold      uint64
@@ -334,14 +333,6 @@ func BytesToHex(val []byte) string {
 // its secondary key
 func (b *Bucket) Get(key []byte) ([]byte, error) {
 	fmt.Printf("Bucket Get key %v\n", string(b.KeyPath([]byte(BytesToHex(key)))))
-	beforeFlushLock := time.Now()
-	b.flushLock.RLock()
-	if time.Since(beforeFlushLock) > 100*time.Millisecond {
-		b.logger.WithField("duration", time.Since(beforeFlushLock)).
-			WithField("action", "lsm_bucket_get_acquire_flush_lock").
-			Debugf("Waited more than 100ms to obtain a flush lock during get")
-	}
-	defer b.flushLock.RUnlock()
 
 	val, err := theOneTrueFileStore.TheOneTrueFileStore().Get(b.KeyPath(key))
 	if err != nil {
@@ -869,8 +860,7 @@ func (b *Bucket) FlushAndSwitch() error {
 }
 
 func (b *Bucket) atomicallySwitchMemtable() (bool, error) {
-	b.flushLock.Lock()
-	defer b.flushLock.Unlock()
+
 
 	return true, nil
 }

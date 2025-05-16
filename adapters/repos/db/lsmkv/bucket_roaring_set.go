@@ -21,8 +21,7 @@ func (b *Bucket) RoaringSetAddOne(key []byte, value uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+
 
 	set, _ := b.RoaringSetGet(key)
 	if set == nil {
@@ -43,8 +42,7 @@ func (b *Bucket) RoaringSetRemoveOne(key []byte, value uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	
 
 	set, _ := b.RoaringSetGet(key)
 	if set == nil {
@@ -64,8 +62,7 @@ func (b *Bucket) RoaringSetAddList(key []byte, values []uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	
 
 	set, err := b.RoaringSetGet(key)
 	if set == nil {
@@ -90,8 +87,7 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	
 
 	set, _ := b.RoaringSetGet(key)
 	if set == nil {
@@ -112,8 +108,7 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 		return nil, err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+	
 
 	data, err := theOneTrueFileStore.TheOneTrueFileStore().Get(b.KeyPath(key))
 	if err != nil {

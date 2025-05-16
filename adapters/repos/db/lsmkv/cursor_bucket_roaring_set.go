@@ -55,13 +55,10 @@ func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
 func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSet)
 
-	b.flushLock.RLock()
-
-
-
 
 	// cursors are in order from oldest to newest, with the memtable cursor
 	// being at the very top
 	return &cursorRoaringSet{
+		//FIXME
 	}
 }

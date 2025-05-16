@@ -25,9 +25,7 @@ func (b *Bucket) RoaringSetRangeAdd(key uint64, values ...uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
-
+	// FIXME
 	return nil
 }
 
@@ -36,11 +34,9 @@ func (b *Bucket) RoaringSetRangeRemove(key uint64, values ...uint64) error {
 		return err
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
 
 
-
+//FIXME
 	return nil
 }
 
@@ -52,7 +48,6 @@ type ReaderRoaringSetRange interface {
 func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSetRange)
 
-	b.flushLock.RLock()
 
 	var release func()
 	var readers []roaringsetrange.InnerReader
@@ -60,6 +55,5 @@ func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 
 	return roaringsetrange.NewCombinedReader(readers, func() {
 		release()
-		b.flushLock.RUnlock()
 	}, concurrency.SROAR_MERGE, b.logger)
 }

@@ -43,7 +43,7 @@ type cursorStateReplace struct {
 // Cursor holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
 func (b *Bucket) Cursor() *CursorReplace {
-	b.flushLock.RLock()
+
 
 	if b.strategy != StrategyReplace {
 		panic("Cursor() called on strategy other than 'replace'")
@@ -59,7 +59,9 @@ func (b *Bucket) Cursor() *CursorReplace {
 // not yet persisted on disk.
 // Segment creation and compaction will be blocked until the cursor is closed
 func (b *Bucket) CursorInMem() *CursorReplace {
-	return nil
+	return &CursorReplace{
+		realCursor: theOneTrueFileStore.NewStreamingCursor(context.Background(), b.dir, false),
+	}
 }
 
 // CursorOnDiskWith returns a cursor which scan over the primary key of entries
@@ -79,7 +81,6 @@ func (b *Bucket) CursorOnDisk() *CursorReplace {
 // CursorWithSecondaryIndex holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
 func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
-	b.flushLock.RLock()
 
 	if b.strategy != StrategyReplace {
 		panic("CursorWithSecondaryIndex() called on strategy other than 'replace'")

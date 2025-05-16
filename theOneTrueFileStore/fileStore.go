@@ -3,8 +3,7 @@ package theOneTrueFileStore
 import (
 	"encoding/json"
 	"fmt"
-
-	"github.com/donomii/ensemblekv"
+    "github.com/donomii/ensemblekv"
 
 	"bytes"
 	"context"
@@ -41,8 +40,8 @@ func JsonPrintf(format string, args ...interface{}) {
 	fmt.Printf(format, jsonArgs...)
 }
 
-
 type StreamingCursor struct {
+	keys    [][]byte
 	stream  chan kvPair
 	cancel  context.CancelFunc
 	ctx     context.Context
@@ -55,6 +54,8 @@ type StreamingCursor struct {
 	started bool
 	advance chan struct{}
 	done    chan struct{}
+	index int
+	prefix []byte
 }
 
 type kvPair struct {
@@ -68,34 +69,24 @@ func NewStreamingCursor(ctx context.Context, prefix string, keyOnly bool) *Strea
 
 	fmt.Printf("Creating streaming cursor with prefix: %s\n", prefix)
 
-
-	return &StreamingCursor{
-		stream:  make(chan kvPair, 1),
-		cancel:  cancel,
-		ctx:     ctx,
-		keyOnly: keyOnly,
-		advance: make(chan struct{}),
-		done:    make(chan struct{}),
-	}
-}
-
-func (c *StreamingCursor) run() {
-	defer close(c.done)
+	// Fetch all the keys from the bucket, with prefix
+	var keys [][]byte
 	TheOneTrueFileStore().MapFunc(func(k, v []byte) error {
-		select {
-		case <-c.ctx.Done():
-			return c.ctx.Err()
-		case <-c.advance:
-			select {
-			case <-c.ctx.Done():
-				return c.ctx.Err()
-			case c.stream <- kvPair{key: append([]byte(nil), k...), value: append([]byte(nil), v...)}:
-			}
+		if bytes.HasPrefix(k, []byte(prefix)) {
+			keys = append(keys, k)
 		}
 		return nil
 	})
-	close(c.stream)
+
+	return &StreamingCursor{
+		index: 0,
+		keys:    keys,
+		cancel:  cancel,
+		ctx:     ctx,
+		keyOnly: keyOnly,
+	}
 }
+
 
 func (c *StreamingCursor) Close() {
 	c.mu.Lock()
@@ -107,96 +98,82 @@ func (c *StreamingCursor) Close() {
 	}
 }
 
-func (c *StreamingCursor) restartLocked() {
-	if c.started {
-		c.cancel()
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	c.ctx = ctx
-	c.cancel = cancel
-	c.stream = make(chan kvPair, 1)
-	c.advance = make(chan struct{})
-	c.done = make(chan struct{})
-	c.closed = false
-	c.started = true
-	go c.run()
-}
-
 func (c *StreamingCursor) First() ([]byte, []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	c.restartLocked()
+	fmt.Printf("Moving to first item in bucket %v\n", c.prefix)
 
-	select {
-	case c.advance <- struct{}{}:
-	case <-c.done:
-		return nil, nil
-	}
-
-	pair, ok := <-c.stream
-	if !ok || pair.err != nil {
+	c.index = 0
+	if len(c.keys) == 0 {
 		c.closed = true
 		return nil, nil
 	}
-
-	if c.keyOnly {
-		return pair.key, nil
+	key := c.keys[c.index]
+	val, err := TheOneTrueFileStore().Get(key)
+	if err != nil {
+		fmt.Printf("Error getting value for key %s: %v\n", key, err)
+		return nil, nil
 	}
-	return pair.key, pair.value
+	trimmedKey := bytes.TrimPrefix(key, c.prefix)
+	return trimmedKey, val
 }
 
 func (c *StreamingCursor) Next() ([]byte, []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	fmt.Printf("Moving to next element in bucket %v\n", c.prefix)
+	c.index = c.index +1
+	if c.index+1>len(c.keys) {
+		c.closed = true
+	}
 
 	if c.closed {
 		return nil, nil
 	}
 
-	if !c.started {
-		c.started = true
-		go c.run()
-	}
 
-	select {
-	case c.advance <- struct{}{}:
-	case <-c.done:
+key := c.keys[c.index]
+	val,err := TheOneTrueFileStore().Get(key)
+	if err != nil {
+		fmt.Printf("Error getting value for key %s: %v\n", key, err)
 		return nil, nil
 	}
-
-	pair, ok := <-c.stream
-	if !ok || pair.err != nil {
-		c.closed = true
-		return nil, nil
-	}
-
+	trimmedKey := bytes.TrimPrefix(key, c.prefix)
 	if c.keyOnly {
-		return pair.key, nil
+		return trimmedKey, nil
 	}
-	return pair.key, pair.value
+	return trimmedKey, val
 }
 
 func (c *StreamingCursor) Seek(target []byte) ([]byte, []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	fmt.Printf("Seeking to element %v in bucket %v\n",target, c.prefix)
 
 	if c.closed {
 		return nil, nil
 	}
 
-	for {
-		pair, ok := <-c.stream
-		if !ok || pair.err != nil {
-			c.closed = true
-			return nil, nil
-		}
+	for i:= 0 ; i < len(c.keys)-1; i++ {
+key := c.keys[c.index]
+	val, err := TheOneTrueFileStore().Get(key)
+	if err != nil {
+		fmt.Printf("Error getting value for key %s: %v\n", key, err)
+		return nil, nil
+	}
+	trimmedKey := bytes.TrimPrefix(key, c.prefix)
 
-		if bytes.Compare(pair.key, target) >= 0 {
+
+
+		if bytes.Compare(trimmedKey, target) >= 0 {
 			if c.keyOnly {
-				return pair.key, nil
+				return trimmedKey, nil
 			}
-			return pair.key, pair.value
+			return trimmedKey, val
 		}
 	}
+	c.closed = true
+	return nil, nil
 }
+

@@ -35,7 +35,6 @@ func (b *Bucket) QuantileKeys(q int) [][]byte {
 		return nil
 	}
 
-	b.flushLock.RLock()
-	defer b.flushLock.RUnlock()
+
 return [][]byte{}
 }
