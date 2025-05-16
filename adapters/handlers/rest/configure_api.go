@@ -389,11 +389,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MaxSegmentSize:                      appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
 		CycleManagerRoutinesFactor:          appState.ServerConfig.Config.Persistence.LSMCycleManagerRoutinesFactor,
 		IndexRangeableInMemory:              appState.ServerConfig.Config.Persistence.IndexRangeableInMemory,
-		HNSWMaxLogSize:                      appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
-		HNSWWaitForCachePrefill:             appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
-		HNSWFlatSearchConcurrency:           appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
-		HNSWAcornFilterRatio:                appState.ServerConfig.Config.HNSWAcornFilterRatio,
-		VisitedListPoolMaxSize:              appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:                 appState.ServerConfig.Config.QueryMaximumResults,
@@ -417,6 +412,17 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			AsyncReplicationDisabled: appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
 		},
 		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+
+		HNSWMaxLogSize:                               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWDisableSnapshots:                         appState.ServerConfig.Config.Persistence.HNSWDisableSnapshots,
+		HNSWSnapshotIntervalSeconds:                  appState.ServerConfig.Config.Persistence.HNSWSnapshotIntervalSeconds,
+		HNSWSnapshotOnStartup:                        appState.ServerConfig.Config.Persistence.HNSWSnapshotOnStartup,
+		HNSWSnapshotMinDeltaCommitlogsNumber:         appState.ServerConfig.Config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber,
+		HNSWSnapshotMinDeltaCommitlogsSizePercentage: appState.ServerConfig.Config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
+		HNSWWaitForCachePrefill:                      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		HNSWFlatSearchConcurrency:                    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
+		HNSWAcornFilterRatio:                         appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		VisitedListPoolMaxSize:                       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.

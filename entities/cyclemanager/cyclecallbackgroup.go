@@ -13,9 +13,13 @@ package cyclemanager
 
 import (
 	"context"
+	"fmt"
+	"runtime"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/pkg/errors"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 
@@ -271,6 +275,7 @@ func (c *cycleCallbackGroup) recover(callbackCustomId string, cancel context.Can
 			"action":       "cyclemanager",
 			"callback_id":  callbackCustomId,
 			"callbacks_id": c.customId,
+			"trace":        trace(),
 		}).Errorf("callback panic: %v", r)
 	}
 	cancel()
@@ -429,4 +434,19 @@ func WithIntervals(intervals CycleIntervals) RegisterOption {
 		// having to wait for interval duration to pass
 		meta.started = time.Now().Add(-intervals.Get())
 	}
+}
+
+func trace() string {
+	var sb strings.Builder
+	pcs := make([]uintptr, 10)
+	n := runtime.Callers(3, pcs) // skip self, callers and recover
+	pcs = pcs[:n]
+	for i := range pcs {
+		f := errors.Frame(pcs[i])
+		sb.WriteString(fmt.Sprintf("%n@%s:%d", f, f, f))
+		if i < n-1 {
+			sb.WriteString(";")
+		}
+	}
+	return sb.String()
 }
