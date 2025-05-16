@@ -1071,6 +1071,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				}
 			}
 
+			res.MuveraEnabled = true
 			res.EncoderMuvera = &multivector.MuveraData{
 				Dimensions:   dims,
 				NumClusters:  numClusters,
