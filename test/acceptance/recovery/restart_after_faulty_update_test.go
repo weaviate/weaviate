@@ -13,6 +13,7 @@ package recovery
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -96,8 +97,8 @@ func TestUpdatePropertyFieldFailureWithRestart(t *testing.T) {
 		require.Error(t, err)
 
 		helper.AssertRequestFail(t, nil, err, func() {
-			errResponse, ok := err.(*schema.SchemaObjectsUpdateUnprocessableEntity)
-			require.True(t, ok)
+			var errResponse *schema.SchemaObjectsUpdateUnprocessableEntity
+			require.True(t, errors.As(err, &errResponse))
 			require.Contains(t, errResponse.Payload.Error[0].Message, "property fields other than description cannot be updated through updating the class")
 		})
 	})
