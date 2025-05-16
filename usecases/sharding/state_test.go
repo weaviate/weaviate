@@ -298,8 +298,10 @@ func TestAddPartition(t *testing.T) {
 	s, err := InitState("my-index", cfg, nodes.LocalName(), nodes.StorageCandidates(), 1, true)
 	require.Nil(t, err)
 
-	s.AddPartition("A", nodes1, models.TenantActivityStatusHOT)
-	s.AddPartition("B", nodes2, models.TenantActivityStatusCOLD)
+	_, err = s.AddPartition("A", nodes1, models.TenantActivityStatusHOT)
+	require.NoErrorf(t, err, "unexpect error while adding partition for tenant A")
+	_, err = s.AddPartition("B", nodes2, models.TenantActivityStatusCOLD)
+	require.NoErrorf(t, err, "unexpect error while adding partition for tenant B")
 
 	want := map[string]Physical{
 		"A": {Name: "A", BelongsToNodes: nodes1, OwnsPercentage: 1, Status: models.TenantActivityStatusHOT},

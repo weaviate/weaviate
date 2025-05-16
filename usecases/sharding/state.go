@@ -153,6 +153,9 @@ func (p Physical) BelongsToNode() string {
 }
 
 func (s *State) AddReplicaToShard(shard string, replica string) error {
+	if err := s.MigrateShardingStateReplicationFactor(); err != nil {
+		return fmt.Errorf("error while migrating sharding state: %w", err)
+	}
 	phys, ok := s.Physical[shard]
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
@@ -165,6 +168,9 @@ func (s *State) AddReplicaToShard(shard string, replica string) error {
 }
 
 func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
+	if err := s.MigrateShardingStateReplicationFactor(); err != nil {
+		return fmt.Errorf("error while migrating sharding state: %w", err)
+	}
 	phys, ok := s.Physical[shard]
 	if !ok {
 		return fmt.Errorf("could not find shard %s", shard)
@@ -487,7 +493,10 @@ func (s State) GetPartitions(nodes []string, shards []string, replFactor int64) 
 }
 
 // AddPartition to physical shards
-func (s *State) AddPartition(name string, nodes []string, status string) Physical {
+func (s *State) AddPartition(name string, nodes []string, status string) (Physical, error) {
+	if err := s.MigrateShardingStateReplicationFactor(); err != nil {
+		return Physical{}, fmt.Errorf("error while migrating sharding state: %w", err)
+	}
 	p := Physical{
 		Name:           name,
 		BelongsToNodes: nodes,
@@ -495,19 +504,22 @@ func (s *State) AddPartition(name string, nodes []string, status string) Physica
 		Status:         status,
 	}
 	s.Physical[name] = p
-	return p
+	return p, nil
 }
 
 // DeletePartition to physical shards. Return `true` if given partition is
 // actually deleted.
-func (s *State) DeletePartition(name string) (string, bool) {
+func (s *State) DeletePartition(name string) (string, bool, error) {
+	if err := s.MigrateShardingStateReplicationFactor(); err != nil {
+		return "", false, fmt.Errorf("error while migrating sharding state: %w", err)
+	}
 	t, ok := s.Physical[name]
 	if !ok {
-		return "", false
+		return "", false, nil
 	}
 	status := t.Status
 	delete(s.Physical, name)
-	return status, true
+	return status, true, nil
 }
 
 // ApplyNodeMapping replaces node names with their new value form nodeMapping in s.
