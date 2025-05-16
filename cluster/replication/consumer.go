@@ -431,7 +431,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	// ensure async replication is started on local (target) node
 	if err := c.replicaCopier.InitAsyncReplicationLocally(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
-		logger.WithError(err).Error("failure while initializing async replication on local node")
+		logger.WithError(err).Error("failure while initializing async replication on local node while finalizing")
 		return api.ShardReplicationState(""), err
 	}
 
@@ -453,7 +453,14 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	do := func() bool {
 		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
-		c.logger.WithFields(logrus.Fields{"err": err, "objects_propagated": asyncReplicationStatus.ObjectsPropagated, "start_diff_time_unix_millis": asyncReplicationStatus.StartDiffTimeUnixMillis, "upper_time_bound_unix_millis": asyncReplicationUpperTimeBoundUnixMillis}).Info("async replication status")
+		asyncReplicationIsPastUpperTimeBound := asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
+		logger.WithFields(logrus.Fields{
+			"err":                                     err,
+			"objects_propagated":                      asyncReplicationStatus.ObjectsPropagated,
+			"start_diff_time_unix_millis":             asyncReplicationStatus.StartDiffTimeUnixMillis,
+			"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
+			"async_replication_past_upper_time_bound": asyncReplicationIsPastUpperTimeBound,
+		}).Info("async replication finalizing status")
 		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
 	}
 
@@ -533,7 +540,14 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 
 	do := func() bool {
 		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
-		c.logger.WithFields(logrus.Fields{"err": err, "objects_propagated": asyncReplicationStatus.ObjectsPropagated, "start_diff_time_unix_millis": asyncReplicationStatus.StartDiffTimeUnixMillis, "upper_time_bound_unix_millis": asyncReplicationUpperTimeBoundUnixMillis}).Info("async replication status")
+		asyncReplicationIsPastUpperTimeBound := asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
+		logger.WithFields(logrus.Fields{
+			"err":                                     err,
+			"objects_propagated":                      asyncReplicationStatus.ObjectsPropagated,
+			"start_diff_time_unix_millis":             asyncReplicationStatus.StartDiffTimeUnixMillis,
+			"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
+			"async_replication_past_upper_time_bound": asyncReplicationIsPastUpperTimeBound,
+		}).Info("async replication dehydrating status")
 		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
 	}
 
