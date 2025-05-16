@@ -105,6 +105,21 @@ func (st *Store) Apply(l *raft.Log) any {
 	catchingUp := l.Index != 0 && l.Index <= st.lastAppliedIndexToDB.Load()
 	schemaOnly := catchingUp || st.cfg.MetadataOnlyVoters
 	defer func() {
+
+		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
+		// that means we're done doing schema only.
+		// we do this at the beginning to handle situation were schema was catching up
+		// and to make sure no matter is the error status we are going to open the db on startup
+		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
+			st.log.WithFields(logrus.Fields{
+				"log_type":                     l.Type,
+				"log_name":                     l.Type.String(),
+				"log_index":                    l.Index,
+				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
+			}).Info("reloading local DB as RAFT and local DB are now caught up")
+			st.reloadDBFromSchema()
+		}
+
 		if ret.Error != nil {
 			st.metrics.applyFailures.Inc()
 			st.log.WithFields(logrus.Fields{
@@ -116,18 +131,6 @@ func (st *Store) Apply(l *raft.Log) any {
 				"cmd_class":     cmd.Class,
 			}).WithError(ret.Error).Error("apply command")
 			return
-		}
-
-		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
-		// that means we're done doing schema only.
-		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
-			st.log.WithFields(logrus.Fields{
-				"log_type":                     l.Type,
-				"log_name":                     l.Type.String(),
-				"log_index":                    l.Index,
-				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
-			}).Info("reloading local DB as RAFT and local DB are now caught up")
-			st.reloadDBFromSchema()
 		}
 
 		st.lastAppliedIndex.Store(l.Index)
