@@ -104,6 +104,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObject), r.log)
 	isReady := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)
+		fmt.Println(time.Now(), "NATEE replicator put object", host, requestID, obj.ID(), err)
 		if err == nil {
 			err = resp.FirstError()
 		}

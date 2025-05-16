@@ -211,6 +211,7 @@ func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
 }
 
 func (l *LazyLoadShard) PutObject(ctx context.Context, object *storobj.Object) error {
+	fmt.Println(time.Now(), "NATEE LazyLoadShard PutObject", object.ID())
 	if err := l.Load(ctx); err != nil {
 		return err
 	}

@@ -186,6 +186,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		Shard:            c.Shard,
 		ConsistencyLevel: cl,
 	})
+	fmt.Println(time.Now(), "NATEE coordinator push routingPlan", routingPlan.Replicas, routingPlan.ReplicasHostAddrs, routingPlan.AdditionalHostAddrs)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
@@ -204,6 +205,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
 	if len(routingPlan.AdditionalHostAddrs) > 0 {
+		fmt.Println("NATEE coordinator push additional hosts", routingPlan.AdditionalHostAddrs)
 		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
 		c.commitAll(context.Background(), additionalHostsBroadcast, com)
 	}
