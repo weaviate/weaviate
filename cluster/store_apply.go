@@ -119,6 +119,11 @@ func (st *Store) Apply(l *raft.Log) any {
 			st.reloadDBFromSchema()
 		}
 
+		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,
+		// however we do not update the metrics so the metric will be the source of truth
+		// about AppliedIndex
+		st.lastAppliedIndex.Store(l.Index)
+
 		if ret.Error != nil {
 			st.metrics.applyFailures.Inc()
 			st.log.WithFields(logrus.Fields{
@@ -132,7 +137,6 @@ func (st *Store) Apply(l *raft.Log) any {
 			return
 		}
 
-		st.lastAppliedIndex.Store(l.Index)
 		st.metrics.fsmLastAppliedIndex.Set(float64(l.Index))
 		st.metrics.raftLastAppliedIndex.Set(float64(l.Index))
 	}()

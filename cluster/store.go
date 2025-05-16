@@ -185,7 +185,7 @@ type Store struct {
 	schemaManager *schema.SchemaManager
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
-	// / lastAppliedIndex index of latest update to the store
+	// lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
 
 	metrics *storeMetrics
