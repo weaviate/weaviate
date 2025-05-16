@@ -43,6 +43,7 @@ func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
 }
 
 func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object) error {
+	fmt.Println(time.Now(), "NATEE putOne start", object.ID())
 	status, err := s.putObjectLSM(object, uuid)
 	if err != nil {
 		return errors.Wrap(err, "store object in LSM store")
@@ -87,6 +88,7 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "object creation in hashtree")
 	}
 
+	fmt.Println(time.Now(), "NATEE putOne end", object.ID())
 	return nil
 }
 

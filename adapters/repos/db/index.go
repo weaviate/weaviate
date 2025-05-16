@@ -786,6 +786,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	object *storobj.Object, schemaVersion uint64,
 ) error {
+	fmt.Println(time.Now(), "NATEE IncomingPutObject start", object.ID())
 	i.shardTransferMutex.RLock()
 	defer i.shardTransferMutex.RUnlock()
 
@@ -801,6 +802,7 @@ func (i *Index) IncomingPutObject(ctx context.Context, shardName string,
 	}
 
 	shard, release, err := i.getOrInitShard(ctx, shardName)
+	fmt.Println(time.Now(), "NATEE IncomingPutObject getOrInitShard", object.ID(), shard.Counter().Get(), err)
 	if err != nil {
 		return err
 	}
