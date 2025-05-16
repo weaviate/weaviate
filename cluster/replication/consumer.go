@@ -490,7 +490,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger.WithField("state", "finalizing")); err != nil {
+	if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger); err != nil {
 		logger.WithError(err).Error("failure while waiting for async replication to complete while finalizing")
 		return api.ShardReplicationState(""), err
 	}
@@ -563,7 +563,7 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger.WithField("state", "dehydrating")); err != nil {
+	if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger); err != nil {
 		logger.WithError(err).Error("failure while waiting for async replication to complete while dehydrating")
 		return api.ShardReplicationState(""), err
 	}
