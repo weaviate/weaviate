@@ -109,6 +109,28 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 	return payload, nil
 }
 
+func (m *Manager) GetReplicationOperationState(c *cmd.QueryRequest) ([]byte, error) {
+	subCommand := cmd.ReplicationOperationStateRequest{}
+	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	status, ok := m.replicationFSM.statusById[subCommand.Id]
+	if !ok {
+		return nil, fmt.Errorf("unable to retrieve replication operation '%d' status", subCommand.Id)
+	}
+
+	response := cmd.ReplicationOperationStateResponse{
+		State: status.GetCurrent().State,
+	}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal query response for replication operation '%d': %w", subCommand.Id, err)
+	}
+
+	return payload, nil
+}
+
 func (m *Manager) GetReplicationDetailsByCollection(c *cmd.QueryRequest) ([]byte, error) {
 	subCommand := cmd.ReplicationDetailsRequestByCollection{}
 	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {

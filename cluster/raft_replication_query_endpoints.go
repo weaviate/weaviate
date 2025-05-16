@@ -238,3 +238,35 @@ func (s *Raft) QueryShardingStateByCollectionAndShard(collection string, shard s
 
 	return response, nil
 }
+
+func (s *Raft) ReplicationGetReplicaOpStatus(id uint64) (api.ShardReplicationState, error) {
+	request := &api.ReplicationOperationStateRequest{
+		Id: id,
+	}
+
+	subCommand, err := json.Marshal(request)
+	if err != nil {
+		return "", fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &api.QueryRequest{
+		Type:       api.QueryRequest_TYPE_GET_REPLICATION_OPERATION_STATE,
+		SubCommand: subCommand,
+	}
+
+	queryResponse, err := s.Query(context.Background(), command)
+	if err != nil {
+		if strings.Contains(err.Error(), replicationTypes.ErrReplicationOperationNotFound.Error()) {
+			return "", fmt.Errorf("%w: %w", types.ErrNotFound, replicationTypes.ErrReplicationOperationNotFound)
+		}
+		return "", fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := api.ReplicationOperationStateResponse{}
+	err = json.Unmarshal(queryResponse.Payload, &response)
+	if err != nil {
+		return "", fmt.Errorf("failed to unmarshal query response: %w", err)
+	}
+
+	return response.State, nil
+}

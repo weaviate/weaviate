@@ -43,6 +43,10 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "error generating random operation id")
 
 		mockFSMUpdater.EXPECT().
+			ReplicationGetReplicaOpStatus(uint64(opId)).
+			Return(api.REGISTERED, nil).
+			Times(1)
+		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(uint64(opId), api.HYDRATING).
 			Return(nil)
 		mockFSMUpdater.EXPECT().
@@ -181,6 +185,10 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "error generating random operation id")
 
 		mockFSMUpdater.EXPECT().
+			ReplicationGetReplicaOpStatus(uint64(opId)).
+			Return(api.REGISTERED, nil).
+			Times(1)
+		mockFSMUpdater.EXPECT().
 			ReplicationUpdateReplicaOpStatus(uint64(opId), api.HYDRATING).
 			Return(nil)
 		mockReplicaCopier.EXPECT().
@@ -300,6 +308,10 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "error while generating random op id start")
 		for i := 0; i < randomNumberOfOps; i++ {
 			opId := uint64(randomStartOpId + i)
+			mockFSMUpdater.EXPECT().
+				ReplicationGetReplicaOpStatus(uint64(opId)).
+				Return(api.REGISTERED, nil).
+				Times(1)
 			mockFSMUpdater.EXPECT().
 				ReplicationUpdateReplicaOpStatus(opId, api.HYDRATING).
 				Return(nil)
@@ -575,6 +587,10 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				expectedStarted++
 				expectedCompleted++
 				mockFSMUpdater.EXPECT().
+					ReplicationGetReplicaOpStatus(uint64(opID)).
+					Return(api.REGISTERED, nil).
+					Times(1)
+				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(opID, api.HYDRATING).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
@@ -787,7 +803,12 @@ func TestConsumerOpCancellation(t *testing.T) {
 		}).Maybe()
 
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
+
 	status := replication.NewShardReplicationStatus(api.HYDRATING)
+	mockFSMUpdater.EXPECT().
+		ReplicationGetReplicaOpStatus(uint64(1)).
+		Return(api.HYDRATING, nil)
+
 	status.TriggerCancellation()
 	// Simulate the copying step that will loop forever until cancelled in the mock
 	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
@@ -899,7 +920,12 @@ func TestConsumerOpDeletion(t *testing.T) {
 		}).Maybe()
 
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
+
 	status := replication.NewShardReplicationStatus(api.HYDRATING)
+	mockFSMUpdater.EXPECT().
+		ReplicationGetReplicaOpStatus(uint64(1)).
+		Return(api.HYDRATING, nil)
+
 	status.TriggerDeletion()
 	// Simulate the copying step that will loop forever until cancelled in the mock
 	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)

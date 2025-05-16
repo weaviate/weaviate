@@ -179,13 +179,29 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			// running replication operations and avoids overloading the system.
 			case c.tokens <- struct{}{}:
 
-				// Check if the operation is already in progress
+				shouldSkip := false
 				if c.ongoingOps.LoadOrStore(op.Op.ID) {
+					// Check if the operation is already in progress
 					// Avoid scheduling unnecessary work or incorrectly counting metrics
 					// for operations that are already in progress or completed.
 					c.logger.WithFields(logrus.Fields{"op": op}).Debug("replication op skipped as already running")
-					// Need to release the token to let other consumers process queued replication operations.
+					shouldSkip = true
+				} else if state, err := c.leaderClient.ReplicationGetReplicaOpStatus(op.Op.ID); err != nil {
+					// Check if the operation has had its state changed between being added to the channel and being processed
+					c.logger.WithFields(logrus.Fields{"op": op}).Error("error while checking status of replication op")
+					shouldSkip = true
+				} else if state != op.Status.GetCurrent().State {
+					c.logger.WithFields(logrus.Fields{"op": op}).Debug("replication op skipped as state has changed")
+					shouldSkip = true
+				}
+				// TODO: Consider more optimal ways of checking that the state of the op has not changed between it being added to the channel
+				// and being processed here. Could use in-memory solution, e.g. using cache, or refactor consumer-producer to be event/notification-based
+				// For now, ensure consistency by checking the FSM through the leader
+
+				// Need to release the token to let other consumers process queued replication operations.
+				if shouldSkip {
 					<-c.tokens
+					c.ongoingOps.DeleteInFlight(op.Op.ID)
 					c.engineOpCallbacks.OnOpSkipped(c.nodeId)
 					continue
 				}
@@ -334,6 +350,9 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 	}, c.backoffPolicy)
 	if err != nil {
 		return err
+	}
+	if nextState == api.ShardReplicationState("") {
+		return fmt.Errorf("empty state returned from state handler for op %s", op.Op.UUID)
 	}
 
 	if nextState == DELETED {

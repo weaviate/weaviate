@@ -76,18 +76,24 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 			p.logger.Info("replication engine producer cancel request, stopping FSM producer")
 			return ctx.Err()
 		case <-ticker.C:
-			ops := p.allOpsForNode(p.nodeId)
-			if len(ops) <= 0 {
+			allOps := p.allOpsForNode(p.nodeId)
+			if len(allOps) <= 0 {
 				continue
 			}
 
-			p.logger.WithFields(logrus.Fields{"number_of_ops": len(ops)}).Debug("preparing op replication")
-
-			for _, op := range ops {
+			for _, op := range allOps {
+				status, ok := p.fsm.GetOpState(op)
+				if !ok {
+					p.logger.WithField("op", op).Warn("skipping op as it has no state stored in FSM. It may have been deleted in the meantime.")
+					continue
+				}
+				if !status.ShouldConsumeOps() {
+					continue
+				}
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
-				case out <- op: // Write replication operation to channel.
+				case out <- NewShardReplicationOpAndStatus(op, status): // Write replication operation to channel.
 				}
 			}
 		}
@@ -108,13 +114,13 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 //   - All states except for ABORTED and READY are processes
 //
 // Returns only operations that should be actively processed by this node.
-func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOpAndStatus {
+func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOp {
 	allNodeAsTargetOps := p.fsm.GetOpsForTarget(nodeId)
 
-	nodeOpsSubset := make([]ShardReplicationOpAndStatus, 0, len(allNodeAsTargetOps))
+	nodeOpsSubset := make([]ShardReplicationOp, 0, len(allNodeAsTargetOps))
 	for _, op := range allNodeAsTargetOps {
 		if opState, ok := p.fsm.GetOpState(op); ok && opState.ShouldConsumeOps() {
-			nodeOpsSubset = append(nodeOpsSubset, NewShardReplicationOpAndStatus(op, opState))
+			nodeOpsSubset = append(nodeOpsSubset, op)
 		} else if !ok {
 			p.logger.WithField("op", op).Warn("skipping op as it has no state stored in FSM. It may have been deleted in the meantime.")
 		}
