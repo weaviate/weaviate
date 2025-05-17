@@ -744,43 +744,81 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		}
 	}
 
-	if i.replicationEnabled() {
-		if replProps == nil {
-			replProps = defaultConsistency()
-		}
-		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
-		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
-			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
-		}
-		return nil
-	}
+	// var replPropsCopy *additional.ReplicationProperties
+	// if replProps == nil {
+	// 	replPropsCopy = defaultConsistency()
+	// } else {
+	// 	replPropsCopy = &additional.ReplicationProperties{
+	// 		ConsistencyLevel: replProps.ConsistencyLevel,
+	// 		NodeName:         replProps.NodeName,
+	// 	}
+	// }
 
-	// TODO how to support "additional host writes" with RF 1 during shard replica movement?
+	// replicationEnabled := i.replicationEnabled()
+
+	// 3) check for relevant ongoing replication
+	// if !replicationEnabled {
+	// 	replicationEnabled = i.replicator.Finder.HasOngoingReplication(i.Config.ClassName.String(), shardName, i.replicator.LocalNodeName())
+	// }
+
+	// 0) check if replication is enabled, stable
+	// 1) call replicator directly (comment out if)
+	// if replicationEnabled {
+	if replProps == nil {
+		replProps = defaultConsistency()
+	}
+	cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
+	if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
+		return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
+	}
+	return nil
+	// }
+
+	// 2) verify router says only to write to local node
+	// routingPlan, err := i.replicator.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
+	// 	Collection:       object.Class().String(),
+	// 	Shard:            shardName,
+	// 	ConsistencyLevel: types.ConsistencyLevel(replPropsCopy.ConsistencyLevel),
+	// })
+	// if err != nil {
+	// 	return fmt.Errorf("index put object building write routing plan: %w", err)
+	// }
+	// if len(routingPlan.Replicas) != 1 ||
+	// 	!slices.Contains(routingPlan.Replicas, i.replicator.LocalNodeName()) ||
+	// 	len(routingPlan.AdditionalHostAddrs) != 0 {
+	// 	fmt.Println("NATEE hitting replicator")
+	// 	// we can't put the object locally
+	// 	cl := types.ConsistencyLevel(replPropsCopy.ConsistencyLevel)
+	// 	if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
+	// 		return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
+	// 	}
+	// 	return nil
+	// }
 
 	// no replication, remote shard (or local not yet inited)
-	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
-		return err
-	}
+	// shard, release, err := i.GetShard(ctx, shardName)
+	// if err != nil {
+	// 	return err
+	// }
 
-	if shard == nil {
-		if err := i.remote.PutObject(ctx, shardName, object, schemaVersion); err != nil {
-			return fmt.Errorf("put remote object: shard=%q: %w", shardName, err)
-		}
-		return nil
-	}
-	defer release()
+	// if shard == nil {
+	// 	if err := i.remote.PutObject(ctx, shardName, object, schemaVersion); err != nil {
+	// 		return fmt.Errorf("put remote object: shard=%q: %w", shardName, err)
+	// 	}
+	// 	return nil
+	// }
+	// defer release()
 
-	// no replication, local shard
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	// // no replication, local shard
+	// i.shardTransferMutex.RLock()
+	// defer i.shardTransferMutex.RUnlock()
 
-	err = shard.PutObject(ctx, object)
-	if err != nil {
-		return fmt.Errorf("put local object: shard=%q: %w", shardName, err)
-	}
+	// err = shard.PutObject(ctx, object)
+	// if err != nil {
+	// 	return fmt.Errorf("put local object: shard=%q: %w", shardName, err)
+	// }
 
-	return nil
+	// return nil
 }
 
 func (i *Index) IncomingPutObject(ctx context.Context, shardName string,

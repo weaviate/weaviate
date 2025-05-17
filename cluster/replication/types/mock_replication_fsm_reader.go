@@ -140,6 +140,54 @@ func (_c *MockReplicationFSMReader_FilterOneShardReplicasWrite_Call) RunAndRetur
 	return _c
 }
 
+// HasOngoingReplication provides a mock function with given fields: collection, shard, replica
+func (_m *MockReplicationFSMReader) HasOngoingReplication(collection string, shard string, replica string) bool {
+	ret := _m.Called(collection, shard, replica)
+
+	if len(ret) == 0 {
+		panic("no return value specified for HasOngoingReplication")
+	}
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func(string, string, string) bool); ok {
+		r0 = rf(collection, shard, replica)
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
+}
+
+// MockReplicationFSMReader_HasOngoingReplication_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'HasOngoingReplication'
+type MockReplicationFSMReader_HasOngoingReplication_Call struct {
+	*mock.Call
+}
+
+// HasOngoingReplication is a helper method to define mock.On call
+//   - collection string
+//   - shard string
+//   - replica string
+func (_e *MockReplicationFSMReader_Expecter) HasOngoingReplication(collection interface{}, shard interface{}, replica interface{}) *MockReplicationFSMReader_HasOngoingReplication_Call {
+	return &MockReplicationFSMReader_HasOngoingReplication_Call{Call: _e.mock.On("HasOngoingReplication", collection, shard, replica)}
+}
+
+func (_c *MockReplicationFSMReader_HasOngoingReplication_Call) Run(run func(collection string, shard string, replica string)) *MockReplicationFSMReader_HasOngoingReplication_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicationFSMReader_HasOngoingReplication_Call) Return(_a0 bool) *MockReplicationFSMReader_HasOngoingReplication_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicationFSMReader_HasOngoingReplication_Call) RunAndReturn(run func(string, string, string) bool) *MockReplicationFSMReader_HasOngoingReplication_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockReplicationFSMReader creates a new instance of MockReplicationFSMReader. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockReplicationFSMReader(t interface {

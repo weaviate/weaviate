@@ -440,3 +440,13 @@ func (f *Finder) Overwrite(ctx context.Context,
 func (f *Finder) LocalNodeName() string {
 	return f.nodeName
 }
+
+func (f *Finder) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
+	return f.router.BuildWriteRoutingPlan(params)
+}
+
+func (f *Finder) HasOngoingReplication(
+	collection string, shard string, replica string,
+) bool {
+	return f.router.HasOngoingReplication(collection, shard, replica)
+}
