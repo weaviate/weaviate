@@ -768,11 +768,14 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 // host. You should explicitly resume the background processes once you're done with the
 // files.
 func (c *RemoteIndex) PauseFileActivity(ctx context.Context,
-	hostName, indexName, shardName string,
+	hostName, indexName, shardName string, schemaVersion uint64,
 ) error {
+	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	req, err := setupRequest(ctx, http.MethodPost, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/background:pause", indexName, shardName),
-		"", nil)
+		url.Values{replica.SchemaVersionKey: value}.Encode(),
+		nil,
+	)
 	if err != nil {
 		return fmt.Errorf("create http request: %w", err)
 	}
@@ -943,14 +946,18 @@ func (c *RemoteIndex) AddAsyncReplicationTargetNode(
 	ctx context.Context,
 	hostName, indexName, shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
+	schemaVersion uint64,
 ) error {
 	body, err := clusterapi.IndicesPayloads.AsyncReplicationTargetNode.Marshal(targetNodeOverride)
 	if err != nil {
 		return fmt.Errorf("marshal target node override: %w", err)
 	}
+	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	req, err := setupRequest(ctx, http.MethodPost, hostName,
 		fmt.Sprintf("/indices/%s/shards/%s/async-replication-target-node", indexName, shardName),
-		"", bytes.NewReader(body))
+		url.Values{replica.SchemaVersionKey: value}.Encode(),
+		bytes.NewReader(body),
+	)
 	if err != nil {
 		return fmt.Errorf("create http request: %w", err)
 	}

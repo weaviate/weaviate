@@ -273,6 +273,8 @@ type fakeRemoteIndexServer struct {
 }
 
 func newFakeRemoteIndexServer(t *testing.T, method, path string) *fakeRemoteIndexServer {
+	t.Helper()
+
 	f := &fakeRemoteIndexServer{
 		method: method,
 		path:   path,
