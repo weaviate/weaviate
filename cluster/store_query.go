@@ -136,6 +136,11 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get distributed task list: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_GET_REPLICATION_OPERATION_STATE:
+		payload, err = st.replicationManager.GetReplicationOperationState(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get replication operation state: %w", err)
+		}
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart

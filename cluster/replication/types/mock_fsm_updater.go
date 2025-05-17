@@ -198,6 +198,62 @@ func (_c *MockFSMUpdater_ReplicationCancellationComplete_Call) RunAndReturn(run 
 	return _c
 }
 
+// ReplicationGetReplicaOpStatus provides a mock function with given fields: id
+func (_m *MockFSMUpdater) ReplicationGetReplicaOpStatus(id uint64) (api.ShardReplicationState, error) {
+	ret := _m.Called(id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplicationGetReplicaOpStatus")
+	}
+
+	var r0 api.ShardReplicationState
+	var r1 error
+	if rf, ok := ret.Get(0).(func(uint64) (api.ShardReplicationState, error)); ok {
+		return rf(id)
+	}
+	if rf, ok := ret.Get(0).(func(uint64) api.ShardReplicationState); ok {
+		r0 = rf(id)
+	} else {
+		r0 = ret.Get(0).(api.ShardReplicationState)
+	}
+
+	if rf, ok := ret.Get(1).(func(uint64) error); ok {
+		r1 = rf(id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFSMUpdater_ReplicationGetReplicaOpStatus_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationGetReplicaOpStatus'
+type MockFSMUpdater_ReplicationGetReplicaOpStatus_Call struct {
+	*mock.Call
+}
+
+// ReplicationGetReplicaOpStatus is a helper method to define mock.On call
+//   - id uint64
+func (_e *MockFSMUpdater_Expecter) ReplicationGetReplicaOpStatus(id interface{}) *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call {
+	return &MockFSMUpdater_ReplicationGetReplicaOpStatus_Call{Call: _e.mock.On("ReplicationGetReplicaOpStatus", id)}
+}
+
+func (_c *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call) Run(run func(id uint64)) *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call) Return(_a0 api.ShardReplicationState, _a1 error) *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call) RunAndReturn(run func(uint64) (api.ShardReplicationState, error)) *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReplicationRegisterError provides a mock function with given fields: id, errorToRegister
 func (_m *MockFSMUpdater) ReplicationRegisterError(id uint64, errorToRegister string) error {
 	ret := _m.Called(id, errorToRegister)

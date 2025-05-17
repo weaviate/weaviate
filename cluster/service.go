@@ -38,7 +38,7 @@ const (
 	// TODO: consider exposing these as settings
 	shardReplicationEngineBufferSize = 16
 	fsmOpProducerPollingInterval     = 5 * time.Second
-	replicationEngineShutdownTimeout = 10 * time.Minute
+	replicationEngineShutdownTimeout = 20 * time.Second
 	replicationOperationTimeout      = 24 * time.Hour
 	catchUpInterval                  = 5 * time.Second
 )
@@ -57,10 +57,9 @@ type Service struct {
 	logger    *logrus.Logger
 
 	// closing channels
-	closeBootstrapper       chan struct{}
-	closeOnFSMCaughtUp      chan struct{}
-	closeWaitForDB          chan struct{}
-	replicationEngineCancel context.CancelFunc
+	closeBootstrapper  chan struct{}
+	closeOnFSMCaughtUp chan struct{}
+	closeWaitForDB     chan struct{}
 }
 
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
@@ -127,10 +126,9 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 		case <-ticker.C:
 			if c.Raft.store.FSMHasCaughtUp() {
 				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
-				replicationEngineCtx, replicationEngineCancel := context.WithCancel(ctx)
-				c.replicationEngineCancel = replicationEngineCancel
 				enterrors.GoWrapper(func() {
-					if err := c.replicationEngine.Start(replicationEngineCtx); err != nil {
+					// The context is cancelled by the engine itself when it is stopped
+					if err := c.replicationEngine.Start(context.Background()); err != nil {
 						c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
 					}
 				}, c.logger)
@@ -211,10 +209,8 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	if c.replicationEngineCancel != nil {
-		c.logger.Infof("Closing replication engine %v", c)
-		c.replicationEngineCancel()
-	}
+	c.logger.Info("closing replication engine ...")
+	c.replicationEngine.Stop()
 
 	c.logger.Info("closing raft FSM store ...")
 	if err := c.Raft.Close(ctx); err != nil {
