@@ -444,7 +444,7 @@ func Backups(classes ...string) []string {
 //
 //	A slice of strings representing the resource paths for the given class and shards.
 func Replications(class, shard string) string {
-	class = schema.UppercaseClassesNames(class)[0]
+	class = schema.UppercaseClassName(class)
 	if class == "" {
 		class = "*"
 	}
