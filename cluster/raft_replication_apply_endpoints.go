@@ -240,3 +240,24 @@ func (s *Raft) DeleteReplicationsByTenants(collection string, tenants []string) 
 	}
 	return nil
 }
+
+func (s *Raft) ReplicationStoreSchemaVersion(id uint64, schemaVersion uint64) error {
+	req := &api.ReplicationStoreSchemaVersionRequest{
+		Version:       api.ReplicationCommandVersionV0,
+		SchemaVersion: schemaVersion,
+		Id:            id,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}

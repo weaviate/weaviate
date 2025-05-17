@@ -327,10 +327,10 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 
 // PauseFileActivity see adapters/clients.RemoteIndex.PauseFileActivity
 func (rii *RemoteIndexIncoming) PauseFileActivity(ctx context.Context,
-	indexName, shardName string,
+	indexName, shardName string, schemaVersion uint64,
 ) error {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
+	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if err != nil {
 		return errors.Errorf("local index %q not found", indexName)
 	}
 
@@ -448,9 +448,10 @@ func (rii *RemoteIndexIncoming) AddAsyncReplicationTargetNode(
 	ctx context.Context,
 	indexName, shardName string,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
+	schemaVersion uint64,
 ) error {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
+	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if err != nil {
 		return fmt.Errorf("local index %q not found", indexName)
 	}
 

@@ -32,17 +32,18 @@ var (
 	ErrSchema     = errors.New("updating schema")
 )
 
-type replicationsDeleter interface {
+type replicationFSM interface {
+	HasOngoingReplication(collection string, shard string, replica string) bool
 	DeleteReplicationsByCollection(collection string) error
 	DeleteReplicationsByTenants(collection string, tenants []string) error
 }
 
 type SchemaManager struct {
-	schema              *schema
-	db                  Indexer
-	parser              Parser
-	log                 *logrus.Logger
-	replicationsDeleter replicationsDeleter
+	schema         *schema
+	db             Indexer
+	parser         Parser
+	log            *logrus.Logger
+	replicationFSM replicationFSM
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -81,8 +82,8 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.schema.shardReader = idx
 }
 
-func (s *SchemaManager) SetReplicationsDeleter(deleter replicationsDeleter) {
-	s.replicationsDeleter = deleter
+func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
+	s.replicationFSM = fsm
 }
 
 func (s *SchemaManager) Snapshot() ([]byte, error) {
@@ -276,9 +277,9 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { s.schema.deleteClass(cmd.Class); return nil },
 			updateStore: func() error {
-				if s.replicationsDeleter == nil {
+				if s.replicationFSM == nil {
 					return fmt.Errorf("replication deleter is not set, this should never happen")
-				} else if err := s.replicationsDeleter.DeleteReplicationsByCollection(cmd.Class); err != nil {
+				} else if err := s.replicationFSM.DeleteReplicationsByCollection(cmd.Class); err != nil {
 					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
 					s.log.WithField("error", err).WithField("class", cmd.Class).Error("could not delete replication operations for deleted class")
 				}
@@ -398,7 +399,7 @@ func (s *SchemaManager) UpdateTenants(cmd *command.ApplyRequest, schemaOnly bool
 			// updateSchema func will update the request's tenants and therefore we use it as a filter that is then sent
 			// to the updateStore function. This allows us to effectively use the schema update to narrow down work for
 			// the DB update.
-			updateSchema: func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req) },
+			updateSchema: func() error { return s.schema.updateTenants(cmd.Class, cmd.Version, req, s.replicationFSM) },
 			updateStore:  func() error { return s.db.UpdateTenants(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
 		},
@@ -429,9 +430,9 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
 			updateStore: func() error {
-				if s.replicationsDeleter == nil {
+				if s.replicationFSM == nil {
 					return fmt.Errorf("replication deleter is not set, this should never happen")
-				} else if err := s.replicationsDeleter.DeleteReplicationsByTenants(cmd.Class, req.Tenants); err != nil {
+				} else if err := s.replicationFSM.DeleteReplicationsByTenants(cmd.Class, req.Tenants); err != nil {
 					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
 					s.log.WithField("error", err).WithField("class", cmd.Class).WithField("tenants", tenants).Error("could not delete replication operations for deleted tenants")
 				}

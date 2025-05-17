@@ -37,6 +37,9 @@ type StateHistory []State
 
 // ShardReplicationOpStatus is the status of a shard replication operation as well as the history of the state changes and their associated errors (if any)
 type ShardReplicationOpStatus struct {
+	// SchemaVersion is the schema version with which the operation can safely proceed
+	SchemaVersion uint64
+
 	// Current is the current state of the shard replication operation
 	Current State
 

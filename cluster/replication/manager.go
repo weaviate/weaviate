@@ -85,6 +85,15 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 	return m.replicationFSM.UpdateReplicationOpStatus(req)
 }
 
+func (m *Manager) StoreSchemaVersion(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationStoreSchemaVersionRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.replicationFSM.StoreSchemaVersion(req)
+}
+
 func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]byte, error) {
 	subCommand := cmd.ReplicationDetailsRequest{}
 	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
