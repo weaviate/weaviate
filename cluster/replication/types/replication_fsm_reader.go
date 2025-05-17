@@ -18,4 +18,5 @@ type ReplicationFSMReader interface {
 	// FilterOneShardReplicasWrite returns the write replicas for a given shard
 	// It returns a tuple of (writeReplicas, additionalWriteReplicas)
 	FilterOneShardReplicasWrite(collection string, shard string, shardReplicasLocation []string) ([]string, []string)
+	HasOngoingReplication(collection string, shard string, replica string) bool
 }

@@ -151,3 +151,7 @@ func (r *Router) NodeHostname(nodeName string) (string, bool) {
 func (r *Router) AllHostnames() []string {
 	return r.clusterStateReader.AllHostnames()
 }
+
+func (r *Router) HasOngoingReplication(collection string, shard string, replica string) bool {
+	return r.replicationFSMReader.HasOngoingReplication(collection, shard, replica)
+}

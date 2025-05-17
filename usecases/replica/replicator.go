@@ -45,6 +45,7 @@ type (
 		BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error)
 		NodeHostname(nodeName string) (string, bool)
 		AllHostnames() []string
+		HasOngoingReplication(collection string, shard string, replica string) bool
 	}
 
 	// _Result represents a valid value or an error ( _ prevent make it public).
