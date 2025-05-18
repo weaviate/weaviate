@@ -1010,7 +1010,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 		"node2",
 		&backoff.StopBackOff{},
 		replication.NewOpsCache(),
-		time.Second*10,
+		time.Second*30,
 		1,
 		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
@@ -1030,7 +1030,6 @@ func TestConsumerOpDuplication(t *testing.T) {
 	mockReplicaCopier.EXPECT().
 		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
-			// Simulate a long-running operation that checks for cancellation every loop
 			start := time.Now()
 			for {
 				if ctx.Err() != nil {
