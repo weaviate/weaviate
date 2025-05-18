@@ -117,19 +117,15 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	id, ok := m.replicationFSM.idsByUuid[subCommand.Uuid]
+	op, ok := m.replicationFSM.GetOpByUuid(subCommand.Uuid)
 	if !ok {
 		return nil, fmt.Errorf("%w: %s", types.ErrReplicationOperationNotFound, subCommand.Uuid)
 	}
 
-	response, err := m.getReplicationDetailsResponse(id)
-	if err != nil {
-		return nil, fmt.Errorf("could not get replication operation details: %w", err)
-	}
-
+	response := makeReplicationDetailsResponse(&op.Op, &op.Status)
 	payload, err := json.Marshal(response)
 	if err != nil {
-		return nil, fmt.Errorf("could not marshal query response for replication operation '%d': %w", id, err)
+		return nil, fmt.Errorf("could not marshal query response for replication operation '%s': %w", op.Op.UUID, err)
 	}
 
 	return payload, nil
@@ -141,13 +137,13 @@ func (m *Manager) GetReplicationOperationState(c *cmd.QueryRequest) ([]byte, err
 		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	status, ok := m.replicationFSM.statusById[subCommand.Id]
+	op, ok := m.replicationFSM.GetOpById(subCommand.Id)
 	if !ok {
 		return nil, fmt.Errorf("unable to retrieve replication operation '%d' status", subCommand.Id)
 	}
 
 	response := cmd.ReplicationOperationStateResponse{
-		State: status.GetCurrent().State,
+		State: op.Status.GetCurrent().State,
 	}
 	payload, err := json.Marshal(response)
 	if err != nil {
@@ -170,11 +166,7 @@ func (m *Manager) GetReplicationDetailsByCollection(c *cmd.QueryRequest) ([]byte
 	}
 
 	for _, op := range ops {
-		response, err := m.getReplicationDetailsResponse(op.ID)
-		if err != nil {
-			return nil, fmt.Errorf("could not get replication operation details: %w", err)
-		}
-		responses = append(responses, response)
+		responses = append(responses, makeReplicationDetailsResponse(&op.Op, &op.Status))
 	}
 
 	payload, err := json.Marshal(responses)
@@ -197,11 +189,7 @@ func (m *Manager) GetReplicationDetailsByCollectionAndShard(c *cmd.QueryRequest)
 	}
 
 	for _, op := range ops {
-		response, err := m.getReplicationDetailsResponse(op.ID)
-		if err != nil {
-			return nil, fmt.Errorf("could not get replication operation details: %w", err)
-		}
-		responses = append(responses, response)
+		responses = append(responses, makeReplicationDetailsResponse(&op.Op, &op.Status))
 	}
 
 	payload, err := json.Marshal(responses)
@@ -224,11 +212,7 @@ func (m *Manager) GetReplicationDetailsByTargetNode(c *cmd.QueryRequest) ([]byte
 	}
 
 	for _, op := range ops {
-		response, err := m.getReplicationDetailsResponse(op.ID)
-		if err != nil {
-			return nil, fmt.Errorf("could not get replication operation details: %w", err)
-		}
-		responses = append(responses, response)
+		responses = append(responses, makeReplicationDetailsResponse(&op.Op, &op.Status))
 	}
 
 	payload, err := json.Marshal(responses)
@@ -326,20 +310,6 @@ func makeReplicationDetailsResponse(op *ShardReplicationOp, status *ShardReplica
 		Status:        status.GetCurrent().ToAPIFormat(),
 		StatusHistory: status.GetHistory().ToAPIFormat(),
 	}
-}
-
-func (m *Manager) getReplicationDetailsResponse(id uint64) (cmd.ReplicationDetailsResponse, error) {
-	op, ok := m.replicationFSM.opsById[id]
-	if !ok {
-		return cmd.ReplicationDetailsResponse{}, fmt.Errorf("%w: %d", types.ErrReplicationOperationNotFound, id)
-	}
-
-	status, ok := m.replicationFSM.statusById[op.ID]
-	if !ok {
-		return cmd.ReplicationDetailsResponse{}, fmt.Errorf("unable to retrieve replication operation '%d' status", op.ID)
-	}
-
-	return makeReplicationDetailsResponse(&op, &status), nil
 }
 
 func (m *Manager) CancelReplication(c *cmd.ApplyRequest) error {
