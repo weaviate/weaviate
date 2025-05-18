@@ -14,6 +14,8 @@ package replica
 import (
 	"context"
 	"fmt"
+	"os"
+	"strconv"
 	"sync"
 	"time"
 
@@ -29,6 +31,24 @@ const (
 	defaultPullBackOffInitialInterval = time.Millisecond * 250
 	defaultPullBackOffMaxElapsedTime  = time.Second * 128
 )
+
+// skipBestEffortWrite determines whether to skip best effort write operations
+var skipBestEffortWrite = getSkipBestEffortWrite()
+
+// getSkipBestEffortWrite returns the skipBestEffortWrite value from environment variable
+// or the default value of false if not set
+func getSkipBestEffortWrite() bool {
+	if v := os.Getenv("REPLICATION_SKIP_BEST_EFFORT_WRITE"); v != "" {
+		val, err := strconv.ParseBool(v)
+		if err != nil {
+			// Log error and use default
+			logrus.WithError(err).Warn("invalid REPLICATION_SKIP_BEST_EFFORT_WRITE, using default false")
+			return false
+		}
+		return val
+	}
+	return false
+}
 
 type (
 	// readyOp asks a replica if it is ready to commit
@@ -203,7 +223,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	// if there are additional hosts, we do a "best effort" write to them
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
-	if len(routingPlan.AdditionalHostAddrs) > 0 {
+	if !skipBestEffortWrite && len(routingPlan.AdditionalHostAddrs) > 0 {
 		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
 		c.commitAll(context.Background(), additionalHostsBroadcast, com)
 	}

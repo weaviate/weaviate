@@ -19,6 +19,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -32,7 +33,27 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-const concurrency = 10
+// concurrency is the number of concurrent operations allowed
+var concurrency = getConcurrency()
+
+// getConcurrency returns the concurrency value from environment variable
+// or the default value of 10 if not set
+func getConcurrency() int {
+	if v := os.Getenv("REPLICATION_CONCURRENCY"); v != "" {
+		val, err := strconv.Atoi(v)
+		if err != nil {
+			// Log error and use default
+			logrus.WithError(err).Warn("invalid REPLICATION_CONCURRENCY, using default 10")
+			return 10
+		}
+		if val <= 0 {
+			logrus.Warn("REPLICATION_CONCURRENCY must be positive, using default 10")
+			return 10
+		}
+		return val
+	}
+	return 10
+}
 
 // Copier for shard replicas, can copy a shard replica from one node to another.
 type Copier struct {
