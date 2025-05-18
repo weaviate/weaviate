@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
@@ -219,11 +220,19 @@ func (s *ShardReplicationFSM) GetStatusByOps() map[ShardReplicationOp]ShardRepli
 // 2. The operation is cancelled or ready and should be deleted, meaning that the operation is finished and should be removed from the FSM
 func (s ShardReplicationOpStatus) ShouldConsumeOps() bool {
 	state := s.GetCurrentState()
-	return (
-	// Check if op is not in cancelled or ready state -> we schedule it
-	(state != api.CANCELLED && state != api.READY) ||
-		// If op is in cancelled or ready state, only schedule it if it should be deleted
-		(state == api.CANCELLED || state == api.READY) && s.ShouldDelete)
+	// Check if op is cancelled or ready state
+	if state == api.CANCELLED || state == api.READY {
+		// only schedule it if it should be deleted
+		return s.ShouldDelete
+	}
+	// Check whether there have been any errors
+	howManyErrors := len(s.GetHistory())
+	if howManyErrors == 0 {
+		return true
+	}
+	// The op should be produced with exponential backoff on any errors
+	timeToWait := 2 ^ len(s.GetHistory())
+	return time.Now().After(s.GetCurrent().WhenLastErrored.Add(time.Duration(timeToWait) * time.Second))
 }
 
 func (s *ShardReplicationFSM) GetOpState(op ShardReplicationOp) (ShardReplicationOpStatus, bool) {

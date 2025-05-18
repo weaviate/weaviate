@@ -13,6 +13,7 @@ package replication
 
 import (
 	"errors"
+	"time"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -29,6 +30,9 @@ type State struct {
 	State api.ShardReplicationState
 	// Errors is the list of errors that occurred during this state
 	Errors []string
+	// whenLastErrored stores the time that the latest error ocurred
+	// This is used to determine the backoff time for the next producer channel push
+	WhenLastErrored time.Time
 }
 
 // StateHistory is the history of the state changes of the shard replication operation
