@@ -386,6 +386,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			if err := c.checkCancelled(logger, op); err != nil {
 				return api.ShardReplicationState(""), backoff.Permanent(fmt.Errorf("error while checking if op is cancelled: %w", err))
 			}
+			logger.WithError(err).Warn("state transition handler failed")
 			// Otherwise, register the error with the FSM
 			err = c.leaderClient.ReplicationRegisterError(op.Op.ID, err.Error())
 			if err != nil {
