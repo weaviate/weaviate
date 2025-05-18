@@ -1135,6 +1135,8 @@ func TestConsumerOpDuplication(t *testing.T) {
 				if time.Since(start) > 20*time.Second {
 					break
 				}
+				time.Sleep(1 * time.Second)
+				// Simulate a long-running operation
 			}
 			return nil
 		}).Times(1)
