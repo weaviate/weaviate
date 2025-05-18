@@ -222,13 +222,13 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 		c.ongoingOps.CancelAll()
 
 		// Wait for pending operations to complete
-		c := make(chan struct{})
-		go func() {
-			defer close(c)
+		ch := make(chan struct{})
+		enterrors.GoWrapper(func() {
+			defer close(ch)
 			wg.Wait()
-		}()
+		}, c.logger)
 		select {
-		case <-c:
+		case <-ch:
 			return nil
 		case <-time.After(10 * time.Second):
 			return ctx.Err()
