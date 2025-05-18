@@ -270,7 +270,7 @@ func (s *ShardReplicationFSM) FilterOneShardReplicasWrite(collection string, sha
 
 	additionalWriteReplicas := []string{}
 	for _, op := range ops {
-		opState, ok := s.GetOpState(op)
+		opState, ok := s.statusById[op.ID]
 		if !ok {
 			continue
 		}
