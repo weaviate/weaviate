@@ -58,6 +58,14 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockFSMUpdater.EXPECT().
 			AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, "node2").
 			Return(uint64(0), nil)
+		mockFSMUpdater.EXPECT().
+			SyncShard(mock.Anything, "TestCollection", mock.Anything, "node1").
+			Return(uint64(0), nil).
+			Times(1)
+		mockFSMUpdater.EXPECT().
+			SyncShard(mock.Anything, "TestCollection", mock.Anything, "node2").
+			Return(uint64(0), nil).
+			Times(1)
 		mockReplicaCopier.EXPECT().
 			CopyReplica(
 				mock.Anything,
@@ -342,6 +350,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 			mockReplicaCopier.EXPECT().
 				RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+			mockFSMUpdater.EXPECT().
+				SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
 		}
 
 		var (
@@ -620,6 +630,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				mockFSMUpdater.EXPECT().
+					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
 				completionWg.Add(1)
 			} else {
 				require.False(t, opsCache.LoadOrStore(opID), "operation should not be stored twice in cache")
@@ -731,8 +743,9 @@ func TestConsumerOpCancellation(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationCancellationComplete(uint64(1)).
 		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything)
+	mockFSMUpdater.EXPECT().
+		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(0, nil)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once
@@ -848,8 +861,9 @@ func TestConsumerOpDeletion(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationRemoveReplicaOp(uint64(1)).
 		Return(nil)
-	mockReplicaCopier.EXPECT().
-		RemoveLocalReplica(mock.Anything, mock.Anything, mock.Anything)
+	mockFSMUpdater.EXPECT().
+		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		Return(0, nil)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once
@@ -996,7 +1010,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 		"node2",
 		&backoff.StopBackOff{},
 		replication.NewOpsCache(),
-		time.Second*10,
+		time.Second*30,
 		1,
 		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
@@ -1016,7 +1030,6 @@ func TestConsumerOpDuplication(t *testing.T) {
 	mockReplicaCopier.EXPECT().
 		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string) error {
-			// Simulate a long-running operation that checks for cancellation every loop
 			start := time.Now()
 			for {
 				if ctx.Err() != nil {
@@ -1062,6 +1075,8 @@ func TestConsumerOpDuplication(t *testing.T) {
 		Return(nil)
 	mockReplicaCopier.EXPECT().
 		RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mockFSMUpdater.EXPECT().
+		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
 
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
 	status := replication.NewShardReplicationStatus(api.HYDRATING)

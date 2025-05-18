@@ -222,6 +222,11 @@ func (st *Store) Apply(l *raft.Log) any {
 			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
 		}
 
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.SyncShard(&cmd, schemaOnly)
+		}
+
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
 		f = func() {
 			ret.Error = st.StoreSchemaV1()

@@ -86,6 +86,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
+					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.READY).
 					Run(func(opId uint64, state api.ShardReplicationState) {
 						wg.Done()
@@ -133,6 +136,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
 					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
+					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.READY).
@@ -185,6 +191,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
 					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
+					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.READY).
@@ -251,6 +260,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
+					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.READY).
 					Run(func(opId uint64, state api.ShardReplicationState) {
 						wg.Done()
@@ -294,6 +306,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
 					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
+					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.DEHYDRATING).
