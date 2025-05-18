@@ -441,6 +441,65 @@ func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) RunAndReturn(run
 	return _c
 }
 
+// SyncShard provides a mock function with given fields: ctx, collection, shard, nodeId
+func (_m *MockFSMUpdater) SyncShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error) {
+	ret := _m.Called(ctx, collection, shard, nodeId)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SyncShard")
+	}
+
+	var r0 uint64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (uint64, error)); ok {
+		return rf(ctx, collection, shard, nodeId)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) uint64); ok {
+		r0 = rf(ctx, collection, shard, nodeId)
+	} else {
+		r0 = ret.Get(0).(uint64)
+	}
+
+	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
+		r1 = rf(ctx, collection, shard, nodeId)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockFSMUpdater_SyncShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SyncShard'
+type MockFSMUpdater_SyncShard_Call struct {
+	*mock.Call
+}
+
+// SyncShard is a helper method to define mock.On call
+//   - ctx context.Context
+//   - collection string
+//   - shard string
+//   - nodeId string
+func (_e *MockFSMUpdater_Expecter) SyncShard(ctx interface{}, collection interface{}, shard interface{}, nodeId interface{}) *MockFSMUpdater_SyncShard_Call {
+	return &MockFSMUpdater_SyncShard_Call{Call: _e.mock.On("SyncShard", ctx, collection, shard, nodeId)}
+}
+
+func (_c *MockFSMUpdater_SyncShard_Call) Run(run func(ctx context.Context, collection string, shard string, nodeId string)) *MockFSMUpdater_SyncShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_SyncShard_Call) Return(_a0 uint64, _a1 error) *MockFSMUpdater_SyncShard_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockFSMUpdater_SyncShard_Call) RunAndReturn(run func(context.Context, string, string, string) (uint64, error)) *MockFSMUpdater_SyncShard_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // UpdateTenants provides a mock function with given fields: ctx, class, req
 func (_m *MockFSMUpdater) UpdateTenants(ctx context.Context, class string, req *api.UpdateTenantsRequest) (uint64, error) {
 	ret := _m.Called(ctx, class, req)

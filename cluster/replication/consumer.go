@@ -440,10 +440,14 @@ func (c *CopyOpConsumer) cancelOp(ctx context.Context, op ShardReplicationOpAndS
 		c.engineOpCallbacks.OnOpCancelled(c.nodeId)
 	}()
 
-	// If the operation should be cleaned up, remove the local replica
-	// Only not true if the state is READY and ShouldDelete is true
-	if op.Status.ShouldCleanup() {
-		c.replicaCopier.RemoveLocalReplica(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId)
+	// Ensure that the states of the shards on the nodes are in-sync with the state of the schema through a RAFT communication
+	// This handles cleaning up for ghost shards that are in the store but not in the schema that may have been created by index.getOptInitShard
+	// Both methods return early on error to avoid completing cancellation so that the op can be cleaned-up again on failure when it is cancelled again
+
+	if err := c.sync(ctx, op); err != nil {
+		logger.WithError(err).
+			WithField("op", op).
+			Error(fmt.Errorf("failure when syncing shards for op: %s", op.Op.UUID))
 	}
 
 	// If the operation is only being cancelled then notify the FSM so it can update its state
@@ -461,6 +465,16 @@ func (c *CopyOpConsumer) cancelOp(ctx context.Context, op ShardReplicationOpAndS
 		}
 		return
 	}
+}
+
+func (c *CopyOpConsumer) sync(ctx context.Context, op ShardReplicationOpAndStatus) error {
+	if _, err := c.leaderClient.SyncShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
+		return fmt.Errorf("failure while syncing replica shard: %w", err)
+	}
+	if _, err := c.leaderClient.SyncShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, op.Op.SourceShard.NodeId); err != nil {
+		return fmt.Errorf("failure while syncing replica shard: %w", err)
+	}
+	return nil
 }
 
 // processRegisteredOp is the state handler for the REGISTERED state.
@@ -566,10 +580,16 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	switch op.Op.TransferType {
 	case api.COPY:
 		if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
-			logger.WithError(err).Error("failure while reverting async replication locally")
+			logger.WithError(err).Error("failure while reverting async replication on local node")
 		}
 		if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
 			logger.WithError(err).Error("failure while removing async replication target node")
+		}
+		// sync the replica shard to ensure that the schema and store are consistent on each node
+		// In a COPY this happens now, in a MOVE this happens in the DEHYDRATING state
+		if err := c.sync(ctx, op); err != nil {
+			logger.WithError(err).Error("failure while syncing replica shard")
+			return api.ShardReplicationState(""), err
 		}
 		return api.READY, nil
 	case api.MOVE:
@@ -641,6 +661,12 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	}
 	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
 		logger.WithError(err).Error("failure while removing async replication target node")
+	}
+	// sync the replica shard to ensure that the schema and store are consistent on each node
+	// In a COPY this happens in the FINALIZING state, in a MOVE this happens now
+	if err := c.sync(ctx, op); err != nil {
+		logger.WithError(err).Error("failure while syncing replica shard")
+		return api.ShardReplicationState(""), err
 	}
 	return api.READY, nil
 }

@@ -24,6 +24,7 @@ import (
 
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 var (
@@ -455,6 +456,62 @@ func (s *SchemaManager) UpdateTenantsProcess(cmd *command.ApplyRequest, schemaOn
 			updateSchema: func() error { return s.schema.updateTenantsProcess(cmd.Class, cmd.Version, req) },
 			updateStore:  func() error { return s.db.UpdateTenantsProcess(cmd.Class, req) },
 			schemaOnly:   schemaOnly,
+		},
+	)
+}
+
+func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.SyncShardRequest{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	if req.NodeId != s.schema.nodeID {
+		return nil
+	}
+
+	return s.apply(
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return nil },
+			updateStore: func() error {
+				return s.schema.Read(req.Collection, func(class *models.Class, state *sharding.State) error {
+					physical, ok := state.Physical[req.Shard]
+					// shard does not exist in the sharding state
+					if !ok {
+						// TODO: can we guarantee that the shard is not in use?
+						// If so we should call s.db.DropShard(cmd.Class, req.Shard) here instead
+						// For now, to be safe and avoid data loss, we just shut it down
+						s.db.ShutdownShard(cmd.Class, req.Shard)
+						// return early
+						return nil
+					}
+					// collection is single-tenant and shard is present
+					if !state.PartitioningEnabled {
+						// load it
+						s.db.LoadShard(cmd.Class, req.Shard)
+						// return early
+						return nil
+					}
+					// collection has multi-tenancy enabled and shard is present
+					switch physical.ActivityStatus() {
+					// tenant is active
+					case models.TenantActivityStatusACTIVE:
+						// load it
+						s.db.LoadShard(cmd.Class, req.Shard)
+					// tenant is inactive
+					case models.TenantActivityStatusINACTIVE:
+						// shut it down
+						s.db.ShutdownShard(cmd.Class, req.Shard)
+					// tenant is in some other state
+					default:
+						// do nothing
+
+					}
+					return nil
+				})
+			},
+			schemaOnly: schemaOnly,
 		},
 	)
 }
