@@ -71,6 +71,8 @@ CreateUserParams contains all the parameters to send to the API endpoint
 	Typically these are written to a http.Request.
 */
 type CreateUserParams struct {
+	// Body.
+	Body CreateUserBody
 
 	/* UserID.
 
@@ -131,6 +133,17 @@ func (o *CreateUserParams) SetHTTPClient(client *http.Client) {
 	o.HTTPClient = client
 }
 
+// WithBody adds the body to the create user params
+func (o *CreateUserParams) WithBody(body CreateUserBody) *CreateUserParams {
+	o.SetBody(body)
+	return o
+}
+
+// SetBody adds the body to the create user params
+func (o *CreateUserParams) SetBody(body CreateUserBody) {
+	o.Body = body
+}
+
 // WithUserID adds the userID to the create user params
 func (o *CreateUserParams) WithUserID(userID string) *CreateUserParams {
 	o.SetUserID(userID)
@@ -144,11 +157,13 @@ func (o *CreateUserParams) SetUserID(userID string) {
 
 // WriteToRequest writes these params to a swagger request
 func (o *CreateUserParams) WriteToRequest(r runtime.ClientRequest, reg strfmt.Registry) error {
-
 	if err := r.SetTimeout(o.timeout); err != nil {
 		return err
 	}
 	var res []error
+	if err := r.SetBodyParam(o.Body); err != nil {
+		return err
+	}
 
 	// path param user_id
 	if err := r.SetPathParam("user_id", o.UserID); err != nil {

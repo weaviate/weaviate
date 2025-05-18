@@ -260,6 +260,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.dynUserManager.ActivateUser(&cmd)
 		}
+	case api.ApplyRequest_TYPE_CREATE_USER_WITH_KEY:
+		f = func() {
+			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
+		}
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart

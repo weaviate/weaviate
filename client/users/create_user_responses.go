@@ -17,11 +17,13 @@ package users
 // Editing this file might prove futile when you re-run the swagger generate command
 
 import (
+	"context"
 	"fmt"
 	"io"
 
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -138,7 +140,6 @@ func (o *CreateUserCreated) GetPayload() *models.UserAPIKey {
 }
 
 func (o *CreateUserCreated) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.UserAPIKey)
 
 	// response payload
@@ -206,7 +207,6 @@ func (o *CreateUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -227,8 +227,7 @@ CreateUserUnauthorized describes a response with status code 401, with default h
 
 Unauthorized or invalid credentials.
 */
-type CreateUserUnauthorized struct {
-}
+type CreateUserUnauthorized struct{}
 
 // IsSuccess returns true when this create user unauthorized response has a 2xx status code
 func (o *CreateUserUnauthorized) IsSuccess() bool {
@@ -269,7 +268,6 @@ func (o *CreateUserUnauthorized) String() string {
 }
 
 func (o *CreateUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	return nil
 }
 
@@ -330,7 +328,6 @@ func (o *CreateUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -398,7 +395,6 @@ func (o *CreateUserConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -466,7 +462,6 @@ func (o *CreateUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -534,7 +529,6 @@ func (o *CreateUserInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -542,5 +536,42 @@ func (o *CreateUserInternalServerError) readResponse(response runtime.ClientResp
 		return err
 	}
 
+	return nil
+}
+
+/*
+CreateUserBody create user body
+swagger:model CreateUserBody
+*/
+type CreateUserBody struct {
+	// import API key - this parameter exists only temporarily. Do not use
+	APIKey string `json:"api_key,omitempty"`
+}
+
+// Validate validates this create user body
+func (o *CreateUserBody) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this create user body based on context it is used
+func (o *CreateUserBody) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *CreateUserBody) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *CreateUserBody) UnmarshalBinary(b []byte) error {
+	var res CreateUserBody
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
 	return nil
 }

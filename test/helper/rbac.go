@@ -80,6 +80,7 @@ func GetUserForRolesBoth(t *testing.T, roleName, key string) []*authz.GetUsersFo
 }
 
 func GetInfoForOwnUser(t *testing.T, key string) *models.UserOwnInfo {
+	t.Helper()
 	resp, err := Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
@@ -119,6 +120,17 @@ func GetUserWithLastUsedTime(t *testing.T, userId, key string, lastUsedTime bool
 func CreateUser(t *testing.T, userId, key string) string {
 	t.Helper()
 	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp)
+	require.NotNil(t, resp.Payload)
+	require.NotNil(t, resp.Payload.Apikey)
+	return *resp.Payload.Apikey
+}
+
+func CreateUserWithApiKey(t *testing.T, userId, apiKey, key string) string {
+	t.Helper()
+	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{APIKey: apiKey}), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	require.NotNil(t, resp)
