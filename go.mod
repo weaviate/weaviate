@@ -16,6 +16,7 @@ require (
 	github.com/buger/jsonparser v1.1.1
 	github.com/casbin/casbin/v2 v2.103.0
 	github.com/cenkalti/backoff/v4 v4.3.0
+	github.com/cenkalti/backoff/v5 v5.0.2
 	github.com/coreos/go-oidc/v3 v3.12.0
 	github.com/danaugrs/go-tsne v0.0.0-20200708172100-6b7d1d577fd3
 	github.com/davecgh/go-spew v1.1.2-0.20180830191138-d8f796af33cc

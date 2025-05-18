@@ -69,6 +69,10 @@ type CopyOpConsumer struct {
 	// It is used to prevent duplicate operations from being processed.
 	ongoingOps *OpsCache
 
+	// opsGateway is used to keep track of when task were executed and when we can retry or continue their execution next
+	// It is used to ensure we backoff when retrying ops and avoid thundering herd problems
+	opsGateway *OpsGateway
+
 	// leaderClient is responsible for interacting with the FSM to update the state of replication operations.
 	// It is used to update the status of operations during the replication process (e.g. update to HYDRATING state).
 	leaderClient types.FSMUpdater
@@ -139,6 +143,7 @@ func NewCopyOpConsumer(
 		engineOpCallbacks:           engineOpCallbacks,
 		asyncReplicationMinimumWait: asyncReplicationMinimumWait,
 		schemaReader:                schemaReader,
+		opsGateway:                  NewOpsGateway(),
 	}
 	return c
 }
@@ -196,6 +201,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			if c.stopped.Load() {
 				continue
 			}
+			logger := getLoggerForOpAndStatus(c.logger.Logger, op.Op, op.Status)
 
 			// If the operation has been scheduled for cancellation or deletion
 			// This is done outside of the worker goroutine, and therefore without acquiring a token, so that
@@ -204,7 +210,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			if op.Status.ShouldCancel && !c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 				// Update the cache to mark the operation as cancelled
 				c.ongoingOps.StoreHasBeenCancelled(op.Op.ID)
-				c.logger.WithFields(logrus.Fields{"op": op}).Debug("cancelled the replication op")
+				logger.Debug("cancelled the replication op")
 				if c.ongoingOps.InFlight(op.Op.ID) {
 					// Cancel the in-flight operation
 					// Is a noop, returns false if the op doesn't exist
@@ -213,6 +219,11 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					continue
 				}
 				// Otherwise, the operation is not in-flight and should therefore be processed in a worker where clean-up happens
+			}
+
+			if ok, next := c.opsGateway.CanSchedule(op.Op.ID); !ok {
+				logger.WithFields(logrus.Fields{"next": next}).Debug("replication op skipped as not ready to schedule")
+				continue
 			}
 
 			c.engineOpCallbacks.OnOpPending(c.nodeId)
@@ -255,6 +266,8 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 				// Need to release the token to let other consumers process queued replication operations.
 				if shouldSkip {
+					opLogger.Debug("replication op skipped as already running")
+					// Need to release the token to let other consumers process queued replication operations.
 					<-c.tokens
 					c.ongoingOps.DeleteInFlight(op.Op.ID)
 					c.engineOpCallbacks.OnOpSkipped(c.nodeId)
@@ -262,6 +275,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 				}
 
 				wg.Add(1)
+				c.opsGateway.ScheduleNow(op.Op.ID)
 				c.engineOpCallbacks.OnOpStart(c.nodeId)
 
 				enterrors.GoWrapper(func() {
@@ -290,14 +304,19 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 					err := c.dispatchReplicationOp(opCtx, operation)
 					if err == nil {
+						c.opsGateway.RegisterFinished(op.Op.ID)
 						c.engineOpCallbacks.OnOpComplete(c.nodeId)
 						return
+					} else {
+						c.opsGateway.RegisterFailure(op.Op.ID)
 					}
+
 					if errors.Is(err, context.DeadlineExceeded) {
 						c.engineOpCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation timed out")
 						return
 					}
+					// TODO: Refactor this error handling
 					if errors.Is(err, context.Canceled) && c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 						opLogger.WithError(err).Debug("replication operation cancelled")
 						c.cancelOp(workerCtx, operation, opLogger)
