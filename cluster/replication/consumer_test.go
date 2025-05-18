@@ -1075,6 +1075,8 @@ func TestConsumerOpDuplication(t *testing.T) {
 		Return(nil)
 	mockReplicaCopier.EXPECT().
 		RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mockFSMUpdater.EXPECT().
+		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
 
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
 	status := replication.NewShardReplicationStatus(api.HYDRATING)
