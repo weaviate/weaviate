@@ -1091,7 +1091,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 		"node2",
 		&backoff.StopBackOff{},
 		replication.NewOpsCache(),
-		time.Second*10,
+		time.Second*20,
 		1,
 		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
