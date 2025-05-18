@@ -164,3 +164,11 @@ type ReplicationQueryShardingStateByCollectionAndShardRequest struct {
 type ReplicationDeleteAllRequest struct {
 	Version int
 }
+
+type ReplicationOperationStateRequest struct {
+	Id uint64
+}
+
+type ReplicationOperationStateResponse struct {
+	State ShardReplicationState
+}
