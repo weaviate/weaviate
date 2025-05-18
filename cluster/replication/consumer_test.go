@@ -819,7 +819,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 		}), "node1", true, false)
 
 	mockFSMUpdater.EXPECT().
-		ReplicationCancellationComplete(uint64(1)).
+		ReplicationCancellationComplete(mock.Anything, uint64(1)).
 		Return(nil)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -949,7 +949,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 		}), "node1", true, false)
 
 	mockFSMUpdater.EXPECT().
-		ReplicationRemoveReplicaOp(uint64(1)).
+		ReplicationRemoveReplicaOp(mock.Anything, uint64(1)).
 		Return(nil)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
