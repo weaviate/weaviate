@@ -64,13 +64,13 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
@@ -116,13 +116,13 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
@@ -164,20 +164,20 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(fmt.Errorf("failed to copy replica")).
 					Times(1)
 				mockFSMUpdater.EXPECT().
 					ReplicationRegisterError(uint64(opId), fmt.Errorf("failed to copy replica").Error()).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
@@ -219,7 +219,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
@@ -232,7 +232,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
 					Return(fmt.Errorf("failed to set async replication target node")).
 					Times(1)
 				mockReplicaCopier.EXPECT().
@@ -245,7 +245,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationRegisterError(uint64(opId), fmt.Errorf("failed to set async replication target node").Error()).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				// Async replication status triggers an internal retry and doesn't register an error
 				mockReplicaCopier.EXPECT().
@@ -286,13 +286,13 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+					AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
@@ -335,6 +335,13 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			logger, _ := logrustest.NewNullLogger()
 			mockFSMUpdater := types.NewMockFSMUpdater(t)
 			mockReplicaCopier := types.NewMockReplicaCopier(t)
+			reg := prometheus.NewPedanticRegistry()
+			parser := fakes.NewMockParser()
+			parser.On("ParseClass", mock.Anything).Return(nil)
+			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+			schemaReader := schemaManager.NewSchemaReader()
+			manager := replication.NewManager(schemaReader, reg)
+
 			ctx := t.Context()
 			replicateRequest := &api.ReplicationReplicateShardRequest{
 				Uuid:             strfmt.UUID(uuid.New().String()),
@@ -356,15 +363,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				1,
 				runtime.NewDynamicValue(time.Second*100),
 				metrics.NewReplicationEngineOpsCallbacksBuilder().Build(),
+				schemaReader,
 			)
 			tc.setupMocksFunc(&wg, mockFSMUpdater, mockReplicaCopier)
 
-			reg := prometheus.NewPedanticRegistry()
-			parser := fakes.NewMockParser()
-			parser.On("ParseClass", mock.Anything).Return(nil)
-			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
-			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, reg)
 			producer := replication.NewFSMOpProducer(logger, manager.GetReplicationFSM(), time.Second*1, replicateRequest.TargetNode)
 
 			// Setup the class + shard in the schema
@@ -413,7 +415,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			err = <-producerDoneChan
 			require.ErrorIs(t, err, context.Canceled)
 			err = <-consumerDoneChan
-			require.ErrorIs(t, err, context.Canceled)
+			require.NoError(t, err)
 
 			// Assert that the mock expectations were met
 			mockFSMUpdater.AssertExpectations(t)

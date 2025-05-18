@@ -198,6 +198,7 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.ErrorIs(t, srv.store.WaitForAppliedIndex(ctx, time.Millisecond*10, srv.store.lastAppliedIndex.Load()+1), types.ErrDeadlineExceeded)
 
 	// DeleteClass
+	m.replicationFSM.EXPECT().DeleteReplicationsByCollection(Anything).Return(nil).Times(2)
 	_, err = srv.DeleteClass(ctx, "X")
 	assert.Nil(t, err)
 	_, err = srv.DeleteClass(ctx, "C")
@@ -320,6 +321,7 @@ func TestRaftEndpoints(t *testing.T) {
 	assert.Nil(t, err)
 
 	// DeleteTenants
+	m.replicationFSM.EXPECT().DeleteReplicationsByTenants(Anything, Anything).Return(nil)
 	_, err = srv.DeleteTenants(ctx, "", &command.DeleteTenantsRequest{})
 	assert.ErrorIs(t, err, schema.ErrBadRequest)
 	version, err = srv.DeleteTenants(ctx, "C", &command.DeleteTenantsRequest{Tenants: []string{"T0", "Tn"}})

@@ -313,6 +313,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.replicationManager.DeleteReplicationsByTenants(&cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION:
+		f = func() {
+			ret.Error = st.replicationManager.StoreSchemaVersion(&cmd)
+		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		f = func() {

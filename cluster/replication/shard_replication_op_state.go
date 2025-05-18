@@ -20,7 +20,7 @@ import (
 var ErrMaxErrorsReached = errors.New("max errors reached")
 
 const (
-	MaxErrors = 1000
+	MaxErrors = 50
 )
 
 // State is the status of a shard replication operation
@@ -37,6 +37,11 @@ type StateHistory []State
 
 // ShardReplicationOpStatus is the status of a shard replication operation as well as the history of the state changes and their associated errors (if any)
 type ShardReplicationOpStatus struct {
+	// SchemaVersion is the minimum schema version that the shard replication operation can safely proceed with
+	// It's necessary to track this because the schema version is not always the same across multiple nodes due to EC issues with RAFT.
+	// By communicating it with remote nodes, we can ensure that they will wait for the schema version to be the same or greater before proceeding with the operation.
+	SchemaVersion uint64
+
 	// Current is the current state of the shard replication operation
 	Current State
 
