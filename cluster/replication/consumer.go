@@ -283,7 +283,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					// being processed, we need to cancel it in the FSM and return
 					if c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 						c.logger.WithFields(logrus.Fields{"op": operation}).Debug("replication op cancelled, stopping replication operation")
-						c.cancelOp(workerCtx, operation, opLogger)
+						c.cancelOp(operation, opLogger)
 						return
 					}
 
@@ -305,12 +305,12 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					}
 					if errors.Is(err, context.Canceled) && c.ongoingOps.HasBeenCancelled(op.Op.ID) {
 						opLogger.WithError(err).Debug("replication operation cancelled")
-						c.cancelOp(workerCtx, operation, opLogger)
+						c.cancelOp(operation, opLogger)
 						return
 					}
 					if errors.Is(err, errOpCancelled) {
 						opLogger.WithError(err).Debug("replication operation cancelled")
-						c.cancelOp(workerCtx, operation, opLogger)
+						c.cancelOp(operation, opLogger)
 						return
 					}
 					c.engineOpCallbacks.OnOpFailed(c.nodeId)
@@ -434,7 +434,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 //
 // It exists outside of the formal state machine to allow for cancellation of operations that are in progress
 // or have been cancelled but not yet processed without introducing new intermediate states to the FSM.
-func (c *CopyOpConsumer) cancelOp(ctx context.Context, op ShardReplicationOpAndStatus, logger *logrus.Entry) {
+func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus.Entry) {
 	defer func() {
 		c.ongoingOps.DeleteHasBeenCancelled(op.Op.ID)
 		c.engineOpCallbacks.OnOpCancelled(c.nodeId)
@@ -444,7 +444,7 @@ func (c *CopyOpConsumer) cancelOp(ctx context.Context, op ShardReplicationOpAndS
 	// This handles cleaning up for ghost shards that are in the store but not in the schema that may have been created by index.getOptInitShard
 	// Both methods return early on error to avoid completing cancellation so that the op can be cleaned-up again on failure when it is cancelled again
 
-	if err := c.sync(ctx, op); err != nil {
+	if err := c.sync(context.Background(), op); err != nil {
 		logger.WithError(err).
 			WithField("op", op).
 			Error(fmt.Errorf("failure when syncing shards for op: %s", op.Op.UUID))
