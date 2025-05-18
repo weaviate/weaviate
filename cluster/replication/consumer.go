@@ -376,7 +376,6 @@ func (c *CopyOpConsumer) cancelOp(ctx context.Context, op ShardReplicationOpAndS
 		logger.WithError(err).
 			WithField("op", op).
 			Error(fmt.Errorf("failure when syncing shards for op: %s", op.Op.UUID))
-		return
 	}
 
 	// If the operation is only being cancelled then notify the FSM so it can update its state
