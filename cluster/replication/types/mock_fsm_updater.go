@@ -152,17 +152,17 @@ func (_c *MockFSMUpdater_DeleteReplicaFromShard_Call) RunAndReturn(run func(cont
 	return _c
 }
 
-// ReplicationCancellationComplete provides a mock function with given fields: id
-func (_m *MockFSMUpdater) ReplicationCancellationComplete(id uint64) error {
-	ret := _m.Called(id)
+// ReplicationCancellationComplete provides a mock function with given fields: ctx, id
+func (_m *MockFSMUpdater) ReplicationCancellationComplete(ctx context.Context, id uint64) error {
+	ret := _m.Called(ctx, id)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicationCancellationComplete")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(uint64) error); ok {
-		r0 = rf(id)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) error); ok {
+		r0 = rf(ctx, id)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -176,14 +176,15 @@ type MockFSMUpdater_ReplicationCancellationComplete_Call struct {
 }
 
 // ReplicationCancellationComplete is a helper method to define mock.On call
+//   - ctx context.Context
 //   - id uint64
-func (_e *MockFSMUpdater_Expecter) ReplicationCancellationComplete(id interface{}) *MockFSMUpdater_ReplicationCancellationComplete_Call {
-	return &MockFSMUpdater_ReplicationCancellationComplete_Call{Call: _e.mock.On("ReplicationCancellationComplete", id)}
+func (_e *MockFSMUpdater_Expecter) ReplicationCancellationComplete(ctx interface{}, id interface{}) *MockFSMUpdater_ReplicationCancellationComplete_Call {
+	return &MockFSMUpdater_ReplicationCancellationComplete_Call{Call: _e.mock.On("ReplicationCancellationComplete", ctx, id)}
 }
 
-func (_c *MockFSMUpdater_ReplicationCancellationComplete_Call) Run(run func(id uint64)) *MockFSMUpdater_ReplicationCancellationComplete_Call {
+func (_c *MockFSMUpdater_ReplicationCancellationComplete_Call) Run(run func(ctx context.Context, id uint64)) *MockFSMUpdater_ReplicationCancellationComplete_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64))
+		run(args[0].(context.Context), args[1].(uint64))
 	})
 	return _c
 }
@@ -193,7 +194,7 @@ func (_c *MockFSMUpdater_ReplicationCancellationComplete_Call) Return(_a0 error)
 	return _c
 }
 
-func (_c *MockFSMUpdater_ReplicationCancellationComplete_Call) RunAndReturn(run func(uint64) error) *MockFSMUpdater_ReplicationCancellationComplete_Call {
+func (_c *MockFSMUpdater_ReplicationCancellationComplete_Call) RunAndReturn(run func(context.Context, uint64) error) *MockFSMUpdater_ReplicationCancellationComplete_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -301,17 +302,17 @@ func (_c *MockFSMUpdater_ReplicationRegisterError_Call) RunAndReturn(run func(ui
 	return _c
 }
 
-// ReplicationRemoveReplicaOp provides a mock function with given fields: id
-func (_m *MockFSMUpdater) ReplicationRemoveReplicaOp(id uint64) error {
-	ret := _m.Called(id)
+// ReplicationRemoveReplicaOp provides a mock function with given fields: ctx, id
+func (_m *MockFSMUpdater) ReplicationRemoveReplicaOp(ctx context.Context, id uint64) error {
+	ret := _m.Called(ctx, id)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicationRemoveReplicaOp")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(uint64) error); ok {
-		r0 = rf(id)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) error); ok {
+		r0 = rf(ctx, id)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -325,14 +326,15 @@ type MockFSMUpdater_ReplicationRemoveReplicaOp_Call struct {
 }
 
 // ReplicationRemoveReplicaOp is a helper method to define mock.On call
+//   - ctx context.Context
 //   - id uint64
-func (_e *MockFSMUpdater_Expecter) ReplicationRemoveReplicaOp(id interface{}) *MockFSMUpdater_ReplicationRemoveReplicaOp_Call {
-	return &MockFSMUpdater_ReplicationRemoveReplicaOp_Call{Call: _e.mock.On("ReplicationRemoveReplicaOp", id)}
+func (_e *MockFSMUpdater_Expecter) ReplicationRemoveReplicaOp(ctx interface{}, id interface{}) *MockFSMUpdater_ReplicationRemoveReplicaOp_Call {
+	return &MockFSMUpdater_ReplicationRemoveReplicaOp_Call{Call: _e.mock.On("ReplicationRemoveReplicaOp", ctx, id)}
 }
 
-func (_c *MockFSMUpdater_ReplicationRemoveReplicaOp_Call) Run(run func(id uint64)) *MockFSMUpdater_ReplicationRemoveReplicaOp_Call {
+func (_c *MockFSMUpdater_ReplicationRemoveReplicaOp_Call) Run(run func(ctx context.Context, id uint64)) *MockFSMUpdater_ReplicationRemoveReplicaOp_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64))
+		run(args[0].(context.Context), args[1].(uint64))
 	})
 	return _c
 }
@@ -342,7 +344,7 @@ func (_c *MockFSMUpdater_ReplicationRemoveReplicaOp_Call) Return(_a0 error) *Moc
 	return _c
 }
 
-func (_c *MockFSMUpdater_ReplicationRemoveReplicaOp_Call) RunAndReturn(run func(uint64) error) *MockFSMUpdater_ReplicationRemoveReplicaOp_Call {
+func (_c *MockFSMUpdater_ReplicationRemoveReplicaOp_Call) RunAndReturn(run func(context.Context, uint64) error) *MockFSMUpdater_ReplicationRemoveReplicaOp_Call {
 	_c.Call.Return(run)
 	return _c
 }

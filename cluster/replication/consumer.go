@@ -440,12 +440,15 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 		c.ongoingOps.DeleteHasBeenCancelled(op.Op.ID)
 		c.engineOpCallbacks.OnOpCancelled(c.nodeId)
 	}()
+	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(ctx, 20*time.Second) // Ensure sync shards timesout reasonbly in case of hang
+	defer cancel()
 
 	// Ensure that the states of the shards on the nodes are in-sync with the state of the schema through a RAFT communication
 	// This handles cleaning up for ghost shards that are in the store but not in the schema that may have been created by index.getOptInitShard
 	// Both methods return early on error to avoid completing cancellation so that the op can be cleaned-up again on failure when it is cancelled again
 
-	if err := c.sync(context.Background(), op); err != nil {
+	if err := c.sync(ctx, op); err != nil {
 		logger.WithError(err).
 			WithField("op", op).
 			Error(fmt.Errorf("failure when syncing shards for op: %s", op.Op.UUID))
@@ -453,7 +456,7 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 
 	// If the operation is only being cancelled then notify the FSM so it can update its state
 	if op.Status.OnlyCancellation() {
-		if err := c.leaderClient.ReplicationCancellationComplete(op.Op.ID); err != nil {
+		if err := c.leaderClient.ReplicationCancellationComplete(ctx, op.Op.ID); err != nil {
 			logger.WithError(err).Error("failure while completing cancellation of replica operation")
 		}
 		return
@@ -461,7 +464,7 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 
 	// If the operation is being deleted then remove it from the FSM
 	if op.Status.ShouldDelete {
-		if err := c.leaderClient.ReplicationRemoveReplicaOp(op.Op.ID); err != nil {
+		if err := c.leaderClient.ReplicationRemoveReplicaOp(ctx, op.Op.ID); err != nil {
 			logger.WithError(err).Error("failure while deleting replica operation")
 		}
 		return
@@ -696,7 +699,7 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 		logger.WithError(err).Error("failure while reverting async replication locally")
 	}
 
-	if err := c.leaderClient.ReplicationRemoveReplicaOp(op.Op.ID); err != nil {
+	if err := c.leaderClient.ReplicationRemoveReplicaOp(ctx, op.Op.ID); err != nil {
 		logger.WithError(err).Error("failure while removing replica operation")
 		return api.ShardReplicationState(""), err
 	}
