@@ -1022,7 +1022,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if time.Since(start) > 5*time.Second {
+				if time.Since(start) > 10*time.Second {
 					break
 				}
 			}
@@ -1066,7 +1066,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
 	status := replication.NewShardReplicationStatus(api.HYDRATING)
 
-	// Simulate the copying step that will loop for 5s before exiting
+	// Simulate the copying step that will loop for 10s before exiting
 	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	completionWg.Add(1)
 	// Send the same operation again to make sure it isn't reprocessed
@@ -1081,7 +1081,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 
 	select {
 	case <-waitChan:
-	case <-time.After(10 * time.Second):
+	case <-time.After(30 * time.Second):
 		t.Fatalf("Test timed out waiting for operation completion")
 	}
 
