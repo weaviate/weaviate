@@ -179,13 +179,34 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			// running replication operations and avoids overloading the system.
 			case c.tokens <- struct{}{}:
 
-				// Check if the operation is already in progress
+				shouldSkip := false
 				if c.ongoingOps.LoadOrStore(op.Op.ID) {
+					// Check if the operation is already in progress
 					// Avoid scheduling unnecessary work or incorrectly counting metrics
 					// for operations that are already in progress or completed.
 					c.logger.WithFields(logrus.Fields{"op": op}).Debug("replication op skipped as already running")
-					// Need to release the token to let other consumers process queued replication operations.
+					shouldSkip = true
+				} else {
+					// Check if the operation has had its state changed between being added to the channel and being processed
+					// This is chatty and will likely cause a lot of unnecessary load on the leader
+					// For now, we need it to ensure eventual consistency between the FSM and the consumer
+					state, err := c.leaderClient.ReplicationGetReplicaOpStatus(op.Op.ID)
+					if err != nil {
+						c.logger.WithFields(logrus.Fields{"op": op}).Error("error while checking status of replication op")
+						shouldSkip = true
+					} else if state.String() != op.Status.GetCurrent().State.String() {
+						c.logger.WithFields(logrus.Fields{"op": op}).Debug("replication op skipped as state has changed")
+						shouldSkip = true
+					}
+				}
+				// TODO: Consider more optimal ways of checking that the state of the op has not changed between it being added to the channel
+				// and being processed here. Could use in-memory solution, e.g. using cache, or refactor consumer-producer to be event/notification-based
+				// For now, ensure consistency by checking the FSM through the leader
+
+				// Need to release the token to let other consumers process queued replication operations.
+				if shouldSkip {
 					<-c.tokens
+					c.ongoingOps.DeleteInFlight(op.Op.ID)
 					c.engineOpCallbacks.OnOpSkipped(c.nodeId)
 					continue
 				}
@@ -445,7 +466,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	// ensure async replication is started on local (target) node
 	if err := c.replicaCopier.InitAsyncReplicationLocally(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
-		logger.WithError(err).Error("failure while initializing async replication on local node")
+		logger.WithError(err).Error("failure while initializing async replication on local node while finalizing")
 		return api.ShardReplicationState(""), err
 	}
 
@@ -467,7 +488,14 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	do := func() bool {
 		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
-		c.logger.WithFields(logrus.Fields{"err": err, "objects_propagated": asyncReplicationStatus.ObjectsPropagated, "start_diff_time_unix_millis": asyncReplicationStatus.StartDiffTimeUnixMillis, "upper_time_bound_unix_millis": asyncReplicationUpperTimeBoundUnixMillis}).Info("async replication status")
+		asyncReplicationIsPastUpperTimeBound := asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
+		logger.WithFields(logrus.Fields{
+			"err":                                     err,
+			"objects_propagated":                      asyncReplicationStatus.ObjectsPropagated,
+			"start_diff_time_unix_millis":             asyncReplicationStatus.StartDiffTimeUnixMillis,
+			"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
+			"async_replication_past_upper_time_bound": asyncReplicationIsPastUpperTimeBound,
+		}).Info("async replication finalizing status")
 		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
 	}
 
@@ -546,6 +574,14 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	defer c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride)
 	defer c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId)
 
+	// ensure async replication is started on local (target) node
+	// note that this is a no-op if async replication was already started in the finalizing step,
+	// but we're just trying to be defensive here and make sure it is actually started
+	if err := c.replicaCopier.InitAsyncReplicationLocally(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+		logger.WithError(err).Error("failure while initializing async replication on local node while dehydrating")
+		return api.ShardReplicationState(""), err
+	}
+
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
 		return api.ShardReplicationState(""), ctx.Err()
@@ -557,7 +593,14 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 
 	do := func() bool {
 		asyncReplicationStatus, err := c.replicaCopier.AsyncReplicationStatus(ctx, op.Op.SourceShard.NodeId, op.Op.TargetShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
-		c.logger.WithFields(logrus.Fields{"err": err, "objects_propagated": asyncReplicationStatus.ObjectsPropagated, "start_diff_time_unix_millis": asyncReplicationStatus.StartDiffTimeUnixMillis, "upper_time_bound_unix_millis": asyncReplicationUpperTimeBoundUnixMillis}).Info("async replication status")
+		asyncReplicationIsPastUpperTimeBound := asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
+		logger.WithFields(logrus.Fields{
+			"err":                                     err,
+			"objects_propagated":                      asyncReplicationStatus.ObjectsPropagated,
+			"start_diff_time_unix_millis":             asyncReplicationStatus.StartDiffTimeUnixMillis,
+			"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
+			"async_replication_past_upper_time_bound": asyncReplicationIsPastUpperTimeBound,
+		}).Info("async replication dehydrating status")
 		return err == nil && asyncReplicationStatus.ObjectsPropagated == 0 && asyncReplicationStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
 	}
 

@@ -54,6 +54,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
 				mockFSMUpdater.EXPECT().
+					ReplicationGetReplicaOpStatus(uint64(opId)).
+					Return(api.REGISTERED, nil).
+					Times(1)
+				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.HYDRATING).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
@@ -97,6 +101,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					ReplicationGetReplicaOpStatus(uint64(opId)).
+					Return(api.REGISTERED, nil).
+					Times(2) // equal to the op plus number of times the op failed
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.HYDRATING).
 					Return(fmt.Errorf("failed to update state")).
@@ -145,6 +153,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					ReplicationGetReplicaOpStatus(uint64(opId)).
+					Return(api.REGISTERED, nil).
+					Times(2) // equal to the op plus number of times the op failed
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.HYDRATING).
 					Return(nil)
@@ -196,6 +208,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					ReplicationGetReplicaOpStatus(uint64(opId)).
+					Return(api.REGISTERED, nil).
+					Times(4) // equal to the op plus number of times the op failed
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.HYDRATING).
 					Return(nil)
@@ -259,6 +275,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.MOVE,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					ReplicationGetReplicaOpStatus(uint64(opId)).
+					Return(api.REGISTERED, nil).
+					Times(1)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(uint64(opId), api.HYDRATING).
 					Return(nil)
