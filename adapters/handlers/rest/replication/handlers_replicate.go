@@ -73,7 +73,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 func (h *replicationHandler) getReplicationDetailsByReplicationId(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
 	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
-		if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Replications("*", "*")); err != nil {
+		if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Replications("*", "*")); err != nil {
 			return replication.NewReplicationDetailsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 		return h.handleOperationNotFoundError(params.ID, err)
@@ -81,7 +81,7 @@ func (h *replicationHandler) getReplicationDetailsByReplicationId(params replica
 		return h.handleInternalServerError(params.ID, err)
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Replications(response.Collection, response.ShardId)); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Replications(response.Collection, response.ShardId)); err != nil {
 		return replication.NewReplicationDetailsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -162,15 +162,12 @@ func (h *replicationHandler) handleInternalServerError(id strfmt.UUID, err error
 func (h *replicationHandler) deleteReplication(params replication.DeleteReplicationParams, principal *models.Principal) middleware.Responder {
 	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
-		if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Replications("*", "*")); err != nil {
-			return replication.NewDeleteReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-		}
 		return replication.NewDeleteReplicationNoContent()
 	} else if err != nil {
 		return replication.NewDeleteReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Replications(response.Collection, response.ShardId)); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Replications(response.Collection, response.ShardId)); err != nil {
 		return replication.NewDeleteReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -191,7 +188,7 @@ func (h *replicationHandler) deleteReplication(params replication.DeleteReplicat
 }
 
 func (h *replicationHandler) deleteAllReplications(_ replication.DeleteAllReplicationsParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Replications("*", "*")); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
 		return replication.NewDeleteAllReplicationsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -210,15 +207,12 @@ func (h *replicationHandler) deleteAllReplications(_ replication.DeleteAllReplic
 func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
 	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
-		if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Replications("*", "*")); err != nil {
-			return replication.NewCancelReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-		}
-		return replication.NewCancelReplicationNotFound()
+		return replication.NewCancelReplicationNoContent()
 	} else if err != nil {
 		return replication.NewCancelReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Replications(response.Collection, response.ShardId)); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Replications(response.Collection, response.ShardId)); err != nil {
 		return replication.NewCancelReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -239,7 +233,7 @@ func (h *replicationHandler) cancelReplication(params replication.CancelReplicat
 }
 
 func (h *replicationHandler) listReplication(params replication.ListReplicationParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Replications("*", "*")); err != nil {
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Replications("*", "*")); err != nil {
 		return replication.NewListReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
