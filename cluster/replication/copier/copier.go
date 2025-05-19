@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -121,7 +122,7 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 
 	err = c.validateLocalFolder(relativeFilePaths)
 	if err != nil {
-		return fmt.Errorf("failed to prepare local folder: %w", err)
+		return fmt.Errorf("failed to validate local folder: %w", err)
 	}
 
 	err = c.dbWrapper.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
@@ -138,21 +139,21 @@ func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
 		relativeFilePathsMap[path] = struct{}{}
 	}
 
-	filepath.Walk(c.rootDataPath, func(path string, info os.FileInfo, err error) error {
+	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 
-		if info.IsDir() {
+		if d.IsDir() {
 			return nil
 		}
 
-		relativeFilePath := filepath.Join(c.rootDataPath, info.Name())
+		relativeFilePath := filepath.Join(c.rootDataPath, d.Name())
 
 		if _, ok := relativeFilePathsMap[relativeFilePath]; !ok {
-			err := os.Remove(info.Name())
+			err := os.Remove(d.Name())
 			if err != nil {
-				return fmt.Errorf("removing local file %q not present in source node: %w", info.Name(), err)
+				return fmt.Errorf("removing local file %q not present in source node: %w", d.Name(), err)
 			}
 		}
 
@@ -163,7 +164,32 @@ func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
 }
 
 func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
-	// TODO : to be implemented
+	i := 0
+
+	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		if len(relativeFilePaths) < i {
+			return fmt.Errorf("unexpected: local folder has more files than source node")
+		}
+
+		localRelFilePath := filepath.Join(c.rootDataPath, d.Name())
+
+		if relativeFilePaths[i] != localRelFilePath {
+			return fmt.Errorf("unexpected: local folder contains unexpected content")
+		}
+
+		i++
+
+		return nil
+	})
+
 	return nil
 }
 
