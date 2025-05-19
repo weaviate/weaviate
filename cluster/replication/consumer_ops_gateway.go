@@ -28,6 +28,7 @@ type OpsScheduleMetadata struct {
 	nextSchedule  time.Time
 
 	executionAttempt uint64
+	m                sync.RWMutex
 	expBackoff       *backoff.ExponentialBackOff
 }
 
@@ -59,6 +60,9 @@ func (og *OpsGateway) CanSchedule(opId uint64) (bool, time.Time) {
 		// This should never happen
 		return false, time.Now()
 	}
+	metadata.m.RLock()
+	defer metadata.m.RUnlock()
+
 	return metadata.nextSchedule.Before(time.Now()), metadata.nextSchedule
 }
 
@@ -69,6 +73,9 @@ func (og *OpsGateway) ScheduleNow(opId uint64) {
 		// This should never happen
 		return
 	}
+	metadata.m.Lock()
+	defer metadata.m.Unlock()
+
 	metadata.lastScheduled = time.Now()
 	metadata.executionAttempt += 1
 	og.opsToMetadata.Store(opId, metadata)
@@ -89,6 +96,8 @@ func (og *OpsGateway) RegisterFailure(opId uint64) {
 		// This should never happen
 		return
 	}
+	metadata.m.Lock()
+	defer metadata.m.Unlock()
 
 	// The op just failed, let's backoff
 	metadata.nextSchedule = time.Now().Add(metadata.expBackoff.NextBackOff())
