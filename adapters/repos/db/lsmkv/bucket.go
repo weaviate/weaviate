@@ -1264,6 +1264,8 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	}
 
 	if b.shouldReuseWAL() {
+		b.active.Lock()
+		defer b.active.Unlock()
 		if b.active.writesSinceLastSync {
 			err := b.active.commitlog.sync()
 			if err != nil {
