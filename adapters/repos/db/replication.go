@@ -496,6 +496,20 @@ func (i *Index) IncomingRemoveAsyncReplicationTargetNode(ctx context.Context,
 	return shard.removeTargetNodeOverride(ctx, targetNodeOverride)
 }
 
+// IncomingAllRemoveAsyncReplicationTargetNodes removes all target node overrides for async
+// replication. Async replication will be reset to it's default configuration.
+func (i *Index) IncomingRemoveAllAsyncReplicationTargetNodes(ctx context.Context,
+	shardName string,
+) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil || shard == nil {
+		return fmt.Errorf("incoming remove all async replication target nodes get shard %s: %w", shardName, err)
+	}
+	defer release()
+
+	return shard.removeAllTargetNodeOverrides(ctx)
+}
+
 func (s *Shard) filePutter(ctx context.Context,
 	filePath string,
 ) (io.WriteCloser, error) {

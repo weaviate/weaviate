@@ -31,6 +31,48 @@ import (
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
 
+	http.HandleFunc(
+		"/debug/async-replication/remove-target-overrides",
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			collectionName := r.URL.Query().Get("collection")
+			if collectionName == "" {
+				http.Error(w, "collection is required", http.StatusBadRequest)
+				return
+			}
+			shardName := r.URL.Query().Get("shard")
+			if shardName == "" {
+				http.Error(w, "shard is required", http.StatusBadRequest)
+				return
+			}
+			timeoutStr := r.URL.Query().Get("timeout")
+			timeoutDuration := time.Hour
+			var err error
+			if timeoutStr != "" {
+				timeoutDuration, err = time.ParseDuration(timeoutStr)
+				if err != nil {
+					http.Error(w, "timeout duration has invalid format", http.StatusBadRequest)
+					return
+				}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
+			defer cancel()
+
+			idx := appState.DB.GetIndex(schema.ClassName(collectionName))
+			if idx == nil {
+				logger.WithField("collection", collectionName).Error("collection not found")
+				http.Error(w, "collection not found", http.StatusNotFound)
+				return
+			}
+			err = idx.IncomingRemoveAllAsyncReplicationTargetNodes(ctx, shardName)
+			if err != nil {
+				logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardName).
+					Warn("debug endpoint failed to remove all async replication target nodes")
+				http.Error(w, "failed to remove all async replication target nodes", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+		}))
+
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
 		if colName == "" {
