@@ -36,41 +36,37 @@ func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 		return out, err
 	}
 
-	sn, copied, err := s.segmentNodeFromBuffer(nodeOffset{node.Start, node.End})
+	sn, err := s.segmentNodeFromBuffer(nodeOffset{node.Start, node.End})
 	if err != nil {
 		return out, err
 	}
 
-	if copied {
-		out.Additions = sn.Additions()
-		out.Deletions = sn.Deletions()
-	} else {
-		// make sure that any data is copied before exiting this method, otherwise we
-		// risk a SEGFAULT as described in
-		// https://github.com/weaviate/weaviate/issues/1837
-		out.Additions = sn.AdditionsWithCopy()
-		out.Deletions = sn.DeletionsWithCopy()
-	}
+	// (MMAP) make sure that any data is copied before exiting this method,
+	// otherwise we risk a SEGFAULT as described in
+	// https://github.com/weaviate/weaviate/issues/1837
+	// (PREAD) data is copied to ensure mutating additions bitmap (resulting in
+	// extending underlying slice) will not overwrite deletions bitmap's underlying slice
+	out.Additions = sn.AdditionsWithCopy()
+	out.Deletions = sn.DeletionsWithCopy()
+
 	return out, nil
 }
 
-func (s *segment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, bool, error) {
+func (s *segment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, error) {
 	var contents []byte
-	copied := false
 	if s.mmapContents {
 		contents = s.contents[offset.start:offset.end]
 	} else {
 		contents = make([]byte, offset.end-offset.start)
 		r, err := s.bufferedReaderAt(offset.start)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
 		_, err = r.Read(contents)
 		if err != nil {
-			return nil, false, err
+			return nil, err
 		}
-		copied = true
 	}
 
-	return roaringset.NewSegmentNodeFromBuffer(contents), copied, nil
+	return roaringset.NewSegmentNodeFromBuffer(contents), nil
 }
