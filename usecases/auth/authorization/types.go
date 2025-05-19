@@ -39,16 +39,16 @@ const (
 )
 
 const (
-	UsersDomain        = "users"
-	RolesDomain        = "roles"
-	ClusterDomain      = "cluster"
-	NodesDomain        = "nodes"
-	BackupsDomain      = "backups"
-	SchemaDomain       = "schema"
-	CollectionsDomain  = "collections"
-	TenantsDomain      = "tenants"
-	DataDomain         = "data"
-	ReplicationsDomain = "replications"
+	UsersDomain       = "users"
+	RolesDomain       = "roles"
+	ClusterDomain     = "cluster"
+	NodesDomain       = "nodes"
+	BackupsDomain     = "backups"
+	SchemaDomain      = "schema"
+	CollectionsDomain = "collections"
+	TenantsDomain     = "tenants"
+	DataDomain        = "data"
+	ReplicateDomain   = "replicate"
 )
 
 var (
@@ -80,7 +80,7 @@ var (
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
 	}
-	AllReplications = &models.PermissionReplication{
+	AllReplicate = &models.PermissionReplicate{
 		Collection: All,
 		Shard:      All,
 	}
@@ -121,10 +121,10 @@ var (
 	UpdateTenants = "update_tenants"
 	DeleteTenants = "delete_tenants"
 
-	CreateReplications = "create_replications"
-	ReadReplications   = "read_replications"
-	UpdateReplications = "update_replications"
-	DeleteReplications = "delete_replications"
+	CreateReplicate = "create_replicate"
+	ReadReplicate   = "read_replicate"
+	UpdateReplicate = "update_replicate"
+	DeleteReplicate = "delete_replicate"
 
 	availableWeaviateActions = []string{
 		// Roles domain
@@ -167,11 +167,11 @@ var (
 		UpdateTenants,
 		DeleteTenants,
 
-		// Replication domain
-		CreateReplications,
-		ReadReplications,
-		UpdateReplications,
-		DeleteReplications,
+		// Replicate domain
+		CreateReplicate,
+		ReadReplicate,
+		UpdateReplicate,
+		DeleteReplicate,
 	}
 )
 
@@ -451,7 +451,7 @@ func Replications(class, shard string) string {
 	if shard == "" {
 		shard = "*"
 	}
-	return fmt.Sprintf("%s/collections/%s/shards/%s", ReplicationsDomain, class, shard)
+	return fmt.Sprintf("%s/collections/%s/shards/%s", ReplicateDomain, class, shard)
 }
 
 // WildcardPath returns the appropriate wildcard path based on the domain and original resource path.
