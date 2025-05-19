@@ -24,6 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -92,14 +93,19 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 		time.Sleep(sleepTime)
 	}
 
+	err = c.prepareLocalFolder(relativeFilePaths)
+	if err != nil {
+		return fmt.Errorf("failed to prepare local folder: %w", err)
+	}
+
 	eg, gctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
 	eg.SetLimit(concurrency)
 
 	for _, relativeFilePath := range relativeFilePaths {
-		filePath := relativeFilePath
+		relativeFilePath := relativeFilePath
 
 		eg.Go(func() error {
-			return c.syncFile(gctx, sourceNodeHostname, collectionName, shardName, filePath)
+			return c.syncFile(gctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
 		})
 	}
 
@@ -108,11 +114,56 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 		return err
 	}
 
+	err = diskio.Fsync(c.rootDataPath)
+	if err != nil {
+		return err
+	}
+
+	err = c.validateLocalFolder(relativeFilePaths)
+	if err != nil {
+		return fmt.Errorf("failed to prepare local folder: %w", err)
+	}
+
 	err = c.dbWrapper.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
 	if err != nil {
 		return err
 	}
 
+	return nil
+}
+
+func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
+	relativeFilePathsMap := make(map[string]struct{}, len(relativeFilePaths))
+	for _, path := range relativeFilePaths {
+		relativeFilePathsMap[path] = struct{}{}
+	}
+
+	filepath.Walk(c.rootDataPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		relativeFilePath := filepath.Join(c.rootDataPath, info.Name())
+
+		if _, ok := relativeFilePathsMap[relativeFilePath]; !ok {
+			err := os.Remove(info.Name())
+			if err != nil {
+				return fmt.Errorf("removing local file %q not present in source node: %w", info.Name(), err)
+			}
+		}
+
+		return nil
+	})
+
+	return nil
+}
+
+func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
+	// TODO : to be implemented
 	return nil
 }
 
