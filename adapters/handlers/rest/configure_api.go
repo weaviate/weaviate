@@ -490,6 +490,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		BootstrapExpect:        appState.ServerConfig.Config.Raft.BootstrapExpect,
 		HeartbeatTimeout:       appState.ServerConfig.Config.Raft.HeartbeatTimeout,
 		ElectionTimeout:        appState.ServerConfig.Config.Raft.ElectionTimeout,
+		LeaderLeaseTimeout:     appState.ServerConfig.Config.Raft.LeaderLeaseTimeout,
+		TimeoutsMultiplier:     appState.ServerConfig.Config.Raft.TimeoutsMultiplier,
 		SnapshotInterval:       appState.ServerConfig.Config.Raft.SnapshotInterval,
 		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
 		TrailingLogs:           appState.ServerConfig.Config.Raft.TrailingLogs,

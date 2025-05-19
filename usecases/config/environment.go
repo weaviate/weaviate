@@ -735,6 +735,22 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	if err := parsePositiveFloat(
+		"RAFT_LEADER_LEASE_TIMEOUT",
+		func(val float64) { cfg.LeaderLeaseTimeout = time.Second * time.Duration(val) },
+		0.5, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_TIMEOUTS_MULTIPLIER",
+		func(val int) { cfg.TimeoutsMultiplier = val },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
 	if err := parsePositiveInt(
 		"RAFT_SNAPSHOT_INTERVAL",
 		func(val int) { cfg.SnapshotInterval = time.Second * time.Duration(val) },
@@ -886,6 +902,22 @@ func parsePositiveInt(envName string, cb func(val int), defaultValue int) error 
 		}
 		return nil
 	})
+}
+
+func parsePositiveFloat(envName string, cb func(val float64), defaultValue float64) error {
+	if v := os.Getenv(envName); v != "" {
+		asFloat, err := strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse %s as float: %w", envName, err)
+		}
+		if asFloat <= 0 {
+			return fmt.Errorf("%s must be a positive value larger than 0. Got: %v", envName, asFloat)
+		}
+		cb(asFloat)
+	} else {
+		cb(defaultValue)
+	}
+	return nil
 }
 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {

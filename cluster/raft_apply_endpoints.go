@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
@@ -242,8 +241,7 @@ func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, erro
 		}
 		schemaVersion = resp.Version
 		return nil
-		// Retry at most for 2 seconds, it shouldn't take longer for an election to take place
-	}, backoff.WithContext(backoff.WithMaxRetries(backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
+	}, backoffConfig(ctx, s.store.cfg.ElectionTimeout))
 
 	return schemaVersion, err
 }
