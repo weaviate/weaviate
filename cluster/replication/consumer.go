@@ -632,12 +632,12 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	logger.Info("processing dehydrating replication operation")
 
 	replicaExists := false
-	nodes, err := c.schemaReader.ShardReplicas(op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId)
+	nodes, err := c.schemaReader.ShardReplicas(op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
 	if err != nil {
 		logger.WithError(err).Error("failure while getting shard replicas")
 		return api.ShardReplicationState(""), err
 	}
-	if slices.Contains(nodes, op.Op.TargetShard.NodeId) {
+	if slices.Contains(nodes, op.Op.SourceShard.NodeId) {
 		replicaExists = true
 	}
 

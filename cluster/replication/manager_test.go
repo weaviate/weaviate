@@ -127,6 +127,27 @@ func TestManager_Replicate(t *testing.T) {
 					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 						State: &sharding.State{
+							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1", "node2"}}},
+						},
+					}), "node1", true, false)
+			},
+			request: &api.ReplicationReplicateShardRequest{
+				Uuid:             uuid4(),
+				SourceCollection: "TestCollection",
+				SourceShard:      "shard1",
+				SourceNode:       "node1",
+				TargetNode:       "node2",
+				TransferType:     api.COPY.String(),
+			},
+			expectedError: replication.ErrAlreadyExists,
+		},
+		{
+			name: "source and target are identicals",
+			schemaSetup: func(t *testing.T, s *schema.SchemaManager) error {
+				return s.AddClass(
+					buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+						Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+						State: &sharding.State{
 							Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
 						},
 					}), "node1", true, false)
@@ -139,7 +160,7 @@ func TestManager_Replicate(t *testing.T) {
 				TargetNode:       "node1",
 				TransferType:     api.COPY.String(),
 			},
-			expectedError: replication.ErrAlreadyExists,
+			expectedError: replication.ErrBadRequest,
 		},
 	}
 
