@@ -53,8 +53,9 @@ message Hybrid {
   NearVector near_vector = 9;  // same as above. Use the target vector in the hybrid message
   Targets targets = 10;
   enum SearchOperator {
-    SEARCH_OPERATOR_OR = 0;
-    SEARCH_OPERATOR_AND = 1;
+    SEARCH_OPERATOR_UNSPECIFIED = 0;
+    SEARCH_OPERATOR_OR = 1;
+    SEARCH_OPERATOR_AND = 2;
   }
   optional SearchOperator search_operator = 11;
   optional int32 minimum_should_match = 12;
@@ -157,8 +158,9 @@ message BM25 {
   string query = 1;
   repeated string properties = 2;
   enum SearchOperator {
-    SEARCH_OPERATOR_OR = 0;
-    SEARCH_OPERATOR_AND = 1;
+    SEARCH_OPERATOR_UNSPECIFIED = 0;
+    SEARCH_OPERATOR_OR = 1;
+    SEARCH_OPERATOR_AND = 2;
   }
   optional SearchOperator search_operator = 3;
   optional int32 minimum_should_match = 4;
