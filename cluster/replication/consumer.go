@@ -167,7 +167,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 	shutdownRoutine := func() error {
 		c.logger.Info("shutting down consumer")
 		c.stopped.Store(true)
-		// TODO: We can have a race between adding an op to the waigroup and adding it's cancel func to the map.
+		// TODO: We can have a race between adding an op to the waitgroup and adding it's cancel func to the map.
 		// Find a way to fix this. For now the timeout will catch this and exit after anyway
 		c.ongoingOps.CancelAll()
 
@@ -180,7 +180,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 		select {
 		case <-ch:
 			return nil
-		case <-time.After(10 * time.Second):
+		case <-time.After(60 * time.Second):
 			return ctx.Err()
 		}
 	}
@@ -191,7 +191,6 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 			c.logger.WithError(ctx.Err()).Info("context canceled, shutting down consumer")
 			c.stopped.Store(true)
 			c.ongoingOps.CancelAll()
-			wg.Wait() // Waiting for pending operations before terminating
 			return shutdownRoutine()
 
 		case op, ok := <-in:
@@ -285,7 +284,6 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 				wg.Add(1)
 				c.opsGateway.ScheduleNow(op.Op.ID)
 				c.engineOpCallbacks.OnOpStart(c.nodeId)
-
 				enterrors.GoWrapper(func() {
 					defer func() {
 						// Delete the operation from the ongoingOps map when the operation processing is complete
@@ -293,6 +291,15 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 						wg.Done()
 						<-c.tokens // Release token when completed
 					}()
+
+					// Start a replication operation with a timeout for completion to prevent replication operations
+					// from running indefinitely
+					opCtx, opCancel := context.WithTimeout(workerCtx, c.opTimeout)
+					defer opCancel()
+
+					c.ongoingOps.StoreCancel(op.Op.ID, opCancel)
+					wg.Add(1)
+					c.engineOpCallbacks.OnOpStart(c.nodeId)
 
 					opLogger.Debug("worker processing replication operation")
 
@@ -303,12 +310,6 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 						c.cancelOp(operation, opLogger)
 						return
 					}
-
-					// Start a replication operation with a timeout for completion to prevent replication operations
-					// from running indefinitely
-					opCtx, opCancel := context.WithTimeout(workerCtx, c.opTimeout)
-					defer opCancel()
-					c.ongoingOps.StoreCancel(op.Op.ID, opCancel)
 
 					err := c.dispatchReplicationOp(opCtx, operation)
 					if err == nil {
