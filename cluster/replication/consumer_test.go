@@ -464,8 +464,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		}()
 
 		for i := 0; i < randomNumberOfOps; i++ {
-			node := fmt.Sprintf("node-%d", i)
-			opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", node, "TestCollection", "shard1", api.COPY), replication.NewShardReplicationStatus(api.REGISTERED))
+			shard := fmt.Sprintf("shard-%d", i)
+			opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", "node2", "TestCollection", shard, api.COPY), replication.NewShardReplicationStatus(api.REGISTERED))
 		}
 
 		waitChan := make(chan struct{})
@@ -772,8 +772,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		}()
 
 		for i := 0; i < totalOps; i++ {
-			node := fmt.Sprintf("node-%d", i)
-			opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", node, "TestCollection", "shard1", api.COPY), replication.NewShardReplicationStatus(api.REGISTERED))
+			shard := fmt.Sprintf("shard-%d", i)
+			opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", "node2", "TestCollection", shard, api.COPY), replication.NewShardReplicationStatus(api.REGISTERED))
 		}
 
 		waitChan := make(chan struct{})
