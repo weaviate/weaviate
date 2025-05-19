@@ -140,6 +140,7 @@ func (o *CreateUserCreated) GetPayload() *models.UserAPIKey {
 }
 
 func (o *CreateUserCreated) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.UserAPIKey)
 
 	// response payload
@@ -207,6 +208,7 @@ func (o *CreateUserBadRequest) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -227,7 +229,8 @@ CreateUserUnauthorized describes a response with status code 401, with default h
 
 Unauthorized or invalid credentials.
 */
-type CreateUserUnauthorized struct{}
+type CreateUserUnauthorized struct {
+}
 
 // IsSuccess returns true when this create user unauthorized response has a 2xx status code
 func (o *CreateUserUnauthorized) IsSuccess() bool {
@@ -268,6 +271,7 @@ func (o *CreateUserUnauthorized) String() string {
 }
 
 func (o *CreateUserUnauthorized) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	return nil
 }
 
@@ -328,6 +332,7 @@ func (o *CreateUserForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -395,6 +400,7 @@ func (o *CreateUserConflict) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -462,6 +468,7 @@ func (o *CreateUserUnprocessableEntity) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -529,6 +536,7 @@ func (o *CreateUserInternalServerError) GetPayload() *models.ErrorResponse {
 }
 
 func (o *CreateUserInternalServerError) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
 	o.Payload = new(models.ErrorResponse)
 
 	// response payload
@@ -544,6 +552,7 @@ CreateUserBody create user body
 swagger:model CreateUserBody
 */
 type CreateUserBody struct {
+
 	// import API key - this parameter exists only temporarily. Do not use
 	APIKey string `json:"api_key,omitempty"`
 }

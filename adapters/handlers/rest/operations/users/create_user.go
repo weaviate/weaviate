@@ -60,7 +60,7 @@ func (o *CreateUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	if rCtx != nil {
 		*r = *rCtx
 	}
-	Params := NewCreateUserParams()
+	var Params = NewCreateUserParams()
 	uprinc, aCtx, err := o.Context.Authorize(r, route)
 	if err != nil {
 		o.Context.Respond(rw, r, route.Produces, route, err)
@@ -81,12 +81,14 @@ func (o *CreateUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
+
 }
 
 // CreateUserBody create user body
 //
 // swagger:model CreateUserBody
 type CreateUserBody struct {
+
 	// import API key - this parameter exists only temporarily. Do not use
 	APIKey string `json:"api_key,omitempty" yaml:"api_key,omitempty"`
 }
