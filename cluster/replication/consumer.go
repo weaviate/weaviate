@@ -288,10 +288,10 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 				enterrors.GoWrapper(func() {
 					defer func() {
-						<-c.tokens // Release token when completed
 						// Delete the operation from the ongoingOps map when the operation processing is complete
 						c.ongoingOps.DeleteInFlight(op.Op.ID)
 						wg.Done()
+						<-c.tokens // Release token when completed
 					}()
 
 					opLogger.Debug("worker processing replication operation")
