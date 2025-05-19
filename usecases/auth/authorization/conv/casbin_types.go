@@ -74,8 +74,6 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
-	fmt.Sprintf(`^%s/collections/.*$`, authorization.ReplicationsDomain),
-	fmt.Sprintf(`^%s/collections/[^/]+$`, authorization.ReplicationsDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.ReplicationsDomain),
 }
 
