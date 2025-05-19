@@ -34,8 +34,8 @@ type ReplicationReplicateDetailsReplicaStatus struct {
 	// A list of error messages encountered by this replica during the replication operation, if any.
 	Errors []string `json:"errors"`
 
-	// The current operational state of the replica during the replication process (e.g., HYDRATING, READY, DEHYDRATING).
-	// Enum: [READY INDEXING REPLICATION_FINALIZING REPLICATION_HYDRATING REPLICATION_DEHYDRATING]
+	// The current operational state of the replica during the replication process.
+	// Enum: [REGISTERED HYDRATING FINALIZING DEHYDRATING READY CANCELLED]
 	State string `json:"state,omitempty"`
 }
 
@@ -57,7 +57,7 @@ var replicationReplicateDetailsReplicaStatusTypeStatePropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["READY","INDEXING","REPLICATION_FINALIZING","REPLICATION_HYDRATING","REPLICATION_DEHYDRATING"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["REGISTERED","HYDRATING","FINALIZING","DEHYDRATING","READY","CANCELLED"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -67,20 +67,23 @@ func init() {
 
 const (
 
+	// ReplicationReplicateDetailsReplicaStatusStateREGISTERED captures enum value "REGISTERED"
+	ReplicationReplicateDetailsReplicaStatusStateREGISTERED string = "REGISTERED"
+
+	// ReplicationReplicateDetailsReplicaStatusStateHYDRATING captures enum value "HYDRATING"
+	ReplicationReplicateDetailsReplicaStatusStateHYDRATING string = "HYDRATING"
+
+	// ReplicationReplicateDetailsReplicaStatusStateFINALIZING captures enum value "FINALIZING"
+	ReplicationReplicateDetailsReplicaStatusStateFINALIZING string = "FINALIZING"
+
+	// ReplicationReplicateDetailsReplicaStatusStateDEHYDRATING captures enum value "DEHYDRATING"
+	ReplicationReplicateDetailsReplicaStatusStateDEHYDRATING string = "DEHYDRATING"
+
 	// ReplicationReplicateDetailsReplicaStatusStateREADY captures enum value "READY"
 	ReplicationReplicateDetailsReplicaStatusStateREADY string = "READY"
 
-	// ReplicationReplicateDetailsReplicaStatusStateINDEXING captures enum value "INDEXING"
-	ReplicationReplicateDetailsReplicaStatusStateINDEXING string = "INDEXING"
-
-	// ReplicationReplicateDetailsReplicaStatusStateREPLICATIONFINALIZING captures enum value "REPLICATION_FINALIZING"
-	ReplicationReplicateDetailsReplicaStatusStateREPLICATIONFINALIZING string = "REPLICATION_FINALIZING"
-
-	// ReplicationReplicateDetailsReplicaStatusStateREPLICATIONHYDRATING captures enum value "REPLICATION_HYDRATING"
-	ReplicationReplicateDetailsReplicaStatusStateREPLICATIONHYDRATING string = "REPLICATION_HYDRATING"
-
-	// ReplicationReplicateDetailsReplicaStatusStateREPLICATIONDEHYDRATING captures enum value "REPLICATION_DEHYDRATING"
-	ReplicationReplicateDetailsReplicaStatusStateREPLICATIONDEHYDRATING string = "REPLICATION_DEHYDRATING"
+	// ReplicationReplicateDetailsReplicaStatusStateCANCELLED captures enum value "CANCELLED"
+	ReplicationReplicateDetailsReplicaStatusStateCANCELLED string = "CANCELLED"
 )
 
 // prop value enum

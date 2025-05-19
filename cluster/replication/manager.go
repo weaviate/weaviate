@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/prometheus/client_golang/prometheus"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
@@ -31,7 +32,7 @@ type Manager struct {
 }
 
 func NewManager(schemaReader schema.SchemaReader, reg prometheus.Registerer) *Manager {
-	replicationFSM := newShardReplicationFSM(reg)
+	replicationFSM := NewShardReplicationFSM(reg)
 	return &Manager{
 		replicationFSM: replicationFSM,
 		schemaReader:   schemaReader,
@@ -72,7 +73,23 @@ func (m *Manager) RegisterError(c *cmd.ApplyRequest) error {
 	}
 
 	// Store an op's error emitted by the consumer in the FSM
-	return m.replicationFSM.RegisterError(req)
+	if err := m.replicationFSM.RegisterError(req); err != nil {
+		if errors.Is(err, ErrMaxErrorsReached) {
+			uuid, err := m.GetReplicationOpUUIDFromId(req.Id)
+			if err != nil {
+				return fmt.Errorf("failed to get op uuid from id %d: %w", req.Id, err)
+			}
+			return m.replicationFSM.CancelReplication(&cmd.ReplicationCancelRequest{
+				Uuid: uuid,
+			})
+		}
+		return err
+	}
+	return nil
+}
+
+func (m *Manager) GetReplicationOpUUIDFromId(id uint64) (strfmt.UUID, error) {
+	return m.replicationFSM.GetReplicationOpUUIDFromId(id)
 }
 
 func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
@@ -83,6 +100,15 @@ func (m *Manager) UpdateReplicateOpState(c *cmd.ApplyRequest) error {
 
 	// Store the updated shard replication op in the FSM
 	return m.replicationFSM.UpdateReplicationOpStatus(req)
+}
+
+func (m *Manager) StoreSchemaVersion(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationStoreSchemaVersionRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.replicationFSM.StoreSchemaVersion(req)
 }
 
 func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]byte, error) {
@@ -104,6 +130,28 @@ func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]b
 	payload, err := json.Marshal(response)
 	if err != nil {
 		return nil, fmt.Errorf("could not marshal query response for replication operation '%d': %w", id, err)
+	}
+
+	return payload, nil
+}
+
+func (m *Manager) GetReplicationOperationState(c *cmd.QueryRequest) ([]byte, error) {
+	subCommand := cmd.ReplicationOperationStateRequest{}
+	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
+		return nil, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	status, ok := m.replicationFSM.statusById[subCommand.Id]
+	if !ok {
+		return nil, fmt.Errorf("unable to retrieve replication operation '%d' status", subCommand.Id)
+	}
+
+	response := cmd.ReplicationOperationStateResponse{
+		State: status.GetCurrent().State,
+	}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return nil, fmt.Errorf("could not marshal query response for replication operation '%d': %w", subCommand.Id, err)
 	}
 
 	return payload, nil
