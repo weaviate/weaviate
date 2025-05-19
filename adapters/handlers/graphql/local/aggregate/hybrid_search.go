@@ -69,15 +69,22 @@ func hybridOperands(classObject *graphql.Object,
 		},
 		"properties": &graphql.InputObjectFieldConfig{
 			Description: "Properties to search",
-			Type:        graphql.Int,
+			Type:        graphql.NewList(graphql.String),
 		},
 		"minimumShouldMatch": &graphql.InputObjectFieldConfig{
 			Description: "Minimum number of term matches required",
 			Type:        graphql.Int,
 		},
 		"searchOperator": &graphql.InputObjectFieldConfig{
-			Description: "Search operator (OR/AND)",
-			Type:        graphql.String,
+			Description: "Search operator",
+			Type: graphql.NewEnum(graphql.EnumConfig{
+				Name: fmt.Sprintf("%sBM25SearchOperatorEnum", prefixName),
+				Values: graphql.EnumValueConfigMap{
+					"and": &graphql.EnumValueConfig{Value: SearchOperatorAnd},
+					"or":  &graphql.EnumValueConfig{Value: SearchOperatorOr},
+				},
+				Description: "Search operator (OR/AND)",
+			}),
 		},
 
 		"searches": &graphql.InputObjectFieldConfig{

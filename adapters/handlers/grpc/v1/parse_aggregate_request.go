@@ -294,7 +294,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 			}
 
 			if hs.SearchOperator != nil {
-				params.Hybrid.SearchOperator = string(*hs.SearchOperator)
+				params.Hybrid.SearchOperator = hs.SearchOperator.String()
 			}
 
 			if nearVec != nil {

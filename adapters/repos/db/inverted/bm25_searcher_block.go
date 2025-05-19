@@ -111,7 +111,7 @@ func (b *BM25Searcher) wandBlock(
 				termCounts = append(termCounts, queryTerms)
 
 				minimumShouldMatch := params.MinimumShouldMatch
-				if params.SearchOperator == "and" {
+				if params.SearchOperator == SearchOperatorAnd {
 					minimumShouldMatch = len(queryTerms)
 				}
 
@@ -211,7 +211,7 @@ func (b *BM25Searcher) wandBlock(
 
 			eg.Go(func() (err error) {
 				var topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]
-				if params.SearchOperator == "and" {
+				if params.SearchOperator == SearchOperatorAnd {
 					topKHeap = lsmkv.DoBlockMaxAnd(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumShouldMatchByProperty[i])
 				} else {
 					topKHeap = lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumShouldMatchByProperty[i])

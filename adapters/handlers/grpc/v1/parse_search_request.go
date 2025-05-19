@@ -106,7 +106,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 	if bm25 := req.Bm25Search; bm25 != nil {
 		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
 		if bm25.SearchOperator != nil {
-			out.KeywordRanking.SearchOperator = string(*bm25.SearchOperator)
+			out.KeywordRanking.SearchOperator = bm25.SearchOperator.String()
 		}
 
 		if bm25.MinimumShouldMatch != nil {
@@ -302,7 +302,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		}
 
 		if hs.SearchOperator != nil {
-			out.HybridSearch.SearchOperator = string(*hs.SearchOperator)
+			out.HybridSearch.SearchOperator = hs.SearchOperator.String()
 		}
 
 		if nearVec != nil {

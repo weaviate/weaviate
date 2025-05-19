@@ -12,7 +12,14 @@
 package aggregate
 
 import (
+	"fmt"
+
 	"github.com/tailor-inc/graphql"
+)
+
+var (
+	SearchOperatorAnd = "SEARCH_OPERATOR_AND"
+	SearchOperatorOr  = "SEARCH_OPERATOR_OR"
 )
 
 func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
@@ -30,8 +37,15 @@ func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 			Type:        graphql.Int,
 		},
 		"searchOperator": &graphql.InputObjectFieldConfig{
-			Description: "Search operator (OR/AND)",
-			Type:        graphql.String,
+			Description: "Search operator",
+			Type: graphql.NewEnum(graphql.EnumConfig{
+				Name: fmt.Sprintf("%sBM25SearchOperatorEnum", prefix),
+				Values: graphql.EnumValueConfigMap{
+					"and": &graphql.EnumValueConfig{Value: SearchOperatorAnd},
+					"or":  &graphql.EnumValueConfig{Value: SearchOperatorOr},
+				},
+				Description: "Search operator (OR/AND)",
+			}),
 		},
 	}
 }

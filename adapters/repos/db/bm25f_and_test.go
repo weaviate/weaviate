@@ -28,6 +28,11 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
+var (
+	SearchOperatorAnd = "SEARCH_OPERATOR_AND"
+	SearchOperatorOr  = "SEARCH_OPERATOR_OR"
+)
+
 func TestBM25FJourneyBlockAnd(t *testing.T) {
 	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
@@ -58,7 +63,7 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 	addit := additional.Properties{}
 	for _, location := range []string{"memory", "disk"} {
 		t.Run("bm25f text with AND "+location, func(t *testing.T) {
-			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", SearchOperator: "and"}
+			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", SearchOperator: SearchOperatorAnd}
 			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 			// Print results
 			t.Log("--- Start results for search with AND ---")
@@ -73,12 +78,12 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 
 		t.Run("bm25f text with AND == minimum should match with len(queryTerms) "+location, func(t *testing.T) {
 			q := "This is how we get to BM25F"
-			kwr1 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: "and"}
+			kwr1 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: SearchOperatorAnd}
 			res1, scores1, err := idx.objectSearch(context.TODO(), 1000, nil, kwr1, nil, nil, addit, nil, "", 0, props)
 
 			require.Nil(t, err)
 
-			kwr2 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: "or", MinimumShouldMatch: len(strings.Split(q, " "))}
+			kwr2 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: SearchOperatorOr, MinimumShouldMatch: len(strings.Split(q, " "))}
 			res2, scores2, err := idx.objectSearch(context.TODO(), 1000, nil, kwr2, nil, nil, addit, nil, "", 0, props)
 
 			require.Nil(t, err)
@@ -156,7 +161,7 @@ func TestBM25FJourneyAnd(t *testing.T) {
 	addit := additional.Properties{}
 	for _, location := range []string{"memory", "disk"} {
 		t.Run("bm25f text with AND "+location, func(t *testing.T) {
-			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", SearchOperator: "and"}
+			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", SearchOperator: SearchOperatorAnd}
 			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 			// Print results
 			t.Log("--- Start results for search with AND ---")
@@ -171,12 +176,12 @@ func TestBM25FJourneyAnd(t *testing.T) {
 
 		t.Run("bm25f text with AND == minimum should match with len(queryTerms) "+location, func(t *testing.T) {
 			q := "This is how we get to BM25F"
-			kwr1 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: "and"}
+			kwr1 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: SearchOperatorAnd}
 			res1, scores1, err := idx.objectSearch(context.TODO(), 1000, nil, kwr1, nil, nil, addit, nil, "", 0, props)
 
 			require.Nil(t, err)
 
-			kwr2 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: "or", MinimumShouldMatch: len(strings.Split(q, " "))}
+			kwr2 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: SearchOperatorOr, MinimumShouldMatch: len(strings.Split(q, " "))}
 			res2, scores2, err := idx.objectSearch(context.TODO(), 1000, nil, kwr2, nil, nil, addit, nil, "", 0, props)
 
 			require.Nil(t, err)

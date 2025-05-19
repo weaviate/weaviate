@@ -9,10 +9,11 @@
 package api
 
 import (
-	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
-	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 	reflect "reflect"
 	sync "sync"
+
+	protoreflect "google.golang.org/protobuf/reflect/protoreflect"
+	protoimpl "google.golang.org/protobuf/runtime/protoimpl"
 )
 
 const (
@@ -56,9 +57,9 @@ const (
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE                ApplyRequest_Type = 204
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE                ApplyRequest_Type = 205
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE ApplyRequest_Type = 206
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION  ApplyRequest_Type = 207
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS     ApplyRequest_Type = 208
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_ALL            ApplyRequest_Type = 209
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_ALL            ApplyRequest_Type = 207
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION  ApplyRequest_Type = 208
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS     ApplyRequest_Type = 209
 	ApplyRequest_TYPE_REPLICATION_REPLICA_DISABLE                 ApplyRequest_Type = 210
 	ApplyRequest_TYPE_REPLICATION_REPLICA_DELETE                  ApplyRequest_Type = 211
 	ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD                        ApplyRequest_Type = 300
@@ -101,9 +102,9 @@ var (
 		204: "TYPE_REPLICATION_REPLICATE_DELETE",
 		205: "TYPE_REPLICATION_REPLICATE_REMOVE",
 		206: "TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE",
-		207: "TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION",
-		208: "TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS",
-		209: "TYPE_REPLICATION_REPLICATE_DELETE_ALL",
+		207: "TYPE_REPLICATION_REPLICATE_DELETE_ALL",
+		208: "TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION",
+		209: "TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS",
 		210: "TYPE_REPLICATION_REPLICA_DISABLE",
 		211: "TYPE_REPLICATION_REPLICA_DELETE",
 		300: "TYPE_DISTRIBUTED_TASK_ADD",
@@ -143,9 +144,9 @@ var (
 		"TYPE_REPLICATION_REPLICATE_DELETE":                204,
 		"TYPE_REPLICATION_REPLICATE_REMOVE":                205,
 		"TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE": 206,
-		"TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION":  207,
-		"TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS":     208,
-		"TYPE_REPLICATION_REPLICATE_DELETE_ALL":            209,
+		"TYPE_REPLICATION_REPLICATE_DELETE_ALL":            207,
+		"TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION":  208,
+		"TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS":     209,
 		"TYPE_REPLICATION_REPLICA_DISABLE":                 210,
 		"TYPE_REPLICATION_REPLICA_DELETE":                  211,
 		"TYPE_DISTRIBUTED_TASK_ADD":                        300,
@@ -1631,16 +1632,16 @@ var file_api_message_proto_rawDesc = []byte{
 	0x4f, 0x56, 0x45, 0x10, 0xcd, 0x01, 0x12, 0x35, 0x0a, 0x30, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52,
 	0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49,
 	0x43, 0x41, 0x54, 0x45, 0x5f, 0x43, 0x41, 0x4e, 0x43, 0x45, 0x4c, 0x4c, 0x41, 0x54, 0x49, 0x4f,
-	0x4e, 0x5f, 0x43, 0x4f, 0x4d, 0x50, 0x4c, 0x45, 0x54, 0x45, 0x10, 0xce, 0x01, 0x12, 0x34, 0x0a,
-	0x2f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x49, 0x4f,
+	0x4e, 0x5f, 0x43, 0x4f, 0x4d, 0x50, 0x4c, 0x45, 0x54, 0x45, 0x10, 0xce, 0x01, 0x12, 0x2a, 0x0a,
+	0x25, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x49, 0x4f,
 	0x4e, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x45, 0x5f, 0x44, 0x45, 0x4c, 0x45,
-	0x54, 0x45, 0x5f, 0x42, 0x59, 0x5f, 0x43, 0x4f, 0x4c, 0x4c, 0x45, 0x43, 0x54, 0x49, 0x4f, 0x4e,
-	0x10, 0xcf, 0x01, 0x12, 0x31, 0x0a, 0x2c, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c,
-	0x49, 0x43, 0x41, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54,
-	0x45, 0x5f, 0x44, 0x45, 0x4c, 0x45, 0x54, 0x45, 0x5f, 0x42, 0x59, 0x5f, 0x54, 0x45, 0x4e, 0x41,
-	0x4e, 0x54, 0x53, 0x10, 0xd0, 0x01, 0x12, 0x2a, 0x0a, 0x25, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52,
-	0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49,
-	0x43, 0x41, 0x54, 0x45, 0x5f, 0x44, 0x45, 0x4c, 0x45, 0x54, 0x45, 0x5f, 0x41, 0x4c, 0x4c, 0x10,
+	0x54, 0x45, 0x5f, 0x41, 0x4c, 0x4c, 0x10, 0xcf, 0x01, 0x12, 0x34, 0x0a, 0x2f, 0x54, 0x59, 0x50,
+	0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x52, 0x45,
+	0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x45, 0x5f, 0x44, 0x45, 0x4c, 0x45, 0x54, 0x45, 0x5f, 0x42,
+	0x59, 0x5f, 0x43, 0x4f, 0x4c, 0x4c, 0x45, 0x43, 0x54, 0x49, 0x4f, 0x4e, 0x10, 0xd0, 0x01, 0x12,
+	0x31, 0x0a, 0x2c, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54,
+	0x49, 0x4f, 0x4e, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x45, 0x5f, 0x44, 0x45,
+	0x4c, 0x45, 0x54, 0x45, 0x5f, 0x42, 0x59, 0x5f, 0x54, 0x45, 0x4e, 0x41, 0x4e, 0x54, 0x53, 0x10,
 	0xd1, 0x01, 0x12, 0x25, 0x0a, 0x20, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49,
 	0x43, 0x41, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x5f, 0x44,
 	0x49, 0x53, 0x41, 0x42, 0x4c, 0x45, 0x10, 0xd2, 0x01, 0x12, 0x24, 0x0a, 0x1f, 0x54, 0x59, 0x50,
@@ -1873,34 +1874,37 @@ func file_api_message_proto_rawDescGZIP() []byte {
 	return file_api_message_proto_rawDescData
 }
 
-var file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
-var file_api_message_proto_msgTypes = make([]protoimpl.MessageInfo, 20)
-var file_api_message_proto_goTypes = []interface{}{
-	(ApplyRequest_Type)(0),                             // 0: weaviate.internal.cluster.ApplyRequest.Type
-	(QueryRequest_Type)(0),                             // 1: weaviate.internal.cluster.QueryRequest.Type
-	(TenantsProcess_Op)(0),                             // 2: weaviate.internal.cluster.TenantsProcess.Op
-	(TenantProcessRequest_Action)(0),                   // 3: weaviate.internal.cluster.TenantProcessRequest.Action
-	(*JoinPeerRequest)(nil),                            // 4: weaviate.internal.cluster.JoinPeerRequest
-	(*JoinPeerResponse)(nil),                           // 5: weaviate.internal.cluster.JoinPeerResponse
-	(*RemovePeerRequest)(nil),                          // 6: weaviate.internal.cluster.RemovePeerRequest
-	(*RemovePeerResponse)(nil),                         // 7: weaviate.internal.cluster.RemovePeerResponse
-	(*NotifyPeerRequest)(nil),                          // 8: weaviate.internal.cluster.NotifyPeerRequest
-	(*NotifyPeerResponse)(nil),                         // 9: weaviate.internal.cluster.NotifyPeerResponse
-	(*ApplyRequest)(nil),                               // 10: weaviate.internal.cluster.ApplyRequest
-	(*ApplyResponse)(nil),                              // 11: weaviate.internal.cluster.ApplyResponse
-	(*QueryRequest)(nil),                               // 12: weaviate.internal.cluster.QueryRequest
-	(*QueryResponse)(nil),                              // 13: weaviate.internal.cluster.QueryResponse
-	(*AddTenantsRequest)(nil),                          // 14: weaviate.internal.cluster.AddTenantsRequest
-	(*UpdateTenantsRequest)(nil),                       // 15: weaviate.internal.cluster.UpdateTenantsRequest
-	(*TenantsProcess)(nil),                             // 16: weaviate.internal.cluster.TenantsProcess
-	(*TenantProcessRequest)(nil),                       // 17: weaviate.internal.cluster.TenantProcessRequest
-	(*DeleteTenantsRequest)(nil),                       // 18: weaviate.internal.cluster.DeleteTenantsRequest
-	(*Tenant)(nil),                                     // 19: weaviate.internal.cluster.Tenant
-	(*AddDistributedTaskRequest)(nil),                  // 20: weaviate.internal.cluster.AddDistributedTaskRequest
-	(*RecordDistributedTaskNodeCompletionRequest)(nil), // 21: weaviate.internal.cluster.RecordDistributedTaskNodeCompletionRequest
-	(*CancelDistributedTaskRequest)(nil),               // 22: weaviate.internal.cluster.CancelDistributedTaskRequest
-	(*CleanUpDistributedTaskRequest)(nil),              // 23: weaviate.internal.cluster.CleanUpDistributedTaskRequest
-}
+var (
+	file_api_message_proto_enumTypes = make([]protoimpl.EnumInfo, 4)
+	file_api_message_proto_msgTypes  = make([]protoimpl.MessageInfo, 20)
+	file_api_message_proto_goTypes   = []interface{}{
+		(ApplyRequest_Type)(0),                             // 0: weaviate.internal.cluster.ApplyRequest.Type
+		(QueryRequest_Type)(0),                             // 1: weaviate.internal.cluster.QueryRequest.Type
+		(TenantsProcess_Op)(0),                             // 2: weaviate.internal.cluster.TenantsProcess.Op
+		(TenantProcessRequest_Action)(0),                   // 3: weaviate.internal.cluster.TenantProcessRequest.Action
+		(*JoinPeerRequest)(nil),                            // 4: weaviate.internal.cluster.JoinPeerRequest
+		(*JoinPeerResponse)(nil),                           // 5: weaviate.internal.cluster.JoinPeerResponse
+		(*RemovePeerRequest)(nil),                          // 6: weaviate.internal.cluster.RemovePeerRequest
+		(*RemovePeerResponse)(nil),                         // 7: weaviate.internal.cluster.RemovePeerResponse
+		(*NotifyPeerRequest)(nil),                          // 8: weaviate.internal.cluster.NotifyPeerRequest
+		(*NotifyPeerResponse)(nil),                         // 9: weaviate.internal.cluster.NotifyPeerResponse
+		(*ApplyRequest)(nil),                               // 10: weaviate.internal.cluster.ApplyRequest
+		(*ApplyResponse)(nil),                              // 11: weaviate.internal.cluster.ApplyResponse
+		(*QueryRequest)(nil),                               // 12: weaviate.internal.cluster.QueryRequest
+		(*QueryResponse)(nil),                              // 13: weaviate.internal.cluster.QueryResponse
+		(*AddTenantsRequest)(nil),                          // 14: weaviate.internal.cluster.AddTenantsRequest
+		(*UpdateTenantsRequest)(nil),                       // 15: weaviate.internal.cluster.UpdateTenantsRequest
+		(*TenantsProcess)(nil),                             // 16: weaviate.internal.cluster.TenantsProcess
+		(*TenantProcessRequest)(nil),                       // 17: weaviate.internal.cluster.TenantProcessRequest
+		(*DeleteTenantsRequest)(nil),                       // 18: weaviate.internal.cluster.DeleteTenantsRequest
+		(*Tenant)(nil),                                     // 19: weaviate.internal.cluster.Tenant
+		(*AddDistributedTaskRequest)(nil),                  // 20: weaviate.internal.cluster.AddDistributedTaskRequest
+		(*RecordDistributedTaskNodeCompletionRequest)(nil), // 21: weaviate.internal.cluster.RecordDistributedTaskNodeCompletionRequest
+		(*CancelDistributedTaskRequest)(nil),               // 22: weaviate.internal.cluster.CancelDistributedTaskRequest
+		(*CleanUpDistributedTaskRequest)(nil),              // 23: weaviate.internal.cluster.CleanUpDistributedTaskRequest
+	}
+)
+
 var file_api_message_proto_depIdxs = []int32{
 	0,  // 0: weaviate.internal.cluster.ApplyRequest.type:type_name -> weaviate.internal.cluster.ApplyRequest.Type
 	1,  // 1: weaviate.internal.cluster.QueryRequest.type:type_name -> weaviate.internal.cluster.QueryRequest.Type

@@ -63,6 +63,11 @@ type termListRequest struct {
 	propertyBoosts     map[string]float32
 }
 
+var (
+	SearchOperatorAnd = "SEARCH_OPERATOR_AND"
+	SearchOperatorOr  = "SEARCH_OPERATOR_OR"
+)
+
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
 	classSearcher ClassSearcher, propLenTracker propLengthRetriever,
@@ -249,7 +254,7 @@ func (b *BM25Searcher) wand(
 				allQueryTerms = append(allQueryTerms, queryTerm)
 			}
 			minimumShouldMatchByTokenization := params.MinimumShouldMatch
-			if params.SearchOperator == "and" {
+			if params.SearchOperator == SearchOperatorAnd {
 				minimumShouldMatchByTokenization = len(queryTerms)
 			}
 			if minimumShouldMatchByTokenization < minimumShouldMatch {
