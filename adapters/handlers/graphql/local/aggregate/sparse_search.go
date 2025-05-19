@@ -12,14 +12,8 @@
 package aggregate
 
 import (
-	"fmt"
-
 	"github.com/tailor-inc/graphql"
-)
-
-var (
-	SearchOperatorAnd = "SEARCH_OPERATOR_AND"
-	SearchOperatorOr  = "SEARCH_OPERATOR_OR"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 )
 
 func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
@@ -36,16 +30,6 @@ func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 			Description: "Minimum number of term matches required",
 			Type:        graphql.Int,
 		},
-		"searchOperator": &graphql.InputObjectFieldConfig{
-			Description: "Search operator",
-			Type: graphql.NewEnum(graphql.EnumConfig{
-				Name: fmt.Sprintf("%sBM25SearchOperatorEnum", prefix),
-				Values: graphql.EnumValueConfigMap{
-					"and": &graphql.EnumValueConfig{Value: SearchOperatorAnd},
-					"or":  &graphql.EnumValueConfig{Value: SearchOperatorOr},
-				},
-				Description: "Search operator (OR/AND)",
-			}),
-		},
+		"searchOperator": common_filters.GenerateBM25Fields(prefix),
 	}
 }

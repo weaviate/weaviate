@@ -75,18 +75,7 @@ func hybridOperands(classObject *graphql.Object,
 			Description: "Minimum number of term matches required",
 			Type:        graphql.Int,
 		},
-		"searchOperator": &graphql.InputObjectFieldConfig{
-			Description: "Search operator",
-			Type: graphql.NewEnum(graphql.EnumConfig{
-				Name: fmt.Sprintf("%sBM25SearchOperatorEnum", prefixName),
-				Values: graphql.EnumValueConfigMap{
-					"and": &graphql.EnumValueConfig{Value: SearchOperatorAnd},
-					"or":  &graphql.EnumValueConfig{Value: SearchOperatorOr},
-				},
-				Description: "Search operator (OR/AND)",
-			}),
-		},
-
+		"searchOperator": common_filters.GenerateBM25Fields(prefixName),
 		"searches": &graphql.InputObjectFieldConfig{
 			Description: "Subsearch list",
 			Type: graphql.NewList(graphql.NewInputObject(
