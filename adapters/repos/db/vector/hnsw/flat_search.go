@@ -177,6 +177,7 @@ func (h *hnsw) flatMultiSearch(ctx context.Context, queryVector [][]float32, lim
 
 				addResult(localResults, candidate, dist, limit)
 			}
+
 			aggregateMu.Lock()
 			defer aggregateMu.Unlock()
 			for localResults.Len() > 0 {
