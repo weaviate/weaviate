@@ -15,10 +15,20 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
-func (m *BigramModule) initNearText() error {
-	return nil
+
+
+func (m *BigramModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+
+	return m.graphqlProvider.Arguments()
 }
 
+func (m *BigramModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
+
+	vectorSearches["nearText"] = &vectorForParams{m.VectorFromParams}
+	return vectorSearches
+	//return m.searcher.VectorSearches()
+}
 
 var (
 	_ = modulecapabilities.GraphQLArguments(New())
