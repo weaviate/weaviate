@@ -12,6 +12,7 @@
 package sharding
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -27,6 +28,8 @@ import (
 )
 
 const shardNameLength = 12
+
+var ErrReplicaAlreadyExists = errors.New("replica already exists")
 
 type State struct {
 	IndexID             string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
@@ -104,7 +107,7 @@ func (s *State) DeleteReplicaFromShard(shard string, replica string) error {
 
 func (p *Physical) AddReplica(replica string) error {
 	if slices.Contains(p.BelongsToNodes, replica) {
-		return fmt.Errorf("replica %s already exists", replica)
+		return fmt.Errorf("%w: %s", ErrReplicaAlreadyExists, replica)
 	}
 	p.BelongsToNodes = append(p.BelongsToNodes, replica)
 	return nil

@@ -14,6 +14,8 @@ package replication
 import (
 	"context"
 	"fmt"
+	"slices"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -21,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
@@ -539,6 +542,18 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
+	// Sanity check: directly query the local schema to see if the replica already exists.
+	// If it does we are probably recoving from a previous failure and can skip adding the replica to the sharding state again
+	replicaExists := false
+	nodes, err := c.schemaReader.ShardReplicas(op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId)
+	if err != nil {
+		logger.WithError(err).Error("failure while getting shard replicas")
+		return api.ShardReplicationState(""), err
+	}
+	if slices.Contains(nodes, op.Op.TargetShard.NodeId) {
+		replicaExists = true
+	}
+
 	// ensure async replication is started on local (target) node
 	if err := c.replicaCopier.InitAsyncReplicationLocally(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
 		logger.WithError(err).Error("failure while initializing async replication on local node while finalizing")
@@ -576,9 +591,17 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
-		logger.WithError(err).Error("failure while adding replica to shard")
-		return api.ShardReplicationState(""), err
+	if !replicaExists {
+		if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
+			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
+				// The replica already exists, this is not an error and it got updated after our sanity check
+				// due to eventual consistency of the sharding state.
+				logger.Debug("replica already exists, skipping")
+			} else {
+				logger.WithError(err).Error("failure while adding replica to shard")
+				return api.ShardReplicationState(""), err
+			}
+		}
 	}
 
 	switch op.Op.TransferType {
@@ -607,6 +630,16 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOpAndStatus(c.logger.Logger, op.Op, op.Status)
 	logger.Info("processing dehydrating replication operation")
+
+	replicaExists := false
+	nodes, err := c.schemaReader.ShardReplicas(op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
+	if err != nil {
+		logger.WithError(err).Error("failure while getting shard replicas")
+		return api.ShardReplicationState(""), err
+	}
+	if slices.Contains(nodes, op.Op.SourceShard.NodeId) {
+		replicaExists = true
+	}
 
 	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
 
@@ -655,9 +688,12 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, op.Op.SourceShard.NodeId); err != nil {
-		logger.WithError(err).Error("failure while deleting replica from shard")
-		return api.ShardReplicationState(""), err
+	if replicaExists {
+		// If the replica got deleted due to eventual consistency between our sanity check and this call, the delete will be a no-op and return no error
+		if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, op.Op.SourceShard.NodeId); err != nil {
+			logger.WithError(err).Error("failure while deleting replica from shard")
+			return api.ShardReplicationState(""), err
+		}
 	}
 
 	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
