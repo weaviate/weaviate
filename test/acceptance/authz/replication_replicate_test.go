@@ -12,7 +12,9 @@
 package authz
 
 import (
+	"context"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
@@ -20,42 +22,42 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func TestAuthzReplicationReplicate(t *testing.T) {
-	// adminUser := "admin-user"
+	adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	testRoleName := "testRole"
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	// ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
-	// compose, err := docker.New().
-	// 	WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
-	// 	With3NodeCluster().
-	// 	WithRBAC().
-	// 	WithApiKey().
-	// 	WithUserApiKey(adminUser, adminKey).
-	// 	WithRbacAdmins(adminUser).
-	// 	WithUserApiKey(customUser, customKey).
-	// 	Start(ctx)
-	// require.Nil(t, err)
+	compose, err := docker.New().
+		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
+		With3NodeCluster().
+		WithRBAC().
+		WithApiKey().
+		WithUserApiKey(adminUser, adminKey).
+		WithRbacAdmins(adminUser).
+		WithUserApiKey(customUser, customKey).
+		Start(ctx)
+	require.Nil(t, err)
 
-	// defer func() {
-	// 	helper.ResetClient()
-	// 	if err := compose.Terminate(ctx); err != nil {
-	// 		t.Fatalf("failed to terminate test containers: %v", err)
-	// 	}
-	// 	cancel()
-	// }()
+	defer func() {
+		helper.ResetClient()
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %v", err)
+		}
+		cancel()
+	}()
 
-	// helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupClient("localhost:8080")
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	paragraphClass := articles.ParagraphsClass()
 
@@ -114,12 +116,6 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 
 	t.Run("Replicate a shard with permissions", func(t *testing.T) {
 		resp, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(req), helper.CreateAuth(customKey))
-		if err != nil {
-			parsed, ok := err.(*replication.ReplicateForbidden)
-			if ok {
-				t.Logf("Error: %v", parsed.Payload.Error[0].Message)
-			}
-		}
 		require.Nil(t, err)
 		replicationId = *resp.Payload.ID
 	})
