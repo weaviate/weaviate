@@ -12,9 +12,7 @@
 package authz
 
 import (
-	"context"
 	"testing"
-	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/require"
@@ -22,42 +20,42 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
 func TestAuthzReplicationReplicate(t *testing.T) {
-	adminUser := "admin-user"
+	// adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	testRoleName := "testRole"
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	// ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
-	compose, err := docker.New().
-		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
-		With3NodeCluster().
-		WithRBAC().
-		WithApiKey().
-		WithUserApiKey(adminUser, adminKey).
-		WithRbacAdmins(adminUser).
-		WithUserApiKey(customUser, customKey).
-		Start(ctx)
-	require.Nil(t, err)
+	// compose, err := docker.New().
+	// 	WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
+	// 	With3NodeCluster().
+	// 	WithRBAC().
+	// 	WithApiKey().
+	// 	WithUserApiKey(adminUser, adminKey).
+	// 	WithRbacAdmins(adminUser).
+	// 	WithUserApiKey(customUser, customKey).
+	// 	Start(ctx)
+	// require.Nil(t, err)
 
-	defer func() {
-		helper.ResetClient()
-		if err := compose.Terminate(ctx); err != nil {
-			t.Fatalf("failed to terminate test containers: %v", err)
-		}
-		cancel()
-	}()
+	// defer func() {
+	// 	helper.ResetClient()
+	// 	if err := compose.Terminate(ctx); err != nil {
+	// 		t.Fatalf("failed to terminate test containers: %v", err)
+	// 	}
+	// 	cancel()
+	// }()
 
-	helper.SetupClient(compose.GetWeaviate().URI())
+	// helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient("localhost:8080")
 
 	paragraphClass := articles.ParagraphsClass()
 
@@ -66,39 +64,38 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 
 	req := getReplicateRequest(t, paragraphClass.Class, adminKey)
 
+	helper.DeleteRole(t, adminKey, testRoleName)
 	helper.CreateRole(t, adminKey, &models.Role{
 		Name:        &testRoleName,
 		Permissions: []*models.Permission{},
 	})
-	defer helper.DeleteRole(t, adminKey, testRoleName)
 
 	helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
-	defer helper.RevokeRoleFromUser(t, adminKey, testRoleName, customUser)
 
 	createReplication := &models.Permission{
-		Action: &authorization.CreateReplications,
-		Replication: &models.PermissionReplication{
+		Action: &authorization.CreateReplicate,
+		Replicate: &models.PermissionReplicate{
 			Collection: req.CollectionID,
 			Shard:      req.ShardID,
 		},
 	}
 	readReplication := &models.Permission{
-		Action: &authorization.ReadReplications,
-		Replication: &models.PermissionReplication{
+		Action: &authorization.ReadReplicate,
+		Replicate: &models.PermissionReplicate{
 			Collection: req.CollectionID,
 			Shard:      req.ShardID,
 		},
 	}
 	updateReplication := &models.Permission{
-		Action: &authorization.UpdateReplications,
-		Replication: &models.PermissionReplication{
+		Action: &authorization.UpdateReplicate,
+		Replicate: &models.PermissionReplicate{
 			Collection: req.CollectionID,
 			Shard:      req.ShardID,
 		},
 	}
 	deleteReplication := &models.Permission{
-		Action: &authorization.DeleteReplications,
-		Replication: &models.PermissionReplication{
+		Action: &authorization.DeleteReplicate,
+		Replicate: &models.PermissionReplicate{
 			Collection: req.CollectionID,
 			Shard:      req.ShardID,
 		},
@@ -117,6 +114,12 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 
 	t.Run("Replicate a shard with permissions", func(t *testing.T) {
 		resp, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(req), helper.CreateAuth(customKey))
+		if err != nil {
+			parsed, ok := err.(*replication.ReplicateForbidden)
+			if ok {
+				t.Logf("Error: %v", parsed.Payload.Error[0].Message)
+			}
+		}
 		require.Nil(t, err)
 		replicationId = *resp.Payload.ID
 	})

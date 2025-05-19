@@ -46,6 +46,7 @@ func (m *manager) authorize(principal *models.Principal, verb string, skipAudit 
 
 	for _, resource := range resources {
 		allowed, err := m.checkPermissions(principal, resource, verb)
+		fmt.Printf("Authorizing %s %s %v %b\n", principal.Username, verb, resources, allowed)
 		if err != nil {
 			logger.WithFields(logrus.Fields{
 				"resource": resource,
