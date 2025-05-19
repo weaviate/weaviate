@@ -717,7 +717,9 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 	}
 	offset += writeUint16Size
 
-	if err := writeBool(w, state.Compressed); err != nil {
+	isEncoded := state.Compressed || state.MuveraEnabled
+
+	if err := writeBool(w, isEncoded); err != nil {
 		return 0, err
 	}
 	offset += writeByteSize
@@ -840,11 +842,6 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 				}
 			}
 		}
-	} else { // no compression / encoder
-		if err := writeByte(w, 0); err != nil {
-			return 0, err
-		}
-		offset += writeByteSize
 	}
 
 	if err := writeUint32(w, uint32(len(state.Nodes))); err != nil {
@@ -901,21 +898,22 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 	}
 	res.Level = binary.LittleEndian.Uint16(b[:2])
 
-	_, err = ReadAndHash(r, hasher, b[:1]) // compressed
+	_, err = ReadAndHash(r, hasher, b[:1]) // isEncoded
 	if err != nil {
 		return nil, errors.Wrapf(err, "read compressed")
 	}
-	res.Compressed = b[0] == 1
+	isEncoded := b[0] == 1
 
 	// Compressed data
-	if res.Compressed {
-		_, err = ReadAndHash(r, hasher, b[:1]) // compression type
+	if isEncoded {
+		_, err = ReadAndHash(r, hasher, b[:1]) // encoding type
 		if err != nil {
 			return nil, errors.Wrapf(err, "read compressed")
 		}
 
 		switch b[0] {
 		case SnapshotCompressionTypePQ:
+			res.Compressed = true
 			_, err = ReadAndHash(r, hasher, b[:2]) // PQData.Dimensions
 			if err != nil {
 				return nil, errors.Wrapf(err, "read PQData.Dimensions")
@@ -982,6 +980,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				res.CompressionPQData.Encoders = append(res.CompressionPQData.Encoders, encoder)
 			}
 		case SnapshotCompressionTypeSQ:
+			res.Compressed = true
 			_, err = ReadAndHash(r, hasher, b[:2]) // SQData.Dimensions
 			if err != nil {
 				return nil, errors.Wrapf(err, "read SQData.Dimensions")
