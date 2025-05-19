@@ -1080,6 +1080,13 @@ func TestConsumerOpDuplication(t *testing.T) {
 	parser.On("ParseClass", mock.Anything).Return(nil)
 	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 	schemaReader := schemaManager.NewSchemaReader()
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false)
 
 	var completionWg sync.WaitGroup
 	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
@@ -1167,10 +1174,10 @@ func TestConsumerOpDuplication(t *testing.T) {
 		Return(nil).
 		Times(1)
 	mockFSMUpdater.EXPECT().
-		AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, "node2").
+		AddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2").
 		Return(uint64(1), nil)
 	mockReplicaCopier.EXPECT().
-		AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", mock.Anything).
+		AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", "shard1").
 		Return(models.AsyncReplicationStatus{
 			ObjectsPropagated:       0,
 			StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
@@ -1180,10 +1187,10 @@ func TestConsumerOpDuplication(t *testing.T) {
 	mockReplicaCopier.EXPECT().
 		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 	mockReplicaCopier.EXPECT().
-		InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+		InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
 		Return(nil)
 	mockReplicaCopier.EXPECT().
-		RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
 
