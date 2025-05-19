@@ -180,7 +180,7 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 		select {
 		case <-ch:
 			return nil
-		case <-time.After(60 * time.Second):
+		case <-time.After(10 * time.Second):
 			return ctx.Err()
 		}
 	}
