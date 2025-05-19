@@ -533,6 +533,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				defer idx.closeLock.RUnlock()
 
 				if idx.closed {
+					m.logger.WithField("index", idx.ID()).Debug("index is already shut down or dropped")
 					ec.Add(errAlreadyShutdown)
 					return nil
 				}
@@ -542,19 +543,21 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 
 				shard, ok := idx.shards.LoadAndDelete(name)
 				if !ok {
+					m.logger.WithField("shard", name).Debug("already shut down or dropped")
 					return nil // shard already does not exist or inactive
 				}
+
+				m.logger.WithField("shard", name).Debug("starting shutdown")
 
 				if err := shard.Shutdown(ctx); err != nil {
 					if errors.Is(err, errAlreadyShutdown) {
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {
-						ec.Add(err)
-
 						idx.logger.
 							WithField("action", "shutdown_shard").
 							WithField("shard", shard.ID()).
 							Error(err)
+						ec.Add(err)
 					}
 				}
 
