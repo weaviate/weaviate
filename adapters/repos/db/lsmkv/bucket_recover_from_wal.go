@@ -108,7 +108,12 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		}
 
 		if mt.strategy == StrategyInverted {
-			mt.averagePropLength, _ = b.disk.GetAveragePropertyLength()
+			disk, err := b.getDisk()
+			if err != nil {
+				return err
+			}
+
+			mt.averagePropLength, _ = disk.GetAveragePropertyLength()
 		}
 		if err := mt.flush(); err != nil {
 			return errors.Wrap(err, "flush memtable after WAL recovery")
@@ -118,14 +123,15 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 			continue
 		}
 
-		if err := b.disk.add(path + ".db"); err != nil {
-			return err
-		}
-
 		if b.strategy == StrategyReplace && b.monitorCount {
 			// having just flushed the memtable we now have the most up2date count which
 			// is a good place to update the metric
-			b.metrics.ObjectCount(b.disk.count())
+			disk, err := b.getDisk()
+			if err != nil {
+				return err
+			}
+
+			b.metrics.ObjectCount(disk.count())
 		}
 
 		b.logger.WithField("action", "lsm_recover_from_active_wal_success").

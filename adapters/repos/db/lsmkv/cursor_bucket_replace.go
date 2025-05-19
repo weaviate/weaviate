@@ -42,13 +42,17 @@ type cursorStateReplace struct {
 // Cursor holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
 func (b *Bucket) Cursor() *CursorReplace {
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil
+	}
 	b.flushLock.RLock()
 
 	if b.strategy != StrategyReplace {
 		panic("Cursor() called on strategy other than 'replace'")
 	}
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursors()
+	innerCursors, unlockSegmentGroup := disk.newCursors()
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two
@@ -119,7 +123,11 @@ func (b *Bucket) CursorOnDisk() *CursorReplace {
 		panic("CursorWith(desiredSecondaryIndexCount) called on strategy other than 'replace'")
 	}
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithFlushingSupport()
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil
+	}
+	innerCursors, unlockSegmentGroup := disk.newCursorsWithFlushingSupport()
 
 	return &CursorReplace{
 		innerCursors: innerCursors,
@@ -132,6 +140,11 @@ func (b *Bucket) CursorOnDisk() *CursorReplace {
 // CursorWithSecondaryIndex holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
 func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil
+	}
+
 	b.flushLock.RLock()
 
 	if b.strategy != StrategyReplace {
@@ -142,7 +155,7 @@ func (b *Bucket) CursorWithSecondaryIndex(pos int) *CursorReplace {
 		panic("CursorWithSecondaryIndex() called on a bucket without enough secondary indexes")
 	}
 
-	innerCursors, unlockSegmentGroup := b.disk.newCursorsWithSecondaryIndex(pos)
+	innerCursors, unlockSegmentGroup := disk.newCursorsWithSecondaryIndex(pos)
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two

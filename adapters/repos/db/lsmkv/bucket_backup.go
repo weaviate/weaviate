@@ -40,7 +40,11 @@ func (b *Bucket) FlushMemtable() error {
 // in a stable state if the memtable is empty, and if compactions are paused. If one
 // of those conditions is not given, it errors
 func (b *Bucket) ListFiles(ctx context.Context, basePath string) ([]string, error) {
-	bucketRoot := b.disk.dir
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil, err
+	}
+	bucketRoot := disk.dir
 
 	entries, err := os.ReadDir(bucketRoot)
 	if err != nil {
