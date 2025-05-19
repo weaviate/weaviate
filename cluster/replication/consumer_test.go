@@ -1072,6 +1072,8 @@ func TestConsumerOpDuplication(t *testing.T) {
 	schemaReader := schemaManager.NewSchemaReader()
 
 	var completionWg sync.WaitGroup
+	var hydratingCompleteWg sync.WaitGroup
+
 	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
 		WithPrepareProcessing(func(node string) {
 			require.Equal(t, "node2", node, "invalid node in prepare processing callback")
@@ -1105,7 +1107,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 		"node2",
 		&backoff.StopBackOff{},
 		replication.NewOpsCache(),
-		time.Second*30,
+		time.Second*10,
 		1,
 		runtime.NewDynamicValue(time.Second*100),
 		metricsCallbacks,
@@ -1132,12 +1134,13 @@ func TestConsumerOpDuplication(t *testing.T) {
 				if ctx.Err() != nil {
 					return ctx.Err()
 				}
-				if time.Since(start) > 20*time.Second {
+				if time.Since(start) > 5*time.Second {
 					break
 				}
 				time.Sleep(1 * time.Second)
 				// Simulate a long-running operation
 			}
+			hydratingCompleteWg.Done()
 			return nil
 		}).Times(1)
 	mockFSMUpdater.EXPECT().
@@ -1183,7 +1186,11 @@ func TestConsumerOpDuplication(t *testing.T) {
 	// Simulate the copying step that will loop for 20s before exiting
 	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	completionWg.Add(1)
-	// Send the same operation again to make sure it isn't reprocessed
+
+	hydratingCompleteWg.Add(1)
+	hydratingCompleteWg.Wait()
+
+	// Send the same operation again to make sure it isn't reprocessed after a state change
 	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	completionWg.Add(1)
 
