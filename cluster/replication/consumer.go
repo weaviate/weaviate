@@ -281,9 +281,15 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					continue
 				}
 
-				wg.Add(1)
-				c.opsGateway.ScheduleNow(op.Op.ID)
+				// Start a replication operation with a timeout for completion to prevent replication operations
+				// from running indefinitely
+				opCtx, opCancel := context.WithTimeout(workerCtx, c.opTimeout)
+				defer opCancel()
+
 				c.engineOpCallbacks.OnOpStart(c.nodeId)
+				c.ongoingOps.StoreCancel(op.Op.ID, opCancel)
+				c.opsGateway.ScheduleNow(op.Op.ID)
+				wg.Add(1)
 				enterrors.GoWrapper(func() {
 					defer func() {
 						// Delete the operation from the ongoingOps map when the operation processing is complete
@@ -292,13 +298,6 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 						<-c.tokens // Release token when completed
 					}()
 
-					// Start a replication operation with a timeout for completion to prevent replication operations
-					// from running indefinitely
-					opCtx, opCancel := context.WithTimeout(workerCtx, c.opTimeout)
-					defer opCancel()
-
-					c.ongoingOps.StoreCancel(op.Op.ID, opCancel)
-					wg.Add(1)
 					c.engineOpCallbacks.OnOpStart(c.nodeId)
 
 					opLogger.Debug("worker processing replication operation")
