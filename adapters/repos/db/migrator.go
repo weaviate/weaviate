@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/pkg/errors"
@@ -211,7 +212,7 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 				return err
 			}
 		} else {
-			if err := m.updateIndexAddShards(ctx, idx, incomingSS); err != nil {
+			if err := m.updateIndexShards(ctx, idx, incomingSS); err != nil {
 				return err
 			}
 		}
@@ -229,20 +230,34 @@ func (m *Migrator) UpdateIndex(ctx context.Context, incomingClass *models.Class,
 func (m *Migrator) updateIndexTenants(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	if err := m.updateIndexAddTenants(ctx, idx, incomingSS); err != nil {
+	if err := m.updateIndexTenantsStatus(ctx, idx, incomingSS); err != nil {
 		return err
 	}
 	return m.updateIndexDeleteTenants(ctx, idx, incomingSS)
 }
 
-func (m *Migrator) updateIndexAddTenants(ctx context.Context, idx *Index,
+func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
+	nodeName := m.db.schemaGetter.NodeName()
 	for shardName, phys := range incomingSS.Physical {
-		// Only load the tenant if activity status == HOT
-		if schemaUC.IsLocalActiveTenant(&phys, m.db.schemaGetter.NodeName()) {
-			if err := idx.initLocalShard(ctx, shardName); err != nil {
+		if !phys.IsLocalShard(nodeName) {
+			continue
+		}
+
+		if phys.Status == models.TenantActivityStatusHOT {
+			// Only load the tenant if activity status == HOT
+			if err := idx.loadLocalShard(ctx, shardName); err != nil {
 				return fmt.Errorf("add missing tenant shard %s during update index: %w", shardName, err)
+			}
+		} else {
+			// Shutdown the tenant if activity status != HOT
+			shard := idx.shards.Load(shardName)
+			if shard == nil {
+				continue
+			}
+			if err := shard.Shutdown(ctx); err != nil {
+				return fmt.Errorf("shutdown tenant shard %s during update index: %w", shardName, err)
 			}
 		}
 	}
@@ -280,14 +295,39 @@ func (m *Migrator) updateIndexDeleteTenants(ctx context.Context,
 	return nil
 }
 
-func (m *Migrator) updateIndexAddShards(ctx context.Context, idx *Index,
+func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	incomingSS *sharding.State,
 ) error {
-	for _, shardName := range incomingSS.AllLocalPhysicalShards() {
-		if err := idx.initLocalShard(ctx, shardName); err != nil {
-			return fmt.Errorf("add missing shard %s during update index: %w", shardName, err)
+	requestedShards := incomingSS.AllLocalPhysicalShards()
+	existingShards := make(map[string]ShardLike)
+
+	if err := idx.ForEachShard(func(name string, shard ShardLike) error {
+		existingShards[name] = shard
+		return nil
+	}); err != nil {
+		return fmt.Errorf("failed to iterate over loaded shards: %w", err)
+	}
+
+	// Initialize missing shards and shutdown unneeded ones
+	for shardName, shard := range existingShards {
+		if !slices.Contains(requestedShards, shardName) {
+			if err := shard.Shutdown(ctx); err != nil {
+				// we log instead of returning an error, to avoid stopping the change
+				m.logger.WithField("shard", shardName).Error("shutdown shard during update index: %w", err)
+				continue
+			}
+			idx.shards.LoadAndDelete(shardName)
 		}
 	}
+
+	for _, shardName := range requestedShards {
+		if _, exists := existingShards[shardName]; !exists {
+			if err := idx.initLocalShard(ctx, shardName); err != nil {
+				return fmt.Errorf("add missing shard %s during update index: %w", shardName, err)
+			}
+		}
+	}
+
 	return nil
 }
 
