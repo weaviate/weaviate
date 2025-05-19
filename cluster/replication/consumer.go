@@ -631,6 +631,16 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	logger := getLoggerForOpAndStatus(c.logger.Logger, op.Op, op.Status)
 	logger.Info("processing dehydrating replication operation")
 
+	replicaExists := false
+	nodes, err := c.schemaReader.ShardReplicas(op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId)
+	if err != nil {
+		logger.WithError(err).Error("failure while getting shard replicas")
+		return api.ShardReplicationState(""), err
+	}
+	if slices.Contains(nodes, op.Op.TargetShard.NodeId) {
+		replicaExists = true
+	}
+
 	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
 
 	// Async replication was started in processFinalizingOp, but here we want to "increase" the upper time bound
@@ -678,9 +688,12 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, op.Op.SourceShard.NodeId); err != nil {
-		logger.WithError(err).Error("failure while deleting replica from shard")
-		return api.ShardReplicationState(""), err
+	if replicaExists {
+		// If the replica got deleted due to eventual consistency between our sanity check and this call, the delete will be a no-op and return no error
+		if _, err := c.leaderClient.DeleteReplicaFromShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, op.Op.SourceShard.NodeId); err != nil {
+			logger.WithError(err).Error("failure while deleting replica from shard")
+			return api.ShardReplicationState(""), err
+		}
 	}
 
 	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
