@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-func (m *Memtable) flushWAL() (rerr error) {
+func (m *Memtable) flushWAL() error {
 	if err := m.commitlog.close(); err != nil {
 		return err
 	}
@@ -42,7 +42,7 @@ func (m *Memtable) flushWAL() (rerr error) {
 	}
 
 	// fsync parent directory
-	err := fsync(filepath.Dir(m.path))
+	err := diskio.Fsync(filepath.Dir(m.path))
 	if err != nil {
 		return err
 	}
