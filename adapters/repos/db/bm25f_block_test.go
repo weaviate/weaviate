@@ -27,12 +27,10 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestBM25FJourneyBlock(t *testing.T) {
-	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -295,7 +293,6 @@ func TestBM25FJourneyBlock(t *testing.T) {
 }
 
 func TestBM25FSinglePropBlock(t *testing.T) {
-	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -350,7 +347,6 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 }
 
 func TestBM25FWithFiltersBlock(t *testing.T) {
-	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -454,7 +450,6 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 }
 
 func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T) {
-	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -526,7 +521,6 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 }
 
 func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
-	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -592,7 +586,6 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
 func TestBM25FCompareBlock(t *testing.T) {
-	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -678,7 +671,6 @@ func TestBM25FCompareBlock(t *testing.T) {
 }
 
 func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
-	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -776,7 +768,6 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 }
 
 func TestBM25F_SortMultiPropBlock(t *testing.T) {
-	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()

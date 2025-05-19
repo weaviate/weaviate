@@ -34,7 +34,6 @@ var (
 )
 
 func TestBM25FJourneyBlockAnd(t *testing.T) {
-	config.DefaultUsingBlockMaxWAND = true
 	dirName := t.TempDir()
 
 	logger := logrus.New()
