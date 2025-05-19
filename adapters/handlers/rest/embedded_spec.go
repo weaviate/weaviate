@@ -6765,10 +6765,10 @@ func init() {
             "read_tenants",
             "update_tenants",
             "delete_tenants",
-            "create_replications",
-            "read_replications",
-            "update_replications",
-            "delete_replications"
+            "create_replicate",
+            "read_replicate",
+            "update_replicate",
+            "delete_replicate"
           ]
         },
         "backups": {
@@ -6834,8 +6834,8 @@ func init() {
             }
           }
         },
-        "replication": {
-          "description": "resources applicable for replication actions",
+        "replicate": {
+          "description": "resources applicable for replicate actions",
           "type": "object",
           "properties": {
             "collection": {
@@ -15089,10 +15089,10 @@ func init() {
             "read_tenants",
             "update_tenants",
             "delete_tenants",
-            "create_replications",
-            "read_replications",
-            "update_replications",
-            "delete_replications"
+            "create_replicate",
+            "read_replicate",
+            "update_replicate",
+            "delete_replicate"
           ]
         },
         "backups": {
@@ -15158,8 +15158,8 @@ func init() {
             }
           }
         },
-        "replication": {
-          "description": "resources applicable for replication actions",
+        "replicate": {
+          "description": "resources applicable for replicate actions",
           "type": "object",
           "properties": {
             "collection": {
@@ -15286,8 +15286,8 @@ func init() {
         }
       }
     },
-    "PermissionReplication": {
-      "description": "resources applicable for replication actions",
+    "PermissionReplicate": {
+      "description": "resources applicable for replicate actions",
       "type": "object",
       "properties": {
         "collection": {
