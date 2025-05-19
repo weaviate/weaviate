@@ -296,9 +296,6 @@ func (s *ShardReplicationFSM) DeleteReplicationsByTenants(collection string, ten
 }
 
 func (s *ShardReplicationFSM) hasOngoingSourceReplication(sourceFQDN shardFQDN) bool {
-	s.opsLock.RLock()
-	defer s.opsLock.RUnlock()
-
 	ops, ok := s.opsBySourceFQDN[sourceFQDN]
 	if !ok {
 		return false
@@ -320,9 +317,6 @@ func (s *ShardReplicationFSM) hasOngoingSourceReplication(sourceFQDN shardFQDN) 
 }
 
 func (s *ShardReplicationFSM) hasOngoingTargetReplication(targetFQDN shardFQDN) bool {
-	s.opsLock.RLock()
-	defer s.opsLock.RUnlock()
-
 	op, ok := s.opsByTargetFQDN[targetFQDN]
 	if !ok {
 		return false

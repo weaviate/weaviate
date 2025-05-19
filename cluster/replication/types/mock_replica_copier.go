@@ -289,41 +289,6 @@ func (_c *MockReplicaCopier_RemoveAsyncReplicationTargetNode_Call) RunAndReturn(
 	return _c
 }
 
-// RemoveLocalReplica provides a mock function with given fields: ctx, sourceCollection, sourceShard
-func (_m *MockReplicaCopier) RemoveLocalReplica(ctx context.Context, sourceCollection string, sourceShard string) {
-	_m.Called(ctx, sourceCollection, sourceShard)
-}
-
-// MockReplicaCopier_RemoveLocalReplica_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'RemoveLocalReplica'
-type MockReplicaCopier_RemoveLocalReplica_Call struct {
-	*mock.Call
-}
-
-// RemoveLocalReplica is a helper method to define mock.On call
-//   - ctx context.Context
-//   - sourceCollection string
-//   - sourceShard string
-func (_e *MockReplicaCopier_Expecter) RemoveLocalReplica(ctx interface{}, sourceCollection interface{}, sourceShard interface{}) *MockReplicaCopier_RemoveLocalReplica_Call {
-	return &MockReplicaCopier_RemoveLocalReplica_Call{Call: _e.mock.On("RemoveLocalReplica", ctx, sourceCollection, sourceShard)}
-}
-
-func (_c *MockReplicaCopier_RemoveLocalReplica_Call) Run(run func(ctx context.Context, sourceCollection string, sourceShard string)) *MockReplicaCopier_RemoveLocalReplica_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string))
-	})
-	return _c
-}
-
-func (_c *MockReplicaCopier_RemoveLocalReplica_Call) Return() *MockReplicaCopier_RemoveLocalReplica_Call {
-	_c.Call.Return()
-	return _c
-}
-
-func (_c *MockReplicaCopier_RemoveLocalReplica_Call) RunAndReturn(run func(context.Context, string, string)) *MockReplicaCopier_RemoveLocalReplica_Call {
-	_c.Run(run)
-	return _c
-}
-
 // RevertAsyncReplicationLocally provides a mock function with given fields: ctx, collectionName, shardName
 func (_m *MockReplicaCopier) RevertAsyncReplicationLocally(ctx context.Context, collectionName string, shardName string) error {
 	ret := _m.Called(ctx, collectionName, shardName)
