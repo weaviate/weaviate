@@ -1093,7 +1093,6 @@ func TestConsumerOpDuplication(t *testing.T) {
 		}), "node1", true, false)
 
 	var completionWg sync.WaitGroup
-	var hydratingCompleteWg sync.WaitGroup
 
 	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
 		WithPrepareProcessing(func(node string) {
@@ -1146,35 +1145,13 @@ func TestConsumerOpDuplication(t *testing.T) {
 		doneChan <- consumer.Consume(ctx, opsChan)
 	}()
 
-	mockReplicaCopier.EXPECT().
-		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
-		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
-			// Simulate a long-running operation that checks for cancellation every loop
-			start := time.Now()
-			for {
-				if ctx.Err() != nil {
-					return ctx.Err()
-				}
-				if time.Since(start) > 5*time.Second {
-					break
-				}
-				time.Sleep(1 * time.Second)
-				// Simulate a long-running operation
-			}
-			hydratingCompleteWg.Done()
-			return nil
-		}).Times(1)
-	mockFSMUpdater.EXPECT().
-		ReplicationGetReplicaOpStatus(uint64(1)).
-		Return(api.HYDRATING, nil).
-		Times(1)
 	mockFSMUpdater.EXPECT().
 		ReplicationGetReplicaOpStatus(uint64(1)).
 		Return(api.FINALIZING, nil).
 		Times(1)
 	mockFSMUpdater.EXPECT().
-		ReplicationUpdateReplicaOpStatus(uint64(1), api.FINALIZING).
-		Return(nil).
+		ReplicationGetReplicaOpStatus(uint64(1)).
+		Return(api.READY, nil).
 		Times(1)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(uint64(1), api.READY).
@@ -1202,16 +1179,13 @@ func TestConsumerOpDuplication(t *testing.T) {
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
 
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
-	status := replication.NewShardReplicationStatus(api.HYDRATING)
+	status := replication.NewShardReplicationStatus(api.FINALIZING)
 
-	// Simulate the copying step that will loop for 20s before exiting
 	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	completionWg.Add(1)
 
-	hydratingCompleteWg.Add(1)
-	hydratingCompleteWg.Wait()
-
 	// Send the same operation again to make sure it isn't reprocessed after a state change
+	// as mocked in the above expectations
 	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	completionWg.Add(1)
 
