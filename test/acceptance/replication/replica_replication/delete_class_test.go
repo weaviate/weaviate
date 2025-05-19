@@ -59,8 +59,8 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationDeletingClassCleansUp
 		})
 
 		t.Run("insert paragraphs", func(t *testing.T) {
-			batch := make([]*models.Object, 5000)
-			for i := 0; i < 5000; i++ {
+			batch := make([]*models.Object, 10000)
+			for i := 0; i < 10000; i++ {
 				batch[i] = articles.NewParagraph().
 					WithContents(fmt.Sprintf("paragraph#%d", i)).
 					Object()
@@ -84,7 +84,7 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationDeletingClassCleansUp
 					details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 					require.Nil(ct, err)
 					require.Equal(ct, state.String(), details.Payload.Status.State)
-				}, 30*time.Second, 100*time.Millisecond, "replication operation should be in %s state", state)
+				}, 60*time.Second, 100*time.Millisecond, "replication operation should be in %s state", state)
 			})
 		}
 

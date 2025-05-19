@@ -39,15 +39,16 @@ const (
 )
 
 const (
-	UsersDomain       = "users"
-	RolesDomain       = "roles"
-	ClusterDomain     = "cluster"
-	NodesDomain       = "nodes"
-	BackupsDomain     = "backups"
-	SchemaDomain      = "schema"
-	CollectionsDomain = "collections"
-	TenantsDomain     = "tenants"
-	DataDomain        = "data"
+	UsersDomain        = "users"
+	RolesDomain        = "roles"
+	ClusterDomain      = "cluster"
+	NodesDomain        = "nodes"
+	BackupsDomain      = "backups"
+	SchemaDomain       = "schema"
+	CollectionsDomain  = "collections"
+	TenantsDomain      = "tenants"
+	DataDomain         = "data"
+	ReplicationsDomain = "replications"
 )
 
 var (
@@ -78,6 +79,10 @@ var (
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
+	}
+	AllReplications = &models.PermissionReplication{
+		Collection: All,
+		Shard:      All,
 	}
 
 	ComponentName = "RBAC"
@@ -115,6 +120,11 @@ var (
 	ReadTenants   = "read_tenants"
 	UpdateTenants = "update_tenants"
 	DeleteTenants = "delete_tenants"
+
+	CreateReplications = "create_replications"
+	ReadReplications   = "read_replications"
+	UpdateReplications = "update_replications"
+	DeleteReplications = "delete_replications"
 
 	availableWeaviateActions = []string{
 		// Roles domain
@@ -156,6 +166,12 @@ var (
 		ReadTenants,
 		UpdateTenants,
 		DeleteTenants,
+
+		// Replication domain
+		CreateReplications,
+		ReadReplications,
+		UpdateReplications,
+		DeleteReplications,
 	}
 )
 
@@ -416,6 +432,26 @@ func Backups(classes ...string) []string {
 	}
 
 	return resources
+}
+
+// Replications generates a replication resource string for a given class and shard.
+//
+// Parameters:
+//   - class: The class name for the resource. If empty, defaults to "*".
+//   - shard: The shard name for the resource. If empty, defaults to "*".
+//
+// Returns:
+//
+//	A slice of strings representing the resource paths for the given class and shards.
+func Replications(class, shard string) string {
+	class = schema.UppercaseClassName(class)
+	if class == "" {
+		class = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	return fmt.Sprintf("%s/collections/%s/shards/%s", ReplicationsDomain, class, shard)
 }
 
 // WildcardPath returns the appropriate wildcard path based on the domain and original resource path.

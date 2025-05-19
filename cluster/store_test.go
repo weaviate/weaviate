@@ -275,7 +275,7 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				m.indexer.On("DeleteClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-				m.replicationsDeleter.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
+				m.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				class := ms.store.SchemaReader().ReadOnlyClass("C1")
@@ -294,7 +294,7 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				m.indexer.On("DeleteClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
-				m.replicationsDeleter.On("DeleteReplicationsByCollection", mock.Anything).Return(fmt.Errorf("any error"))
+				m.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(fmt.Errorf("any error"))
 			},
 			doAfter: func(ms *MockStore) error {
 				class := ms.store.SchemaReader().ReadOnlyClass("C1")
@@ -460,6 +460,76 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
+			name: "UpdateTenant/HasOngoingReplication/true",
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
+					{Name: "T1", Status: models.TenantActivityStatusCOLD},
+				}})},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				doFirst(m)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"Node-1"},
+					Status:         models.TenantActivityStatusHOT,
+				}}}
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+				m.replicationFSM.EXPECT().HasOngoingReplication("C1", "T1", "Node-1").Return(true)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			},
+			doAfter: func(ms *MockStore) error {
+				want := map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"Node-1"},
+					Status:         models.TenantActivityStatusHOT,
+				}}
+
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
+					return fmt.Errorf("physical state want: %v got: %v", want, got)
+				}
+				return nil
+			},
+		},
+		{
+			name: "UpdateTenant/HasOngoingReplication/false",
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
+				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
+					{Name: "T1", Status: models.TenantActivityStatusCOLD},
+				}})},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				doFirst(m)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"Node-1"},
+					Status:         models.TenantActivityStatusHOT,
+				}}}
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+				m.replicationFSM.EXPECT().HasOngoingReplication("C1", "T1", "Node-1").Return(false)
+				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+			},
+			doAfter: func(ms *MockStore) error {
+				want := map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"Node-1"},
+					Status:         models.TenantActivityStatusCOLD,
+				}}
+
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if got := shardingState.Physical; !reflect.DeepEqual(got, want) {
+					return fmt.Errorf("physical state want: %v got: %v", want, got)
+				}
+				return nil
+			},
+		},
+		{
 			name: "UpdateTenant/Success",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_UPDATE_TENANT,
 				nil, &cmd.UpdateTenantsRequest{Tenants: []*cmd.Tenant{
@@ -488,6 +558,7 @@ func TestStoreApply(t *testing.T) {
 					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
 				})
 				m.indexer.On("UpdateTenants", mock.Anything, mock.Anything).Return(nil)
+				m.replicationFSM.EXPECT().HasOngoingReplication(Anything, Anything, Anything).Return(false)
 			},
 			doAfter: func(ms *MockStore) error {
 				want := map[string]sharding.Physical{"T1": {
@@ -524,7 +595,6 @@ func TestStoreApply(t *testing.T) {
 			resp: Response{Error: schema.ErrSchema},
 			doBefore: func(m *MockStore) {
 				doFirst(m)
-				m.replicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 		},
 		{
@@ -543,7 +613,7 @@ func TestStoreApply(t *testing.T) {
 					}, nil),
 				})
 				m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
-				m.replicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
+				m.replicationFSM.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
@@ -569,7 +639,7 @@ func TestStoreApply(t *testing.T) {
 					}, nil),
 				})
 				m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
-				m.replicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(fmt.Errorf("any error"))
+				m.replicationFSM.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(fmt.Errorf("any error"))
 			},
 			doAfter: func(ms *MockStore) error {
 				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
@@ -807,6 +877,7 @@ func TestStoreApply(t *testing.T) {
 				}
 				m.indexer.AssertExpectations(t)
 				m.parser.AssertExpectations(t)
+				m.replicationFSM.AssertExpectations(t)
 			}
 		})
 	}
@@ -846,7 +917,7 @@ func TestStoreMetrics(t *testing.T) {
 		assert.Equal(t, 1, int(*m.Histogram.SampleCount))
 		assert.Equal(t, 0, int(testutil.ToFloat64(store.metrics.applyFailures)))
 	})
-	t.Run("last_applied_index", func(t *testing.T) {
+	t.Run("fsm_last_applied_index", func(t *testing.T) {
 		appliedIndex := 34 // after successful apply, this node should have 34 as last applied index metric
 
 		doBefore := func(m *MockStore) {
@@ -867,7 +938,9 @@ func TestStoreMetrics(t *testing.T) {
 		store := ms.Store(doBefore)
 
 		// before
-		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.fsmLastAppliedIndex)))
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.raftLastAppliedIndex)))
+
 		store.Apply(
 			&raft.Log{
 				Index: uint64(appliedIndex),
@@ -877,7 +950,8 @@ func TestStoreMetrics(t *testing.T) {
 			},
 		)
 		// after
-		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.fsmLastAppliedIndex)))
+		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.raftLastAppliedIndex)))
 	})
 
 	t.Run("last_applied_index on Configuration LogType", func(t *testing.T) {
@@ -894,11 +968,14 @@ func TestStoreMetrics(t *testing.T) {
 		store := ms.Store(doBefore)
 
 		// before
-		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.fsmLastAppliedIndex)))
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.raftLastAppliedIndex)))
+
 		store.StoreConfiguration(uint64(appliedIndex), raft.Configuration{})
 
 		// after
-		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.fsmLastAppliedIndex))) // fsm index should staty the same because it counts non-config commands.
+		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.raftLastAppliedIndex)))
 	})
 
 	t.Run("apply_failures", func(t *testing.T) {
@@ -926,12 +1003,12 @@ func TestStoreMetrics(t *testing.T) {
 }
 
 type MockStore struct {
-	indexer             *fakes.MockSchemaExecutor
-	parser              *fakes.MockParser
-	logger              *logrus.Logger
-	cfg                 Config
-	store               *Store
-	replicationsDeleter *fakes.MockReplicationsDeleter
+	indexer        *fakes.MockSchemaExecutor
+	parser         *fakes.MockParser
+	logger         *logrus.Logger
+	cfg            Config
+	store          *Store
+	replicationFSM *schema.MockreplicationFSM
 }
 
 func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
@@ -959,9 +1036,10 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
 		},
-		replicationsDeleter: fakes.NewMockReplicationsDeleter(),
+		replicationFSM: schema.NewMockreplicationFSM(t),
 	}
 	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry())
+	s.schemaManager.SetReplicationFSM(ms.replicationFSM)
 	ms.store = &s
 	return ms
 }
