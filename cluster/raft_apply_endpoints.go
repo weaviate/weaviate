@@ -241,7 +241,8 @@ func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, erro
 		}
 		schemaVersion = resp.Version
 		return nil
-	}, backoffConfig(ctx, s.store.cfg.ElectionTimeout))
+		// pass in the election timeout after applying multiplier
+	}, backoffConfig(ctx, s.store.raftConfig().ElectionTimeout))
 
 	return schemaVersion, err
 }

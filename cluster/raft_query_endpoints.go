@@ -383,7 +383,8 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 		}
 
 		return nil
-	}, backoffConfig(ctx, s.store.cfg.ElectionTimeout)); err != nil {
+		// pass in the election timeout after applying multiplier
+	}, backoffConfig(ctx, s.store.raftConfig().ElectionTimeout)); err != nil {
 		s.log.Warnf("query: failed to find leader after retries: %s", err)
 		return &cmd.QueryResponse{}, err
 	}
