@@ -29,9 +29,7 @@ import (
 
 const shardNameLength = 12
 
-var (
-	ErrReplicaAlreadyExists = errors.New("replica already exists")
-)
+var ErrReplicaAlreadyExists = errors.New("replica already exists")
 
 type State struct {
 	IndexID             string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
