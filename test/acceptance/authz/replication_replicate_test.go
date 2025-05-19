@@ -66,13 +66,14 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 
 	req := getReplicateRequest(t, paragraphClass.Class, adminKey)
 
-	helper.DeleteRole(t, adminKey, testRoleName)
 	helper.CreateRole(t, adminKey, &models.Role{
 		Name:        &testRoleName,
 		Permissions: []*models.Permission{},
 	})
+	defer helper.DeleteRole(t, adminKey, testRoleName)
 
 	helper.AssignRoleToUser(t, adminKey, testRoleName, customUser)
+	defer helper.RevokeRoleFromUser(t, adminKey, testRoleName, customUser)
 
 	createReplication := &models.Permission{
 		Action: &authorization.CreateReplicate,
