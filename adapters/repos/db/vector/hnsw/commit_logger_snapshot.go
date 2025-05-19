@@ -722,131 +722,129 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 	}
 	offset += writeByteSize
 
-	if state.Compressed {
-		if state.CompressionPQData != nil { // PQ
-			// first byte is the compression type
-			if err := writeByte(w, byte(SnapshotCompressionTypePQ)); err != nil {
-				return 0, err
-			}
-			offset += writeByteSize
-
-			if err := writeUint16(w, state.CompressionPQData.Dimensions); err != nil {
-				return 0, err
-			}
-			offset += writeUint16Size
-
-			if err := writeUint16(w, state.CompressionPQData.Ks); err != nil {
-				return 0, err
-			}
-			offset += writeUint16Size
-
-			if err := writeUint16(w, state.CompressionPQData.M); err != nil {
-				return 0, err
-			}
-			offset += writeUint16Size
-
-			if err := writeByte(w, byte(state.CompressionPQData.EncoderType)); err != nil {
-				return 0, err
-			}
-			offset += writeByteSize
-
-			if err := writeByte(w, state.CompressionPQData.EncoderDistribution); err != nil {
-				return 0, err
-			}
-			offset += writeByteSize
-
-			if err := writeBool(w, state.CompressionPQData.UseBitsEncoding); err != nil {
-				return 0, err
-			}
-			offset += writeByteSize
-
-			for _, encoder := range state.CompressionPQData.Encoders {
-				if n, err := w.Write(encoder.ExposeDataForRestore()); err != nil {
-					return 0, err
-				} else {
-					offset += n
-				}
-			}
-		} else if state.CompressionSQData != nil { // SQ
-			// first byte is the compression type
-			if err := writeByte(w, byte(SnapshotCompressionTypeSQ)); err != nil {
-				return 0, err
-			}
-			offset += writeByteSize
-
-			if err := writeUint16(w, state.CompressionSQData.Dimensions); err != nil {
-				return 0, err
-			}
-			offset += writeUint16Size
-
-			if err := writeUint32(w, math.Float32bits(state.CompressionSQData.A)); err != nil {
-				return 0, err
-			}
-			offset += writeUint32Size
-
-			if err := writeUint32(w, math.Float32bits(state.CompressionSQData.B)); err != nil {
-				return 0, err
-			}
-			offset += writeUint32Size
-		} else if state.EncoderMuvera != nil { // Muvera
-			// first byte is the encoder type
-			if err := writeByte(w, byte(SnapshotEncoderTypeMuvera)); err != nil {
-				return 0, err
-			}
-			offset += writeByteSize
-
-			if err := writeUint32(w, state.EncoderMuvera.Dimensions); err != nil {
-				return 0, err
-			}
-			offset += writeUint32Size
-
-			if err := writeUint32(w, state.EncoderMuvera.KSim); err != nil {
-				return 0, err
-			}
-			offset += writeUint32Size
-
-			if err := writeUint32(w, state.EncoderMuvera.NumClusters); err != nil {
-				return 0, err
-			}
-			offset += writeUint32Size
-
-			if err := writeUint32(w, state.EncoderMuvera.DProjections); err != nil {
-				return 0, err
-			}
-			offset += writeUint32Size
-
-			if err := writeUint32(w, state.EncoderMuvera.Repetitions); err != nil {
-				return 0, err
-			}
-			offset += writeUint32Size
-
-			for _, gaussian := range state.EncoderMuvera.Gaussians {
-				for _, cluster := range gaussian {
-					for _, el := range cluster {
-						if err := writeUint32(w, math.Float32bits(el)); err != nil {
-							return 0, err
-						}
-						offset += writeUint32Size
-					}
-				}
-			}
-
-			for _, matrix := range state.EncoderMuvera.S {
-				for _, vector := range matrix {
-					for _, el := range vector {
-						if err := writeUint32(w, math.Float32bits(el)); err != nil {
-							return 0, err
-						}
-						offset += writeUint32Size
-					}
-				}
-			}
-		} else { // no compression
-			if err := writeByte(w, 0); err != nil {
-				return 0, err
-			}
-			offset += writeByteSize
+	if state.Compressed && state.CompressionPQData != nil { // PQ
+		// first byte is the compression type
+		if err := writeByte(w, byte(SnapshotCompressionTypePQ)); err != nil {
+			return 0, err
 		}
+		offset += writeByteSize
+
+		if err := writeUint16(w, state.CompressionPQData.Dimensions); err != nil {
+			return 0, err
+		}
+		offset += writeUint16Size
+
+		if err := writeUint16(w, state.CompressionPQData.Ks); err != nil {
+			return 0, err
+		}
+		offset += writeUint16Size
+
+		if err := writeUint16(w, state.CompressionPQData.M); err != nil {
+			return 0, err
+		}
+		offset += writeUint16Size
+
+		if err := writeByte(w, byte(state.CompressionPQData.EncoderType)); err != nil {
+			return 0, err
+		}
+		offset += writeByteSize
+
+		if err := writeByte(w, state.CompressionPQData.EncoderDistribution); err != nil {
+			return 0, err
+		}
+		offset += writeByteSize
+
+		if err := writeBool(w, state.CompressionPQData.UseBitsEncoding); err != nil {
+			return 0, err
+		}
+		offset += writeByteSize
+
+		for _, encoder := range state.CompressionPQData.Encoders {
+			if n, err := w.Write(encoder.ExposeDataForRestore()); err != nil {
+				return 0, err
+			} else {
+				offset += n
+			}
+		}
+	} else if state.Compressed && state.CompressionSQData != nil { // SQ
+		// first byte is the compression type
+		if err := writeByte(w, byte(SnapshotCompressionTypeSQ)); err != nil {
+			return 0, err
+		}
+		offset += writeByteSize
+
+		if err := writeUint16(w, state.CompressionSQData.Dimensions); err != nil {
+			return 0, err
+		}
+		offset += writeUint16Size
+
+		if err := writeUint32(w, math.Float32bits(state.CompressionSQData.A)); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, math.Float32bits(state.CompressionSQData.B)); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+	} else if state.MuveraEnabled && state.EncoderMuvera != nil { // Muvera
+		// first byte is the encoder type
+		if err := writeByte(w, byte(SnapshotEncoderTypeMuvera)); err != nil {
+			return 0, err
+		}
+		offset += writeByteSize
+
+		if err := writeUint32(w, state.EncoderMuvera.Dimensions); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.EncoderMuvera.KSim); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.EncoderMuvera.NumClusters); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.EncoderMuvera.DProjections); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.EncoderMuvera.Repetitions); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		for _, gaussian := range state.EncoderMuvera.Gaussians {
+			for _, cluster := range gaussian {
+				for _, el := range cluster {
+					if err := writeUint32(w, math.Float32bits(el)); err != nil {
+						return 0, err
+					}
+					offset += writeUint32Size
+				}
+			}
+		}
+
+		for _, matrix := range state.EncoderMuvera.S {
+			for _, vector := range matrix {
+				for _, el := range vector {
+					if err := writeUint32(w, math.Float32bits(el)); err != nil {
+						return 0, err
+					}
+					offset += writeUint32Size
+				}
+			}
+		}
+	} else { // no compression / encoder
+		if err := writeByte(w, 0); err != nil {
+			return 0, err
+		}
+		offset += writeByteSize
 	}
 
 	if err := writeUint32(w, uint32(len(state.Nodes))); err != nil {
