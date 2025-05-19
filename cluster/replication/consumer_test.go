@@ -1150,8 +1150,8 @@ func TestConsumerOpDuplication(t *testing.T) {
 		Return(api.FINALIZING, nil).
 		Times(1)
 	mockFSMUpdater.EXPECT().
-		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.FINALIZING).
-		Return(nil).
+		ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).
+		Return(api.READY, nil).
 		Times(1)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
