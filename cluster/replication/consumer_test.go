@@ -72,14 +72,14 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			ReplicationUpdateReplicaOpStatus(uint64(opId), api.READY).
 			Return(nil)
 		mockFSMUpdater.EXPECT().
-			AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, "node2").
+			AddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2").
 			Return(uint64(0), nil)
 		mockFSMUpdater.EXPECT().
-			SyncShard(mock.Anything, "TestCollection", mock.Anything, "node1").
+			SyncShard(mock.Anything, "TestCollection", "shard1", "node1").
 			Return(uint64(0), nil).
 			Times(1)
 		mockFSMUpdater.EXPECT().
-			SyncShard(mock.Anything, "TestCollection", mock.Anything, "node2").
+			SyncShard(mock.Anything, "TestCollection", "shard1", "node2").
 			Return(uint64(0), nil).
 			Times(1)
 		mockReplicaCopier.EXPECT().
@@ -87,16 +87,16 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				mock.Anything,
 				"node1",
 				"TestCollection",
-				mock.Anything,
+				"shard1",
 				mock.Anything,
 			).
 			Once().
 			Return(nil)
 		mockReplicaCopier.EXPECT().
-			InitAsyncReplicationLocally(mock.Anything, "TestCollection", mock.Anything).
+			InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
 			Return(nil)
 		mockReplicaCopier.EXPECT().
-			AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", mock.Anything).
+			AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", "shard1").
 			Return(models.AsyncReplicationStatus{
 				ObjectsPropagated:       0,
 				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
@@ -106,7 +106,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		mockReplicaCopier.EXPECT().
 			RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 		mockReplicaCopier.EXPECT().
-			RevertAsyncReplicationLocally(mock.Anything, "TestCollection", mock.Anything).Return(nil)
+			RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -172,7 +172,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			doneChan <- consumer.Consume(ctx, opsChan)
 		}()
 
-		opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard", api.COPY), replication.NewShardReplicationStatus(api.REGISTERED))
+		opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "shard1", api.COPY), replication.NewShardReplicationStatus(api.REGISTERED))
 		waitChan := make(chan struct{})
 		go func() {
 			completionWg.Wait()
@@ -233,7 +233,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				mock.Anything,
 				"node1",
 				"TestCollection",
-				"test-shard",
+				"shard1",
 				mock.Anything,
 			).
 			Once().
@@ -305,7 +305,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			doneChan <- consumer.Consume(ctx, opsChan)
 		}()
 
-		opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "test-shard", api.COPY), replication.NewShardReplicationStatus(api.REGISTERED))
+		opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(opId), "node1", "node2", "TestCollection", "shard1", api.COPY), replication.NewShardReplicationStatus(api.REGISTERED))
 		waitChan := make(chan struct{})
 		go func() {
 			completionWg.Wait()
@@ -343,16 +343,19 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
-		schemaManager.AddClass(
-			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
-				Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
-				State: &sharding.State{
-					Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
-				},
-			}), "node1", true, false)
 
 		randomNumberOfOps, err := randInt(t, 10, 20)
 		require.NoError(t, err, "error while generating random number of operations")
+
+		physical := make(map[string]sharding.Physical)
+		for i := 0; i < randomNumberOfOps; i++ {
+			physical[fmt.Sprintf("shard-%d", i)] = sharding.Physical{BelongsToNodes: []string{"node1"}}
+		}
+		schemaManager.AddClass(
+			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+				Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+				State: &sharding.State{Physical: physical},
+			}), "node1", true, false)
 
 		randomStartOpId, err := randInt(t, 1000, 2000)
 		require.NoError(t, err, "error while generating random op id start")
@@ -593,8 +596,8 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "error while generating random op id start")
 
 		for i := 0; i < totalOps; i++ {
-			shard := fmt.Sprintf("shard-%d", i)
-			opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", "node2", "TestCollection", shard, api.COPY), replication.NewShardReplicationStatus(api.REGISTERED))
+			node := fmt.Sprintf("node-%d", i)
+			opsChan <- replication.NewShardReplicationOpAndStatus(replication.NewShardReplicationOp(uint64(randomStartOpId+i), "node1", node, "TestCollection", "shard1", api.COPY), replication.NewShardReplicationStatus(api.REGISTERED))
 		}
 
 		close(opsChan)
@@ -625,16 +628,20 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
-		schemaManager.AddClass(
-			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
-				Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
-				State: &sharding.State{
-					Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
-				},
-			}), "node1", true, false)
 
 		totalOps, err := randInt(t, 10, 20)
 		require.NoError(t, err, "error while generating random number of operations")
+
+		physical := make(map[string]sharding.Physical)
+		for i := 0; i < totalOps; i++ {
+			physical[fmt.Sprintf("shard-%d", i)] = sharding.Physical{BelongsToNodes: []string{"node1"}}
+		}
+
+		schemaManager.AddClass(
+			buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+				Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+				State: &sharding.State{Physical: physical},
+			}), "node1", true, false)
 
 		var (
 			mutex                  sync.Mutex
@@ -679,10 +686,10 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					CopyReplica(mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, "node2").
+					AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, mock.Anything).
 					Return(uint64(i), nil)
 				mockReplicaCopier.EXPECT().
-					AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", mock.Anything).
+					AsyncReplicationStatus(mock.Anything, "node1", mock.Anything, "TestCollection", mock.Anything).
 					Return(models.AsyncReplicationStatus{
 						ObjectsPropagated:       0,
 						StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
@@ -894,7 +901,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 			}
 		}).Maybe()
 
-	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
+	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 
 	status := replication.NewShardReplicationStatus(api.HYDRATING)
 	mockFSMUpdater.EXPECT().
@@ -1024,7 +1031,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 			}
 		}).Maybe()
 
-	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
+	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 
 	status := replication.NewShardReplicationStatus(api.HYDRATING)
 	mockFSMUpdater.EXPECT().
@@ -1069,7 +1076,21 @@ func TestConsumerOpDuplication(t *testing.T) {
 	parser := fakes.NewMockParser()
 	parser.On("ParseClass", mock.Anything).Return(nil)
 	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false)
 	schemaReader := schemaManager.NewSchemaReader()
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false)
 
 	var completionWg sync.WaitGroup
 	var hydratingCompleteWg sync.WaitGroup
@@ -1160,10 +1181,10 @@ func TestConsumerOpDuplication(t *testing.T) {
 		Return(nil).
 		Times(1)
 	mockFSMUpdater.EXPECT().
-		AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, "node2").
+		AddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2").
 		Return(uint64(1), nil)
 	mockReplicaCopier.EXPECT().
-		AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", mock.Anything).
+		AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", "shard1").
 		Return(models.AsyncReplicationStatus{
 			ObjectsPropagated:       0,
 			StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
@@ -1173,14 +1194,14 @@ func TestConsumerOpDuplication(t *testing.T) {
 	mockReplicaCopier.EXPECT().
 		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 	mockReplicaCopier.EXPECT().
-		InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+		InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
 		Return(nil)
 	mockReplicaCopier.EXPECT().
-		RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+		RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
 
-	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "test-shard", api.COPY)
+	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.HYDRATING)
 
 	// Simulate the copying step that will loop for 20s before exiting
