@@ -39,9 +39,14 @@ func setupDebugHandlers(appState *state.State) {
 				http.Error(w, "collection is required", http.StatusBadRequest)
 				return
 			}
-			shardName := r.URL.Query().Get("shard")
-			if shardName == "" {
-				http.Error(w, "shard is required", http.StatusBadRequest)
+			shardNamesStr := r.URL.Query().Get("shardNames")
+			if shardNamesStr == "" {
+				http.Error(w, "shardNames is required", http.StatusBadRequest)
+				return
+			}
+			shardNames := strings.Split(shardNamesStr, ",")
+			if len(shardNames) == 0 {
+				http.Error(w, "shardNames len > 0 is required", http.StatusBadRequest)
 				return
 			}
 			timeoutStr := r.URL.Query().Get("timeout")
@@ -63,12 +68,16 @@ func setupDebugHandlers(appState *state.State) {
 				http.Error(w, "collection not found", http.StatusNotFound)
 				return
 			}
-			err = idx.IncomingRemoveAllAsyncReplicationTargetNodes(ctx, shardName)
-			if err != nil {
-				logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardName).
-					Warn("debug endpoint failed to remove all async replication target nodes")
-				http.Error(w, "failed to remove all async replication target nodes", http.StatusInternalServerError)
-				return
+			for _, shardName := range shardNames {
+				err = idx.IncomingRemoveAllAsyncReplicationTargetNodes(ctx, shardName)
+				if err != nil {
+					logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardName).
+						Warn("debug endpoint failed to remove all async replication target nodes")
+					http.Error(w, "failed to remove all async replication target nodes", http.StatusInternalServerError)
+					return
+				}
+				logger.WithField("collection", collectionName).WithField("shard", shardName).
+					Info("debug endpoint removed all async replication target nodes")
 			}
 			w.WriteHeader(http.StatusAccepted)
 		}))
