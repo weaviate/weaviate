@@ -1264,22 +1264,8 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 	}
 
 	if b.shouldReuseWAL() {
-		b.active.Lock()
-		defer b.active.Unlock()
-		if b.active.writesSinceLastSync {
-			err := b.active.commitlog.sync()
-			if err != nil {
-				b.logger.WithField("action", "lsm_memtable_flush").
-					WithField("path", b.dir).
-					WithError(err).
-					Errorf("flush and switch failed")
-				b.flushLock.RUnlock()
-				return false
-			}
-			b.active.writesSinceLastSync = false
-		}
-		b.flushLock.RUnlock()
-		return true
+		defer b.flushLock.RUnlock()
+		return b.getAndUpdateWritesSinceLastSync()
 	}
 
 	b.flushLock.RUnlock()
@@ -1303,6 +1289,28 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 		return true
 	}
 	return false
+}
+
+func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
+	b.active.Lock()
+	defer b.active.Unlock()
+
+	hasWrites := b.active.writesSinceLastSync
+	if !hasWrites {
+		return true
+	}
+
+	err := b.active.commitlog.sync()
+	if err != nil {
+		b.logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", b.dir).
+			WithError(err).
+			Errorf("flush and switch failed")
+
+		return false
+	}
+	b.active.writesSinceLastSync = false
+	return true
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket
