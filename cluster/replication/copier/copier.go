@@ -148,7 +148,7 @@ func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
 		relativeFilePath := filepath.Join(c.rootDataPath, d.Name())
 
 		if _, ok := relativeFilePathsMap[relativeFilePath]; !ok {
-			err := os.Remove(filepath.Join(c.rootDataPath, d.Name()))
+			err := os.Remove(relativeFilePath)
 			if err != nil {
 				return fmt.Errorf("removing local file %q not present in source node: %w", d.Name(), err)
 			}
