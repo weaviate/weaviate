@@ -72,10 +72,6 @@ func (s *State) MigrateShardingStateReplicationFactor() error {
 		return nil
 	}
 
-	if len(s.Physical) == 0 {
-		return fmt.Errorf("invalid sharding state for index %s - no physical shards found, sharding state corrupted", s.IndexID)
-	}
-
 	var firstShard string
 	var replicationFactor int64
 	isFirstShard := true
