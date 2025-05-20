@@ -241,9 +241,6 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			).
 			Once().
 			Return(errors.New("simulated copy failure"))
-		// mockReplicaCopier.EXPECT().
-		// 	LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
-		// 	Return(nil)
 		mockFSMUpdater.EXPECT().
 			ReplicationRegisterError(uint64(opId), mock.Anything).
 			Return(nil)
