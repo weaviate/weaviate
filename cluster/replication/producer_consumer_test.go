@@ -219,8 +219,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				wg.Add(1)
 				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
-					Return(api.REGISTERED, nil).
-					Times(4) // equal to the op plus number of times the op failed
+					Return(api.REGISTERED, nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
 					Return(nil)

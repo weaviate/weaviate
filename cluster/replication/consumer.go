@@ -207,13 +207,13 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 			// allowing another worker to proceed. This ensures only a limited number of workers is concurrently
 			// running replication operations and avoids overloading the system.
 			case c.tokens <- struct{}{}:
-
 				// Here we capture the op argument used by the func below as the enterrors.GoWrapper requires calling
 				// a function without arguments.
 				operation := op
 				opLogger := getLoggerForOpAndStatus(c.logger.Logger, operation.Op, op.Status)
 				shouldSkip := false
-				if c.ongoingOps.LoadOrStore(op.Op.ID) {
+				opAlreadyInFlight := c.ongoingOps.LoadOrStore(op.Op.ID)
+				if opAlreadyInFlight {
 					// Check if the operation is already in progress
 					// Avoid scheduling unnecessary work or incorrectly counting metrics
 					// for operations that are already in progress or completed.
@@ -225,10 +225,10 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 					// For now, we need it to ensure eventual consistency between the FSM and the consumer
 					state, err := c.leaderClient.ReplicationGetReplicaOpStatus(workerCtx, op.Op.ID)
 					if err != nil {
-						c.logger.WithFields(logrus.Fields{"op": op}).Error("error while checking status of replication op")
+						c.logger.Error("error while checking status of replication op")
 						shouldSkip = true
 					} else if state.String() != op.Status.GetCurrent().State.String() {
-						c.logger.WithFields(logrus.Fields{"op": op}).Debug("replication op skipped as state has changed")
+						c.logger.Debug("replication op skipped as state has changed")
 						shouldSkip = true
 					}
 				}
@@ -247,8 +247,10 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 					opLogger.Debug("replication op skipped as already running")
 					// Need to release the token to let other consumers process queued replication operations.
 					<-c.tokens
-					c.ongoingOps.DeleteInFlight(op.Op.ID)
 					c.engineOpCallbacks.OnOpSkipped(c.nodeId)
+					if !opAlreadyInFlight {
+						c.ongoingOps.DeleteInFlight(op.Op.ID)
+					}
 					continue
 				}
 
@@ -268,25 +270,24 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 						opCancel()
 					}()
 
-					opLogger.Debug("worker processing replication operation")
-
 					// If the operation has been cancelled in the time between it being added to the channel and
 					// being processed, we need to cancel it in the FSM and return
 					if c.ongoingOps.HasBeenCancelled(op.Op.ID) {
-						c.logger.WithFields(logrus.Fields{"op": operation}).Debug("replication op cancelled, stopping replication operation")
+						c.logger.Info("replication op cancelled, stopping replication operation")
 						c.cancelOp(operation, opLogger)
 						return
 					}
 
+					opLogger.Debug("worker processing replication operation")
 					err := c.dispatchReplicationOp(opCtx, operation)
 					if err == nil {
+						opLogger.Debug("worker completed replication operation")
 						c.opsGateway.RegisterFinished(op.Op.ID)
 						c.engineOpCallbacks.OnOpComplete(c.nodeId)
 						return
-					} else {
-						c.opsGateway.RegisterFailure(op.Op.ID)
 					}
 
+					c.opsGateway.RegisterFailure(op.Op.ID)
 					if errors.Is(err, context.DeadlineExceeded) {
 						c.engineOpCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation timed out")
@@ -294,12 +295,12 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 					}
 					// TODO: Refactor this error handling
 					if errors.Is(err, context.Canceled) && c.ongoingOps.HasBeenCancelled(op.Op.ID) {
-						opLogger.WithError(err).Debug("replication operation cancelled")
+						opLogger.WithError(err).Info("replication operation cancelled")
 						c.cancelOp(operation, opLogger)
 						return
 					}
 					if errors.Is(err, errOpCancelled) {
-						opLogger.WithError(err).Debug("replication operation cancelled")
+						opLogger.WithError(err).Info("replication operation cancelled")
 						c.cancelOp(operation, opLogger)
 						return
 					}
