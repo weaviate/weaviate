@@ -1306,6 +1306,9 @@ func TestConsumerOpSkip(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).
 		Return(api.READY, nil)
+	mockReplicaCopier.EXPECT().
+		LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
 		Return(nil)
