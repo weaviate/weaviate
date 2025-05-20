@@ -506,8 +506,18 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if err := c.replicaCopier.CopyReplica(ctx, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
+	if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
 		logger.WithError(err).Error("failure while copying replica shard")
+		return api.ShardReplicationState(""), err
+	}
+
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		return api.ShardReplicationState(""), ctx.Err()
+	}
+
+	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
+		logger.WithError(err).Error("failure while loading shard")
 		return api.ShardReplicationState(""), err
 	}
 
@@ -519,6 +529,16 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOpAndStatus(c.logger.Logger, op.Op, op.Status)
 	logger.Info("processing finalizing replication operation")
+
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		return api.ShardReplicationState(""), ctx.Err()
+	}
+
+	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
+		logger.WithError(err).Error("failure while loading shard")
+		return api.ShardReplicationState(""), err
+	}
 
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")

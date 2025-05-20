@@ -20,8 +20,11 @@ import (
 
 // ReplicaCopier see cluster/replication/copier.Copier
 type ReplicaCopier interface {
-	// CopyReplica see cluster/replication/copier.Copier.CopyReplica
-	CopyReplica(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64) error
+	// CopyReplicaFiles see cluster/replication/copier.Copier.CopyReplicaFiles
+	CopyReplicaFiles(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64) error
+
+	// LoadLocalShard see cluster/replication/copier.Copier.LoadLocalShard
+	LoadLocalShard(ctx context.Context, collectionName, shardName string) error
 
 	// InitAsyncReplicationLocally see cluster/replication/copier.Copier.InitAsyncReplicationLocally
 	InitAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error

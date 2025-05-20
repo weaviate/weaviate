@@ -50,3 +50,6 @@ packages:
     interfaces:
       TaskCleaner:
       TaskCompletionRecorder:
+  github.com/weaviate/weaviate/cluster/replication/copier/types:
+    interfaces:
+      RemoteIndex:

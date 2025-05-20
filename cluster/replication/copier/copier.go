@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -62,8 +64,8 @@ func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string
 	}
 }
 
-// CopyReplica copies a shard replica from the source node to this node.
-func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
+// CopyReplicaFiles copies a shard replica from the source node to this node.
+func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
 	sourceNodeHostname, ok := c.nodeSelector.NodeHostname(srcNodeId)
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", srcNodeId)
@@ -71,13 +73,13 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 
 	err := c.remoteIndex.PauseFileActivity(ctx, sourceNodeHostname, collectionName, shardName, schemaVersion)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to pause file activity: %w", err)
 	}
 	defer c.remoteIndex.ResumeFileActivity(ctx, sourceNodeHostname, collectionName, shardName)
 
 	relativeFilePaths, err := c.remoteIndex.ListFiles(ctx, sourceNodeHostname, collectionName, shardName)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to list files: %w", err)
 	}
 
 	// TODO remove this once we have a passing test that constantly inserts in parallel
@@ -92,26 +94,103 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 		time.Sleep(sleepTime)
 	}
 
+	err = c.prepareLocalFolder(relativeFilePaths)
+	if err != nil {
+		return fmt.Errorf("failed to prepare local folder: %w", err)
+	}
+
 	eg, gctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
 	eg.SetLimit(concurrency)
-
 	for _, relativeFilePath := range relativeFilePaths {
-		filePath := relativeFilePath
-
+		relativeFilePath := relativeFilePath
 		eg.Go(func() error {
-			return c.syncFile(gctx, sourceNodeHostname, collectionName, shardName, filePath)
+			return c.syncFile(gctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
 		})
 	}
 
 	err = eg.Wait()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to sync files: %w", err)
 	}
 
-	err = c.dbWrapper.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
+	err = diskio.Fsync(c.rootDataPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to fsync local folder: %w", err)
 	}
+
+	err = c.validateLocalFolder(relativeFilePaths)
+	if err != nil {
+		return fmt.Errorf("failed to validate local folder: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName string) error {
+	idx := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
+	if idx == nil {
+		return fmt.Errorf("index for collection %s not found", collectionName)
+	}
+
+	return idx.LoadLocalShard(ctx, shardName)
+}
+
+func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
+	relativeFilePathsMap := make(map[string]struct{}, len(relativeFilePaths))
+	for _, path := range relativeFilePaths {
+		relativeFilePathsMap[path] = struct{}{}
+	}
+
+	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("walking local folder: %w", err)
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		relativeFilePath := filepath.Join(c.rootDataPath, d.Name())
+
+		if _, ok := relativeFilePathsMap[relativeFilePath]; !ok {
+			err := os.Remove(relativeFilePath)
+			if err != nil {
+				return fmt.Errorf("removing local file %q not present in source node: %w", d.Name(), err)
+			}
+		}
+
+		return nil
+	})
+
+	return nil
+}
+
+func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
+	i := 0
+
+	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("walking local folder: %w", err)
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		localRelFilePath := filepath.Join(c.rootDataPath, d.Name())
+
+		if relativeFilePaths[i] != localRelFilePath {
+			return fmt.Errorf("unexpected: local folder contains unexpected content")
+		}
+
+		i++
+		// exit WalkDir early if we have more files in the local folder than expected
+		if len(relativeFilePaths) < i {
+			return fmt.Errorf("unexpected: local folder has more files than source node")
+		}
+
+		return nil
+	})
 
 	return nil
 }
