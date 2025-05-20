@@ -27,6 +27,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
@@ -62,11 +63,6 @@ type termListRequest struct {
 	propertyNames      []string
 	propertyBoosts     map[string]float32
 }
-
-var (
-	SearchOperatorAnd = "SEARCH_OPERATOR_AND"
-	SearchOperatorOr  = "SEARCH_OPERATOR_OR"
-)
 
 func NewBM25Searcher(config schema.BM25Config, store *lsmkv.Store,
 	getClass func(string) *models.Class, propIndices propertyspecific.Indices,
@@ -254,7 +250,7 @@ func (b *BM25Searcher) wand(
 				allQueryTerms = append(allQueryTerms, queryTerm)
 			}
 			minimumShouldMatchByTokenization := params.MinimumShouldMatch
-			if params.SearchOperator == SearchOperatorAnd {
+			if params.SearchOperator == common_filters.SearchOperatorAnd {
 				minimumShouldMatchByTokenization = len(queryTerms)
 			}
 			if minimumShouldMatchByTokenization < minimumShouldMatch {

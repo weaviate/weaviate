@@ -21,6 +21,7 @@ import (
 	"strconv"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -111,7 +112,7 @@ func (b *BM25Searcher) wandBlock(
 				termCounts = append(termCounts, queryTerms)
 
 				minimumShouldMatch := params.MinimumShouldMatch
-				if params.SearchOperator == SearchOperatorAnd {
+				if params.SearchOperator == common_filters.SearchOperatorAnd {
 					minimumShouldMatch = len(queryTerms)
 				}
 
@@ -211,7 +212,7 @@ func (b *BM25Searcher) wandBlock(
 
 			eg.Go(func() (err error) {
 				var topKHeap *priorityqueue.Queue[[]*terms.DocPointerWithScore]
-				if params.SearchOperator == SearchOperatorAnd {
+				if params.SearchOperator == common_filters.SearchOperatorAnd {
 					topKHeap = lsmkv.DoBlockMaxAnd(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumShouldMatchByProperty[i])
 				} else {
 					topKHeap = lsmkv.DoBlockMaxWand(internalLimit, allResults[i][j], averagePropLength, params.AdditionalExplanations, len(termCounts[i]), minimumShouldMatchByProperty[i])

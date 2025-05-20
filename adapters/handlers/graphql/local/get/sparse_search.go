@@ -18,11 +18,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
 )
 
-var (
-	SearchOperatorAnd = "SEARCH_OPERATOR_AND"
-	SearchOperatorOr  = "SEARCH_OPERATOR_OR"
-)
-
 func bm25Argument(className string) *graphql.ArgumentConfig {
 	prefix := fmt.Sprintf("GetObjects%s", className)
 	return &graphql.ArgumentConfig{
