@@ -83,7 +83,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			Return(uint64(0), nil).
 			Times(1)
 		mockReplicaCopier.EXPECT().
-			CopyReplica(
+			CopyReplicaFiles(
 				mock.Anything,
 				"node1",
 				"TestCollection",
@@ -91,6 +91,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				mock.Anything,
 			).
 			Once().
+			Return(nil)
+		mockReplicaCopier.EXPECT().
+			LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 			Return(nil)
 		mockReplicaCopier.EXPECT().
 			InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
@@ -229,7 +232,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			ReplicationUpdateReplicaOpStatus(uint64(opId), api.HYDRATING).
 			Return(nil)
 		mockReplicaCopier.EXPECT().
-			CopyReplica(
+			CopyReplicaFiles(
 				mock.Anything,
 				"node1",
 				"TestCollection",
@@ -238,6 +241,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			).
 			Once().
 			Return(errors.New("simulated copy failure"))
+		// mockReplicaCopier.EXPECT().
+		// 	LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
+		// 	Return(nil)
 		mockFSMUpdater.EXPECT().
 			ReplicationRegisterError(uint64(opId), mock.Anything).
 			Return(nil)
@@ -375,7 +381,10 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				ReplicationUpdateReplicaOpStatus(opId, api.READY).
 				Return(nil)
 			mockReplicaCopier.EXPECT().
-				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(nil)
+			mockReplicaCopier.EXPECT().
+				LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
 			mockFSMUpdater.EXPECT().
 				AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -683,7 +692,10 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(opID, api.READY).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
 					AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, mock.Anything).
@@ -890,7 +902,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
@@ -1020,7 +1032,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
@@ -1160,6 +1172,9 @@ func TestConsumerOpDuplication(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		AddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2").
 		Return(uint64(1), nil)
+	mockReplicaCopier.EXPECT().
+		LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil)
 	mockReplicaCopier.EXPECT().
 		AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", "shard1").
 		Return(models.AsyncReplicationStatus{
