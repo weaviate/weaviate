@@ -548,7 +548,7 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 	}
 
 	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
-		logger.WithError(err).Error("failure while copying index")
+		logger.WithError(err).Error("failure while loading shard")
 		return api.ShardReplicationState(""), err
 	}
 
