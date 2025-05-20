@@ -73,13 +73,13 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 
 	err := c.remoteIndex.PauseFileActivity(ctx, sourceNodeHostname, collectionName, shardName, schemaVersion)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to pause file activity: %w", err)
 	}
 	defer c.remoteIndex.ResumeFileActivity(ctx, sourceNodeHostname, collectionName, shardName)
 
 	relativeFilePaths, err := c.remoteIndex.ListFiles(ctx, sourceNodeHostname, collectionName, shardName)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to list files: %w", err)
 	}
 
 	// TODO remove this once we have a passing test that constantly inserts in parallel
@@ -101,10 +101,8 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 
 	eg, gctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
 	eg.SetLimit(concurrency)
-
 	for _, relativeFilePath := range relativeFilePaths {
 		relativeFilePath := relativeFilePath
-
 		eg.Go(func() error {
 			return c.syncFile(gctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
 		})
@@ -112,12 +110,12 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 
 	err = eg.Wait()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to sync files: %w", err)
 	}
 
 	err = diskio.Fsync(c.rootDataPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to fsync local folder: %w", err)
 	}
 
 	err = c.validateLocalFolder(relativeFilePaths)
@@ -140,7 +138,7 @@ func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
 
 	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("walking local folder: %w", err)
 		}
 
 		if d.IsDir() {
@@ -167,7 +165,7 @@ func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
 
 	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return err
+			return fmt.Errorf("walking local folder: %w", err)
 		}
 
 		if d.IsDir() {
