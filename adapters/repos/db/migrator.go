@@ -123,11 +123,6 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			CycleManagerRoutinesFactor:          m.db.config.CycleManagerRoutinesFactor,
 			IndexRangeableInMemory:              m.db.config.IndexRangeableInMemory,
 			MaxSegmentSize:                      m.db.config.MaxSegmentSize,
-			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
-			HNSWWaitForCachePrefill:             m.db.config.HNSWWaitForCachePrefill,
-			HNSWFlatSearchConcurrency:           m.db.config.HNSWFlatSearchConcurrency,
-			HNSWAcornFilterRatio:                m.db.config.HNSWAcornFilterRatio,
-			VisitedListPoolMaxSize:              m.db.config.VisitedListPoolMaxSize,
 			TrackVectorDimensions:               m.db.config.TrackVectorDimensions,
 			AvoidMMap:                           m.db.config.AvoidMMap,
 			DisableLazyLoadShards:               m.db.config.DisableLazyLoadShards,
@@ -138,6 +133,17 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 			DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 			ShardLoadLimiter:                    m.db.shardLoadLimiter,
+
+			HNSWMaxLogSize:                               m.db.config.HNSWMaxLogSize,
+			HNSWDisableSnapshots:                         m.db.config.HNSWDisableSnapshots,
+			HNSWSnapshotIntervalSeconds:                  m.db.config.HNSWSnapshotIntervalSeconds,
+			HNSWSnapshotOnStartup:                        m.db.config.HNSWSnapshotOnStartup,
+			HNSWSnapshotMinDeltaCommitlogsNumber:         m.db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
+			HNSWSnapshotMinDeltaCommitlogsSizePercentage: m.db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
+			HNSWWaitForCachePrefill:                      m.db.config.HNSWWaitForCachePrefill,
+			HNSWFlatSearchConcurrency:                    m.db.config.HNSWFlatSearchConcurrency,
+			HNSWAcornFilterRatio:                         m.db.config.HNSWAcornFilterRatio,
+			VisitedListPoolMaxSize:                       m.db.config.VisitedListPoolMaxSize,
 		},
 		shardState,
 		// no backward-compatibility check required, since newly added classes will
@@ -184,7 +190,7 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 	return nil
 }
 
-func (m *Migrator) AddReplicaToShard(ctx context.Context, class, shard string) error {
+func (m *Migrator) LoadShard(ctx context.Context, class, shard string) error {
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
@@ -192,12 +198,34 @@ func (m *Migrator) AddReplicaToShard(ctx context.Context, class, shard string) e
 	return idx.LoadLocalShard(ctx, shard)
 }
 
-func (m *Migrator) DeleteReplicaFromShard(ctx context.Context, class, shard string) error {
+func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
 	idx := m.db.GetIndex(schema.ClassName(class))
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
 	return idx.dropShards([]string{shard})
+}
+
+func (m *Migrator) ShutdownShard(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+
+	idx.shardCreateLocks.Lock(shard)
+	defer idx.shardCreateLocks.Unlock(shard)
+
+	shardLike, ok := idx.shards.LoadAndDelete(shard)
+	if !ok {
+		return fmt.Errorf("could not find shard %s", shard)
+	}
+	if err := shardLike.Shutdown(ctx); err != nil {
+		if !errors.Is(err, errAlreadyShutdown) {
+			return errors.Wrapf(err, "shutdown shard %q", shard)
+		}
+		idx.logger.WithField("shard", shardLike.Name()).Debug("was already shut or dropped")
+	}
+	return nil
 }
 
 // UpdateIndex ensures that the local index is up2date with the latest sharding

@@ -107,6 +107,15 @@ func (f *fakeDB) DeleteReplicaFromShard(class string, shard string, targetNode s
 	return nil
 }
 
+func (f *fakeDB) LoadShard(class string, shard string) {
+}
+
+func (f *fakeDB) DropShard(class string, shard string) {
+}
+
+func (f *fakeDB) ShutdownShard(class string, shard string) {
+}
+
 func (f *fakeDB) UpdateClass(cmd command.UpdateClassRequest) error {
 	return nil
 }
@@ -306,12 +315,17 @@ func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop .
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) AddReplicaToShard(ctx context.Context, class string, shard string) error {
+func (f *fakeMigrator) LoadShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) DeleteReplicaFromShard(ctx context.Context, class string, shard string) error {
+func (f *fakeMigrator) DropShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) ShutdownShard(ctx context.Context, class string, shard string) error {
 	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }

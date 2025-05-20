@@ -16,19 +16,14 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
-	"github.com/sirupsen/logrus"
 )
 
 // CorruptCommitLogFixer helps identify potentially corrupt commit logs and
 // tries to mitigate the problem
-type CorruptCommitLogFixer struct {
-	logger logrus.FieldLogger
-}
+type CorruptCommitLogFixer struct{}
 
-func NewCorruptedCommitLogFixer(logger logrus.FieldLogger) *CorruptCommitLogFixer {
-	return &CorruptCommitLogFixer{
-		logger: logger,
-	}
+func NewCorruptedCommitLogFixer() *CorruptCommitLogFixer {
+	return &CorruptCommitLogFixer{}
 }
 
 // Do tries to delete files that could be corrupt and removes them from the

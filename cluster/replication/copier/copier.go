@@ -62,31 +62,14 @@ func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string
 	}
 }
 
-// RemoveLocalReplica removes the local replica of a shard on this node.
-//
-// This method is a best effort and will not return an error if the shard does not exist nor if the index doesn't exist.
-//
-// It is used during cleanup after a replication is cancelled or deleted. Since replications must be cancelled when indexes
-// are dropped, the index could be gone by the time this method is called meaning that this cleanup is not necessary; hence the no-op.
-func (c *Copier) RemoveLocalReplica(ctx context.Context, collectionName, shardName string) {
-	index := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
-	if index == nil {
-		return // no index found, nothing to do
-	}
-	err := index.DropShard(shardName)
-	if err != nil {
-		return // no shard found, nothing to do
-	}
-}
-
 // CopyReplica copies a shard replica from the source node to this node.
-func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, shardName string) error {
+func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
 	sourceNodeHostname, ok := c.nodeSelector.NodeHostname(srcNodeId)
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", srcNodeId)
 	}
 
-	err := c.remoteIndex.PauseFileActivity(ctx, sourceNodeHostname, collectionName, shardName)
+	err := c.remoteIndex.PauseFileActivity(ctx, sourceNodeHostname, collectionName, shardName, schemaVersion)
 	if err != nil {
 		return err
 	}
@@ -191,13 +174,13 @@ func (c *Copier) syncFile(ctx context.Context, sourceNodeHostname, collectionNam
 }
 
 // AddAsyncReplicationTargetNode adds a target node override for a shard.
-func (c *Copier) AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+func (c *Copier) AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
 	srcNodeHostname, ok := c.nodeSelector.NodeHostname(targetNodeOverride.SourceNode)
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", targetNodeOverride.SourceNode)
 	}
 
-	return c.remoteIndex.AddAsyncReplicationTargetNode(ctx, srcNodeHostname, targetNodeOverride.CollectionID, targetNodeOverride.ShardID, targetNodeOverride)
+	return c.remoteIndex.AddAsyncReplicationTargetNode(ctx, srcNodeHostname, targetNodeOverride.CollectionID, targetNodeOverride.ShardID, targetNodeOverride, schemaVersion)
 }
 
 // RemoveAsyncReplicationTargetNode removes a target node override for a shard.
@@ -250,19 +233,37 @@ func (c *Copier) AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNo
 		return models.AsyncReplicationStatus{}, err
 	}
 
+	if len(status.Shards) == 0 {
+		return models.AsyncReplicationStatus{}, fmt.Errorf("stats are empty for node %s", srcNodeId)
+	}
+
+	shardFound := false
 	for _, shard := range status.Shards {
-		if shard.Name == shardName && shard.Class == collectionName {
-			for _, asyncReplicationStatus := range shard.AsyncReplicationStatus {
-				if asyncReplicationStatus.TargetNode == targetNodeId {
-					return models.AsyncReplicationStatus{
-						ObjectsPropagated:       asyncReplicationStatus.ObjectsPropagated,
-						StartDiffTimeUnixMillis: asyncReplicationStatus.StartDiffTimeUnixMillis,
-						TargetNode:              asyncReplicationStatus.TargetNode,
-					}, nil
-				}
+		if shard.Name != shardName || shard.Class != collectionName {
+			continue
+		}
+
+		shardFound = true
+		if len(shard.AsyncReplicationStatus) == 0 {
+			return models.AsyncReplicationStatus{}, fmt.Errorf("async replication status empty for shard %s in node %s", shardName, srcNodeId)
+		}
+
+		for _, asyncReplicationStatus := range shard.AsyncReplicationStatus {
+			if asyncReplicationStatus.TargetNode != targetNodeId {
+				continue
 			}
+
+			return models.AsyncReplicationStatus{
+				ObjectsPropagated:       asyncReplicationStatus.ObjectsPropagated,
+				StartDiffTimeUnixMillis: asyncReplicationStatus.StartDiffTimeUnixMillis,
+				TargetNode:              asyncReplicationStatus.TargetNode,
+			}, nil
 		}
 	}
 
-	return models.AsyncReplicationStatus{}, fmt.Errorf("shard %s or collection %s not found in node %s or stats are nil", shardName, collectionName, srcNodeId)
+	if !shardFound {
+		return models.AsyncReplicationStatus{}, fmt.Errorf("shard %s not found in node %s", shardName, srcNodeId)
+	}
+
+	return models.AsyncReplicationStatus{}, fmt.Errorf("async replication status not found for shard %s in node %s", shardName, srcNodeId)
 }

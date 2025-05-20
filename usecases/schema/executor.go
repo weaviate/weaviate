@@ -111,7 +111,7 @@ func (e *executor) AddReplicaToShard(class string, shard string, targetNode stri
 	} else if !slices.Contains(replicas, targetNode) {
 		return fmt.Errorf("replica %s does not exists for collection %s shard %s", targetNode, class, shard)
 	}
-	return e.migrator.AddReplicaToShard(ctx, class, shard)
+	return e.migrator.LoadShard(ctx, class, shard)
 }
 
 func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
@@ -121,7 +121,40 @@ func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode
 	} else if slices.Contains(replicas, targetNode) {
 		return fmt.Errorf("replica %s exists for collection %s shard %s", targetNode, class, shard)
 	}
-	return e.migrator.DeleteReplicaFromShard(ctx, class, shard)
+	return e.migrator.DropShard(ctx, class, shard)
+}
+
+func (e *executor) LoadShard(class string, shard string) {
+	ctx := context.Background()
+	if err := e.migrator.LoadShard(ctx, class, shard); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "load_shard",
+			"class":  class,
+			"shard":  shard,
+		}).WithError(err).Error("migrator")
+	}
+}
+
+func (e *executor) ShutdownShard(class string, shard string) {
+	ctx := context.Background()
+	if err := e.migrator.ShutdownShard(ctx, class, shard); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "shutdown_shard",
+			"class":  class,
+			"shard":  shard,
+		}).WithError(err).Error("migrator")
+	}
+}
+
+func (e *executor) DropShard(class string, shard string) {
+	ctx := context.Background()
+	if err := e.migrator.DropShard(ctx, class, shard); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "drop_shard",
+			"class":  class,
+			"shard":  shard,
+		}).WithError(err).Error("migrator")
+	}
 }
 
 // RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.

@@ -101,7 +101,7 @@ func (s *Raft) ReplicationRegisterError(id uint64, errorToRegister string) error
 	return nil
 }
 
-func (s *Raft) ReplicationCancellationComplete(id uint64) error {
+func (s *Raft) ReplicationCancellationComplete(ctx context.Context, id uint64) error {
 	req := &api.ReplicationCancellationCompleteRequest{
 		Version: api.ReplicationCommandVersionV0,
 		Id:      id,
@@ -115,7 +115,7 @@ func (s *Raft) ReplicationCancellationComplete(id uint64) error {
 		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE,
 		SubCommand: subCommand,
 	}
-	if _, err := s.Execute(context.Background(), command); err != nil {
+	if _, err := s.Execute(ctx, command); err != nil {
 		return err
 	}
 	return nil
@@ -161,7 +161,7 @@ func (s *Raft) DeleteReplication(uuid strfmt.UUID) error {
 	return nil
 }
 
-func (s *Raft) ReplicationRemoveReplicaOp(id uint64) error {
+func (s *Raft) ReplicationRemoveReplicaOp(ctx context.Context, id uint64) error {
 	req := &api.ReplicationRemoveOpRequest{
 		Version: api.ReplicationCommandVersionV0,
 		Id:      id,
@@ -175,7 +175,7 @@ func (s *Raft) ReplicationRemoveReplicaOp(id uint64) error {
 		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE,
 		SubCommand: subCommand,
 	}
-	if _, err := s.Execute(context.Background(), command); err != nil {
+	if _, err := s.Execute(ctx, command); err != nil {
 		return err
 	}
 	return nil
@@ -233,6 +233,27 @@ func (s *Raft) DeleteReplicationsByTenants(collection string, tenants []string) 
 	}
 	command := &api.ApplyRequest{
 		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(context.Background(), command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) ReplicationStoreSchemaVersion(id uint64, schemaVersion uint64) error {
+	req := &api.ReplicationStoreSchemaVersionRequest{
+		Version:       api.ReplicationCommandVersionV0,
+		SchemaVersion: schemaVersion,
+		Id:            id,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION,
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(context.Background(), command); err != nil {

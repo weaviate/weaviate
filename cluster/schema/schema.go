@@ -460,12 +460,12 @@ func (s *schema) deleteTenants(class string, v uint64, req *command.DeleteTenant
 	return nil
 }
 
-func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest) error {
+func (s *schema) updateTenants(class string, v uint64, req *command.UpdateTenantsRequest, replicationFSM replicationFSM) error {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
 		return err
 	}
-	sc, err := meta.UpdateTenants(s.nodeID, req, v)
+	sc, err := meta.UpdateTenants(s.nodeID, req, replicationFSM, v)
 	// partial update possible
 	for status, count := range sc {
 		// count can be positive or negative.

@@ -490,6 +490,9 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 			}
 		}
 
+		if s.asyncReplicationConfig.targetNodeOverrides == nil {
+			s.asyncReplicationConfig.targetNodeOverrides = make([]additional.AsyncReplicationTargetNodeOverride, 0, 1)
+		}
 		s.asyncReplicationConfig.targetNodeOverrides = append(s.asyncReplicationConfig.targetNodeOverrides, targetNodeOverride)
 	}()
 	// we call update async replication config here to ensure that async replication starts
@@ -521,9 +524,19 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
-		s.UpdateAsyncReplicationConfig(ctx, s.index.Config.AsyncReplicationEnabled)
+		return s.UpdateAsyncReplicationConfig(ctx, s.index.Config.AsyncReplicationEnabled)
 	}
 	return nil
+}
+
+func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
+	func() {
+		s.asyncReplicationRWMux.Lock()
+		// unlock before calling UpdateAsyncReplicationConfig because it will lock again
+		defer s.asyncReplicationRWMux.Unlock()
+		s.asyncReplicationConfig.targetNodeOverrides = make([]additional.AsyncReplicationTargetNodeOverride, 0)
+	}()
+	return s.UpdateAsyncReplicationConfig(ctx, s.index.Config.AsyncReplicationEnabled)
 }
 
 func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {

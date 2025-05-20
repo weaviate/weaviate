@@ -23,7 +23,6 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
-	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -32,25 +31,56 @@ import (
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
 
-	// TODO this should be removed before merging, just here for testing until we have the API code
-	http.HandleFunc("/debug/index/copy/files", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		sourceNodeName := r.URL.Query().Get("sourceNodeName")
-		collectionName := r.URL.Query().Get("collectionName")
-		shardName := r.URL.Query().Get("shardName")
+	http.HandleFunc(
+		"/debug/async-replication/remove-target-overrides",
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			collectionName := r.URL.Query().Get("collection")
+			if collectionName == "" {
+				http.Error(w, "collection is required", http.StatusBadRequest)
+				return
+			}
+			shardNamesStr := r.URL.Query().Get("shardNames")
+			if shardNamesStr == "" {
+				http.Error(w, "shardNames is required", http.StatusBadRequest)
+				return
+			}
+			shardNames := strings.Split(shardNamesStr, ",")
+			if len(shardNames) == 0 {
+				http.Error(w, "shardNames len > 0 is required", http.StatusBadRequest)
+				return
+			}
+			timeoutStr := r.URL.Query().Get("timeout")
+			timeoutDuration := time.Hour
+			var err error
+			if timeoutStr != "" {
+				timeoutDuration, err = time.ParseDuration(timeoutStr)
+				if err != nil {
+					http.Error(w, "timeout duration has invalid format", http.StatusBadRequest)
+					return
+				}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
+			defer cancel()
 
-		if sourceNodeName == "" || collectionName == "" || shardName == "" {
-			http.Error(w, "sourceNodeName, collectionName, and shardName are required", http.StatusBadRequest)
-			return
-		}
-		c := copier.New(appState.DB.GetRemoteIndex(), appState.Cluster, appState.DB.GetConfig().RootPath, appState.DB, appState.Logger)
-		err := c.CopyReplica(context.Background(), sourceNodeName, collectionName, shardName)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-	}))
+			idx := appState.DB.GetIndex(schema.ClassName(collectionName))
+			if idx == nil {
+				logger.WithField("collection", collectionName).Error("collection not found")
+				http.Error(w, "collection not found", http.StatusNotFound)
+				return
+			}
+			for _, shardName := range shardNames {
+				err = idx.IncomingRemoveAllAsyncReplicationTargetNodes(ctx, shardName)
+				if err != nil {
+					logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardName).
+						Warn("debug endpoint failed to remove all async replication target nodes")
+					http.Error(w, "failed to remove all async replication target nodes", http.StatusInternalServerError)
+					return
+				}
+				logger.WithField("collection", collectionName).WithField("shard", shardName).
+					Info("debug endpoint removed all async replication target nodes")
+			}
+			w.WriteHeader(http.StatusAccepted)
+		}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")

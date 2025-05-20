@@ -369,8 +369,11 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 	shardName string,
 ) ([]string, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
+	if err != nil {
 		return nil, fmt.Errorf("incoming list files get shard %s: %w", shardName, err)
+	}
+	if shard == nil {
+		return nil, fmt.Errorf("incoming list files get shard is nil: %s", shardName)
 	}
 	defer release()
 
@@ -389,24 +392,24 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
 	}
 
-	docIDCounterPath, err := os.OpenFile(sd.DocIDCounterPath+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
+	docIDCounter, err := os.OpenFile(shard.Counter().FileName()+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
 		return nil, err
 	}
-	defer docIDCounterPath.Close()
+	defer docIDCounter.Close()
 
-	_, err = io.Copy(docIDCounterPath, bytes.NewBuffer(sd.DocIDCounter))
+	_, err = io.Copy(docIDCounter, bytes.NewBuffer(sd.DocIDCounter))
 	if err != nil {
 		return nil, err
 	}
 
-	propLengthTrackerPath, err := os.OpenFile(sd.PropLengthTrackerPath+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
+	propLengthTracker, err := os.OpenFile(shard.GetPropertyLengthTracker().FileName()+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
 	if err != nil {
 		return nil, err
 	}
-	defer propLengthTrackerPath.Close()
+	defer propLengthTracker.Close()
 
-	_, err = io.Copy(propLengthTrackerPath, bytes.NewBuffer(sd.PropLengthTracker))
+	_, err = io.Copy(propLengthTracker, bytes.NewBuffer(sd.PropLengthTracker))
 	if err != nil {
 		return nil, err
 	}
@@ -491,6 +494,20 @@ func (i *Index) IncomingRemoveAsyncReplicationTargetNode(ctx context.Context,
 	defer release()
 
 	return shard.removeTargetNodeOverride(ctx, targetNodeOverride)
+}
+
+// IncomingAllRemoveAsyncReplicationTargetNodes removes all target node overrides for async
+// replication. Async replication will be reset to it's default configuration.
+func (i *Index) IncomingRemoveAllAsyncReplicationTargetNodes(ctx context.Context,
+	shardName string,
+) error {
+	shard, release, err := i.GetShard(ctx, shardName)
+	if err != nil || shard == nil {
+		return fmt.Errorf("incoming remove all async replication target nodes get shard %s: %w", shardName, err)
+	}
+	defer release()
+
+	return shard.removeAllTargetNodeOverrides(ctx)
 }
 
 func (s *Shard) filePutter(ctx context.Context,
