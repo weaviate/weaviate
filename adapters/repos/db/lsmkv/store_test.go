@@ -17,6 +17,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	mock "github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
@@ -29,8 +30,9 @@ func TestCreateOrLoadBucketConcurrency(t *testing.T) {
 	dirName := t.TempDir()
 	defer os.RemoveAll(dirName)
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
-	store, err := New(dirName, dirName, logger, nil,
+	store, err := New(dirName, dirName, logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1),
 		cyclemanager.NewCallbackGroup("classCompactionNonObjects", logger, 1),
 		cyclemanager.NewCallbackGroupNoop())
@@ -75,8 +77,9 @@ func TestCreateBucketConcurrency(t *testing.T) {
 	dirName := t.TempDir()
 	defer os.RemoveAll(dirName)
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
-	store, err := New(dirName, dirName, logger, nil,
+	store, err := New(dirName, dirName, logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroup("classCompactionObjects", logger, 1),
 		cyclemanager.NewCallbackGroup("classCompactionNonObjects", logger, 1),
 		cyclemanager.NewCallbackGroupNoop())

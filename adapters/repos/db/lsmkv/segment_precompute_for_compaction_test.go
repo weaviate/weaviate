@@ -19,6 +19,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -55,8 +56,9 @@ func precomputeSegmentMeta_Replace(ctx context.Context, t *testing.T, opts []Buc
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
-	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -115,8 +117,9 @@ func precomputeSegmentMeta_Set(ctx context.Context, t *testing.T, opts []BucketO
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
-	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)

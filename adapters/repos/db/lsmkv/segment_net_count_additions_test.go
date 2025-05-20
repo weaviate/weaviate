@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -58,8 +59,9 @@ func createCNAOnFlush(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
-	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -80,8 +82,9 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
-	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -106,7 +109,7 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	require.Nil(t, b.Shutdown(ctx))
 
 	// now create a new bucket and assert that the file is re-created on init
-	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
@@ -123,8 +126,9 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
-	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b.Shutdown(ctx)
@@ -144,7 +148,7 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 	require.Nil(t, b.Shutdown(ctx))
 	// now create a new bucket and assert that the file is ignored, re-created on
 	// init, and the count matches
-	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
@@ -186,8 +190,9 @@ func TestCNA_OFF(t *testing.T) {
 func dontCreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
-	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		opts...)
 	require.NoError(t, err)
@@ -214,9 +219,10 @@ func dontCreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
 	t.Run("create, populate, shutdown", func(t *testing.T) {
-		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil, walMetrics,
 			cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 			opts...)
 		require.NoError(t, err)
@@ -226,7 +232,7 @@ func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 		require.NoError(t, b.FlushMemtable())
 	})
 
-	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+	b2, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		opts...)
 	require.NoError(t, err)
@@ -248,8 +254,9 @@ func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 func dontPrecomputeCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 	dirName := t.TempDir()
 	logger, _ := test.NewNullLogger()
+	walMetrics := NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
 
-	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
 		opts...)
 	require.NoError(t, err)

@@ -188,7 +188,9 @@ type Index struct {
 	// RUnlock all picked indices
 	dropIndex sync.RWMutex
 
-	metrics          *Metrics
+	metrics    *Metrics
+	walMetrics *lsmkv.CommitLoggerMetrics
+
 	centralJobQueue  chan job
 	indexCheckpoints *indexcheckpoint.Checkpoints
 
@@ -238,7 +240,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
-	promMetrics *monitoring.PrometheusMetrics, class *models.Class, jobQueueCh chan job,
+	promMetrics *monitoring.PrometheusMetrics, walMetrics *lsmkv.CommitLoggerMetrics, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints,
 	allocChecker memwatch.AllocChecker,
 ) (*Index, error) {
@@ -267,6 +269,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		partitioningEnabled:    shardState.PartitioningEnabled,
 		remote:                 sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
 		metrics:                NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
+		walMetrics:             walMetrics,
 		centralJobQueue:        jobQueueCh,
 		shardTransferMutex:     shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
 		indexCheckpoints:       indexCheckpoints,
@@ -320,7 +323,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				}
 				defer i.shardLoadLimiter.Release()
 
-				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+				shard, err := NewShard(ctx, promMetrics, i.walMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -349,7 +352,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 			continue
 		}
 
-		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter)
+		shard := NewLazyLoadShard(ctx, promMetrics, i.walMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter)
 		i.shards.Store(shardName, shard)
 	}
 
@@ -437,7 +440,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		}
 		defer i.shardLoadLimiter.Release()
 
-		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
+		shard, err := NewShard(ctx, promMetrics, i.walMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
@@ -445,7 +448,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		return shard, nil
 	}
 
-	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter)
+	shard := NewLazyLoadShard(ctx, promMetrics, i.walMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints, i.allocChecker, i.shardLoadLimiter)
 	return shard, nil
 }
 

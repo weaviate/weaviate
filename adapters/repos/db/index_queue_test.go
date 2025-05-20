@@ -22,6 +22,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -1227,8 +1228,10 @@ func (m *mockBatchIndexer) ValidateBeforeInsert(vector []float32) error {
 
 func newDummyStore(t *testing.T) *lsmkv.Store {
 	logger, _ := test.NewNullLogger()
+	walMetrics := lsmkv.NewCommitLoggerMetrics(prometheus.NewPedanticRegistry())
+
 	storeDir := t.TempDir()
-	store, err := lsmkv.New(storeDir, storeDir, logger, nil,
+	store, err := lsmkv.New(storeDir, storeDir, logger, nil, walMetrics,
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop(),
 		cyclemanager.NewCallbackGroupNoop())
