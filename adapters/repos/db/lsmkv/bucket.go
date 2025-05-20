@@ -1146,13 +1146,15 @@ func (b *Bucket) existsOnDiskAndPreviousMemtable(previous *countStats, key []byt
 func (b *Bucket) Shutdown(ctx context.Context) error {
 	defer GlobalBucketRegistry.Remove(b.GetDir())
 
-	disk, err := b.getDisk()
-	if err != nil {
-		return err
-	}
+	if b.isDiskLoaded() {
+		disk, err := b.getDisk()
+		if err != nil {
+			return err
+		}
 
-	if err := disk.shutdown(ctx); err != nil {
-		return err
+		if err := disk.shutdown(ctx); err != nil {
+			return err
+		}
 	}
 
 	if err := b.flushCallbackCtrl.Unregister(ctx); err != nil {
@@ -1161,6 +1163,11 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 
 	b.flushLock.Lock()
 	if b.active.strategy == StrategyInverted {
+		disk, err := b.getDisk()
+		if err != nil {
+			return err
+		}
+
 		b.active.averagePropLength, b.active.propLengthCount = disk.GetAveragePropertyLength()
 	}
 	if b.shouldReuseWAL() {
