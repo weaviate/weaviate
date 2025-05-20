@@ -965,6 +965,16 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.Exit(1)
 	}
 
+	// In a multi-node cluster, periodically check for split-brain
+	if appState.ServerConfig.Config.Raft.BootstrapExpect > 1 {
+		go func() {
+			for {
+				time.Sleep(time.Minute)
+				clusterState.MaybeRejoinMemberlistCluster(logger)
+			}
+		}()
+	}
+
 	appState.Cluster = clusterState
 	appState.Logger.
 		WithField("action", "startup").
