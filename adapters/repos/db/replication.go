@@ -470,8 +470,11 @@ func (i *Index) IncomingAddAsyncReplicationTargetNode(
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return fmt.Errorf("incoming add async replication target node get shard %s: %w", shardName, err)
+	if err != nil {
+		return fmt.Errorf("incoming add async replication get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("incoming add async replication get shard %s: shard not found", shardName)
 	}
 	defer release()
 
