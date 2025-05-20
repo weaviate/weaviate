@@ -81,7 +81,7 @@ type BatchObject struct {
 	Uuid string `protobuf:"bytes,1,opt,name=uuid,proto3" json:"uuid,omitempty"`
 	// protolint:disable:next REPEATED_FIELD_NAMES_PLURALIZED
 	//
-	// Deprecated: Do not use.
+	// Deprecated: Marked as deprecated in v1/batch.proto.
 	Vector      []float32               `protobuf:"fixed32,2,rep,packed,name=vector,proto3" json:"vector,omitempty"` // deprecated, will be removed
 	Properties  *BatchObject_Properties `protobuf:"bytes,3,opt,name=properties,proto3" json:"properties,omitempty"`
 	Collection  string                  `protobuf:"bytes,4,opt,name=collection,proto3" json:"collection,omitempty"`
@@ -130,7 +130,7 @@ func (x *BatchObject) GetUuid() string {
 	return ""
 }
 
-// Deprecated: Do not use.
+// Deprecated: Marked as deprecated in v1/batch.proto.
 func (x *BatchObject) GetVector() []float32 {
 	if x != nil {
 		return x.Vector
@@ -656,25 +656,28 @@ func file_v1_batch_proto_rawDescGZIP() []byte {
 	return file_v1_batch_proto_rawDescData
 }
 
-var file_v1_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
-var file_v1_batch_proto_goTypes = []interface{}{
-	(*BatchObjectsRequest)(nil),              // 0: weaviate.v1.BatchObjectsRequest
-	(*BatchObject)(nil),                      // 1: weaviate.v1.BatchObject
-	(*BatchObjectsReply)(nil),                // 2: weaviate.v1.BatchObjectsReply
-	(*BatchObject_Properties)(nil),           // 3: weaviate.v1.BatchObject.Properties
-	(*BatchObject_SingleTargetRefProps)(nil), // 4: weaviate.v1.BatchObject.SingleTargetRefProps
-	(*BatchObject_MultiTargetRefProps)(nil),  // 5: weaviate.v1.BatchObject.MultiTargetRefProps
-	(*BatchObjectsReply_BatchError)(nil),     // 6: weaviate.v1.BatchObjectsReply.BatchError
-	(ConsistencyLevel)(0),                    // 7: weaviate.v1.ConsistencyLevel
-	(*Vectors)(nil),                          // 8: weaviate.v1.Vectors
-	(*structpb.Struct)(nil),                  // 9: google.protobuf.Struct
-	(*NumberArrayProperties)(nil),            // 10: weaviate.v1.NumberArrayProperties
-	(*IntArrayProperties)(nil),               // 11: weaviate.v1.IntArrayProperties
-	(*TextArrayProperties)(nil),              // 12: weaviate.v1.TextArrayProperties
-	(*BooleanArrayProperties)(nil),           // 13: weaviate.v1.BooleanArrayProperties
-	(*ObjectProperties)(nil),                 // 14: weaviate.v1.ObjectProperties
-	(*ObjectArrayProperties)(nil),            // 15: weaviate.v1.ObjectArrayProperties
-}
+var (
+	file_v1_batch_proto_msgTypes = make([]protoimpl.MessageInfo, 7)
+	file_v1_batch_proto_goTypes  = []interface{}{
+		(*BatchObjectsRequest)(nil),              // 0: weaviate.v1.BatchObjectsRequest
+		(*BatchObject)(nil),                      // 1: weaviate.v1.BatchObject
+		(*BatchObjectsReply)(nil),                // 2: weaviate.v1.BatchObjectsReply
+		(*BatchObject_Properties)(nil),           // 3: weaviate.v1.BatchObject.Properties
+		(*BatchObject_SingleTargetRefProps)(nil), // 4: weaviate.v1.BatchObject.SingleTargetRefProps
+		(*BatchObject_MultiTargetRefProps)(nil),  // 5: weaviate.v1.BatchObject.MultiTargetRefProps
+		(*BatchObjectsReply_BatchError)(nil),     // 6: weaviate.v1.BatchObjectsReply.BatchError
+		(ConsistencyLevel)(0),                    // 7: weaviate.v1.ConsistencyLevel
+		(*Vectors)(nil),                          // 8: weaviate.v1.Vectors
+		(*structpb.Struct)(nil),                  // 9: google.protobuf.Struct
+		(*NumberArrayProperties)(nil),            // 10: weaviate.v1.NumberArrayProperties
+		(*IntArrayProperties)(nil),               // 11: weaviate.v1.IntArrayProperties
+		(*TextArrayProperties)(nil),              // 12: weaviate.v1.TextArrayProperties
+		(*BooleanArrayProperties)(nil),           // 13: weaviate.v1.BooleanArrayProperties
+		(*ObjectProperties)(nil),                 // 14: weaviate.v1.ObjectProperties
+		(*ObjectArrayProperties)(nil),            // 15: weaviate.v1.ObjectArrayProperties
+	}
+)
+
 var file_v1_batch_proto_depIdxs = []int32{
 	1,  // 0: weaviate.v1.BatchObjectsRequest.objects:type_name -> weaviate.v1.BatchObject
 	7,  // 1: weaviate.v1.BatchObjectsRequest.consistency_level:type_name -> weaviate.v1.ConsistencyLevel
