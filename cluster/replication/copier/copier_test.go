@@ -53,7 +53,7 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 		createdFiles := []fileWithMetadata{}
 		for _, file := range files {
 			absolutePath := filepath.Join(basePath, file.relativeFilePath)
-			require.NoError(t, os.WriteFile(absolutePath, file.fileContent, 0644))
+			require.NoError(t, os.WriteFile(absolutePath, file.fileContent, 0o644))
 			_, fileCrc32, err := integrity.CRC32(absolutePath)
 			require.NoError(t, err)
 			createdFiles = append(createdFiles, fileWithMetadata{
@@ -69,7 +69,6 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 		name              string
 		localFilesBefore  []fileWithMetadata
 		remoteFilesToSync []fileWithMetadata
-		expectedError     error
 	}
 	for _, tc := range []testCase{
 		{
