@@ -214,11 +214,6 @@ type Config struct {
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	MaxSegmentSize                      int64
-	HNSWMaxLogSize                      int64
-	HNSWWaitForCachePrefill             bool
-	HNSWFlatSearchConcurrency           int
-	HNSWAcornFilterRatio                float64
-	VisitedListPoolMaxSize              int
 	TrackVectorDimensions               bool
 	ServerVersion                       string
 	GitHash                             string
@@ -231,6 +226,17 @@ type Config struct {
 	MaximumConcurrentShardLoads         int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+
+	HNSWMaxLogSize                               int64
+	HNSWDisableSnapshots                         bool
+	HNSWSnapshotIntervalSeconds                  int
+	HNSWSnapshotOnStartup                        bool
+	HNSWSnapshotMinDeltaCommitlogsNumber         int
+	HNSWSnapshotMinDeltaCommitlogsSizePercentage int
+	HNSWWaitForCachePrefill                      bool
+	HNSWFlatSearchConcurrency                    int
+	HNSWAcornFilterRatio                         float64
+	VisitedListPoolMaxSize                       int
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

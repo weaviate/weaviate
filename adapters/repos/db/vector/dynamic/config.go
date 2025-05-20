@@ -40,6 +40,8 @@ type Config struct {
 	MakeCommitLoggerThunk hnsw.MakeCommitLogger
 	TombstoneCallbacks    cyclemanager.CycleCallbackGroup
 	SharedDB              *bolt.DB
+	HNSWDisableSnapshots  bool
+	HNSWSnapshotOnStartup bool
 }
 
 func (c Config) Validate() error {
