@@ -155,7 +155,35 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 			}
 		}
 	}
+
 	return &state, nil
+}
+
+func (state *State) MaybeRejoinMemberlistCluster(logger logrus.FieldLogger) {
+	logger.Debug("Checking for single node split-brain")
+	if state.NodeCount() <= 1 {
+		logger.Warn("Detected single node split-brain, attempting to rejoin memberlist cluster")
+
+		var joinAddr []string
+		if state.config.Join != "" {
+			joinAddr = strings.Split(state.config.Join, ",")
+		}
+
+		if len(joinAddr) > 0 {
+			_, err := state.list.Join(joinAddr)
+			if err != nil {
+				logger.WithFields(logrus.Fields{
+					"action":          "memberlist_rejoin",
+					"remote_hostname": joinAddr,
+				}).WithError(err).Error("memberlist rejoin not successful")
+			} else {
+				logger.WithFields(logrus.Fields{
+					"action":     "memberlist_rejoin_successful",
+					"node_count": state.NodeCount(),
+				}).Info("Successfully rejoined the memberlist cluster")
+			}
+		}
+	}
 }
 
 // Hostnames for all live members, except self. Use AllHostnames to include
