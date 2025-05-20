@@ -59,7 +59,7 @@ func TestRemoveTmpScratchOrHiddenFiles(t *testing.T) {
 		MockDirEntry{name: "1682473161.condensed", isDir: false},
 	}
 
-	result := removeTmpScratchOrHiddenFiles(entries)
+	result := skipTmpScratchOrHiddenFiles(entries)
 
 	if len(result) != len(expected) {
 		t.Errorf("Expected %d entries, got %d", len(expected), len(result))
@@ -75,8 +75,7 @@ func TestRemoveTmpScratchOrHiddenFiles(t *testing.T) {
 func TestCondenseLoop(t *testing.T) {
 	scratchDir := t.TempDir()
 	commitLogDir := createCondensorTestData(t, scratchDir)
-	shutdown := createTestCommitLoggerWithOptions(t, scratchDir, "main", WithCondensor(&fakeCondensor{}))
-	defer shutdown()
+	createTestCommitLoggerWithOptions(t, scratchDir, "main", WithCondensor(&fakeCondensor{}))
 
 	assert.EventuallyWithT(t, func(t *assert.CollectT) {
 		files, err := os.ReadDir(commitLogDir)
@@ -91,16 +90,15 @@ func TestCondenseLoop(t *testing.T) {
 			fileNames = append(fileNames, file.Name())
 		}
 
-		assert.ElementsMatch(t, []string{"1000.condensed", "1004"}, fileNames)
+		assert.ElementsMatch(t, []string{"1003.condensed", "1004"}, fileNames)
 	}, 5*time.Second, 50*time.Millisecond, "Condense loop did not run")
 }
 
 func TestCondenseLoop_WithAllocChecker(t *testing.T) {
 	scratchDir := t.TempDir()
 	commitLogDir := createCondensorTestData(t, scratchDir)
-	shutdown := createTestCommitLoggerWithOptions(t, scratchDir, "main",
+	createTestCommitLoggerWithOptions(t, scratchDir, "main",
 		WithCondensor(&fakeCondensor{}), WithAllocChecker(&fakeAllocChecker{}))
-	defer shutdown()
 
 	assert.EventuallyWithT(t, func(t *assert.CollectT) {
 		files, err := os.ReadDir(commitLogDir)
@@ -115,16 +113,15 @@ func TestCondenseLoop_WithAllocChecker(t *testing.T) {
 			fileNames = append(fileNames, file.Name())
 		}
 
-		assert.ElementsMatch(t, []string{"1000.condensed", "1004"}, fileNames)
+		assert.ElementsMatch(t, []string{"1003.condensed", "1004"}, fileNames)
 	}, 5*time.Second, 50*time.Millisecond, "Condense loop did not run")
 }
 
 func TestCondenseLoop_WithAllocChecker_OOM(t *testing.T) {
 	scratchDir := t.TempDir()
 	commitLogDir := createCondensorTestData(t, scratchDir)
-	shutdown := createTestCommitLoggerWithOptions(t, scratchDir, "main",
+	createTestCommitLoggerWithOptions(t, scratchDir, "main",
 		WithCondensor(&fakeCondensor{}), WithAllocChecker(&fakeAllocChecker{shouldErr: true}))
-	defer shutdown()
 
 	// Wait 6 commit log cycles (50 ms)
 	time.Sleep(300 * time.Millisecond)
@@ -173,19 +170,22 @@ func createCondensorTestData(t *testing.T, scratchDir string) string {
 	return commitLogDir
 }
 
-func createTestCommitLoggerWithOptions(t *testing.T, scratchDir string, name string, options ...CommitlogOption) func() {
+func createTestCommitLoggerWithOptions(t *testing.T, scratchDir string, name string, options ...CommitlogOption) *hnswCommitLogger {
 	logger, _ := test.NewNullLogger()
 	cbg := cyclemanager.NewCallbackGroup("test", logger, 10)
 	ticker := cyclemanager.NewLinearTicker(50*time.Millisecond, 60*time.Millisecond, 1)
 	cm := cyclemanager.NewManager(ticker, cbg.CycleCallback, logger)
 	cl, err := NewCommitLogger(scratchDir, name, logger, cbg, options...)
 	require.Nil(t, err)
+	cl.InitMaintenance()
 	cm.Start()
 
-	return func() {
+	t.Cleanup(func() {
 		cl.Shutdown(context.Background())
 		cm.Stop(context.Background())
-	}
+	})
+
+	return cl
 }
 
 type fakeAllocChecker struct {

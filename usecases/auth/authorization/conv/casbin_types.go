@@ -74,7 +74,7 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
-	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.ReplicationsDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+$`, authorization.ReplicateDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -143,7 +143,7 @@ func CasbinSchema(collection, shard string) string {
 	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.SchemaDomain, collection, shard)
 }
 
-func CasbinReplications(collection, shard string) string {
+func CasbinReplicate(collection, shard string) string {
 	collection = schema.UppercaseClassesNames(collection)[0]
 	if collection == "" {
 		collection = "*"
@@ -153,7 +153,7 @@ func CasbinReplications(collection, shard string) string {
 	}
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
-	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.ReplicationsDomain, collection, shard)
+	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.ReplicateDomain, collection, shard)
 }
 
 func CasbinData(collection, shard, object string) string {
@@ -291,18 +291,18 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			}
 		}
 		resource = CasbinNodes(verbosity, collection)
-	case authorization.ReplicationsDomain:
+	case authorization.ReplicateDomain:
 		collection := "*"
 		shard := "*"
-		if permission.Replication != nil {
-			if permission.Replication.Collection != nil {
-				collection = schema.UppercaseClassName(*permission.Replication.Collection)
+		if permission.Replicate != nil {
+			if permission.Replicate.Collection != nil {
+				collection = schema.UppercaseClassName(*permission.Replicate.Collection)
 			}
-			if permission.Replication.Shard != nil {
-				shard = *permission.Replication.Shard
+			if permission.Replicate.Shard != nil {
+				shard = *permission.Replicate.Shard
 			}
 		}
-		resource = CasbinReplications(collection, shard)
+		resource = CasbinReplicate(collection, shard)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 
@@ -405,8 +405,8 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Users = &models.PermissionUsers{
 			Users: &splits[1],
 		}
-	case authorization.ReplicationsDomain:
-		permission.Replication = &models.PermissionReplication{
+	case authorization.ReplicateDomain:
+		permission.Replicate = &models.PermissionReplicate{
 			Collection: &splits[2],
 			Shard:      &splits[4],
 		}
@@ -418,7 +418,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Collections = authorization.AllCollections
 		permission.Tenants = authorization.AllTenants
 		permission.Users = authorization.AllUsers
-		permission.Replication = authorization.AllReplications
+		permission.Replicate = authorization.AllReplicate
 	case authorization.ClusterDomain:
 		// do nothing
 	default:
