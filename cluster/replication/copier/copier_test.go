@@ -131,12 +131,15 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 
 		remoteFilesRelativePathLookup := map[string]struct{}{}
 		for _, remoteFile := range tc.remoteFilesToSync {
-			_, err := os.Stat(remoteFile.absoluteFilePath)
+			newLocalFilePath := filepath.Join(localTmpDir, remoteFile.relativeFilePath)
+			_, err := os.Stat(newLocalFilePath)
 			require.NoError(t, err)
 			// assert the content of the synced local/remote files match
-			oldFileContent, err := os.ReadFile(remoteFile.absoluteFilePath)
+			remoteFileContent, err := os.ReadFile(remoteFile.absoluteFilePath)
 			require.NoError(t, err)
-			require.Equal(t, remoteFile.fileContent, oldFileContent)
+			finalLocalFileContent, err := os.ReadFile(newLocalFilePath)
+			require.NoError(t, err)
+			require.Equal(t, remoteFileContent, finalLocalFileContent)
 			remoteFilesRelativePathLookup[remoteFile.relativeFilePath] = struct{}{}
 		}
 
