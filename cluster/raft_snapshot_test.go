@@ -96,7 +96,17 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 	m.indexer.AssertExpectations(t)
 
 	// Create a new FSM that will restore from it's state from the disk (using snapshot and logs)
-	s := NewFSM(m.cfg, nil, nil, prometheus.NewPedanticRegistry(), nil)
+	snapshotRestoreChan := make(chan struct{})
+	go func() {
+		select {
+		case <-snapshotRestoreChan:
+			// The replication FSM has been restored from a snapshot, we need to stop and restart
+		case <-time.After(5 * time.Second):
+			// Fail the test
+			assert.Fail(t, "Snapshot restore took too long")
+		}
+	}()
+	s := NewFSM(m.cfg, nil, nil, prometheus.NewPedanticRegistry(), snapshotRestoreChan)
 	m.store = &s
 	// We refresh the mock schema to ensure that we can assert no calls except Open are sent to the database
 	m.indexer = fakes.NewMockSchemaExecutor()
