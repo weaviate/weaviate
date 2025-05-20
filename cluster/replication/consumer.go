@@ -268,8 +268,6 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 						opCancel()
 					}()
 
-					c.engineOpCallbacks.OnOpStart(c.nodeId)
-
 					opLogger.Debug("worker processing replication operation")
 
 					// If the operation has been cancelled in the time between it being added to the channel and
