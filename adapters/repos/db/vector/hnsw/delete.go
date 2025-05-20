@@ -845,7 +845,9 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 
 		h.resetLock.Lock()
 		h.shardedNodeLocks.Lock(id)
-		h.nodes[id] = nil
+		if uint64(len(h.nodes)) > id {
+			h.nodes[id] = nil
+		}
 		h.shardedNodeLocks.Unlock(id)
 		if h.compressed.Load() {
 			h.compressor.Delete(context.TODO(), id)
