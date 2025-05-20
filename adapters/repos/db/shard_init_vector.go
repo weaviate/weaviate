@@ -32,7 +32,7 @@ import (
 )
 
 func (s *Shard) initVectorIndex(ctx context.Context,
-	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig,
+	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig, implicitUpdate bool,
 ) (VectorIndex, error) {
 	var distProv distancer.Provider
 
@@ -103,6 +103,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
 				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
 				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
+				ImplicitUpdate:         implicitUpdate,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
@@ -131,6 +132,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			Logger:           s.index.logger,
 			DistanceProvider: distProv,
 			AllocChecker:     s.index.allocChecker,
+			ImplicitUpdate:   implicitUpdate,
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
@@ -211,10 +213,10 @@ func hasTargetVectors(cfg schemaConfig.VectorIndexConfig, targetCfgs map[string]
 	return len(targetCfgs) != 0
 }
 
-func (s *Shard) initTargetVectors(ctx context.Context) error {
+func (s *Shard) initTargetVectors(ctx context.Context, implicitUpdate bool) error {
 	s.vectorIndexes = make(map[string]VectorIndex)
 	for targetVector, vectorIndexConfig := range s.index.vectorIndexUserConfigs {
-		vectorIndex, err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig)
+		vectorIndex, err := s.initVectorIndex(ctx, targetVector, vectorIndexConfig, implicitUpdate)
 		if err != nil {
 			return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 		}
@@ -235,8 +237,8 @@ func (s *Shard) initTargetQueues() error {
 	return nil
 }
 
-func (s *Shard) initLegacyVector(ctx context.Context) error {
-	vectorindex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig)
+func (s *Shard) initLegacyVector(ctx context.Context, implicitUpdate bool) error {
+	vectorindex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig, implicitUpdate)
 	if err != nil {
 		return err
 	}

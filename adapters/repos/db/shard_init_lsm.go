@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
+func (s *Shard) initNonVector(ctx context.Context, class *models.Class, implicitUpdate bool) error {
 	before := time.Now()
 	defer func() {
 		took := time.Since(before)
@@ -57,7 +57,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 	eg := enterrors.NewErrorGroupWrapper(s.index.logger)
 
 	eg.Go(func() error {
-		return s.initObjectBucket(ctx)
+		return s.initObjectBucket(ctx, implicitUpdate)
 	})
 
 	eg.Go(func() error {
@@ -87,7 +87,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 
 	// error group is passed, so properties can be initialized in parallel with
 	// the other initializations going on here.
-	s.initProperties(eg, class)
+	s.initProperties(eg, class, implicitUpdate)
 
 	err = eg.Wait()
 	if err != nil {
@@ -136,7 +136,7 @@ func (s *Shard) initLSMStore() error {
 	return nil
 }
 
-func (s *Shard) initObjectBucket(ctx context.Context) error {
+func (s *Shard) initObjectBucket(ctx context.Context, implicitUpdate bool) error {
 	opts := []lsmkv.BucketOption{
 		lsmkv.WithStrategy(lsmkv.StrategyReplace),
 		lsmkv.WithSecondaryIndices(2),
@@ -150,6 +150,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		s.segmentCleanupConfig(),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithDelayedSegmentLoading(implicitUpdate),
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {

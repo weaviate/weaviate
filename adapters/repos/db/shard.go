@@ -91,7 +91,7 @@ type ShardLike interface {
 	ID() string // Get the shard id
 	drop() error
 	HaltForTransfer(ctx context.Context, offloading bool) error
-	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property)
+	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, implicitUpdate bool, props ...*models.Property)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
 	SetPropertyLengths(props []inverted.Property) error

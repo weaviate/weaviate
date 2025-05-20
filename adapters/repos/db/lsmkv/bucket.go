@@ -67,13 +67,14 @@ type Bucket struct {
 	flushLock        sync.RWMutex
 	haltedFlushTimer *interval.BackoffTimer
 
-	minWalThreshold   uint64
-	walThreshold      uint64
-	flushDirtyAfter   time.Duration
-	memtableThreshold uint64
-	minMMapSize       int64
-	memtableResizer   *memtableSizeAdvisor
-	strategy          string
+	delaySegmentLoading bool
+	minWalThreshold     uint64
+	walThreshold        uint64
+	flushDirtyAfter     time.Duration
+	memtableThreshold   uint64
+	minMMapSize         int64
+	memtableResizer     *memtableSizeAdvisor
+	strategy            string
 
 	// Strategy inverted index is supposed to be created with, but existing
 	// segment files were created with different one.
@@ -211,6 +212,14 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
 		return nil, err
+	}
+
+	if !b.delaySegmentLoading {
+		// don't need the dist here, just start the loading
+		_, err := b.getDisk()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	if b.active == nil {

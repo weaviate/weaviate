@@ -35,7 +35,7 @@ import (
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler,
-	indexCheckpoints *indexcheckpoint.Checkpoints,
+	indexCheckpoints *indexcheckpoint.Checkpoints, implicitUpdate bool,
 ) (_ *Shard, err error) {
 	start := time.Now()
 
@@ -118,19 +118,19 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, err
 	}
 
-	if err := s.initNonVector(ctx, class); err != nil {
+	if err := s.initNonVector(ctx, class, implicitUpdate); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
 	if s.hasTargetVectors() {
-		if err := s.initTargetVectors(ctx); err != nil {
+		if err := s.initTargetVectors(ctx, implicitUpdate); err != nil {
 			return nil, err
 		}
 		if err := s.initTargetQueues(); err != nil {
 			return nil, err
 		}
 	} else {
-		if err := s.initLegacyVector(ctx); err != nil {
+		if err := s.initLegacyVector(ctx, implicitUpdate); err != nil {
 			return nil, err
 		}
 		if err := s.initLegacyQueue(); err != nil {

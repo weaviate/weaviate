@@ -41,7 +41,7 @@ type Config struct {
 	WaitForCachePrefill       bool
 	FlatSearchConcurrency     int
 	AcornFilterRatio          float64
-
+	ImplicitUpdate            bool
 	// metadata for monitoring
 	ShardName string
 	ClassName string

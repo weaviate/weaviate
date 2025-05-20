@@ -51,13 +51,13 @@ func (s *Shard) DebugResetVectorIndex(ctx context.Context, targetVector string) 
 	}
 
 	if s.hasTargetVectors() {
-		s.vectorIndexes[targetVector], err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfigs[targetVector])
+		s.vectorIndexes[targetVector], err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfigs[targetVector], false)
 		if err != nil {
 			return errors.Wrap(err, "init vector index")
 		}
 		vidx = s.vectorIndexes[targetVector]
 	} else {
-		s.vectorIndex, err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfig)
+		s.vectorIndex, err = s.initVectorIndex(ctx, targetVector, s.index.vectorIndexUserConfig, false)
 		if err != nil {
 			return errors.Wrap(err, "init vector index")
 		}

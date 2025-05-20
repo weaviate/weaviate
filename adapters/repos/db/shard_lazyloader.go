@@ -56,12 +56,13 @@ type LazyLoadShard struct {
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter ShardLoadLimiter
+	implicitUpdate   bool
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
-	shardLoadLimiter ShardLoadLimiter,
+	shardLoadLimiter ShardLoadLimiter, implicitUpdate bool,
 ) *LazyLoadShard {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -79,6 +80,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 		},
 		memMonitor:       memMonitor,
 		shardLoadLimiter: shardLoadLimiter,
+		implicitUpdate:   implicitUpdate,
 	}
 }
 
@@ -120,7 +122,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 	defer l.shardLoadLimiter.Release()
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
-		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler, l.shardOpts.indexCheckpoints)
+		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler, l.shardOpts.indexCheckpoints, l.implicitUpdate)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
@@ -362,9 +364,9 @@ func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector 
 	return l.shard.DebugResetVectorIndex(ctx, targetVector)
 }
 
-func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) {
+func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, implicitUpdate bool, props ...*models.Property) {
 	l.mustLoad()
-	l.shard.initPropertyBuckets(ctx, eg, props...)
+	l.shard.initPropertyBuckets(ctx, eg, implicitUpdate, props...)
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool) error {

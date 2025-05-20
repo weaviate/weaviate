@@ -93,7 +93,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 				hnsw.NewDefaultUserConfig(), nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, class, nil, scheduler, nil, nil)
 			require.NoError(t, err)
 
-			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil)
+			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil, false)
 			require.NoError(t, err)
 
 			index.shards.Store("shard1", shard)
@@ -224,7 +224,7 @@ func TestUpdateIndexShards(t *testing.T) {
 
 			// Initialize shards
 			for _, shardName := range tt.initialShards {
-				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad)
+				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad, false)
 				require.NoError(t, err)
 			}
 
