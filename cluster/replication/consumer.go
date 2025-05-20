@@ -432,7 +432,6 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 
 	// Ensure that the states of the shards on the nodes are in-sync with the state of the schema through a RAFT communication
 	// This handles cleaning up for ghost shards that are in the store but not in the schema that may have been created by index.getOptInitShard
-	// Both methods return early on error to avoid completing cancellation so that the op can be cleaned-up again on failure when it is cancelled again
 
 	if err := c.sync(ctx, op); err != nil {
 		logger.WithError(err).

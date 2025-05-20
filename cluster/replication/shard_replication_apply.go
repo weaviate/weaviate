@@ -182,6 +182,17 @@ func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest)
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", id)
 	}
+
+	// Cannot cancel ops that are completed
+	if status.GetCurrentState() == api.READY {
+		return fmt.Errorf("cannot cancel a READY op: %w", types.ErrCancellationImpossible)
+	}
+
+	// Cannot cancel MOVE ops that are in DEHYDRATING state
+	if status.GetCurrentState() == api.DEHYDRATING && op.TransferType == api.MOVE {
+		return fmt.Errorf("cannot cancel a MOVE op in DEHYDRATING state: %w", types.ErrCancellationImpossible)
+	}
+
 	status.TriggerCancellation()
 	s.statusById[op.ID] = status
 
@@ -204,6 +215,12 @@ func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest)
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", id)
 	}
+
+	// Cannot delete MOVE ops that are in DEHYDRATING state
+	if status.GetCurrentState() == api.DEHYDRATING && op.TransferType == api.MOVE {
+		return fmt.Errorf("cannot delete a MOVE op in DEHYDRATING state: %w", types.ErrDeletionImpossible)
+	}
+
 	status.TriggerDeletion()
 	s.statusById[op.ID] = status
 

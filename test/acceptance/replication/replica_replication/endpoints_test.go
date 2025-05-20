@@ -36,15 +36,9 @@ type ReplicationTestSuiteEndpoints struct {
 }
 
 func (suite *ReplicationTestSuiteEndpoints) SetupTest() {
-	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
-}
-
-func TestReplicationTestSuiteEndpoints(t *testing.T) {
-	suite.Run(t, new(ReplicationTestSuiteEndpoints))
-}
-
-func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateEndpoints() {
 	t := suite.T()
+	// t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -58,13 +52,18 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateEndpoints() 
 	}()
 
 	helper.SetupClient(compose.GetWeaviate().URI())
+}
+
+func TestReplicationTestSuiteEndpoints(t *testing.T) {
+	suite.Run(t, new(ReplicationTestSuiteEndpoints))
+}
+
+func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateEndpoints() {
+	t := suite.T()
 
 	paragraphClass := articles.ParagraphsClass()
-
-	t.Run("create schema", func(t *testing.T) {
-		helper.DeleteClass(t, paragraphClass.Class)
-		helper.CreateClass(t, paragraphClass)
-	})
+	helper.CreateClass(t, paragraphClass)
+	defer helper.DeleteClass(t, paragraphClass.Class)
 
 	var id strfmt.UUID
 	t.Run("get collection sharding state", func(t *testing.T) {

@@ -12,7 +12,6 @@
 package replica_replication
 
 import (
-	"context"
 	"fmt"
 	"slices"
 	"testing"
@@ -26,26 +25,12 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
 func (suite *ReplicationTestSuiteEndpoints) TestReplicationDeletingTenantCleansUpOperations() {
 	t := suite.T()
-	mainCtx := context.Background()
-
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
 
 	paragraphClass := articles.ParagraphsClass()
 	paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -64,10 +49,8 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationDeletingTenantCleansU
 
 	for _, state := range stateToDeleteIn {
 		t.Run(fmt.Sprintf("delete tenant when op is %s", state), func(t *testing.T) {
-			t.Run("create schema", func(t *testing.T) {
-				helper.DeleteClass(t, paragraphClass.Class)
-				helper.CreateClass(t, paragraphClass)
-			})
+			helper.CreateClass(t, paragraphClass)
+			defer helper.DeleteClass(t, paragraphClass.Class)
 
 			t.Run(fmt.Sprintf("insert paragraphs into %s", tenant1), func(t *testing.T) {
 				batch := make([]*models.Object, 5000)

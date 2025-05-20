@@ -144,6 +144,51 @@ func (o *CancelReplicationNotFound) WriteResponse(rw http.ResponseWriter, produc
 	rw.WriteHeader(404)
 }
 
+// CancelReplicationConflictCode is the HTTP code returned for type CancelReplicationConflict
+const CancelReplicationConflictCode int = 409
+
+/*
+CancelReplicationConflict The operation is not in a cancellable state, e.g. it is READY or is a MOVE op in the DEHYDRATING state.
+
+swagger:response cancelReplicationConflict
+*/
+type CancelReplicationConflict struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewCancelReplicationConflict creates CancelReplicationConflict with default headers values
+func NewCancelReplicationConflict() *CancelReplicationConflict {
+
+	return &CancelReplicationConflict{}
+}
+
+// WithPayload adds the payload to the cancel replication conflict response
+func (o *CancelReplicationConflict) WithPayload(payload *models.ErrorResponse) *CancelReplicationConflict {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the cancel replication conflict response
+func (o *CancelReplicationConflict) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *CancelReplicationConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(409)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // CancelReplicationInternalServerErrorCode is the HTTP code returned for type CancelReplicationInternalServerError
 const CancelReplicationInternalServerErrorCode int = 500
 
