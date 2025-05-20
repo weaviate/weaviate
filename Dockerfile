@@ -26,7 +26,7 @@ ARG CGO_ENABLED=1
 # Allow disabling CGO when compiling for arm64
 ENV CGO_ENABLED=$CGO_ENABLED
 COPY . .
-RUN GOOS=linux GOARCH=$TARGETARCH go build $EXTRA_BUILD_ARGS \
+RUN GOOS=linux CGO_ENABLED=1 GOARCH=$TARGETARCH go build -race $EXTRA_BUILD_ARGS \
       -ldflags '-w -extldflags "-static" \
       -X github.com/weaviate/weaviate/usecases/build.Branch='"$GIT_BRANCH"' \
       -X github.com/weaviate/weaviate/usecases/build.Revision='"$GIT_REVISION"' \
