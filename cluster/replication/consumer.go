@@ -227,11 +227,9 @@ func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardRepli
 					if err != nil {
 						c.logger.Error("error while checking status of replication op")
 						shouldSkip = true
-						c.ongoingOps.DeleteInFlight(op.Op.ID)
 					} else if state.String() != op.Status.GetCurrent().State.String() {
 						c.logger.Debug("replication op skipped as state has changed")
 						shouldSkip = true
-						c.ongoingOps.DeleteInFlight(op.Op.ID)
 					}
 				}
 
