@@ -34,9 +34,9 @@ func (_m *MockFSMUpdater) EXPECT() *MockFSMUpdater_Expecter {
 	return &MockFSMUpdater_Expecter{mock: &_m.Mock}
 }
 
-// AddReplicaToShard provides a mock function with given fields: _a0, _a1, _a2, _a3
-func (_m *MockFSMUpdater) AddReplicaToShard(_a0 context.Context, _a1 string, _a2 string, _a3 string) (uint64, error) {
-	ret := _m.Called(_a0, _a1, _a2, _a3)
+// AddReplicaToShard provides a mock function with given fields: ctx, collection, shard, nodeId
+func (_m *MockFSMUpdater) AddReplicaToShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error) {
+	ret := _m.Called(ctx, collection, shard, nodeId)
 
 	if len(ret) == 0 {
 		panic("no return value specified for AddReplicaToShard")
@@ -45,16 +45,16 @@ func (_m *MockFSMUpdater) AddReplicaToShard(_a0 context.Context, _a1 string, _a2
 	var r0 uint64
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (uint64, error)); ok {
-		return rf(_a0, _a1, _a2, _a3)
+		return rf(ctx, collection, shard, nodeId)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) uint64); ok {
-		r0 = rf(_a0, _a1, _a2, _a3)
+		r0 = rf(ctx, collection, shard, nodeId)
 	} else {
 		r0 = ret.Get(0).(uint64)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
-		r1 = rf(_a0, _a1, _a2, _a3)
+		r1 = rf(ctx, collection, shard, nodeId)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -68,15 +68,15 @@ type MockFSMUpdater_AddReplicaToShard_Call struct {
 }
 
 // AddReplicaToShard is a helper method to define mock.On call
-//   - _a0 context.Context
-//   - _a1 string
-//   - _a2 string
-//   - _a3 string
-func (_e *MockFSMUpdater_Expecter) AddReplicaToShard(_a0 interface{}, _a1 interface{}, _a2 interface{}, _a3 interface{}) *MockFSMUpdater_AddReplicaToShard_Call {
-	return &MockFSMUpdater_AddReplicaToShard_Call{Call: _e.mock.On("AddReplicaToShard", _a0, _a1, _a2, _a3)}
+//   - ctx context.Context
+//   - collection string
+//   - shard string
+//   - nodeId string
+func (_e *MockFSMUpdater_Expecter) AddReplicaToShard(ctx interface{}, collection interface{}, shard interface{}, nodeId interface{}) *MockFSMUpdater_AddReplicaToShard_Call {
+	return &MockFSMUpdater_AddReplicaToShard_Call{Call: _e.mock.On("AddReplicaToShard", ctx, collection, shard, nodeId)}
 }
 
-func (_c *MockFSMUpdater_AddReplicaToShard_Call) Run(run func(_a0 context.Context, _a1 string, _a2 string, _a3 string)) *MockFSMUpdater_AddReplicaToShard_Call {
+func (_c *MockFSMUpdater_AddReplicaToShard_Call) Run(run func(ctx context.Context, collection string, shard string, nodeId string)) *MockFSMUpdater_AddReplicaToShard_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
@@ -93,9 +93,9 @@ func (_c *MockFSMUpdater_AddReplicaToShard_Call) RunAndReturn(run func(context.C
 	return _c
 }
 
-// DeleteReplicaFromShard provides a mock function with given fields: _a0, _a1, _a2, _a3
-func (_m *MockFSMUpdater) DeleteReplicaFromShard(_a0 context.Context, _a1 string, _a2 string, _a3 string) (uint64, error) {
-	ret := _m.Called(_a0, _a1, _a2, _a3)
+// DeleteReplicaFromShard provides a mock function with given fields: ctx, collection, shard, nodeId
+func (_m *MockFSMUpdater) DeleteReplicaFromShard(ctx context.Context, collection string, shard string, nodeId string) (uint64, error) {
+	ret := _m.Called(ctx, collection, shard, nodeId)
 
 	if len(ret) == 0 {
 		panic("no return value specified for DeleteReplicaFromShard")
@@ -104,16 +104,16 @@ func (_m *MockFSMUpdater) DeleteReplicaFromShard(_a0 context.Context, _a1 string
 	var r0 uint64
 	var r1 error
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) (uint64, error)); ok {
-		return rf(_a0, _a1, _a2, _a3)
+		return rf(ctx, collection, shard, nodeId)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) uint64); ok {
-		r0 = rf(_a0, _a1, _a2, _a3)
+		r0 = rf(ctx, collection, shard, nodeId)
 	} else {
 		r0 = ret.Get(0).(uint64)
 	}
 
 	if rf, ok := ret.Get(1).(func(context.Context, string, string, string) error); ok {
-		r1 = rf(_a0, _a1, _a2, _a3)
+		r1 = rf(ctx, collection, shard, nodeId)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -127,15 +127,15 @@ type MockFSMUpdater_DeleteReplicaFromShard_Call struct {
 }
 
 // DeleteReplicaFromShard is a helper method to define mock.On call
-//   - _a0 context.Context
-//   - _a1 string
-//   - _a2 string
-//   - _a3 string
-func (_e *MockFSMUpdater_Expecter) DeleteReplicaFromShard(_a0 interface{}, _a1 interface{}, _a2 interface{}, _a3 interface{}) *MockFSMUpdater_DeleteReplicaFromShard_Call {
-	return &MockFSMUpdater_DeleteReplicaFromShard_Call{Call: _e.mock.On("DeleteReplicaFromShard", _a0, _a1, _a2, _a3)}
+//   - ctx context.Context
+//   - collection string
+//   - shard string
+//   - nodeId string
+func (_e *MockFSMUpdater_Expecter) DeleteReplicaFromShard(ctx interface{}, collection interface{}, shard interface{}, nodeId interface{}) *MockFSMUpdater_DeleteReplicaFromShard_Call {
+	return &MockFSMUpdater_DeleteReplicaFromShard_Call{Call: _e.mock.On("DeleteReplicaFromShard", ctx, collection, shard, nodeId)}
 }
 
-func (_c *MockFSMUpdater_DeleteReplicaFromShard_Call) Run(run func(_a0 context.Context, _a1 string, _a2 string, _a3 string)) *MockFSMUpdater_DeleteReplicaFromShard_Call {
+func (_c *MockFSMUpdater_DeleteReplicaFromShard_Call) Run(run func(ctx context.Context, collection string, shard string, nodeId string)) *MockFSMUpdater_DeleteReplicaFromShard_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
 	})
@@ -199,9 +199,9 @@ func (_c *MockFSMUpdater_ReplicationCancellationComplete_Call) RunAndReturn(run 
 	return _c
 }
 
-// ReplicationGetReplicaOpStatus provides a mock function with given fields: id
-func (_m *MockFSMUpdater) ReplicationGetReplicaOpStatus(id uint64) (api.ShardReplicationState, error) {
-	ret := _m.Called(id)
+// ReplicationGetReplicaOpStatus provides a mock function with given fields: ctx, id
+func (_m *MockFSMUpdater) ReplicationGetReplicaOpStatus(ctx context.Context, id uint64) (api.ShardReplicationState, error) {
+	ret := _m.Called(ctx, id)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicationGetReplicaOpStatus")
@@ -209,17 +209,17 @@ func (_m *MockFSMUpdater) ReplicationGetReplicaOpStatus(id uint64) (api.ShardRep
 
 	var r0 api.ShardReplicationState
 	var r1 error
-	if rf, ok := ret.Get(0).(func(uint64) (api.ShardReplicationState, error)); ok {
-		return rf(id)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) (api.ShardReplicationState, error)); ok {
+		return rf(ctx, id)
 	}
-	if rf, ok := ret.Get(0).(func(uint64) api.ShardReplicationState); ok {
-		r0 = rf(id)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) api.ShardReplicationState); ok {
+		r0 = rf(ctx, id)
 	} else {
 		r0 = ret.Get(0).(api.ShardReplicationState)
 	}
 
-	if rf, ok := ret.Get(1).(func(uint64) error); ok {
-		r1 = rf(id)
+	if rf, ok := ret.Get(1).(func(context.Context, uint64) error); ok {
+		r1 = rf(ctx, id)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -233,14 +233,15 @@ type MockFSMUpdater_ReplicationGetReplicaOpStatus_Call struct {
 }
 
 // ReplicationGetReplicaOpStatus is a helper method to define mock.On call
+//   - ctx context.Context
 //   - id uint64
-func (_e *MockFSMUpdater_Expecter) ReplicationGetReplicaOpStatus(id interface{}) *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call {
-	return &MockFSMUpdater_ReplicationGetReplicaOpStatus_Call{Call: _e.mock.On("ReplicationGetReplicaOpStatus", id)}
+func (_e *MockFSMUpdater_Expecter) ReplicationGetReplicaOpStatus(ctx interface{}, id interface{}) *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call {
+	return &MockFSMUpdater_ReplicationGetReplicaOpStatus_Call{Call: _e.mock.On("ReplicationGetReplicaOpStatus", ctx, id)}
 }
 
-func (_c *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call) Run(run func(id uint64)) *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call {
+func (_c *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call) Run(run func(ctx context.Context, id uint64)) *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64))
+		run(args[0].(context.Context), args[1].(uint64))
 	})
 	return _c
 }
@@ -250,22 +251,22 @@ func (_c *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call) Return(_a0 api.Shar
 	return _c
 }
 
-func (_c *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call) RunAndReturn(run func(uint64) (api.ShardReplicationState, error)) *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call {
+func (_c *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call) RunAndReturn(run func(context.Context, uint64) (api.ShardReplicationState, error)) *MockFSMUpdater_ReplicationGetReplicaOpStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ReplicationRegisterError provides a mock function with given fields: id, errorToRegister
-func (_m *MockFSMUpdater) ReplicationRegisterError(id uint64, errorToRegister string) error {
-	ret := _m.Called(id, errorToRegister)
+// ReplicationRegisterError provides a mock function with given fields: ctx, id, errorToRegister
+func (_m *MockFSMUpdater) ReplicationRegisterError(ctx context.Context, id uint64, errorToRegister string) error {
+	ret := _m.Called(ctx, id, errorToRegister)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicationRegisterError")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(uint64, string) error); ok {
-		r0 = rf(id, errorToRegister)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, string) error); ok {
+		r0 = rf(ctx, id, errorToRegister)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -279,15 +280,16 @@ type MockFSMUpdater_ReplicationRegisterError_Call struct {
 }
 
 // ReplicationRegisterError is a helper method to define mock.On call
+//   - ctx context.Context
 //   - id uint64
 //   - errorToRegister string
-func (_e *MockFSMUpdater_Expecter) ReplicationRegisterError(id interface{}, errorToRegister interface{}) *MockFSMUpdater_ReplicationRegisterError_Call {
-	return &MockFSMUpdater_ReplicationRegisterError_Call{Call: _e.mock.On("ReplicationRegisterError", id, errorToRegister)}
+func (_e *MockFSMUpdater_Expecter) ReplicationRegisterError(ctx interface{}, id interface{}, errorToRegister interface{}) *MockFSMUpdater_ReplicationRegisterError_Call {
+	return &MockFSMUpdater_ReplicationRegisterError_Call{Call: _e.mock.On("ReplicationRegisterError", ctx, id, errorToRegister)}
 }
 
-func (_c *MockFSMUpdater_ReplicationRegisterError_Call) Run(run func(id uint64, errorToRegister string)) *MockFSMUpdater_ReplicationRegisterError_Call {
+func (_c *MockFSMUpdater_ReplicationRegisterError_Call) Run(run func(ctx context.Context, id uint64, errorToRegister string)) *MockFSMUpdater_ReplicationRegisterError_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64), args[1].(string))
+		run(args[0].(context.Context), args[1].(uint64), args[2].(string))
 	})
 	return _c
 }
@@ -297,7 +299,7 @@ func (_c *MockFSMUpdater_ReplicationRegisterError_Call) Return(_a0 error) *MockF
 	return _c
 }
 
-func (_c *MockFSMUpdater_ReplicationRegisterError_Call) RunAndReturn(run func(uint64, string) error) *MockFSMUpdater_ReplicationRegisterError_Call {
+func (_c *MockFSMUpdater_ReplicationRegisterError_Call) RunAndReturn(run func(context.Context, uint64, string) error) *MockFSMUpdater_ReplicationRegisterError_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -349,17 +351,17 @@ func (_c *MockFSMUpdater_ReplicationRemoveReplicaOp_Call) RunAndReturn(run func(
 	return _c
 }
 
-// ReplicationStoreSchemaVersion provides a mock function with given fields: id, schemaVersion
-func (_m *MockFSMUpdater) ReplicationStoreSchemaVersion(id uint64, schemaVersion uint64) error {
-	ret := _m.Called(id, schemaVersion)
+// ReplicationStoreSchemaVersion provides a mock function with given fields: ctx, id, schemaVersion
+func (_m *MockFSMUpdater) ReplicationStoreSchemaVersion(ctx context.Context, id uint64, schemaVersion uint64) error {
+	ret := _m.Called(ctx, id, schemaVersion)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicationStoreSchemaVersion")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(uint64, uint64) error); ok {
-		r0 = rf(id, schemaVersion)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, uint64) error); ok {
+		r0 = rf(ctx, id, schemaVersion)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -373,15 +375,16 @@ type MockFSMUpdater_ReplicationStoreSchemaVersion_Call struct {
 }
 
 // ReplicationStoreSchemaVersion is a helper method to define mock.On call
+//   - ctx context.Context
 //   - id uint64
 //   - schemaVersion uint64
-func (_e *MockFSMUpdater_Expecter) ReplicationStoreSchemaVersion(id interface{}, schemaVersion interface{}) *MockFSMUpdater_ReplicationStoreSchemaVersion_Call {
-	return &MockFSMUpdater_ReplicationStoreSchemaVersion_Call{Call: _e.mock.On("ReplicationStoreSchemaVersion", id, schemaVersion)}
+func (_e *MockFSMUpdater_Expecter) ReplicationStoreSchemaVersion(ctx interface{}, id interface{}, schemaVersion interface{}) *MockFSMUpdater_ReplicationStoreSchemaVersion_Call {
+	return &MockFSMUpdater_ReplicationStoreSchemaVersion_Call{Call: _e.mock.On("ReplicationStoreSchemaVersion", ctx, id, schemaVersion)}
 }
 
-func (_c *MockFSMUpdater_ReplicationStoreSchemaVersion_Call) Run(run func(id uint64, schemaVersion uint64)) *MockFSMUpdater_ReplicationStoreSchemaVersion_Call {
+func (_c *MockFSMUpdater_ReplicationStoreSchemaVersion_Call) Run(run func(ctx context.Context, id uint64, schemaVersion uint64)) *MockFSMUpdater_ReplicationStoreSchemaVersion_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64), args[1].(uint64))
+		run(args[0].(context.Context), args[1].(uint64), args[2].(uint64))
 	})
 	return _c
 }
@@ -391,22 +394,22 @@ func (_c *MockFSMUpdater_ReplicationStoreSchemaVersion_Call) Return(_a0 error) *
 	return _c
 }
 
-func (_c *MockFSMUpdater_ReplicationStoreSchemaVersion_Call) RunAndReturn(run func(uint64, uint64) error) *MockFSMUpdater_ReplicationStoreSchemaVersion_Call {
+func (_c *MockFSMUpdater_ReplicationStoreSchemaVersion_Call) RunAndReturn(run func(context.Context, uint64, uint64) error) *MockFSMUpdater_ReplicationStoreSchemaVersion_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// ReplicationUpdateReplicaOpStatus provides a mock function with given fields: id, state
-func (_m *MockFSMUpdater) ReplicationUpdateReplicaOpStatus(id uint64, state api.ShardReplicationState) error {
-	ret := _m.Called(id, state)
+// ReplicationUpdateReplicaOpStatus provides a mock function with given fields: ctx, id, state
+func (_m *MockFSMUpdater) ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) error {
+	ret := _m.Called(ctx, id, state)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ReplicationUpdateReplicaOpStatus")
 	}
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(uint64, api.ShardReplicationState) error); ok {
-		r0 = rf(id, state)
+	if rf, ok := ret.Get(0).(func(context.Context, uint64, api.ShardReplicationState) error); ok {
+		r0 = rf(ctx, id, state)
 	} else {
 		r0 = ret.Error(0)
 	}
@@ -420,15 +423,16 @@ type MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call struct {
 }
 
 // ReplicationUpdateReplicaOpStatus is a helper method to define mock.On call
+//   - ctx context.Context
 //   - id uint64
 //   - state api.ShardReplicationState
-func (_e *MockFSMUpdater_Expecter) ReplicationUpdateReplicaOpStatus(id interface{}, state interface{}) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
-	return &MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call{Call: _e.mock.On("ReplicationUpdateReplicaOpStatus", id, state)}
+func (_e *MockFSMUpdater_Expecter) ReplicationUpdateReplicaOpStatus(ctx interface{}, id interface{}, state interface{}) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
+	return &MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call{Call: _e.mock.On("ReplicationUpdateReplicaOpStatus", ctx, id, state)}
 }
 
-func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) Run(run func(id uint64, state api.ShardReplicationState)) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
+func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) Run(run func(ctx context.Context, id uint64, state api.ShardReplicationState)) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(uint64), args[1].(api.ShardReplicationState))
+		run(args[0].(context.Context), args[1].(uint64), args[2].(api.ShardReplicationState))
 	})
 	return _c
 }
@@ -438,7 +442,7 @@ func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) Return(_a0 error
 	return _c
 }
 
-func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) RunAndReturn(run func(uint64, api.ShardReplicationState) error) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
+func (_c *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call) RunAndReturn(run func(context.Context, uint64, api.ShardReplicationState) error) *MockFSMUpdater_ReplicationUpdateReplicaOpStatus_Call {
 	_c.Call.Return(run)
 	return _c
 }
