@@ -6782,7 +6782,11 @@ func init() {
             "create_tenants",
             "read_tenants",
             "update_tenants",
-            "delete_tenants"
+            "delete_tenants",
+            "create_replicate",
+            "read_replicate",
+            "update_replicate",
+            "delete_replicate"
           ]
         },
         "backups": {
@@ -6845,6 +6849,22 @@ func init() {
                 "verbose",
                 "minimal"
               ]
+            }
+          }
+        },
+        "replicate": {
+          "description": "resources applicable for replicate actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "shard": {
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
             }
           }
         },
@@ -15104,7 +15124,11 @@ func init() {
             "create_tenants",
             "read_tenants",
             "update_tenants",
-            "delete_tenants"
+            "delete_tenants",
+            "create_replicate",
+            "read_replicate",
+            "update_replicate",
+            "delete_replicate"
           ]
         },
         "backups": {
@@ -15167,6 +15191,22 @@ func init() {
                 "verbose",
                 "minimal"
               ]
+            }
+          }
+        },
+        "replicate": {
+          "description": "resources applicable for replicate actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "shard": {
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
             }
           }
         },
@@ -15279,6 +15319,22 @@ func init() {
             "verbose",
             "minimal"
           ]
+        }
+      }
+    },
+    "PermissionReplicate": {
+      "description": "resources applicable for replicate actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "shard": {
+          "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
         }
       }
     },

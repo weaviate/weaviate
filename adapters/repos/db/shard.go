@@ -168,6 +168,9 @@ type ShardLike interface {
 	addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 	// removeTargetNodeOverride removes a target node override from the shard.
 	removeTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+	// removeAllTargetNodeOverrides removes all target node overrides from the shard
+	// and resets the async replication config.
+	removeAllTargetNodeOverrides(ctx context.Context) error
 
 	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
 	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus

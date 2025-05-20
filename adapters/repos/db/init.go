@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"path"
-	"sync/atomic"
 	"time"
 
 	"github.com/pkg/errors"
@@ -97,11 +96,6 @@ func (db *DB) init(ctx context.Context) error {
 				CycleManagerRoutinesFactor:          db.config.CycleManagerRoutinesFactor,
 				IndexRangeableInMemory:              db.config.IndexRangeableInMemory,
 				MaxSegmentSize:                      db.config.MaxSegmentSize,
-				HNSWMaxLogSize:                      db.config.HNSWMaxLogSize,
-				HNSWWaitForCachePrefill:             db.config.HNSWWaitForCachePrefill,
-				HNSWFlatSearchConcurrency:           db.config.HNSWFlatSearchConcurrency,
-				HNSWAcornFilterRatio:                db.config.HNSWAcornFilterRatio,
-				VisitedListPoolMaxSize:              db.config.VisitedListPoolMaxSize,
 				TrackVectorDimensions:               db.config.TrackVectorDimensions,
 				AvoidMMap:                           db.config.AvoidMMap,
 				DisableLazyLoadShards:               db.config.DisableLazyLoadShards,
@@ -112,6 +106,17 @@ func (db *DB) init(ctx context.Context) error {
 				AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                    db.shardLoadLimiter,
+
+				HNSWMaxLogSize:                               db.config.HNSWMaxLogSize,
+				HNSWDisableSnapshots:                         db.config.HNSWDisableSnapshots,
+				HNSWSnapshotIntervalSeconds:                  db.config.HNSWSnapshotIntervalSeconds,
+				HNSWSnapshotOnStartup:                        db.config.HNSWSnapshotOnStartup,
+				HNSWSnapshotMinDeltaCommitlogsNumber:         db.config.HNSWSnapshotMinDeltaCommitlogsNumber,
+				HNSWSnapshotMinDeltaCommitlogsSizePercentage: db.config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
+				HNSWWaitForCachePrefill:                      db.config.HNSWWaitForCachePrefill,
+				HNSWFlatSearchConcurrency:                    db.config.HNSWFlatSearchConcurrency,
+				HNSWAcornFilterRatio:                         db.config.HNSWAcornFilterRatio,
+				VisitedListPoolMaxSize:                       db.config.VisitedListPoolMaxSize,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
@@ -173,10 +178,4 @@ func (db *DB) migrateToHierarchicalFS() error {
 	db.logger.WithField("action", "hierarchical_fs_migration").
 		Debugf("fs migration took %s\n", time.Since(before))
 	return nil
-}
-
-func NewAtomicInt64(val int64) *atomic.Int64 {
-	aval := &atomic.Int64{}
-	aval.Store(val)
-	return aval
 }

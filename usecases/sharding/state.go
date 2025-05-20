@@ -12,6 +12,7 @@
 package sharding
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"math/rand"
@@ -19,6 +20,7 @@ import (
 	"sort"
 
 	"github.com/spaolacci/murmur3"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -26,6 +28,8 @@ import (
 )
 
 const shardNameLength = 12
+
+var ErrReplicaAlreadyExists = errors.New("replica already exists")
 
 type State struct {
 	IndexID             string              `json:"indexID"` // for monitoring, reporting purposes. Does not influence the shard-calculations
@@ -199,7 +203,7 @@ func (s *State) NumberOfReplicas(shard string) (int64, error) {
 
 func (p *Physical) AddReplica(replica string) error {
 	if slices.Contains(p.BelongsToNodes, replica) {
-		return fmt.Errorf("replica %s already exists", replica)
+		return fmt.Errorf("%w: %s", ErrReplicaAlreadyExists, replica)
 	}
 	p.BelongsToNodes = append(p.BelongsToNodes, replica)
 	return nil
@@ -259,6 +263,16 @@ func (p *Physical) AdjustReplicas(count int, nodes cluster.NodeSelector) error {
 
 func (p *Physical) ActivityStatus() string {
 	return schema.ActivityStatus(p.Status)
+}
+
+func (p *Physical) IsLocalShard(nodeName string) bool {
+	for _, node := range p.BelongsToNodes {
+		if node == nodeName {
+			return true
+		}
+	}
+
+	return false
 }
 
 func InitState(id string, config config.Config, nodeLocalName string, names []string, replFactor int64, partitioningEnabled bool) (*State, error) {

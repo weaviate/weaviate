@@ -235,6 +235,22 @@
             }
           }
         },
+        "replicate": {
+          "type": "object",
+          "description": "resources applicable for replicate actions",
+          "properties": {
+            "collection": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+            },
+            "shard": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *"
+            }
+          }
+        },
         "action": {
           "type": "string",
           "description": "allowed actions in weaviate.",
@@ -262,7 +278,11 @@
             "create_tenants",
             "read_tenants",
             "update_tenants",
-            "delete_tenants"
+            "delete_tenants",
+            "create_replicate",
+            "read_replicate",
+            "update_replicate",
+            "delete_replicate"
           ]
         }
       },
