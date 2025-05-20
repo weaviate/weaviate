@@ -160,8 +160,12 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 }
 
 func (state *State) MaybeRejoinMemberlistCluster(logger logrus.FieldLogger) {
-	logger.Debug("Checking for single node split-brain")
-	if state.NodeCount() <= 1 {
+	nodeCount := state.NodeCount()
+	logger.WithFields(logrus.Fields{
+		"action":     "memberlist_rejoin",
+		"node_count": nodeCount,
+	}).Debug("Checking for single node split-brain")
+	if nodeCount <= 1 {
 		logger.Warn("Detected single node split-brain, attempting to rejoin memberlist cluster")
 
 		var joinAddr []string
