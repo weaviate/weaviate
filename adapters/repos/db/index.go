@@ -2498,6 +2498,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 				// Don't force load a lazy shard
 				if lazy, ok := shard.(*LazyLoadShard); ok {
 					status = string(lazy.GetStatusNoLoad())
+					release()
 					continue
 				}
 				func() {
