@@ -1284,12 +1284,14 @@ func (b *Bucket) UpdateStatus(status storagestate.Status) {
 	defer b.statusLock.Unlock()
 
 	b.status = status
-	disk, err := b.getDisk()
-	if err != nil {
-		return
-	}
 
-	disk.UpdateStatus(status)
+	if b.isDiskLoaded() {
+		disk, err := b.getDisk()
+		if err != nil {
+			return
+		}
+		disk.UpdateStatus(status)
+	}
 }
 
 func (b *Bucket) isReadOnly() bool {
@@ -1861,6 +1863,13 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 	return float64(propLengthSum) / float64(propLengthCount), nil
 }
 
+func (b *Bucket) isDiskLoaded() bool {
+	b.diskReloadLock.RLock()
+	defer b.diskReloadLock.RUnlock()
+
+	return b.disk != nil
+}
+
 func (b *Bucket) getDisk() (*SegmentGroup, error) {
 	b.diskReloadLock.RLock()
 
@@ -1884,7 +1893,7 @@ func (b *Bucket) getDisk() (*SegmentGroup, error) {
 }
 
 func (b *Bucket) loadSegments() (*SegmentGroup, error) {
-	sg, err := newSegmentGroup(b.logger, b.metrics, b.compactionCallbacks,
+	sg, err := newSegmentGroup(b.logger, b.metrics, b.compactionCallbacks, b.status,
 		sgConfig{
 			dir:                      b.dir,
 			strategy:                 b.strategy,

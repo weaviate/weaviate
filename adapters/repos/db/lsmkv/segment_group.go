@@ -111,7 +111,7 @@ type sgConfig struct {
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
-	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
+	compactionCallbacks cyclemanager.CycleCallbackGroup, initialStatus storagestate.Status, cfg sgConfig,
 	allocChecker memwatch.AllocChecker,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(cfg.dir)
@@ -140,6 +140,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		lastCompactionCall:       now,
 		lastCleanupCall:          now,
 		MinMMapSize:              cfg.MinMMapSize,
+		status:                   initialStatus,
 	}
 
 	segmentIndex := 0
