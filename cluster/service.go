@@ -57,9 +57,10 @@ type Service struct {
 	logger    *logrus.Logger
 
 	// closing channels
-	closeBootstrapper  chan struct{}
-	closeOnFSMCaughtUp chan struct{}
-	closeWaitForDB     chan struct{}
+	cancelReplicationEngine context.CancelFunc
+	closeBootstrapper       chan struct{}
+	closeOnFSMCaughtUp      chan struct{}
+	closeWaitForDB          chan struct{}
 }
 
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
@@ -140,9 +141,11 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 		case <-ticker.C:
 			if c.Raft.store.FSMHasCaughtUp() {
 				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
+				engineCtx, engineCancel := context.WithCancel(ctx)
+				c.cancelReplicationEngine = engineCancel
 				enterrors.GoWrapper(func() {
 					// The context is cancelled by the engine itself when it is stopped
-					if err := c.replicationEngine.Start(ctx); err != nil {
+					if err := c.replicationEngine.Start(engineCtx); err != nil {
 						c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
 					}
 				}, c.logger)
@@ -224,6 +227,7 @@ func (c *Service) Close(ctx context.Context) error {
 	}, c.logger)
 
 	c.logger.Info("closing replication engine ...")
+	c.cancelReplicationEngine()
 	c.replicationEngine.Stop()
 
 	c.logger.Info("closing raft FSM store ...")
