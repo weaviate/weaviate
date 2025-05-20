@@ -64,8 +64,8 @@ func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string
 	}
 }
 
-// CopyReplica copies a shard replica from the source node to this node.
-func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
+// CopyReplicaFiles copies a shard replica from the source node to this node.
+func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
 	sourceNodeHostname, ok := c.nodeSelector.NodeHostname(srcNodeId)
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", srcNodeId)
@@ -125,12 +125,11 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 		return fmt.Errorf("failed to validate local folder: %w", err)
 	}
 
-	err = c.dbWrapper.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
-	if err != nil {
-		return err
-	}
-
 	return nil
+}
+
+func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName string) error {
+	return c.dbWrapper.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
 }
 
 func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
@@ -151,7 +150,7 @@ func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
 		relativeFilePath := filepath.Join(c.rootDataPath, d.Name())
 
 		if _, ok := relativeFilePathsMap[relativeFilePath]; !ok {
-			err := os.Remove(d.Name())
+			err := os.Remove(filepath.Join(c.rootDataPath, d.Name()))
 			if err != nil {
 				return fmt.Errorf("removing local file %q not present in source node: %w", d.Name(), err)
 			}
