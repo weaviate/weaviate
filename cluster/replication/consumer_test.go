@@ -1288,7 +1288,7 @@ func TestConsumerShutdown(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
