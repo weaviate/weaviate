@@ -429,29 +429,28 @@ func (sg *SegmentGroup) makeExistsOn(segments []*segment) existsOnLowerSegmentsF
 	}
 }
 
-// add back later
-//func (sg *SegmentGroup) add(path string) error {
-//	sg.maintenanceLock.Lock()
-//	defer sg.maintenanceLock.Unlock()
-//
-//	segment, err := newSegment(path, sg.logger,
-//		sg.metrics, sg.makeExistsOn(sg.segments),
-//		segmentConfig{
-//			mmapContents:             sg.mmapContents,
-//			useBloomFilter:           sg.useBloomFilter,
-//			calcCountNetAdditions:    sg.calcCountNetAdditions,
-//			overwriteDerived:         true,
-//			enableChecksumValidation: sg.enableChecksumValidation,
-//			MinMMapSize:              sg.MinMMapSize,
-//			allocChecker:             sg.allocChecker,
-//		})
-//	if err != nil {
-//		return fmt.Errorf("init segment %s: %w", path, err)
-//	}
-//
-//	sg.segments = append(sg.segments, segment)
-//	return nil
-//}
+func (sg *SegmentGroup) add(path string) error {
+	sg.maintenanceLock.Lock()
+	defer sg.maintenanceLock.Unlock()
+
+	segment, err := newSegment(path, sg.logger,
+		sg.metrics, sg.makeExistsOn(sg.segments),
+		segmentConfig{
+			mmapContents:             sg.mmapContents,
+			useBloomFilter:           sg.useBloomFilter,
+			calcCountNetAdditions:    sg.calcCountNetAdditions,
+			overwriteDerived:         true,
+			enableChecksumValidation: sg.enableChecksumValidation,
+			MinMMapSize:              sg.MinMMapSize,
+			allocChecker:             sg.allocChecker,
+		})
+	if err != nil {
+		return fmt.Errorf("init segment %s: %w", path, err)
+	}
+
+	sg.segments = append(sg.segments, segment)
+	return nil
+}
 
 func (sg *SegmentGroup) getAndLockSegments() (segments []*segment, release func()) {
 	sg.cursorsLock.RLock()

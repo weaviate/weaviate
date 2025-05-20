@@ -210,7 +210,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
 
-	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
+	if err := b.mayRecoverFromCommitLogs(ctx, b.delaySegmentLoading); err != nil {
 		return nil, err
 	}
 

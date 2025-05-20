@@ -28,7 +28,7 @@ import (
 
 var logOnceWhenRecoveringFromWAL sync.Once
 
-func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
+func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, delaySegmentLoading bool) error {
 	beforeAll := time.Now()
 	defer b.metrics.TrackStartupBucketRecovery(beforeAll)
 
@@ -139,6 +139,17 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 			if mt.Size() == 0 {
 				continue
 			}
+
+			if !delaySegmentLoading {
+				disk, err := b.getDisk()
+				if err != nil {
+					return err
+				}
+				if err := disk.add(path + ".db"); err != nil {
+					return err
+				}
+			}
+
 		}
 
 		if b.strategy == StrategyReplace && b.monitorCount {
