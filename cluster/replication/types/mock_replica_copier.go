@@ -144,12 +144,12 @@ func (_c *MockReplicaCopier_AsyncReplicationStatus_Call) RunAndReturn(run func(c
 	return _c
 }
 
-// CopyReplica provides a mock function with given fields: ctx, sourceNode, sourceCollection, sourceShard, schemaVersion
-func (_m *MockReplicaCopier) CopyReplica(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64) error {
+// CopyReplicaFiles provides a mock function with given fields: ctx, sourceNode, sourceCollection, sourceShard, schemaVersion
+func (_m *MockReplicaCopier) CopyReplicaFiles(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64) error {
 	ret := _m.Called(ctx, sourceNode, sourceCollection, sourceShard, schemaVersion)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CopyReplica")
+		panic("no return value specified for CopyReplicaFiles")
 	}
 
 	var r0 error
@@ -162,34 +162,34 @@ func (_m *MockReplicaCopier) CopyReplica(ctx context.Context, sourceNode string,
 	return r0
 }
 
-// MockReplicaCopier_CopyReplica_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CopyReplica'
-type MockReplicaCopier_CopyReplica_Call struct {
+// MockReplicaCopier_CopyReplicaFiles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CopyReplicaFiles'
+type MockReplicaCopier_CopyReplicaFiles_Call struct {
 	*mock.Call
 }
 
-// CopyReplica is a helper method to define mock.On call
+// CopyReplicaFiles is a helper method to define mock.On call
 //   - ctx context.Context
 //   - sourceNode string
 //   - sourceCollection string
 //   - sourceShard string
 //   - schemaVersion uint64
-func (_e *MockReplicaCopier_Expecter) CopyReplica(ctx interface{}, sourceNode interface{}, sourceCollection interface{}, sourceShard interface{}, schemaVersion interface{}) *MockReplicaCopier_CopyReplica_Call {
-	return &MockReplicaCopier_CopyReplica_Call{Call: _e.mock.On("CopyReplica", ctx, sourceNode, sourceCollection, sourceShard, schemaVersion)}
+func (_e *MockReplicaCopier_Expecter) CopyReplicaFiles(ctx interface{}, sourceNode interface{}, sourceCollection interface{}, sourceShard interface{}, schemaVersion interface{}) *MockReplicaCopier_CopyReplicaFiles_Call {
+	return &MockReplicaCopier_CopyReplicaFiles_Call{Call: _e.mock.On("CopyReplicaFiles", ctx, sourceNode, sourceCollection, sourceShard, schemaVersion)}
 }
 
-func (_c *MockReplicaCopier_CopyReplica_Call) Run(run func(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64)) *MockReplicaCopier_CopyReplica_Call {
+func (_c *MockReplicaCopier_CopyReplicaFiles_Call) Run(run func(ctx context.Context, sourceNode string, sourceCollection string, sourceShard string, schemaVersion uint64)) *MockReplicaCopier_CopyReplicaFiles_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string), args[4].(uint64))
 	})
 	return _c
 }
 
-func (_c *MockReplicaCopier_CopyReplica_Call) Return(_a0 error) *MockReplicaCopier_CopyReplica_Call {
+func (_c *MockReplicaCopier_CopyReplicaFiles_Call) Return(_a0 error) *MockReplicaCopier_CopyReplicaFiles_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockReplicaCopier_CopyReplica_Call) RunAndReturn(run func(context.Context, string, string, string, uint64) error) *MockReplicaCopier_CopyReplica_Call {
+func (_c *MockReplicaCopier_CopyReplicaFiles_Call) RunAndReturn(run func(context.Context, string, string, string, uint64) error) *MockReplicaCopier_CopyReplicaFiles_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -238,6 +238,54 @@ func (_c *MockReplicaCopier_InitAsyncReplicationLocally_Call) Return(_a0 error) 
 }
 
 func (_c *MockReplicaCopier_InitAsyncReplicationLocally_Call) RunAndReturn(run func(context.Context, string, string) error) *MockReplicaCopier_InitAsyncReplicationLocally_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// LoadLocalShard provides a mock function with given fields: ctx, collectionName, shardName
+func (_m *MockReplicaCopier) LoadLocalShard(ctx context.Context, collectionName string, shardName string) error {
+	ret := _m.Called(ctx, collectionName, shardName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for LoadLocalShard")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, string, string) error); ok {
+		r0 = rf(ctx, collectionName, shardName)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockReplicaCopier_LoadLocalShard_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'LoadLocalShard'
+type MockReplicaCopier_LoadLocalShard_Call struct {
+	*mock.Call
+}
+
+// LoadLocalShard is a helper method to define mock.On call
+//   - ctx context.Context
+//   - collectionName string
+//   - shardName string
+func (_e *MockReplicaCopier_Expecter) LoadLocalShard(ctx interface{}, collectionName interface{}, shardName interface{}) *MockReplicaCopier_LoadLocalShard_Call {
+	return &MockReplicaCopier_LoadLocalShard_Call{Call: _e.mock.On("LoadLocalShard", ctx, collectionName, shardName)}
+}
+
+func (_c *MockReplicaCopier_LoadLocalShard_Call) Run(run func(ctx context.Context, collectionName string, shardName string)) *MockReplicaCopier_LoadLocalShard_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string), args[2].(string))
+	})
+	return _c
+}
+
+func (_c *MockReplicaCopier_LoadLocalShard_Call) Return(_a0 error) *MockReplicaCopier_LoadLocalShard_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockReplicaCopier_LoadLocalShard_Call) RunAndReturn(run func(context.Context, string, string) error) *MockReplicaCopier_LoadLocalShard_Call {
 	_c.Call.Return(run)
 	return _c
 }

@@ -17,7 +17,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
@@ -112,8 +111,6 @@ type CopyOpConsumer struct {
 
 	// asyncReplicationMinimumWait is the duration for the upper time bound for the hash beat.
 	asyncReplicationMinimumWait *runtime.DynamicValue[time.Duration]
-
-	stopped atomic.Bool
 }
 
 // NewCopyOpConsumer creates a new CopyOpConsumer instance responsible for executing
@@ -153,56 +150,26 @@ func NewCopyOpConsumer(
 
 // Consume processes replication operations from the input channel, ensuring that only a limited number of consumers
 // are active concurrently based on the maxWorkers value.
-func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplicationOpAndStatus) error {
+func (c *CopyOpConsumer) Consume(workerCtx context.Context, in <-chan ShardReplicationOpAndStatus) error {
 	c.logger.WithFields(logrus.Fields{"node": c.nodeId, "max_workers": c.maxWorkers, "op_timeout": c.opTimeout}).Info("starting replication operation consumer")
-
-	c.stopped.Store(false)
-	workerCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
 
 	c.engineOpCallbacks.OnPrepareProcessing(c.nodeId)
 
 	var wg sync.WaitGroup
-
-	shutdownRoutine := func() error {
-		c.logger.Info("shutting down consumer")
-		c.stopped.Store(true)
-		// TODO: We can have a race between adding an op to the waigroup and adding it's cancel func to the map.
-		// Find a way to fix this. For now the timeout will catch this and exit after anyway
-		c.ongoingOps.CancelAll()
-
-		// Wait for pending operations to complete
-		ch := make(chan struct{})
-		enterrors.GoWrapper(func() {
-			defer close(ch)
-			wg.Wait()
-		}, c.logger)
-		select {
-		case <-ch:
-			return nil
-		case <-time.After(10 * time.Second):
-			return ctx.Err()
-		}
-	}
-
 	for {
 		select {
-		case <-ctx.Done():
-			c.logger.WithError(ctx.Err()).Info("context canceled, shutting down consumer")
-			c.stopped.Store(true)
-			c.ongoingOps.CancelAll()
-			wg.Wait() // Waiting for pending operations before terminating
-			return shutdownRoutine()
+		case <-workerCtx.Done():
+			c.logger.WithError(workerCtx.Err()).Info("worker context canceled, shutting down consumer")
+			// We can start waiting for ops because their context depend on the worker context that just got cancelled
+			wg.Wait()
+			return workerCtx.Err()
 
 		case op, ok := <-in:
 			if !ok {
-				c.logger.Info("operation channel closed, shutting down consumer")
-				return shutdownRoutine()
-			}
-
-			// If the consumer is stopped and somehow the channel is open, ignore the op
-			if c.stopped.Load() {
-				continue
+				c.logger.Info("operation channel closed, shutting down consumer and waiting for ops to finish")
+				c.ongoingOps.CancelAll()
+				wg.Wait()
+				return nil
 			}
 			logger := getLoggerForOpAndStatus(c.logger.Logger, op.Op, op.Status)
 
@@ -231,19 +198,22 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 
 			c.engineOpCallbacks.OnOpPending(c.nodeId)
 			select {
+			// If main context is cancelled here we just continue so that we hit the shutdown logic on the next iteration
+			case <-workerCtx.Done():
+				continue
 			// The 'tokens' channel limits the number of concurrent workers (`maxWorkers`).
 			// Each worker acquires a token before processing an operation. If no tokens are available,
 			// the worker blocks until one is released. After completing the task, the worker releases the token,
 			// allowing another worker to proceed. This ensures only a limited number of workers is concurrently
 			// running replication operations and avoids overloading the system.
 			case c.tokens <- struct{}{}:
-
 				// Here we capture the op argument used by the func below as the enterrors.GoWrapper requires calling
 				// a function without arguments.
 				operation := op
 				opLogger := getLoggerForOpAndStatus(c.logger.Logger, operation.Op, op.Status)
 				shouldSkip := false
-				if c.ongoingOps.LoadOrStore(op.Op.ID) {
+				opAlreadyInFlight := c.ongoingOps.LoadOrStore(op.Op.ID)
+				if opAlreadyInFlight {
 					// Check if the operation is already in progress
 					// Avoid scheduling unnecessary work or incorrectly counting metrics
 					// for operations that are already in progress or completed.
@@ -253,12 +223,12 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					// Check if the operation has had its state changed between being added to the channel and being processed
 					// This is chatty and will likely cause a lot of unnecessary load on the leader
 					// For now, we need it to ensure eventual consistency between the FSM and the consumer
-					state, err := c.leaderClient.ReplicationGetReplicaOpStatus(op.Op.ID)
+					state, err := c.leaderClient.ReplicationGetReplicaOpStatus(workerCtx, op.Op.ID)
 					if err != nil {
-						c.logger.WithFields(logrus.Fields{"op": op}).Error("error while checking status of replication op")
+						c.logger.Error("error while checking status of replication op")
 						shouldSkip = true
 					} else if state.String() != op.Status.GetCurrent().State.String() {
-						c.logger.WithFields(logrus.Fields{"op": op}).Debug("replication op skipped as state has changed")
+						c.logger.Debug("replication op skipped as state has changed")
 						shouldSkip = true
 					}
 				}
@@ -277,48 +247,47 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					opLogger.Debug("replication op skipped as already running")
 					// Need to release the token to let other consumers process queued replication operations.
 					<-c.tokens
-					c.ongoingOps.DeleteInFlight(op.Op.ID)
 					c.engineOpCallbacks.OnOpSkipped(c.nodeId)
+					if !opAlreadyInFlight {
+						c.ongoingOps.DeleteInFlight(op.Op.ID)
+					}
 					continue
 				}
 
-				wg.Add(1)
-				c.opsGateway.ScheduleNow(op.Op.ID)
+				// Start a replication operation with a timeout for completion to prevent replication operations
+				// from running indefinitely
+				opCtx, opCancel := context.WithTimeout(workerCtx, c.opTimeout)
 				c.engineOpCallbacks.OnOpStart(c.nodeId)
-
+				c.ongoingOps.StoreCancel(op.Op.ID, opCancel)
+				c.opsGateway.ScheduleNow(op.Op.ID)
+				wg.Add(1)
 				enterrors.GoWrapper(func() {
 					defer func() {
 						<-c.tokens // Release token when completed
 						// Delete the operation from the ongoingOps map when the operation processing is complete
 						c.ongoingOps.DeleteInFlight(op.Op.ID)
 						wg.Done()
+						opCancel()
 					}()
-
-					opLogger.Debug("worker processing replication operation")
 
 					// If the operation has been cancelled in the time between it being added to the channel and
 					// being processed, we need to cancel it in the FSM and return
 					if c.ongoingOps.HasBeenCancelled(op.Op.ID) {
-						c.logger.WithFields(logrus.Fields{"op": operation}).Debug("replication op cancelled, stopping replication operation")
+						c.logger.Info("replication op cancelled, stopping replication operation")
 						c.cancelOp(operation, opLogger)
 						return
 					}
 
-					// Start a replication operation with a timeout for completion to prevent replication operations
-					// from running indefinitely
-					opCtx, opCancel := context.WithTimeout(workerCtx, c.opTimeout)
-					defer opCancel()
-					c.ongoingOps.StoreCancel(op.Op.ID, opCancel)
-
+					opLogger.Debug("worker processing replication operation")
 					err := c.dispatchReplicationOp(opCtx, operation)
 					if err == nil {
+						opLogger.Debug("worker completed replication operation")
 						c.opsGateway.RegisterFinished(op.Op.ID)
 						c.engineOpCallbacks.OnOpComplete(c.nodeId)
 						return
-					} else {
-						c.opsGateway.RegisterFailure(op.Op.ID)
 					}
 
+					c.opsGateway.RegisterFailure(op.Op.ID)
 					if errors.Is(err, context.DeadlineExceeded) {
 						c.engineOpCallbacks.OnOpFailed(c.nodeId)
 						opLogger.WithError(err).Error("replication operation timed out")
@@ -326,22 +295,18 @@ func (c *CopyOpConsumer) Consume(ctx context.Context, in <-chan ShardReplication
 					}
 					// TODO: Refactor this error handling
 					if errors.Is(err, context.Canceled) && c.ongoingOps.HasBeenCancelled(op.Op.ID) {
-						opLogger.WithError(err).Debug("replication operation cancelled")
+						opLogger.WithError(err).Info("replication operation cancelled")
 						c.cancelOp(operation, opLogger)
 						return
 					}
 					if errors.Is(err, errOpCancelled) {
-						opLogger.WithError(err).Debug("replication operation cancelled")
+						opLogger.WithError(err).Info("replication operation cancelled")
 						c.cancelOp(operation, opLogger)
 						return
 					}
 					c.engineOpCallbacks.OnOpFailed(c.nodeId)
 					opLogger.WithError(err).Error("replication operation failed")
 				}, c.logger)
-
-			// If main context is cancelled here we just continue so that we hit the shutdown logic on the next iteration
-			case <-ctx.Done():
-				continue
 			}
 		}
 	}
@@ -410,7 +375,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			}
 			logger.WithError(err).Warn("state transition handler failed")
 			// Otherwise, register the error with the FSM
-			err = c.leaderClient.ReplicationRegisterError(op.Op.ID, err.Error())
+			err = c.leaderClient.ReplicationRegisterError(ctx, op.Op.ID, err.Error())
 			if err != nil {
 				logger.WithError(err).Error("failed to register error for replication operation")
 			}
@@ -421,7 +386,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			return api.ShardReplicationState(""), backoff.Permanent(fmt.Errorf("error while checking if op is cancelled: %w", err))
 		}
 		// No error from the state handler, update the state to the next, if this errors we will stop processing
-		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(op.Op.ID, nextState); err != nil {
+		if err := c.leaderClient.ReplicationUpdateReplicaOpStatus(ctx, op.Op.ID, nextState); err != nil {
 			logger.WithError(err).Errorf("failed to update replica status to '%s'", nextState)
 			return api.ShardReplicationState(""), fmt.Errorf("failed to update replica status to '%s': %w", nextState, err)
 		}
@@ -462,8 +427,7 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 		c.ongoingOps.DeleteHasBeenCancelled(op.Op.ID)
 		c.engineOpCallbacks.OnOpCancelled(c.nodeId)
 	}()
-	ctx := context.Background()
-	ctx, cancel := context.WithTimeout(ctx, 20*time.Second) // Ensure sync shards timesout reasonbly in case of hang
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // Ensure sync shards timesout reasonbly in case of hang
 	defer cancel()
 
 	// Ensure that the states of the shards on the nodes are in-sync with the state of the schema through a RAFT communication
@@ -531,7 +495,7 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 			return api.ShardReplicationState(""), err
 		}
 
-		if err := c.leaderClient.ReplicationStoreSchemaVersion(op.Op.ID, schemaVersion); err != nil {
+		if err := c.leaderClient.ReplicationStoreSchemaVersion(ctx, op.Op.ID, schemaVersion); err != nil {
 			logger.WithError(err).Error("failure while storing schema version for replication operation")
 			return api.ShardReplicationState(""), err
 		}
@@ -542,9 +506,14 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if err := c.replicaCopier.CopyReplica(ctx, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
+	if err := c.replicaCopier.CopyReplicaFiles(ctx, op.Op.SourceShard.NodeId, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId, op.Status.SchemaVersion); err != nil {
 		logger.WithError(err).Error("failure while copying replica shard")
 		return api.ShardReplicationState(""), err
+	}
+
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		return api.ShardReplicationState(""), ctx.Err()
 	}
 
 	return api.FINALIZING, nil
@@ -555,6 +524,16 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOpAndStatus(c.logger.Logger, op.Op, op.Status)
 	logger.Info("processing finalizing replication operation")
+
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
+		return api.ShardReplicationState(""), ctx.Err()
+	}
+
+	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
+		logger.WithError(err).Error("failure while loading shard")
+		return api.ShardReplicationState(""), err
+	}
 
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
@@ -717,9 +696,6 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 
 	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
 		logger.WithError(err).Error("failure while reverting async replication locally")
-	}
-	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
-		logger.WithError(err).Error("failure while removing async replication target node")
 	}
 	// sync the replica shard to ensure that the schema and store are consistent on each node
 	// In a COPY this happens in the FINALIZING state, in a MOVE this happens now

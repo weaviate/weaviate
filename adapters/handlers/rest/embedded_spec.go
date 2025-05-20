@@ -6427,11 +6427,29 @@ func init() {
           "type": "string",
           "x-omitempty": false
         },
+        "numberOfReplicas": {
+          "description": "Number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
+        },
         "objectCount": {
           "description": "The number of objects in shard.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
+        },
+        "replicationFactor": {
+          "description": "Minimum number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
@@ -6765,10 +6783,10 @@ func init() {
             "read_tenants",
             "update_tenants",
             "delete_tenants",
-            "create_replications",
-            "read_replications",
-            "update_replications",
-            "delete_replications"
+            "create_replicate",
+            "read_replicate",
+            "update_replicate",
+            "delete_replicate"
           ]
         },
         "backups": {
@@ -6834,8 +6852,8 @@ func init() {
             }
           }
         },
-        "replication": {
-          "description": "resources applicable for replication actions",
+        "replicate": {
+          "description": "resources applicable for replicate actions",
           "type": "object",
           "properties": {
             "collection": {
@@ -14734,11 +14752,29 @@ func init() {
           "type": "string",
           "x-omitempty": false
         },
+        "numberOfReplicas": {
+          "description": "Number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
+        },
         "objectCount": {
           "description": "The number of objects in shard.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
+        },
+        "replicationFactor": {
+          "description": "Minimum number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
@@ -15089,10 +15125,10 @@ func init() {
             "read_tenants",
             "update_tenants",
             "delete_tenants",
-            "create_replications",
-            "read_replications",
-            "update_replications",
-            "delete_replications"
+            "create_replicate",
+            "read_replicate",
+            "update_replicate",
+            "delete_replicate"
           ]
         },
         "backups": {
@@ -15158,8 +15194,8 @@ func init() {
             }
           }
         },
-        "replication": {
-          "description": "resources applicable for replication actions",
+        "replicate": {
+          "description": "resources applicable for replicate actions",
           "type": "object",
           "properties": {
             "collection": {
@@ -15286,8 +15322,8 @@ func init() {
         }
       }
     },
-    "PermissionReplication": {
-      "description": "resources applicable for replication actions",
+    "PermissionReplicate": {
+      "description": "resources applicable for replicate actions",
       "type": "object",
       "properties": {
         "collection": {
