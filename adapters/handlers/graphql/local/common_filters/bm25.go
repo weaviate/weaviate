@@ -23,7 +23,7 @@ var (
 	SearchOperatorOr  = "SEARCH_OPERATOR_OR"
 )
 
-func GenerateBM25Fields(prefixName string) *graphql.InputObjectFieldConfig {
+func GenerateBM25SearchOperatorFields(prefixName string) *graphql.InputObjectFieldConfig {
 	return &graphql.InputObjectFieldConfig{
 		Description: "Search operator",
 		Type: graphql.NewEnum(graphql.EnumConfig{
