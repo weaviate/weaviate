@@ -1137,7 +1137,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	opsChan := make(chan replication.ShardReplicationOpAndStatus, 2)
+	opsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
 	doneChan := make(chan error, 1)
 
 	// WHEN
@@ -1162,10 +1162,13 @@ func TestConsumerOpDuplication(t *testing.T) {
 		Return(uint64(1), nil)
 	mockReplicaCopier.EXPECT().
 		AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", "shard1").
-		Return(models.AsyncReplicationStatus{
-			ObjectsPropagated:       0,
-			StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
-		}, nil)
+		RunAndReturn(func(context.Context, string, string, string, string) (models.AsyncReplicationStatus, error) {
+			time.Sleep(5 * time.Second)
+			return models.AsyncReplicationStatus{
+				ObjectsPropagated:       0,
+				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
+			}, nil
+		})
 	mockReplicaCopier.EXPECT().
 		AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 	mockReplicaCopier.EXPECT().
