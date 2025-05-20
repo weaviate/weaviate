@@ -109,7 +109,9 @@ func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
 			continue
 		}
 
-		b.UpdateStatus(targetStatus)
+		if err := b.UpdateStatus(targetStatus); err != nil {
+			return err
+		}
 	}
 
 	if targetStatus == storagestate.StatusReadOnly {

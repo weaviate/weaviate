@@ -1295,7 +1295,7 @@ func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
 // UpdateStatus is used by the parent shard to communicate to the bucket
 // when the shard has been set to readonly, or when it is ready for
 // writes.
-func (b *Bucket) UpdateStatus(status storagestate.Status) {
+func (b *Bucket) UpdateStatus(status storagestate.Status) error {
 	b.statusLock.Lock()
 	defer b.statusLock.Unlock()
 
@@ -1304,10 +1304,11 @@ func (b *Bucket) UpdateStatus(status storagestate.Status) {
 	if b.isDiskLoaded() {
 		disk, err := b.getDisk()
 		if err != nil {
-			return
+			return err
 		}
 		disk.UpdateStatus(status)
 	}
+	return nil
 }
 
 func (b *Bucket) isReadOnly() bool {
