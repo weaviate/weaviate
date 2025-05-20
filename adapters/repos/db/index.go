@@ -2495,6 +2495,11 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 		shard, release, err = i.GetShard(ctx, shardName)
 		if err == nil {
 			if shard != nil {
+				// Don't force load a lazy shard
+				if lazy, ok := shard.(*LazyLoadShard); ok {
+					status = string(lazy.GetStatusNoLoad())
+					continue
+				}
 				func() {
 					defer release()
 					status = shard.GetStatus().String()
