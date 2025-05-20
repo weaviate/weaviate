@@ -4353,6 +4353,20 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "api_key": {
+                  "description": "import API key - this parameter exists only temporarily. Do not use",
+                  "type": "string",
+                  "default": ""
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -11745,6 +11759,20 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "api_key": {
+                  "description": "import API key - this parameter exists only temporarily. Do not use",
+                  "type": "string",
+                  "default": ""
+                }
+              }
+            }
           }
         ],
         "responses": {

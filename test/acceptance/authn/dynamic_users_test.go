@@ -94,6 +94,33 @@ func TestCreateUser(t *testing.T) {
 
 		helper.DeleteUser(t, userName, adminKey)
 	})
+
+	t.Run("create user with key and rotate key", func(t *testing.T) {
+		helper.DeleteUser(t, userName, adminKey)
+		apiKeyImport := "ApiKeyImport"
+		oldKey := helper.CreateUserWithApiKey(t, userName, apiKeyImport, adminKey)
+		require.Equal(t, oldKey, apiKeyImport)
+
+		info := helper.GetInfoForOwnUser(t, oldKey)
+		require.Equal(t, userName, *info.Username)
+		user := helper.GetUser(t, userName, adminKey)
+		require.Equal(t, user.APIKeyFirstLetters, oldKey[:3])
+
+		// rotate key and test that old key is not working anymore
+		newKey := helper.RotateKey(t, userName, adminKey)
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(oldKey))
+		require.Error(t, err)
+
+		infoNew := helper.GetInfoForOwnUser(t, newKey)
+		require.Equal(t, userName, *infoNew.Username)
+
+		user = helper.GetUser(t, userName, adminKey)
+		require.Equal(t, user.APIKeyFirstLetters, newKey[:3])
+		require.NotEqual(t, newKey, oldKey)
+		require.NotEqual(t, newKey[:10], oldKey[:10])
+
+		helper.DeleteUser(t, userName, adminKey)
+	})
 }
 
 func TestWithStaticUser(t *testing.T) {

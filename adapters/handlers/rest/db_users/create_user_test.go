@@ -157,6 +157,27 @@ func TestCreateSuccess(t *testing.T) {
 	assert.NotNil(t, parsed)
 }
 
+func TestCreateSuccessWithKey(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authorization.NewMockAuthorizer(t)
+	user := "user@weaviate.io"
+	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
+
+	dynUser := NewMockDbUserAndRolesGetter(t)
+	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{}, nil)
+	dynUser.On("CreateUserWithKey", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	h := dynUserHandler{
+		dbUsers:    dynUser,
+		authorizer: authorizer, dbUserEnabled: true,
+	}
+
+	res := h.createUser(users.CreateUserParams{UserID: user, Body: users.CreateUserBody{APIKey: "ApiKey"}}, principal)
+	parsed, ok := res.(*users.CreateUserCreated)
+	assert.True(t, ok)
+	assert.NotNil(t, parsed)
+}
+
 func TestCreateForbidden(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)

@@ -13,6 +13,7 @@ package db_users
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"regexp"
@@ -328,6 +329,14 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 
 	if len(existingUser) > 0 {
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' already exists", params.UserID)))
+	}
+
+	if params.Body.APIKey != "" {
+		err := h.dbUsers.CreateUserWithKey(params.UserID, params.Body.APIKey[:3], sha256.Sum256([]byte(params.Body.APIKey)), time.Now())
+		if err != nil {
+			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("create user with api key: %w", err)))
+		}
+		return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &params.Body.APIKey})
 	}
 
 	apiKey, hash, userIdentifier, err := h.getApiKey()

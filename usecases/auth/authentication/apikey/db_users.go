@@ -39,6 +39,7 @@ const (
 
 type DBUsers interface {
 	CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error
+	CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error
 	DeleteUser(userId string) error
 	ActivateUser(userId string) error
 	DeactivateUser(userId string, revokeKey bool) error
@@ -55,6 +56,7 @@ type User struct {
 	ApiKeyFirstLetters string
 	CreatedAt          time.Time
 	LastUsedAt         time.Time
+	ImportedWithKey    bool
 }
 
 type DBUser struct {
@@ -71,11 +73,12 @@ type DBUserSnapshot struct {
 }
 
 type dbUserdata struct {
-	SecureKeyStorageById map[string]string
-	IdentifierToId       map[string]string
-	IdToIdentifier       map[string]string
-	Users                map[string]*User
-	UserKeyRevoked       map[string]struct{}
+	SecureKeyStorageById    map[string]string
+	IdentifierToId          map[string]string
+	IdToIdentifier          map[string]string
+	Users                   map[string]*User
+	UserKeyRevoked          map[string]struct{}
+	ImportedApiKeysWeakHash map[string][sha256.Size]byte
 }
 
 type memoryOnlyData struct {
@@ -113,6 +116,10 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 	}
 	if snapshot.Data.UserKeyRevoked == nil {
 		snapshot.Data.UserKeyRevoked = make(map[string]struct{})
+	}
+
+	if snapshot.Data.ImportedApiKeysWeakHash == nil {
+		snapshot.Data.ImportedApiKeysWeakHash = make(map[string][sha256.Size]byte)
 	}
 
 	dbUsers := &DBUser{
@@ -164,6 +171,26 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 	return c.storeToFile()
 }
 
+func (c *DBUser) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if len(apiKeyFirstLetters) > 3 {
+		return errors.New("api key first letters too long")
+	}
+
+	c.data.ImportedApiKeysWeakHash[userId] = weakHash
+	c.data.Users[userId] = &User{
+		Id:                 userId,
+		Active:             true,
+		InternalIdentifier: "imported",
+		CreatedAt:          createdAt,
+		ApiKeyFirstLetters: apiKeyFirstLetters,
+		ImportedWithKey:    true,
+	}
+	return c.storeToFile()
+}
+
 func (c *DBUser) RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error {
 	if len(apiKeyFirstLetters) > 3 {
 		return errors.New("api key first letters too long")
@@ -183,8 +210,13 @@ func (c *DBUser) RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier
 		c.data.IdentifierToId[newIdentifier] = userId
 		c.data.Users[userId].InternalIdentifier = newIdentifier
 	}
-	c.data.Users[userId].ApiKeyFirstLetters = apiKeyFirstLetters
+	if c.data.Users[userId].ImportedWithKey {
+		c.data.Users[userId].ImportedWithKey = false
+		delete(c.data.ImportedApiKeysWeakHash, userId)
 
+	}
+
+	c.data.Users[userId].ApiKeyFirstLetters = apiKeyFirstLetters
 	c.data.SecureKeyStorageById[userId] = secureHash
 	delete(c.memoryOnlyData.WeakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
@@ -269,6 +301,27 @@ func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
 			c.data.Users[userID].Unlock()
 		}
 	}
+}
+
+func (c *DBUser) ValidateImportedKey(token string) *models.Principal {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	for userId, keyHashStored := range c.data.ImportedApiKeysWeakHash {
+		keyHashGiven := sha256.Sum256([]byte(token))
+		if subtle.ConstantTimeCompare(keyHashGiven[:], keyHashStored[:]) != 1 {
+			return nil
+		}
+		// Last used time does not have to be exact. If we have multiple concurrent requests for the same
+		// user, only recording one of them is good enough
+		if c.data.Users[userId].TryLock() {
+			c.data.Users[userId].LastUsedAt = time.Now()
+			c.data.Users[userId].Unlock()
+		}
+
+		return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}
+	}
+	return nil
 }
 
 func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {

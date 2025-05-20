@@ -47,6 +47,8 @@ func (a *ApiKey) ValidateAndExtract(token string, scopes []string) (*models.Prin
 			return nil, errors.New(401, "unauthorized: %v", err)
 		}
 		return principal, nil
+	} else if principal := a.Dynamic.ValidateImportedKey(token); principal != nil {
+		return principal, nil
 	} else {
 		return a.static.ValidateAndExtract(token, scopes)
 	}

@@ -2851,6 +2851,21 @@
             "name": "user_id",
             "required": true,
             "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "api_key": {
+                  "type":"string",
+                  "description": "import API key - this parameter exists only temporarily. Do not use",
+                  "default": ""
+                }
+              }
+            }
           }
         ],
         "responses": {
