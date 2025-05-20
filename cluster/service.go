@@ -61,6 +61,7 @@ type Service struct {
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
 	closeWaitForDB          chan struct{}
+	snapshotRestoreChan     chan struct{}
 }
 
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
@@ -105,29 +106,18 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	)
 	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
-	enterrors.GoWrapper(func() {
-		for {
-			<-snapshotRestoreChan
-			// The replication FSM has been restored from a snapshot, we need to stop and restart
-			// the replication engine to ensure that it is in sync with the new state.
-			replicationEngine.Stop()
-			if err := replicationEngine.Start(context.Background()); err != nil {
-				cfg.Logger.WithError(err).Error("replication engine failed to start after FSM restore")
-			}
-		}
-	}, cfg.Logger)
-
 	return &Service{
-		Raft:               raft,
-		replicationEngine:  replicationEngine,
-		raftAddr:           raftAdvertisedAddress,
-		config:             &cfg,
-		rpcClient:          client,
-		rpcServer:          svr,
-		logger:             cfg.Logger,
-		closeBootstrapper:  make(chan struct{}),
-		closeOnFSMCaughtUp: make(chan struct{}),
-		closeWaitForDB:     make(chan struct{}),
+		Raft:                raft,
+		replicationEngine:   replicationEngine,
+		raftAddr:            raftAdvertisedAddress,
+		config:              &cfg,
+		rpcClient:           client,
+		rpcServer:           svr,
+		logger:              cfg.Logger,
+		closeBootstrapper:   make(chan struct{}),
+		closeOnFSMCaughtUp:  make(chan struct{}),
+		closeWaitForDB:      make(chan struct{}),
+		snapshotRestoreChan: snapshotRestoreChan,
 	}
 }
 
@@ -172,6 +162,29 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return err
 	}
 	c.log.WithField("hasState", hasState).Info("raft init")
+
+	// Spawn a background goroutine to respond to snapshot restore events that require the replication engine to
+	// restart. This is required so that potentially stale replication operations are cancelled after a snapshot restore.
+	// The goroutine will be closed when the bootstrapper is closed.
+	enterrors.GoWrapper(func() {
+		for {
+			select {
+			case <-ctx.Done():
+				c.logger.Info("replication engine FSM snapshot restore: raft service closed")
+				return
+			case <-c.closeBootstrapper:
+				c.logger.Info("replication engine FSM snapshot restore: bootstrapper closed")
+				return
+			case <-c.snapshotRestoreChan:
+				// The replication FSM has been restored from a snapshot, we need to stop and restart
+				// the replication engine to ensure that it is in sync with the new state.
+				c.replicationEngine.Stop()
+				if err := c.replicationEngine.Start(context.Background()); err != nil {
+					c.logger.WithError(err).Error("replication engine FSM snapshot restore: failed to start")
+				}
+			}
+		}
+	}, c.logger)
 
 	// If we have a state in raft, we only want to re-join the nodes in raft_join list to ensure that we update the
 	// configuration with our current ip.
