@@ -127,7 +127,12 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 }
 
 func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName string) error {
-	return c.dbWrapper.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
+	idx := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
+	if idx == nil {
+		return fmt.Errorf("index for collection %s not found", collectionName)
+	}
+
+	return idx.LoadLocalShard(ctx, shardName)
 }
 
 func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
@@ -172,10 +177,6 @@ func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
 			return nil
 		}
 
-		if len(relativeFilePaths) < i {
-			return fmt.Errorf("unexpected: local folder has more files than source node")
-		}
-
 		localRelFilePath := filepath.Join(c.rootDataPath, d.Name())
 
 		if relativeFilePaths[i] != localRelFilePath {
@@ -183,6 +184,10 @@ func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
 		}
 
 		i++
+		// exit WalkDir early if we have more files in the local folder than expected
+		if len(relativeFilePaths) < i {
+			return fmt.Errorf("unexpected: local folder has more files than source node")
+		}
 
 		return nil
 	})
