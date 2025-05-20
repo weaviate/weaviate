@@ -182,7 +182,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 
 		id := strfmt.UUID(uuid.MustParse(fmt.Sprintf("%032d", i)).String())
 		obj := &models.Object{Class: className, ID: id}
-		err := repo.PutObject(context.Background(), obj, vec, nil, nil, 0)
+		err := repo.PutObject(context.Background(), obj, vec, nil, nil, nil, 0)
 		require.NoError(t, err)
 	}
 
