@@ -340,7 +340,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, reg)
+			manager := replication.NewManager(schemaReader, reg, nil)
 
 			ctx := t.Context()
 			replicateRequest := &api.ReplicationReplicateShardRequest{

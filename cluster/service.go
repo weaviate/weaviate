@@ -70,7 +70,8 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	raftAdvertisedAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort)
 	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 
-	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer)
+	snapshotRestoreChan := make(chan struct{})
+	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer, snapshotRestoreChan)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
 	fsmOpProducer := replication.NewFSMOpProducer(
 		cfg.Logger,
@@ -103,6 +104,18 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	)
 	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
+	enterrors.GoWrapper(func() {
+		for {
+			<-snapshotRestoreChan
+			// The replication FSM has been restored from a snapshot, we need to stop and restart
+			// the replication engine to ensure that it is in sync with the new state.
+			replicationEngine.Stop()
+			if err := replicationEngine.Start(context.Background()); err != nil {
+				cfg.Logger.WithError(err).Error("replication engine failed to start after FSM restore")
+			}
+		}
+	}, cfg.Logger)
+
 	return &Service{
 		Raft:               raft,
 		replicationEngine:  replicationEngine,
@@ -129,7 +142,7 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
 				enterrors.GoWrapper(func() {
 					// The context is cancelled by the engine itself when it is stopped
-					if err := c.replicationEngine.Start(context.Background()); err != nil {
+					if err := c.replicationEngine.Start(ctx); err != nil {
 						c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
 					}
 				}, c.logger)

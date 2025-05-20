@@ -181,7 +181,8 @@ func TestShardReplicationEngine(t *testing.T) {
 			1,
 			1,
 			1*time.Minute,
-			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()))
+			metrics.NewReplicationEngineCallbacks(prometheus.NewPedanticRegistry()),
+		)
 		require.False(t, engine.IsRunning(), "engine should report not running before start")
 
 		var wg sync.WaitGroup

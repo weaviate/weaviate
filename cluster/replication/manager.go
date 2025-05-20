@@ -27,15 +27,17 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	replicationFSM *ShardReplicationFSM
-	schemaReader   schema.SchemaReader
+	snapshotRestoreChan chan struct{}
+	replicationFSM      *ShardReplicationFSM
+	schemaReader        schema.SchemaReader
 }
 
-func NewManager(schemaReader schema.SchemaReader, reg prometheus.Registerer) *Manager {
+func NewManager(schemaReader schema.SchemaReader, reg prometheus.Registerer, snapshotRestoreChan chan struct{}) *Manager {
 	replicationFSM := NewShardReplicationFSM(reg)
 	return &Manager{
-		replicationFSM: replicationFSM,
-		schemaReader:   schemaReader,
+		snapshotRestoreChan: snapshotRestoreChan,
+		replicationFSM:      replicationFSM,
+		schemaReader:        schemaReader,
 	}
 }
 
@@ -48,6 +50,7 @@ func (m *Manager) Snapshot() ([]byte, error) {
 }
 
 func (m *Manager) Restore(bytes []byte) error {
+	m.snapshotRestoreChan <- struct{}{}
 	return m.replicationFSM.Restore(bytes)
 }
 
