@@ -77,7 +77,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil)
+					Return(nil).Maybe()
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -132,7 +132,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil)
+					Return(nil).Maybe()
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -190,7 +190,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil)
+					Return(nil).Maybe()
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -248,7 +248,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Times(1)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil)
+					Return(nil).Maybe()
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -310,7 +310,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil)
+					Return(nil).Maybe()
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
