@@ -232,6 +232,25 @@ func (s *ShardReplicationFSM) DeleteAllReplications(c *api.ReplicationDeleteAllR
 	defer s.opsLock.Unlock()
 
 	for id, status := range s.statusById {
+		op, ok := s.opsById[id]
+		if !ok {
+			continue
+		}
+		// Cannot delete MOVE ops that are in DEHYDRATING state
+		if status.GetCurrentState() == api.DEHYDRATING && op.TransferType == api.MOVE {
+			continue
+		}
+		status.TriggerDeletion()
+		s.statusById[id] = status
+	}
+	return nil
+}
+
+func (s *ShardReplicationFSM) PurgeReplications(c *api.ReplicationPurgeRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	for id, status := range s.statusById {
 		status.TriggerDeletion()
 		s.statusById[id] = status
 	}

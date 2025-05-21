@@ -192,6 +192,25 @@ func (s *Raft) DeleteAllReplications(ctx context.Context) error {
 	return nil
 }
 
+func (s *Raft) PurgeReplications(ctx context.Context) error {
+	req := &api.ReplicationPurgeRequest{
+		Version: api.ReplicationCommandVersionV0,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_PURGE,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Raft) DeleteReplicationsByCollection(ctx context.Context, collection string) error {
 	req := &api.ReplicationsDeleteByCollectionRequest{
 		Version:    api.ReplicationCommandVersionV0,

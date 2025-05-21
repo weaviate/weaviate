@@ -564,6 +564,52 @@ func (_c *MockManager_GetReplicationDetailsByTargetNode_Call) RunAndReturn(run f
 	return _c
 }
 
+// PurgeReplications provides a mock function with given fields: ctx
+func (_m *MockManager) PurgeReplications(ctx context.Context) error {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for PurgeReplications")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_PurgeReplications_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PurgeReplications'
+type MockManager_PurgeReplications_Call struct {
+	*mock.Call
+}
+
+// PurgeReplications is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockManager_Expecter) PurgeReplications(ctx interface{}) *MockManager_PurgeReplications_Call {
+	return &MockManager_PurgeReplications_Call{Call: _e.mock.On("PurgeReplications", ctx)}
+}
+
+func (_c *MockManager_PurgeReplications_Call) Run(run func(ctx context.Context)) *MockManager_PurgeReplications_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockManager_PurgeReplications_Call) Return(_a0 error) *MockManager_PurgeReplications_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_PurgeReplications_Call) RunAndReturn(run func(context.Context) error) *MockManager_PurgeReplications_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // QueryShardingStateByCollection provides a mock function with given fields: ctx, collection
 func (_m *MockManager) QueryShardingStateByCollection(ctx context.Context, collection string) (api.ShardingState, error) {
 	ret := _m.Called(ctx, collection)
@@ -675,104 +721,6 @@ func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) Return(_a0 ap
 }
 
 func (_c *MockManager_QueryShardingStateByCollectionAndShard_Call) RunAndReturn(run func(context.Context, string, string) (api.ShardingState, error)) *MockManager_QueryShardingStateByCollectionAndShard_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ReplicationDeleteReplica provides a mock function with given fields: ctx, node, collection, shard
-func (_m *MockManager) ReplicationDeleteReplica(ctx context.Context, node string, collection string, shard string) error {
-	ret := _m.Called(ctx, node, collection, shard)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReplicationDeleteReplica")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
-		r0 = rf(ctx, node, collection, shard)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockManager_ReplicationDeleteReplica_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationDeleteReplica'
-type MockManager_ReplicationDeleteReplica_Call struct {
-	*mock.Call
-}
-
-// ReplicationDeleteReplica is a helper method to define mock.On call
-//   - ctx context.Context
-//   - node string
-//   - collection string
-//   - shard string
-func (_e *MockManager_Expecter) ReplicationDeleteReplica(ctx interface{}, node interface{}, collection interface{}, shard interface{}) *MockManager_ReplicationDeleteReplica_Call {
-	return &MockManager_ReplicationDeleteReplica_Call{Call: _e.mock.On("ReplicationDeleteReplica", ctx, node, collection, shard)}
-}
-
-func (_c *MockManager_ReplicationDeleteReplica_Call) Run(run func(ctx context.Context, node string, collection string, shard string)) *MockManager_ReplicationDeleteReplica_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
-	})
-	return _c
-}
-
-func (_c *MockManager_ReplicationDeleteReplica_Call) Return(_a0 error) *MockManager_ReplicationDeleteReplica_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockManager_ReplicationDeleteReplica_Call) RunAndReturn(run func(context.Context, string, string, string) error) *MockManager_ReplicationDeleteReplica_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
-// ReplicationDisableReplica provides a mock function with given fields: ctx, node, collection, shard
-func (_m *MockManager) ReplicationDisableReplica(ctx context.Context, node string, collection string, shard string) error {
-	ret := _m.Called(ctx, node, collection, shard)
-
-	if len(ret) == 0 {
-		panic("no return value specified for ReplicationDisableReplica")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, string, string, string) error); ok {
-		r0 = rf(ctx, node, collection, shard)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockManager_ReplicationDisableReplica_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationDisableReplica'
-type MockManager_ReplicationDisableReplica_Call struct {
-	*mock.Call
-}
-
-// ReplicationDisableReplica is a helper method to define mock.On call
-//   - ctx context.Context
-//   - node string
-//   - collection string
-//   - shard string
-func (_e *MockManager_Expecter) ReplicationDisableReplica(ctx interface{}, node interface{}, collection interface{}, shard interface{}) *MockManager_ReplicationDisableReplica_Call {
-	return &MockManager_ReplicationDisableReplica_Call{Call: _e.mock.On("ReplicationDisableReplica", ctx, node, collection, shard)}
-}
-
-func (_c *MockManager_ReplicationDisableReplica_Call) Run(run func(ctx context.Context, node string, collection string, shard string)) *MockManager_ReplicationDisableReplica_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context), args[1].(string), args[2].(string), args[3].(string))
-	})
-	return _c
-}
-
-func (_c *MockManager_ReplicationDisableReplica_Call) Return(_a0 error) *MockManager_ReplicationDisableReplica_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockManager_ReplicationDisableReplica_Call) RunAndReturn(run func(context.Context, string, string, string) error) *MockManager_ReplicationDisableReplica_Call {
 	_c.Call.Return(run)
 	return _c
 }

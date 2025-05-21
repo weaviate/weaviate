@@ -207,6 +207,23 @@ func (h *replicationHandler) deleteAllReplications(params replication.DeleteAllR
 	return replication.NewDeleteAllReplicationsNoContent()
 }
 
+func (h *replicationHandler) purgeReplications(params replication.PurgeReplicationsParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
+		return replication.NewPurgeReplicationsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if err := h.replicationManager.PurgeReplications(params.HTTPRequest.Context()); err != nil {
+		return replication.NewPurgeReplicationsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "purge_operations",
+	}).Info("purge replication operations")
+
+	return replication.NewPurgeReplicationsOK()
+}
+
 func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
 	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.HTTPRequest.Context(), params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {

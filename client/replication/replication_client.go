@@ -51,6 +51,8 @@ type ClientService interface {
 
 	ListReplication(params *ListReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListReplicationOK, error)
 
+	PurgeReplications(params *PurgeReplicationsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PurgeReplicationsOK, error)
+
 	Replicate(params *ReplicateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateOK, error)
 
 	ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error)
@@ -258,6 +260,47 @@ func (a *Client) ListReplication(params *ListReplicationParams, authInfo runtime
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for listReplication: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+PurgeReplications purges all replication operations
+
+USE AT OWN RISK! Synchronously remove all operations from the FSM. This will not perform any checks on which state the operation is in so may lead to data corruption or loss.
+*/
+func (a *Client) PurgeReplications(params *PurgeReplicationsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*PurgeReplicationsOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewPurgeReplicationsParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "purgeReplications",
+		Method:             "POST",
+		PathPattern:        "/replication/replicate/purge",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &PurgeReplicationsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*PurgeReplicationsOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for purgeReplications: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
