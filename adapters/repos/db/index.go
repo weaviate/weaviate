@@ -329,7 +329,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				}
 				defer i.shardLoadLimiter.Release()
 
-				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints, true)
+				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints, false)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -446,7 +446,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		}
 		defer i.shardLoadLimiter.Release()
 
-		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints, implicitUpdate)
+		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler, i.indexCheckpoints, false)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
