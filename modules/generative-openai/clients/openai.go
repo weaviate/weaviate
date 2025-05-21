@@ -142,7 +142,11 @@ func (v *openai) generate(ctx context.Context, cfg moduletools.ClassConfig, prom
 		vrst.WithLabelValues("generate", oaiUrl, fmt.Sprintf("%v", res.StatusCode)).Inc()
 	}
 	if err != nil {
-		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("generate", "openai", "OpenAI API", fmt.Sprintf("%v", res.StatusCode)).Inc()
+		code := -1
+		if res != nil {
+			code = res.StatusCode
+		}
+		monitoring.GetMetrics().ModuleExternalError.WithLabelValues("generate", "openai", "OpenAI API", fmt.Sprintf("%v", code)).Inc()
 		return nil, errors.Wrap(err, "send POST request")
 	}
 	defer res.Body.Close()
