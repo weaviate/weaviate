@@ -79,19 +79,22 @@ func (CombinationMethod) EnumDescriptor() ([]byte, []int) {
 type SearchOperatorOptions_Operator int32
 
 const (
-	SearchOperatorOptions_OPERATOR_OR  SearchOperatorOptions_Operator = 0
-	SearchOperatorOptions_OPERATOR_AND SearchOperatorOptions_Operator = 1
+	SearchOperatorOptions_OPERATOR_UNSPECIFIED SearchOperatorOptions_Operator = 0
+	SearchOperatorOptions_OPERATOR_OR          SearchOperatorOptions_Operator = 1
+	SearchOperatorOptions_OPERATOR_AND         SearchOperatorOptions_Operator = 2
 )
 
 // Enum value maps for SearchOperatorOptions_Operator.
 var (
 	SearchOperatorOptions_Operator_name = map[int32]string{
-		0: "OPERATOR_OR",
-		1: "OPERATOR_AND",
+		0: "OPERATOR_UNSPECIFIED",
+		1: "OPERATOR_OR",
+		2: "OPERATOR_AND",
 	}
 	SearchOperatorOptions_Operator_value = map[string]int32{
-		"OPERATOR_OR":  0,
-		"OPERATOR_AND": 1,
+		"OPERATOR_UNSPECIFIED": 0,
+		"OPERATOR_OR":          1,
+		"OPERATOR_AND":         2,
 	}
 )
 
@@ -397,7 +400,7 @@ func (x *SearchOperatorOptions) GetOperator() SearchOperatorOptions_Operator {
 	if x != nil {
 		return x.Operator
 	}
-	return SearchOperatorOptions_OPERATOR_OR
+	return SearchOperatorOptions_OPERATOR_UNSPECIFIED
 }
 
 func (x *SearchOperatorOptions) GetMinimumOrTokenMatch() int32 {
@@ -1477,13 +1480,14 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x0fVectorForTarget\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12%\n" +
 	"\fvector_bytes\x18\x02 \x01(\fB\x02\x18\x01R\vvectorBytes\x12.\n" +
-	"\avectors\x18\x03 \x03(\v2\x14.weaviate.v1.VectorsR\avectors\"\xe4\x01\n" +
+	"\avectors\x18\x03 \x03(\v2\x14.weaviate.v1.VectorsR\avectors\"\xfe\x01\n" +
 	"\x15SearchOperatorOptions\x12G\n" +
 	"\boperator\x18\x01 \x01(\x0e2+.weaviate.v1.SearchOperatorOptions.OperatorR\boperator\x128\n" +
-	"\x16minimum_or_token_match\x18\x02 \x01(\x05H\x00R\x13minimumOrTokenMatch\x88\x01\x01\"-\n" +
-	"\bOperator\x12\x0f\n" +
-	"\vOPERATOR_OR\x10\x00\x12\x10\n" +
-	"\fOPERATOR_AND\x10\x01B\x19\n" +
+	"\x16minimum_or_token_match\x18\x02 \x01(\x05H\x00R\x13minimumOrTokenMatch\x88\x01\x01\"G\n" +
+	"\bOperator\x12\x18\n" +
+	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\x0f\n" +
+	"\vOPERATOR_OR\x10\x01\x12\x10\n" +
+	"\fOPERATOR_AND\x10\x02B\x19\n" +
 	"\x17_minimum_or_token_match\"\xe6\x05\n" +
 	"\x06Hybrid\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1e\n" +
