@@ -45,6 +45,14 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 		return nil, "", fmt.Errorf("invalid params, pagination object is nil")
 	}
 
+	if params.HybridSearch.SearchOperator != "" {
+		params.KeywordRanking.SearchOperator = params.HybridSearch.SearchOperator
+	}
+
+	if params.HybridSearch.MinimumShouldMatch != 0 {
+		params.KeywordRanking.MinimumShouldMatch = params.HybridSearch.MinimumShouldMatch
+	}
+
 	totalLimit, err := e.CalculateTotalLimit(params.Pagination)
 	if err != nil {
 		return nil, "", err

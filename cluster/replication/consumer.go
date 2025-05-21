@@ -696,9 +696,6 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
 		logger.WithError(err).Error("failure while reverting async replication locally")
 	}
-	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
-		logger.WithError(err).Error("failure while removing async replication target node")
-	}
 	// sync the replica shard to ensure that the schema and store are consistent on each node
 	// In a COPY this happens in the FINALIZING state, in a MOVE this happens now
 	if err := c.sync(ctx, op); err != nil {
