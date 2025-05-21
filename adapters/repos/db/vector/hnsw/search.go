@@ -200,7 +200,7 @@ func (h *hnsw) searchLayerByVector2ndPhase(ctx context.Context,
 	queryVector []float32,
 	entrypoints *priorityqueue.Queue[any], ef int,
 	allowList helpers.AllowList, compressorDistancer compressionhelpers.CompressorDistancer,
-	rInit *priorityqueue.Queue[any]) (*priorityqueue.Queue[any], error,
+	rInit *priorityqueue.Queue[any], oEntryPointDistance float32) (*priorityqueue.Queue[any], error,
 ) {
 	h.pools.visitedListsLock.RLock()
 	visited := h.pools.visitedLists.Borrow()
@@ -306,7 +306,11 @@ func (h *hnsw) searchLayerByVector2ndPhase(ctx context.Context,
 			shouldCalculateDist := allowList.Contains(neighborID)
 
 			if !shouldCalculateDist {
-				targetSteps := minSteps + int(candidate.Dist/worstResultDistance*(maxSteps-minSteps))
+				if oEntryPointDistance > candidate.Dist {
+					oEntryPointDistance = candidate.Dist
+				}
+				distPos := (candidate.Dist - oEntryPointDistance) / (worstResultDistance - oEntryPointDistance)
+				targetSteps := maxSteps - int(distPos*(maxSteps-minSteps))
 				shouldCalculateDist = candidate.StepsSinceLastCalc >= targetSteps
 			}
 
@@ -927,7 +931,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			}
 		}
 		for level := maxLayer; level >= 1; level-- {
-			res2, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, 1, level, allowList, compressorDistancer, RRE, visited)
+			res2, err := h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, 1, level, nil, compressorDistancer, RRE, visited)
 			if err != nil {
 				return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", level)
 			}
@@ -970,7 +974,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			h.pools.pqResults.Put(res2)
 		}
 		visited.Reset()
-		res, err = h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, allowList, compressorDistancer, RRE, visited)
+		res, err = h.searchLayerByVectorWithDistancerWithStrategy(ctx, searchVec, eps, ef, 0, nil, compressorDistancer, SWEEPING, visited)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 		}
@@ -979,7 +983,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		eps.Insert(oEntryPointID, oEntryPointDistance)
 
 		visited.Reset()
-		res, err = h.searchLayerByVector2ndPhase(ctx, searchVec, eps, ef, allowList, compressorDistancer, res)
+		res, err = h.searchLayerByVector2ndPhase(ctx, searchVec, eps, ef, allowList, compressorDistancer, res, oEntryPointDistance)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 		}
