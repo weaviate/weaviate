@@ -58,7 +58,10 @@ import (
 
 const IdLockPoolSize = 128
 
-var errAlreadyShutdown = errors.New("already shut or dropped")
+var (
+	errAlreadyShutdown    = errors.New("already shut or dropped")
+	errShutdownInProgress = errors.New("shard shutdown in progress")
+)
 
 type ShardLike interface {
 	Index() *Index                  // Get the parent index
@@ -267,7 +270,7 @@ type Shard struct {
 	dynamicVectorIndexDB *bbolt.DB
 
 	// indicates whether shard is shut down or dropped (or ongoing)
-	shut bool
+	shut atomic.Bool
 	// indicates whether shard in being used at the moment (e.g. write request)
 	inUseCounter atomic.Int64
 	// allows concurrent shut read/write
@@ -283,6 +286,9 @@ type Shard struct {
 	searchableBlockmaxPropNamesLock *sync.Mutex
 
 	usingBlockMaxWAND bool
+
+	// shutdownRequested marks shard as requested for shutdown
+	shutdownRequested atomic.Bool
 }
 
 func (s *Shard) ID() string {
