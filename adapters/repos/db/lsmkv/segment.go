@@ -200,7 +200,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	dataStartPos := uint64(segmentindex.HeaderSize)
 	dataEndPos := header.IndexStart
-	fmt.Printf("NATEE newSegment primaryIndex: %#v\n", primaryIndex, dataStartPos, dataEndPos)
+	fmt.Printf("NATEE newSegment primaryIndex: %d, %d, %d\n", len(primaryIndex), dataStartPos, dataEndPos)
 
 	var invertedHeader *segmentindex.HeaderInverted
 	if header.Strategy == segmentindex.StrategyInverted {
