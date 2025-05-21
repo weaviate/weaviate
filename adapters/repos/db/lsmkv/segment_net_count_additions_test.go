@@ -111,6 +111,9 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
+	_, err = b2.Get([]byte("test")) // force loading
+	require.Nil(t, err)
+
 	files, err = os.ReadDir(dirName)
 	require.Nil(t, err)
 	_, ok = findFileWithExt(files, ".cna")

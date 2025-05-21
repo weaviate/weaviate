@@ -61,6 +61,13 @@ func WithWalThreshold(threshold uint64) BucketOption {
 	}
 }
 
+func WithDelayedSegmentLoading(delay bool) BucketOption {
+	return func(b *Bucket) error {
+		b.delaySegmentLoading = delay
+		return nil
+	}
+}
+
 func WithDirtyThreshold(threshold time.Duration) BucketOption {
 	return func(b *Bucket) error {
 		b.flushDirtyAfter = threshold

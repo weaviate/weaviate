@@ -41,13 +41,18 @@ type cursorStateCollection struct {
 // SetCursor holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
 func (b *Bucket) SetCursor() *CursorSet {
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil
+	}
+
 	b.flushLock.RLock()
 
 	if b.strategy != StrategySetCollection {
 		panic("SetCursor() called on strategy other than 'set'")
 	}
 
-	innerCursors, unlockSegmentGroup := b.disk.newCollectionCursors()
+	innerCursors, unlockSegmentGroup := disk.newCollectionCursors()
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two
