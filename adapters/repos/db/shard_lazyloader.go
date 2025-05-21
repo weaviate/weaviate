@@ -288,6 +288,21 @@ func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOve
 	return nil
 }
 
+func (l *LazyLoadShard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	l.shard.removeTargetNodeOverride(ctx, targetNodeOverride)
+	return nil
+}
+
+func (l *LazyLoadShard) removeAllTargetNodeOverrides(ctx context.Context) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.removeAllTargetNodeOverrides(ctx)
+}
+
 func (l *LazyLoadShard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
 	if err := l.Load(ctx); err != nil {
 		return nil

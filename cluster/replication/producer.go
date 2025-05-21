@@ -84,10 +84,18 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 			p.logger.WithFields(logrus.Fields{"number_of_ops": len(ops)}).Debug("preparing op replication")
 
 			for _, op := range ops {
+				status, ok := p.fsm.GetOpState(op) // Get most recent state to narrow the window for state change races between producer and consumer
+				if !ok {
+					p.logger.WithField("op", op).Debug("skipping op as it has no state stored in FSM. It may have been deleted in the meantime.")
+					continue
+				}
+				if !status.ShouldConsumeOps() {
+					continue
+				}
 				select {
 				case <-ctx.Done():
 					return ctx.Err()
-				case out <- op: // Write replication operation to channel.
+				case out <- NewShardReplicationOpAndStatus(op, status): // Write replication operation to channel.
 				}
 			}
 		}
@@ -108,13 +116,13 @@ func (p *FSMOpProducer) Produce(ctx context.Context, out chan<- ShardReplication
 //   - All states except for ABORTED and READY are processes
 //
 // Returns only operations that should be actively processed by this node.
-func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOpAndStatus {
+func (p *FSMOpProducer) allOpsForNode(nodeId string) []ShardReplicationOp {
 	allNodeAsTargetOps := p.fsm.GetOpsForTarget(nodeId)
 
-	nodeOpsSubset := make([]ShardReplicationOpAndStatus, 0, len(allNodeAsTargetOps))
+	nodeOpsSubset := make([]ShardReplicationOp, 0, len(allNodeAsTargetOps))
 	for _, op := range allNodeAsTargetOps {
 		if opState, ok := p.fsm.GetOpState(op); ok && opState.ShouldConsumeOps() {
-			nodeOpsSubset = append(nodeOpsSubset, NewShardReplicationOpAndStatus(op, opState))
+			nodeOpsSubset = append(nodeOpsSubset, op)
 		} else if !ok {
 			p.logger.WithField("op", op).Warn("skipping op as it has no state stored in FSM. It may have been deleted in the meantime.")
 		}

@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"slices"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/hashicorp/go-multierror"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/replication/types"
@@ -136,13 +137,42 @@ func (s *ShardReplicationFSM) UpdateReplicationOpStatus(c *api.ReplicationUpdate
 	return nil
 }
 
+func (s *ShardReplicationFSM) StoreSchemaVersion(c *api.ReplicationStoreSchemaVersionRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	op, ok := s.opsById[c.Id]
+	if !ok {
+		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
+	}
+	status, ok := s.statusById[op.ID]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d", c.Id)
+	}
+	status.SchemaVersion = c.SchemaVersion
+	s.statusById[op.ID] = status
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) GetReplicationOpUUIDFromId(id uint64) (strfmt.UUID, error) {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	op, ok := s.opsById[id]
+	if !ok {
+		return "", fmt.Errorf("%w: %d", types.ErrReplicationOperationNotFound, id)
+	}
+	return op.UUID, nil
+}
+
 func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
 	id, ok := s.idsByUuid[c.Uuid]
 	if !ok {
-		return types.ErrReplicationOperationNotFound
+		return fmt.Errorf("%w: %s", types.ErrReplicationOperationNotFound, c.Uuid)
 	}
 	op, ok := s.opsById[id]
 	if !ok {
@@ -164,7 +194,7 @@ func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest)
 
 	id, ok := s.idsByUuid[c.Uuid]
 	if !ok {
-		return types.ErrReplicationOperationNotFound
+		return fmt.Errorf("could not find op %s: %w", c.Uuid, types.ErrReplicationOperationNotFound)
 	}
 	op, ok := s.opsById[id]
 	if !ok {
@@ -265,12 +295,53 @@ func (s *ShardReplicationFSM) DeleteReplicationsByTenants(collection string, ten
 	return nil
 }
 
+func (s *ShardReplicationFSM) hasOngoingSourceReplication(sourceFQDN shardFQDN) bool {
+	ops, ok := s.opsBySourceFQDN[sourceFQDN]
+	if !ok {
+		return false
+	}
+
+	for _, op := range ops {
+		status, ok := s.statusById[op.ID]
+		if !ok {
+			continue
+		}
+
+		if status.ShouldConsumeOps() {
+			return true
+		} else {
+			continue
+		}
+	}
+	return false
+}
+
+func (s *ShardReplicationFSM) hasOngoingTargetReplication(targetFQDN shardFQDN) bool {
+	op, ok := s.opsByTargetFQDN[targetFQDN]
+	if !ok {
+		return false
+	}
+	status, ok := s.statusById[op.ID]
+	if !ok {
+		return false
+	}
+	return status.ShouldConsumeOps()
+}
+
+func (s *ShardReplicationFSM) HasOngoingReplication(collection string, shard string, replica string) bool {
+	s.opsLock.RLock()
+	defer s.opsLock.RUnlock()
+
+	FQDN := newShardFQDN(replica, collection, shard)
+	return s.hasOngoingSourceReplication(FQDN) || s.hasOngoingTargetReplication(FQDN)
+}
+
 // TODO: Improve the error handling in that function
 func (s *ShardReplicationFSM) removeReplicationOp(id uint64) error {
 	var err error
 	op, ok := s.opsById[id]
 	if !ok {
-		return types.ErrReplicationOperationNotFound
+		return fmt.Errorf("could not find op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
 
 	ops, ok := s.opsByTarget[op.TargetShard.NodeId]

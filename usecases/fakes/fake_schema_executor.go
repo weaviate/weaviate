@@ -53,6 +53,18 @@ func (m *MockSchemaExecutor) DeleteReplicaFromShard(class string, shard string, 
 	return args.Error(0)
 }
 
+func (m *MockSchemaExecutor) LoadShard(class string, shard string) {
+	m.Called(class, shard)
+}
+
+func (m *MockSchemaExecutor) DropShard(class string, shard string) {
+	m.Called(class, shard)
+}
+
+func (m *MockSchemaExecutor) ShutdownShard(class string, shard string) {
+	m.Called(class, shard)
+}
+
 func (m *MockSchemaExecutor) UpdateIndex(req cmd.UpdateClassRequest) error {
 	args := m.Called(req)
 	return args.Error(0)
