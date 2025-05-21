@@ -31,10 +31,10 @@ func GenerateBM25SearchOperatorFields(prefixName string) *graphql.InputObjectFie
 			graphql.InputObjectConfig{
 				Name: searchesPrefixName,
 				Fields: graphql.InputObjectConfigFieldMap{
-					"searchOperator": &graphql.InputObjectFieldConfig{
+					"operator": &graphql.InputObjectFieldConfig{
 						Description: "The search operator to use",
 						Type: graphql.NewEnum(graphql.EnumConfig{ // EnumConfig is a struct that defines the enum
-							Name: fmt.Sprintf("%sSearchOperator", searchesPrefixName),
+							Name: fmt.Sprintf("%sOperator", searchesPrefixName),
 							Values: graphql.EnumValueConfigMap{
 								"And": &graphql.EnumValueConfig{
 									Value:       SearchOperatorAnd,
@@ -81,7 +81,7 @@ func ExtractBM25(source map[string]interface{}, explainScore bool) searchparams.
 	operator, ok := source["searchOperator"]
 	if ok {
 		operator := operator.(map[string]interface{})
-		args.SearchOperator = operator["type"].(string)
+		args.SearchOperator = operator["operator"].(string)
 		args.MinimumOrTokenMatch = int(operator["minimumOrTokensMatch"].(int))
 	}
 

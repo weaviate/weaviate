@@ -166,7 +166,7 @@ func ExtractHybridSearch(source map[string]interface{}, explainScore bool) (*sea
 	operator, ok := source["bm25SearchOperator"]
 	if ok {
 		operator := operator.(map[string]interface{})
-		args.SearchOperator = operator["type"].(string)
+		args.SearchOperator = operator["operator"].(string)
 		args.MinimumOrTokenMatch = int(operator["minimumOrTokensMatch"].(int))
 	}
 
