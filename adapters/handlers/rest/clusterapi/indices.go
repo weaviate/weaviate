@@ -1669,6 +1669,6 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 			return
 		}
 
-		w.WriteHeader(http.StatusOK)
+		w.WriteHeader(http.StatusNoContent)
 	})
 }
