@@ -21,10 +21,8 @@ func (m *BigramModule) Arguments() map[string]modulecapabilities.GraphQLArgument
 
 func (m *BigramModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
 	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
-
 	vectorSearches["nearText"] = &vectorForParams{m.VectorFromParams}
 	return vectorSearches
-	//return m.searcher.VectorSearches()
 }
 
 var (
