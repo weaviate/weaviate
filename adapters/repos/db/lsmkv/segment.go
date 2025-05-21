@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"runtime/debug"
 
 	"github.com/pkg/errors"
 
@@ -114,6 +115,10 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			return
 		}
 		entsentry.Recover(p)
+
+		fmt.Println("NATEE newSegment defer start")
+		debug.PrintStack()
+
 		rerr = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
 	}()
 
@@ -136,6 +141,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 	size := fileInfo.Size()
+	fmt.Printf("NATEE newSegment fileinfo: %#v %d\n", fileInfo, cfg.MinMMapSize)
 
 	// mmap has some overhead, we can read small files directly to memory
 	var contents []byte
@@ -143,6 +149,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	var allocCheckerErr error
 
 	if size <= cfg.MinMMapSize { // check if it is a candidate for full reading
+		fmt.Printf("NATEE newSegment1: %#v\n", fileInfo)
 		allocCheckerErr = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
 		if allocCheckerErr != nil {
 			logger.Debugf("memory pressure: cannot fully read segment")
@@ -150,6 +157,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	if size > cfg.MinMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
+		fmt.Printf("NATEE newSegment2: %#v\n", fileInfo)
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
@@ -157,17 +165,20 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		contents = contents2
 		unMapContents = true
 	} else { // read the file into memory if it's small enough and we have enough memory
+		fmt.Printf("NATEE newSegment3: %#v\n", fileInfo)
 		contents, err = io.ReadAll(file)
 		if err != nil {
 			return nil, fmt.Errorf("read file: %w", err)
 		}
 		unMapContents = false
 	}
+	fmt.Printf("NATEE newSegment4: %#v, %d, %s, %v\n", len(contents), segmentindex.HeaderSize, path, len(contents) < segmentindex.HeaderSize)
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
 
+	logger.Info("NATEE newSegment header: %#v\n", header)
 	if err := segmentindex.CheckExpectedStrategy(header.Strategy); err != nil {
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
@@ -189,6 +200,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	dataStartPos := uint64(segmentindex.HeaderSize)
 	dataEndPos := header.IndexStart
+	fmt.Printf("NATEE newSegment primaryIndex: %#v\n", primaryIndex, dataStartPos, dataEndPos)
 
 	var invertedHeader *segmentindex.HeaderInverted
 	if header.Strategy == segmentindex.StrategyInverted {
@@ -214,6 +226,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}).Inc()
 	}
 
+	fmt.Printf("NATEE newSegment index start: %#v\n", header.IndexStart)
 	seg := &segment{
 		level:                 header.Level,
 		path:                  path,

@@ -202,6 +202,7 @@ func (m *Memtable) flushDataReplace(f *segmentindex.SegmentFile) ([]segmentindex
 	totalDataLength := totalKeyAndValueSize(flat)
 	perObjectAdditions := len(flat) * (1 + 8 + 4 + int(m.secondaryIndices)*4) // 1 byte for the tombstone, 8 bytes value length encoding, 4 bytes key length encoding, + 4 bytes key encoding for every secondary index
 	headerSize := segmentindex.HeaderSize
+	fmt.Printf("NATEE flushDataReplace: %d, %d, %d, %d\n", totalDataLength, perObjectAdditions, headerSize, m.secondaryIndices)
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + perObjectAdditions + headerSize),
 		Level:            0, // always level zero on a new one
@@ -279,6 +280,7 @@ func (m *Memtable) flushDataCollection(f *segmentindex.SegmentFile,
 	flat []*binarySearchNodeMulti,
 ) ([]segmentindex.Key, error) {
 	totalDataLength := totalValueSizeCollection(flat)
+	fmt.Printf("NATEE flushDataCollection: %d, %d\n", totalDataLength, segmentindex.HeaderSize)
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one

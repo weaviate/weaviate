@@ -113,6 +113,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 	dataStartPos := uint64(segmentindex.HeaderSize)
 	dataEndPos := header.IndexStart
+	fmt.Printf("NATEE segment_precompute_for_compaction: %d, %d\n", dataStartPos, dataEndPos)
 
 	var invertedHeader *segmentindex.HeaderInverted
 	if header.Strategy == segmentindex.StrategyInverted {
@@ -130,6 +131,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		"operation": "compactionMetadata",
 	})
 
+	fmt.Printf("NATEE segment_precompute_for_compaction: %d, %d\n", dataStartPos, dataEndPos)
 	seg := &segment{
 		level: header.Level,
 		// trim the .tmp suffix to make sure the naming rules for the files we

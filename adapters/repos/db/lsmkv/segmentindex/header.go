@@ -48,6 +48,7 @@ func (h *Header) WriteTo(w io.Writer) (int64, error) {
 	rw.WriteUint16(h.Version)
 	rw.WriteUint16(h.SecondaryIndices)
 	rw.WriteUint16(uint16(h.Strategy))
+	fmt.Printf("NATEE WriteTo: %d, %d, %d, %d, %d\n", h.Level, h.Version, h.SecondaryIndices, h.Strategy, h.IndexStart)
 	rw.WriteUint64(h.IndexStart)
 
 	write, err := w.Write(data)
@@ -62,10 +63,12 @@ func (h *Header) WriteTo(w io.Writer) (int64, error) {
 }
 
 func (h *Header) PrimaryIndex(source []byte) ([]byte, error) {
+	fmt.Printf("NATEE PrimaryIndex: %d, %d, %d, %d, %d\n", h.SecondaryIndices, h.IndexStart, h.Strategy, h.Level, h.Version)
 	if h.SecondaryIndices == 0 {
 		return source[h.IndexStart:], nil
 	}
 
+	fmt.Printf("NATEE PrimaryIndex: %d, %d, %d, %d, %d\n", h.SecondaryIndices, h.IndexStart, h.Strategy, h.Level, h.Version)
 	offsets, err := h.parseSecondaryIndexOffsets(
 		source[h.IndexStart:h.secondaryIndexOffsetsEnd()])
 	if err != nil {
@@ -78,6 +81,7 @@ func (h *Header) PrimaryIndex(source []byte) ([]byte, error) {
 }
 
 func (h *Header) secondaryIndexOffsetsEnd() uint64 {
+	fmt.Printf("NATEE secondaryIndexOffsetsEnd: %d, %d, %d, %d, %d\n", h.SecondaryIndices, h.IndexStart, h.Strategy, h.Level, h.Version)
 	return h.IndexStart + (uint64(h.SecondaryIndices) * 8)
 }
 
@@ -98,6 +102,7 @@ func (h *Header) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
 			indexID, h.SecondaryIndices)
 	}
 
+	fmt.Printf("NATEE SecondaryIndex: %d, %d, %d, %d, %d\n", h.SecondaryIndices, h.IndexStart, h.Strategy, h.Level, h.Version)
 	offsets, err := h.parseSecondaryIndexOffsets(
 		source[h.IndexStart:h.secondaryIndexOffsetsEnd()])
 	if err != nil {
@@ -125,6 +130,7 @@ func ParseHeader(data []byte) (*Header, error) {
 	out.SecondaryIndices = rw.ReadUint16()
 	out.Strategy = Strategy(rw.ReadUint16())
 	out.IndexStart = rw.ReadUint64()
+	fmt.Printf("NATEE ParseHeader: %d, %d, %d, %d, %d\n", out.Level, out.Version, out.SecondaryIndices, out.Strategy, out.IndexStart)
 
 	if out.Version > CurrentSegmentVersion {
 		return nil, fmt.Errorf("unsupported version %d", out.Version)

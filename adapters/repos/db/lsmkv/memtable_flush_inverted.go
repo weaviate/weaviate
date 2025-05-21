@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
+	"fmt"
 	"io"
 	"math"
 	"os"
@@ -83,6 +84,7 @@ func (m *Memtable) flushDataInverted(f *bufio.Writer, ff *os.File) ([]segmentind
 		tombstoneBuffer = tombstones.ToBuffer()
 	}
 
+	fmt.Println("NATEE flushDataInverted start")
 	header := segmentindex.Header{
 		// TODO: checksums currently not supported for StrategyInverted,
 		//       which was introduced with segmentindex.SegmentV1. When

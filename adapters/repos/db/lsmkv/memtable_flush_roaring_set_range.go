@@ -22,6 +22,7 @@ func (m *Memtable) flushDataRoaringSetRange(f *segmentindex.SegmentFile) ([]segm
 	nodes := m.roaringSetRange.Nodes()
 
 	totalDataLength := totalPayloadSizeRoaringSetRange(nodes)
+	fmt.Printf("NATEE flushDataRoaringSetRange: %d, %d\n", totalDataLength, segmentindex.HeaderSize)
 	header := &segmentindex.Header{
 		IndexStart:       uint64(totalDataLength + segmentindex.HeaderSize),
 		Level:            0, // always level zero on a new one

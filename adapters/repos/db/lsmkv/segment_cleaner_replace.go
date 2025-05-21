@@ -172,6 +172,7 @@ func (p *segmentCleanerReplace) writeHeader(f *segmentindex.SegmentFile,
 		return fmt.Errorf("seek to beginning to write header: %w", err)
 	}
 
+	fmt.Printf("NATEE writeHeader: %d, %d, %d, %d\n", p.level, p.version, p.secondaryIndexCount, startOfIndex)
 	h := &segmentindex.Header{
 		Level:            p.level,
 		Version:          p.version,

@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
+	"fmt"
 	"io"
 	"maps"
 	"math"
@@ -390,6 +391,7 @@ func (c *compactorInverted) writeHeader(level, version, secondaryIndices uint16,
 		return errors.Wrap(err, "seek to beginning to write header")
 	}
 
+	fmt.Printf("NATEE writeHeader: %d, %d, %d, %d\n", level, version, secondaryIndices, startOfIndex)
 	h := &segmentindex.Header{
 		Level:            level,
 		Version:          version,

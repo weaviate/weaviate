@@ -108,6 +108,7 @@ func NewWriter(w io.WriteSeeker, maxNewFileSize int64) (Writer, *MemoryWriter) {
 func WriteHeader(mw *MemoryWriter, w io.WriteSeeker, bufw Writer, f *segmentindex.SegmentFile,
 	level, version, secondaryIndices uint16, startOfIndex uint64, strategy segmentindex.Strategy,
 ) error {
+	fmt.Printf("NATEE WriteHeader: %d, %d, %d, %d\n", level, version, secondaryIndices, startOfIndex)
 	h := &segmentindex.Header{
 		Level:            level,
 		Version:          version,
