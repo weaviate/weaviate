@@ -15,8 +15,6 @@ import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 )
 
-
-
 func (m *BigramModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
 
 	return m.graphqlProvider.Arguments()

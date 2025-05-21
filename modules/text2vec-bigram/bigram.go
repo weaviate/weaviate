@@ -47,8 +47,6 @@ type BigramModule struct {
 	activeVectoriser             string
 }
 
-
-
 func (m *BigramModule) Name() string {
 	return Name
 }
