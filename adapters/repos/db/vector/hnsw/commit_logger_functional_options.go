@@ -11,7 +11,11 @@
 
 package hnsw
 
-import "github.com/weaviate/weaviate/usecases/memwatch"
+import (
+	"time"
+
+	"github.com/weaviate/weaviate/usecases/memwatch"
+)
 
 type CommitlogOption func(l *hnswCommitLogger) error
 
@@ -39,6 +43,34 @@ func WithAllocChecker(mm memwatch.AllocChecker) CommitlogOption {
 func WithCondensor(condensor Condensor) CommitlogOption {
 	return func(l *hnswCommitLogger) error {
 		l.condensor = condensor
+		return nil
+	}
+}
+
+func WithSnapshotDisabled(disabled bool) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.snapshotDisabled = disabled
+		return nil
+	}
+}
+
+func WithSnapshotCreateInterval(interval time.Duration) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.snapshotCreateInterval = interval
+		return nil
+	}
+}
+
+func WithSnapshotMinDeltaCommitlogsNumer(number int) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.snapshotMinDeltaCommitlogsNumber = number
+		return nil
+	}
+}
+
+func WithSnapshotMinDeltaCommitlogsSizePercentage(percentage int) CommitlogOption {
+	return func(l *hnswCommitLogger) error {
+		l.snapshotMinDeltaCommitlogsSizePercentage = percentage
 		return nil
 	}
 }

@@ -784,6 +784,16 @@ func TestGetLastUsageMultinode(t *testing.T) {
 		timeout := time.Minute
 		err := firstNode.Container().Stop(ctx, &timeout)
 		require.NoError(t, err)
+
+		// wait to make sure that node is gone
+		start := time.Now()
+		for time.Since(start) < timeout {
+			_, err = helper.Client(t).Meta.MetaGet(meta.NewMetaGetParams(), nil)
+			if err != nil {
+				break
+			}
+			time.Sleep(time.Second)
+		}
 		time.Sleep(time.Second * 5) // wait to make sure that node is gone
 		_, err = helper.Client(t).Meta.MetaGet(meta.NewMetaGetParams(), nil)
 		require.Error(t, err)

@@ -43,7 +43,7 @@ type ShardLoader interface {
 // dependency between the copier and the db package.
 type RemoteIndex interface {
 	// PauseFileActivity See adapters/clients.RemoteIndex.PauseFileActivity
-	PauseFileActivity(ctx context.Context, hostName, indexName, shardName string) error
+	PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error
 	// ResumeFileActivity See adapters/clients.RemoteIndex.ResumeFileActivity
 	ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error
 	// ListFiles See adapters/clients.RemoteIndex.ListFiles
@@ -55,7 +55,10 @@ type RemoteIndex interface {
 	// GetFile See adapters/clients.RemoteIndex.GetFile
 	GetFile(ctx context.Context,
 		hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
-	// SetAsyncReplicationTargetNode See adapters/clients.RemoteIndex.SetAsyncReplicationTargetNode
-	SetAsyncReplicationTargetNode(ctx context.Context,
+	// AddAsyncReplicationTargetNode See adapters/clients.RemoteIndex.AddAsyncReplicationTargetNode
+	AddAsyncReplicationTargetNode(ctx context.Context,
+		hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error
+	// RemoveAsyncReplicationTargetNode See adapters/clients.RemoteIndex.RemoveAsyncReplicationTargetNode
+	RemoveAsyncReplicationTargetNode(ctx context.Context,
 		hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 }

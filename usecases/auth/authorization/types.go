@@ -48,6 +48,7 @@ const (
 	CollectionsDomain = "collections"
 	TenantsDomain     = "tenants"
 	DataDomain        = "data"
+	ReplicateDomain   = "replicate"
 )
 
 var (
@@ -78,6 +79,10 @@ var (
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
+	}
+	AllReplicate = &models.PermissionReplicate{
+		Collection: All,
+		Shard:      All,
 	}
 
 	ComponentName = "RBAC"
@@ -115,6 +120,11 @@ var (
 	ReadTenants   = "read_tenants"
 	UpdateTenants = "update_tenants"
 	DeleteTenants = "delete_tenants"
+
+	CreateReplicate = "create_replicate"
+	ReadReplicate   = "read_replicate"
+	UpdateReplicate = "update_replicate"
+	DeleteReplicate = "delete_replicate"
 
 	availableWeaviateActions = []string{
 		// Roles domain
@@ -156,6 +166,12 @@ var (
 		ReadTenants,
 		UpdateTenants,
 		DeleteTenants,
+
+		// Replicate domain
+		CreateReplicate,
+		ReadReplicate,
+		UpdateReplicate,
+		DeleteReplicate,
 	}
 )
 
@@ -416,6 +432,26 @@ func Backups(classes ...string) []string {
 	}
 
 	return resources
+}
+
+// Replications generates a replication resource string for a given class and shard.
+//
+// Parameters:
+//   - class: The class name for the resource. If empty, defaults to "*".
+//   - shard: The shard name for the resource. If empty, defaults to "*".
+//
+// Returns:
+//
+//	A slice of strings representing the resource paths for the given class and shards.
+func Replications(class, shard string) string {
+	class = schema.UppercaseClassName(class)
+	if class == "" {
+		class = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	return fmt.Sprintf("%s/collections/%s/shards/%s", ReplicateDomain, class, shard)
 }
 
 // WildcardPath returns the appropriate wildcard path based on the domain and original resource path.

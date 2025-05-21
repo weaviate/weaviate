@@ -123,22 +123,18 @@ func (l *Logger) AddMuvera(data multivector.MuveraData) error {
 	binary.Write(&buf, binary.LittleEndian, data.DProjections) // 4
 	binary.Write(&buf, binary.LittleEndian, data.Repetitions)  // 4
 
-	i := 0
 	for _, gaussian := range data.Gaussians {
 		for _, cluster := range gaussian {
 			for _, el := range cluster {
 				binary.Write(&buf, binary.LittleEndian, math.Float32bits(el))
-				i++
 			}
 		}
 	}
 
-	i = 0
 	for _, matrix := range data.S {
 		for _, vector := range matrix {
 			for _, el := range vector {
 				binary.Write(&buf, binary.LittleEndian, math.Float32bits(el))
-				i++
 			}
 		}
 	}

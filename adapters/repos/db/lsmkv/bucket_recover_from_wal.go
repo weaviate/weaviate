@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"bufio"
 	"context"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -75,19 +76,23 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		logOnceWhenRecoveringFromWAL.Do(func() {
 			b.logger.WithField("action", "lsm_recover_from_active_wal").
 				WithField("path", b.dir).
-				Warning("active write-ahead-log found. Did weaviate crash prior to this?")
+				Debug("active write-ahead-log found")
 		})
 	}
 
 	// recover from each log
-	for _, fname := range walFileNames {
+	for i, fname := range walFileNames {
+		walForActiveMemtable := i == len(walFileNames)-1
+
 		path := filepath.Join(b.dir, strings.TrimSuffix(fname, ".wal"))
 
 		cl, err := newCommitLogger(path, b.strategy)
 		if err != nil {
 			return errors.Wrap(err, "init commit logger")
 		}
-		defer cl.close()
+		if !walForActiveMemtable {
+			defer cl.close()
+		}
 
 		cl.pause()
 		defer cl.unpause()
@@ -98,7 +103,12 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 			return err
 		}
 
-		meteredReader := diskio.NewMeteredReader(bufio.NewReader(cl.file), b.metrics.TrackStartupReadWALDiskIO)
+		_, err = cl.file.Seek(0, io.SeekStart)
+		if err != nil {
+			return err
+		}
+
+		meteredReader := diskio.NewMeteredReader(bufio.NewReaderSize(cl.file, 32*1024), b.metrics.TrackStartupReadWALDiskIO)
 
 		err = newCommitLoggerParser(b.strategy, meteredReader, mt).Do()
 		if err != nil {
@@ -110,16 +120,24 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		if mt.strategy == StrategyInverted {
 			mt.averagePropLength, _ = b.disk.GetAveragePropertyLength()
 		}
-		if err := mt.flush(); err != nil {
-			return errors.Wrap(err, "flush memtable after WAL recovery")
-		}
+		if walForActiveMemtable {
+			_, err = cl.file.Seek(0, io.SeekEnd)
+			if err != nil {
+				return err
+			}
+			b.active = mt
+		} else {
+			if err := mt.flush(); err != nil {
+				return errors.Wrap(err, "flush memtable after WAL recovery")
+			}
 
-		if mt.Size() == 0 {
-			continue
-		}
+			if mt.Size() == 0 {
+				continue
+			}
 
-		if err := b.disk.add(path + ".db"); err != nil {
-			return err
+			if err := b.disk.add(path + ".db"); err != nil {
+				return err
+			}
 		}
 
 		if b.strategy == StrategyReplace && b.monitorCount {

@@ -59,7 +59,6 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		scheduler:             scheduler,
 		indexCheckpoints:      indexCheckpoints,
 
-		shut:         false,
 		shutdownLock: new(sync.RWMutex),
 
 		status:                          ShardStatus{Status: storagestate.StatusLoading},

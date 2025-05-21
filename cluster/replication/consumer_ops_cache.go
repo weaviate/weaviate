@@ -88,6 +88,18 @@ func (c *OpsCache) Cancel(opId uint64) bool {
 	return true
 }
 
+func (c *OpsCache) CancelAll() {
+	c.cancels.Range(func(key, value any) bool {
+		cancel, ok := value.(context.CancelFunc)
+		if ok {
+			cancel()
+		}
+
+		// Iterate on all
+		return true
+	})
+}
+
 func (c *OpsCache) DeleteInFlight(opId uint64) {
 	c.cancels.Delete(opId)
 	c.inFlight.Delete(opId)

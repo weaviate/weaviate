@@ -753,8 +753,11 @@ func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
 		return v, nil
 	}).Maybe()
 	replicationFsmMock := replicationTypes.NewMockReplicationFSMReader(f.t)
-	replicationFsmMock.On("FilterOneShardReplicasReadWrite", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
-		return shardReplicasLocation, shardReplicasLocation
+	replicationFsmMock.On("FilterOneShardReplicasRead", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) []string {
+		return shardReplicasLocation
+	}).Maybe()
+	replicationFsmMock.On("FilterOneShardReplicasWrite", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+		return shardReplicasLocation, []string{}
 	}).Maybe()
 	router := clusterRouter.New(f.log, clusterState, schemaReaderMock, replicationFsmMock)
 	return router
