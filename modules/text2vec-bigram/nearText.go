@@ -16,7 +16,6 @@ import (
 )
 
 func (m *BigramModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
-
 	return m.graphqlProvider.Arguments()
 }
 
