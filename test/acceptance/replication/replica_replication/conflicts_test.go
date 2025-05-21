@@ -24,7 +24,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateCancelOpsEndpoints() {
+func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateConflictsCOPY() {
 	t := suite.T()
 
 	paragraphClass := articles.ParagraphsClass()
@@ -80,7 +80,9 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateCancelOpsEnd
 	})
 }
 
-func TestReplicationReplicateConflictsMOVE(t *testing.T) {
+func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateConflictsMOVE() {
+	t := suite.T()
+
 	paragraphClass := articles.ParagraphsClass()
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)
