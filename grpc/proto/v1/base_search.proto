@@ -37,8 +37,9 @@ message VectorForTarget {
 
 message SearchOperatorOptions {
   enum Operator {
-    OPERATOR_OR = 0;
-    OPERATOR_AND = 1;
+    OPERATOR_UNSPECIFIED = 0;
+    OPERATOR_OR = 1;
+    OPERATOR_AND = 2;
   }
   Operator operator = 1;
   optional int32 minimum_or_token_match = 2;
