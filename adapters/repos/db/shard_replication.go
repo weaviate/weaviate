@@ -59,6 +59,7 @@ func (p *pendingReplicaTasks) delete(requestID string) {
 }
 
 func (s *Shard) commitReplication(ctx context.Context, requestID string, backupReadLock *shardTransfer) interface{} {
+	fmt.Println("commitReplication", requestID)
 	f, ok := s.replicationMap.get(requestID)
 	if !ok {
 		return nil
@@ -71,6 +72,7 @@ func (s *Shard) commitReplication(ctx context.Context, requestID string, backupR
 }
 
 func (s *Shard) abortReplication(ctx context.Context, requestID string) replica.SimpleResponse {
+	fmt.Println("abortReplication", requestID)
 	s.replicationMap.delete(requestID)
 	return replica.SimpleResponse{}
 }
@@ -92,6 +94,7 @@ func (s *Shard) preparePutObject(ctx context.Context, requestID string, object *
 		return resp
 	}
 	s.replicationMap.set(requestID, task)
+	fmt.Println("preparePutObject", requestID)
 	return replica.SimpleResponse{}
 }
 
