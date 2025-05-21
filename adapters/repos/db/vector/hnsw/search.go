@@ -41,8 +41,10 @@ const (
 	RRE
 
 	epsilon  = 0.0001
-	maxSteps = 6
-	minSteps = 1
+	Pd       = 0.5
+	Pt       = 0.5
+	T        = 0.7
+	maxSteps = 4
 )
 
 func (h *hnsw) searchTimeEF(k int) int {
@@ -306,12 +308,10 @@ func (h *hnsw) searchLayerByVector2ndPhase(ctx context.Context,
 			shouldCalculateDist := allowList.Contains(neighborID)
 
 			if !shouldCalculateDist {
-				if oEntryPointDistance > candidate.Dist {
-					oEntryPointDistance = candidate.Dist
-				}
-				distPos := (candidate.Dist - oEntryPointDistance) / (worstResultDistance - oEntryPointDistance)
-				targetSteps := maxSteps - int(distPos*(maxSteps-minSteps))
-				shouldCalculateDist = candidate.StepsSinceLastCalc >= targetSteps
+				shouldCalculateOnPath := float32(math.Min(1, float64(candidate.StepsSinceLastCalc)/maxSteps))
+				shouldCalculateOnDist := 1 - candidate.Dist/worstResultDistance
+
+				shouldCalculateDist = Pt*shouldCalculateOnPath+Pd*shouldCalculateOnDist > T
 			}
 
 			if shouldCalculateDist {
