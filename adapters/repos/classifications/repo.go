@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/classification"
+	"github.com/weaviate/weaviate/usecases/global"
 	bolt "go.etcd.io/bbolt"
 )
 
@@ -79,6 +80,9 @@ func (r *Repo) init() error {
 }
 
 func (r *Repo) Put(ctx context.Context, classification models.Classification) error {
+	if global.Manager().IsShutdownInProgress() {
+		return global.ErrServerShuttingDown
+	}
 	classificationJSON, err := json.Marshal(classification)
 	if err != nil {
 		return errors.Wrap(err, "marshal classification to JSON")
@@ -91,6 +95,9 @@ func (r *Repo) Put(ctx context.Context, classification models.Classification) er
 }
 
 func (r *Repo) Get(ctx context.Context, id strfmt.UUID) (*models.Classification, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, errors.New("server is shutting down")
+	}
 	var classificationJSON []byte
 	r.db.View(func(tx *bolt.Tx) error {
 		b := tx.Bucket(classificationsBucket)

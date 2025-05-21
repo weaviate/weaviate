@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/entities/classcache"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/global"
 	"github.com/weaviate/weaviate/usecases/objects/validation"
 )
 
@@ -34,6 +35,9 @@ var errEmptyObjects = NewErrInvalidUserInput("invalid param 'objects': cannot be
 func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, fields []*string, repl *additional.ReplicationProperties,
 ) (BatchObjects, error) {
+	if global.Manager().ShouldRejectRequests() {
+		return nil, NewErrInternal("server is shutting down")
+	}
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	classesShards := make(map[string][]string)
@@ -68,12 +72,18 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 func (b *BatchManager) AddObjectsGRPCAfterAuth(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
+	if global.Manager().ShouldRejectRequests() {
+		return nil, NewErrInternal("server is shutting down")
+	}
 	return b.addObjects(ctx, principal, objects, repl, fetchedClasses)
 }
 
 func (b *BatchManager) addObjects(ctx context.Context, principal *models.Principal,
 	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
+	if global.Manager().IsShutdownInProgress() {
+		return nil, NewErrInternal("server is shutting down")
+	}
 	ctx = classcache.ContextWithClassCache(ctx)
 
 	before := time.Now()
