@@ -41,10 +41,8 @@ const (
 	RRE
 
 	epsilon  = 0.0001
-	Pd       = 0.5
-	Pt       = 0.5
-	T        = 0.7
-	maxSteps = 4
+	maxSteps = 6
+	minSteps = 1
 )
 
 func (h *hnsw) searchTimeEF(k int) int {
@@ -164,18 +162,18 @@ func (h *hnsw) cacheSize() int64 {
 }
 
 func (h *hnsw) acornEnabled(allowList helpers.AllowList) bool {
-	return false /*allowList != nil /*
-	if allowList == nil || !h.acornSearch.Load() {
-		return false
-	}
-
-		cacheSize := h.cacheSize()
-		allowListSize := allowList.Len()
-		if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > float32(h.acornFilterRatio) {
+	return allowList != nil /*
+		if allowList == nil || !h.acornSearch.Load() {
 			return false
 		}
 
-		return true*/
+			cacheSize := h.cacheSize()
+			allowListSize := allowList.Len()
+			if cacheSize != 0 && float32(allowListSize)/float32(cacheSize) > float32(h.acornFilterRatio) {
+				return false
+			}
+
+			return true*/
 }
 
 func (h *hnsw) searchLayerByVectorWithDistancer(ctx context.Context,
@@ -308,10 +306,8 @@ func (h *hnsw) searchLayerByVector2ndPhase(ctx context.Context,
 			shouldCalculateDist := allowList.Contains(neighborID)
 
 			if !shouldCalculateDist {
-				shouldCalculateOnPath := float32(math.Min(1, float64(candidate.StepsSinceLastCalc)/maxSteps))
-				shouldCalculateOnDist := 1 - candidate.Dist/worstResultDistance
-
-				shouldCalculateDist = Pt*shouldCalculateOnPath+Pd*shouldCalculateOnDist > T
+				targetSteps := minSteps + int(candidate.Dist/worstResultDistance*(maxSteps-minSteps))
+				shouldCalculateDist = candidate.StepsSinceLastCalc >= targetSteps
 			}
 
 			if shouldCalculateDist {
