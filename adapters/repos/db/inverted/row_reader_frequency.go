@@ -64,6 +64,8 @@ func (rr *RowReaderFrequency) Read(ctx context.Context, readFn ReadFn) error {
 		return rr.lessThan(ctx, readFn, true)
 	case filters.OperatorLike:
 		return rr.like(ctx, readFn)
+	case filters.OperatorNotLike:
+		return rr.notLike(ctx, readFn)
 	default:
 		return fmt.Errorf("operator %v supported", rr.operator)
 	}
@@ -166,6 +168,40 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 	c := rr.newCursor(lsmkv.MapListAcceptDuplicates())
 	defer c.Close()
 
+	return rr.likeHelper(ctx, like, c, func(k []byte, v []lsmkv.MapPair) (bool, error) {
+		return readFn(k, rr.transformToBitmap(v))
+	})
+}
+
+func (rr *RowReaderFrequency) notLike(ctx context.Context, readFn ReadFn) error {
+	like, err := parseLikeRegexp(rr.value)
+	if err != nil {
+		return fmt.Errorf("parse notLike value: %w", err)
+	}
+
+	// TODO: don't we need to check here if this is a doc id vs a object search?
+	// Or is this not a problem because the latter removes duplicates anyway?
+	c := rr.newCursor(lsmkv.MapListAcceptDuplicates())
+	defer c.Close()
+
+	likeMap := sroar.NewBitmap()
+	if err := rr.likeHelper(ctx, like, c, func(k []byte, v []lsmkv.MapPair) (bool, error) {
+		likeMap.Or(rr.transformToBitmap(v))
+		return true, nil
+	}); err != nil {
+		return err
+	}
+
+	// Invert the Equal results for an efficient NotEqual
+	inverted := rr.bitmapFactory.GetBitmap()
+	inverted.AndNot(likeMap)
+	_, err = readFn(rr.value, inverted)
+	return err
+}
+
+type rowOperationFreq func([]byte, []lsmkv.MapPair) (bool, error)
+
+func (rr *RowReaderFrequency) likeHelper(ctx context.Context, like *likeRegexp, c *lsmkv.CursorMap, rp rowOperationFreq) error {
 	var (
 		initialK []byte
 		initialV []lsmkv.MapPair
@@ -200,7 +236,8 @@ func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
 		}
 
 		continueReading, err := readFn(k, rr.transformToBitmap(v), noopRelease)
-		if err != nil {
+
+    if err != nil {
 			return err
 		}
 
