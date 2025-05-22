@@ -89,6 +89,7 @@ type SegmentGroup struct {
 	lastCompactionCall time.Time
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
+	bitmapBufPool                  roaringset.BitmapBufPool
 	bm25config                     *schema.BM25Config
 }
 
@@ -140,6 +141,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		lastCompactionCall:       now,
 		lastCleanupCall:          now,
 		MinMMapSize:              cfg.MinMMapSize,
+
+		bitmapBufPool: roaringset.NewBitmapBufPool2(1.25),
 	}
 
 	segmentIndex := 0
@@ -655,15 +658,27 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []*segm
 	return out[:i], outSegments[:i], release, nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, error) {
+func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, err error) {
 	segments, release := sg.getAndLockSegments()
 	defer release()
 
-	var out roaringset.BitmapLayers
-
 	// start with first and do not exit
+	got := false
+	var layer roaringset.BitmapLayer
+	layerRelease := noopRelease
 	for _, segment := range segments {
-		layer, err := segment.roaringSetGet(key)
+		if !got {
+			layer, layerRelease, err = segment.roaringSetGet(key, sg.bitmapBufPool)
+			if err != nil {
+				if errors.Is(err, lsmkv.NotFound) {
+					continue
+				}
+				return nil, err
+			}
+
+		}
+
+		layer, _, err := segment.roaringSetGet(key)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
