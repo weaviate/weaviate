@@ -13,10 +13,11 @@ package sharding
 
 import (
 	"context"
-	"encoding/json"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"sync"
 	"sync/atomic"
@@ -24,8 +25,10 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 
-	"github.com/weaviate/weaviate/adapters/handlers/indices/grpc/proto"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/dto"
@@ -35,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -71,7 +75,7 @@ type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
 }
 type RemoteIndexGRPCClient interface {
-	BatchPutObjects(ctx context.Context, req *proto.BatchPutObjectsRequest) (*proto.BatchPutObjectsResponse, error)
+	BatchObjects(ctx context.Context, in *pb.BatchObjectsRequest, opts ...grpc.CallOption) (*pb.BatchObjectsReply, error)
 }
 
 type RemoteIndexClient interface {
@@ -154,67 +158,60 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 			owner), len(objs))
 	}
 
-	// Convert all objects to proto format
-	protoObjects := make([]*proto.Object, len(objs))
+	if !ri.grpcEnabled || ri.grpcClient != nil {
+		return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil, schemaVersion)
+	}
+
+	// Convert to protocol/v1 format
+	batchObjects := make([]*pb.BatchObject, len(objs))
 	for i, obj := range objs {
-		// Create the object model with all fields
-		objectModel := &proto.ObjectModel{
-			Uuid:               []byte(obj.ID()),
-			Class:              ri.class,
-			Properties:         make(map[string]*proto.PropertyValue),
-			Additional:         make(map[string][]byte),
-			CreationTimeUnix:   obj.CreationTimeUnix(),
-			LastUpdateTimeUnix: obj.LastUpdateTimeUnix(),
-			Vector:             obj.Vector,
-			VectorWeights:      func() []byte { b, _ := json.Marshal(obj.VectorWeights()); return b }(),
-			Vectors:            make(map[string]*proto.Vector),
+		// Convert properties to structpb.Struct
+		props := &structpb.Struct{
+			Fields: make(map[string]*structpb.Value),
 		}
-
-		// Convert properties
-		if props := obj.Properties(); props != nil {
-			for k, v := range props.(map[string]interface{}) {
-				objectModel.Properties[k] = convertToPropertyValue(v)
-			}
-		}
-
-		// Convert additional properties
-		if additional := obj.AdditionalProperties(); additional != nil {
-			for k, v := range additional {
-				if bytes, err := json.Marshal(v); err == nil {
-					objectModel.Additional[k] = bytes
+		if propsMap, ok := obj.Properties().(map[string]interface{}); ok {
+			for k, v := range propsMap {
+				switch val := v.(type) {
+				case string:
+					props.Fields[k] = structpb.NewStringValue(val)
+				case float64:
+					props.Fields[k] = structpb.NewNumberValue(val)
+				case bool:
+					props.Fields[k] = structpb.NewBoolValue(val)
 				}
 			}
 		}
 
-		// Convert vectors
-		if vectors := obj.Vectors; vectors != nil {
-			for k, v := range vectors {
-				objectModel.Vectors[k] = &proto.Vector{Values: v}
-			}
-		}
-
-		// Create the final proto object
-		protoObjects[i] = &proto.Object{
-			MarshallerVersion: 1, // Current version
-			Object:            objectModel,
-			Vector:            obj.Vector,
-			VectorLen:         int32(len(obj.Vector)),
-			BelongsToNode:     owner,
-			BelongsToShard:    shardName,
-			IsConsistent:      true, // Default to true for new objects
-			DocId:             obj.DocID,
-		}
-	}
-
-	if ri.grpcEnabled && ri.grpcClient != nil {
-		_, err := ri.grpcClient.BatchPutObjects(ctx, &proto.BatchPutObjectsRequest{
-			Objects: protoObjects,
+		// Convert vector to bytes
+		vectorBytes, err := proto.Marshal(&pb.Vectors{
+			Name: "default",
+			VectorBytes: func() []byte {
+				buf := make([]byte, len(obj.Vector)*4)
+				for i, v := range obj.Vector {
+					binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(v))
+				}
+				return buf
+			}(),
+			Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
 		})
-		return duplicateErr(fmt.Errorf("failed to put objects via gRPC: %w", err), len(objs))
+		if err != nil {
+			return duplicateErr(fmt.Errorf("failed to marshal vector: %w", err), len(objs))
+		}
 
+		batchObjects[i] = &pb.BatchObject{
+			Uuid:       string(obj.ID()),
+			Collection: string(obj.Class()),
+			Properties: &pb.BatchObject_Properties{
+				NonRefProperties: props,
+			},
+			VectorBytes: vectorBytes,
+		}
 	}
+	_, err = ri.grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{
+		Objects: batchObjects,
+	})
 
-	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil, schemaVersion)
+	return duplicateErr(fmt.Errorf("failed to put objects via gRPC: %w", err), len(objs))
 }
 
 func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
@@ -594,27 +591,4 @@ func (ri *RemoteIndex) queryReplicas(
 		return queryUntil(replicas[:first])
 	}
 	return
-}
-
-func convertToPropertyValue(v interface{}) *proto.PropertyValue {
-	propValue := &proto.PropertyValue{}
-	switch val := v.(type) {
-	case string:
-		propValue.Value = &proto.PropertyValue_Text{Text: val}
-	case int64:
-		propValue.Value = &proto.PropertyValue_Number{Number: val}
-	case bool:
-		propValue.Value = &proto.PropertyValue_Boolean{Boolean: val}
-	case []byte:
-		propValue.Value = &proto.PropertyValue_Blob{Blob: val}
-	case []string:
-		propValue.Value = &proto.PropertyValue_TextArray{TextArray: &proto.TextArray{Values: val}}
-	case []int64:
-		propValue.Value = &proto.PropertyValue_NumberArray{NumberArray: &proto.NumberArray{Values: val}}
-	case []bool:
-		propValue.Value = &proto.PropertyValue_BooleanArray{BooleanArray: &proto.BooleanArray{Values: val}}
-	case [][]byte:
-		propValue.Value = &proto.PropertyValue_BlobArray{BlobArray: &proto.BlobArray{Values: val}}
-	}
-	return propValue
 }

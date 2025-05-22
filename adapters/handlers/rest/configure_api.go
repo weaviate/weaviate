@@ -45,7 +45,7 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
-	internalgrpc "github.com/weaviate/weaviate/adapters/handlers/indices/grpc"
+	grpcHandler "github.com/weaviate/weaviate/adapters/handlers/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
@@ -369,10 +369,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	// mooga
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	// TODO: pass here the grpc client satisfy the remoteIndex interface
-	remoteIndexGRPCClient, err := internalgrpc.NewIndicesClient("") // TODO pass here the grpc config
-	if err != nil {
-		appState.Logger.WithError(err).Fatal("failed to create grpc client")
-	}
+	// remoteIndexGRPCClient, err := internalgrpc.NewIndicesClient("") // TODO pass here the grpc config
+	// if err != nil {
+	// 	appState.Logger.WithError(err).Fatal("failed to create grpc client")
+	// }
+
+	conn, err := grpcHandler.CreateGrpcConnectionClient(fmt.Sprintf(":%d", appState.ServerConfig.Config.GRPC.Port))
+	grpcClient := grpcHandler.CreateGrpcWeaviateClient(conn)
 
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
 	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
@@ -419,7 +422,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			AsyncReplicationDisabled: appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
 		},
 		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-	}, remoteIndexClient, remoteIndexGRPCClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
+	}, remoteIndexClient, grpcClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -572,9 +575,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.BackupManager = backupManager
 
 	// TODO mooga start grpc server
-	indicesServer := internalgrpc.NewIndicesServer(appState)
+	// indicesServer := internalgrpc.NewIndicesServer(appState)
 	// grpcAddr := fmt.Sprintf(":%d", appState.ServerConfig.Config.GRPC.Port)
-	enterrors.GoWrapper(func() { indicesServer.StartServer() }, appState.Logger)
+	// enterrors.GoWrapper(func() { indicesServer.StartServer() }, appState.Logger)
 	enterrors.GoWrapper(func() { clusterapi.Serve(appState) }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
