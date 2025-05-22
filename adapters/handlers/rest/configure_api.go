@@ -375,6 +375,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	// }
 
 	conn, err := grpcHandler.CreateGrpcConnectionClient(fmt.Sprintf(":%d", appState.ServerConfig.Config.GRPC.Port))
+	if err != nil {
+		appState.Logger.WithError(err).Fatal("failed to create grpc client")
+	}
 	grpcClient := grpcHandler.CreateGrpcWeaviateClient(conn)
 
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
