@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"sync"
+	"runtime"
 )
 
 var theOneTrueFileStore ensemblekv.KvLike
@@ -103,6 +104,9 @@ func (c *StreamingCursor) First() ([]byte, []byte) {
 	defer c.mu.Unlock()
 
 	fmt.Printf("Moving to first item in bucket %v\n", c.prefix)
+	stackTrace:= make([]byte, 1024)
+	n := runtime.Stack(stackTrace, true)
+	fmt.Printf("Stack trace: %s\n", string(stackTrace[:n]))
 
 	c.index = 0
 	if len(c.keys) == 0 {
@@ -122,7 +126,7 @@ func (c *StreamingCursor) First() ([]byte, []byte) {
 func (c *StreamingCursor) Next() ([]byte, []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	fmt.Printf("Moving to next element in bucket %v\n", c.prefix)
+	//fmt.Printf("Moving to next element in bucket %v\n", c.prefix)
 	c.index = c.index +1
 	if c.index+1>len(c.keys) {
 		c.closed = true
