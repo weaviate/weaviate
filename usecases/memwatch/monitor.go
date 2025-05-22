@@ -23,7 +23,6 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/entities/storobj"
 )
 
 const (
@@ -316,14 +315,7 @@ func EstimateObjectMemory(object *models.Object) int64 {
 	return int64(len(object.Vector)*4 + 30)
 }
 
-func EstimateStorObjectMemory(object *storobj.Object) int64 {
-	// Note: The estimation is not super accurate. It assumes that the
-	// memory is mostly used by the vector of float32 + the fixed
-	// overhead. It assumes a fixed overhead of 46 Bytes per object
-	// (30 Bytes from the data field models.Object + 16 Bytes from
-	// remaining data fields of storobj.Object).
-	return int64(len(object.Vector)*4 + 46)
-}
+
 
 func EstimateObjectDeleteMemory() int64 {
 	// When deleting an object we attach a tombstone to the object in the HNSW and a new segment in the Memtable and

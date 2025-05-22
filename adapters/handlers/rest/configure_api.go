@@ -55,13 +55,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/router"
-	"github.com/weaviate/weaviate/entities/concurrency"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -361,8 +359,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.MemWatch = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97)
 
 	var vectorRepo vectorRepo
-	// var vectorMigrator schema.Migrator
-	// var migrator schema.Migrator
+
 
 	metricsRegisterer := monitoring.NoopRegisterer
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -415,7 +412,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			AsyncReplicationDisabled: appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
 		},
 		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
+	}, remoteIndexClient, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -430,14 +427,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	setupDebugHandlers(appState)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
-	migrator := db.NewMigrator(repo, appState.Logger)
-	migrator.SetNode(appState.Cluster.LocalName())
-	// TODO-offload: "offload-s3" has to come from config when enable modules more than S3
-	migrator.SetOffloadProvider(appState.Modules, "offload-s3")
-	appState.Migrator = migrator
+
 
 	vectorRepo = repo
-	// migrator = vectorMigrator
 	explorer := traverser.NewExplorer(repo, appState.Logger, appState.Modules, traverser.NewMetrics(appState.Metrics), appState.ServerConfig.Config)
 	schemaRepo := schemarepo.NewStore(appState.ServerConfig.Config.Persistence.DataPath, appState.Logger)
 	if err = schemaRepo.Open(); err != nil {
@@ -481,7 +473,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	addrs := strings.Split(nodeAddr, ":")
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
-	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
+	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, appState.Modules)
 	replicaCopier := copier.New(remoteIndexClient, appState.Cluster, dataPath, appState.DB)
 	rConfig := rCluster.Config{
 		WorkDir:                filepath.Join(dataPath, config.DefaultRaftDir),
@@ -524,9 +516,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.ClusterService = rCluster.New(rConfig, appState.AuthzController, appState.AuthzSnapshotter, appState.GRPCServerMetrics)
-	migrator.SetCluster(appState.ClusterService.Raft)
 
-	executor := schema.NewExecutor(migrator,
+	executor := schema.NewExecutor(
+		&schema.StubMigrator{},
 		appState.ClusterService.SchemaReader(),
 		appState.Logger, backup.RestoreClassDir(dataPath),
 	)
@@ -541,12 +533,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger,
 	)
 
-	schemaManager, err := schema.NewManager(migrator,
+	schemaManager, err := schema.NewManager(
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
 		schemaRepo,
 		appState.Logger, appState.Authorizer, &appState.ServerConfig.Config.SchemaHandlerConfig, appState.ServerConfig.Config,
-		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
+		vectorIndex.ParseAndValidateConfig, appState.Modules,
 		appState.Modules, appState.Cluster, scaler,
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
@@ -595,10 +587,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("modules didn't initialize")
 	}
 
-	var reindexCtx context.Context
-	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(context.Background())
-	reindexer := configureReindexer(appState, reindexCtx)
-	repo.WithReindexer(reindexer)
+
 
 	metaStoreReadyErr := fmt.Errorf("meta store ready")
 	metaStoreFailedErr := fmt.Errorf("meta store failed")
@@ -626,18 +615,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager)
 	appState.BatchManager = batchManager
 
-	err = migrator.AdjustFilterablePropSettings(ctx)
-	if err != nil {
-		appState.Logger.
-			WithError(err).
-			WithField("action", "adjustFilterablePropSettings").
-			Fatal("migration failed")
-		os.Exit(1)
-	}
 
 	// FIXME to avoid import cycles, tasks are passed as strings
 	reindexTaskNamesWithArgs := map[string]any{}
-	reindexFinished := make(chan error, 1)
 
 	if appState.ServerConfig.Config.ReindexSetToRoaringsetAtStartup {
 		reindexTaskNamesWithArgs["ShardInvertedReindexTaskSetToRoaringSet"] = nil
@@ -649,35 +629,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		reindexTaskNamesWithArgs["ShardInvertedReindexTask_SpecifiedIndex"] = appState.ServerConfig.Config.ReindexIndexesAtStartup
 	}
 
-	if len(reindexTaskNamesWithArgs) > 0 {
-		// start reindexing inverted indexes (if requested by user) in the background
-		// allowing db to complete api configuration and start handling requests
-		enterrors.GoWrapper(func() {
-			// wait until meta store is ready, as reindex tasks needs schema
-			<-storeReadyCtx.Done()
-			if errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
-				appState.Logger.
-					WithField("action", "startup").
-					Info("Reindexing inverted indexes")
-				reindexFinished <- migrator.InvertedReindex(reindexCtx, reindexTaskNamesWithArgs)
-			}
-		}, appState.Logger)
-	}
+
 
 	configureServer = makeConfigureServer(appState)
 
-	// Add dimensions to all the objects in the database, if requested by the user
-	if appState.ServerConfig.Config.ReindexVectorDimensionsAtStartup {
-		appState.Logger.
-			WithField("action", "startup").
-			Info("Reindexing dimensions")
-		migrator.RecalculateVectorDimensions(ctx)
-	}
 
-	// Add recount properties of all the objects in the database, if requested by the user
-	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
-		migrator.RecountProperties(ctx)
-	}
+
+
 
 	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
 		CompletionRecorder: appState.ClusterService.Raft,
@@ -709,38 +667,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	return appState
 }
 
-func configureReindexer(appState *state.State, reindexCtx context.Context) db.ShardReindexerV3 {
-	tasks := []db.ShardReindexTaskV3{}
-	logger := appState.Logger.WithField("action", "reindexV3")
-	cfg := appState.ServerConfig.Config
-	concurrency := concurrency.TimesFloatNUMCPU(cfg.ReindexerGoroutinesFactor)
-
-	if cfg.ReindexMapToBlockmaxAtStartup {
-		tasks = append(tasks, db.NewShardInvertedReindexTaskMapToBlockmax(
-			logger,
-			cfg.ReindexMapToBlockmaxConfig.SwapBuckets,
-			cfg.ReindexMapToBlockmaxConfig.UnswapBuckets,
-			cfg.ReindexMapToBlockmaxConfig.TidyBuckets,
-			cfg.ReindexMapToBlockmaxConfig.ReloadShards,
-			cfg.ReindexMapToBlockmaxConfig.Rollback,
-			cfg.ReindexMapToBlockmaxConfig.ConditionalStart,
-			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds),
-			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.PauseDurationSeconds),
-			concurrency, cfg.ReindexMapToBlockmaxConfig.Selected, appState.SchemaManager,
-		))
-	}
-
-	if len(tasks) == 0 {
-		return db.NewShardReindexerV3Noop()
-	}
-
-	reindexer := db.NewShardReindexerV3(reindexCtx, logger, appState.DB.GetIndex, concurrency)
-	for i := range tasks {
-		reindexer.RegisterTask(tasks[i])
-	}
-	reindexer.Init()
-	return reindexer
-}
 
 func parseNode2Port(appState *state.State) (m map[string]int, err error) {
 	m = make(map[string]int, len(appState.ServerConfig.Config.Raft.Join))

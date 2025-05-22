@@ -48,11 +48,10 @@ type Parser struct {
 	experimentBackwardsCompatibleNamedVectorsEnabled bool
 }
 
-func NewParser(cs clusterState, vCfg VectorConfigParser, v validator, modules modulesProvider) *Parser {
+func NewParser(cs clusterState, vCfg VectorConfigParser, modules modulesProvider) *Parser {
 	return &Parser{
 		clusterState: cs,
 		configParser: vCfg,
-		validator:    v,
 		modules:      modules,
 
 		experimentBackwardsCompatibleNamedVectorsEnabled: experimentBackwardsCompatibleNamedVectorsEnabled(),

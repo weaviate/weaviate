@@ -22,8 +22,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/modelsext"
-
-	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/classcache"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -630,7 +628,7 @@ func setInvertedConfigDefaults(class *models.Class) {
 
 	if class.InvertedIndexConfig.Stopwords == nil {
 		class.InvertedIndexConfig.Stopwords = &models.StopwordConfig{
-			Preset: stopwords.EnglishPreset,
+
 		}
 	}
 }

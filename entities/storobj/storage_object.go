@@ -24,7 +24,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/vmihailenco/msgpack/v5"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -159,7 +158,7 @@ func ObjectsByDocID(bucket bucket, ids []uint64,
 		}
 		docIDBytes := keyBuf.Bytes()
 		binary.LittleEndian.PutUint64(docIDBytes, objId)
-		objBytes, err := bucket.GetBySecondary(helpers.ObjectsBucketLSMDocIDSecondaryIndex, docIDBytes)
+		objBytes, err := bucket.GetBySecondary(-1, docIDBytes)
 
 		obj, err := FromBinary(objBytes)
 		if err == nil {
@@ -793,9 +792,7 @@ func (ko *Object) parseObject(uuid strfmt.UUID, create, update int64, className 
 		}
 	}
 
-	if err := enrichSchemaTypes(returnProps, false); err != nil {
-		return errors.Wrap(err, "enrich schema datatypes")
-	}
+	panic("TODO: remove this panic")
 
 	var additionalProperties models.AdditionalProperties
 	if len(additionalB) > 0 {

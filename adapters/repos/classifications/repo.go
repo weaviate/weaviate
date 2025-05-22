@@ -20,7 +20,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/classification"
 	bolt "go.etcd.io/bbolt"
@@ -65,7 +64,7 @@ func (r *Repo) init() error {
 	err = boltdb.Update(func(tx *bolt.Tx) error {
 		if _, err := tx.CreateBucketIfNotExists(classificationsBucket); err != nil {
 			return errors.Wrapf(err, "create classifications bucket '%s'",
-				string(helpers.ObjectsBucket))
+				"objectsbucket")
 		}
 		return nil
 	})

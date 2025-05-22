@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -29,6 +30,88 @@ import (
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
+
+type StubMigrator struct{}
+
+func (s *StubMigrator) AddClass(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) DropClass(ctx context.Context, className string, hasFrozen bool) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) AddReplicaToShard(ctx context.Context, class, shard string) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) AddProperty(ctx context.Context, className string, props ...*models.Property) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) UpdateProperty(ctx context.Context, className, propName string, newName *string) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error) {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) UpdateShardStatus(ctx context.Context, className, shardName, targetStatus string, schemaVersion uint64) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) UpdateVectorIndexConfig(ctx context.Context, className string, updated schemaConfig.VectorIndexConfig) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) UpdateVectorIndexConfigs(ctx context.Context, className string, updated map[string]schemaConfig.VectorIndexConfig) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) ValidateInvertedIndexConfigUpdate(old, updated *models.InvertedIndexConfig) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) UpdateInvertedIndexConfig(ctx context.Context, className string, updated *models.InvertedIndexConfig) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) UpdateReplicationConfig(ctx context.Context, className string, updated *models.ReplicationConfig) error {
+	panic("not implemented")
+}
+
+func (s *StubMigrator) WaitForStartup(ctx context.Context) error {
+	return nil
+}
+
+func (s *StubMigrator) Shutdown(ctx context.Context) error {
+	panic("not implemented")
+}
 
 type executor struct {
 	schemaReader SchemaReader

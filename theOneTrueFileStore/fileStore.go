@@ -18,10 +18,10 @@ func init() {
 	var err error
 
 	// Use multiple bbolt databases to store all data
-	theOneTrueFileStore, err = ensemblekv.NewEnsembleKv("/tmp/ensemblekv", 200, 999999999, 999999999, 9999999999, ensemblekv.BoltDbCreator)
+	//theOneTrueFileStore, err = ensemblekv.NewEnsembleKv("/tmp/ensemblekv", 200, 999999999, 999999999, 9999999999, ensemblekv.BoltDbCreator)
 
 	// Use S3 as the backend (or minio)
-	//theOneTrueFileStore, err = ensemblekv.NewS3Shim("http://localhost:55096", "minioadmin", "minioadmin", "defaultRegion", "weaviatebucket", "")
+	theOneTrueFileStore, err = ensemblekv.NewS3Shim("http://localhost:55096", "minioadmin", "minioadmin", "defaultRegion", "weaviatebucket", "")
 
 	if err != nil {
 		panic(err)
@@ -120,13 +120,14 @@ func (c *StreamingCursor) First() ([]byte, []byte) {
 		return nil, nil
 	}
 	trimmedKey := bytes.TrimPrefix(key, c.prefix)
+	fmt.Printf("Moving to first element in bucket %v,%sn", c.prefix, string(trimmedKey))
 	return trimmedKey, val
 }
 
 func (c *StreamingCursor) Next() ([]byte, []byte) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	//fmt.Printf("Moving to next element in bucket %v\n", c.prefix)
+
 	c.index = c.index +1
 	if c.index+1>len(c.keys) {
 		c.closed = true
@@ -144,6 +145,7 @@ key := c.keys[c.index]
 		return nil, nil
 	}
 	trimmedKey := bytes.TrimPrefix(key, c.prefix)
+	fmt.Printf("Moving to next element in bucket %v,%sn", c.prefix, string(trimmedKey))
 	if c.keyOnly {
 		return trimmedKey, nil
 	}

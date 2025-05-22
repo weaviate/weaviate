@@ -197,7 +197,7 @@ type scaleOut interface {
 }
 
 // NewManager creates a new manager
-func NewManager(validator validator,
+func NewManager(
 	schemaManager SchemaManager,
 	schemaReader SchemaReader,
 	repo SchemaStore,
@@ -205,7 +205,6 @@ func NewManager(validator validator,
 	schemaConfig *config.SchemaHandlerConfig,
 	config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
-	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
 	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
@@ -215,17 +214,15 @@ func NewManager(validator validator,
 	handler, err := NewHandler(
 		schemaReader,
 		schemaManager,
-		validator,
 		logger, authorizer,
 		schemaConfig,
-		config, configParser, vectorizerValidator, invertedConfigValidator,
+		config, configParser, vectorizerValidator,
 		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
 	m := &Manager{
-		validator:    validator,
 		repo:         repo,
 		logger:       logger,
 		clusterState: clusterState,
