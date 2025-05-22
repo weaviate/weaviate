@@ -51,6 +51,7 @@ require (
 	github.com/jonboulle/clockwork v0.5.0
 	github.com/launchdarkly/go-sdk-common/v3 v3.2.0
 	github.com/launchdarkly/go-server-sdk/v7 v7.8.0
+	github.com/mark3labs/mcp-go v0.29.0
 	github.com/minio/minio-go/v7 v7.0.84
 	github.com/nyaruka/phonenumbers v1.0.54
 	github.com/oauth2-proxy/mockoidc v0.0.0-20240214162133-caebfff84d25
@@ -201,6 +202,7 @@ require (
 	github.com/sean-/seed v0.0.0-20170313163322-e2103e2c3529 // indirect
 	github.com/shirou/gopsutil/v3 v3.24.5 // indirect
 	github.com/shoenig/go-m1cpu v0.1.6 // indirect
+	github.com/spf13/cast v1.7.1 // indirect
 	github.com/stretchr/objx v0.5.2 // indirect
 	github.com/termie/go-shutil v0.0.0-20140729215957-bcacb06fecae // indirect
 	github.com/tklauser/go-sysconf v0.3.14 // indirect
@@ -209,6 +211,7 @@ require (
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
 	github.com/willf/bitset v1.1.11 // indirect
 	github.com/xrash/smetrics v0.0.0-20240521201337-686a1a2994c1 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	github.com/yusufpapurcu/wmi v1.2.4 // indirect
 	go.mongodb.org/mongo-driver v1.14.0 // indirect
 	go.opencensus.io v0.24.0 // indirect
