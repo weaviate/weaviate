@@ -237,6 +237,17 @@ func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
 			}
 		}, 10*time.Second, 1*time.Second, "node3 doesn't have paragraph data")
 	})
+
+	t.Run("assert async replication is not running on both nodes", func(t *testing.T) {
+		verbose := verbosity.OutputVerbose
+		nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class), nil)
+		require.Nil(t, err)
+		for _, node := range nodes.Payload.Nodes {
+			for _, shard := range node.Shards {
+				require.Len(t, shard.AsyncReplicationStatus, 0)
+			}
+		}
+	})
 }
 
 func (suite *ReplicationTestSuite) TestReplicaMovementTenantHappyPath() {

@@ -351,6 +351,53 @@ func (_c *MockFSMUpdater_ReplicationRemoveReplicaOp_Call) RunAndReturn(run func(
 	return _c
 }
 
+// ReplicationSetUnCancellable provides a mock function with given fields: ctx, id
+func (_m *MockFSMUpdater) ReplicationSetUnCancellable(ctx context.Context, id uint64) error {
+	ret := _m.Called(ctx, id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplicationSetUnCancellable")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, uint64) error); ok {
+		r0 = rf(ctx, id)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockFSMUpdater_ReplicationSetUnCancellable_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationSetUnCancellable'
+type MockFSMUpdater_ReplicationSetUnCancellable_Call struct {
+	*mock.Call
+}
+
+// ReplicationSetUnCancellable is a helper method to define mock.On call
+//   - ctx context.Context
+//   - id uint64
+func (_e *MockFSMUpdater_Expecter) ReplicationSetUnCancellable(ctx interface{}, id interface{}) *MockFSMUpdater_ReplicationSetUnCancellable_Call {
+	return &MockFSMUpdater_ReplicationSetUnCancellable_Call{Call: _e.mock.On("ReplicationSetUnCancellable", ctx, id)}
+}
+
+func (_c *MockFSMUpdater_ReplicationSetUnCancellable_Call) Run(run func(ctx context.Context, id uint64)) *MockFSMUpdater_ReplicationSetUnCancellable_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationSetUnCancellable_Call) Return(_a0 error) *MockFSMUpdater_ReplicationSetUnCancellable_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockFSMUpdater_ReplicationSetUnCancellable_Call) RunAndReturn(run func(context.Context, uint64) error) *MockFSMUpdater_ReplicationSetUnCancellable_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ReplicationStoreSchemaVersion provides a mock function with given fields: ctx, id, schemaVersion
 func (_m *MockFSMUpdater) ReplicationStoreSchemaVersion(ctx context.Context, id uint64, schemaVersion uint64) error {
 	ret := _m.Called(ctx, id, schemaVersion)

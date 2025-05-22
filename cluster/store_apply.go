@@ -321,6 +321,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.replicationManager.StoreSchemaVersion(&cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SET_UNCANCELLABLE:
+		f = func() {
+			ret.Error = st.replicationManager.SetUnCancellable(&cmd)
+		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		f = func() {

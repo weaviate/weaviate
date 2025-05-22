@@ -181,3 +181,7 @@ type ReplicationStoreSchemaVersionRequest struct {
 	SchemaVersion uint64
 	Id            uint64
 }
+
+type ReplicationSetUnCancellableRequest struct {
+	Id uint64
+}
