@@ -164,6 +164,7 @@ func (state *State) MaybeRejoinMemberlistCluster(logger logrus.FieldLogger) {
 	logger.WithFields(logrus.Fields{
 		"action":     "memberlist_rejoin",
 		"node_count": nodeCount,
+		"join":       state.config.Join,
 	}).Debug("Checking for single node split-brain")
 	if nodeCount <= 1 {
 		logger.Warn("Detected single node split-brain, attempting to rejoin memberlist cluster")
@@ -174,7 +175,9 @@ func (state *State) MaybeRejoinMemberlistCluster(logger logrus.FieldLogger) {
 		}
 
 		if len(joinAddr) > 0 {
+			logger.Debug("Before rejoin")
 			_, err := state.list.Join(joinAddr)
+			logger.Debug("After rejoin")
 			if err != nil {
 				logger.WithFields(logrus.Fields{
 					"action":          "memberlist_rejoin",
