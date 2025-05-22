@@ -375,8 +375,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			}
 			logger.WithError(err).Warn("state transition handler failed")
 			// Otherwise, register the error with the FSM
-			err = c.leaderClient.ReplicationRegisterError(ctx, op.Op.ID, err.Error())
-			if err != nil {
+			if err := c.leaderClient.ReplicationRegisterError(ctx, op.Op.ID, err.Error()); err != nil {
 				logger.WithError(err).Error("failed to register error for replication operation")
 			}
 			return api.ShardReplicationState(""), err
