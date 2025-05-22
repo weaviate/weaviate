@@ -20,17 +20,17 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/storobj"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -44,7 +44,8 @@ type DB struct {
 	schemaGetter      schemaUC.SchemaGetter
 	config            Config
 	indices           map[string]*Index
-	remoteIndex       sharding.RemoteIndexClient
+	remoteIndexHTTP   sharding.RemoteIndexClient
+	remoteIndexGRPC   sharding.RemoteIndexGRPCClient
 	replicaClient     replica.Client
 	nodeResolver      nodeResolver
 	remoteNode        *sharding.RemoteNode
@@ -107,7 +108,7 @@ func (db *DB) GetConfig() Config {
 }
 
 func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
-	return db.remoteIndex
+	return db.remoteIndexHTTP
 }
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
@@ -133,8 +134,11 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
 
 func New(logger logrus.FieldLogger, config Config,
-	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
-	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
+	remoteIndexHTTP sharding.RemoteIndexClient,
+	remoteIndexGRPC sharding.RemoteIndexGRPCClient,
+	nodeResolver nodeResolver,
+	remoteNodesClient sharding.RemoteNodeClient,
+	replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 ) (*DB, error) {
 	if memMonitor == nil {
@@ -149,7 +153,8 @@ func New(logger logrus.FieldLogger, config Config,
 		logger:              logger,
 		config:              config,
 		indices:             map[string]*Index{},
-		remoteIndex:         remoteIndex,
+		remoteIndexHTTP:     remoteIndexHTTP,
+		remoteIndexGRPC:     remoteIndexGRPC,
 		nodeResolver:        nodeResolver,
 		remoteNode:          sharding.NewRemoteNode(nodeResolver, remoteNodesClient),
 		replicaClient:       replicaClient,

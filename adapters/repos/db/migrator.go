@@ -145,7 +145,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndexHTTP,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler,
 		m.db.indexCheckpoints, m.db.memMonitor, m.db.reindexer)
 	if err != nil {

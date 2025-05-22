@@ -1,0 +1,247 @@
+syntax = "proto3";
+
+
+package weaviate.handlers.indices.grpc;
+
+
+option go_package = "github.com/weaviate/weaviate/adapters/handlers/indices/grpc/proto";
+
+// IndicesService provides operations for managing indices and shards
+service IndicesService {
+  //Object operations
+  rpc PutObject(PutObjectRequest) returns (PutObjectResponse) {}
+  rpc BatchPutObjects(BatchPutObjectsRequest) returns (BatchPutObjectsResponse) {}
+  rpc GetObject(GetObjectRequest) returns (GetObjectResponse) {}
+  rpc DeleteObject(DeleteObjectRequest) returns (DeleteObjectResponse) {}
+  rpc BatchDeleteObjects(BatchDeleteObjectsRequest) returns (BatchDeleteObjectsResponse) {}
+  rpc MergeObject(MergeObjectRequest) returns (MergeObjectResponse) {}
+  rpc MultiGetObjects(MultiGetObjectsRequest) returns (MultiGetObjectsResponse) {}
+
+  // Search operations
+  rpc SearchShard(SearchShardRequest) returns (SearchShardResponse) {}
+  rpc Aggregate(AggregateRequest) returns (AggregateResponse) {}
+
+  // Shard operations
+  rpc GetShardQueueSize(GetShardQueueSizeRequest) returns (GetShardQueueSizeResponse) {}
+  rpc GetShardStatus(GetShardStatusRequest) returns (GetShardStatusResponse) {}
+  rpc UpdateShardStatus(UpdateShardStatusRequest) returns (UpdateShardStatusResponse) {}
+  rpc CreateShard(CreateShardRequest) returns (CreateShardResponse) {}
+  rpc ReInitShard(ReInitShardRequest) returns (ReInitShardResponse) {}
+}
+
+// Common message types
+message Object {
+  uint32 marshaller_version = 1;
+  ObjectModel object = 2;
+  repeated float vector = 3;
+  int32 vector_len = 4;
+  string belongs_to_node = 5;
+  string belongs_to_shard = 6;
+  bool is_consistent = 7;
+  uint64 doc_id = 8;
+  map<string, Vector> vectors = 9;
+  map<string, MultiVector> multivectors = 10;
+}
+
+message ObjectModel {
+  // ID of the Object
+  bytes uuid = 1;
+  
+  // Class of the Object, defined in the schema
+  string class = 2;
+  
+  // Properties of the object
+  map<string, PropertyValue> properties = 3;
+  
+  // Additional properties
+  map<string, bytes> additional = 4;
+  
+  // Timestamp of creation of this object in milliseconds since epoch UTC
+  int64 creation_time_unix = 5;
+  
+  // Timestamp of the last object update in milliseconds since epoch UTC
+  int64 last_update_time_unix = 6;
+  
+  // Name of the Objects tenant
+  string tenant = 7;
+  
+  // Vector associated with the Object
+  repeated float vector = 8;
+  
+  // Vector weights stored as serialized bytes
+  bytes vector_weights = 9;
+  
+  // Multiple vectors associated with the Object
+  map<string, Vector> vectors = 10;
+}
+
+message PropertyValue {
+  oneof value {
+    string text = 1;
+    int64 number = 2;
+    bool boolean = 3;
+    bytes blob = 4;
+    TextArray text_array = 5;
+    NumberArray number_array = 6;
+    BooleanArray boolean_array = 7;
+    BlobArray blob_array = 8;
+    ReferenceArray reference_array = 9;
+    Reference reference = 10;
+  }
+}
+
+message TextArray {
+  repeated string values = 1;
+}
+
+message NumberArray {
+  repeated int64 values = 1;
+}
+
+message BooleanArray {
+  repeated bool values = 1;
+}
+
+message BlobArray {
+  repeated bytes values = 1;
+}
+
+message ReferenceArray {
+  repeated Reference values = 1;
+}
+
+message Reference {
+  bytes uuid = 1;
+  string beacon = 2;
+  string class_name = 3;
+}
+
+message Vector {
+  repeated float values = 1;
+}
+
+message MultiVector {
+  repeated Vector vectors = 1;
+}
+
+message ShardStatus {
+  string status = 1;
+  int64 version = 2;
+}
+
+// Request/Response messages for object operations
+message PutObjectRequest {
+  Object object = 1;
+  string shard = 2;
+}
+
+message PutObjectResponse {
+  bytes uuid = 1;
+}
+
+message BatchPutObjectsRequest {
+  repeated Object objects = 1;
+  string shard = 2;
+}
+
+message BatchPutObjectsResponse {
+  repeated bytes uuids = 1;
+}
+
+message GetObjectRequest {
+  bytes uuid = 1;
+  string shard = 2;
+}
+
+message GetObjectResponse {
+  Object object = 1;
+}
+
+message DeleteObjectRequest {
+  bytes uuid = 1;
+  string shard = 2;
+}
+
+message DeleteObjectResponse {}
+
+message BatchDeleteObjectsRequest {
+  repeated bytes uuids = 1;
+  string shard = 2;
+}
+
+message BatchDeleteObjectsResponse {}
+
+message MergeObjectRequest {
+  Object object = 1;
+  string shard = 2;
+}
+
+message MergeObjectResponse {}
+
+message MultiGetObjectsRequest {
+  repeated bytes uuids = 1;
+  string shard = 2;
+}
+
+message MultiGetObjectsResponse {
+  repeated Object objects = 1;
+}
+
+// Request/Response messages for search operations
+message SearchShardRequest {
+  string shard = 1;
+  bytes query = 2;
+  map<string, bytes> params = 3;
+}
+
+message SearchShardResponse {
+  repeated Object objects = 1;
+  bytes metadata = 2;
+}
+
+message AggregateRequest {
+  string shard = 1;
+  bytes query = 2;
+  map<string, bytes> params = 3;
+}
+
+message AggregateResponse {
+  bytes result = 1;
+}
+
+// Request/Response messages for shard operations
+message GetShardQueueSizeRequest {
+  string shard = 1;
+}
+
+message GetShardQueueSizeResponse {
+  int64 size = 1;
+}
+
+message GetShardStatusRequest {
+  string shard = 1;
+}
+
+message GetShardStatusResponse {
+  ShardStatus status = 1;
+}
+
+message UpdateShardStatusRequest {
+  string shard = 1;
+  ShardStatus status = 2;
+}
+
+message UpdateShardStatusResponse {}
+
+message CreateShardRequest {
+  string shard = 1;
+  string class = 2;
+}
+
+message CreateShardResponse {}
+
+message ReInitShardRequest {
+  string shard = 1;
+}
+
+message ReInitShardResponse {} 
