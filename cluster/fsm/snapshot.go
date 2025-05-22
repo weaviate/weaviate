@@ -27,6 +27,8 @@ type Snapshot struct {
 	Schema []byte `json:"schema,omitempty"`
 	// RBAC is the rbac that will be used to restore the FSM
 	RBAC []byte `json:"rbac,omitempty"`
+	// DbUsers is the state of dynamic db users that will be used to restore the FSM
+	DbUsers []byte `json:"dbusers,omitempty"`
 }
 
 // Snapshotter is used to snapshot and restore any (FSM) state
