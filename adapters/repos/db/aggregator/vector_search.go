@@ -70,13 +70,16 @@ func (a *Aggregator) searchByVectorDistance(ctx context.Context, searchVector mo
 func (a *Aggregator) objectVectorSearch(ctx context.Context, searchVector models.Vector,
 	allowList helpers.AllowList,
 ) ([]*storobj.Object, []float32, error) {
+	fmt.Printf("objectVectorSearch: %v\n", searchVector)
 	ids, dists, err := a.vectorSearch(ctx, allowList, searchVector)
 	if err != nil {
 		return nil, nil, err
 	}
+	fmt.Printf("objectVectorSearch: ids: %v\n", ids)
 
 	bucket := a.store.Bucket(helpers.ObjectsBucketLSM)
 	objs, err := storobj.ObjectsByDocID(bucket, ids, additional.Properties{}, nil, a.logger)
+	fmt.Printf("objectVectorSearch: objs: %v\n", objs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("get objects by doc id: %w", err)
 	}
