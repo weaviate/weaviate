@@ -115,7 +115,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		rerr = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
 	}()
 
-	contentReader, err := reader.NewLocalContentReader(path)
+	contentReader, err := reader.NewS3ContentReader(path)
 	if err != nil {
 		return nil, fmt.Errorf("creating segment content reader: %w", err)
 	}
