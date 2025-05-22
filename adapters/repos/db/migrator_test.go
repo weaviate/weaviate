@@ -102,6 +102,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 				db: &DB{
 					schemaGetter: mockSchemaGetter,
 				},
+				logger: logger,
 				nodeId: "node1",
 			}
 
