@@ -120,6 +120,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("creating segment content reader: %w", err)
 	}
 
+	cfg.useBloomFilter = false
+
 	var headerBytes [segmentindex.HeaderSize]byte
 	_, err = contentReader.ReadAt(headerBytes[:], 0)
 	if err != nil {
