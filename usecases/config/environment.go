@@ -904,22 +904,6 @@ func parsePositiveInt(envName string, cb func(val int), defaultValue int) error 
 	})
 }
 
-func parsePositiveFloat(envName string, cb func(val float64), defaultValue float64) error {
-	if v := os.Getenv(envName); v != "" {
-		asFloat, err := strconv.ParseFloat(v, 64)
-		if err != nil {
-			return fmt.Errorf("parse %s as float: %w", envName, err)
-		}
-		if asFloat <= 0 {
-			return fmt.Errorf("%s must be a positive value larger than 0. Got: %v", envName, asFloat)
-		}
-		cb(asFloat)
-	} else {
-		cb(defaultValue)
-	}
-	return nil
-}
-
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
 		if val < 0 {
