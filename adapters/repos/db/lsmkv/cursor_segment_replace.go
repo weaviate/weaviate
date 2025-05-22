@@ -164,8 +164,13 @@ func (s *segmentCursorReplace) seek(key []byte) ([]byte, []byte, error) {
 
 	s.currOffset = node.Start
 
-	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End},
-		s.segment.contents[node.Start:node.End])
+	b := make([]byte, node.End-node.Start)
+	_, err = s.segment.contentReader.ReadAt(b, int64(node.Start))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = s.parseReplaceNodeInto(nodeOffset{start: node.Start, end: node.End}, b)
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -185,8 +190,19 @@ func (s *segmentCursorReplace) next() ([]byte, []byte, error) {
 
 	s.currOffset = nextOffset
 
-	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset},
-		s.segment.contents[s.currOffset:])
+	size, err := s.segment.contentReader.Size()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	b := make([]byte, size-int64(s.currOffset))
+
+	_, err = s.segment.contentReader.ReadAt(b, int64(s.currOffset))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset}, b)
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -202,8 +218,19 @@ func (s *segmentCursorReplace) first() ([]byte, []byte, error) {
 
 	s.currOffset = firstOffset
 
-	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset},
-		s.segment.contents[s.currOffset:])
+	size, err := s.segment.contentReader.Size()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	b := make([]byte, size-int64(s.currOffset))
+
+	_, err = s.segment.contentReader.ReadAt(b, int64(s.currOffset))
+	if err != nil {
+		return nil, nil, err
+	}
+
+	err = s.parseReplaceNodeInto(nodeOffset{start: s.currOffset}, b)
 	if err != nil {
 		return s.keyFn(s.reusableNode), nil, err
 	}
@@ -258,10 +285,6 @@ func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentRepla
 }
 
 func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byte) error {
-	if s.segment.mmapContents {
-		return s.parse(buf)
-	}
-
 	r, err := s.segment.newNodeReader(offset)
 	if err != nil {
 		return err

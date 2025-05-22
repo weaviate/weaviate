@@ -24,12 +24,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/reader"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/memwatch"
-	"github.com/weaviate/weaviate/usecases/mmap"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -42,16 +42,14 @@ type segment struct {
 	segmentEndPos       uint64
 	dataStartPos        uint64
 	dataEndPos          uint64
-	contents            []byte
-	contentFile         *os.File
 	strategy            segmentindex.Strategy
 	index               diskIndex
 	secondaryIndices    []diskIndex
 	logger              logrus.FieldLogger
 	metrics             *Metrics
 	size                int64
-	mmapContents        bool
-	unMapContents       bool
+
+	contentReader reader.ContentReader
 
 	useBloomFilter        bool // see bucket for more datails
 	bloomFilter           *bloom.BloomFilter
@@ -117,53 +115,18 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		rerr = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
 	}()
 
-	file, err := os.Open(path)
+	contentReader, err := reader.NewLocalContentReader(path)
 	if err != nil {
-		return nil, fmt.Errorf("open file: %w", err)
+		return nil, fmt.Errorf("creating segment content reader: %w", err)
 	}
 
-	// The lifetime of the `file` exceeds this constructor as we store the open file for later use in `contentFile`.
-	// invariant: We close **only** if any error happened after successfully opening the file. To avoid leaking open file descriptor.
-	// NOTE: This `defer` works even with `err` being shadowed in the whole function because defer checks for named `rerr` return value.
-	defer func() {
-		if rerr != nil {
-			file.Close()
-		}
-	}()
-
-	fileInfo, err := file.Stat()
+	var headerBytes [segmentindex.HeaderSize]byte
+	_, err = contentReader.ReadAt(headerBytes[:], 0)
 	if err != nil {
-		return nil, fmt.Errorf("stat file: %w", err)
-	}
-	size := fileInfo.Size()
-
-	// mmap has some overhead, we can read small files directly to memory
-	var contents []byte
-	var unMapContents bool
-	var allocCheckerErr error
-
-	if size <= cfg.MinMMapSize { // check if it is a candidate for full reading
-		allocCheckerErr = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
-		if allocCheckerErr != nil {
-			logger.Debugf("memory pressure: cannot fully read segment")
-		}
+		return nil, fmt.Errorf("read segment header: %w", err)
 	}
 
-	if size > cfg.MinMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
-		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
-		if err != nil {
-			return nil, fmt.Errorf("mmap file: %w", err)
-		}
-		contents = contents2
-		unMapContents = true
-	} else { // read the file into memory if it's small enough and we have enough memory
-		contents, err = io.ReadAll(file)
-		if err != nil {
-			return nil, fmt.Errorf("read file: %w", err)
-		}
-		unMapContents = false
-	}
-	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
+	header, err := segmentindex.ParseHeader(headerBytes[:])
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
@@ -172,15 +135,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("unsupported strategy in segment: %w", err)
 	}
 
-	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation {
-		file.Seek(0, io.SeekStart)
-		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
-		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
-			return nil, fmt.Errorf("validate segment %q: %w", path, err)
-		}
-	}
-
-	primaryIndex, err := header.PrimaryIndex(contents)
+	primaryIndex, err := header.PrimaryIndex(contentReader)
 	if err != nil {
 		return nil, fmt.Errorf("extract primary index position: %w", err)
 	}
@@ -192,7 +147,14 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 	var invertedHeader *segmentindex.HeaderInverted
 	if header.Strategy == segmentindex.StrategyInverted {
-		invertedHeader, err = segmentindex.LoadHeaderInverted(contents[segmentindex.HeaderSize : segmentindex.HeaderSize+segmentindex.HeaderInvertedSize])
+		b := make([]byte, segmentindex.HeaderInvertedSize)
+
+		_, err = contentReader.ReadAt(b, segmentindex.HeaderSize)
+		if err != nil {
+			return nil, errors.Wrap(err, "load inverted header")
+		}
+
+		invertedHeader, err = segmentindex.LoadHeaderInverted(b)
 		if err != nil {
 			return nil, errors.Wrap(err, "load inverted header")
 		}
@@ -206,22 +168,19 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		"operation": "segmentMetadata",
 	})
 
-	if unMapContents {
-		// a map was created, track it
-		monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
-			"operation": "mmap",
-			"strategy":  stratLabel,
-		}).Inc()
+	size, err := contentReader.Size()
+	if err != nil {
+		return nil, fmt.Errorf("content reader size: %w", err)
 	}
 
 	seg := &segment{
 		level:                 header.Level,
 		path:                  path,
-		contents:              contents,
 		version:               header.Version,
 		secondaryIndexCount:   header.SecondaryIndices,
 		segmentStartPos:       header.IndexStart,
 		segmentEndPos:         uint64(size),
+		contentReader:         contentReader,
 		strategy:              header.Strategy,
 		dataStartPos:          dataStartPos,
 		dataEndPos:            dataEndPos,
@@ -229,28 +188,19 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		logger:                logger,
 		metrics:               metrics,
 		size:                  size,
-		mmapContents:          cfg.mmapContents,
 		useBloomFilter:        cfg.useBloomFilter,
 		calcCountNetAdditions: cfg.calcCountNetAdditions,
 		invertedHeader:        invertedHeader,
 		invertedData: &segmentInvertedData{
 			tombstones: sroar.NewBitmap(),
 		},
-		unMapContents:    unMapContents,
 		observeMetaWrite: func(n int64) { observeWrite.Observe(float64(n)) },
-	}
-
-	// Using pread strategy requires file to remain open for segment lifetime
-	if seg.mmapContents {
-		defer file.Close()
-	} else {
-		seg.contentFile = file
 	}
 
 	if seg.secondaryIndexCount > 0 {
 		seg.secondaryIndices = make([]diskIndex, seg.secondaryIndexCount)
 		for i := range seg.secondaryIndices {
-			secondary, err := header.SecondaryIndex(contents, uint16(i))
+			secondary, err := header.SecondaryIndex(contentReader, uint16(i))
 			if err != nil {
 				return nil, fmt.Errorf("get position for secondary index at %d: %w", i, err)
 			}
@@ -286,25 +236,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 }
 
 func (s *segment) close() error {
-	var munmapErr, fileCloseErr error
-	if s.unMapContents {
-		m := mmap.MMap(s.contents)
-		munmapErr = m.Unmap()
-		stratLabel := s.strategy.String()
-		monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
-			"operation": "munmap",
-			"strategy":  stratLabel,
-		}).Inc()
-	}
-	if s.contentFile != nil {
-		fileCloseErr = s.contentFile.Close()
-	}
-
-	if munmapErr != nil || fileCloseErr != nil {
-		return fmt.Errorf("close segment: munmap: %w, close contents file: %w", munmapErr, fileCloseErr)
-	}
-
-	return nil
+	return s.contentReader.Close()
 }
 
 func (s *segment) dropImmediately() error {
@@ -433,15 +365,8 @@ func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
 		r   io.Reader
 		err error
 	)
-	if s.mmapContents {
-		contents := s.contents[offset.start:]
-		if offset.end != 0 {
-			contents = s.contents[offset.start:offset.end]
-		}
-		r, err = s.bytesReaderFrom(contents)
-	} else {
-		r, err = s.bufferedReaderAt(offset.start)
-	}
+
+	r, err = s.bufferedReaderAt(offset.start)
 	if err != nil {
 		return nil, fmt.Errorf("new nodeReader: %w", err)
 	}
@@ -449,10 +374,6 @@ func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
 }
 
 func (s *segment) copyNode(b []byte, offset nodeOffset) error {
-	if s.mmapContents {
-		copy(b, s.contents[offset.start:offset.end])
-		return nil
-	}
 	n, err := s.newNodeReader(offset)
 	if err != nil {
 		return fmt.Errorf("copy node: %w", err)
@@ -469,10 +390,6 @@ func (s *segment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
 }
 
 func (s *segment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
-	if s.contentFile == nil {
-		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
-	}
-
-	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
+	r := io.NewSectionReader(s.contentReader, int64(offset), s.size)
 	return bufio.NewReader(r), nil
 }

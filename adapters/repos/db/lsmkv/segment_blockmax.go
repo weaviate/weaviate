@@ -28,20 +28,17 @@ var blockMaxBufferSize = 4096
 
 func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry, uint64, *terms.BlockDataDecoded, error) {
 	var buf []byte
-	if s.mmapContents {
-		buf = s.contents[node.Start : node.Start+uint64(8+12*terms.ENCODE_AS_FULL_BYTES)]
-	} else {
-		// read first 8 bytes to get
-		buf = make([]byte, 8+12*terms.ENCODE_AS_FULL_BYTES)
-		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+12*terms.ENCODE_AS_FULL_BYTES)})
-		if err != nil {
-			return nil, 0, nil, err
-		}
 
-		_, err = r.Read(buf)
-		if err != nil {
-			return nil, 0, nil, err
-		}
+	// read first 8 bytes to get
+	buf = make([]byte, 8+12*terms.ENCODE_AS_FULL_BYTES)
+	r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+12*terms.ENCODE_AS_FULL_BYTES)})
+	if err != nil {
+		return nil, 0, nil, err
+	}
+
+	_, err = r.Read(buf)
+	if err != nil {
+		return nil, 0, nil, err
 	}
 
 	docCount := binary.LittleEndian.Uint64(buf)
@@ -64,19 +61,16 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	blockCount := (docCount + uint64(terms.BLOCK_SIZE-1)) / uint64(terms.BLOCK_SIZE)
 
 	entries := make([]*terms.BlockEntry, blockCount)
-	if s.mmapContents {
-		buf = s.contents[node.Start+16 : node.Start+16+uint64(blockCount*20)]
-	} else {
-		r, err := s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)})
-		if err != nil {
-			return nil, 0, nil, err
-		}
 
-		buf = make([]byte, blockCount*20)
-		_, err = r.Read(buf)
-		if err != nil {
-			return nil, 0, nil, err
-		}
+	r, err = s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)})
+	if err != nil {
+		return nil, 0, nil, err
+	}
+
+	buf = make([]byte, blockCount*20)
+	_, err = r.Read(buf)
+	if err != nil {
+		return nil, 0, nil, err
 	}
 
 	for i := 0; i < int(blockCount); i++ {
@@ -88,27 +82,22 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 
 // todo: check if there is a performance impact of starting to sectionReader at offset and not have to pass offset here
 func (s *segment) loadBlockDataReusable(sectionReader *io.SectionReader, blockDataBufferOffset, offset, offsetStart, offsetEnd uint64, buf []byte, encoded *terms.BlockData) (uint64, error) {
-	if s.mmapContents {
-		terms.DecodeBlockDataReusable(s.contents[offsetStart:offsetEnd], encoded)
-		return offsetStart, nil
-	} else {
-		if offsetStart < blockDataBufferOffset || offsetEnd > blockDataBufferOffset+uint64(len(buf)) {
-			sectionReader.Seek(int64(offsetStart-offset), io.SeekStart)
-			_, err := sectionReader.Read(buf)
-			// EOF is expected when the last block + tree are smaller than the buffer
-			if err != nil && err.Error() != "EOF" {
-				return 0, err
-			}
-			// readBytes += int64(n)
-			// readCounts++
-			blockDataBufferOffset = offsetStart
+	if offsetStart < blockDataBufferOffset || offsetEnd > blockDataBufferOffset+uint64(len(buf)) {
+		sectionReader.Seek(int64(offsetStart-offset), io.SeekStart)
+		_, err := sectionReader.Read(buf)
+		// EOF is expected when the last block + tree are smaller than the buffer
+		if err != nil && err.Error() != "EOF" {
+			return 0, err
 		}
-
-		bufOffsetStart := offsetStart - blockDataBufferOffset
-		bufOffsetEnd := offsetEnd - blockDataBufferOffset
-		terms.DecodeBlockDataReusable(buf[bufOffsetStart:bufOffsetEnd], encoded)
-		return blockDataBufferOffset, nil
+		// readBytes += int64(n)
+		// readCounts++
+		blockDataBufferOffset = offsetStart
 	}
+
+	bufOffsetStart := offsetStart - blockDataBufferOffset
+	bufOffsetEnd := offsetEnd - blockDataBufferOffset
+	terms.DecodeBlockDataReusable(buf[bufOffsetStart:bufOffsetEnd], encoded)
+	return blockDataBufferOffset, nil
 }
 
 type BlockMetrics struct {
@@ -208,9 +197,7 @@ func NewSegmentBlockMax(s *segment, key []byte, queryTermIndex int, idf float64,
 
 	var sectionReader *io.SectionReader
 
-	if !s.mmapContents {
-		sectionReader = io.NewSectionReader(s.contentFile, int64(node.Start), int64(node.End))
-	}
+	sectionReader = io.NewSectionReader(s.contentReader, int64(node.Start), int64(node.End))
 
 	output := &SegmentBlockMax{
 		segment:           s,

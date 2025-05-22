@@ -81,7 +81,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 
 	var lastErr error
 	countNet := 0
-	cb := func(key []byte, tombstone bool) {
+	/*cb := func(key []byte, tombstone bool) {
 		existedOnPrior, err := exists(key)
 		if err != nil {
 			lastErr = err
@@ -94,12 +94,12 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 		if !tombstone && !existedOnPrior {
 			countNet++
 		}
-	}
+	}*/
 
-	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
+	/*extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
 		s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
 
-	extr.do()
+	extr.do()*/
 
 	s.countNetAdditions = countNet
 

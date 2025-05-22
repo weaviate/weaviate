@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/reader"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
@@ -61,20 +62,46 @@ func (h *Header) WriteTo(w io.Writer) (int64, error) {
 	return int64(HeaderSize), nil
 }
 
-func (h *Header) PrimaryIndex(source []byte) ([]byte, error) {
+func (h *Header) PrimaryIndex(r reader.ContentReader) ([]byte, error) {
 	if h.SecondaryIndices == 0 {
-		return source[h.IndexStart:], nil
+		size, err := r.Size()
+		if err != nil {
+			return nil, err
+		}
+
+		b := make([]byte, uint64(size)-h.IndexStart)
+
+		_, err = r.ReadAt(b, int64(h.IndexStart))
+		if err != nil {
+			return nil, err
+		}
+
+		return b, nil
 	}
 
-	offsets, err := h.parseSecondaryIndexOffsets(
-		source[h.IndexStart:h.secondaryIndexOffsetsEnd()])
+	b := make([]byte, h.secondaryIndexOffsetsEnd()-h.IndexStart)
+
+	_, err := r.ReadAt(b, int64(h.IndexStart))
+	if err != nil {
+		return nil, err
+	}
+
+	offsets, err := h.parseSecondaryIndexOffsets(b)
 	if err != nil {
 		return nil, err
 	}
 
 	// the beginning of the first secondary is also the end of the primary
 	end := offsets[0]
-	return source[h.secondaryIndexOffsetsEnd():end], nil
+
+	b = make([]byte, end-h.secondaryIndexOffsetsEnd())
+
+	_, err = r.ReadAt(b, int64(h.secondaryIndexOffsetsEnd()))
+	if err != nil {
+		return nil, err
+	}
+
+	return b, nil
 }
 
 func (h *Header) secondaryIndexOffsetsEnd() uint64 {
@@ -92,14 +119,20 @@ func (h *Header) parseSecondaryIndexOffsets(source []byte) ([]uint64, error) {
 	return offsets, nil
 }
 
-func (h *Header) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
+func (h *Header) SecondaryIndex(r reader.ContentReader, indexID uint16) ([]byte, error) {
 	if indexID >= h.SecondaryIndices {
 		return nil, fmt.Errorf("retrieve index %d with len %d",
 			indexID, h.SecondaryIndices)
 	}
 
-	offsets, err := h.parseSecondaryIndexOffsets(
-		source[h.IndexStart:h.secondaryIndexOffsetsEnd()])
+	b := make([]byte, h.secondaryIndexOffsetsEnd()-h.IndexStart)
+
+	_, err := r.ReadAt(b, int64(h.IndexStart))
+	if err != nil {
+		return nil, err
+	}
+
+	offsets, err := h.parseSecondaryIndexOffsets(b)
 	if err != nil {
 		return nil, err
 	}
@@ -107,11 +140,31 @@ func (h *Header) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
 	start := offsets[indexID]
 	if indexID == h.SecondaryIndices-1 {
 		// this is the last index, return until EOF
-		return source[start:], nil
+		size, err := r.Size()
+		if err != nil {
+			return nil, err
+		}
+
+		b := make([]byte, uint64(size)-start)
+
+		_, err = r.ReadAt(b, int64(start))
+		if err != nil {
+			return nil, err
+		}
+
+		return b, nil
 	}
 
 	end := offsets[indexID+1]
-	return source[start:end], nil
+
+	b = make([]byte, end-start)
+
+	_, err = r.ReadAt(b, int64(start))
+	if err != nil {
+		return nil, err
+	}
+
+	return b, nil
 }
 
 func ParseHeader(data []byte) (*Header, error) {

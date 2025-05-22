@@ -573,13 +573,8 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 ) (*segment, error) {
 	oldSegment := sg.segmentAtPos(segmentIdx)
-	countNetAdditions := oldSegment.countNetAdditions
 
-	precomputedFiles, err := preComputeSegmentMeta(tmpSegmentPath, countNetAdditions,
-		sg.logger, sg.useBloomFilter, sg.calcCountNetAdditions, sg.enableChecksumValidation, sg.MinMMapSize, sg.allocChecker)
-	if err != nil {
-		return nil, fmt.Errorf("precompute segment meta: %w", err)
-	}
+	var precomputedFiles []string
 
 	newSegment, err := sg.replaceSegmentBlocking(segmentIdx, oldSegment, precomputedFiles)
 	if err != nil {
