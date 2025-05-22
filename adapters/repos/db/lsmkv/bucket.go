@@ -1297,7 +1297,8 @@ func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
 
 	hasWrites := b.active.writesSinceLastSync
 	if !hasWrites {
-		return true
+		// had no work this iteration, cycle manager can back off
+		return false
 	}
 
 	err := b.active.commitlog.sync()
@@ -1310,6 +1311,7 @@ func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
 		return false
 	}
 	b.active.writesSinceLastSync = false
+	// there was work in this iteration, cycle manager should not back off and revisit soon
 	return true
 }
 
