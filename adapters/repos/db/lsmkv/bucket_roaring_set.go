@@ -62,24 +62,29 @@ func (b *Bucket) RoaringSetAddBitmap(key []byte, bm *sroar.Bitmap) error {
 	return b.active.roaringSetAddBitmap(key, bm)
 }
 
-func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
+func (b *Bucket) RoaringSetGet(key []byte) (bm *sroar.Bitmap, release func(), err error) {
 	if err := CheckStrategyRoaringSet(b.strategy); err != nil {
-		return nil, err
+		return nil, noopRelease, err
 	}
 
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	layers, err := b.disk.roaringSetGet(key)
+	layers, release, err := b.disk.roaringSetGet(key)
 	if err != nil {
-		return nil, err
+		return nil, noopRelease, err
 	}
+	defer func() {
+		if err != nil {
+			release()
+		}
+	}()
 
 	if b.flushing != nil {
 		flushing, err := b.flushing.roaringSetGet(key)
 		if err != nil {
 			if !errors.Is(err, lsmkv.NotFound) {
-				return nil, err
+				return nil, noopRelease, err
 			}
 		} else {
 			layers = append(layers, flushing)
@@ -89,11 +94,11 @@ func (b *Bucket) RoaringSetGet(key []byte) (*sroar.Bitmap, error) {
 	active, err := b.active.roaringSetGet(key)
 	if err != nil {
 		if !errors.Is(err, lsmkv.NotFound) {
-			return nil, err
+			return nil, noopRelease, err
 		}
 	} else {
 		layers = append(layers, active)
 	}
 
-	return layers.Flatten(false), nil
+	return layers.Flatten(false), release, nil
 }

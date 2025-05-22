@@ -90,11 +90,13 @@ func verifyBucketAgainstControl(t *testing.T, b *Bucket, control []*sroar.Bitmap
 		key := make([]byte, 8)
 		binary.LittleEndian.PutUint64(key, uint64(i))
 
-		actual, err := b.RoaringSetGet(key)
-		require.Nil(t, err)
+		func() {
+			actual, release, err := b.RoaringSetGet(key)
+			require.NoError(t, err)
+			defer release()
 
-		assert.Equal(t, controlBM.ToArray(), actual.ToArray())
-
+			assert.Equal(t, controlBM.ToArray(), actual.ToArray())
+		}()
 	}
 }
 
@@ -596,8 +598,10 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			})
 
 			t.Run("verify that objects exist before compaction", func(t *testing.T) {
-				res, err := bucket.RoaringSetGet(key)
+				res, release, err := bucket.RoaringSetGet(key)
 				require.NoError(t, err)
+				defer release()
+
 				if size == 5 {
 					assert.Equal(t, 0, res.GetCardinality())
 				} else if size == 6 {
@@ -616,8 +620,10 @@ func compactionRoaringSetStrategy_FrequentPutDeleteOperations(ctx context.Contex
 			})
 
 			t.Run("verify that objects exist after compaction", func(t *testing.T) {
-				res, err := bucket.RoaringSetGet(key)
+				res, release, err := bucket.RoaringSetGet(key)
 				require.NoError(t, err)
+				defer release()
+
 				if size == 5 {
 					assert.Equal(t, 0, res.GetCardinality())
 				} else if size == 6 {
