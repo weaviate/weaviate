@@ -23,6 +23,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -326,7 +327,8 @@ func TestBucketWalReload(t *testing.T) {
 			// initial bucket, always create segment, even if it is just a single entry
 			b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 
 			if strategy == StrategyReplace {
@@ -355,7 +357,8 @@ func TestBucketWalReload(t *testing.T) {
 			// start fresh with a new memtable, new entries will stay in wal until size is reached
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 
 			if strategy == StrategyReplace {
@@ -383,7 +386,8 @@ func TestBucketWalReload(t *testing.T) {
 			// will load wal and reuse memtable
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(1), WithMinWalThreshold(4096))
+				WithStrategy(strategy), WithSecondaryIndices(1), WithMinWalThreshold(4096),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 
 			testBucketContent(t, strategy, b, 3)
@@ -414,7 +418,8 @@ func TestBucketWalReload(t *testing.T) {
 			// now add a lot of entries to hit .wal file limit
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 
 			testBucketContent(t, strategy, b, 4)
@@ -447,7 +452,8 @@ func TestBucketWalReload(t *testing.T) {
 
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
 				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
-				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096))
+				WithStrategy(strategy), WithSecondaryIndices(secondaryIndicesCount), WithMinWalThreshold(4096),
+				WithBitmapBufPool(roaringset.NewBitmapBufPoolNoop()))
 			require.NoError(t, err)
 
 			testBucketContent(t, strategy, b, 120)
@@ -474,8 +480,9 @@ func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) 
 			require.NoError(t, err)
 			require.Equal(t, val, get[0])
 		} else if strategy == StrategyRoaringSet {
-			get, err := b.RoaringSetGet(key)
+			get, release, err := b.RoaringSetGet(key)
 			require.NoError(t, err)
+			defer release()
 			require.True(t, get.Contains(uint64(i)))
 		} else if strategy == StrategyRoaringSetRange {
 			//_, err :=  b.Rang
