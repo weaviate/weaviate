@@ -746,6 +746,24 @@ func (c *CopyOpConsumer) waitForAsyncReplication(
 	asyncReplicationUpperTimeBoundUnixMillis int64,
 	logger *logrus.Entry,
 ) error {
+	// Wait until we've passed the upper time bound before starting status checks
+	// to avoid unnecessary status checks before the upper time bound has passed
+	currentTimeMillis := time.Now().UnixMilli()
+	if currentTimeMillis < asyncReplicationUpperTimeBoundUnixMillis {
+		waitDuration := time.Duration(asyncReplicationUpperTimeBoundUnixMillis-currentTimeMillis) * time.Millisecond
+		logger.WithFields(logrus.Fields{
+			"wait_duration_ms": waitDuration.Milliseconds(),
+			"upper_bound_ms":   asyncReplicationUpperTimeBoundUnixMillis,
+		}).Info("waiting to reach upper time bound before starting async replication status checks")
+
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(waitDuration):
+			// Time has passed, continue below with the status checks
+		}
+	}
+
 	remainingErrorsAllowed := asyncStatusMaxErrors
 	retryNum := -1
 	return backoff.Retry(func() error {
