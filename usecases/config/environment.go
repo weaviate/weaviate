@@ -413,6 +413,10 @@ func FromEnv(config *Config) error {
 		config.Contextionary.URL = v
 	}
 
+	if entcfg.Enabled(os.Getenv("ENABLE_INTERNAL_GRPC")) {
+		config.EnableInternalGRPC = true
+	}
+
 	if v := os.Getenv("QUERY_DEFAULTS_LIMIT"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {

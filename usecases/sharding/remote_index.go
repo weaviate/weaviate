@@ -13,6 +13,7 @@ package sharding
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -21,15 +22,16 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/handlers/indices/grpc/proto"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -40,7 +42,9 @@ type RemoteIndex struct {
 	class        string
 	stateGetter  shardingStateGetter
 	client       RemoteIndexClient
+	grpcClient   RemoteIndexGRPCClient
 	nodeResolver nodeResolver
+	grpcEnabled  bool
 }
 
 type shardingStateGetter interface {
@@ -52,17 +56,22 @@ type shardingStateGetter interface {
 func NewRemoteIndex(className string,
 	stateGetter shardingStateGetter, nodeResolver nodeResolver,
 	client RemoteIndexClient,
+	grpcEnabled bool,
 ) *RemoteIndex {
 	return &RemoteIndex{
 		class:        className,
 		stateGetter:  stateGetter,
 		client:       client,
 		nodeResolver: nodeResolver,
+		grpcEnabled:  grpcEnabled,
 	}
 }
 
 type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
+}
+type RemoteIndexGRPCClient interface {
+	BatchPutObjects(ctx context.Context, req *proto.BatchPutObjectsRequest) (*proto.BatchPutObjectsResponse, error)
 }
 
 type RemoteIndexClient interface {
@@ -143,6 +152,66 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 	if !ok {
 		return duplicateErr(fmt.Errorf("resolve node name %q to host",
 			owner), len(objs))
+	}
+
+	// Convert all objects to proto format
+	protoObjects := make([]*proto.Object, len(objs))
+	for i, obj := range objs {
+		// Create the object model with all fields
+		objectModel := &proto.ObjectModel{
+			Uuid:               []byte(obj.ID()),
+			Class:              ri.class,
+			Properties:         make(map[string]*proto.PropertyValue),
+			Additional:         make(map[string][]byte),
+			CreationTimeUnix:   obj.CreationTimeUnix(),
+			LastUpdateTimeUnix: obj.LastUpdateTimeUnix(),
+			Vector:             obj.Vector,
+			VectorWeights:      func() []byte { b, _ := json.Marshal(obj.VectorWeights()); return b }(),
+			Vectors:            make(map[string]*proto.Vector),
+		}
+
+		// Convert properties
+		if props := obj.Properties(); props != nil {
+			for k, v := range props.(map[string]interface{}) {
+				objectModel.Properties[k] = convertToPropertyValue(v)
+			}
+		}
+
+		// Convert additional properties
+		if additional := obj.AdditionalProperties(); additional != nil {
+			for k, v := range additional {
+				if bytes, err := json.Marshal(v); err == nil {
+					objectModel.Additional[k] = bytes
+				}
+			}
+		}
+
+		// Convert vectors
+		if vectors := obj.Vectors; vectors != nil {
+			for k, v := range vectors {
+				objectModel.Vectors[k] = &proto.Vector{Values: v}
+			}
+		}
+
+		// Create the final proto object
+		protoObjects[i] = &proto.Object{
+			MarshallerVersion: 1, // Current version
+			Object:            objectModel,
+			Vector:            obj.Vector,
+			VectorLen:         int32(len(obj.Vector)),
+			BelongsToNode:     owner,
+			BelongsToShard:    shardName,
+			IsConsistent:      true, // Default to true for new objects
+			DocId:             obj.DocID,
+		}
+	}
+
+	if ri.grpcEnabled && ri.grpcClient != nil {
+		_, err := ri.grpcClient.BatchPutObjects(ctx, &proto.BatchPutObjectsRequest{
+			Objects: protoObjects,
+		})
+		return duplicateErr(fmt.Errorf("failed to put objects via gRPC: %w", err), len(objs))
+
 	}
 
 	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil, schemaVersion)
@@ -525,4 +594,27 @@ func (ri *RemoteIndex) queryReplicas(
 		return queryUntil(replicas[:first])
 	}
 	return
+}
+
+func convertToPropertyValue(v interface{}) *proto.PropertyValue {
+	propValue := &proto.PropertyValue{}
+	switch val := v.(type) {
+	case string:
+		propValue.Value = &proto.PropertyValue_Text{Text: val}
+	case int64:
+		propValue.Value = &proto.PropertyValue_Number{Number: val}
+	case bool:
+		propValue.Value = &proto.PropertyValue_Boolean{Boolean: val}
+	case []byte:
+		propValue.Value = &proto.PropertyValue_Blob{Blob: val}
+	case []string:
+		propValue.Value = &proto.PropertyValue_TextArray{TextArray: &proto.TextArray{Values: val}}
+	case []int64:
+		propValue.Value = &proto.PropertyValue_NumberArray{NumberArray: &proto.NumberArray{Values: val}}
+	case []bool:
+		propValue.Value = &proto.PropertyValue_BooleanArray{BooleanArray: &proto.BooleanArray{Values: val}}
+	case [][]byte:
+		propValue.Value = &proto.PropertyValue_BlobArray{BlobArray: &proto.BlobArray{Values: val}}
+	}
+	return propValue
 }

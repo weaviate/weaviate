@@ -230,6 +230,7 @@ type Config struct {
 	MaximumConcurrentShardLoads         int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	EnableInternalGRPC                  bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
