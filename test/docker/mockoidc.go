@@ -69,7 +69,6 @@ func startMockOIDC(ctx context.Context, networkName, mockoidcImage string) (*Doc
 			FromDockerfile: fromDockerFile,
 			Image:          mockoidcImage,
 			ExposedPorts:   []string{"48001/tcp"},
-			Name:           MockOIDC,
 			Hostname:       MockOIDC,
 			AutoRemove:     true,
 			Networks:       []string{networkName},

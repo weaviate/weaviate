@@ -30,7 +30,6 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "oittaa/gcp-storage-emulator",
 			ExposedPorts: []string{"9090/tcp"},
-			Name:         GCS,
 			Hostname:     GCS,
 			AutoRemove:   true,
 			Networks:     []string{networkName},
@@ -46,7 +45,6 @@ func startGCS(ctx context.Context, networkName string) (*DockerContainer, error)
 			).WithStartupTimeoutDefault(60 * time.Second),
 		},
 		Started: true,
-		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err

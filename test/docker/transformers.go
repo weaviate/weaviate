@@ -37,7 +37,6 @@ func startT2VTransformers(ctx context.Context, networkName, transformersImage st
 			NetworkAliases: map[string][]string{
 				networkName: {Text2VecTransformers},
 			},
-			Name:         Text2VecTransformers,
 			ExposedPorts: []string{"8080/tcp"},
 			AutoRemove:   true,
 			WaitingFor: wait.
@@ -49,7 +48,6 @@ func startT2VTransformers(ctx context.Context, networkName, transformersImage st
 				WithStartupTimeout(240 * time.Second),
 		},
 		Started: true,
-		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err

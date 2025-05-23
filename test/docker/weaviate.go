@@ -25,11 +25,10 @@ import (
 )
 
 const (
-	Weaviate1      = "weaviate"
-	Weaviate2      = "weaviate2"
-	Weaviate3      = "weaviate3"
-	Weaviate       = "weaviate"
-	SecondWeaviate = "second-weaviate"
+	Weaviate1 = "weaviate"
+	Weaviate2 = "weaviate2"
+	Weaviate3 = "weaviate3"
+	Weaviate  = "weaviate"
 )
 
 func startWeaviate(ctx context.Context,
@@ -71,10 +70,6 @@ func startWeaviate(ctx context.Context,
 			KeepImage:     false,
 		}
 	}
-	containerName := Weaviate1
-	if hostname != "" {
-		containerName = hostname
-	}
 	env := map[string]string{
 		"AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED": "true",
 		"LOG_LEVEL":                 "debug",
@@ -106,14 +101,10 @@ func startWeaviate(ctx context.Context,
 	req := testcontainers.ContainerRequest{
 		FromDockerfile: fromDockerFile,
 		Image:          weaviateImage,
-		Hostname:       containerName,
-		Name:           containerName,
+		Hostname:       hostname,
 		Networks:       []string{networkName},
-		NetworkAliases: map[string][]string{
-			networkName: {containerName},
-		},
-		ExposedPorts: exposedPorts,
-		Env:          env,
+		ExposedPorts:   exposedPorts,
+		Env:            env,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{
 				// Use wait strategies as part of the lifecycle hooks as this gets propagated to the underlying container,
@@ -156,7 +147,7 @@ func startWeaviate(ctx context.Context,
 		endpoints[GRPC] = endpoint{grpcPort, grpcUri}
 	}
 	return &DockerContainer{
-		name:        containerName,
+		name:        hostname,
 		endpoints:   endpoints,
 		container:   c,
 		envSettings: nil,

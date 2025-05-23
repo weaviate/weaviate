@@ -93,29 +93,28 @@ const (
 )
 
 type Compose struct {
-	enableModules              []string
-	defaultVectorizerModule    string
-	withMinIO                  bool
-	withGCS                    bool
-	withAzurite                bool
-	withBackendFilesystem      bool
-	withBackendS3              bool
-	withBackendS3Buckets       map[string]string
-	withBackupS3Bucket         string
-	withOffloadS3Bucket        string
-	withBackendGCS             bool
-	withBackendGCSBucket       string
-	withBackendAzure           bool
-	withBackendAzureContainer  string
-	withTransformers           bool
-	withModel2Vec              bool
-	withContextionary          bool
-	withQnATransformers        bool
-	withWeaviateExposeGRPCPort bool
-	withSecondWeaviate         bool
-	withWeaviateCluster        bool
-	withWeaviateClusterSize    int
-
+	enableModules                  []string
+	defaultVectorizerModule        string
+	withMinIO                      bool
+	withGCS                        bool
+	withAzurite                    bool
+	withBackendFilesystem          bool
+	withBackendS3                  bool
+	withBackendS3Buckets           map[string]string
+	withBackupS3Bucket             string
+	withOffloadS3Bucket            string
+	withBackendGCS                 bool
+	withBackendGCSBucket           string
+	withBackendAzure               bool
+	withBackendAzureContainer      string
+	withTransformers               bool
+	withModel2Vec                  bool
+	withContextionary              bool
+	withQnATransformers            bool
+	withWeaviateExposeGRPCPort     bool
+	withWeaviateCluster            bool
+	withWeaviateClusterSize        int
+	withWeaviateImage              string
 	withWeaviateAuth               bool
 	withWeaviateBasicAuth          bool
 	withWeaviateBasicAuthUsername  string
@@ -794,31 +793,6 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		return &DockerCompose{network, containers}, err
 	}
 
-	if d.withSecondWeaviate {
-		image := os.Getenv(envTestWeaviateImage)
-		hostname := SecondWeaviate
-		secondWeaviateSettings := envSettings
-		// Ensure second weaviate doesn't get cluster settings from the first cluster if any.
-		delete(secondWeaviateSettings, "CLUSTER_HOSTNAME")
-		delete(secondWeaviateSettings, "CLUSTER_GOSSIP_BIND_PORT")
-		delete(secondWeaviateSettings, "CLUSTER_DATA_BIND_PORT")
-		delete(secondWeaviateSettings, "CLUSTER_JOIN")
-		for k, v := range d.weaviateEnvs {
-			envSettings[k] = v
-		}
-		delete(secondWeaviateSettings, "RAFT_PORT")
-		delete(secondWeaviateSettings, "RAFT_INTERNAL_PORT")
-		delete(secondWeaviateSettings, "RAFT_JOIN")
-		container, err := startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule, envSettings, networkName, image, hostname, d.withWeaviateExposeGRPCPort, "/v1/.well-known/ready")
-		if err != nil {
-			return nil, errors.Wrapf(err, "start %s", hostname)
-		}
-		containers = append(containers, container)
-		if err != nil {
-			return &DockerCompose{network, containers}, errors.Wrapf(err, "start %s", hostname)
-		}
-	}
-
 	return &DockerCompose{network, containers}, nil
 }
 
@@ -831,6 +805,11 @@ func (d *Compose) With1NodeCluster() *Compose {
 func (d *Compose) With3NodeCluster() *Compose {
 	d.withWeaviateCluster = true
 	d.withWeaviateClusterSize = 3
+	return d
+}
+
+func (d *Compose) WithWeaviateImage(image string) *Compose {
+	d.withWeaviateImage = image
 	return d
 }
 
@@ -854,7 +833,11 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 	}
 
 	cs := make([]*DockerContainer, size)
-	image := os.Getenv(envTestWeaviateImage)
+	image := d.withWeaviateImage
+	// Necessary to keep for backward compatibility with the old test setup
+	if image == "" {
+		image = os.Getenv(envTestWeaviateImage)
+	}
 	networkName := settings["network"]
 	settings["DISABLE_TELEMETRY"] = "true"
 	if d.withWeaviateBasicAuth {

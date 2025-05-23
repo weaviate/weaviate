@@ -31,6 +31,7 @@ package helper
 
 import (
 	"fmt"
+	"strings"
 	"testing"
 
 	"github.com/go-openapi/runtime"
@@ -53,6 +54,21 @@ func Client(t *testing.T) *apiclient.Weaviate {
 		transport.SetLogger(&testLogger{t: t})
 	}
 
+	client := apiclient.New(transport, strfmt.Default)
+	return client
+}
+
+// Create a client that logs with t.Logf, if a *testing.T is provided.
+// If there is no test case at hand, pass in nil to disable logging.
+func ClientFromURI(t *testing.T, uri string) *apiclient.Weaviate {
+	host, port := "", ""
+	res := strings.Split(uri, ":")
+	if len(res) == 2 {
+		host, port = res[0], res[1]
+	}
+	transport := httptransport.New(fmt.Sprintf("%s:%s", host, port), "/v1", []string{ServerScheme})
+	transport.SetDebug(true)
+	transport.SetLogger(&testLogger{t: t})
 	client := apiclient.New(transport, strfmt.Default)
 	return client
 }

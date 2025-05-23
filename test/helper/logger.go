@@ -24,5 +24,5 @@ func (tl *testLogger) Printf(format string, args ...interface{}) {
 }
 
 func (tl *testLogger) Debugf(format string, args ...interface{}) {
-	tl.t.Logf("HTTP DEBUG:\n"+format, args...)
+	// tl.t.Logf("HTTP DEBUG:\n"+format, args...)
 }
