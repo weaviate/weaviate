@@ -1388,7 +1388,17 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 		},
 		replicationFSM: schema.NewMockreplicationFSM(t),
 	}
-	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry(), nil)
+	snapshotRestoreChan := make(chan struct{})
+	go func() {
+		select {
+		case <-snapshotRestoreChan:
+			// The replication FSM has been restored from a snapshot, we need to stop and restart
+		case <-time.After(10 * time.Second):
+			// Fail the test
+			assert.Fail(t, "Snapshot restore took too long")
+		}
+	}()
+	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry(), snapshotRestoreChan)
 	s.schemaManager.SetReplicationFSM(ms.replicationFSM)
 	ms.store = &s
 	return ms
