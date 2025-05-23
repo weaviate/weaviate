@@ -603,6 +603,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	switch op.Op.TransferType {
 	case api.COPY:
+		// TODO: move these two functions into a single function to avoid code duplication
 		if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
 			logger.WithError(err).Error("failure while reverting async replication on local node")
 		}
@@ -693,8 +694,12 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		}
 	}
 
+	// TODO: move these two functions into a single function to avoid code duplication
 	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
 		logger.WithError(err).Error("failure while reverting async replication locally")
+	}
+	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
+		logger.WithError(err).Error("failure while removing async replication target node")
 	}
 	// sync the replica shard to ensure that the schema and store are consistent on each node
 	// In a COPY this happens in the FINALIZING state, in a MOVE this happens now
