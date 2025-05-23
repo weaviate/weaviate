@@ -49,6 +49,9 @@ type ShardReplicationOpStatus struct {
 	ShouldCancel bool
 	// ShouldDelete is a flag indicating that the operation should be cancelled at the earliest possible time and then deleted
 	ShouldDelete bool
+	// UnCancellable is a flag indicating that an operation is not capable of being cancelled.
+	// E.g., an op is not cancellable if it is in the DEHYDRATING state after the replica has been added to the sharding state.
+	UnCancellable bool
 
 	// History is the history of the state changes of the shard replication operation
 	History StateHistory

@@ -3627,6 +3627,45 @@ func init() {
         ]
       }
     },
+    "/replication/replicate/purge": {
+      "post": {
+        "description": "USE AT OWN RISK! Synchronously remove all operations from the FSM. This will not perform any checks on which state the operation is in so may lead to data corruption or loss.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Purge all replication operations",
+        "operationId": "purgeReplications",
+        "responses": {
+          "200": {
+            "description": "All operations purged successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.purgeReplications"
+        ]
+      }
+    },
     "/replication/replicate/{id}": {
       "get": {
         "description": "Fetches the current status and detailed information for a specific replication operation, identified by its unique ID. Optionally includes historical data of the operation's progress if requested.",
@@ -3714,6 +3753,12 @@ func init() {
           "404": {
             "description": "Shard replica operation not found."
           },
+          "409": {
+            "description": "The operation is not in a deletable state, e.g. it is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -3759,6 +3804,12 @@ func init() {
           },
           "404": {
             "description": "Shard replica operation not found."
+          },
+          "409": {
+            "description": "The operation is not in a cancellable state, e.g. it is READY or is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -11776,6 +11827,45 @@ func init() {
         ]
       }
     },
+    "/replication/replicate/purge": {
+      "post": {
+        "description": "USE AT OWN RISK! Synchronously remove all operations from the FSM. This will not perform any checks on which state the operation is in so may lead to data corruption or loss.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Purge all replication operations",
+        "operationId": "purgeReplications",
+        "responses": {
+          "200": {
+            "description": "All operations purged successfully."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.purgeReplications"
+        ]
+      }
+    },
     "/replication/replicate/{id}": {
       "get": {
         "description": "Fetches the current status and detailed information for a specific replication operation, identified by its unique ID. Optionally includes historical data of the operation's progress if requested.",
@@ -11863,6 +11953,12 @@ func init() {
           "404": {
             "description": "Shard replica operation not found."
           },
+          "409": {
+            "description": "The operation is not in a deletable state, e.g. it is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -11908,6 +12004,12 @@ func init() {
           },
           "404": {
             "description": "Shard replica operation not found."
+          },
+          "409": {
+            "description": "The operation is not in a cancellable state, e.g. it is READY or is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",

@@ -144,6 +144,51 @@ func (o *DeleteReplicationNotFound) WriteResponse(rw http.ResponseWriter, produc
 	rw.WriteHeader(404)
 }
 
+// DeleteReplicationConflictCode is the HTTP code returned for type DeleteReplicationConflict
+const DeleteReplicationConflictCode int = 409
+
+/*
+DeleteReplicationConflict The operation is not in a deletable state, e.g. it is a MOVE op in the DEHYDRATING state.
+
+swagger:response deleteReplicationConflict
+*/
+type DeleteReplicationConflict struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewDeleteReplicationConflict creates DeleteReplicationConflict with default headers values
+func NewDeleteReplicationConflict() *DeleteReplicationConflict {
+
+	return &DeleteReplicationConflict{}
+}
+
+// WithPayload adds the payload to the delete replication conflict response
+func (o *DeleteReplicationConflict) WithPayload(payload *models.ErrorResponse) *DeleteReplicationConflict {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the delete replication conflict response
+func (o *DeleteReplicationConflict) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *DeleteReplicationConflict) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(409)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // DeleteReplicationInternalServerErrorCode is the HTTP code returned for type DeleteReplicationInternalServerError
 const DeleteReplicationInternalServerErrorCode int = 500
 

@@ -58,6 +58,12 @@ func (o *CancelReplicationReader) ReadResponse(response runtime.ClientResponse, 
 			return nil, err
 		}
 		return nil, result
+	case 409:
+		result := NewCancelReplicationConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewCancelReplicationInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -301,6 +307,74 @@ func (o *CancelReplicationNotFound) String() string {
 }
 
 func (o *CancelReplicationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewCancelReplicationConflict creates a CancelReplicationConflict with default headers values
+func NewCancelReplicationConflict() *CancelReplicationConflict {
+	return &CancelReplicationConflict{}
+}
+
+/*
+CancelReplicationConflict describes a response with status code 409, with default header values.
+
+The operation is not in a cancellable state, e.g. it is READY or is a MOVE op in the DEHYDRATING state.
+*/
+type CancelReplicationConflict struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this cancel replication conflict response has a 2xx status code
+func (o *CancelReplicationConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this cancel replication conflict response has a 3xx status code
+func (o *CancelReplicationConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this cancel replication conflict response has a 4xx status code
+func (o *CancelReplicationConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this cancel replication conflict response has a 5xx status code
+func (o *CancelReplicationConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this cancel replication conflict response a status code equal to that given
+func (o *CancelReplicationConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the cancel replication conflict response
+func (o *CancelReplicationConflict) Code() int {
+	return 409
+}
+
+func (o *CancelReplicationConflict) Error() string {
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationConflict  %+v", 409, o.Payload)
+}
+
+func (o *CancelReplicationConflict) String() string {
+	return fmt.Sprintf("[POST /replication/replicate/{id}/cancel][%d] cancelReplicationConflict  %+v", 409, o.Payload)
+}
+
+func (o *CancelReplicationConflict) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CancelReplicationConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

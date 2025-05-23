@@ -141,16 +141,26 @@ func (s *ShardReplicationFSM) StoreSchemaVersion(c *api.ReplicationStoreSchemaVe
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
-	op, ok := s.opsById[c.Id]
-	if !ok {
-		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
-	}
-	status, ok := s.statusById[op.ID]
+	status, ok := s.statusById[c.Id]
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", c.Id)
 	}
 	status.SchemaVersion = c.SchemaVersion
-	s.statusById[op.ID] = status
+	s.statusById[c.Id] = status
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) SetUnCancellable(c *api.ReplicationSetUnCancellableRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	status, ok := s.statusById[c.Id]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d", c.Id)
+	}
+	status.UnCancellable = true
+	s.statusById[c.Id] = status
 
 	return nil
 }
@@ -182,6 +192,12 @@ func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest)
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", id)
 	}
+
+	// Only allow to cancel ops if they are cancellable (before being added to sharding state)
+	if status.UnCancellable {
+		return types.ErrCancellationImpossible
+	}
+
 	status.TriggerCancellation()
 	s.statusById[op.ID] = status
 
@@ -204,6 +220,12 @@ func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest)
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", id)
 	}
+
+	// Only allow to delete ops if they are cancellable (before being added to sharding state) and not READY
+	if status.UnCancellable && status.GetCurrentState() != api.READY {
+		return types.ErrDeletionImpossible
+	}
+
 	status.TriggerDeletion()
 	s.statusById[op.ID] = status
 
@@ -211,6 +233,20 @@ func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest)
 }
 
 func (s *ShardReplicationFSM) DeleteAllReplications(c *api.ReplicationDeleteAllRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	for id, status := range s.statusById {
+		if status.UnCancellable && status.GetCurrentState() != api.READY {
+			continue
+		}
+		status.TriggerDeletion()
+		s.statusById[id] = status
+	}
+	return nil
+}
+
+func (s *ShardReplicationFSM) PurgeReplications(c *api.ReplicationPurgeRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 

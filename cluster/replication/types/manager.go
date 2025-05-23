@@ -109,9 +109,16 @@ type Manager interface {
 	// Returns:
 	//   - error: Returns an error if the deletion of replication operations fails.
 	DeleteReplicationsByTenants(ctx context.Context, collection string, tenants []string) error
-	// DeleteAllReplications removes all replication operation from the FSM. If they are in progress, then they are cancelled first.
+	// DeleteAllReplications removes all replication operation from the FSM.
+	// If they are in progress, then they are cancelled first.
 	//
 	// Returns:
 	//   - error: any error explaining why cancelling the replication operation failed.
 	DeleteAllReplications(ctx context.Context) error
+	// PurgeReplications removes all replication operation from the FSM as fast as possible.
+	// It does not attempt to move them to the CANCELLED state first instead ending the op removing them from the FSM immediately.
+	//
+	// Returns:
+	//   - error: any error explaining why cancelling the replication operation failed.
+	PurgeReplications(ctx context.Context) error
 }

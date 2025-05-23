@@ -111,6 +111,15 @@ func (m *Manager) StoreSchemaVersion(c *cmd.ApplyRequest) error {
 	return m.replicationFSM.StoreSchemaVersion(req)
 }
 
+func (m *Manager) SetUnCancellable(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationSetUnCancellableRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.replicationFSM.SetUnCancellable(req)
+}
+
 func (m *Manager) GetReplicationDetailsByReplicationId(c *cmd.QueryRequest) ([]byte, error) {
 	subCommand := cmd.ReplicationDetailsRequest{}
 	if err := json.Unmarshal(c.SubCommand, &subCommand); err != nil {
@@ -340,6 +349,16 @@ func (m *Manager) DeleteAllReplications(c *cmd.ApplyRequest) error {
 
 	// Trigger deletion of all replication operation in the FSM
 	return m.replicationFSM.DeleteAllReplications(req)
+}
+
+func (m *Manager) PurgeReplications(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationPurgeRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Trigger deletion of all replication operation in the FSM
+	return m.replicationFSM.PurgeReplications(req)
 }
 
 func (m *Manager) RemoveReplicaOp(c *cmd.ApplyRequest) error {

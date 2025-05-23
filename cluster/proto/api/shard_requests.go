@@ -164,6 +164,10 @@ type ReplicationDeleteAllRequest struct {
 	Version int
 }
 
+type ReplicationPurgeRequest struct {
+	Version int
+}
+
 type ReplicationOperationStateRequest struct {
 	Id uint64
 }
@@ -176,4 +180,8 @@ type ReplicationStoreSchemaVersionRequest struct {
 	Version       int
 	SchemaVersion uint64
 	Id            uint64
+}
+
+type ReplicationSetUnCancellableRequest struct {
+	Id uint64
 }

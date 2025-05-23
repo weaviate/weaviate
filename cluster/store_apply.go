@@ -297,6 +297,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.replicationManager.DeleteAllReplications(&cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_PURGE:
+		f = func() {
+			ret.Error = st.replicationManager.PurgeReplications(&cmd)
+		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE:
 		f = func() {
 			ret.Error = st.replicationManager.RemoveReplicaOp(&cmd)
@@ -316,6 +320,10 @@ func (st *Store) Apply(l *raft.Log) any {
 	case api.ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION:
 		f = func() {
 			ret.Error = st.replicationManager.StoreSchemaVersion(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SET_UNCANCELLABLE:
+		f = func() {
+			ret.Error = st.replicationManager.SetUnCancellable(&cmd)
 		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:

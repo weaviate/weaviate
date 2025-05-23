@@ -431,7 +431,6 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 
 	// Ensure that the states of the shards on the nodes are in-sync with the state of the schema through a RAFT communication
 	// This handles cleaning up for ghost shards that are in the store but not in the schema that may have been created by index.getOptInitShard
-	// Both methods return early on error to avoid completing cancellation so that the op can be cleaned-up again on failure when it is cancelled again
 
 	if err := c.sync(ctx, op); err != nil {
 		logger.WithError(err).
@@ -596,6 +595,11 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
 		return api.ShardReplicationState(""), ctx.Err()
+	}
+
+	if err := c.leaderClient.ReplicationSetUnCancellable(ctx, op.Op.ID); err != nil {
+		logger.WithError(err).Error("failure while setting operation to un-cancellable")
+		return api.ShardReplicationState(""), err
 	}
 
 	if !replicaExists {

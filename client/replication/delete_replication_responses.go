@@ -58,6 +58,12 @@ func (o *DeleteReplicationReader) ReadResponse(response runtime.ClientResponse, 
 			return nil, err
 		}
 		return nil, result
+	case 409:
+		result := NewDeleteReplicationConflict()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewDeleteReplicationInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -301,6 +307,74 @@ func (o *DeleteReplicationNotFound) String() string {
 }
 
 func (o *DeleteReplicationNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewDeleteReplicationConflict creates a DeleteReplicationConflict with default headers values
+func NewDeleteReplicationConflict() *DeleteReplicationConflict {
+	return &DeleteReplicationConflict{}
+}
+
+/*
+DeleteReplicationConflict describes a response with status code 409, with default header values.
+
+The operation is not in a deletable state, e.g. it is a MOVE op in the DEHYDRATING state.
+*/
+type DeleteReplicationConflict struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this delete replication conflict response has a 2xx status code
+func (o *DeleteReplicationConflict) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this delete replication conflict response has a 3xx status code
+func (o *DeleteReplicationConflict) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this delete replication conflict response has a 4xx status code
+func (o *DeleteReplicationConflict) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this delete replication conflict response has a 5xx status code
+func (o *DeleteReplicationConflict) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this delete replication conflict response a status code equal to that given
+func (o *DeleteReplicationConflict) IsCode(code int) bool {
+	return code == 409
+}
+
+// Code gets the status code for the delete replication conflict response
+func (o *DeleteReplicationConflict) Code() int {
+	return 409
+}
+
+func (o *DeleteReplicationConflict) Error() string {
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationConflict  %+v", 409, o.Payload)
+}
+
+func (o *DeleteReplicationConflict) String() string {
+	return fmt.Sprintf("[DELETE /replication/replicate/{id}][%d] deleteReplicationConflict  %+v", 409, o.Payload)
+}
+
+func (o *DeleteReplicationConflict) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *DeleteReplicationConflict) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }
