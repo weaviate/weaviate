@@ -365,7 +365,17 @@ func TestRaftEndpoints(t *testing.T) {
 	// restore from snapshot
 	assert.Nil(t, srv.Close(ctx))
 
-	s := NewFSM(m.cfg, nil, nil, prometheus.NewPedanticRegistry(), nil)
+	snapshotRestoreChan := make(chan struct{})
+	go func() {
+		select {
+		case <-snapshotRestoreChan:
+			// The replication FSM has been restored from a snapshot, we need to stop and restart
+		case <-time.After(10 * time.Second):
+			// Fail the test
+			assert.Fail(t, "Snapshot restore took too long")
+		}
+	}()
+	s := NewFSM(m.cfg, nil, nil, prometheus.NewPedanticRegistry(), snapshotRestoreChan)
 	m.store = &s
 	srv = NewRaft(mocks.NewMockNodeSelector(), m.store, nil)
 	assert.Nil(t, srv.Open(ctx, m.indexer))

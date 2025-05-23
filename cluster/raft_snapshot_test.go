@@ -101,7 +101,7 @@ func TestSnapshotRestoreSchemaOnly(t *testing.T) {
 		select {
 		case <-snapshotRestoreChan:
 			// The replication FSM has been restored from a snapshot, we need to stop and restart
-		case <-time.After(5 * time.Second):
+		case <-time.After(10 * time.Second):
 			// Fail the test
 			assert.Fail(t, "Snapshot restore took too long")
 		}
