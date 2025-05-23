@@ -1789,6 +1789,18 @@
           "items": {
             "$ref": "#/definitions/AsyncReplicationStatus"
           }
+        },
+        "numberOfReplicas": {
+          "description": "Number of replicas for the shard.",
+          "type": ["integer", "null"],
+          "format": "int64",
+          "x-omitempty": true
+        },
+        "replicationFactor": {
+          "description": "Minimum number of replicas for the shard.",
+          "type": ["integer", "null"],
+          "format": "int64",
+          "x-omitempty": true
         }
       }
     },

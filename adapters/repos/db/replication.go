@@ -278,8 +278,11 @@ func (i *Index) IncomingFilePutter(ctx context.Context, shardName,
 	filePath string,
 ) (io.WriteCloser, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return nil, fmt.Errorf("incoming file putter get shard %s: %w", shardName, err)
+	if err != nil {
+		return nil, fmt.Errorf("incoming file putter get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return nil, fmt.Errorf("incoming file putter get shard %s: shard not found", shardName)
 	}
 	defer release()
 
@@ -330,8 +333,11 @@ func (i *Index) IncomingPauseFileActivity(ctx context.Context,
 	shardName string,
 ) error {
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return fmt.Errorf("incoming pause file activity get shard %s: %w", shardName, err)
+	if err != nil {
+		return fmt.Errorf("incoming pause file activity get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("incoming pause file activity get shard %s: shard not found", shardName)
 	}
 	defer release()
 
@@ -348,8 +354,11 @@ func (i *Index) IncomingResumeFileActivity(ctx context.Context,
 	shardName string,
 ) error {
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return fmt.Errorf("incoming resume file activity get shard %s: %w", shardName, err)
+	if err != nil {
+		return fmt.Errorf("incoming resume file activity get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("incoming resume file activity get shard %s: shard not found", shardName)
 	}
 	defer release()
 
@@ -428,8 +437,11 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 // directory.
 func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relativeFilePath string) (file.FileMetadata, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return file.FileMetadata{}, fmt.Errorf("incoming get file metadata get shard %s: %w", shardName, err)
+	if err != nil {
+		return file.FileMetadata{}, fmt.Errorf("incoming get file metadata get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return file.FileMetadata{}, fmt.Errorf("incoming get file metadata get shard %s: shard not found", shardName)
 	}
 	defer release()
 
@@ -447,8 +459,11 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	relativeFilePath string,
 ) (io.ReadCloser, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return nil, fmt.Errorf("incoming get file metadata get shard %s: %w", shardName, err)
+	if err != nil {
+		return nil, fmt.Errorf("incoming get file get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return nil, fmt.Errorf("incoming get file get shard %s: shard not found", shardName)
 	}
 	defer release()
 
@@ -470,8 +485,11 @@ func (i *Index) IncomingAddAsyncReplicationTargetNode(
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return fmt.Errorf("incoming add async replication target node get shard %s: %w", shardName, err)
+	if err != nil {
+		return fmt.Errorf("incoming add async replication get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("incoming add async replication get shard %s: shard not found", shardName)
 	}
 	defer release()
 
@@ -488,8 +506,11 @@ func (i *Index) IncomingRemoveAsyncReplicationTargetNode(ctx context.Context,
 	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
 ) error {
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return fmt.Errorf("incoming remove async replication target node get shard %s: %w", shardName, err)
+	if err != nil {
+		return fmt.Errorf("incoming remove async replication get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("incoming remove async replication get shard %s: shard not found", shardName)
 	}
 	defer release()
 
@@ -502,8 +523,11 @@ func (i *Index) IncomingRemoveAllAsyncReplicationTargetNodes(ctx context.Context
 	shardName string,
 ) error {
 	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return fmt.Errorf("incoming remove all async replication target nodes get shard %s: %w", shardName, err)
+	if err != nil {
+		return fmt.Errorf("incoming remove all async replication get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("incoming remove all async replication get shard %s: shard not found", shardName)
 	}
 	defer release()
 

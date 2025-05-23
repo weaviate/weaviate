@@ -66,8 +66,8 @@ func (f *FakeClusterState) ResolveParentNodes(string, string,
 	return nil, nil
 }
 
-func (f *FakeClusterState) NodeHostname(string) (string, bool) {
-	return "", false
+func (f *FakeClusterState) NodeHostname(host string) (string, bool) {
+	return f.NodeSelector.NodeHostname(host)
 }
 
 func (f *FakeClusterState) Execute(cmd *command.ApplyRequest) error {

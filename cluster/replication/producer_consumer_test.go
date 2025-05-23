@@ -64,7 +64,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
@@ -74,7 +77,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil)
+					Return(nil).Maybe()
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -116,7 +119,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
@@ -126,7 +132,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil)
+					Return(nil).Maybe()
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -164,14 +170,17 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(fmt.Errorf("failed to copy replica")).
 					Times(1)
 				mockFSMUpdater.EXPECT().
 					ReplicationRegisterError(mock.Anything, uint64(opId), fmt.Errorf("failed to copy replica").Error()).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
@@ -181,7 +190,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil)
+					Return(nil).Maybe()
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -210,8 +219,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				wg.Add(1)
 				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
-					Return(api.REGISTERED, nil).
-					Times(4) // equal to the op plus number of times the op failed
+					Return(api.REGISTERED, nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
 					Return(nil)
@@ -219,7 +227,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
@@ -237,7 +248,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Times(1)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil)
+					Return(nil).Maybe()
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
@@ -286,7 +297,10 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.FINALIZING).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					InitAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
@@ -296,7 +310,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					Return(nil)
 				mockReplicaCopier.EXPECT().
 					RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
-					Return(nil)
+					Return(nil).Maybe()
 				mockReplicaCopier.EXPECT().
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)

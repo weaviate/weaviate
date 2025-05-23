@@ -83,7 +83,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			Return(uint64(0), nil).
 			Times(1)
 		mockReplicaCopier.EXPECT().
-			CopyReplica(
+			CopyReplicaFiles(
 				mock.Anything,
 				"node1",
 				"TestCollection",
@@ -91,6 +91,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				mock.Anything,
 			).
 			Once().
+			Return(nil)
+		mockReplicaCopier.EXPECT().
+			LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 			Return(nil)
 		mockReplicaCopier.EXPECT().
 			InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
@@ -229,7 +232,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.HYDRATING).
 			Return(nil)
 		mockReplicaCopier.EXPECT().
-			CopyReplica(
+			CopyReplicaFiles(
 				mock.Anything,
 				"node1",
 				"TestCollection",
@@ -375,7 +378,10 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 				Return(nil)
 			mockReplicaCopier.EXPECT().
-				CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				Return(nil)
+			mockReplicaCopier.EXPECT().
+				LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
 			mockFSMUpdater.EXPECT().
 				AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -683,7 +689,10 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opID), api.READY).
 					Return(nil)
 				mockReplicaCopier.EXPECT().
-					CopyReplica(mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
+					CopyReplicaFiles(mock.Anything, "node1", "TestCollection", mock.Anything, mock.Anything).
+					Return(nil)
+				mockReplicaCopier.EXPECT().
+					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
 					AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, mock.Anything).
@@ -890,7 +899,7 @@ func TestConsumerOpCancellation(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
@@ -1020,7 +1029,7 @@ func TestConsumerOpDeletion(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
@@ -1147,16 +1156,162 @@ func TestConsumerOpDuplication(t *testing.T) {
 
 	mockFSMUpdater.EXPECT().
 		ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).
-		Return(api.FINALIZING, nil).
-		Times(1)
+		Return(api.FINALIZING, nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).
-		Return(api.READY, nil).
-		Times(1)
+		Return(api.READY, nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
-		Return(nil).
-		Times(1)
+		Return(nil)
+	mockFSMUpdater.EXPECT().
+		AddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2").
+		Return(uint64(1), nil)
+	mockReplicaCopier.EXPECT().
+		LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil)
+	mockReplicaCopier.EXPECT().
+		AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", "shard1").
+		RunAndReturn(func(context.Context, string, string, string, string) (models.AsyncReplicationStatus, error) {
+			time.Sleep(5 * time.Second)
+			return models.AsyncReplicationStatus{
+				ObjectsPropagated:       0,
+				StartDiffTimeUnixMillis: time.Now().Add(200 * time.Second).UnixMilli(),
+			}, nil
+		})
+	mockReplicaCopier.EXPECT().
+		AddAsyncReplicationTargetNode(mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	mockReplicaCopier.EXPECT().
+		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
+	mockReplicaCopier.EXPECT().
+		InitAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").
+		Return(nil)
+	mockReplicaCopier.EXPECT().
+		RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
+	mockFSMUpdater.EXPECT().
+		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
+
+	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
+	status := replication.NewShardReplicationStatus(api.FINALIZING)
+
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+	completionWg.Add(1)
+
+	// Send the same operation again to make sure it isn't reprocessed after a state change
+	// as mocked in the above expectations
+	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
+	completionWg.Add(1)
+
+	waitChan := make(chan struct{})
+	go func() {
+		completionWg.Wait()
+		waitChan <- struct{}{}
+	}()
+
+	select {
+	case <-waitChan:
+	case <-time.After(30 * time.Second):
+		t.Fatalf("Test timed out waiting for operation completion")
+	}
+
+	close(opsChan)
+	err := <-doneChan
+
+	// THEN
+	require.NoError(t, err, "expected consumer to stop without error")
+
+	mockFSMUpdater.AssertExpectations(t)
+	mockReplicaCopier.AssertExpectations(t)
+}
+
+func TestConsumerOpSkip(t *testing.T) {
+	// GIVEN
+	logger, _ := logrustest.NewNullLogger()
+	mockFSMUpdater := types.NewMockFSMUpdater(t)
+	mockReplicaCopier := types.NewMockReplicaCopier(t)
+	parser := fakes.NewMockParser()
+	parser.On("ParseClass", mock.Anything).Return(nil)
+	schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false)
+	schemaReader := schemaManager.NewSchemaReader()
+	schemaManager.AddClass(
+		buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			State: &sharding.State{
+				Physical: map[string]sharding.Physical{"shard1": {BelongsToNodes: []string{"node1"}}},
+			},
+		}), "node1", true, false)
+
+	var completionWg sync.WaitGroup
+
+	metricsCallbacks := metrics.NewReplicationEngineOpsCallbacksBuilder().
+		WithPrepareProcessing(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in prepare processing callback")
+		}).
+		WithOpPendingCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in pending op callback")
+		}).
+		WithOpSkippedCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in skipped op callback")
+			completionWg.Done()
+		}).
+		WithOpStartCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in start op callback")
+		}).
+		WithOpCompleteCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in complete op callback")
+			completionWg.Done()
+		}).
+		WithOpFailedCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in failed op callback")
+		}).
+		WithOpCancelledCallback(func(node string) {
+			require.Equal(t, "node2", node, "invalid node in cancelled op callback")
+		}).
+		Build()
+
+	consumer := replication.NewCopyOpConsumer(
+		logger,
+		mockFSMUpdater,
+		mockReplicaCopier,
+		"node2",
+		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
+		time.Second*10,
+		3,
+		runtime.NewDynamicValue(time.Second*100),
+		metricsCallbacks,
+		schemaReader,
+	)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	opsChan := make(chan replication.ShardReplicationOpAndStatus, 4)
+	doneChan := make(chan error, 1)
+
+	// WHEN
+	go func() {
+		doneChan <- consumer.Consume(ctx, opsChan)
+	}()
+
+	mockFSMUpdater.EXPECT().
+		ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).
+		Return(api.FINALIZING, nil)
+	mockFSMUpdater.EXPECT().
+		ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).
+		Return(api.READY, nil)
+	mockReplicaCopier.EXPECT().
+		LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil)
+	mockFSMUpdater.EXPECT().
+		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
+		Return(nil)
 	mockFSMUpdater.EXPECT().
 		AddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2").
 		Return(uint64(1), nil)
@@ -1187,8 +1342,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	completionWg.Add(1)
 
-	// Send the same operation again to make sure it isn't reprocessed after a state change
-	// as mocked in the above expectations
+	// Send the same operation again twice to make sure it is skipped
 	opsChan <- replication.NewShardReplicationOpAndStatus(op, status)
 	completionWg.Add(1)
 
@@ -1276,7 +1430,7 @@ func TestConsumerShutdown(t *testing.T) {
 	}()
 
 	mockReplicaCopier.EXPECT().
-		CopyReplica(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+		CopyReplicaFiles(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		RunAndReturn(func(ctx context.Context, sourceNode string, collectionName string, shardName string, schemaVersion uint64) error {
 			// Simulate a long-running operation that checks for cancellation every loop
 			for {
