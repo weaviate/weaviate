@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -111,11 +112,12 @@ func (db *DB) init(ctx context.Context) error {
 				AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                    db.shardLoadLimiter,
+				EnableInternalGRPC:                  db.config.EnableInternalGRPC,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
-				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
+				db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndexHTTP,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler,
 				db.indexCheckpoints, db.memMonitor, db.reindexer)
 			if err != nil {

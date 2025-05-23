@@ -277,7 +277,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		vectorIndexUserConfigs:  vectorIndexUserConfigs,
 		stopwords:               sd,
 		partitioningEnabled:     shardState.PartitioningEnabled,
-		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient),
+		remote:                  sharding.NewRemoteIndex(cfg.ClassName.String(), sg, nodeResolver, remoteClient, cfg.EnableInternalGRPC),
 		metrics:                 NewMetrics(logger, promMetrics, cfg.ClassName.String(), "n/a"),
 		centralJobQueue:         jobQueueCh,
 		shardTransferMutex:      shardTransfer{log: logger, retryDuration: mutexRetryDuration, notifyDuration: mutexNotifyDuration},
@@ -672,6 +672,7 @@ type IndexConfig struct {
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 	ShardLoadLimiter                    ShardLoadLimiter
+	EnableInternalGRPC                  bool
 }
 
 func indexID(class schema.ClassName) string {
