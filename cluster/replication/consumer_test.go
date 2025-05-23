@@ -59,6 +59,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "error generating random operation id")
 
 		mockFSMUpdater.EXPECT().
+			WaitForUpdate(mock.Anything, mock.Anything).
+			Return(nil)
+		mockFSMUpdater.EXPECT().
 			ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 			Return(api.REGISTERED, nil).
 			Times(1)
@@ -367,6 +370,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "error while generating random op id start")
 		for i := 0; i < randomNumberOfOps; i++ {
 			opId := uint64(randomStartOpId + i)
+			mockFSMUpdater.EXPECT().
+				WaitForUpdate(mock.Anything, mock.Anything).
+				Return(nil)
 			mockFSMUpdater.EXPECT().
 				ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 				Return(api.REGISTERED, nil).
@@ -681,6 +687,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			if !skip {
 				expectedStarted++
 				expectedCompleted++
+				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opID)).
 					Return(api.REGISTERED, nil).
@@ -1164,6 +1173,9 @@ func TestConsumerOpDuplication(t *testing.T) {
 	}()
 
 	mockFSMUpdater.EXPECT().
+		WaitForUpdate(mock.Anything, mock.Anything).
+		Return(nil)
+	mockFSMUpdater.EXPECT().
 		ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).
 		Return(api.FINALIZING, nil)
 	mockFSMUpdater.EXPECT().
@@ -1312,6 +1324,9 @@ func TestConsumerOpSkip(t *testing.T) {
 		doneChan <- consumer.Consume(ctx, opsChan)
 	}()
 
+	mockFSMUpdater.EXPECT().
+		WaitForUpdate(mock.Anything, mock.Anything).
+		Return(nil)
 	mockFSMUpdater.EXPECT().
 		ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).
 		Return(api.FINALIZING, nil)

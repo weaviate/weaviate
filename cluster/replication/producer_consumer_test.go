@@ -54,6 +54,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
 				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
+				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 					Return(api.REGISTERED, nil).
 					Times(1)
@@ -104,6 +107,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 					Return(api.REGISTERED, nil).
@@ -159,6 +165,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 					Return(api.REGISTERED, nil).
@@ -217,6 +226,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 					Return(api.REGISTERED, nil)
@@ -286,6 +298,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.MOVE,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 					Return(api.REGISTERED, nil).
