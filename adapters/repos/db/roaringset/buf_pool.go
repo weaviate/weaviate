@@ -12,6 +12,7 @@
 package roaringset
 
 import (
+	"fmt"
 	"math"
 	"sync"
 
@@ -42,6 +43,8 @@ func NewBitmapBufPool2(capFactor float64) *bitmapBufPool2 {
 		capFactor: capFactor,
 		pool: &sync.Pool{
 			New: func() any {
+				fmt.Printf("  ==> creating buffer\n\n")
+
 				dummyBuf := make([]byte, 0)
 				return &dummyBuf
 			},
@@ -52,11 +55,15 @@ func NewBitmapBufPool2(capFactor float64) *bitmapBufPool2 {
 func (p *bitmapBufPool2) Get(minCap int) (buf []byte, put func()) {
 	ptr := p.pool.Get().(*[]byte)
 	buf = *ptr
+	fmt.Printf("  ==> getting buffer\n")
+
 	if cap(buf) < minCap {
-		cap := int(math.Ceil(float64(minCap) * p.capFactor))
-		buf = make([]byte, 0, cap)
+		cp := int(math.Ceil(float64(minCap) * p.capFactor))
+		fmt.Printf("  ==> changing buffer curCap [%d] minCap [%d] newCap [%d]\n\n", cap(buf), minCap, cp)
+		buf = make([]byte, 0, cp)
 		*ptr = buf
 	} else if len(buf) > 0 {
+		fmt.Printf("  ==> keeping buffer curCap [%d] minCap [%d]\n\n", cap(buf), minCap)
 		buf = buf[:0]
 		*ptr = buf
 	}
