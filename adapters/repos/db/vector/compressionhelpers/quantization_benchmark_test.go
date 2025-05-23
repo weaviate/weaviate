@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/kmeans"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/vector_types"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"gonum.org/v1/hdf5"
 )
@@ -290,7 +291,7 @@ func (s *RQSettings) Description() string {
 
 type RQNeighborProvider struct {
 	quantizer     *compressionhelpers.RotationalQuantizer
-	quantizedData []compressionhelpers.RQEncoding
+	quantizedData [][]vector_types.RQEncoding
 	norms         []float32
 	distance      distancer.Provider
 	bits          int
@@ -310,13 +311,13 @@ func NewRQNeighborProvider(data [][]float32, settings RQSettings, distance dista
 		kmeans.Fit(train)
 		quantizer = compressionhelpers.NewRotationalQuantizerWithCenters(d, 42, kmeans.Centers)
 	} else {
-		quantizer = compressionhelpers.NewRotationalQuantizer(d, 42)
+		quantizer = compressionhelpers.NewRotationalQuantizer(d, 42, settings.Bits, distance)
 	}
 
-	quantizedData := make([]compressionhelpers.RQEncoding, len(data))
+	quantizedData := make([][]vector_types.RQEncoding, len(data))
 	norms := make([]float32, len(data))
 	for i, v := range data {
-		quantizedData[i] = quantizer.Encode(v, settings.Bits)
+		quantizedData[i] = quantizer.Encode(v)
 		var dot float32
 		for j := range v {
 			dot += v[j] * v[j]
@@ -335,7 +336,7 @@ func NewRQNeighborProvider(data [][]float32, settings RQSettings, distance dista
 
 func (rq *RQNeighborProvider) NearestNeighbors(query []float32, k int) []int {
 	queue := NewSimplePriorityQueue(k)
-	distancer := rq.quantizer.NewDistancer(query, rq.distance, rq.bits)
+	distancer := rq.quantizer.NewDistancer(query)
 	for i, c := range rq.quantizedData {
 		dist, _ := distancer.Distance(c)
 		queue.Insert(i, dist)
@@ -393,7 +394,7 @@ func overlap(a []int, b []int) int {
 }
 
 func BenchmarkQuantizationRecall(b *testing.B) {
-	dataDir := "/Users/tobiaschristiani/code/datasets"
+	dataDir := "/Users/roberto/datasets"
 	datasets := []ANNBenchDataDescriptor{
 		// {Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
 		//{Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
@@ -413,7 +414,7 @@ func BenchmarkQuantizationRecall(b *testing.B) {
 		&RQSettings{Bits: 1, Centers: 16, TrainingSize: 100_000},
 		&RQSettings{Bits: 1, Centers: 256, TrainingSize: 100_000},
 		// 2 bits
-		&PQSettings{Centroids: 256, SegmentLength: 4, TrainingSize: 100_000},
+		/*&PQSettings{Centroids: 256, SegmentLength: 4, TrainingSize: 100_000},
 		&PQSettings{Centroids: 16, SegmentLength: 2, TrainingSize: 100_000},
 		&RQSettings{Bits: 2, Centers: 0, TrainingSize: 100_000},
 		&RQSettings{Bits: 2, Centers: 1, TrainingSize: 100_000},
@@ -425,7 +426,7 @@ func BenchmarkQuantizationRecall(b *testing.B) {
 		&RQSettings{Bits: 4, Centers: 0, TrainingSize: 100_000},
 		&RQSettings{Bits: 4, Centers: 1, TrainingSize: 100_000},
 		&RQSettings{Bits: 4, Centers: 16, TrainingSize: 100_000},
-		&RQSettings{Bits: 4, Centers: 256, TrainingSize: 100_000},
+		&RQSettings{Bits: 4, Centers: 256, TrainingSize: 100_000},*/
 		// 8 bits
 		&SQSettings{TrainingSize: 100_000},
 		&RQSettings{Bits: 8, Centers: 0, TrainingSize: 100_000},

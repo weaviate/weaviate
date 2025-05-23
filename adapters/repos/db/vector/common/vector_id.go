@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/vector_types"
 	"github.com/weaviate/weaviate/entities/dto"
 )
 
@@ -109,10 +110,10 @@ type VectorUint64Slice struct {
 }
 
 type (
-	VectorForID[T []float32 | []uint64 | float32 | byte | uint64] func(ctx context.Context, id uint64) ([]T, error)
-	MultipleVectorForID[T float32 | uint64 | byte]                func(ctx context.Context, id uint64, relativeID uint64) ([]T, error)
-	TempVectorForID[T []float32 | float32]                        func(ctx context.Context, id uint64, container *VectorSlice) ([]T, error)
-	MultiVectorForID                                              func(ctx context.Context, ids []uint64) ([][]float32, []error)
+	VectorForID[T []float32 | []uint64 | float32 | byte | uint64 | vector_types.RQEncoding] func(ctx context.Context, id uint64) ([]T, error)
+	MultipleVectorForID[T float32 | uint64 | byte]                                          func(ctx context.Context, id uint64, relativeID uint64) ([]T, error)
+	TempVectorForID[T []float32 | float32]                                                  func(ctx context.Context, id uint64, container *VectorSlice) ([]T, error)
+	MultiVectorForID                                                                        func(ctx context.Context, ids []uint64) ([][]float32, []error)
 )
 
 type TargetVectorForID[T []float32 | float32 | byte | uint64] struct {

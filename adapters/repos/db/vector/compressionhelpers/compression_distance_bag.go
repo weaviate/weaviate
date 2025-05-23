@@ -14,6 +14,8 @@ package compressionhelpers
 import (
 	"context"
 	"fmt"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/vector_types"
 )
 
 type CompressionDistanceBag interface {
@@ -21,7 +23,7 @@ type CompressionDistanceBag interface {
 	Distance(x, y uint64) (float32, error)
 }
 
-type quantizedDistanceBag[T byte | uint64] struct {
+type quantizedDistanceBag[T byte | uint64 | vector_types.RQEncoding] struct {
 	elements   map[uint64][]T
 	compressor *quantizedVectorsCompressor[T]
 }

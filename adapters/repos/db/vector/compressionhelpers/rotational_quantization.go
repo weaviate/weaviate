@@ -18,6 +18,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/vector_types"
 )
 
 type RotationalQuantizer struct {
@@ -25,9 +26,11 @@ type RotationalQuantizer struct {
 	rotation           *Rotation
 	centers            [][]float32
 	centerNormsSquared []float32
+	bits               int
+	distancer          distancer.Provider
 }
 
-func NewRotationalQuantizer(dim int, seed uint64) *RotationalQuantizer {
+func NewRotationalQuantizer(dim int, seed uint64, bits int, distancer distancer.Provider) *RotationalQuantizer {
 	centers := make([][]float32, 1)
 	centers[0] = make([]float32, dim)
 	norms2 := make([]float32, 1)
@@ -36,6 +39,8 @@ func NewRotationalQuantizer(dim int, seed uint64) *RotationalQuantizer {
 		rotation:           NewRotation(dim, seed),
 		centers:            centers,
 		centerNormsSquared: norms2,
+		bits:               bits,
+		distancer:          distancer,
 	}
 	return rq
 }
@@ -129,31 +134,22 @@ func (rq *RotationalQuantizer) centerAndNormalize(x []float32, centerIdx int) ([
 
 // We should only have to store two floats.
 // Combine CenterDistRaw and EstimatorNormalization?
-type RQEncoding struct {
-	CenterIdx              int     // Index of the center in the centers slice on the quantizer.
-	CenterDotRaw           float32 // Dot product between center and raw vector.
-	CenterDistRaw          float32 // Euclidean distance between the center and the raw vector.
-	RawNormSquared         float32 // Euclidean norm squared of the raw vector.
-	EstimatorNormalization float32 // The normalization term <o, obar> for the cosine similarity estimator.
-	Bits                   int     // Storing this for convencience for now.
-	Code                   []uint8 // The byte encoding of the centered and normalized vector.
-}
 
 // Encode a vector according to Algorithm 1 in the extended RaBitQ paper. The
 // input is a raw data vector so we center and normalize it prior to encoding,
 // and store this information in the returned encoding.
-func (rq *RotationalQuantizer) Encode(x []float32, bits int) RQEncoding {
+func (rq *RotationalQuantizer) Encode(x []float32) []vector_types.RQEncoding {
 	// Center, normalize, rotate.
 	centerIdx := rq.nearestCenter(x)
+	bits := rq.bits
 	center := rq.centers[centerIdx]
 	centerDotRaw := dot(center, x)
 	centered, centerDistRaw := rq.centerAndNormalize(x, centerIdx)
-	encoding := RQEncoding{
+	encoding := vector_types.RQEncoding{
 		CenterIdx:      centerIdx,
 		CenterDotRaw:   centerDotRaw,
 		CenterDistRaw:  centerDistRaw,
 		RawNormSquared: dot(x, x),
-		Bits:           bits,
 	}
 
 	// o corresponds to o' in the paper and the rotation applied by rq.Rotate()
@@ -164,7 +160,7 @@ func (rq *RotationalQuantizer) Encode(x []float32, bits int) RQEncoding {
 		code, normalization := signsEncoding(o, 1)
 		encoding.Code = code
 		encoding.EstimatorNormalization = normalization
-		return encoding
+		return []vector_types.RQEncoding{encoding}
 	}
 
 	// Initialize y, dot, yNorm2 to the initial signs encoding {-0,5, +0.5}^d
@@ -226,7 +222,7 @@ func (rq *RotationalQuantizer) Encode(x []float32, bits int) RQEncoding {
 		code, normalization := signsEncoding(o, bits)
 		encoding.Code = code
 		encoding.EstimatorNormalization = normalization
-		return encoding
+		return []vector_types.RQEncoding{encoding}
 	}
 
 	encoding.Code = make([]uint8, rq.dimension)
@@ -234,7 +230,7 @@ func (rq *RotationalQuantizer) Encode(x []float32, bits int) RQEncoding {
 		encoding.Code[i] = encodeScalar(maxDotScale*v, bits)
 	}
 	encoding.EstimatorNormalization = float32(maxDot)
-	return encoding
+	return []vector_types.RQEncoding{encoding}
 }
 
 func (rq *RotationalQuantizer) Rotate(x []float32) []float32 {
@@ -243,10 +239,11 @@ func (rq *RotationalQuantizer) Rotate(x []float32) []float32 {
 
 // Returns the point on the unit sphere corresponding to the code. It is denoted
 // as ybar / ||ybar|| in the paper
-func (rq *RotationalQuantizer) Decode(c RQEncoding) []float32 {
+func (rq *RotationalQuantizer) Decode(c vector_types.RQEncoding) []float32 {
+	bits := rq.bits
 	y := make([]float32, len(c.Code))
 	var norm2 float32
-	start := -float32(int(1<<(c.Bits-1))) + 0.5
+	start := -float32(int(1<<(bits-1))) + 0.5
 	for i, v := range c.Code {
 		y[i] = start + float32(v)
 		norm2 += y[i] * y[i]
@@ -260,7 +257,7 @@ func (rq *RotationalQuantizer) Decode(c RQEncoding) []float32 {
 }
 
 // Restore the original raw vector from the code.
-func (rq *RotationalQuantizer) Restore(c RQEncoding) []float32 {
+func (rq *RotationalQuantizer) Restore(c vector_types.RQEncoding) []float32 {
 	y := rq.Decode(c)
 	ry := rq.rotation.InverseRotate(y)
 
@@ -289,7 +286,7 @@ type RQDistancer struct {
 	bits       int // Number of bits used to encode each entry in the original vector.
 }
 
-func (rq *RotationalQuantizer) NewDistancer(q []float32, distancer distancer.Provider, bits int) *RQDistancer {
+func (rq *RotationalQuantizer) NewDistancer(q []float32) *RQDistancer {
 	centerDots := make([]float32, len(rq.centers))
 	for i, c := range rq.centers {
 		centerDots[i] = dot(q, c)
@@ -304,13 +301,14 @@ func (rq *RotationalQuantizer) NewDistancer(q []float32, distancer distancer.Pro
 		qRotated:   r,
 		qNorm2:     norm2,
 		centerDots: centerDots,
-		distancer:  distancer,
+		distancer:  rq.distancer,
 		quantizer:  rq,
-		bits:       bits,
+		bits:       rq.bits,
 	}
 }
 
-func (rq *RQDistancer) Distance(c RQEncoding) (float32, error) {
+func (rq *RQDistancer) Distance(cs []vector_types.RQEncoding) (float32, error) {
+	c := cs[0]
 	if len(rq.qRotated) != len(c.Code) {
 		return 0, errors.Errorf("vector lengths don't match: %d vs %d",
 			len(rq.qRotated), len(c.Code))
@@ -334,4 +332,30 @@ func (rq *RQDistancer) Distance(c RQEncoding) (float32, error) {
 		return rq.qNorm2 + c.RawNormSquared - 2.0*dotEstimate, nil
 	}
 	return 0, errors.Errorf("Distance not supported yet %s", rq.distancer)
+}
+
+func (rq *RQDistancer) DistanceToFloat(x []float32) (float32, error) {
+	panic("distance to float not implemented")
+}
+
+func (rq RotationalQuantizer) DistanceBetweenCompressedVectors(x, y []vector_types.RQEncoding) (float32, error) {
+	panic("DistanceBetweenCompressedVectors not implemented")
+}
+
+func (rq *RotationalQuantizer) NewCompressedQuantizerDistancer(a []vector_types.RQEncoding) quantizerDistancer[vector_types.RQEncoding] {
+	panic("NewCompressedQuantizerDistancer not implemented")
+}
+
+type RQStats struct {
+	Bits int `json:"bits"`
+}
+
+func (rq RQStats) CompressionType() string {
+	return "rq"
+}
+
+func (rq *RotationalQuantizer) Stats() CompressionStats {
+	return RQStats{
+		Bits: rq.bits,
+	}
 }

@@ -19,12 +19,13 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/vector_types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"golang.org/x/text/language"
 	"golang.org/x/text/message"
 )
 
-type parallelIterator[T byte | uint64] struct {
+type parallelIterator[T byte | uint64 | vector_types.RQEncoding] struct {
 	bucket              *lsmkv.Bucket
 	parallel            int
 	logger              logrus.FieldLogger
@@ -41,7 +42,7 @@ type parallelIterator[T byte | uint64] struct {
 	reportProgressInterval time.Duration
 }
 
-func NewParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, loadId func([]byte) uint64, fromCompressedBytes func(compressed []byte, buf *[]T) []T,
+func NewParallelIterator[T byte | uint64 | vector_types.RQEncoding](bucket *lsmkv.Bucket, parallel int, loadId func([]byte) uint64, fromCompressedBytes func(compressed []byte, buf *[]T) []T,
 	logger logrus.FieldLogger,
 ) *parallelIterator[T] {
 	return &parallelIterator[T]{
@@ -285,7 +286,7 @@ func (cpi *parallelIterator[T]) trackIndividual(loaded int) {
 	}
 }
 
-type VecAndID[T uint64 | byte] struct {
+type VecAndID[T uint64 | byte | vector_types.RQEncoding] struct {
 	Id  uint64
 	Vec []T
 }

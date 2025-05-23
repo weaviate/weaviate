@@ -11,14 +11,18 @@
 
 package compressionhelpers
 
-import "encoding/binary"
+import (
+	"encoding/binary"
 
-type quantizerDistancer[T byte | uint64] interface {
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/vector_types"
+)
+
+type quantizerDistancer[T byte | uint64 | vector_types.RQEncoding] interface {
 	Distance(x []T) (float32, error)
 	DistanceToFloat(x []float32) (float32, error)
 }
 
-type quantizer[T byte | uint64] interface {
+type quantizer[T byte | uint64 | vector_types.RQEncoding] interface {
 	DistanceBetweenCompressedVectors(x, y []T) (float32, error)
 	Encode(vec []float32) []T
 	NewQuantizerDistancer(a []float32) quantizerDistancer[T]
@@ -156,3 +160,27 @@ func (bq *BinaryQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistanc
 }
 
 func (bq *BinaryQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[uint64]) {}
+
+func (rq *RotationalQuantizer) CompressedBytes(compressed []vector_types.RQEncoding) []byte {
+	c := compressed[0]
+	return c.Code
+}
+
+func (rq *RotationalQuantizer) FromCompressedBytes(compressed []byte) []vector_types.RQEncoding {
+	panic("from compressed bytes not implemented")
+}
+
+func (rq *RotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]vector_types.RQEncoding) []vector_types.RQEncoding {
+	panic("from compressed bytes with subslice buffer not implemented")
+}
+
+func (rq *RotationalQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[vector_types.RQEncoding] {
+	return rq.NewDistancer(vec)
+}
+
+func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
+	panic("persist compression not implemented")
+}
+
+func (rq *RotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[vector_types.RQEncoding]) {
+}
