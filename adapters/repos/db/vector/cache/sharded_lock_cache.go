@@ -24,9 +24,10 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/vector_types"
 )
 
-type shardedLockCache[T float32 | byte | uint64] struct {
+type shardedLockCache[T float32 | byte | uint64 | vector_types.RQEncoding] struct {
 	shardedLocks           *common.ShardedRWLocks
 	cache                  [][]T
 	vectorForID            common.VectorForID[T]
@@ -114,6 +115,28 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	vc := &shardedLockCache[uint64]{
 		vectorForID:      vecForID,
 		cache:            make([][]uint64, InitialSize),
+		normalizeOnRead:  false,
+		count:            0,
+		maxSize:          int64(maxSize),
+		cancel:           make(chan bool),
+		logger:           logger,
+		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
+		maintenanceLock:  sync.RWMutex{},
+		deletionInterval: deletionInterval,
+		allocChecker:     allocChecker,
+	}
+
+	vc.watchForDeletion()
+	return vc
+}
+
+func NewShardedRQEncodingLockCache(vecForID common.VectorForID[vector_types.RQEncoding], maxSize int, pageSize uint64,
+	logger logrus.FieldLogger, deletionInterval time.Duration,
+	allocChecker memwatch.AllocChecker,
+) Cache[vector_types.RQEncoding] {
+	vc := &shardedLockCache[vector_types.RQEncoding]{
+		vectorForID:      vecForID,
+		cache:            make([][]vector_types.RQEncoding, InitialSize),
 		normalizeOnRead:  false,
 		count:            0,
 		maxSize:          int64(maxSize),

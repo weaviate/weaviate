@@ -169,6 +169,7 @@ type hnsw struct {
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
+	rqConfig   ent.RQConfig
 	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
 	// rescore sequentially, as that would take very long. This setting allows us
 	// to define the rescoring concurrency.
@@ -323,6 +324,7 @@ func New(cfg Config, uc ent.UserConfig,
 		pqConfig:                  uc.PQ,
 		bqConfig:                  uc.BQ,
 		sqConfig:                  uc.SQ,
+		rqConfig:                  uc.RQ,
 		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
 
@@ -346,6 +348,27 @@ func New(cfg Config, uc ent.UserConfig,
 				cfg.AllocChecker)
 		} else {
 			index.compressor, err = compressionhelpers.NewBQCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		}
+		if err != nil {
+			return nil, err
+		}
+		index.compressed.Store(true)
+		index.cache.Drop()
+		index.cache = nil
+	}
+
+	uc.RQ.Enabled = true
+	if uc.RQ.Enabled {
+		var err error
+		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
+			/*index.compressor, err = compressionhelpers.NewRQMultiCompressor(
+			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+			cfg.AllocChecker)*/
+		} else {
+			fmt.Println("NewRQCompressor")
+			index.compressor, err = compressionhelpers.NewRQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
 				cfg.AllocChecker)
 		}

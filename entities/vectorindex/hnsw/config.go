@@ -58,6 +58,7 @@ type UserConfig struct {
 	PQ                     PQConfig          `json:"pq"`
 	BQ                     BQConfig          `json:"bq"`
 	SQ                     SQConfig          `json:"sq"`
+	RQ                     RQConfig          `json:"rq"`
 	FilterStrategy         string            `json:"filterStrategy"`
 	Multivector            MultivectorConfig `json:"multivector"`
 }
