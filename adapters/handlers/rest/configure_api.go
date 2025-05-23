@@ -366,6 +366,14 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Metrics = promMetrics
 	}
 
+	rescoreFlatIndexConfigFlag := configRuntime.NewFeatureFlag(
+		configRuntime.FlatIndexRescoreAgainstObjectStoreLDKey,
+		bool(configRuntime.RescoreAgainstDedicatedIndex), // same as behavior before this flag was introduced
+		appState.LDIntegration,
+		configRuntime.FlatIndexRescoreAgainstObjectStoreEnvVariable,
+		appState.Logger,
+	)
+
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
@@ -389,6 +397,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		HNSWWaitForCachePrefill:             appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		HNSWFlatSearchConcurrency:           appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
 		HNSWAcornFilterRatio:                appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		FlatIndexRescoreAgainstObjectStore:  rescoreFlatIndexConfigFlag,
 		VisitedListPoolMaxSize:              appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
@@ -531,6 +540,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	offloadmod, _ := appState.Modules.OffloadBackend("offload-s3")
 
 	collectionRetrievalStrategyConfigFlag := configRuntime.NewFeatureFlag(
+
 		configRuntime.CollectionRetrievalStrategyLDKey,
 		string(configRuntime.LeaderOnly),
 		appState.LDIntegration,

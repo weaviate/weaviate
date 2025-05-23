@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	bolt "go.etcd.io/bbolt"
 )
@@ -40,6 +41,8 @@ type Config struct {
 	MakeCommitLoggerThunk hnsw.MakeCommitLogger
 	TombstoneCallbacks    cyclemanager.CycleCallbackGroup
 	SharedDB              *bolt.DB
+
+	FlatIndexRescoreAgainstObjectStore *configRuntime.FeatureFlag[bool]
 }
 
 func (c Config) Validate() error {

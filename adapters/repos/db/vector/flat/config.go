@@ -13,19 +13,23 @@ package flat
 
 import (
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 type Config struct {
-	ID               string
-	RootPath         string
-	TargetVector     string
-	MinMMapSize      int64
-	Logger           logrus.FieldLogger
-	DistanceProvider distancer.Provider
-	AllocChecker     memwatch.AllocChecker
+	ID                        string
+	RootPath                  string
+	TargetVector              string
+	MinMMapSize               int64
+	Logger                    logrus.FieldLogger
+	DistanceProvider          distancer.Provider
+	AllocChecker              memwatch.AllocChecker
+	RescoreAgainstObjectStore *runtime.FeatureFlag[bool]
+	VectorForIDThunk          common.VectorForID[float32]
 }
 
 func (c Config) Validate() error {
