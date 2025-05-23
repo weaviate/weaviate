@@ -40,6 +40,8 @@ type Config struct {
 	MakeCommitLoggerThunk hnsw.MakeCommitLogger
 	TombstoneCallbacks    cyclemanager.CycleCallbackGroup
 	SharedDB              *bolt.DB
+	MinMMapSize           int64
+	MaxWalReuseSize       int64
 }
 
 func (c Config) Validate() error {
