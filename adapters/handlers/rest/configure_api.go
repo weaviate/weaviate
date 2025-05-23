@@ -27,10 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-
-	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
-
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	armonmetrics "github.com/armon/go-metrics"
 	armonprometheus "github.com/armon/go-metrics/prometheus"
@@ -51,6 +47,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
@@ -123,6 +120,7 @@ import (
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
@@ -564,7 +562,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		schemaManager, repo, appState.Modules)
 	appState.BackupManager = backupManager
 
-	enterrors.GoWrapper(func() { clusterapi.Serve(appState) }, appState.Logger)
+	internalServer := clusterapi.NewServer(appState)
+	appState.InternalServer = internalServer
+	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
 	explorer.SetSchemaGetter(schemaManager)
@@ -851,6 +851,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
+
+		if err := appState.InternalServer.Close(ctx); err != nil {
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown").
+				Errorf("failed to gracefully shutdown")
+		}
 
 		if err := appState.ClusterService.Close(ctx); err != nil {
 			appState.Logger.
