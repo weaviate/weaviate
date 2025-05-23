@@ -102,8 +102,7 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationDeletingClassCleansUp
 		})
 
 		t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
-			nodes, err := helper.Client(t).Nodes.
-				NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
+			nodes, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
 			require.Nil(t, err)
 			for _, node := range nodes.Payload.Nodes {
 				for _, shard := range node.Shards {
