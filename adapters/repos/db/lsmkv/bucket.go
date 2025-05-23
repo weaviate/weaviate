@@ -1306,7 +1306,17 @@ func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
 		return false
 	}
 
-	err := b.active.commitlog.sync()
+	err := b.active.commitlog.flushBuffers()
+	if err != nil {
+		b.logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", b.dir).
+			WithError(err).
+			Errorf("flush and switch failed")
+
+		return false
+	}
+
+	err = b.active.commitlog.sync()
 	if err != nil {
 		b.logger.WithField("action", "lsm_memtable_flush").
 			WithField("path", b.dir).
