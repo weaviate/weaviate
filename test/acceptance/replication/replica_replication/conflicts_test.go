@@ -116,9 +116,8 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 	})
 }
 
-// func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
-func TestReplicationReplicateConflictsMOVE(t *testing.T) {
-	// 	t := suite.T()
+func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
+	t := suite.T()
 
 	paragraphClass := articles.ParagraphsClass()
 	helper.DeleteClass(t, paragraphClass.Class)
