@@ -93,6 +93,7 @@ func (h *Handler) GetCachedClassNoAuth(ctxWithClassCache context.Context, names 
 func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 	cls *models.Class,
 ) (*models.Class, uint64, error) {
+	fmt.Printf("AddClass: %+v\n", cls)
 	cls.Class = schema.UppercaseClassName(cls.Class)
 	cls.Properties = schema.LowercaseAllPropertyNames(cls.Properties)
 
@@ -121,7 +122,8 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return nil, 0, err
 	}
 
-	err = h.invertedConfigValidator(cls.InvertedIndexConfig)
+	iiconfig := cls.InvertedIndexConfig
+	err = h.invertedConfigValidator(iiconfig)
 	if err != nil {
 		return nil, 0, err
 	}

@@ -798,8 +798,7 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			}
 		}
 
-		// stop reindexing on server shutdown
-		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
+
 
 		appState.DistributedTaskScheduler.Close()
 

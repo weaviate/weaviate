@@ -170,6 +170,7 @@ func NewHandler(
 		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
 		classGetter:             classGetter,
+		invertedConfigValidator: NewInvertedConfigValidator(),
 
 		asyncIndexingEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
 	}
@@ -177,6 +178,12 @@ func NewHandler(
 	handler.scaleOut.SetSchemaReader(schemaReader)
 
 	return handler, nil
+}
+
+func NewInvertedConfigValidator() InvertedConfigValidator {
+	return func(in *models.InvertedIndexConfig) error {
+		return nil
+	}
 }
 
 // GetSchema retrieves a locally cached copy of the schema

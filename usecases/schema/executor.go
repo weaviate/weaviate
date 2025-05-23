@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"github.com/weaviate/weaviate/theOneTrueFileStore"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"golang.org/x/exp/slices"
 
@@ -27,6 +28,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"encoding/json"
 )
 
 var _NUMCPU = runtime.GOMAXPROCS(0)
@@ -34,11 +36,19 @@ var _NUMCPU = runtime.GOMAXPROCS(0)
 type StubMigrator struct{}
 
 func (s *StubMigrator) AddClass(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
-	panic("not implemented")
+	jsonData, err := json.Marshal(class)
+	if err != nil {
+		return fmt.Errorf("json marshal: %w", err)
+	}
+	if err := theOneTrueFileStore.TheOneTrueFileStore().Put([]byte("schema/classes/"+class.Class), jsonData); err != nil {
+		return fmt.Errorf("write class %q: %w", class.Class, err)
+	}
+	return nil
 }
 
 func (s *StubMigrator) DropClass(ctx context.Context, className string, hasFrozen bool) error {
-	panic("not implemented")
+	theOneTrueFileStore.TheOneTrueFileStore().Delete([]byte("schema/classes/"+className))
+	return nil
 }
 
 func (s *StubMigrator) GetShardsQueueSize(ctx context.Context, className, tenant string) (map[string]int64, error) {
@@ -58,7 +68,7 @@ func (s *StubMigrator) UpdateProperty(ctx context.Context, className, propName s
 }
 
 func (s *StubMigrator) UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error {
-	panic("not implemented")
+	return s.AddClass(ctx, class, shardingState)
 }
 
 func (s *StubMigrator) NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error {

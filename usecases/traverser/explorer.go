@@ -519,7 +519,11 @@ func (e *Explorer) searchResultsToGetResponseWithType(ctx context.Context, input
 			if additionalProperties["group"] != nil {
 				e.extractAdditionalPropertiesFromGroupRefs(additionalProperties["group"], params.GroupBy.Properties)
 			}
-			res.Schema.(map[string]interface{})["_additional"] = additionalProperties
+			if res.Schema == nil {
+				//fmt.Printf("schema is nil for %s, FIXME\n", res.ClassName)
+			} else {
+				res.Schema.(map[string]interface{})["_additional"] = additionalProperties
+			}
 		}
 
 		e.extractAdditionalPropertiesFromRefs(res.Schema, params.Properties)

@@ -20,6 +20,26 @@ func init() {
 	// Use multiple bbolt databases to store all data
 	//theOneTrueFileStore, err = ensemblekv.NewEnsembleKv("/tmp/ensemblekv", 200, 999999999, 999999999, 9999999999, ensemblekv.BoltDbCreator)
 
+	/*
+	mc alias set defaultRegion http://localhost:55096 minioadmin minioadmin
+     mc admin info defaultRegion
+Added `defaultRegion` successfully.
+●  localhost:55096
+   Uptime: 5 hours
+   Version: 2025-04-22T22:12:26Z
+   Network: 1/1 OK
+   Drives: 1/1 OK
+   Pool: 1
+
+┌──────┬────────────────────────┬─────────────────────┬──────────────┐
+│ Pool │ Drives Usage           │ Erasure stripe size │ Erasure sets │
+│ 1st  │ 70.7% (total: 926 GiB) │ 1                   │ 1            │
+└──────┴────────────────────────┴─────────────────────┴──────────────┘
+
+1 drive online, 0 drives offline, EC:0
+> mc mb local/weaviatebucket
+Bucket created successfully `local/weaviatebucket`.
+*/
 	// Use S3 as the backend (or minio)
 	theOneTrueFileStore, err = ensemblekv.NewS3Shim("http://localhost:55096", "minioadmin", "minioadmin", "defaultRegion", "weaviatebucket", "")
 
