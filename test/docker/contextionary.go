@@ -36,7 +36,6 @@ func startT2VContextionary(ctx context.Context, networkName, contextionaryImage 
 			NetworkAliases: map[string][]string{
 				networkName: {Text2VecContextionary},
 			},
-			Name: Text2VecContextionary,
 			Env: map[string]string{
 				"OCCURRENCE_WEIGHT_LINEAR_FACTOR": "0.75",
 				"EXTENSIONS_STORAGE_MODE":         "weaviate",
@@ -47,7 +46,6 @@ func startT2VContextionary(ctx context.Context, networkName, contextionaryImage 
 			WaitingFor:   wait.ForListeningPort(port),
 		},
 		Started: true,
-		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err

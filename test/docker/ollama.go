@@ -44,13 +44,11 @@ func startOllama(ctx context.Context, networkName, hostname, model string) (*Doc
 			NetworkAliases: map[string][]string{
 				networkName: {hostname},
 			},
-			Name:         hostname,
 			ExposedPorts: []string{"11434/tcp"},
 			AutoRemove:   true,
 			WaitingFor:   wait.ForListeningPort(port).WithStartupTimeout(60 * time.Second),
 		},
 		Started: true,
-		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err

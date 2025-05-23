@@ -37,7 +37,6 @@ func startQnATransformers(ctx context.Context, networkName, qnaImage string) (*D
 			NetworkAliases: map[string][]string{
 				networkName: {QnATransformers},
 			},
-			Name:         QnATransformers,
 			ExposedPorts: []string{"8080/tcp"},
 			AutoRemove:   true,
 			WaitingFor: wait.
@@ -49,7 +48,6 @@ func startQnATransformers(ctx context.Context, networkName, qnaImage string) (*D
 				WithStartupTimeout(240 * time.Second),
 		},
 		Started: true,
-		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err

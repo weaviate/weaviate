@@ -29,7 +29,6 @@ func startMinIO(ctx context.Context, networkName string, buckets map[string]stri
 		ContainerRequest: testcontainers.ContainerRequest{
 			Image:        "minio/minio",
 			ExposedPorts: []string{"9000/tcp"},
-			Name:         MinIO,
 			Hostname:     MinIO,
 			AutoRemove:   true,
 			Networks:     []string{networkName},
@@ -47,7 +46,6 @@ func startMinIO(ctx context.Context, networkName string, buckets map[string]stri
 			).WithDeadline(60 * time.Second),
 		},
 		Started: true,
-		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err

@@ -22,6 +22,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/stretchr/testify/require"
 
+	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
@@ -36,6 +37,17 @@ func QueryGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation
 	var vars interface{} = variables
 	params := graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
 	response, err := helper.Client(t).Graphql.GraphqlPost(params, nil)
+	if err != nil {
+		return nil, err
+	}
+
+	return response.Payload, nil
+}
+
+func QueryGraphQLWithClient(t *testing.T, client *client.Weaviate, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) (*models.GraphQLResponse, error) {
+	var vars interface{} = variables
+	params := graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{OperationName: operation, Query: query, Variables: vars})
+	response, err := client.Graphql.GraphqlPost(params, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -59,6 +71,12 @@ func QueryGraphQLWithTimeout(t *testing.T, auth runtime.ClientAuthInfoWriterFunc
 func QueryGraphQLOrFatal(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) *models.GraphQLResponse {
 	t.Helper()
 	response, err := QueryGraphQL(t, auth, operation, query, variables)
+	return getGraphQLResponseOrFatal(t, response, err)
+}
+
+func QueryGraphQLOrFatalWithClient(t *testing.T, client *client.Weaviate, auth runtime.ClientAuthInfoWriterFunc, operation string, query string, variables map[string]interface{}) *models.GraphQLResponse {
+	t.Helper()
+	response, err := QueryGraphQLWithClient(t, client, auth, operation, query, variables)
 	return getGraphQLResponseOrFatal(t, response, err)
 }
 
@@ -86,6 +104,12 @@ func getGraphQLResponseOrFatal(t *testing.T, response *models.GraphQLResponse, e
 func AssertGraphQL(t *testing.T, auth runtime.ClientAuthInfoWriterFunc, query string) *GraphQLResult {
 	t.Helper()
 	response := QueryGraphQLOrFatal(t, auth, "", query, nil)
+	return getGraphQLResult(t, response)
+}
+
+func AssertGraphQLWithClient(t *testing.T, client *client.Weaviate, auth runtime.ClientAuthInfoWriterFunc, query string) *GraphQLResult {
+	t.Helper()
+	response := QueryGraphQLOrFatalWithClient(t, client, auth, "", query, nil)
 	return getGraphQLResult(t, response)
 }
 

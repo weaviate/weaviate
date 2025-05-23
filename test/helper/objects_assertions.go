@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -113,9 +114,13 @@ func GetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) 
 }
 
 func TenantObject(t *testing.T, class string, id strfmt.UUID, tenant string) (*models.Object, error) {
+	return TenantObjectWithClient(t, Client(t), class, id, tenant)
+}
+
+func TenantObjectWithClient(t *testing.T, client *client.Weaviate, class string, id strfmt.UUID, tenant string) (*models.Object, error) {
 	req := objects.NewObjectsClassGetParams().
 		WithClassName(class).WithID(id).WithTenant(&tenant)
-	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	getResp, err := client.Objects.ObjectsClassGet(req, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -132,7 +137,7 @@ func TenantObjectWithInclude(t *testing.T, class string, id strfmt.UUID, tenant 
 	return getResp.Payload, nil
 }
 
-func GetObjectCL(t *testing.T, class string, uuid strfmt.UUID,
+func GetObjectCL(t *testing.T, client *client.Weaviate, class string, uuid strfmt.UUID,
 	cl types.ConsistencyLevel, include ...string,
 ) (*models.Object, error) {
 	req := objects.NewObjectsClassGetParams().WithID(uuid)
@@ -144,7 +149,7 @@ func GetObjectCL(t *testing.T, class string, uuid strfmt.UUID,
 	}
 	cls := string(cl)
 	req.ConsistencyLevel = &cls
-	getResp, err := Client(t).Objects.ObjectsClassGet(req, nil)
+	getResp, err := client.Objects.ObjectsClassGet(req, nil)
 	if err != nil {
 		return nil, err
 	}

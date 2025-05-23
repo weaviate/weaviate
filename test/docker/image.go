@@ -37,7 +37,6 @@ func startI2VNeural(ctx context.Context, networkName, img2vecImage string) (*Doc
 			NetworkAliases: map[string][]string{
 				networkName: {Img2VecNeural},
 			},
-			Name:         Img2VecNeural,
 			ExposedPorts: []string{"8080/tcp"},
 			AutoRemove:   true,
 			WaitingFor: wait.
@@ -49,7 +48,6 @@ func startI2VNeural(ctx context.Context, networkName, img2vecImage string) (*Doc
 				WithStartupTimeout(240 * time.Second),
 		},
 		Started: true,
-		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err

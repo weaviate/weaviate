@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/client/batch"
@@ -54,6 +55,13 @@ func SetupGRPCClient(t *testing.T, uri string) {
 func CreateClass(t *testing.T, class *models.Class) {
 	t.Helper()
 
+	CreateClassWithClient(t, Client(t), class)
+
+}
+
+func CreateClassWithClient(t *testing.T, client *client.Weaviate, class *models.Class) {
+	t.Helper()
+
 	// if the schema has mixed vectors, we have to create it in two steps as single step creation is forbidden
 	var capturedVectorConfig map[string]models.VectorConfig
 	if modelsext.ClassHasLegacyVectorIndex(class) && class.VectorConfig != nil {
@@ -62,13 +70,13 @@ func CreateClass(t *testing.T, class *models.Class) {
 	}
 
 	params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
-	resp, err := Client(t).Schema.SchemaObjectsCreate(params, nil)
+	resp, err := client.Schema.SchemaObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 
 	if capturedVectorConfig != nil {
 		class.VectorConfig = capturedVectorConfig
 		updateParams := schema.NewSchemaObjectsUpdateParams().WithClassName(class.Class).WithObjectClass(class)
-		updateResp, err := Client(t).Schema.SchemaObjectsUpdate(updateParams, nil)
+		updateResp, err := client.Schema.SchemaObjectsUpdate(updateParams, nil)
 		AssertRequestOk(t, updateResp, err, nil)
 	}
 }
@@ -82,8 +90,13 @@ func CreateClassAuth(t *testing.T, class *models.Class, key string) {
 
 func GetClass(t *testing.T, class string) *models.Class {
 	t.Helper()
+	return GetClassWithClient(t, Client(t), class)
+}
+
+func GetClassWithClient(t *testing.T, client *client.Weaviate, class string) *models.Class {
+	t.Helper()
 	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
-	resp, err := Client(t).Schema.SchemaObjectsGet(params, nil)
+	resp, err := client.Schema.SchemaObjectsGet(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return resp.Payload
 }
@@ -108,9 +121,13 @@ func GetClassWithoutAssert(t *testing.T, class string) (*models.Class, error) {
 
 func UpdateClass(t *testing.T, class *models.Class) {
 	t.Helper()
-	params := schema.NewSchemaObjectsUpdateParams().
-		WithObjectClass(class).WithClassName(class.Class)
-	resp, err := Client(t).Schema.SchemaObjectsUpdate(params, nil)
+	UpdateClassWithClient(t, Client(t), class)
+}
+
+func UpdateClassWithClient(t *testing.T, client *client.Weaviate, class *models.Class) {
+	t.Helper()
+	params := schema.NewSchemaObjectsUpdateParams().WithObjectClass(class).WithClassName(class.Class)
+	resp, err := client.Schema.SchemaObjectsUpdate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
 
@@ -148,35 +165,35 @@ func CreateObjectCL(t *testing.T, object *models.Object, cl types.ConsistencyLev
 	return nil
 }
 
-func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
+func CreateObjectsBatch(t *testing.T, client *client.Weaviate, objects []*models.Object) {
 	t.Helper()
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{
 			Objects: objects,
 		})
-	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	resp, err := client.Batch.BatchObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	CheckObjectsBatchResponse(t, resp.Payload, err)
 }
 
-func CreateObjectsBatchAuth(t *testing.T, objects []*models.Object, key string) {
+func CreateObjectsBatchAuth(t *testing.T, client *client.Weaviate, objects []*models.Object, key string) {
 	t.Helper()
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{
 			Objects: objects,
 		})
-	resp, err := Client(t).Batch.BatchObjectsCreate(params, CreateAuth(key))
+	resp, err := client.Batch.BatchObjectsCreate(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	CheckObjectsBatchResponse(t, resp.Payload, err)
 }
 
-func CreateObjectsBatchCL(t *testing.T, objects []*models.Object, cl types.ConsistencyLevel) {
+func CreateObjectsBatchCL(t *testing.T, client *client.Weaviate, objects []*models.Object, cl types.ConsistencyLevel) {
 	cls := string(cl)
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{
 			Objects: objects,
 		}).WithConsistencyLevel(&cls)
-	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
+	resp, err := client.Batch.BatchObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	CheckObjectsBatchResponse(t, resp.Payload, err)
 }
@@ -220,8 +237,13 @@ func PatchObject(t *testing.T, object *models.Object) error {
 
 func DeleteClass(t *testing.T, class string) {
 	t.Helper()
+	DeleteClassWithClient(t, Client(t), class)
+}
+
+func DeleteClassWithClient(t *testing.T, client *client.Weaviate, class string) {
+	t.Helper()
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)
-	delRes, err := Client(t).Schema.SchemaObjectsDelete(delParams, nil)
+	delRes, err := client.Schema.SchemaObjectsDelete(delParams, nil)
 	AssertRequestOk(t, delRes, err, nil)
 }
 
@@ -248,10 +270,14 @@ func DeleteObject(t *testing.T, object *models.Object) {
 }
 
 func DeleteObjectCL(t *testing.T, class string, id strfmt.UUID, cl types.ConsistencyLevel) {
+	DeleteObjectCLWithClient(t, Client(t), class, id, cl)
+}
+
+func DeleteObjectCLWithClient(t *testing.T, client *client.Weaviate, class string, id strfmt.UUID, cl types.ConsistencyLevel) {
 	cls := string(cl)
 	params := objects.NewObjectsClassDeleteParams().
 		WithClassName(class).WithID(id).WithConsistencyLevel(&cls)
-	resp, err := Client(t).Objects.ObjectsClassDelete(params, nil)
+	resp, err := client.Objects.ObjectsClassDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
 
@@ -381,8 +407,13 @@ func UpdateReferenceTenant(t *testing.T, object *models.Object, ref models.Multi
 
 func CreateTenants(t *testing.T, class string, tenants []*models.Tenant) {
 	t.Helper()
+	CreateTenantsWithClient(t, Client(t), class, tenants)
+}
+
+func CreateTenantsWithClient(t *testing.T, client *client.Weaviate, class string, tenants []*models.Tenant) {
+	t.Helper()
 	params := schema.NewTenantsCreateParams().WithClassName(class).WithBody(tenants)
-	resp, err := Client(t).Schema.TenantsCreate(params, nil)
+	resp, err := client.Schema.TenantsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 }
 
@@ -455,8 +486,13 @@ func TenantExists(t *testing.T, class string, tenant string) (*schema.TenantExis
 
 func DeleteTenants(t *testing.T, class string, tenants []string) error {
 	t.Helper()
+	return DeleteTenantsWithClient(t, Client(t), class, tenants)
+}
+
+func DeleteTenantsWithClient(t *testing.T, client *client.Weaviate, class string, tenants []string) error {
+	t.Helper()
 	params := schema.NewTenantsDeleteParams().WithClassName(class).WithTenants(tenants)
-	_, err := Client(t).Schema.TenantsDelete(params, nil)
+	_, err := client.Schema.TenantsDelete(params, nil)
 	return err
 }
 

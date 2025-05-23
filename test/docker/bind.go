@@ -37,7 +37,6 @@ func startM2VBind(ctx context.Context, networkName, bindImage string) (*DockerCo
 			NetworkAliases: map[string][]string{
 				networkName: {Multi2VecBind},
 			},
-			Name:         Multi2VecBind,
 			ExposedPorts: []string{"8080/tcp"},
 			AutoRemove:   true,
 			WaitingFor: wait.
@@ -49,7 +48,6 @@ func startM2VBind(ctx context.Context, networkName, bindImage string) (*DockerCo
 				WithStartupTimeout(240 * time.Second),
 		},
 		Started: true,
-		Reuse:   true,
 	})
 	if err != nil {
 		return nil, err
