@@ -57,6 +57,7 @@ var paragraphIDs = []strfmt.UUID{
 type ReplicationTestSuite struct {
 	suite.Suite
 	compose *docker.DockerCompose
+	down    func()
 }
 
 func (suite *ReplicationTestSuite) SetupTest() {
@@ -71,13 +72,17 @@ func (suite *ReplicationTestSuite) SetupTest() {
 		Start(mainCtx)
 	require.Nil(t, err)
 	suite.compose = compose
-	defer func() {
+	suite.down = func() {
 		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
-	}()
+	}
+}
 
-	helper.SetupClient(compose.GetWeaviate().URI())
+func (suite *ReplicationTestSuite) TearDownSuite() {
+	if suite.down != nil {
+		suite.down()
+	}
 }
 
 func TestReplicationTestSuite(t *testing.T) {

@@ -32,6 +32,7 @@ import (
 func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperations() {
 	t := suite.T()
 
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	paragraphClass.MultiTenancyConfig = &models.MultiTenancyConfig{
 		AutoTenantCreation: true,

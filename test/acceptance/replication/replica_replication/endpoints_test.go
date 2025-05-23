@@ -31,6 +31,7 @@ import (
 func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	t := suite.T()
 
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	helper.CreateClass(t, paragraphClass)
 	defer helper.DeleteClass(t, paragraphClass.Class)
