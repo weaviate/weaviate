@@ -60,7 +60,7 @@ type ReplicationTestSuite struct {
 	down    func()
 }
 
-func (suite *ReplicationTestSuite) SetupTest() {
+func (suite *ReplicationTestSuite) SetupSuite() {
 	t := suite.T()
 	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 
