@@ -1104,7 +1104,9 @@ func parseClusterConfig() (cluster.Config, error) {
 	dataBind, dataBindSet := os.LookupEnv("CLUSTER_DATA_BIND_PORT")
 
 	if advertiseAddrSet {
-		cfg.AdvertiseAddr = advertiseAddr
+		// For IPv6 addresses, store the full address (removing any brackets)
+		// This ensures the full address is preserved for resolver functions
+		cfg.AdvertiseAddr = strings.Trim(advertiseAddr, "[]")
 	}
 
 	if advertisePortSet {

@@ -11,12 +11,6 @@
 
 package resolver
 
-import (
-	"fmt"
-	"net"
-	"strconv"
-)
-
 // Rpc implements resolving raft address to their RPC address depending on the configured rpcPort and whether or
 // not this is a local cluster.
 type Rpc struct {
@@ -37,17 +31,12 @@ func NewRpc(isLocalHost bool, rpcPort int) *Rpc {
 // Returns an error if raftAddr is not parseable.
 // Returns an error if raftAddr port is not parse-able as an integer.
 func (cl *Rpc) Address(raftAddr string) (string, error) {
-	host, port, err := net.SplitHostPort(raftAddr)
+	host, port, err := ParseAddressWithPort(raftAddr)
 	if err != nil {
 		return "", err
 	}
 	if !cl.isLocalCluster {
-		return fmt.Sprintf("%s:%d", host, cl.rpcPort), nil
+		return FormatAddressWithPort(host, uint16(cl.rpcPort)), nil
 	}
-	iPort, err := strconv.Atoi(port)
-	if err != nil {
-		return "", err
-	}
-
-	return fmt.Sprintf("%s:%d", host, iPort+1), nil
+	return FormatAddressWithPort(host, port+1), nil
 }
