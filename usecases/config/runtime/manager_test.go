@@ -12,12 +12,14 @@
 package runtime
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"fmt"
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -26,25 +28,38 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 )
 
 type testConfig struct {
-	BackupInterval time.Duration `yaml:"backup_interval"`
+	BackupInterval *DynamicValue[time.Duration] `yaml:"backup_interval"`
 }
 
 func parseYaml(buf []byte) (*testConfig, error) {
 	var c testConfig
-	err := yaml.UnmarshalStrict(buf, &c)
-	return &c, err
+	dec := yaml.NewDecoder(bytes.NewReader(buf))
+	dec.KnownFields(true)
+
+	if err := dec.Decode(&c); err != nil {
+		return nil, err
+	}
+	return &c, nil
+}
+
+func updater(source, parsed *testConfig) error {
+	source.BackupInterval.SetValue(parsed.BackupInterval.Get())
+	return nil
 }
 
 func TestConfigManager_loadConfig(t *testing.T) {
 	log, _ := test.NewNullLogger()
+	registered := &testConfig{
+		BackupInterval: NewDynamicValue(2 * time.Second),
+	}
 
 	t.Run("non-exist config should fail config manager at the startup", func(t *testing.T) {
 		reg := prometheus.NewPedanticRegistry()
-		_, err := NewConfigManager("non-exist.yaml", parseYaml, 10*time.Millisecond, log, reg)
+		_, err := NewConfigManager("non-exist.yaml", parseYaml, updater, registered, 10*time.Millisecond, log, reg)
 		require.ErrorIs(t, err, ErrFailedToOpenConfig)
 
 		// assert: config_last_load_success=0 and no metric for config_hash
@@ -68,7 +83,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		_, err = NewConfigManager(tmp.Name(), parseYaml, 10*time.Millisecond, log, reg)
+		_, err = NewConfigManager(tmp.Name(), parseYaml, updater, registered, 10*time.Millisecond, log, reg)
 		require.ErrorIs(t, err, ErrFailedToParseConfig)
 
 		// assert: config_last_load_success=0 and no metric for config_hash
@@ -94,7 +109,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		_, err = NewConfigManager(tmp.Name(), parseYaml, 10*time.Millisecond, log, reg)
+		_, err = NewConfigManager(tmp.Name(), parseYaml, updater, registered, 10*time.Millisecond, log, reg)
 		require.NoError(t, err)
 
 		// assert: config_last_load_success=1 and config_hash should be set.
@@ -130,7 +145,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		cm, err := NewConfigManager(tmp.Name(), trackedParser, 10*time.Millisecond, log, reg)
+		cm, err := NewConfigManager(tmp.Name(), trackedParser, updater, registered, 10*time.Millisecond, log, reg)
 		require.NoError(t, err)
 
 		// assert: should have called `parser` only once during initial loading.
@@ -201,7 +216,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		cm, err := NewConfigManager(tmp.Name(), trackedParser, 10*time.Millisecond, log, reg)
+		cm, err := NewConfigManager(tmp.Name(), trackedParser, updater, registered, 10*time.Millisecond, log, reg)
 		require.NoError(t, err)
 
 		// assert: should have called `parser` only once during initial loading.
@@ -250,9 +265,9 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		reg := prometheus.NewPedanticRegistry()
 
 		// calling parser => reloading the config
-		loadCount := 0
+		var loadCount atomic.Int64
 		trackedParser := func(buf []byte) (*testConfig, error) {
-			loadCount++
+			loadCount.Add(1)
 			return parseYaml(buf)
 		}
 
@@ -268,11 +283,11 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		cm, err := NewConfigManager(tmp.Name(), trackedParser, 10*time.Millisecond, log, reg)
+		cm, err := NewConfigManager(tmp.Name(), trackedParser, updater, registered, 10*time.Millisecond, log, reg)
 		require.NoError(t, err)
 
 		// assert: should have called `parser` only once during initial loading.
-		assert.Equal(t, 1, loadCount)
+		assert.Equal(t, int64(1), loadCount.Load())
 
 		// Now let's change the config file few times
 		var (
@@ -296,7 +311,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 			// give enough time to config manager to reload the previously written config
 			time.Sleep(writeDelay)
 			assert.EventuallyWithT(t, func(c *assert.CollectT) {
-				assert.Equal(c, 1, loadCount)
+				assert.Equal(c, int64(1), loadCount.Load())
 			}, writeDelay, writeDelay/2)
 		}
 
@@ -305,7 +320,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		wg.Wait() // config manager should have stopped correctly.
 
 		// assert: writing same content shouldn't reload the config
-		assert.Equal(t, 1, loadCount) // 1 is the initial loading of config.
+		assert.Equal(t, int64(1), loadCount.Load()) // 1 is the initial loading of config.
 	})
 }
 
@@ -314,6 +329,10 @@ func TestConfigManager_GetConfig(t *testing.T) {
 
 	t.Run("receiving config should never block if manager is not reloading the config", func(t *testing.T) {
 		reg := prometheus.NewPedanticRegistry()
+		registered := &testConfig{
+			BackupInterval: NewDynamicValue(2 * time.Second),
+		}
+
 		tmp, err := os.CreateTemp("", "valid_config.yaml")
 		require.NoError(t, err)
 		t.Cleanup(func() {
@@ -326,12 +345,14 @@ func TestConfigManager_GetConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		cm, err := NewConfigManager(tmp.Name(), parseYaml, 100*time.Millisecond, log, reg)
+		_, err = NewConfigManager(tmp.Name(), parseYaml, updater, registered, 100*time.Millisecond, log, reg)
 		require.NoError(t, err)
 
 		getConfigWait := make(chan struct{})
 
 		var wg sync.WaitGroup
+
+		// NOTE: we are not loading config anymore.
 
 		n := 100 // 100 goroutine
 		wg.Add(n)
@@ -339,9 +360,7 @@ func TestConfigManager_GetConfig(t *testing.T) {
 			go func() {
 				defer wg.Done()
 				<-getConfigWait // wait till all go routines ready to get the config
-				c, err := cm.Config()
-				require.NoError(t, err)
-				assert.Equal(t, 10*time.Second, c.BackupInterval)
+				assert.Equal(t, 10*time.Second, registered.BackupInterval.Get())
 			}()
 		}
 
@@ -351,6 +370,10 @@ func TestConfigManager_GetConfig(t *testing.T) {
 
 	t.Run("should receive latest config after last reload", func(t *testing.T) {
 		reg := prometheus.NewPedanticRegistry()
+		registered := &testConfig{
+			BackupInterval: NewDynamicValue(2 * time.Second),
+		}
+
 		tmp, err := os.CreateTemp("", "valid_config.yaml")
 		require.NoError(t, err)
 		t.Cleanup(func() {
@@ -363,22 +386,22 @@ func TestConfigManager_GetConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		cm, err := NewConfigManager(tmp.Name(), parseYaml, 100*time.Millisecond, log, reg)
+		cm, err := NewConfigManager(tmp.Name(), parseYaml, updater, registered, 100*time.Millisecond, log, reg)
 		require.NoError(t, err)
-		assertConfig(t, cm, 10*time.Second)
+		assertConfig(t, cm, registered, 10*time.Second)
 
 		// change the config
 		buf = []byte(`backup_interval: 20s`)
 		require.NoError(t, os.WriteFile(tmp.Name(), buf, 0o777))
 
 		require.NoError(t, cm.loadConfig()) // loading new config
-		assertConfig(t, cm, 20*time.Second)
+		assertConfig(t, cm, registered, 20*time.Second)
 	})
 }
 
 // helpers
 
-func assertConfig(t *testing.T, cm *ConfigManager[testConfig], expected time.Duration) {
+func assertConfig(t *testing.T, cm *ConfigManager[testConfig], registered *testConfig, expected time.Duration) {
 	getConfigWait := make(chan struct{})
 
 	var wg sync.WaitGroup
@@ -389,9 +412,7 @@ func assertConfig(t *testing.T, cm *ConfigManager[testConfig], expected time.Dur
 		go func() {
 			defer wg.Done()
 			<-getConfigWait // wait till all go routines ready to get the config
-			c, err := cm.Config()
-			require.NoError(t, err)
-			assert.Equal(t, expected, c.BackupInterval)
+			assert.Equal(t, expected, registered.BackupInterval.Get())
 		}()
 	}
 

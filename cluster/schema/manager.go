@@ -12,13 +12,12 @@
 package schema
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 
-	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	gproto "google.golang.org/protobuf/proto"
@@ -33,11 +32,17 @@ var (
 	ErrSchema     = errors.New("updating schema")
 )
 
+type replicationsDeleter interface {
+	DeleteReplicationsByCollection(collection string) error
+	DeleteReplicationsByTenants(collection string, tenants []string) error
+}
+
 type SchemaManager struct {
-	schema *schema
-	db     Indexer
-	parser Parser
-	log    *logrus.Logger
+	schema              *schema
+	db                  Indexer
+	parser              Parser
+	log                 *logrus.Logger
+	replicationsDeleter replicationsDeleter
 }
 
 func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.Registerer, log *logrus.Logger) *SchemaManager {
@@ -50,25 +55,25 @@ func NewSchemaManager(nodeId string, db Indexer, parser Parser, reg prometheus.R
 }
 
 func (s *SchemaManager) NewSchemaReader() SchemaReader {
-	return SchemaReader{
-		schema: s.schema,
+	return NewSchemaReader(
+		s.schema,
 		// Pass a versioned reader that will ignore all version and always return valid, we want to read the latest
 		// state and not have to wait on a version
-		versionedSchemaReader: VersionedSchemaReader{
+		VersionedSchemaReader{
 			schema:        s.schema,
 			WaitForUpdate: func(context.Context, uint64) error { return nil },
 		},
-	}
+	)
 }
 
 func (s *SchemaManager) NewSchemaReaderWithWaitFunc(f func(context.Context, uint64) error) SchemaReader {
-	return SchemaReader{
-		schema: s.schema,
-		versionedSchemaReader: VersionedSchemaReader{
+	return NewSchemaReader(
+		s.schema,
+		VersionedSchemaReader{
 			schema:        s.schema,
 			WaitForUpdate: f,
 		},
-	}
+	)
 }
 
 func (s *SchemaManager) SetIndexer(idx Indexer) {
@@ -76,12 +81,23 @@ func (s *SchemaManager) SetIndexer(idx Indexer) {
 	s.schema.shardReader = idx
 }
 
-func (s *SchemaManager) Snapshot() raft.FSMSnapshot {
-	return s.schema
+func (s *SchemaManager) SetReplicationsDeleter(deleter replicationsDeleter) {
+	s.replicationsDeleter = deleter
 }
 
-func (s *SchemaManager) Restore(rc io.ReadCloser, parser Parser) error {
-	return s.schema.Restore(rc, parser)
+func (s *SchemaManager) Snapshot() ([]byte, error) {
+	var buf bytes.Buffer
+
+	err := json.NewEncoder(&buf).Encode(s.schema.MetaClasses())
+	return buf.Bytes(), err
+}
+
+func (s *SchemaManager) Restore(data []byte, parser Parser) error {
+	return s.schema.Restore(data, parser)
+}
+
+func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
+	return s.schema.RestoreLegacy(data, parser)
 }
 
 func (s *SchemaManager) PreApplyFilter(req *command.ApplyRequest) error {
@@ -119,9 +135,7 @@ func (s *SchemaManager) ReloadDBFromSchema() {
 	i := 0
 	for _, v := range classes {
 		migratePropertiesIfNecessary(&v.Class)
-		// an immutable copy of the sharding state has to be used to avoid conflicts
-		shardingState, _ := v.CopyShardingState()
-		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: shardingState}
+		cs[i] = command.UpdateClassRequest{Class: &v.Class, State: &v.Sharding}
 		i++
 	}
 	s.db.TriggerSchemaUpdateCallbacks()
@@ -223,6 +237,7 @@ func (s *SchemaManager) UpdateClass(cmd *command.ApplyRequest, nodeID string, sc
 		meta.Class.ReplicationConfig = u.ReplicationConfig
 		meta.Class.MultiTenancyConfig = u.MultiTenancyConfig
 		meta.Class.Description = u.Description
+		meta.Class.Properties = u.Properties
 		meta.ClassVersion = cmd.Version
 		if req.State != nil {
 			meta.Sharding = *req.State
@@ -258,9 +273,17 @@ func (s *SchemaManager) DeleteClass(cmd *command.ApplyRequest, schemaOnly bool, 
 
 	return s.apply(
 		applyOp{
-			op:                   cmd.GetType().String(),
-			updateSchema:         func() error { s.schema.deleteClass(cmd.Class); return nil },
-			updateStore:          func() error { return s.db.DeleteClass(cmd.Class, hasFrozen) },
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { s.schema.deleteClass(cmd.Class); return nil },
+			updateStore: func() error {
+				if s.replicationsDeleter == nil {
+					return fmt.Errorf("replication deleter is not set, this should never happen")
+				} else if err := s.replicationsDeleter.DeleteReplicationsByCollection(cmd.Class); err != nil {
+					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
+					s.log.WithField("error", err).WithField("class", cmd.Class).Error("could not delete replication operations for deleted class")
+				}
+				return s.db.DeleteClass(cmd.Class, hasFrozen)
+			},
 			schemaOnly:           schemaOnly,
 			enableSchemaCallback: enableSchemaCallback,
 		},
@@ -299,6 +322,50 @@ func (s *SchemaManager) UpdateShardStatus(cmd *command.ApplyRequest, schemaOnly 
 			updateSchema: func() error { return nil },
 			updateStore:  func() error { return s.db.UpdateShardStatus(&req) },
 			schemaOnly:   schemaOnly,
+		},
+	)
+}
+
+func (s *SchemaManager) AddReplicaToShard(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.AddReplicaToShard{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(
+		applyOp{
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode) },
+			updateStore: func() error {
+				if req.TargetNode == s.schema.nodeID {
+					return s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode)
+				}
+				return nil
+			},
+			schemaOnly: schemaOnly,
+		},
+	)
+}
+
+func (s *SchemaManager) DeleteReplicaFromShard(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.DeleteReplicaFromShard{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(
+		applyOp{
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				return s.schema.deleteReplicaFromShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode)
+			},
+			updateStore: func() error {
+				if req.TargetNode == s.schema.nodeID {
+					return s.db.DeleteReplicaFromShard(req.Class, req.Shard, req.TargetNode)
+				}
+				return nil
+			},
+			schemaOnly: schemaOnly,
 		},
 	)
 }
@@ -344,7 +411,7 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	tenantsResponse, err := s.schema.getTenants(cmd.Class, req.Tenants)
+	tenants, err := s.schema.getTenants(cmd.Class, req.Tenants)
 	if err != nil {
 		// error are handled by the updateSchema, so they are ignored here.
 		// Instead, we log the error to detect tenant status before deleting
@@ -357,17 +424,20 @@ func (s *SchemaManager) DeleteTenants(cmd *command.ApplyRequest, schemaOnly bool
 		}).Error("error getting tenants")
 	}
 
-	tenants := make([]*models.Tenant, len(tenantsResponse))
-	for i := range tenantsResponse {
-		tenants[i] = &tenantsResponse[i].Tenant
-	}
-
 	return s.apply(
 		applyOp{
 			op:           cmd.GetType().String(),
 			updateSchema: func() error { return s.schema.deleteTenants(cmd.Class, cmd.Version, req) },
-			updateStore:  func() error { return s.db.DeleteTenants(cmd.Class, tenants) },
-			schemaOnly:   schemaOnly,
+			updateStore: func() error {
+				if s.replicationsDeleter == nil {
+					return fmt.Errorf("replication deleter is not set, this should never happen")
+				} else if err := s.replicationsDeleter.DeleteReplicationsByTenants(cmd.Class, req.Tenants); err != nil {
+					// If there is an error deleting the replications then we log it but make sure not to block the deletion of the class from a UX PoV
+					s.log.WithField("error", err).WithField("class", cmd.Class).WithField("tenants", tenants).Error("could not delete replication operations for deleted tenants")
+				}
+				return s.db.DeleteTenants(cmd.Class, tenants)
+			},
+			schemaOnly: schemaOnly,
 		},
 	)
 }
@@ -420,7 +490,7 @@ func (s *SchemaManager) apply(op applyOp) error {
 		return fmt.Errorf("%w: %s: %w", ErrSchema, op.op, err)
 	}
 
-	if op.enableSchemaCallback {
+	if op.enableSchemaCallback && s.db != nil {
 		// TriggerSchemaUpdateCallbacks is concurrent and at
 		// this point of time schema shall be up to date.
 		s.db.TriggerSchemaUpdateCallbacks()

@@ -98,10 +98,11 @@ func TestParser(t *testing.T) {
 			error:    false,
 		},
 		{
-			name:   "update text2vec - previously not configured => error",
-			old:    &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc},
-			update: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap}},
-			error:  true,
+			name:     "update text2vec - previously not configured, add a new vector index",
+			old:      &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc},
+			update:   &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap}},
+			expected: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap}},
+			error:    false,
 		},
 		{
 			name:   "update text2vec - previously differently configured => error",
@@ -110,10 +111,11 @@ func TestParser(t *testing.T) {
 			error:  true,
 		},
 		{
-			name:   "update text2vec - other modules present => error",
-			old:    &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"generative-random": valueMap}},
-			update: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap, "generative-random": valueMap}},
-			error:  true,
+			name:     "update text2vec - other modules present => error",
+			old:      &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"generative-random": valueMap}},
+			update:   &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap, "generative-random": valueMap}},
+			expected: &models.Class{Class: "Test", VectorIndexType: hnswT, VectorIndexConfig: vic, ShardingConfig: sc, ModuleConfig: map[string]interface{}{"text2vec-random": emptyMap, "generative-random": valueMap}},
+			error:    false,
 		},
 		{
 			name:     "update with same text2vec config",
@@ -136,6 +138,33 @@ func TestParser(t *testing.T) {
 			}
 		})
 	}
+}
+
+func Test_asMap(t *testing.T) {
+	t.Run("not nil", func(t *testing.T) {
+		m, err := propertyAsMap(&models.Property{
+			Name:        "name",
+			Description: "description",
+			DataType:    []string{"object"},
+			NestedProperties: []*models.NestedProperty{{
+				Name:        "nested",
+				Description: "nested description",
+				DataType:    []string{"text"},
+			}},
+		})
+		require.NotNil(t, m)
+		require.Nil(t, err)
+
+		_, ok := m["description"]
+		require.False(t, ok)
+
+		nps, ok := m["nestedProperties"].([]map[string]any)
+		require.True(t, ok)
+		require.Len(t, nps, 1)
+
+		_, ok = nps[0]["description"]
+		require.False(t, ok)
+	})
 }
 
 type fakeModulesProvider struct{}

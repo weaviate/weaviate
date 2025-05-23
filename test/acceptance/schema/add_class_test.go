@@ -26,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // this test prevents a regression on
@@ -86,7 +87,7 @@ func TestInvalidPropertyName(t *testing.T) {
 			var parsed *clschema.SchemaObjectsCreateUnprocessableEntity
 			require.True(t, errors.As(err, &parsed), "error should be unprocessable entity")
 			assert.Equal(t, "'some-property' is not a valid property name. Property names in Weaviate "+
-				"are restricted to valid GraphQL names, which must be “/[_A-Za-z][_0-9A-Za-z]{0,230}/”.",
+				"are restricted to valid GraphQL names, which must be “/[_A-Za-z][_0-9A-Za-z]{0,230}/”",
 				parsed.Payload.Error[0].Message)
 		})
 	})
@@ -268,6 +269,7 @@ func TestUpdateClassWithoutVectorIndex(t *testing.T) {
 				Stopwords: &models.StopwordConfig{
 					Preset: "en",
 				},
+				UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 			},
 			Properties: []*models.Property{
 				{

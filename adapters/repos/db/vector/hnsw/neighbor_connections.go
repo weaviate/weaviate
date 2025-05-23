@@ -22,12 +22,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func (h *hnsw) findAndConnectNeighbors(ctx context.Context, node *graph.Vertex,
+func (h *hnsw) findAndConnectNeighbors(ctx context.Context, node *vertex,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
@@ -37,15 +36,7 @@ func (h *hnsw) findAndConnectNeighbors(ctx context.Context, node *graph.Vertex,
 	return nfc.Do(ctx)
 }
 
-func (h *hnsw) getMaximumConnections(level int) int {
-	if level == 0 {
-		return h.maximumConnectionsLayerZero
-	}
-
-	return h.maximumConnections
-}
-
-func (h *hnsw) reconnectNeighboursOf(ctx context.Context, node *graph.Vertex,
+func (h *hnsw) reconnectNeighboursOf(ctx context.Context, node *vertex,
 	entryPointID uint64, nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList,
 ) error {
@@ -58,7 +49,7 @@ func (h *hnsw) reconnectNeighboursOf(ctx context.Context, node *graph.Vertex,
 type neighborFinderConnector struct {
 	ctx             context.Context
 	graph           *hnsw
-	node            *graph.Vertex
+	node            *vertex
 	entryPointID    uint64
 	entryPointDist  float32
 	nodeVec         []float32
@@ -70,7 +61,7 @@ type neighborFinderConnector struct {
 	tombstoneCleanupNodes bool
 }
 
-func newNeighborFinderConnector(graph *hnsw, node *graph.Vertex, entryPointID uint64,
+func newNeighborFinderConnector(graph *hnsw, node *vertex, entryPointID uint64,
 	nodeVec []float32, distancer compressionhelpers.CompressorDistancer, targetLevel, currentMaxLevel int,
 	denyList helpers.AllowList, tombstoneCleanupNodes bool,
 ) *neighborFinderConnector {
@@ -129,18 +120,28 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		return err
 	}
 
-	node := n.graph.nodes.Get(from)
-	if node == nil {
-		n.graph.handleDeletedNode(from, "processRecursively")
-		return nil
-	}
-
-	connections := node.CopyLevel(nil, level)
-	if connections == nil {
-		return nil
-	}
-
+	n.graph.RLock()
+	nodesLen := uint64(len(n.graph.nodes))
+	n.graph.RUnlock()
 	var pending []uint64
+	// lock the nodes slice
+	n.graph.shardedNodeLocks.RLock(from)
+	if nodesLen < from || n.graph.nodes[from] == nil {
+		n.graph.handleDeletedNode(from, "processRecursively")
+		n.graph.shardedNodeLocks.RUnlock(from)
+		return nil
+	}
+	// lock the node itself
+	n.graph.nodes[from].Lock()
+	if level >= len(n.graph.nodes[from].connections) {
+		n.graph.nodes[from].Unlock()
+		n.graph.shardedNodeLocks.RUnlock(from)
+		return nil
+	}
+	connections := make([]uint64, len(n.graph.nodes[from].connections[level]))
+	copy(connections, n.graph.nodes[from].connections[level])
+	n.graph.nodes[from].Unlock()
+	n.graph.shardedNodeLocks.RUnlock(from)
 	for _, id := range connections {
 		if visited.Visited(id) {
 			continue
@@ -196,8 +197,8 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 
 	var results *priorityqueue.Queue[any]
 	var extraIDs []uint64 = nil
-	var total int = 0
-	var maxConnections int = n.graph.maximumConnections
+	total := 0
+	maxConnections := n.graph.maximumConnections
 
 	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
@@ -205,8 +206,11 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		n.graph.pools.visitedListsLock.RLock()
 		visited := n.graph.pools.visitedLists.Borrow()
 		n.graph.pools.visitedListsLock.RUnlock()
-		connections := n.node.CopyLevel(nil, level)
-		visited.Visit(n.node.ID())
+		n.node.Lock()
+		connections := make([]uint64, len(n.node.connections[level]))
+		copy(connections, n.node.connections[level])
+		n.node.Unlock()
+		visited.Visit(n.node.id)
 		top := n.graph.efConstruction
 		var pending []uint64 = nil
 
@@ -234,7 +238,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		n.graph.pools.visitedLists.Return(visited)
 		n.graph.pools.visitedListsLock.RUnlock()
 		// use dynamic max connections only during tombstone cleanup
-		maxConnections = n.graph.getMaximumConnections(level)
+		maxConnections = n.maximumConnections(level)
 	} else {
 		if err := n.pickEntrypoint(); err != nil {
 			return errors.Wrap(err, "pick entrypoint at level beginning")
@@ -273,20 +277,18 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	n.graph.pools.pqResults.Put(results)
 
 	neighborsCpy := neighbors
-	n.node.Edit(func(v *graph.VertexEditor) error {
-		owned := v.SetConnectionsAtLevel(level, neighbors)
-		// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
-		// if so, we need to create a copy
-		if owned {
-			neighborsCpy = make([]uint64, len(neighbors))
-			copy(neighborsCpy, neighbors)
-		}
+	// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
+	// if so, we need to create a copy
+	owned := n.node.setConnectionsAtLevel(level, neighbors)
+	if owned {
+		n.node.Lock()
+		neighborsCpy = make([]uint64, len(neighbors))
+		copy(neighborsCpy, neighbors)
+		n.node.Unlock()
+	}
 
-		return nil
-	})
-
-	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.ID(), level, neighborsCpy); err != nil {
-		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.ID(), level)
+	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighborsCpy); err != nil {
+		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.id, level)
 	}
 
 	for _, neighborID := range neighborsCpy {
@@ -299,7 +301,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		// there could be no neighbors left, if all are marked deleted, in this
 		// case, don't change the entrypoint
 		nextEntryPointID := neighborsCpy[len(neighbors)-1]
-		if nextEntryPointID == n.node.ID() {
+		if nextEntryPointID == n.node.id {
 			return nil
 		}
 
@@ -313,85 +315,89 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 	level int,
 ) error {
-	neighbor := n.graph.nodes.Get(neighborID)
+	neighbor := n.graph.nodeByID(neighborID)
 	if skip := n.skipNeighbor(neighbor); skip {
 		return nil
 	}
 
-	return neighbor.Edit(func(neighbor *graph.VertexEditor) error {
-		currentConnectionsLen := neighbor.LevelLen(level)
+	neighbor.Lock()
+	defer neighbor.Unlock()
+	if level > neighbor.level {
+		// upgrade neighbor level if the level is out of sync due to a delete re-assign
+		neighbor.upgradeToLevelNoLock(level)
+	}
+	currentConnections := neighbor.connectionsAtLevelNoLock(level)
 
-		maximumConnections := n.graph.getMaximumConnections(level)
-		if currentConnectionsLen < maximumConnections {
-			// we can simply append
-			// updatedConnections = append(currentConnections, n.node.ID())
-			neighbor.AppendConnectionAtLevel(level, n.node.ID(), maximumConnections)
-			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.ID(), level, n.node.ID()); err != nil {
-				return err
-			}
-		} else {
-			// we need to run the heuristic
+	maximumConnections := n.maximumConnections(level)
+	if len(currentConnections) < maximumConnections {
+		// we can simply append
+		// updatedConnections = append(currentConnections, n.node.id)
+		neighbor.appendConnectionAtLevelNoLock(level, n.node.id, maximumConnections)
+		if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, n.node.id); err != nil {
+			return err
+		}
+	} else {
+		// we need to run the heuristic
 
-			dist, err := n.graph.distBetweenNodes(n.node.ID(), neighborID)
-			var e storobj.ErrNotFound
-			if err != nil && errors.As(err, &e) {
-				n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-				// it seems either the node or the neighbor were deleted in the meantime,
-				// there is nothing we can do now
-				return nil
-			}
-			if err != nil {
-				return errors.Wrapf(err, "dist between %d and %d", n.node.ID(), neighborID)
-			}
-
-			candidates := priorityqueue.NewMax[any](currentConnectionsLen + 1)
-			candidates.Insert(n.node.ID(), dist)
-
-			for _, existingConnection := range neighbor.ConnectionsAtLevel(level) {
-				dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
-				var e storobj.ErrNotFound
-				if errors.As(err, &e) {
-					n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
-					// was deleted in the meantime
-					continue
-				}
-				if err != nil {
-					return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
-				}
-
-				candidates.Insert(existingConnection, dist)
-			}
-
-			err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
-			if err != nil {
-				return errors.Wrap(err, "connect neighbors")
-			}
-
-			neighbor.ResetConnectionsAtLevel(level)
-			if err := n.graph.commitLog.ClearLinksAtLevel(neighbor.ID(), uint16(level)); err != nil {
-				return err
-			}
-
-			for candidates.Len() > 0 {
-				id := candidates.Pop().ID
-				neighbor.AppendConnectionAtLevel(level, id, maximumConnections)
-				if err := n.graph.commitLog.AddLinkAtLevel(neighbor.ID(), level, id); err != nil {
-					return err
-				}
-			}
+		dist, err := n.graph.distBetweenNodes(n.node.id, neighborID)
+		var e storobj.ErrNotFound
+		if err != nil && errors.As(err, &e) {
+			n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
+			// it seems either the node or the neighbor were deleted in the meantime,
+			// there is nothing we can do now
+			return nil
+		}
+		if err != nil {
+			return errors.Wrapf(err, "dist between %d and %d", n.node.id, neighborID)
 		}
 
-		return nil
-	})
+		candidates := priorityqueue.NewMax[any](len(currentConnections) + 1)
+		candidates.Insert(n.node.id, dist)
+
+		for _, existingConnection := range currentConnections {
+			dist, err := n.graph.distBetweenNodes(existingConnection, neighborID)
+			var e storobj.ErrNotFound
+			if errors.As(err, &e) {
+				n.graph.handleDeletedNode(e.DocID, "connectNeighborAtLevel")
+				// was deleted in the meantime
+				continue
+			}
+			if err != nil {
+				return errors.Wrapf(err, "dist between %d and %d", existingConnection, neighborID)
+			}
+
+			candidates.Insert(existingConnection, dist)
+		}
+
+		err = n.graph.selectNeighborsHeuristic(candidates, maximumConnections, n.denyList)
+		if err != nil {
+			return errors.Wrap(err, "connect neighbors")
+		}
+
+		neighbor.resetConnectionsAtLevelNoLock(level)
+		if err := n.graph.commitLog.ClearLinksAtLevel(neighbor.id, uint16(level)); err != nil {
+			return err
+		}
+
+		for candidates.Len() > 0 {
+			id := candidates.Pop().ID
+			neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
+			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, id); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
-func (n *neighborFinderConnector) skipNeighbor(neighbor *graph.Vertex) bool {
+func (n *neighborFinderConnector) skipNeighbor(neighbor *vertex) bool {
 	if neighbor == n.node {
 		// don't connect to self
 		return true
 	}
 
-	if neighbor == nil || n.graph.hasTombstone(neighbor.ID()) {
+	if neighbor == nil || n.graph.hasTombstone(neighbor.id) {
 		// don't connect to tombstoned nodes. This would only increase the
 		// cleanup that needs to be done. Even worse: A tombstoned node can be
 		// cleaned up at any time, also while we are connecting to it. So,
@@ -401,6 +407,14 @@ func (n *neighborFinderConnector) skipNeighbor(neighbor *graph.Vertex) bool {
 	}
 
 	return false
+}
+
+func (n *neighborFinderConnector) maximumConnections(level int) int {
+	if level == 0 {
+		return n.graph.maximumConnectionsLayerZero
+	}
+
+	return n.graph.maximumConnections
 }
 
 func (n *neighborFinderConnector) pickEntrypoint() error {
@@ -485,12 +499,12 @@ func (n *neighborFinderConnector) pickEntrypoint() error {
 }
 
 func (n *neighborFinderConnector) tryEpCandidate(candidate uint64) (bool, error) {
-	node := n.graph.nodes.Get(candidate)
+	node := n.graph.nodeByID(candidate)
 	if node == nil {
 		return false, nil
 	}
 
-	if node.IsUnderMaintenance() {
+	if node.isUnderMaintenance() {
 		return false, nil
 	}
 

@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"math"
 	"math/rand"
 	"os"
 	"testing"
@@ -24,7 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -190,23 +191,21 @@ func TestDeserializerReadClearLinks(t *testing.T) {
 func dummyInitialDeserializerState() *DeserializationResult {
 	return &DeserializationResult{
 		LinksReplaced: make(map[uint64]map[uint16]struct{}),
-		Nodes: graph.NewNodesWith([]*graph.Vertex{
+		Nodes: []*vertex{
 			nil,
 			nil,
-			graph.NewVertex(
-				2,
+			{
 				// This is a lower level than we will read, so this node will require
 				// growing
-				1,
-			),
-			graph.NewVertexWithConnections(
-				3,
+				level: 1,
+			},
+			{
 				// This is a lower level than we will read, so this node will require
 				// growing
-				8,
-				make([][]uint64, 16),
-			),
-		}),
+				level:       8,
+				connections: make([][]uint64, 16),
+			},
+		},
 	}
 }
 
@@ -227,8 +226,8 @@ func TestDeserializerReadNode(t *testing.T) {
 
 		err := d.ReadNode(reader, res)
 		require.Nil(t, err)
-		require.NotNil(t, res.Nodes.Get(id))
-		assert.Equal(t, int(level), res.Nodes.Get(id).Level())
+		require.NotNil(t, res.Nodes[id])
+		assert.Equal(t, int(level), res.Nodes[id].level)
 	}
 }
 
@@ -272,9 +271,8 @@ func TestDeserializerReadLink(t *testing.T) {
 
 		err := d.ReadLink(reader, res)
 		require.Nil(t, err)
-		require.NotNil(t, res.Nodes.Get(id))
-		conns := res.Nodes.Get(id).CopyConnections()
-		lastAddedConnection := conns[level][len(conns[level])-1]
+		require.NotNil(t, res.Nodes[id])
+		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
 		assert.Equal(t, target, lastAddedConnection)
 	}
 }
@@ -302,9 +300,8 @@ func TestDeserializerReadLinks(t *testing.T) {
 
 		_, err := d.ReadLinks(reader, res, true)
 		require.Nil(t, err)
-		require.NotNil(t, res.Nodes.Get(id))
-		conns := res.Nodes.Get(id).CopyConnections()
-		lastAddedConnection := conns[level][len(conns[level])-1]
+		require.NotNil(t, res.Nodes[id])
+		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
 		assert.Equal(t, id+uint64(connLen)-1, lastAddedConnection)
 	}
 }
@@ -332,9 +329,8 @@ func TestDeserializerReadAddLinks(t *testing.T) {
 
 		_, err := d.ReadAddLinks(reader, res)
 		require.Nil(t, err)
-		require.NotNil(t, res.Nodes.Get(id))
-		conns := res.Nodes.Get(id).CopyConnections()
-		lastAddedConnection := conns[level][len(conns[level])-1]
+		require.NotNil(t, res.Nodes[id])
+		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
 		assert.Equal(t, id+uint64(connLen)-1, lastAddedConnection)
 	}
 }
@@ -409,25 +405,23 @@ func TestDeserializerRemoveTombstone(t *testing.T) {
 func TestDeserializerClearLinksAtLevel(t *testing.T) {
 	res := &DeserializationResult{
 		LinksReplaced: make(map[uint64]map[uint16]struct{}),
-		Nodes: graph.NewNodesWith([]*graph.Vertex{
+		Nodes: []*vertex{
 			nil,
 			nil,
-			graph.NewVertex(
-				3,
+			{
 				// This is a lower level than we will read, so this node will require
 				// growing
-				1,
-			),
-			graph.NewVertexWithConnections(
-				4,
+				level: 1,
+			},
+			{
 				// This is a lower level than we will read, so this node will require
 				// growing
-				4,
-				make([][]uint64, 4),
-			),
+				level:       4,
+				connections: make([][]uint64, 4),
+			},
 			nil,
 			nil,
-		}),
+		},
 	}
 	ids := []uint64{2, 3, 4, 5, 6}
 
@@ -462,7 +456,7 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 		data, _ := testinghelpers.RandomVecs(20, 0, dimensions)
 		kms := make([]compressionhelpers.PQEncoder, 4)
 		for i := 0; i < 4; i++ {
-			kms[i] = compressionhelpers.NewKMeans(
+			kms[i] = compressionhelpers.NewKMeansEncoder(
 				dimensions,
 				4,
 				int(i),
@@ -506,6 +500,83 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 		require.Nil(t, err)
 
 		require.Equal(t, 4*centroids*dimensions+10, deserializeSize)
+		t.Logf("deserializeSize: %v\n", deserializeSize)
+	})
+}
+
+func TestDeserializerTotalReadMUVERA(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	commitLogger, err := NewCommitLogger(rootPath, "tmpLogger", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+
+	repetitions := 2
+	ksim := 2
+	dimensions := 5
+	dprojections := 2
+	t.Run("add muvera data to the first log", func(t *testing.T) {
+		gaussians := [][][]float32{
+			{
+				{1, 2, 3, 4, 5}, // cluster 1
+				{1, 2, 3, 4, 5}, // cluster 2
+			}, // rep 1
+			{
+				{5, 6, 7, 8, 9}, // cluster 1
+				{5, 6, 7, 8, 9}, // cluster 2
+			}, // rep 2
+		} // (repetitions, kSim, dimensions)
+
+		s := [][][]float32{
+			{
+				{-1, 1, 1, -1, 1}, // dprojection 1
+				{1, -1, 1, 1, -1}, // dprojection 2
+			}, // rep 1
+			{
+				{-1, 1, 1, -1, 1}, // dprojection 1
+				{1, -1, 1, 1, -1}, // dprojection 2
+			}, // rep 2
+		} // (repetitions, dProjections, dimensions)
+
+		muveraData := multivector.MuveraData{
+			KSim:         uint32(ksim),
+			NumClusters:  uint32(math.Pow(2, float64(ksim))),
+			Dimensions:   uint32(dimensions),
+			DProjections: uint32(dprojections),
+			Repetitions:  uint32(repetitions),
+			Gaussians:    gaussians,
+			S:            s,
+		}
+
+		commitLogger.AddMuvera(muveraData)
+		require.Nil(t, commitLogger.Flush())
+		require.Nil(t, commitLogger.Shutdown(ctx))
+	})
+
+	t.Run("deserialize the first log", func(t *testing.T) {
+		nullLogger, _ := test.NewNullLogger()
+		commitLoggerPath := rootPath + "/tmpLogger.hnsw.commitlog.d"
+
+		fileName, found, err := getCurrentCommitLogFileName(commitLoggerPath)
+		require.Nil(t, err)
+		require.True(t, found)
+
+		t.Logf("name: %v\n", fileName)
+
+		fd, err := os.Open(commitLoggerPath + "/" + fileName)
+		require.Nil(t, err)
+
+		defer fd.Close()
+		fdBuf := bufio.NewReaderSize(fd, 256*1024)
+
+		_, deserializeSize, err := NewDeserializer(nullLogger).Do(fdBuf, nil, true)
+		require.Nil(t, err)
+
+		gaussianSize := 4 * repetitions * ksim * dimensions
+		randomSize := 4 * repetitions * dprojections * dimensions
+		require.Equal(t, gaussianSize+randomSize+21, deserializeSize)
 		t.Logf("deserializeSize: %v\n", deserializeSize)
 	})
 }

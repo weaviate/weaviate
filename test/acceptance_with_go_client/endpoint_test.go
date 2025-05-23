@@ -22,6 +22,7 @@ import (
 	client "github.com/weaviate/weaviate-go-client/v5/weaviate"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestUpdatingPropertiesWithNil(t *testing.T) {
@@ -55,7 +56,7 @@ func TestUpdatingPropertiesWithNil(t *testing.T) {
 					// TODO change to constant
 					Tokenization: "whitespace",
 				}},
-				InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true},
+				InvertedIndexConfig: &models.InvertedIndexConfig{IndexNullState: true, UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND},
 			}
 			require.Nil(t, classCreator.WithClass(&class).Do(ctx))
 

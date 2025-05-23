@@ -38,7 +38,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
           cache: true
       - name: Run Swagger
         run: ./tools/gen-code-from-swagger.sh
@@ -92,6 +92,8 @@ jobs:
         with:
           api_token: ${{ secrets.ORCA_SECURITY_API_TOKEN }}
           project_key: ${{ env.PROJECT_KEY }}
+          # diff scans against the entire git history, so should only scan changes in this PR
+          fetch-depth: 0
           path:
             # scanning the entire repository
             "."
@@ -103,7 +105,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
           cache: true
       - name: Unit test
         run: ./test/run.sh --unit-only
@@ -115,19 +117,26 @@ jobs:
   Integration-Tests:
     name: integration-tests
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [
+          "--integration-vector-package-only",
+          "--integration-without-vector-package"
+        ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
           cache: true
       - name: Integration test
-        run: ./test/run.sh --integration-only
+        run: ./test/run.sh ${{ matrix.test }}
       - name: Archive code coverage results
         uses: actions/upload-artifact@v4
         with:
-          name: coverage-report-integration
+          name: coverage-report-integration${{ matrix.test }}
           path: coverage-integration.txt
   Modules-Acceptance-Tests:
     name: modules-acceptance-tests
@@ -141,22 +150,17 @@ jobs:
           "--only-module-backup-gcs",
           "--only-module-backup-s3",
           "--only-module-offload-s3",
-          "--only-module-img2vec-neural",
-          "--only-module-many-modules",
-          "--only-module-many-generative",
-          "--only-module-ref2vec-centroid",
-          "--only-module-text2vec-contextionary",
           "--only-module-text2vec-transformers",
           "--only-module-text2vec-ollama",
           "--only-module-generative-ollama",
-          "--only-module-many-generative"
+          "--only-module-text2vec-model2vec"
         ]
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
           cache: true
       - name: Login to Docker Hub
         if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
@@ -169,7 +173,7 @@ jobs:
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
-          max_attempts: 3
+          max_attempts: 2
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-On-Demand-Tests-Check:
@@ -197,7 +201,7 @@ jobs:
           fi
   Modules-Acceptance-Tests-large:
     name: modules-acceptance-tests-large
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     needs: [Modules-On-Demand-Tests-Check]
     if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
     strategy:
@@ -214,7 +218,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -227,7 +231,43 @@ jobs:
         with:
           # 15 Minute is a large enough timeout for most of our tests
           timeout_minutes: 15
-          max_attempts: 3
+          max_attempts: 2
+          command: ./test/run.sh ${{ matrix.test }}
+          on_retry_command: ./test/run.sh --cleanup
+  Modules-Acceptance-Tests-light:
+    name: modules-acceptance-tests-light
+    runs-on: ubuntu-latest
+    needs: [Modules-On-Demand-Tests-Check]
+    if: ${{ needs.Modules-On-Demand-Tests-Check.outputs.run_pipeline == 'true' }}  # no PRs from fork
+    strategy:
+      fail-fast: false
+      matrix:
+        test: [
+          "--only-module-text2vec-contextionary",
+          "--only-module-img2vec-neural",
+          "--only-module-ref2vec-centroid",
+          "--only-module-many-modules",
+          "--only-module-many-generative"
+        ]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+          cache: true
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' }}
+        with:
+          username: ${{secrets.DOCKER_USERNAME}}
+          password: ${{secrets.DOCKER_PASSWORD}}
+      - name: Acceptance tests Large (modules)
+        uses: nick-fields/retry@v3
+        with:
+          # 15 Minute is a large enough timeout for most of our tests
+          timeout_minutes: 15
+          max_attempts: 2
           command: ./test/run.sh ${{ matrix.test }}
           on_retry_command: ./test/run.sh --cleanup
   Modules-Acceptance-Tests-api:
@@ -258,7 +298,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
           cache: true
       - name: check
         env:
@@ -322,6 +362,7 @@ jobs:
           "--acceptance-only-authz",
           "--acceptance-only-replication",
           "--acceptance-only-async-replication",
+          "--acceptance-only-replica-replication",
           "--acceptance-go-client-only-fast",
           "--acceptance-only-python",
         ]
@@ -330,7 +371,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -345,7 +386,7 @@ jobs:
         run: ./test/run.sh ${{ matrix.test }}
   Acceptance-Tests-large:
     name: acceptance-tests-large
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     strategy:
       fail-fast: false
       matrix:
@@ -355,7 +396,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
           cache: true
       - name: Login to Docker Hub
         uses: docker/login-action@v3
@@ -391,25 +432,31 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: coverage-report-unit
-      - name: Download coverage unit
+      - name: Download coverage integration without vector package
         uses: actions/download-artifact@v4
         with:
-          name: coverage-report-integration
+          name: coverage-report-integration--integration-without-vector-package
+          path: coverage-integration-without-vector-package.txt
+      - name: Download coverage integration vector package only
+        uses: actions/download-artifact@v4
+        with:
+          name: coverage-report-integration--integration-vector-package-only
+          path: coverage-integration-vector-package-only.txt
       - name: Codecov
         uses: codecov/codecov-action@v5
         with:
           fail_ci_if_error: false
-          files: ./coverage-integration.txt, ./coverage-unit.txt
+          files: ./coverage-integration-without-vector-package.txt, ./coverage-integration-vector-package-only.txt, ./coverage-unit.txt
           verbose: true
   Compile-and-upload-binaries:
     name: compile-and-upload-binaries
-    runs-on: ubuntu-latest-4-cores
+    runs-on: DB-ubuntu-24.04-4-cores
     steps:
       - uses: actions/checkout@v4
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
           cache: true
       - name: Install GoReleaser
         uses: goreleaser/goreleaser-action@v6
@@ -466,7 +513,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.22'
+          go-version: '1.24'
           cache: true
       - name: start weaviate
         shell: bash
@@ -483,7 +530,7 @@ jobs:
     needs: [Unit-Tests, Run-Swagger, Vulnerability-Scanning, SAST-Scanning, Integration-Tests]
     name: push-docker
     timeout-minutes: 30
-    runs-on: ubuntu-latest-8-cores
+    runs-on: DB-ubuntu-24.04-8-cores
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -505,7 +552,19 @@ jobs:
     if: ${{ !github.event.pull_request.head.repo.fork && github.triggering_actor != 'dependabot[bot]' && !startsWith(github.ref, 'refs/tags') && !startsWith(github.head_ref, 'build') && !(github.head_ref == '') }} # no PRs from fork
     name: push-docker-fast
     timeout-minutes: 30
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-latest
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    outputs:
+      preview-tags-amd64: ${{ steps.set-outputs.outputs.preview-tags-amd64 }}
+      semver-tags-amd64: ${{ steps.set-outputs.outputs.semver-tags-amd64 }}
+      preview-tags-arm64: ${{ steps.set-outputs.outputs.preview-tags-arm64 }}
+      semver-tags-arm64: ${{ steps.set-outputs.outputs.semver-tags-arm64 }}
     steps:
       - uses: actions/checkout@v4
       - name: Login to Docker Hub
@@ -515,11 +574,36 @@ jobs:
           password: ${{secrets.DOCKER_PASSWORD}}
       - name: Push container
         id: push-container
-        run: ./ci/push_docker.sh --amd64-only
+        run: ./ci/push_docker.sh --${{ matrix.arch }}-only
         env:
           PR_TITLE: "${{ github.event.pull_request.title }}"
-      - name: Generate Report
-        env:
-          PREVIEW_TAG: "${{ steps.push-container.outputs.PREVIEW_TAG }}"
-          PREVIEW_SEMVER_TAG: "${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}"
-        run: ./ci/generate_docker_report.sh
+      - name: Set architecture-specific outputs
+        id: set-outputs
+        run: |
+          # Unique output names per architecture
+          echo "preview-tags-${{ matrix.arch }}=${{ steps.push-container.outputs.PREVIEW_TAG }}" >> $GITHUB_OUTPUT
+          echo "semver-tags-${{ matrix.arch }}=${{ steps.push-container.outputs.PREVIEW_SEMVER_TAG }}" >> $GITHUB_OUTPUT
+  Generate-Docker-Report:
+    needs: [Push-Docker-Fast]
+    name: generate-docker-report
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Combine tags
+        run: |
+          # Collect all architecture-specific outputs
+          ALL_PREVIEW_TAGS="${{ needs.Push-Docker-Fast.outputs.preview-tags-amd64 }}"
+          ALL_PREVIEW_TAGS+="\n${{ needs.Push-Docker-Fast.outputs.preview-tags-arm64 }}"
+          
+          ALL_SEMVER_TAGS="${{ needs.Push-Docker-Fast.outputs.semver-tags-amd64 }}"
+          ALL_SEMVER_TAGS+="\n${{ needs.Push-Docker-Fast.outputs.semver-tags-arm64 }}"
+
+          # Write to environment variables
+          echo "PREVIEW_TAG<<EOF" >> $GITHUB_ENV
+          echo -e "$ALL_PREVIEW_TAGS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+          
+          echo "PREVIEW_SEMVER_TAG<<EOF" >> $GITHUB_ENV
+          echo -e "$ALL_SEMVER_TAGS" >> $GITHUB_ENV
+          echo "EOF" >> $GITHUB_ENV
+      - run: ./ci/generate_docker_report.sh

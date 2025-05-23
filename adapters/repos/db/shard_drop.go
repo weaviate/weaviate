@@ -30,6 +30,8 @@ import (
 // from shard directory, it needs to be reflected as well in LazyLoadShard::drop()
 // method to keep drop behaviour consistent.
 func (s *Shard) drop() (err error) {
+	s.reindexer.Stop(s, fmt.Errorf("shard drop"))
+
 	s.metrics.DeleteShardLabels(s.index.Config.ClassName.String(), s.name)
 	s.metrics.baseMetrics.StartUnloadingShard()
 	s.replicationMap.clear()
@@ -49,6 +51,12 @@ func (s *Shard) drop() (err error) {
 	}).Debug("dropping shard")
 
 	s.mayStopAsyncReplication()
+
+	s.haltForTransferMux.Lock()
+	if s.haltForTransferCancel != nil {
+		s.haltForTransferCancel()
+	}
+	s.haltForTransferMux.Unlock()
 
 	ctx, cancel := context.WithTimeout(context.TODO(), 20*time.Second)
 	defer cancel()

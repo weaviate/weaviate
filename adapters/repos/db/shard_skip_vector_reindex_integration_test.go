@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -50,6 +51,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			IndexTimestamps:     true,
 			IndexNullState:      true,
 			IndexPropertyLength: true,
+			UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 		},
 		Properties: []*models.Property{
 			{
@@ -533,15 +535,17 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		}
 	}
 
-	createShard := func(t *testing.T) ShardLike {
+	createShard := func(t *testing.T) (ShardLike, *VectorIndexQueue) {
 		vectorIndexConfig := hnsw.UserConfig{Distance: common.DefaultDistanceMetric}
 		shard, _ := testShardWithSettings(t, ctx, class, vectorIndexConfig, true, true)
-		return shard
+		queue, ok := shard.GetVectorIndexQueue("")
+		require.True(t, ok)
+		return shard, queue
 	}
 
 	t.Run("single object", func(t *testing.T) {
 		t.Run("sanity check - search after add", func(t *testing.T) {
-			shard := createShard(t)
+			shard, queue := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -549,9 +553,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().Schedule(context.Background())
+				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				shard.Queue().Wait()
+				queue.Wait()
 			})
 
 			t.Run("verify initial docID and timestamps", func(t *testing.T) {
@@ -569,7 +573,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with different object, same vector", func(t *testing.T) {
-			shard := createShard(t)
+			shard, queue := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -584,9 +588,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().Schedule(context.Background())
+				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				shard.Queue().Wait()
+				queue.Wait()
 			})
 
 			t.Run("verify same docID, changed create & update timestamps", func(t *testing.T) {
@@ -604,7 +608,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with different object, different vector", func(t *testing.T) {
-			shard := createShard(t)
+			shard, queue := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -621,9 +625,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().Schedule(context.Background())
+				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				shard.Queue().Wait()
+				queue.Wait()
 			})
 
 			t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -641,7 +645,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with different object, different geo", func(t *testing.T) {
-			shard := createShard(t)
+			shard, queue := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -661,9 +665,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().Schedule(context.Background())
+				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				shard.Queue().Wait()
+				queue.Wait()
 			})
 
 			t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -681,7 +685,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with different object, same vector", func(t *testing.T) {
-			shard := createShard(t)
+			shard, queue := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -696,9 +700,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().Schedule(context.Background())
+				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				shard.Queue().Wait()
+				queue.Wait()
 			})
 
 			t.Run("verify same docID, changed update timestamp", func(t *testing.T) {
@@ -716,7 +720,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with different object, different vector", func(t *testing.T) {
-			shard := createShard(t)
+			shard, queue := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -733,9 +737,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("wait for queue to be empty", func(t *testing.T) {
-				shard.Queue().Scheduler().Schedule(context.Background())
+				queue.Scheduler().Schedule(context.Background())
 				time.Sleep(50 * time.Millisecond)
-				shard.Queue().Wait()
+				queue.Wait()
 			})
 
 			t.Run("verify changed docID, changed update timestamp", func(t *testing.T) {
@@ -753,7 +757,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with different object, different geo", func(t *testing.T) {
-			shard := createShard(t)
+			shard, _ := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -787,7 +791,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with same object, same vector", func(t *testing.T) {
-			shard := createShard(t)
+			shard, _ := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -819,7 +823,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with same object, different vector", func(t *testing.T) {
-			shard := createShard(t)
+			shard, _ := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -852,7 +856,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("replace with same object, different geo", func(t *testing.T) {
-			shard := createShard(t)
+			shard, _ := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -888,7 +892,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with same object, same vector", func(t *testing.T) {
-			shard := createShard(t)
+			shard, _ := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -927,7 +931,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with same object, different vector", func(t *testing.T) {
-			shard := createShard(t)
+			shard, _ := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -966,7 +970,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 		})
 
 		t.Run("merge with same object, different geo", func(t *testing.T) {
-			shard := createShard(t)
+			shard, _ := createShard(t)
 
 			t.Run("add object", func(t *testing.T) {
 				err := shard.PutObject(ctx, createOrigObj())
@@ -1009,7 +1013,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 	t.Run("batch", func(t *testing.T) {
 		runBatch := func(t *testing.T) {
 			t.Run("sanity check - search after add", func(t *testing.T) {
-				shard := createShard(t)
+				shard, queue := createShard(t)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1019,9 +1023,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().Schedule(context.Background())
+					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					shard.Queue().Wait()
+					queue.Wait()
 				})
 
 				t.Run("verify initial docID and timestamps", func(t *testing.T) {
@@ -1039,7 +1043,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with different object, same vector", func(t *testing.T) {
-				shard := createShard(t)
+				shard, queue := createShard(t)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1049,9 +1053,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().Schedule(context.Background())
+					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					shard.Queue().Wait()
+					queue.Wait()
 				})
 
 				t.Run("add 2nd batch", func(t *testing.T) {
@@ -1078,7 +1082,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with different object, different vector", func(t *testing.T) {
-				shard := createShard(t)
+				shard, queue := createShard(t)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1099,9 +1103,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().Schedule(context.Background())
+					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					shard.Queue().Wait()
+					queue.Wait()
 				})
 
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -1119,7 +1123,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with different object, different geo", func(t *testing.T) {
-				shard := createShard(t)
+				shard, queue := createShard(t)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1143,9 +1147,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().Schedule(context.Background())
+					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					shard.Queue().Wait()
+					queue.Wait()
 				})
 
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -1163,7 +1167,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with same object, same vector", func(t *testing.T) {
-				shard := createShard(t)
+				shard, queue := createShard(t)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1185,9 +1189,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().Schedule(context.Background())
+					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					shard.Queue().Wait()
+					queue.Wait()
 				})
 
 				t.Run("verify same docID, same timestamps", func(t *testing.T) {
@@ -1205,7 +1209,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with same object, different vector", func(t *testing.T) {
-				shard := createShard(t)
+				shard, queue := createShard(t)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1228,9 +1232,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().Schedule(context.Background())
+					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					shard.Queue().Wait()
+					queue.Wait()
 				})
 
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {
@@ -1248,7 +1252,7 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 			})
 
 			t.Run("replace with same object, different geo", func(t *testing.T) {
-				shard := createShard(t)
+				shard, queue := createShard(t)
 
 				t.Run("add batch", func(t *testing.T) {
 					errs := shard.PutObjectBatch(ctx, []*storobj.Object{createOrigObj()})
@@ -1274,9 +1278,9 @@ func TestShard_SkipVectorReindex(t *testing.T) {
 				})
 
 				t.Run("wait for queue to be empty", func(t *testing.T) {
-					shard.Queue().Scheduler().Schedule(context.Background())
+					queue.Scheduler().Schedule(context.Background())
 					time.Sleep(50 * time.Millisecond)
-					shard.Queue().Wait()
+					queue.Wait()
 				})
 
 				t.Run("verify changed docID, changed create & update timestamps", func(t *testing.T) {

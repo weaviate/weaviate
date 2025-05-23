@@ -14,11 +14,15 @@ package lsmkv
 import (
 	"bufio"
 	"bytes"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"sync"
 	"sync/atomic"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/entities/diskio"
+	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -43,6 +47,7 @@ var (
 
 type lazyCommitLogger struct {
 	path         string
+	strategy     string
 	commitLogger *commitLogger
 	mux          sync.Mutex
 }
@@ -55,7 +60,7 @@ func (cl *lazyCommitLogger) mayInitCommitLogger() error {
 		return nil
 	}
 
-	commitLogger, err := newCommitLogger(cl.path)
+	commitLogger, err := newCommitLogger(cl.path, cl.strategy)
 	if err != nil {
 		return err
 	}
@@ -161,6 +166,7 @@ type commitLogger struct {
 	checksumWriter integrity.ChecksumWriter
 
 	bufNode *bytes.Buffer
+	tmpBuf  []byte
 
 	// e.g. when recovering from an existing log, we do not want to write into a
 	// new log again
@@ -216,13 +222,14 @@ func (ct CommitType) Is(checkedCommitType CommitType) bool {
 	return ct == checkedCommitType
 }
 
-func newLazyCommitLogger(path string) (*lazyCommitLogger, error) {
+func newLazyCommitLogger(path, strategy string) (*lazyCommitLogger, error) {
 	return &lazyCommitLogger{
-		path: path,
+		path:     path,
+		strategy: strategy,
 	}, nil
 }
 
-func newCommitLogger(path string) (*commitLogger, error) {
+func newCommitLogger(path, strategy string) (*commitLogger, error) {
 	out := &commitLogger{
 		path: walPath(path),
 	}
@@ -232,12 +239,22 @@ func newCommitLogger(path string) (*commitLogger, error) {
 		return nil, err
 	}
 
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"strategy":  strategy,
+		"operation": "appendWAL",
+	})
+
 	out.file = f
 
-	out.writer = bufio.NewWriter(f)
+	meteredF := diskio.NewMeteredWriter(f, func(written int64) {
+		observeWrite.Observe(float64(written))
+	})
+
+	out.writer = bufio.NewWriter(meteredF)
 	out.checksumWriter = integrity.NewCRC32Writer(out.writer)
 
 	out.bufNode = bytes.NewBuffer(nil)
+	out.tmpBuf = make([]byte, byteops.Uint8Len+byteops.Uint8Len+byteops.Uint32Len)
 
 	return out, nil
 }
@@ -249,22 +266,16 @@ func (cl *commitLogger) walPath() string {
 func (cl *commitLogger) writeEntry(commitType CommitType, nodeBytes []byte) error {
 	// TODO: do we need a timestamp? if so, does it need to be a vector clock?
 
-	err := binary.Write(cl.checksumWriter, binary.LittleEndian, commitType)
+	rw := byteops.NewReadWriter(cl.tmpBuf)
+	rw.WriteByte(byte(commitType))
+	rw.WriteByte(CurrentCommitLogVersion)
+	rw.WriteUint32(uint32(len(nodeBytes)))
+
+	_, err := cl.checksumWriter.Write(rw.Buffer)
 	if err != nil {
 		return err
 	}
 
-	err = binary.Write(cl.checksumWriter, binary.LittleEndian, CurrentCommitLogVersion)
-	if err != nil {
-		return err
-	}
-
-	err = binary.Write(cl.checksumWriter, binary.LittleEndian, uint32(len(nodeBytes)))
-	if err != nil {
-		return err
-	}
-
-	// write node
 	_, err = cl.checksumWriter.Write(nodeBytes)
 	if err != nil {
 		return err

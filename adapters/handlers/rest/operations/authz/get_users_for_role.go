@@ -17,9 +17,14 @@ package authz
 // Editing this file might prove futile when you re-run the generate command
 
 import (
+	"context"
 	"net/http"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
+	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -43,9 +48,9 @@ func NewGetUsersForRole(ctx *middleware.Context, handler GetUsersForRoleHandler)
 }
 
 /*
-	GetUsersForRole swagger:route GET /authz/roles/{id}/users authz getUsersForRole
+	GetUsersForRole swagger:route GET /authz/roles/{id}/user-assignments authz getUsersForRole
 
-get users or a keys assigned to role
+get users assigned to role
 */
 type GetUsersForRole struct {
 	Context *middleware.Context
@@ -79,4 +84,103 @@ func (o *GetUsersForRole) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 	res := o.Handler.Handle(Params, principal) // actually handle the request
 	o.Context.Respond(rw, r, route.Produces, route, res)
 
+}
+
+// GetUsersForRoleOKBodyItems0 get users for role o k body items0
+//
+// swagger:model GetUsersForRoleOKBodyItems0
+type GetUsersForRoleOKBodyItems0 struct {
+
+	// user Id
+	UserID string `json:"userId,omitempty" yaml:"userId,omitempty"`
+
+	// user type
+	// Required: true
+	UserType *models.UserTypeOutput `json:"userType" yaml:"userType"`
+}
+
+// Validate validates this get users for role o k body items0
+func (o *GetUsersForRoleOKBodyItems0) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateUserType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *GetUsersForRoleOKBodyItems0) validateUserType(formats strfmt.Registry) error {
+
+	if err := validate.Required("userType", "body", o.UserType); err != nil {
+		return err
+	}
+
+	if err := validate.Required("userType", "body", o.UserType); err != nil {
+		return err
+	}
+
+	if o.UserType != nil {
+		if err := o.UserType.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("userType")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("userType")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// ContextValidate validate this get users for role o k body items0 based on the context it is used
+func (o *GetUsersForRoleOKBodyItems0) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.contextValidateUserType(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *GetUsersForRoleOKBodyItems0) contextValidateUserType(ctx context.Context, formats strfmt.Registry) error {
+
+	if o.UserType != nil {
+		if err := o.UserType.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("userType")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("userType")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (o *GetUsersForRoleOKBodyItems0) MarshalBinary() ([]byte, error) {
+	if o == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(o)
+}
+
+// UnmarshalBinary interface implementation
+func (o *GetUsersForRoleOKBodyItems0) UnmarshalBinary(b []byte) error {
+	var res GetUsersForRoleOKBodyItems0
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*o = res
+	return nil
 }

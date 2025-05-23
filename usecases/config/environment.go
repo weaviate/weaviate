@@ -16,6 +16,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -25,6 +26,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -38,6 +40,16 @@ const (
 	DefaultRaftBootstrapExpect  = 1
 	DefaultRaftDir              = "raft"
 	DefaultHNSWAcornFilterRatio = 0.4
+
+	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
+
+	DefaultDistributedTasksSchedulerTickInterval = time.Minute
+	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
+
+	DefaultReplicationEngineMaxWorkers          = 5
+	DefaultReplicaMovementMinimumFinalizingWait = 100 * time.Second
+
+	DefaultTransferInactivityTimeout = 5 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -89,6 +101,16 @@ func FromEnv(config *Config) error {
 		config.ForceFullReplicasSearch = true
 	}
 
+	if v := os.Getenv("TRANSFER_INACTIVITY_TIMEOUT"); v != "" {
+		timeout, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TRANSFER_INACTIVITY_TIMEOUT as duration: %w", err)
+		}
+		config.TransferInactivityTimeout = timeout
+	} else {
+		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
+	}
+
 	// Recount all property lengths at startup to support accurate BM25 scoring
 	if entcfg.Enabled(os.Getenv("RECOUNT_PROPERTIES_AT_STARTUP")) {
 		config.RecountPropertiesAtStartup = true
@@ -102,12 +124,19 @@ func FromEnv(config *Config) error {
 		config.IndexMissingTextFilterableAtStartup = true
 	}
 
+	cptParser := newCollectionPropsTenantsParser()
+
 	// variable expects string in format:
 	// "Class1:property11,property12;Class2:property21,property22"
 	if v := os.Getenv("REINDEX_INDEXES_AT_STARTUP"); v != "" {
-		asClassesWithProps, err := parseClassNamesWithPropsNames(v)
+		cpts, err := cptParser.parse(v)
 		if err != nil {
 			return fmt.Errorf("parse REINDEX_INDEXES_AT_STARTUP as class with props: %w", err)
+		}
+
+		asClassesWithProps := make(map[string][]string, len(cpts))
+		for _, cpt := range cpts {
+			asClassesWithProps[cpt.Collection] = cpt.Props
 		}
 		config.ReindexIndexesAtStartup = asClassesWithProps
 	}
@@ -160,6 +189,10 @@ func FromEnv(config *Config) error {
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
 			config.Authentication.OIDC.GroupsClaim = v
 		}
+	}
+
+	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
+		config.Authentication.DBUsers.Enabled = true
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_APIKEY_ENABLED")) {
@@ -262,6 +295,17 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMEnableSegmentsChecksumValidation = true
 	}
 
+	if v := os.Getenv("PERSISTENCE_MIN_MMAP_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_MIN_MMAP_SIZE: %w", err)
+		}
+
+		config.Persistence.MinMMapSize = parsed
+	} else {
+		config.Persistence.MinMMapSize = DefaultPersistenceMinMMapSize
+	}
+
 	if err := parseInt(
 		"PERSISTENCE_LSM_CYCLEMANAGER_ROUTINES_FACTOR",
 		func(factor int) { config.Persistence.LSMCycleManagerRoutinesFactor = factor },
@@ -279,6 +323,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.HNSWMaxLogSize = parsed
 	} else {
 		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
+	}
+
+	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
+		config.Persistence.IndexRangeableInMemory = true
 	}
 
 	if err := parseInt(
@@ -317,6 +365,43 @@ func FromEnv(config *Config) error {
 		if config.Persistence.DataPath == "" {
 			config.Persistence.DataPath = DefaultPersistenceDataPath
 		}
+	}
+
+	parsePositiveFloat("REINDEXER_GOROUTINES_FACTOR",
+		func(val float64) { config.ReindexerGoroutinesFactor = val },
+		DefaultReindexerGoroutinesFactor)
+
+	if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_AT_STARTUP", clusterCfg.Hostname) {
+		config.ReindexMapToBlockmaxAtStartup = true
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_SWAP_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.SwapBuckets = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_UNSWAP_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.UnswapBuckets = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_TIDY_BUCKETS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.TidyBuckets = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_RELOAD_SHARDS", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.ReloadShards = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.Rollback = true
+		}
+		if enabledForHost("REINDEX_MAP_TO_BLOCKMAX_CONDITIONAL_START", clusterCfg.Hostname) {
+			config.ReindexMapToBlockmaxConfig.ConditionalStart = true
+		}
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PROCESSING_DURATION_SECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds = val },
+			DefaultMapToBlockmaxProcessingDurationSeconds)
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
+			DefaultMapToBlockmaxPauseDurationSeconds)
+		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
+		if err != nil {
+			return err
+		}
+		config.ReindexMapToBlockmaxConfig.Selected = cptSelected
 	}
 
 	if err := config.parseMemtableConfig(); err != nil {
@@ -424,10 +509,12 @@ func FromEnv(config *Config) error {
 		config.EnableApiBasedModules = true
 	}
 
-	config.AutoSchema.Enabled = true
+	autoSchemaEnabled := true
 	if v := os.Getenv("AUTOSCHEMA_ENABLED"); v != "" {
-		config.AutoSchema.Enabled = !(strings.ToLower(v) == "false")
+		autoSchemaEnabled = !(strings.ToLower(v) == "false")
 	}
+	config.AutoSchema.Enabled = runtime.NewDynamicValue(autoSchemaEnabled)
+
 	config.AutoSchema.DefaultString = schema.DataTypeText.String()
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_STRING"); v != "" {
 		config.AutoSchema.DefaultString = v
@@ -520,6 +607,8 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	config.Replication.AsyncReplicationDisabled = runtime.NewDynamicValue(entcfg.Enabled(os.Getenv("ASYNC_REPLICATION_DISABLED")))
+
 	if v := os.Getenv("REPLICATION_FORCE_DELETION_STRATEGY"); v != "" {
 		config.Replication.DeletionStrategy = v
 	}
@@ -535,7 +624,9 @@ func FromEnv(config *Config) error {
 
 	if err := parseInt(
 		"MAXIMUM_ALLOWED_COLLECTIONS_COUNT",
-		func(val int) { config.MaximumAllowedCollectionsCount = val },
+		func(val int) {
+			config.SchemaHandlerConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(val)
+		},
 		DefaultMaximumAllowedCollectionsCount,
 	); err != nil {
 		return err
@@ -562,6 +653,50 @@ func FromEnv(config *Config) error {
 		DefaultMetadataServerDataEventsChannelCapacity,
 	); err != nil {
 		return err
+	}
+
+	config.RuntimeOverrides.Enabled = entcfg.Enabled(os.Getenv("RUNTIME_OVERRIDES_ENABLED"))
+
+	if v := os.Getenv("RUNTIME_OVERRIDES_PATH"); v != "" {
+		config.RuntimeOverrides.Path = v
+	}
+
+	config.RuntimeOverrides.LoadInterval = DefaultRuntimeOverridesLoadInterval
+	if v := os.Getenv("RUNTIME_OVERRIDES_LOAD_INTERVAL"); v != "" {
+		interval, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse RUNTIME_OVERRIDES_LOAD_INTERVAL as time.Duration: %w", err)
+		}
+		config.RuntimeOverrides.LoadInterval = interval
+	}
+
+	if err = parsePositiveInt(
+		"DISTRIBUTED_TASKS_SCHEDULER_TICK_INTERVAL_SECONDS",
+		func(val int) { config.DistributedTasks.SchedulerTickInterval = time.Duration(val) * time.Second },
+		int(DefaultDistributedTasksSchedulerTickInterval.Seconds()),
+	); err != nil {
+		return err
+	}
+
+	if err = parsePositiveInt(
+		"DISTRIBUTED_TASKS_COMPLETED_TASK_TTL_HOURS",
+		func(val int) { config.DistributedTasks.CompletedTaskTTL = time.Duration(val) * time.Hour },
+		int(DefaultDistributedTasksCompletedTaskTTL.Hours()),
+	); err != nil {
+		return err
+	}
+
+	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT as time.Duration: %w", err)
+		}
+		if duration < 0 {
+			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_FINALIZING_WAIT must be a positive duration")
+		}
+		config.ReplicaMovementMinimumFinalizingWait = runtime.NewDynamicValue(duration)
+	} else {
+		config.ReplicaMovementMinimumFinalizingWait = runtime.NewDynamicValue(DefaultReplicaMovementMinimumFinalizingWait)
 	}
 
 	return nil
@@ -653,6 +788,14 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	}
 
 	if err := parsePositiveInt(
+		"RAFT_TRAILING_LOGS",
+		func(val int) { cfg.TrailingLogs = uint64(val) },
+		10240, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
 		"RAFT_CONSISTENCY_WAIT_TIMEOUT",
 		func(val int) { cfg.ConsistencyWaitTimeout = time.Second * time.Duration(val) },
 		10,
@@ -662,14 +805,6 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 
 	cfg.EnableOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_ENABLE_ONE_NODE_RECOVERY"))
 	cfg.ForceOneNodeRecovery = entcfg.Enabled(os.Getenv("RAFT_FORCE_ONE_NODE_RECOVERY"))
-
-	// For FQDN related config, we need to have 2 different one because TLD might be unset/empty when running inside
-	// docker without a TLD available. However is running in k8s for example you have a TLD available.
-	if entcfg.Enabled(os.Getenv("RAFT_ENABLE_FQDN_RESOLVER")) {
-		cfg.EnableFQDNResolver = true
-	}
-
-	cfg.FQDNResolverTLD = os.Getenv("RAFT_FQDN_RESOLVER_TLD")
 
 	return cfg, nil
 }
@@ -746,6 +881,14 @@ func (c *Config) parseMemtableConfig() error {
 		return err
 	}
 
+	if err := parsePositiveInt(
+		"REPLICATION_ENGINE_MAX_WORKERS",
+		func(val int) { c.ReplicationEngineMaxWorkers = val },
+		DefaultReplicationEngineMaxWorkers,
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -783,7 +926,7 @@ func parseInt(envName string, cb func(val int), defaultValue int) error {
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
 		if val <= 0 {
-			return fmt.Errorf("%s must be a positive value larger 0. Got: %v", envName, val)
+			return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
 		}
 		return nil
 	})
@@ -792,7 +935,7 @@ func parsePositiveInt(envName string, cb func(val int), defaultValue int) error 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
 	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
 		if val < 0 {
-			return fmt.Errorf("%s must be an integer greater than or equal 0", envName)
+			return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
 		}
 		return nil
 	})
@@ -816,59 +959,44 @@ func parseIntVerify(envName string, defaultValue int, cb func(val int), verify f
 	return nil
 }
 
-// expects "Class1:property11,property12;Class2:property21,property22"
-// returns map[Class][]property
-func parseClassNamesWithPropsNames(v string) (map[string][]string, error) {
-	classNamesWithPropsNames := map[string][]string{}
+// func parseFloat(envName string, cb func(val float64), defaultValue float64) error {
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error { return nil })
+// }
 
-	regexClass := regexp.MustCompile(`^` + schema.ClassNameRegexCore + `$`)
-	regexProp := regexp.MustCompile(`^` + schema.PropertyNameRegex + `$`)
-	uniqueClasses := map[string]struct{}{}
-	var uniqueProps map[string]struct{}
+func parsePositiveFloat(envName string, cb func(val float64), defaultValue float64) error {
+	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
+		if val <= 0 {
+			return fmt.Errorf("%s must be a float greater than 0. Got: %v", envName, val)
+		}
+		return nil
+	})
+}
 
-	ec := &errorcompounder.ErrorCompounder{}
-	parts := strings.Split(v, ";")
-	for _, part := range parts {
-		err := func() error {
-			parts2 := strings.Split(part, ":")
-			if len(parts2) != 2 {
-				return fmt.Errorf("invalid class+property setting %q", part)
-			}
+// func parseNonNegativeFloat(envName string, cb func(val float64), defaultValue float64) error {
+// 	return parseFloatVerify(envName, defaultValue, cb, func(val float64) error {
+// 		if val < 0 {
+// 			return fmt.Errorf("%s must be a float greater than or equal 0. Got %v", envName, val)
+// 		}
+// 		return nil
+// 	})
+// }
 
-			class := parts2[0]
-			if _, ok := uniqueClasses[class]; ok {
-				return fmt.Errorf("class name %q duplicated", class)
-			}
-			if !regexClass.MatchString(class) {
-				return fmt.Errorf("invalid class name %q", class)
-			}
-			uniqueClasses[class] = struct{}{}
+func parseFloatVerify(envName string, defaultValue float64, cb func(val float64), verify func(val float64) error) error {
+	var err error
+	asFloat := defaultValue
 
-			uniqueProps = map[string]struct{}{}
-			props := strings.Split(parts2[1], ",")
-			for _, prop := range props {
-				if _, ok := uniqueProps[prop]; ok {
-					return fmt.Errorf("prop name %q duplicated in class %q", prop, class)
-				}
-				if !regexProp.MatchString(prop) {
-					return fmt.Errorf("invalid prop name %q in class %q", prop, class)
-				}
-				uniqueProps[prop] = struct{}{}
-			}
-
-			classNamesWithPropsNames[class] = props
-			return nil
-		}()
-		ec.Add(err)
+	if v := os.Getenv(envName); v != "" {
+		asFloat, err = strconv.ParseFloat(v, 64)
+		if err != nil {
+			return fmt.Errorf("parse %s as float: %w", envName, err)
+		}
+		if err = verify(asFloat); err != nil {
+			return err
+		}
 	}
 
-	if err := ec.ToError(); err != nil {
-		return nil, err
-	}
-	if len(classNamesWithPropsNames) > 0 {
-		return classNamesWithPropsNames, nil
-	}
-	return nil, nil
+	cb(asFloat)
+	return nil
 }
 
 const (
@@ -1052,4 +1180,194 @@ func parseClusterConfig() (cluster.Config, error) {
 	}
 
 	return cfg, nil
+}
+
+func enabledForHost(envName string, localHostname string) bool {
+	if v := os.Getenv(envName); v != "" {
+		if entcfg.Enabled(v) {
+			return true
+		}
+		return slices.Contains(strings.Split(v, ","), localHostname)
+	}
+	return false
+}
+
+/*
+parses variable of format "colName1:propNames1:tenantNames1;colName2:propNames2:tenantNames2"
+propNames = prop1,prop2,...
+tenantNames = tenant1,tenant2,...
+
+examples:
+  - collection:
+    "ColName1"
+    "ColName1;ColName2"
+  - collection + properties:
+    "ColName1:propName1"
+    "ColName1:propName1,propName2;ColName2:propName3"
+  - collection + properties + tenants/shards:
+    "ColName1:propName1:tenantName1,tenantName2"
+    "ColName1:propName1:tenantName1,tenantName2;ColName2:propName2,propName3:tenantName3"
+  - collection + tenants/shards:
+    "ColName1::tenantName1"
+    "ColName1::tenantName1,tenantName2;ColName2::tenantName3"
+*/
+type collectionPropsTenantsParser struct {
+	regexpCollection *regexp.Regexp
+	regexpProp       *regexp.Regexp
+	regexpTenant     *regexp.Regexp
+}
+
+func newCollectionPropsTenantsParser() *collectionPropsTenantsParser {
+	return &collectionPropsTenantsParser{
+		regexpCollection: regexp.MustCompile(`^` + schema.ClassNameRegexCore + `$`),
+		regexpProp:       regexp.MustCompile(`^` + schema.PropertyNameRegex + `$`),
+		regexpTenant:     regexp.MustCompile(`^` + schema.ShardNameRegexCore + `$`),
+	}
+}
+
+func (p *collectionPropsTenantsParser) parse(v string) ([]CollectionPropsTenants, error) {
+	if v = strings.TrimSpace(v); v == "" {
+		return []CollectionPropsTenants{}, nil
+	}
+
+	split := strings.Split(v, ";")
+	count := len(split)
+	cpts := make([]CollectionPropsTenants, 0, count)
+	uniqMapIdx := make(map[string]int, count)
+
+	ec := errorcompounder.New()
+	for _, single := range split {
+		if single = strings.TrimSpace(single); single != "" {
+			if cpt, err := p.parseSingle(single); err != nil {
+				ec.Add(fmt.Errorf("parse '%s': %w", single, err))
+			} else {
+				if prevIdx, ok := uniqMapIdx[cpt.Collection]; ok {
+					cpts[prevIdx] = p.mergeCpt(cpts[prevIdx], cpt)
+				} else {
+					uniqMapIdx[cpt.Collection] = len(cpts)
+					cpts = append(cpts, cpt)
+				}
+			}
+		}
+	}
+
+	return cpts, ec.ToError()
+}
+
+func (p *collectionPropsTenantsParser) parseSingle(single string) (CollectionPropsTenants, error) {
+	split := strings.Split(single, ":")
+	empty := CollectionPropsTenants{}
+
+	switch count := len(split); count {
+	case 1:
+		collection, err := p.parseCollection(split[0])
+		if err != nil {
+			return empty, err
+		}
+		return CollectionPropsTenants{Collection: collection}, nil
+
+	case 2:
+		collection, err := p.parseCollection(split[0])
+		if err != nil {
+			return empty, err
+		}
+		props, err := p.parseProps(split[1])
+		if err != nil {
+			return empty, err
+		}
+		return CollectionPropsTenants{Collection: collection, Props: props}, nil
+
+	case 3:
+		collection, err := p.parseCollection(split[0])
+		if err != nil {
+			return empty, err
+		}
+		props, err := p.parseProps(split[1])
+		if err != nil {
+			return empty, err
+		}
+		tenants, err := p.parseTenants(split[2])
+		if err != nil {
+			return empty, err
+		}
+		return CollectionPropsTenants{Collection: collection, Props: props, Tenants: tenants}, nil
+
+	default:
+		return empty, fmt.Errorf("too many parts in '%s'. Expected 1-3, got %d", single, count)
+	}
+}
+
+func (p *collectionPropsTenantsParser) parseCollection(collection string) (string, error) {
+	collection = strings.TrimSpace(collection)
+	if collection == "" {
+		return "", fmt.Errorf("missing collection name")
+	}
+	if !p.regexpCollection.MatchString(collection) {
+		return "", fmt.Errorf("invalid collection name '%s'. Does not match regexp", collection)
+	}
+	return collection, nil
+}
+
+func (p *collectionPropsTenantsParser) parseProps(propsStr string) ([]string, error) {
+	return p.parseElems(propsStr, p.regexpProp, "invalid property name '%s'. Does not match regexp")
+}
+
+func (p *collectionPropsTenantsParser) parseTenants(tenantsStr string) ([]string, error) {
+	return p.parseElems(tenantsStr, p.regexpTenant, "invalid tenant/shard name '%s'. Does not match regexp")
+}
+
+func (p *collectionPropsTenantsParser) parseElems(str string, reg *regexp.Regexp, errMsg string) ([]string, error) {
+	split := strings.Split(str, ",")
+	count := len(split)
+	elems := make([]string, 0, count)
+	uniqMap := make(map[string]struct{}, count)
+
+	ec := errorcompounder.New()
+	for _, elem := range split {
+		if elem = strings.TrimSpace(elem); elem != "" {
+			if reg.MatchString(elem) {
+				if _, ok := uniqMap[elem]; !ok {
+					elems = append(elems, elem)
+					uniqMap[elem] = struct{}{}
+				}
+			} else {
+				ec.Add(fmt.Errorf(errMsg, elem))
+			}
+		}
+	}
+
+	if len(elems) == 0 {
+		return nil, ec.ToError()
+	}
+	return elems, ec.ToError()
+}
+
+func (p *collectionPropsTenantsParser) mergeCpt(cptDst, cptSrc CollectionPropsTenants) CollectionPropsTenants {
+	if cptDst.Collection != cptSrc.Collection {
+		return cptDst
+	}
+	cptDst.Props = p.mergeUniqueElems(cptDst.Props, cptSrc.Props)
+	cptDst.Tenants = p.mergeUniqueElems(cptDst.Tenants, cptSrc.Tenants)
+	return cptDst
+}
+
+func (p *collectionPropsTenantsParser) mergeUniqueElems(uniqueA, uniqueB []string) []string {
+	lA, lB := len(uniqueA), len(uniqueB)
+	if lB == 0 {
+		return uniqueA
+	}
+	if lA == 0 {
+		return uniqueB
+	}
+
+	uniqMapA := make(map[string]struct{}, lA)
+	for _, a := range uniqueA {
+		uniqMapA[a] = struct{}{}
+	}
+	for _, b := range uniqueB {
+		if _, ok := uniqMapA[b]; !ok {
+			uniqueA = append(uniqueA, b)
+		}
+	}
+	return uniqueA
 }

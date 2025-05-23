@@ -16,16 +16,31 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/fsm"
+
 	"github.com/weaviate/weaviate/cluster/bootstrap"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/monitoring"
+)
+
+const (
+	// TODO: consider exposing these as settings
+	shardReplicationEngineBufferSize = 16
+	fsmOpProducerPollingInterval     = 5 * time.Second
+	replicationEngineShutdownTimeout = 10 * time.Minute
+	replicationOperationTimeout      = 24 * time.Hour
+	catchUpInterval                  = 5 * time.Second
 )
 
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
@@ -33,56 +48,95 @@ import (
 type Service struct {
 	*Raft
 
-	raftAddr string
-	config   *Config
+	replicationEngine *replication.ShardReplicationEngine
+	raftAddr          string
+	config            *Config
 
 	rpcClient *rpc.Client
 	rpcServer *rpc.Server
 	logger    *logrus.Logger
 
 	// closing channels
-	closeBootstrapper chan struct{}
-	closeWaitForDB    chan struct{}
+	closeBootstrapper       chan struct{}
+	closeOnFSMCaughtUp      chan struct{}
+	closeWaitForDB          chan struct{}
+	replicationEngineCancel context.CancelFunc
 }
 
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
 // nodes.
 // Raft store will be initialized and ready to be started. To start the service call Open().
-func New(cfg Config, svrMetrics *monitoring.GRPCServerMetrics) *Service {
+func New(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, svrMetrics *monitoring.GRPCServerMetrics) *Service {
 	rpcListenAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RPCPort)
-	// When using FQDN lookup we might want to advertise a different IP than the one we'll be listening on.
-	// This address is then sent to raft peers as the address this node listen on.
-	// This address needs to proxy/forward to that node (think static ip for a service)
-	// This is necessary to ensure that the FQDN ip will be stored in the raft logs.
 	raftAdvertisedAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort)
-	if cfg.EnableFQDNResolver {
-		addr := resolver.NewFQDN(resolver.FQDNConfig{
-			// We don't need to specify more config as we are only using that resolver to resolve a node id to an IP
-			// overriding the default resolver using memberlist.
-			TLD: cfg.FQDNResolverTLD,
-		}).NodeAddress(cfg.NodeID)
-		if addr != "" {
-			raftAdvertisedAddress = addr
-		} else {
-			cfg.Logger.Warnf("raft fqdn lookup configured but unable to resolve node %s to an IP, fallbacking to %s", cfg.NodeID, raftAdvertisedAddress)
-		}
-	}
 	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 
-	fsm := NewFSM(cfg, prometheus.DefaultRegisterer)
+	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
-
+	fsmOpProducer := replication.NewFSMOpProducer(
+		cfg.Logger,
+		fsm.replicationManager.GetReplicationFSM(),
+		fsmOpProducerPollingInterval,
+		cfg.NodeSelector.LocalName(),
+	)
+	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
+		cfg.Logger,
+		raft,
+		cfg.ReplicaCopier,
+		cfg.NodeSelector.LocalName(),
+		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
+		replicationOperationTimeout,
+		cfg.ReplicationEngineMaxWorkers,
+		cfg.ReplicaMovementMinimumFinalizingWait,
+		metrics.NewReplicationEngineOpsCallbacks(prometheus.DefaultRegisterer),
+	)
+	replicationEngine := replication.NewShardReplicationEngine(
+		cfg.Logger,
+		cfg.NodeSelector.LocalName(),
+		fsmOpProducer,
+		replicaCopyOpConsumer,
+		shardReplicationEngineBufferSize,
+		cfg.ReplicationEngineMaxWorkers,
+		replicationEngineShutdownTimeout,
+		metrics.NewReplicationEngineCallbacks(prometheus.DefaultRegisterer),
+	)
 	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{
-		Raft:              raft,
-		raftAddr:          raftAdvertisedAddress,
-		config:            &cfg,
-		rpcClient:         client,
-		rpcServer:         svr,
-		logger:            cfg.Logger,
-		closeBootstrapper: make(chan struct{}),
-		closeWaitForDB:    make(chan struct{}),
+		Raft:               raft,
+		replicationEngine:  replicationEngine,
+		raftAddr:           raftAdvertisedAddress,
+		config:             &cfg,
+		rpcClient:          client,
+		rpcServer:          svr,
+		logger:             cfg.Logger,
+		closeBootstrapper:  make(chan struct{}),
+		closeOnFSMCaughtUp: make(chan struct{}),
+		closeWaitForDB:     make(chan struct{}),
+	}
+}
+
+func (c *Service) onFSMCaughtUp(ctx context.Context) {
+	ticker := time.NewTicker(catchUpInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.closeOnFSMCaughtUp:
+			return
+		case <-ticker.C:
+			if c.Raft.store.FSMHasCaughtUp() {
+				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
+				replicationEngineCtx, replicationEngineCancel := context.WithCancel(ctx)
+				c.replicationEngineCancel = replicationEngineCancel
+				enterrors.GoWrapper(func() {
+					if err := c.replicationEngine.Start(replicationEngineCtx); err != nil {
+						c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
+					}
+				}, c.logger)
+				return
+			}
+		}
 	}
 }
 
@@ -96,16 +150,6 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 
 	if err := c.Raft.Open(ctx, db); err != nil {
 		return fmt.Errorf("open raft store: %w", err)
-	}
-
-	// If FQDN resolver is enabled make sure we're also using it for the bootstrapping process
-	nodeToAddressResolver := c.config.NodeToAddressResolver
-	if c.config.EnableFQDNResolver {
-		nodeToAddressResolver = resolver.NewFQDN(resolver.FQDNConfig{
-			// We don't need to specify more config as we are only using that resolver to resolve a node id to an IP
-			// overriding the default resolver using memberlist.
-			TLD: c.config.FQDNResolverTLD,
-		})
 	}
 
 	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
@@ -123,12 +167,12 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
 		err = backoff.Retry(func() error {
-			joinNodes := bootstrap.ResolveRemoteNodes(nodeToAddressResolver, c.config.NodeNameToPortMap)
+			joinNodes := bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
 			_, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
 			return err
 		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), bootstrapCtx))
 		if err != nil {
-			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value.", err)
+			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
 		}
 	} else {
 		bs := bootstrap.NewBootstrapper(
@@ -136,7 +180,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			c.config.NodeID,
 			c.raftAddr,
 			c.config.Voter,
-			nodeToAddressResolver,
+			c.config.NodeSelector,
 			c.Raft.Ready,
 		)
 		if err := bs.Do(
@@ -152,6 +196,9 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("restore database: %w", err)
 	}
 
+	enterrors.GoWrapper(func() {
+		c.onFSMCaughtUp(ctx)
+	}, c.logger)
 	return nil
 }
 
@@ -161,7 +208,13 @@ func (c *Service) Close(ctx context.Context) error {
 	enterrors.GoWrapper(func() {
 		c.closeBootstrapper <- struct{}{}
 		c.closeWaitForDB <- struct{}{}
+		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
+
+	if c.replicationEngineCancel != nil {
+		c.logger.Infof("Closing replication engine %v", c)
+		c.replicationEngineCancel()
+	}
 
 	c.logger.Info("closing raft FSM store ...")
 	if err := c.Raft.Close(ctx); err != nil {

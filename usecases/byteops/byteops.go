@@ -15,14 +15,15 @@ package byteops
 import (
 	"encoding/binary"
 	"errors"
+	"io"
 	"math"
 )
 
 const (
-	uint64Len = 8
-	uint32Len = 4
-	uint16Len = 2
-	uint8Len  = 1
+	Uint64Len = 8
+	Uint32Len = 4
+	Uint16Len = 2
+	Uint8Len  = 1
 )
 
 type ReadWriter struct {
@@ -36,7 +37,13 @@ func WithPosition(pos uint64) func(*ReadWriter) {
 	}
 }
 
-func NewReadWriter(buf []byte, opts ...func(writer *ReadWriter)) ReadWriter {
+func NewReadWriter(buf []byte) ReadWriter {
+	rw := ReadWriter{Buffer: buf}
+	return rw
+}
+
+// NewReadWriterWithOps escapes to heap even if no ops are given
+func NewReadWriterWithOps(buf []byte, opts ...func(writer *ReadWriter)) ReadWriter {
 	rw := ReadWriter{Buffer: buf}
 	for _, opt := range opts {
 		opt(&rw)
@@ -50,23 +57,23 @@ func (bo *ReadWriter) ResetBuffer(buf []byte) {
 }
 
 func (bo *ReadWriter) ReadUint64() uint64 {
-	bo.Position += uint64Len
-	return binary.LittleEndian.Uint64(bo.Buffer[bo.Position-uint64Len : bo.Position])
+	bo.Position += Uint64Len
+	return binary.LittleEndian.Uint64(bo.Buffer[bo.Position-Uint64Len : bo.Position])
 }
 
 func (bo *ReadWriter) ReadUint16() uint16 {
-	bo.Position += uint16Len
-	return binary.LittleEndian.Uint16(bo.Buffer[bo.Position-uint16Len : bo.Position])
+	bo.Position += Uint16Len
+	return binary.LittleEndian.Uint16(bo.Buffer[bo.Position-Uint16Len : bo.Position])
 }
 
 func (bo *ReadWriter) ReadUint32() uint32 {
-	bo.Position += uint32Len
-	return binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position])
+	bo.Position += Uint32Len
+	return binary.LittleEndian.Uint32(bo.Buffer[bo.Position-Uint32Len : bo.Position])
 }
 
 func (bo *ReadWriter) ReadUint8() uint8 {
-	bo.Position += uint8Len
-	return bo.Buffer[bo.Position-uint8Len]
+	bo.Position += Uint8Len
+	return bo.Buffer[bo.Position-Uint8Len]
 }
 
 func (bo *ReadWriter) CopyBytesFromBuffer(length uint64, out []byte) ([]byte, error) {
@@ -88,8 +95,8 @@ func (bo *ReadWriter) ReadBytesFromBuffer(length uint64) []byte {
 }
 
 func (bo *ReadWriter) ReadBytesFromBufferWithUint64LengthIndicator() []byte {
-	bo.Position += uint64Len
-	bufLen := binary.LittleEndian.Uint64(bo.Buffer[bo.Position-uint64Len : bo.Position])
+	bo.Position += Uint64Len
+	bufLen := binary.LittleEndian.Uint64(bo.Buffer[bo.Position-Uint64Len : bo.Position])
 
 	bo.Position += bufLen
 	subslice := bo.Buffer[bo.Position-bufLen : bo.Position]
@@ -97,16 +104,16 @@ func (bo *ReadWriter) ReadBytesFromBufferWithUint64LengthIndicator() []byte {
 }
 
 func (bo *ReadWriter) DiscardBytesFromBufferWithUint64LengthIndicator() uint64 {
-	bo.Position += uint64Len
-	bufLen := binary.LittleEndian.Uint64(bo.Buffer[bo.Position-uint64Len : bo.Position])
+	bo.Position += Uint64Len
+	bufLen := binary.LittleEndian.Uint64(bo.Buffer[bo.Position-Uint64Len : bo.Position])
 
 	bo.Position += bufLen
 	return bufLen
 }
 
 func (bo *ReadWriter) ReadBytesFromBufferWithUint32LengthIndicator() []byte {
-	bo.Position += uint32Len
-	bufLen := uint64(binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position]))
+	bo.Position += Uint32Len
+	bufLen := uint64(binary.LittleEndian.Uint32(bo.Buffer[bo.Position-Uint32Len : bo.Position]))
 
 	bo.Position += bufLen
 	subslice := bo.Buffer[bo.Position-bufLen : bo.Position]
@@ -114,26 +121,26 @@ func (bo *ReadWriter) ReadBytesFromBufferWithUint32LengthIndicator() []byte {
 }
 
 func (bo *ReadWriter) DiscardBytesFromBufferWithUint32LengthIndicator() uint32 {
-	bo.Position += uint32Len
-	bufLen := binary.LittleEndian.Uint32(bo.Buffer[bo.Position-uint32Len : bo.Position])
+	bo.Position += Uint32Len
+	bufLen := binary.LittleEndian.Uint32(bo.Buffer[bo.Position-Uint32Len : bo.Position])
 
 	bo.Position += uint64(bufLen)
 	return bufLen
 }
 
 func (bo *ReadWriter) WriteUint64(value uint64) {
-	bo.Position += uint64Len
-	binary.LittleEndian.PutUint64(bo.Buffer[bo.Position-uint64Len:bo.Position], value)
+	bo.Position += Uint64Len
+	binary.LittleEndian.PutUint64(bo.Buffer[bo.Position-Uint64Len:bo.Position], value)
 }
 
 func (bo *ReadWriter) WriteUint32(value uint32) {
-	bo.Position += uint32Len
-	binary.LittleEndian.PutUint32(bo.Buffer[bo.Position-uint32Len:bo.Position], value)
+	bo.Position += Uint32Len
+	binary.LittleEndian.PutUint32(bo.Buffer[bo.Position-Uint32Len:bo.Position], value)
 }
 
 func (bo *ReadWriter) WriteUint16(value uint16) {
-	bo.Position += uint16Len
-	binary.LittleEndian.PutUint16(bo.Buffer[bo.Position-uint16Len:bo.Position], value)
+	bo.Position += Uint16Len
+	binary.LittleEndian.PutUint16(bo.Buffer[bo.Position-Uint16Len:bo.Position], value)
 }
 
 func (bo *ReadWriter) CopyBytesToBuffer(copyBytes []byte) error {
@@ -146,12 +153,23 @@ func (bo *ReadWriter) CopyBytesToBuffer(copyBytes []byte) error {
 	return nil
 }
 
+// for io.Writer interface
+func (bo *ReadWriter) Write(p []byte) (int, error) {
+	lenCopyBytes := uint64(len(p))
+	bo.Position += lenCopyBytes
+	if bo.Position > uint64(len(bo.Buffer)) {
+		return 0, io.EOF
+	}
+	numCopiedBytes := copy(bo.Buffer[bo.Position-lenCopyBytes:bo.Position], p)
+	return numCopiedBytes, nil
+}
+
 // Writes a uint64 length indicator about the buffer that's about to follow,
 // then writes the buffer itself
 func (bo *ReadWriter) CopyBytesToBufferWithUint64LengthIndicator(copyBytes []byte) error {
 	lenCopyBytes := uint64(len(copyBytes))
-	bo.Position += uint64Len
-	binary.LittleEndian.PutUint64(bo.Buffer[bo.Position-uint64Len:bo.Position], lenCopyBytes)
+	bo.Position += Uint64Len
+	binary.LittleEndian.PutUint64(bo.Buffer[bo.Position-Uint64Len:bo.Position], lenCopyBytes)
 	bo.Position += lenCopyBytes
 	numCopiedBytes := copy(bo.Buffer[bo.Position-lenCopyBytes:bo.Position], copyBytes)
 	if numCopiedBytes != int(lenCopyBytes) {
@@ -164,8 +182,8 @@ func (bo *ReadWriter) CopyBytesToBufferWithUint64LengthIndicator(copyBytes []byt
 // then writes the buffer itself
 func (bo *ReadWriter) CopyBytesToBufferWithUint32LengthIndicator(copyBytes []byte) error {
 	lenCopyBytes := uint32(len(copyBytes))
-	bo.Position += uint32Len
-	binary.LittleEndian.PutUint32(bo.Buffer[bo.Position-uint32Len:bo.Position], lenCopyBytes)
+	bo.Position += Uint32Len
+	binary.LittleEndian.PutUint32(bo.Buffer[bo.Position-Uint32Len:bo.Position], lenCopyBytes)
 	bo.Position += uint64(lenCopyBytes)
 	numCopiedBytes := copy(bo.Buffer[bo.Position-uint64(lenCopyBytes):bo.Position], copyBytes)
 	if numCopiedBytes != int(lenCopyBytes) {
@@ -191,9 +209,9 @@ func Fp32SliceToBytes(slice []float32) []byte {
 	if len(slice) == 0 {
 		return []byte{}
 	}
-	vector := make([]byte, len(slice)*uint32Len)
+	vector := make([]byte, len(slice)*Uint32Len)
 	for i := 0; i < len(slice); i++ {
-		binary.LittleEndian.PutUint32(vector[i*uint32Len:(i+1)*uint32Len], math.Float32bits(slice[i]))
+		binary.LittleEndian.PutUint32(vector[i*Uint32Len:(i+1)*Uint32Len], math.Float32bits(slice[i]))
 	}
 	return vector
 }
@@ -214,9 +232,9 @@ func Fp32SliceOfSlicesToBytes(slices [][]float32) []byte {
 	}
 	dimensions := len(slices[0])
 	// make a byte slice with size 2 and capacity 2 + (number of slices * number of floats * 4)
-	bytes := make([]byte, uint16Len, uint16Len+len(slices)*dimensions*uint32Len)
+	bytes := make([]byte, Uint16Len, Uint16Len+len(slices)*dimensions*Uint32Len)
 	// write the number of dimensions to the first 2 bytes
-	binary.LittleEndian.PutUint16(bytes[:uint16Len], uint16(dimensions))
+	binary.LittleEndian.PutUint16(bytes[:Uint16Len], uint16(dimensions))
 	// append the rest of the bytes by looping over the slices and converting them to bytes
 	for _, slice := range slices {
 		bytes = append(bytes, Fp32SliceToBytes(slice)...)
@@ -225,17 +243,17 @@ func Fp32SliceOfSlicesToBytes(slices [][]float32) []byte {
 }
 
 func Fp64SliceToBytes(floats []float64) []byte {
-	vector := make([]byte, len(floats)*uint64Len)
+	vector := make([]byte, len(floats)*Uint64Len)
 	for i := 0; i < len(floats); i++ {
-		binary.LittleEndian.PutUint64(vector[i*uint64Len:(i+1)*uint64Len], math.Float64bits(floats[i]))
+		binary.LittleEndian.PutUint64(vector[i*Uint64Len:(i+1)*Uint64Len], math.Float64bits(floats[i]))
 	}
 	return vector
 }
 
 func Fp32SliceFromBytes(vector []byte) []float32 {
-	floats := make([]float32, len(vector)/uint32Len)
+	floats := make([]float32, len(vector)/Uint32Len)
 	for i := 0; i < len(floats); i++ {
-		asUint := binary.LittleEndian.Uint32(vector[i*uint32Len : (i+1)*uint32Len])
+		asUint := binary.LittleEndian.Uint32(vector[i*Uint32Len : (i+1)*Uint32Len])
 		floats[i] = math.Float32frombits(asUint)
 	}
 	return floats
@@ -253,44 +271,44 @@ func Fp32SliceOfSlicesFromBytes(bytes []byte) ([][]float32, error) {
 		return [][]float32{}, nil
 	}
 	// read the first 2 bytes to get the dimension of the internal slices
-	dimension := int(binary.LittleEndian.Uint16(bytes[:uint16Len]))
+	dimension := int(binary.LittleEndian.Uint16(bytes[:Uint16Len]))
 	if dimension == 0 {
 		return nil, errors.New("dimension cannot be 0")
 	}
 	// discard the first 2 bytes
-	bytes = bytes[uint16Len:]
+	bytes = bytes[Uint16Len:]
 	// calculate how many slices there are
-	howMany := len(bytes) / (dimension * uint32Len)
+	howMany := len(bytes) / (dimension * Uint32Len)
 	vectors := make([][]float32, howMany)
 	// loop through the bytes pulling out the slices based on the dimension
 	for i := 0; i < howMany; i++ {
-		vectors[i] = Fp32SliceFromBytes(bytes[i*dimension*uint32Len : (i+1)*dimension*uint32Len])
+		vectors[i] = Fp32SliceFromBytes(bytes[i*dimension*Uint32Len : (i+1)*dimension*Uint32Len])
 	}
 	return vectors, nil
 }
 
 func Fp64SliceFromBytes(vector []byte) []float64 {
-	floats := make([]float64, len(vector)/uint64Len)
+	floats := make([]float64, len(vector)/Uint64Len)
 	for i := 0; i < len(floats); i++ {
-		asUint := binary.LittleEndian.Uint64(vector[i*uint64Len : (i+1)*uint64Len])
+		asUint := binary.LittleEndian.Uint64(vector[i*Uint64Len : (i+1)*Uint64Len])
 		floats[i] = math.Float64frombits(asUint)
 	}
 	return floats
 }
 
 func IntsToByteVector(ints []float64) []byte {
-	vector := make([]byte, len(ints)*uint64Len)
+	vector := make([]byte, len(ints)*Uint64Len)
 	for i, val := range ints {
 		intVal := int64(val)
-		binary.LittleEndian.PutUint64(vector[i*uint64Len:(i+1)*uint64Len], uint64(intVal))
+		binary.LittleEndian.PutUint64(vector[i*Uint64Len:(i+1)*Uint64Len], uint64(intVal))
 	}
 	return vector
 }
 
 func IntsFromByteVector(vector []byte) []int64 {
-	ints := make([]int64, len(vector)/uint64Len)
+	ints := make([]int64, len(vector)/Uint64Len)
 	for i := 0; i < len(ints); i++ {
-		asUint := binary.LittleEndian.Uint64(vector[i*uint64Len : (i+1)*uint64Len])
+		asUint := binary.LittleEndian.Uint64(vector[i*Uint64Len : (i+1)*Uint64Len])
 		ints[i] = int64(asUint)
 	}
 	return ints

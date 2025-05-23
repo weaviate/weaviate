@@ -21,7 +21,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 )
 
@@ -50,12 +49,20 @@ func TestGetRolesSuccess(t *testing.T) {
 				"testRole": {}, "root": {},
 			},
 		},
+		{
+			name:            "success without principal",
+			principal:       nil,
+			authorizedRoles: []string{"testRole"},
+			expectedRoles: map[string][]authorization.Policy{
+				"testRole": {},
+			},
+		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 			authorizer.On("Authorize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			controller.On("GetRoles").Return(tt.expectedRoles, nil)

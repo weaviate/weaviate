@@ -14,6 +14,7 @@ package lsmkv
 import (
 	"encoding/binary"
 	"fmt"
+	"math"
 	"path/filepath"
 	"sync"
 	"time"
@@ -24,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 )
 
 type Memtable struct {
@@ -48,11 +50,15 @@ type Memtable struct {
 	tombstones *sroar.Bitmap
 
 	enableChecksumValidation bool
+
+	bm25config        *models.BM25Config
+	averagePropLength float64
+	propLengthCount   uint64
 }
 
 func newMemtable(path string, strategy string, secondaryIndices uint16,
 	cl memtableCommitLogger, metrics *Metrics, logger logrus.FieldLogger,
-	enableChecksumValidation bool,
+	enableChecksumValidation bool, bm25config *models.BM25Config,
 ) (*Memtable, error) {
 	m := &Memtable{
 		key:                      &binarySearchTree{},
@@ -69,6 +75,7 @@ func newMemtable(path string, strategy string, secondaryIndices uint16,
 		createdAt:                time.Now(),
 		metrics:                  newMemtableMetrics(metrics, filepath.Dir(path), strategy),
 		enableChecksumValidation: enableChecksumValidation,
+		bm25config:               bm25config,
 	}
 
 	if m.secondaryIndices > 0 {
@@ -352,15 +359,12 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 			StrategyMapCollection, StrategyInverted)
 	}
 
-	m.Lock()
-	defer m.Unlock()
-
 	valuesForCommitLog, err := pair.Bytes()
 	if err != nil {
 		return err
 	}
 
-	if err := m.commitlog.append(segmentCollectionNode{
+	newNode := segmentCollectionNode{
 		primaryKey: key,
 		values: []value{
 			{
@@ -368,7 +372,12 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 				tombstone: pair.Tombstone,
 			},
 		},
-	}); err != nil {
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	if err := m.commitlog.append(newNode); err != nil {
 		return errors.Wrap(err, "write into commit log")
 	}
 
@@ -376,11 +385,6 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 	m.size += uint64(len(key) + len(valuesForCommitLog))
 	m.metrics.size(m.size)
 	m.updateDirtyAt()
-
-	if m.strategy == StrategyInverted {
-		docID := binary.BigEndian.Uint64(pair.Key)
-		m.tombstones.Set(docID)
-	}
 
 	return nil
 }
@@ -436,7 +440,7 @@ func (m *Memtable) writeWAL() error {
 	return m.commitlog.flushBuffers()
 }
 
-func (m *Memtable) GetTombstones() (*sroar.Bitmap, error) {
+func (m *Memtable) ReadOnlyTombstones() (*sroar.Bitmap, error) {
 	if m.strategy != StrategyInverted {
 		return nil, errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
 	}
@@ -445,8 +449,47 @@ func (m *Memtable) GetTombstones() (*sroar.Bitmap, error) {
 	defer m.RUnlock()
 
 	if m.tombstones != nil {
-		return m.tombstones, nil
+		return m.tombstones.Clone(), nil
 	}
 
 	return nil, lsmkv.NotFound
+}
+
+func (m *Memtable) SetTombstone(docId uint64) error {
+	if m.strategy != StrategyInverted {
+		return errors.Errorf("tombstones only supported for strategy %q", StrategyInverted)
+	}
+
+	m.Lock()
+	defer m.Unlock()
+
+	m.tombstones.Set(docId)
+
+	return nil
+}
+
+func (m *Memtable) GetPropLengths() (uint64, uint64, error) {
+	m.RLock()
+	flatA := m.keyMap.flattenInOrder()
+	m.RUnlock()
+
+	docIdsLengths := make(map[uint64]uint32)
+	propLengthSum := uint64(0)
+	propLengthCount := uint64(0)
+
+	for _, mapNode := range flatA {
+		for j := range mapNode.values {
+			docId := binary.BigEndian.Uint64(mapNode.values[j].Key)
+			if !mapNode.values[j].Tombstone {
+				fieldLength := math.Float32frombits(binary.LittleEndian.Uint32(mapNode.values[j].Value[4:]))
+				if _, ok := docIdsLengths[docId]; !ok {
+					propLengthSum += uint64(fieldLength)
+					propLengthCount++
+				}
+				docIdsLengths[docId] = uint32(fieldLength)
+			}
+		}
+	}
+
+	return propLengthSum, propLengthCount, nil
 }

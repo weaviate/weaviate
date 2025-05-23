@@ -21,6 +21,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -30,6 +31,7 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 	esync "github.com/weaviate/weaviate/entities/sync"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
@@ -259,18 +261,21 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 			QueryMaximumResults: maxResults,
 			ReplicationFactor:   1,
 		},
-		partitioningEnabled:   shardState.PartitioningEnabled,
-		invertedIndexConfig:   iic,
-		vectorIndexUserConfig: vic,
-		logger:                logger,
-		getSchema:             schemaGetter,
-		centralJobQueue:       repo.jobQueueCh,
-		stopwords:             sd,
-		indexCheckpoints:      checkpts,
-		allocChecker:          memwatch.NewDummyMonitor(),
-		shardCreateLocks:      esync.NewKeyLocker(),
-		scheduler:             repo.scheduler,
-		shardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		metrics:                NewMetrics(logger, nil, class.Class, ""),
+		partitioningEnabled:    shardState.PartitioningEnabled,
+		invertedIndexConfig:    iic,
+		vectorIndexUserConfig:  vic,
+		vectorIndexUserConfigs: map[string]schemaConfig.VectorIndexConfig{},
+		logger:                 logger,
+		getSchema:              schemaGetter,
+		centralJobQueue:        repo.jobQueueCh,
+		stopwords:              sd,
+		indexCheckpoints:       checkpts,
+		allocChecker:           memwatch.NewDummyMonitor(),
+		shardCreateLocks:       esync.NewKeyLocker(),
+		scheduler:              repo.scheduler,
+		shardLoadLimiter:       NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+		shardReindexer:         NewShardReindexerV3Noop(),
 	}
 	idx.closingCtx, idx.closingCancel = context.WithCancel(context.Background())
 	idx.initCycleCallbacksNoop()
@@ -326,5 +331,6 @@ func invertedConfig() *models.InvertedIndexConfig {
 		},
 		IndexNullState:      true,
 		IndexPropertyLength: true,
+		UsingBlockMaxWAND:   config.DefaultUsingBlockMaxWAND,
 	}
 }

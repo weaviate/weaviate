@@ -127,10 +127,70 @@ func TestClient(t *testing.T) {
 			Dimensions: 3,
 			Errors:     []error{nil},
 		}
-		res, _, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
 
 		assert.Nil(t, err)
 		assert.Equal(t, expected, res)
+
+		assert.Equal(t, false, rl.UpdateWithMissingValues)
+		assert.Equal(t, 100, rl.RemainingTokens)
+		assert.Equal(t, 100, rl.RemainingRequests)
+		assert.Equal(t, 100, rl.LimitTokens)
+		assert.Equal(t, 100, rl.LimitRequests)
+	})
+
+	t.Run("when rate limit values are missing", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t, noRlHeader: true})
+		defer server.Close()
+
+		c := New("apiKey", "", "", 0, nullLogger())
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
+			return server.URL, nil
+		}
+
+		expected := &modulecomponents.VectorizationResult[[]float32]{
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
+			Dimensions: 3,
+			Errors:     []error{nil},
+		}
+		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+
+		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
+
+		assert.Equal(t, true, rl.UpdateWithMissingValues)
+		assert.Equal(t, -1, rl.RemainingTokens)
+		assert.Equal(t, -1, rl.RemainingRequests)
+		assert.Equal(t, -1, rl.LimitTokens)
+		assert.Equal(t, -1, rl.LimitRequests)
+	})
+
+	t.Run("when rate limit values are returned but are bad values", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t, noRlHeader: false, RlValues: "0"})
+		defer server.Close()
+
+		c := New("apiKey", "", "", 0, nullLogger())
+		c.buildUrlFn = func(baseURL, resourceName, deploymentID, apiVersion string, isAzure bool) (string, error) {
+			return server.URL, nil
+		}
+
+		expected := &modulecomponents.VectorizationResult[[]float32]{
+			Text:       []string{"This is my text"},
+			Vector:     [][]float32{{0.1, 0.2, 0.3}},
+			Dimensions: 3,
+			Errors:     []error{nil},
+		}
+		res, rl, _, err := c.Vectorize(context.Background(), []string{"This is my text"}, fakeClassConfig{classConfig: map[string]interface{}{"Type": "text", "Model": "ada"}})
+
+		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
+
+		assert.Equal(t, true, rl.UpdateWithMissingValues)
+		assert.Equal(t, 0, rl.RemainingTokens)
+		assert.Equal(t, 0, rl.RemainingRequests)
+		assert.Equal(t, 0, rl.LimitTokens)
+		assert.Equal(t, 0, rl.LimitRequests)
 	})
 
 	t.Run("when the context is expired", func(t *testing.T) {
@@ -315,6 +375,8 @@ type fakeHandler struct {
 	t               *testing.T
 	serverError     error
 	headerRequestID string
+	noRlHeader      bool
+	RlValues        string
 }
 
 func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -363,6 +425,17 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	outBytes, err := json.Marshal(embedding)
 	require.Nil(f.t, err)
 
+	if !f.noRlHeader {
+		rlValues := f.RlValues
+		if f.RlValues == "" {
+			rlValues = "100"
+		}
+		w.Header().Add("x-ratelimit-limit-requests", rlValues)
+		w.Header().Add("x-ratelimit-limit-tokens", rlValues)
+		w.Header().Add("x-ratelimit-remaining-requests", rlValues)
+		w.Header().Add("x-ratelimit-remaining-tokens", rlValues)
+	}
+
 	w.Write(outBytes)
 }
 
@@ -371,55 +444,117 @@ func nullLogger() logrus.FieldLogger {
 	return l
 }
 
-func TestOpenAIApiErrorDecode(t *testing.T) {
-	t.Run("getModelStringQuery", func(t *testing.T) {
-		type args struct {
-			response []byte
-		}
-		tests := []struct {
-			name string
-			args args
-			want string
-		}{
-			{
-				name: "Error code: missing property",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg..."}`),
-				},
-				want: "",
-			},
-			{
-				name: "Error code: as int",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": 500}`),
-				},
-				want: "500",
-			},
-			{
-				name: "Error code as string number",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "500"}`),
-				},
-				want: "500",
-			},
-			{
-				name: "Error code as string text",
-				args: args{
-					response: []byte(`{"message": "failed", "type": "error", "param": "arg...", "code": "invalid_api_key"}`),
-				},
-				want: "invalid_api_key",
-			},
-		}
-		for _, tt := range tests {
-			t.Run(tt.name, func(t *testing.T) {
-				var got *openAIApiError
-				err := json.Unmarshal(tt.args.response, &got)
-				require.NoError(t, err)
-
-				if got.Code.String() != tt.want {
-					t.Errorf("OpenAIerror.code = %v, want %v", got.Code, tt.want)
-				}
-			})
-		}
+func TestGetApiKeyFromContext(t *testing.T) {
+	t.Run("value from context", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), "X-Openai-Api-Key", []string{"key-from-ctx"})
+		c := New("", "", "", 0, nullLogger())
+		key, err := c.getApiKey(ctx, false)
+		require.NoError(t, err)
+		assert.Equal(t, "key-from-ctx", key)
 	})
+
+	t.Run("value from env fallback", func(t *testing.T) {
+		ctx := context.Background()
+		c := New("env-key", "", "", 0, nullLogger())
+		key, err := c.getApiKey(ctx, false)
+		require.NoError(t, err)
+		assert.Equal(t, "env-key", key)
+	})
+
+	t.Run("no value at all", func(t *testing.T) {
+		ctx := context.Background()
+		c := New("", "", "", 0, nullLogger())
+		_, err := c.getApiKey(ctx, false)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "no api key found")
+	})
+}
+
+func TestGetOpenAIOrganization(t *testing.T) {
+	t.Run("from context", func(t *testing.T) {
+		ctx := context.WithValue(context.Background(), "X-Openai-Organization", []string{"from-context"})
+		c := New("", "default-org", "", 0, nullLogger())
+		assert.Equal(t, "from-context", c.getOpenAIOrganization(ctx))
+	})
+
+	t.Run("from default", func(t *testing.T) {
+		ctx := context.Background()
+		c := New("", "default-org", "", 0, nullLogger())
+		assert.Equal(t, "default-org", c.getOpenAIOrganization(ctx))
+	})
+}
+
+func TestGetEmbeddingsRequest(t *testing.T) {
+	t.Run("Azure true omits model", func(t *testing.T) {
+		c := New("", "", "", 0, nullLogger())
+		req := c.getEmbeddingsRequest([]string{"foo"}, "model", true, nil)
+		assert.Equal(t, []string{"foo"}, req.Input)
+		assert.Equal(t, (*int64)(nil), req.Dimensions)
+		assert.Empty(t, req.Model)
+	})
+	t.Run("Non-Azure includes model", func(t *testing.T) {
+		c := New("", "", "", 0, nullLogger())
+		dim := int64(42)
+		req := c.getEmbeddingsRequest([]string{"foo"}, "model", false, &dim)
+		assert.Equal(t, []string{"foo"}, req.Input)
+		assert.Equal(t, "model", req.Model)
+		assert.Equal(t, &dim, req.Dimensions)
+	})
+}
+
+func TestGetApiKeyHeaderAndValue(t *testing.T) {
+	c := New("", "", "", 0, nullLogger())
+	h, v := c.getApiKeyHeaderAndValue("some-key", true)
+	assert.Equal(t, "api-key", h)
+	assert.Equal(t, "some-key", v)
+
+	h, v = c.getApiKeyHeaderAndValue("other-key", false)
+	assert.Equal(t, "Authorization", h)
+	assert.Equal(t, "Bearer other-key", v)
+}
+
+func TestGetApiKeyHash(t *testing.T) {
+	c := New("super-secret", "", "", 0, nullLogger())
+	hash := c.GetApiKeyHash(context.Background(), fakeClassConfig{})
+	assert.NotEqual(t, [32]byte{}, hash)
+	assert.Equal(t, hash, c.GetApiKeyHash(context.Background(), fakeClassConfig{}))
+}
+
+func TestGetErrorFormat(t *testing.T) {
+	c := New("", "", "", 0, nullLogger())
+	err := c.getError(403, "abc-123", &openAIApiError{Message: "denied"}, false)
+	assert.Contains(t, err.Error(), "403")
+	assert.Contains(t, err.Error(), "abc-123")
+	assert.Contains(t, err.Error(), "denied")
+}
+
+func TestOpenAIApiErrorDecode(t *testing.T) {
+	tests := []struct {
+		name     string
+		payload  string
+		expected string
+	}{
+		{"missing code", `{"message": "fail", "type": "err", "param": "x"}`, ""},
+		{"numeric code", `{"message": "fail", "type": "err", "param": "x", "code": 500}`, "500"},
+		{"string number", `{"message": "fail", "type": "err", "param": "x", "code": "500"}`, "500"},
+		{"string literal", `{"message": "fail", "type": "err", "param": "x", "code": "invalid_key"}`, "invalid_key"},
+		{"empty string", `{"message": "fail", "type": "err", "param": "x", "code": ""}`, ""},
+		{"null code", `{"message": "fail", "type": "err", "param": "x", "code": null}`, ""},
+		{"code as boolean (invalid)", `{"message": "fail", "type": "err", "param": "x", "code": true}`, ""},
+		{"code as array (invalid)", `{"message": "fail", "type": "err", "param": "x", "code": ["bad"]}`, ""},
+		{"code as object (invalid)", `{"message": "fail", "type": "err", "param": "x", "code": {"key": "val"}}`, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var got *openAIApiError
+			err := json.Unmarshal([]byte(tt.payload), &got)
+			if err != nil && tt.expected != "" {
+				t.Errorf("unexpected unmarshal error: %v", err)
+				return
+			}
+			if got != nil && got.Code.String() != tt.expected {
+				t.Errorf("got code %q, expected %q", got.Code.String(), tt.expected)
+			}
+		})
+	}
 }

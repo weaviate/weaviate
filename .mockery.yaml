@@ -1,0 +1,49 @@
+with-expecter: True
+recursive: true
+inpackage: true
+dir: "{{ .InterfaceDir }}"
+outpkg: "{{ .PackageName }}"
+filename: "mock_{{ snakecase .InterfaceName }}.go"
+packages:
+  github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
+    interfaces:
+      BucketCreator:
+  github.com/weaviate/weaviate/entities/modulecapabilities:
+    interfaces:
+      BackupBackend:
+  github.com/weaviate/weaviate/usecases/backup:
+    interfaces:
+      BackupBackendProvider:
+      NodeResolver:
+      Selector:
+  github.com/weaviate/weaviate/usecases/schema:
+    interfaces:
+      SchemaGetter:
+  github.com/weaviate/weaviate/cluster/schema/types:
+    interfaces:
+      SchemaReader:
+  github.com/weaviate/weaviate/usecases/auth/authorization:
+    interfaces:
+      Controller:
+      Authorizer:
+  github.com/weaviate/weaviate/adapters/handlers/rest/authz:
+    interfaces:
+      ControllerAndGetUsers:
+  github.com/weaviate/weaviate/adapters/handlers/rest/db_users:
+    interfaces:
+      DbUserAndRolesGetter:
+  github.com/weaviate/weaviate/cluster/replication:
+    interfaces:
+      OpProducer:
+      OpConsumer:
+      Timer:
+  github.com/weaviate/weaviate/cluster/replication/types:
+    interfaces:
+      ReplicationFSMReader:
+      Manager:
+      FSMUpdater:
+      ReplicaCopier:
+  github.com/weaviate/weaviate/cluster/distributedtask:
+    interfaces:
+      TaskCleaner:
+      TaskCompletionRecorder:

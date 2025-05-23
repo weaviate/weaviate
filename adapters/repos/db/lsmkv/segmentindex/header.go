@@ -17,6 +17,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"io"
+
+	"github.com/weaviate/weaviate/usecases/byteops"
 )
 
 const (
@@ -40,20 +42,20 @@ type Header struct {
 }
 
 func (h *Header) WriteTo(w io.Writer) (int64, error) {
-	if err := binary.Write(w, binary.LittleEndian, &h.Level); err != nil {
-		return -1, err
+	data := make([]byte, HeaderSize)
+	rw := byteops.NewReadWriter(data)
+	rw.WriteUint16(h.Level)
+	rw.WriteUint16(h.Version)
+	rw.WriteUint16(h.SecondaryIndices)
+	rw.WriteUint16(uint16(h.Strategy))
+	rw.WriteUint64(h.IndexStart)
+
+	write, err := w.Write(data)
+	if err != nil {
+		return 0, err
 	}
-	if err := binary.Write(w, binary.LittleEndian, &h.Version); err != nil {
-		return -1, err
-	}
-	if err := binary.Write(w, binary.LittleEndian, &h.SecondaryIndices); err != nil {
-		return -1, err
-	}
-	if err := binary.Write(w, binary.LittleEndian, h.Strategy); err != nil {
-		return -1, err
-	}
-	if err := binary.Write(w, binary.LittleEndian, &h.IndexStart); err != nil {
-		return -1, err
+	if write != HeaderSize {
+		return 0, fmt.Errorf("expected to write %d bytes, got %d", HeaderSize, write)
 	}
 
 	return int64(HeaderSize), nil
@@ -112,31 +114,20 @@ func (h *Header) SecondaryIndex(source []byte, indexID uint16) ([]byte, error) {
 	return source[start:end], nil
 }
 
-func ParseHeader(r io.Reader) (*Header, error) {
+func ParseHeader(data []byte) (*Header, error) {
+	if len(data) != HeaderSize {
+		return nil, fmt.Errorf("expected %d bytes, got %d", HeaderSize, len(data))
+	}
+	rw := byteops.NewReadWriter(data)
 	out := &Header{}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.Level); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.Version); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.SecondaryIndices); err != nil {
-		return nil, err
-	}
+	out.Level = rw.ReadUint16()
+	out.Version = rw.ReadUint16()
+	out.SecondaryIndices = rw.ReadUint16()
+	out.Strategy = Strategy(rw.ReadUint16())
+	out.IndexStart = rw.ReadUint64()
 
 	if out.Version > CurrentSegmentVersion {
 		return nil, fmt.Errorf("unsupported version %d", out.Version)
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.Strategy); err != nil {
-		return nil, err
-	}
-
-	if err := binary.Read(r, binary.LittleEndian, &out.IndexStart); err != nil {
-		return nil, err
 	}
 
 	return out, nil

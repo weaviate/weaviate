@@ -12,11 +12,13 @@
 package test_suits
 
 import (
-	acceptance_with_go_client "acceptance_tests_with_client"
-	"acceptance_tests_with_client/fixtures"
 	"context"
 	"fmt"
 	"testing"
+	"time"
+
+	acceptance_with_go_client "acceptance_tests_with_client"
+	"acceptance_tests_with_client/fixtures"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -28,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func testColBERT(host string) func(t *testing.T) {
+func testColBERT(host string, asyncIndexingEnabled bool) func(t *testing.T) {
 	return func(t *testing.T) {
 		ctx := context.Background()
 		client, err := wvt.NewClient(wvt.Config{Scheme: "http", Host: host})
@@ -72,7 +74,7 @@ func testColBERT(host string) func(t *testing.T) {
 				},
 			}
 
-			performNearVector := func(t *testing.T, client *wvt.Client, className string) {
+			performNearVector := func(t *testing.T, ct *assert.CollectT, client *wvt.Client, className string) {
 				nearVector := client.GraphQL().NearVectorArgBuilder().
 					WithVector([][]float32{{-0.000001, -0.000001}, {-0.000001, -0.000001}, {-0.000001, -0.000001}}).
 					WithTargetVectors(byoc)
@@ -84,10 +86,15 @@ func testColBERT(host string) func(t *testing.T) {
 				require.NoError(t, err)
 				ids := acceptance_with_go_client.GetIds(t, resp, className)
 				require.NotEmpty(t, ids)
-				assert.Len(t, ids, len(objects))
+				if ct != nil {
+					// adds ability to be used with assert.EventuallyWithT(...)
+					assert.Len(ct, ids, len(objects))
+				} else {
+					assert.Len(t, ids, len(objects))
+				}
 			}
 
-			performNearObject := func(t *testing.T, client *wvt.Client, className string) {
+			performNearObject := func(t *testing.T, ct *assert.CollectT, client *wvt.Client, className string) {
 				nearObject := client.GraphQL().NearObjectArgBuilder().
 					WithID(objects[0].ID).
 					WithTargetVectors(byoc)
@@ -99,7 +106,12 @@ func testColBERT(host string) func(t *testing.T) {
 				require.NoError(t, err)
 				ids := acceptance_with_go_client.GetIds(t, resp, className)
 				require.NotEmpty(t, ids)
-				assert.Len(t, ids, len(objects))
+				if ct != nil {
+					// adds ability to be used with assert.EventuallyWithT(...)
+					assert.Len(ct, ids, len(objects))
+				} else {
+					assert.Len(t, ids, len(objects))
+				}
 			}
 
 			t.Run("create schema", func(t *testing.T) {
@@ -143,9 +155,8 @@ func testColBERT(host string) func(t *testing.T) {
 			})
 
 			t.Run("vector search after insert", func(t *testing.T) {
-				performNearVector(t, client, className)
-				performNearObject(t, client, className)
-
+				performNearVector(t, nil, client, className)
+				performNearObject(t, nil, client, className)
 			})
 
 			t.Run("check existence", func(t *testing.T) {
@@ -257,8 +268,8 @@ func testColBERT(host string) func(t *testing.T) {
 			})
 
 			t.Run("vector search after partial update", func(t *testing.T) {
-				performNearVector(t, client, className)
-				performNearObject(t, client, className)
+				performNearVector(t, nil, client, className)
+				performNearObject(t, nil, client, className)
 			})
 
 			t.Run("update all objects", func(t *testing.T) {
@@ -280,9 +291,12 @@ func testColBERT(host string) func(t *testing.T) {
 			})
 
 			t.Run("vector search after update of all objects", func(t *testing.T) {
-				performNearVector(t, client, className)
-				performNearObject(t, client, className)
+				assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+					performNearVector(t, ct, client, className)
+					performNearObject(t, ct, client, className)
+				}, 5*time.Second, 1*time.Second)
 			})
+
 			t.Run("WithVector[s]PerTarget searches", func(t *testing.T) {
 				withVectorPerTargetTests := []struct {
 					name       string
@@ -658,7 +672,12 @@ func testColBERT(host string) func(t *testing.T) {
 				// Weaviate overrides the multivector setting if it finds that someone has enabled
 				// multi vector vectorizer
 				require.Error(t, err)
-				assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"dynamic\", only supported type is hnsw`)
+
+				if asyncIndexingEnabled {
+					assert.ErrorContains(t, err, `parse vector index config: multi vector index is not supported for vector index type: \"dynamic\", only supported type is hnsw`)
+				} else {
+					assert.ErrorContains(t, err, `the dynamic index can only be created under async indexing environment`)
+				}
 			})
 		})
 

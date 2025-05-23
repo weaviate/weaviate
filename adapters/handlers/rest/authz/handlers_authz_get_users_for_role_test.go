@@ -21,12 +21,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 )
 
 func TestGetUsersForRoleSuccess(t *testing.T) {
-	authorizer := mocks.NewAuthorizer(t)
-	controller := mocks.NewController(t)
+	authorizer := authorization.NewMockAuthorizer(t)
+	controller := NewMockControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "user1"}
@@ -35,10 +34,18 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 	}
 
 	expectedUsers := []string{"user1", "user2"}
+	expectedResponse := []*authz.GetUsersForRoleOKBodyItems0{
+		{UserID: expectedUsers[0], UserType: models.NewUserTypeOutput(models.UserTypeOutputOidc)},
+		{UserID: expectedUsers[1], UserType: models.NewUserTypeOutput(models.UserTypeOutputOidc)},
+		{UserID: expectedUsers[0], UserType: models.NewUserTypeOutput(models.UserTypeOutputDbEnvUser)},
+		{UserID: expectedUsers[1], UserType: models.NewUserTypeOutput(models.UserTypeOutputDbEnvUser)},
+	}
 
 	authorizer.On("Authorize", principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(params.ID)[0]).Return(nil)
 	authorizer.On("AuthorizeSilent", principal, authorization.READ, authorization.Users(expectedUsers...)[1]).Return(nil)
-	controller.On("GetUsersForRole", params.ID).Return(expectedUsers, nil)
+	controller.On("GetUsersForRole", params.ID, models.UserTypeInputDb).Return(expectedUsers, nil)
+	controller.On("GetUsersForRole", params.ID, models.UserTypeInputOidc).Return(expectedUsers, nil)
+	controller.On("GetUsers", expectedUsers[0], expectedUsers[1]).Return(nil, nil)
 
 	h := &authZHandlers{
 		authorizer: authorizer,
@@ -49,7 +56,7 @@ func TestGetUsersForRoleSuccess(t *testing.T) {
 	parsed, ok := res.(*authz.GetUsersForRoleOK)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
-	assert.Equal(t, expectedUsers, parsed.Payload)
+	assert.Equal(t, expectedResponse, parsed.Payload)
 }
 
 func TestGetUsersForRoleForbidden(t *testing.T) {
@@ -85,8 +92,8 @@ func TestGetUsersForRoleForbidden(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
@@ -135,13 +142,13 @@ func TestGetUsersForRoleInternalServerError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := mocks.NewAuthorizer(t)
-			controller := mocks.NewController(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.ID)[0]).Return(nil)
 
-			controller.On("GetUsersForRole", tt.params.ID).Return(nil, tt.getUsersErr)
+			controller.On("GetUsersForRole", tt.params.ID, models.UserTypeInputOidc).Return(nil, tt.getUsersErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,

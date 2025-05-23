@@ -12,7 +12,7 @@
 package schema
 
 import (
-	"reflect"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -21,35 +21,10 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 )
-
-func TestMakeTenantWithBelongsToNodes(t *testing.T) {
-	const tenant = "tenant"
-	const status = "status"
-
-	physical := sharding.Physical{
-		Status:         status,
-		BelongsToNodes: []string{"node1"},
-	}
-
-	t.Run("Creates valid response", func(t *testing.T) {
-		tenantResp := makeTenantResponse(tenant, physical)
-
-		assert.Equal(t, tenant, tenantResp.Name)
-		assert.Equal(t, status, tenantResp.ActivityStatus)
-		assert.ElementsMatch(t, tenantResp.BelongsToNodes, physical.BelongsToNodes)
-	})
-
-	t.Run("BelongsToNodes is a copy", func(t *testing.T) {
-		tenantResp := makeTenantResponse(tenant, physical)
-
-		assert.NotEqual(t,
-			reflect.ValueOf(tenantResp.BelongsToNodes).Pointer(),
-			reflect.ValueOf(physical.BelongsToNodes).Pointer())
-	})
-}
 
 func Test_schemaCollectionMetrics(t *testing.T) {
 	r := prometheus.NewPedanticRegistry()
@@ -209,4 +184,61 @@ func Test_schemaShardMetrics(t *testing.T) {
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("")))
 	require.NoError(t, s.addClass(c2, ss, 0))
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("")))
+}
+
+func Test_schemaDeepCopy(t *testing.T) {
+	r := prometheus.NewPedanticRegistry()
+	s := NewSchema("testNode", nil, r)
+
+	class := &models.Class{
+		Class: "test",
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+	}
+	shardState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			"shard1": {
+				Name:           "shard1",
+				Status:         "HOT",
+				BelongsToNodes: []string{"node1"},
+			},
+		},
+	}
+
+	require.NoError(t, s.addClass(class, shardState, 1))
+
+	t.Run("MetaClasses deep copy", func(t *testing.T) {
+		copied := s.MetaClasses()
+
+		original := s.classes["test"]
+		copiedClass := copied["test"]
+
+		copiedClass.Class.Class = "modified"
+		physical := copiedClass.Sharding.Physical["shard1"]
+		physical.Status = "COLD"
+		copiedClass.Sharding.Physical["shard1"] = physical
+
+		assert.Equal(t, "test", original.Class.Class)
+		assert.Equal(t, "HOT", original.Sharding.Physical["shard1"].Status)
+
+		assert.Equal(t, original.ClassVersion, copiedClass.ClassVersion)
+		assert.Equal(t, original.ShardVersion, copiedClass.ShardVersion)
+	})
+
+	t.Run("Concurrent access", func(t *testing.T) {
+		done := make(chan bool)
+		go func() {
+			for i := 0; i < 100; i++ {
+				s.MetaClasses()
+				s.States()
+			}
+			done <- true
+		}()
+
+		for i := 0; i < 100; i++ {
+			s.addClass(&models.Class{Class: fmt.Sprintf("concurrent%d", i)}, shardState, uint64(i))
+		}
+		<-done
+	})
 }

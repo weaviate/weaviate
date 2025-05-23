@@ -23,12 +23,14 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -76,6 +78,7 @@ type SegmentGroup struct {
 	calcCountNetAdditions    bool // see bucket for more details
 	compactLeftOverSegments  bool // see bucket for more details
 	enableChecksumValidation bool
+	MinMMapSize              int64
 
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
@@ -84,6 +87,9 @@ type SegmentGroup struct {
 	cleanupInterval    time.Duration
 	lastCleanupCall    time.Time
 	lastCompactionCall time.Time
+
+	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
+	bm25config                     *schema.BM25Config
 }
 
 type sgConfig struct {
@@ -99,6 +105,9 @@ type sgConfig struct {
 	maxSegmentSize           int64
 	cleanupInterval          time.Duration
 	enableChecksumValidation bool
+	keepSegmentsInMemory     bool
+	MinMMapSize              int64
+	bm25config               *models.BM25Config
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -130,6 +139,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		allocChecker:             allocChecker,
 		lastCompactionCall:       now,
 		lastCleanupCall:          now,
+		MinMMapSize:              cfg.MinMMapSize,
 	}
 
 	segmentIndex := 0
@@ -208,6 +218,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 					calcCountNetAdditions:    sg.calcCountNetAdditions,
 					overwriteDerived:         false,
 					enableChecksumValidation: sg.enableChecksumValidation,
+					MinMMapSize:              sg.MinMMapSize,
+					allocChecker:             sg.allocChecker,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -256,6 +268,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				calcCountNetAdditions:    sg.calcCountNetAdditions,
 				overwriteDerived:         true,
 				enableChecksumValidation: sg.enableChecksumValidation,
+				MinMMapSize:              sg.MinMMapSize,
+				allocChecker:             sg.allocChecker,
 			},
 		)
 		if err != nil {
@@ -327,6 +341,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				calcCountNetAdditions:    sg.calcCountNetAdditions,
 				overwriteDerived:         false,
 				enableChecksumValidation: sg.enableChecksumValidation,
+				MinMMapSize:              sg.MinMMapSize,
+				allocChecker:             sg.allocChecker,
 			})
 		if err != nil {
 			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
@@ -360,31 +376,35 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		sg.strategy = StrategyMapCollection
 	}
 
-	if sg.strategy == StrategyInverted {
-		// start at  len(sg.segments) - 2 as the last segment doesn't need any tombstones for now
+	switch sg.strategy {
+	case StrategyInverted:
+		// start with last but one segment, as the last one doesn't need tombstones for now
 		for i := len(sg.segments) - 2; i >= 0; i-- {
 			// avoid crashing if segment has no tombstones
-			tombstonesNext, err := sg.segments[i+1].GetTombstones()
+			tombstonesNext, err := sg.segments[i+1].ReadOnlyTombstones()
 			if err != nil {
 				return nil, fmt.Errorf("init segment %s: load tombstones %w", sg.segments[i+1].path, err)
 			}
+			if _, err := sg.segments[i].MergeTombstones(tombstonesNext); err != nil {
+				return nil, fmt.Errorf("init segment %s: merge tombstones %w", sg.segments[i].path, err)
+			}
+		}
 
-			tombstonesCurrent, err := sg.segments[i].GetTombstones()
-			if err != nil {
-				return nil, fmt.Errorf("init segment %s: load tombstones %w", sg.segments[i].path, err)
+	case StrategyRoaringSetRange:
+		if cfg.keepSegmentsInMemory {
+			t := time.Now()
+			sg.roaringSetRangeSegmentInMemory = roaringsetrange.NewSegmentInMemory()
+			for _, seg := range sg.segments {
+				cursor := seg.newRoaringSetRangeCursor()
+				if err := sg.roaringSetRangeSegmentInMemory.MergeSegmentByCursor(cursor); err != nil {
+					return nil, fmt.Errorf("build segment-in-memory of strategy '%s': %w", sg.strategy, err)
+				}
 			}
-
-			if tombstonesNext == nil {
-				continue
-			}
-			// init new sroar bitmap if segment had no tombstones
-			if tombstonesCurrent == nil {
-				tombstonesCurrent = sroar.NewBitmap()
-			}
-			if tombstonesNext.IsEmpty() {
-				continue
-			}
-			tombstonesCurrent.Or(tombstonesNext)
+			logger.WithFields(logrus.Fields{
+				"took":    time.Since(t).String(),
+				"bucket":  filepath.Base(cfg.dir),
+				"size_mb": fmt.Sprintf("%.3f", float64(sg.roaringSetRangeSegmentInMemory.Size())/1024/1024),
+			}).Debug("rangeable segment-in-memory built")
 		}
 	}
 
@@ -420,6 +440,8 @@ func (sg *SegmentGroup) add(path string) error {
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         true,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			MinMMapSize:              sg.MinMMapSize,
+			allocChecker:             sg.allocChecker,
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
@@ -784,4 +806,29 @@ func (sg *SegmentGroup) Len() int {
 	defer release()
 
 	return len(segments)
+}
+
+func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
+	segments, release := sg.getAndLockSegments()
+	defer release()
+
+	if len(segments) == 0 {
+		return 0, 0
+	}
+
+	totalDocCount := uint64(0)
+	for _, segment := range segments {
+		totalDocCount += segment.invertedData.avgPropertyLengthsCount
+	}
+
+	if totalDocCount == 0 {
+		return defaultAveragePropLength, 0
+	}
+
+	weightedAverage := 0.0
+	for _, segment := range segments {
+		weightedAverage += float64(segment.invertedData.avgPropertyLengthsCount) / float64(totalDocCount) * segment.invertedData.avgPropertyLengthsAvg
+	}
+
+	return weightedAverage, totalDocCount
 }

@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -99,13 +99,14 @@ type hnsw struct {
 
 	levelNormalizer float64
 
-	nodes *graph.Nodes
+	nodes []*vertex
 
 	vectorForID               common.VectorForID[float32]
 	TempVectorForIDThunk      common.TempVectorForID[float32]
 	TempMultiVectorForIDThunk common.TempVectorForID[[]float32]
 	multiVectorForID          common.MultiVectorForID
 	trackDimensionsOnce       sync.Once
+	trackMuveraOnce           sync.Once
 	dims                      int32
 
 	cache               cache.Cache[float32]
@@ -173,11 +174,13 @@ type hnsw struct {
 	// to define the rescoring concurrency.
 	rescoreConcurrency int
 
-	compressActionLock *sync.RWMutex
-	className          string
-	shardName          string
-	VectorForIDThunk   common.VectorForID[float32]
-	store              *lsmkv.Store
+	compressActionLock    *sync.RWMutex
+	className             string
+	shardName             string
+	VectorForIDThunk      common.VectorForID[float32]
+	MultiVectorForIDThunk common.VectorForID[[]float32]
+	shardedNodeLocks      *common.ShardedRWLocks
+	store                 *lsmkv.Store
 
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
@@ -185,15 +188,17 @@ type hnsw struct {
 	visitedListPoolMaxSize int
 
 	// only used for multivector mode
-	multivector  atomic.Bool
-	docIDVectors map[uint64][]uint64
-	vecIDcounter uint64
-	maxDocID     uint64
+	multivector   atomic.Bool
+	muvera        atomic.Bool
+	muveraEncoder *multivector.MuveraEncoder
+	docIDVectors  map[uint64][]uint64
+	vecIDcounter  uint64
+	maxDocID      uint64
 }
 
 type CommitLogger interface {
 	ID() string
-	AddNode(node *graph.Vertex) error
+	AddNode(node *vertex) error
 	SetEntryPointWithMaxLayer(id uint64, level int) error
 	AddLinkAtLevel(nodeid uint64, level int, target uint64) error
 	ReplaceLinksAtLevel(nodeid uint64, level int, targets []uint64) error
@@ -210,6 +215,7 @@ type CommitLogger interface {
 	SwitchCommitLogs(bool) error
 	AddPQCompression(compressionhelpers.PQData) error
 	AddSQCompression(compressionhelpers.SQData) error
+	AddMuvera(multivector.MuveraData) error
 }
 
 type BufferedLinksLogger interface {
@@ -239,19 +245,32 @@ func New(cfg Config, uc ent.UserConfig,
 		cfg.Logger = logger
 	}
 
-	normalizeOnRead := false
-	if cfg.DistanceProvider.Type() == "cosine-dot" {
-		normalizeOnRead = true
-	}
+	normalizeOnRead := cfg.DistanceProvider.Type() == "cosine-dot"
 
 	var vectorCache cache.Cache[float32]
 
-	if uc.Multivector.Enabled {
+	var muveraEncoder *multivector.MuveraEncoder
+	if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
 		vectorCache = cache.NewShardedMultiFloat32LockCache(cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects,
 			cfg.Logger, normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
 	} else {
-		vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
-			normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+		if uc.Multivector.MuveraConfig.Enabled {
+			muveraEncoder = multivector.NewMuveraEncoder(uc.Multivector.MuveraConfig, store)
+			err := store.CreateOrLoadBucket(context.Background(), cfg.ID+"_muvera_vectors", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			if err != nil {
+				return nil, errors.Wrapf(err, "Create or load bucket (muvera store)")
+			}
+			muveraVectorForID := func(ctx context.Context, id uint64) ([]float32, error) {
+				return muveraEncoder.GetMuveraVectorForID(id, cfg.ID+"_muvera_vectors")
+			}
+			vectorCache = cache.NewShardedFloat32LockCache(
+				muveraVectorForID, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
+				normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+
+		} else {
+			vectorCache = cache.NewShardedFloat32LockCache(cfg.VectorForIDThunk, cfg.MultiVectorForIDThunk, uc.VectorCacheMaxObjects, 1, cfg.Logger,
+				normalizeOnRead, cache.DefaultDeletionInterval, cfg.AllocChecker)
+		}
 	}
 	resetCtx, resetCtxCancel := context.WithCancel(context.Background())
 	shutdownCtx, shutdownCtxCancel := context.WithCancel(context.Background())
@@ -267,7 +286,7 @@ func New(cfg Config, uc ent.UserConfig,
 		flatSearchCutoff:      int64(uc.FlatSearchCutoff),
 		flatSearchConcurrency: max(cfg.FlatSearchConcurrency, 1),
 		acornFilterRatio:      cfg.AcornFilterRatio,
-		nodes:                 graph.NewNodes(cache.InitialSize),
+		nodes:                 make([]*vertex, cache.InitialSize),
 		cache:                 vectorCache,
 		waitForCachePrefill:   cfg.WaitForCachePrefill,
 		vectorForID:           vectorCache.Get,
@@ -298,32 +317,38 @@ func New(cfg Config, uc ent.UserConfig,
 		compressActionLock:        &sync.RWMutex{},
 		className:                 cfg.ClassName,
 		VectorForIDThunk:          cfg.VectorForIDThunk,
+		MultiVectorForIDThunk:     cfg.MultiVectorForIDThunk,
 		TempVectorForIDThunk:      cfg.TempVectorForIDThunk,
 		TempMultiVectorForIDThunk: cfg.TempMultiVectorForIDThunk,
 		pqConfig:                  uc.PQ,
 		bqConfig:                  uc.BQ,
 		sqConfig:                  uc.SQ,
 		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
+		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
 
 		store:                  store,
 		allocChecker:           cfg.AllocChecker,
 		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
 
-		docIDVectors: make(map[uint64][]uint64),
+		docIDVectors:  make(map[uint64][]uint64),
+		muveraEncoder: muveraEncoder,
 	}
 	index.acornSearch.Store(uc.FilterStrategy == ent.FilterStrategyAcorn)
 
 	index.multivector.Store(uc.Multivector.Enabled)
-
-	if uc.Multivector.Enabled && (uc.PQ.Enabled || uc.SQ.Enabled || uc.BQ.Enabled) {
-		return nil, errors.New("compression is not supported in multivector mode")
-	}
+	index.muvera.Store(uc.Multivector.MuveraConfig.Enabled)
 
 	if uc.BQ.Enabled {
 		var err error
-		index.compressor, err = compressionhelpers.NewBQCompressor(
-			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-			cfg.AllocChecker)
+		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
+			index.compressor, err = compressionhelpers.NewBQMultiCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		} else {
+			index.compressor, err = compressionhelpers.NewBQCompressor(
+				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
+				cfg.AllocChecker)
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -334,9 +359,11 @@ func New(cfg Config, uc ent.UserConfig,
 
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
-		err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
-		if err != nil {
-			return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
+		if !uc.Multivector.MuveraConfig.Enabled {
+			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			if err != nil {
+				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
+			}
 		}
 	}
 
@@ -364,7 +391,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 // 	var node *hnswVertex
 // 	h.RLock()
-// 	total := h.nodes.Len()
+// 	total := len(h.nodes)
 // 	if total > nodeId {
 // 		node = h.nodes[nodeId] // it could be that we implicitly added this node already because it was referenced
 // 	}
@@ -489,9 +516,8 @@ func (h *hnsw) findBestEntrypointForNode(ctx context.Context, currentMaxLevel, t
 			// if we could find a new entrypoint, use it
 			// in case everything was tombstoned, stick with the existing one
 			elem := res.Pop()
-			n := h.nodes.Get(elem.ID)
-
-			if n != nil && !n.IsUnderMaintenance() {
+			n := h.nodeByID(elem.ID)
+			if n != nil && !n.isUnderMaintenance() {
 				// but not if the entrypoint is under maintenance
 				entryPointID = elem.ID
 			}
@@ -594,8 +620,31 @@ func (h *hnsw) distToNode(distancer compressionhelpers.CompressorDistancer, node
 func (h *hnsw) isEmpty() bool {
 	h.RLock()
 	defer h.RUnlock()
+	h.shardedNodeLocks.RLock(h.entryPointID)
+	defer h.shardedNodeLocks.RUnlock(h.entryPointID)
 
-	return h.nodes.IsEmpty(h.entryPointID)
+	return h.isEmptyUnlocked()
+}
+
+func (h *hnsw) isEmptyUnlocked() bool {
+	return h.entryPointID > uint64(len(h.nodes)) || h.nodes[h.entryPointID] == nil
+}
+
+func (h *hnsw) nodeByID(id uint64) *vertex {
+	h.RLock()
+	defer h.RUnlock()
+
+	if id >= uint64(len(h.nodes)) {
+		// See https://github.com/weaviate/weaviate/issues/1838 for details.
+		// This could be after a crash recovery when the object store is "further
+		// ahead" than the hnsw index and we receive a delete request
+		return nil
+	}
+
+	h.shardedNodeLocks.RLock(id)
+	defer h.shardedNodeLocks.RUnlock(id)
+
+	return h.nodes[id]
 }
 
 func (h *hnsw) Drop(ctx context.Context) error {
@@ -663,20 +712,24 @@ func (h *hnsw) DistanceBetweenVectors(x, y []float32) (float32, error) {
 }
 
 func (h *hnsw) ContainsDoc(docID uint64) bool {
-	if h.Multivector() {
+	if h.Multivector() && !h.muvera.Load() {
 		h.RLock()
 		vecIds, exists := h.docIDVectors[docID]
 		h.RUnlock()
 		return exists && !h.hasTombstones(vecIds)
 	}
 
-	exists := h.nodes.Get(docID) != nil
+	h.RLock()
+	h.shardedNodeLocks.RLock(docID)
+	exists := len(h.nodes) > int(docID) && h.nodes[docID] != nil
+	h.shardedNodeLocks.RUnlock(docID)
+	h.RUnlock()
 
 	return exists && !h.hasTombstone(docID)
 }
 
 func (h *hnsw) Iterate(fn func(docID uint64) bool) {
-	if h.Multivector() {
+	if h.Multivector() && !h.muvera.Load() {
 		h.iterateMulti(fn)
 		return
 	}
@@ -684,20 +737,35 @@ func (h *hnsw) Iterate(fn func(docID uint64) bool) {
 }
 
 func (h *hnsw) iterate(fn func(docID uint64) bool) {
-	h.nodes.Iter(func(id uint64, v *graph.Vertex) bool {
+	var id uint64
+
+	for {
 		if h.shutdownCtx.Err() != nil {
-			return false
+			return
 		}
 		if h.resetCtx.Err() != nil {
-			return false
+			return
 		}
 
-		if h.hasTombstone(id) {
-			return true
+		h.RLock()
+		h.shardedNodeLocks.RLock(id)
+		stop := int(id) >= len(h.nodes)
+		exists := !stop && h.nodes[id] != nil
+		h.shardedNodeLocks.RUnlock(id)
+		h.RUnlock()
+
+		if stop {
+			return
 		}
 
-		return fn(id)
-	})
+		if exists && !h.hasTombstone(id) {
+			if !fn(id) {
+				return
+			}
+		}
+
+		id++
+	}
 }
 
 func (h *hnsw) iterateMulti(fn func(docID uint64) bool) {
@@ -803,7 +871,7 @@ type Index interface {
 }
 
 type nodeLevel struct {
-	nodeID uint64
+	nodeId uint64
 	level  int
 }
 
@@ -812,43 +880,48 @@ func (h *hnsw) calculateUnreachablePoints() []uint64 {
 	defer h.RUnlock()
 
 	visitedPairs := make(map[nodeLevel]bool)
-	candidateList := []nodeLevel{{nodeID: h.entryPointID, level: h.currentMaximumLayer}}
+	candidateList := []nodeLevel{{h.entryPointID, h.currentMaximumLayer}}
 
 	for len(candidateList) > 0 {
 		currentNode := candidateList[len(candidateList)-1]
 		candidateList = candidateList[:len(candidateList)-1]
 		if !visitedPairs[currentNode] {
 			visitedPairs[currentNode] = true
-			node := h.nodes.Get(currentNode.nodeID)
+			h.shardedNodeLocks.RLock(currentNode.nodeId)
+			node := h.nodes[currentNode.nodeId]
 			if node != nil {
-				for i := currentNode.level; i >= 0; i-- {
-					node.IterConnections(i, func(neighborID uint64) bool {
-						if !visitedPairs[nodeLevel{nodeID: neighborID, level: i}] {
-							candidateList = append(candidateList, nodeLevel{nodeID: neighborID, level: i})
-						}
-						return true
-					})
-				}
+				node.Lock()
+				neighbors := node.connectionsAtLowerLevelsNoLock(currentNode.level, visitedPairs)
+				node.Unlock()
+				candidateList = append(candidateList, neighbors...)
 			}
+			h.shardedNodeLocks.RUnlock(currentNode.nodeId)
 		}
 	}
 
 	visitedNodes := make(map[uint64]bool, len(visitedPairs))
 	for k, v := range visitedPairs {
 		if v {
-			visitedNodes[k.nodeID] = true
+			visitedNodes[k.nodeId] = true
 		}
 	}
 
 	unvisitedNodes := []uint64{}
-	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
-		if !visitedNodes[id] {
+	for i := 0; i < len(h.nodes); i++ {
+		var id uint64
+		h.shardedNodeLocks.RLock(uint64(i))
+		if h.nodes[i] != nil {
+			id = h.nodes[i].id
+		}
+		h.shardedNodeLocks.RUnlock(uint64(i))
+		if id == 0 {
+			continue
+		}
+		if !visitedNodes[uint64(i)] {
 			unvisitedNodes = append(unvisitedNodes, id)
 		}
 
-		return true
-	})
-
+	}
 	return unvisitedNodes
 }
 
@@ -873,20 +946,25 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	defer h.RUnlock()
 	distributionLayers := map[int]uint{}
 
-	h.nodes.Iter(func(id uint64, node *graph.Vertex) bool {
-		l := node.Level()
-		if l == 0 && node.MaxLevel() == 0 {
-			return true
-		}
-		c, ok := distributionLayers[l]
-		if !ok {
-			distributionLayers[l] = 0
-		}
+	for _, node := range h.nodes {
+		func() {
+			if node == nil {
+				return
+			}
+			node.Lock()
+			defer node.Unlock()
+			l := node.level
+			if l == 0 && len(node.connections) == 0 {
+				return
+			}
+			c, ok := distributionLayers[l]
+			if !ok {
+				distributionLayers[l] = 0
+			}
 
-		distributionLayers[l] = c + 1
-
-		return true
-	})
+			distributionLayers[l] = c + 1
+		}()
+	}
 
 	stats := HnswStats{
 		Dimensions:         h.dims,

@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -51,11 +52,10 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, fakeModulesProvider{})
 	handler, err := NewHandler(
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
-		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
+		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
-
-	require.Nil(t, err)
-	handler.config.MaximumAllowedCollectionsCount = -1
+	require.NoError(t, err)
+	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
 }
 
@@ -73,7 +73,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	schemaParser := NewParser(fakeClusterState, dummyParseVectorConfig, fakeValidator, nil)
 	handler, err := NewHandler(
 		metaHandler, metaHandler, fakeValidator, logger, authorizer,
-		cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
+		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
@@ -96,6 +96,14 @@ func (f *fakeDB) AddClass(cmd command.AddClassRequest) error {
 }
 
 func (f *fakeDB) RestoreClassDir(class string) error {
+	return nil
+}
+
+func (f *fakeDB) AddReplicaToShard(class string, shard string, targetNode string) error {
+	return nil
+}
+
+func (f *fakeDB) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
 	return nil
 }
 
@@ -295,6 +303,16 @@ func (f *fakeMigrator) DropClass(ctx context.Context, className string, hasFroze
 
 func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {
 	args := f.Called(ctx, className, prop)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) AddReplicaToShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) DeleteReplicaFromShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }
 

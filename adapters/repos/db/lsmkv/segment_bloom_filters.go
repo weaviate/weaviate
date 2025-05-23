@@ -21,8 +21,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/byteops"
+
+	"github.com/bits-and-blooms/bloom/v3"
 	"github.com/pkg/errors"
-	"github.com/willf/bloom"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 func (s *segment) bloomFilterPath() string {
@@ -166,14 +169,16 @@ func (s *segment) precomputeBloomFilter() error {
 }
 
 func (s *segment) storeBloomFilterOnDisk(path string) error {
-	buf := new(bytes.Buffer)
+	bfSize := getBloomFilterSize(s.bloomFilter)
 
-	_, err := s.bloomFilter.WriteTo(buf)
+	rw := byteops.NewReadWriter(make([]byte, bfSize+byteops.Uint32Len))
+	rw.MoveBufferPositionForward(byteops.Uint32Len) // leave space for checksum
+	_, err := s.bloomFilter.WriteTo(&rw)
 	if err != nil {
 		return fmt.Errorf("write bloom filter: %w", err)
 	}
 
-	return writeWithChecksum(buf.Bytes(), path)
+	return writeWithChecksum(rw, path, s.observeMetaWrite)
 }
 
 func (s *segment) loadBloomFilterFromDisk() error {
@@ -288,13 +293,16 @@ func (s *segment) precomputeSecondaryBloomFilter(pos int) error {
 }
 
 func (s *segment) storeBloomFilterSecondaryOnDisk(path string, pos int) error {
-	buf := new(bytes.Buffer)
-	_, err := s.secondaryBloomFilters[pos].WriteTo(buf)
+	bfSize := getBloomFilterSize(s.bloomFilter)
+
+	rw := byteops.NewReadWriter(make([]byte, bfSize+byteops.Uint32Len))
+	rw.MoveBufferPositionForward(byteops.Uint32Len) // leave space for checksum
+	_, err := s.secondaryBloomFilters[pos].WriteTo(&rw)
 	if err != nil {
 		return fmt.Errorf("write bloom filter: %w", err)
 	}
 
-	return writeWithChecksum(buf.Bytes(), path)
+	return writeWithChecksum(rw, path, s.observeMetaWrite)
 }
 
 func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
@@ -312,23 +320,22 @@ func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 	return nil
 }
 
-func writeWithChecksum(data []byte, path string) error {
-	chksm := crc32.ChecksumIEEE(data)
-
+// writeWithChecksum expects the data in the buffer to start at position byteops.Uint32Len so the
+// checksum can be added into the same buffer at its start and everything can be written to the file
+// in one go
+func writeWithChecksum(bufWriter byteops.ReadWriter, path string, observeFileWriter diskio.MeteredWriterCallback) error {
+	// checksum needs to be at the start of the file
+	chksm := crc32.ChecksumIEEE(bufWriter.Buffer[byteops.Uint32Len:])
+	bufWriter.MoveBufferToAbsolutePosition(0)
+	bufWriter.WriteUint32(chksm)
 	f, err := os.Create(path)
 	if err != nil {
 		return fmt.Errorf("open file for writing: %w", err)
 	}
 
-	if err := binary.Write(f, binary.LittleEndian, chksm); err != nil {
-		// ignoring f.Close() error here, as we don't care about whether the file
-		// was flushed, the call is mainly intended to prevent a file descriptor
-		// leak.  We still want to return the original error below.
-		f.Close()
-		return fmt.Errorf("write checkusm to file: %w", err)
-	}
+	meteredW := diskio.NewMeteredWriter(f, observeFileWriter)
 
-	if _, err := f.Write(data); err != nil {
+	if _, err := meteredW.Write(bufWriter.Buffer); err != nil {
 		// ignoring f.Close() error here, as we don't care about whether the file
 		// was flushed, the call is mainly intended to prevent a file descriptor
 		// leak.  We still want to return the original error below.
@@ -346,24 +353,10 @@ func writeWithChecksum(data []byte, path string) error {
 // use negative length check to indicate that no length check should be
 // performed
 func loadWithChecksum(path string, lengthCheck int) ([]byte, error) {
-	f, err := os.Open(path)
+	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("open file for reading: %w", err)
+		return nil, err
 	}
-
-	buf := new(bytes.Buffer)
-	if _, err := buf.ReadFrom(f); err != nil {
-		// ignoring f.Close() error here, as we don't care about whether the file
-		// was flushed, the call is mainly intended to prevent a file descriptor
-		// leak.  We still want to return the original error below.
-		f.Close()
-		return nil, fmt.Errorf("read bloom filter data from file: %w", err)
-	}
-	if err := f.Close(); err != nil {
-		return nil, fmt.Errorf("close bloom filter file: %w", err)
-	}
-
-	data := buf.Bytes()
 	if lengthCheck > 0 && len(data) != lengthCheck {
 		return nil, ErrInvalidChecksum
 	}
@@ -380,4 +373,11 @@ func loadWithChecksum(path string, lengthCheck int) ([]byte, error) {
 	}
 
 	return data[4:], nil
+}
+
+func getBloomFilterSize(bf *bloom.BloomFilter) int {
+	// size of the bloom filter is size of the underlying bitSet and two uint64 parameters
+	bs := bf.BitSet()
+	bsSize := bs.BinaryStorageSize()
+	return bsSize + 2*byteops.Uint64Len
 }

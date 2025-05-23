@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 var schemaTests = []struct {
@@ -231,7 +232,7 @@ func testAddPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaMan
 	vFalse := false
 	vTrue := true
 
-	var properties []*models.Property = []*models.Property{
+	properties := []*models.Property{
 		{
 			Name:         "color",
 			DataType:     schema.DataTypeText.PropString(),
@@ -320,7 +321,7 @@ func testAddPropertyWithTargetVectorConfig(t *testing.T, handler *Handler, fakeS
 func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
-	var properties []*models.Property = []*models.Property{
+	properties := []*models.Property{
 		{Name: "color", DataType: []string{"blurp"}},
 	}
 
@@ -334,7 +335,7 @@ func testAddInvalidPropertyDuringCreation(t *testing.T, handler *Handler, fakeSc
 func testAddInvalidPropertyWithEmptyDataTypeDuringCreation(t *testing.T, handler *Handler, fakeSchemaManager *fakeSchemaManager) {
 	t.Parallel()
 
-	var properties []*models.Property = []*models.Property{
+	properties := []*models.Property{
 		{Name: "color", DataType: []string{""}},
 	}
 
@@ -355,7 +356,7 @@ func testDropProperty(t *testing.T, handler *Handler, fakeSchemaManager *fakeSch
 
 	fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
 
-	var properties []*models.Property = []*models.Property{
+	properties := []*models.Property{
 		{Name: "color", DataType: schema.DataTypeText.PropString(), Tokenization: models.PropertyTokenizationWhitespace},
 	}
 	class := &models.Class{
@@ -379,7 +380,7 @@ func TestSchema(t *testing.T) {
 			// Run each test independently with their own handler
 			t.Run(testCase.name, func(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
-				handler.config.MaximumAllowedCollectionsCount = -1
+				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 				defer fakeSchemaManager.AssertExpectations(t)
 				testCase.fn(t, handler, fakeSchemaManager)
 			})

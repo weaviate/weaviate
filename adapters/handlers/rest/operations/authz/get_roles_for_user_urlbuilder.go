@@ -21,11 +21,16 @@ import (
 	"net/url"
 	golangswaggerpaths "path"
 	"strings"
+
+	"github.com/go-openapi/swag"
 )
 
 // GetRolesForUserURL generates an URL for the get roles for user operation
 type GetRolesForUserURL struct {
-	ID string
+	ID       string
+	UserType string
+
+	IncludeFullRoles *bool
 
 	_basePath string
 	// avoid unkeyed usage
@@ -51,7 +56,7 @@ func (o *GetRolesForUserURL) SetBasePath(bp string) {
 func (o *GetRolesForUserURL) Build() (*url.URL, error) {
 	var _result url.URL
 
-	var _path = "/authz/users/{id}/roles"
+	var _path = "/authz/users/{id}/roles/{userType}"
 
 	id := o.ID
 	if id != "" {
@@ -60,11 +65,30 @@ func (o *GetRolesForUserURL) Build() (*url.URL, error) {
 		return nil, errors.New("id is required on GetRolesForUserURL")
 	}
 
+	userType := o.UserType
+	if userType != "" {
+		_path = strings.Replace(_path, "{userType}", userType, -1)
+	} else {
+		return nil, errors.New("userType is required on GetRolesForUserURL")
+	}
+
 	_basePath := o._basePath
 	if _basePath == "" {
 		_basePath = "/v1"
 	}
 	_result.Path = golangswaggerpaths.Join(_basePath, _path)
+
+	qs := make(url.Values)
+
+	var includeFullRolesQ string
+	if o.IncludeFullRoles != nil {
+		includeFullRolesQ = swag.FormatBool(*o.IncludeFullRoles)
+	}
+	if includeFullRolesQ != "" {
+		qs.Set("includeFullRoles", includeFullRolesQ)
+	}
+
+	_result.RawQuery = qs.Encode()
 
 	return &_result, nil
 }

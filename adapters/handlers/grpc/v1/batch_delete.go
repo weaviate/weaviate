@@ -17,15 +17,18 @@ import (
 	"strings"
 
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
-func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass func(string) (*models.Class, error)) (objects.BatchDeleteParams, error) {
+func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass classGetterWithAuthzFunc) (objects.BatchDeleteParams, error) {
 	params := objects.BatchDeleteParams{}
 
+	tenant := ""
+	if req.Tenant != nil {
+		tenant = *req.Tenant
+	}
 	// make sure collection exists
 	class, err := authorizedGetClass(req.Collection)
 	if err != nil {
@@ -49,7 +52,7 @@ func batchDeleteParamsFromProto(req *pb.BatchDeleteRequest, authorizedGetClass f
 		return objects.BatchDeleteParams{}, fmt.Errorf("no filters in batch delete request")
 	}
 
-	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection)
+	clause, err := ExtractFilters(req.Filters, authorizedGetClass, req.Collection, tenant)
 	if err != nil {
 		return objects.BatchDeleteParams{}, err
 	}
@@ -76,7 +79,7 @@ func batchDeleteReplyFromObjects(response objects.BatchDeleteResult, verbose boo
 			failed += 1
 		}
 		if verbose {
-			hexInteger, success := new(big.Int).SetString(strings.Replace(obj.UUID.String(), "-", "", -1), 16)
+			hexInteger, success := new(big.Int).SetString(strings.ReplaceAll(obj.UUID.String(), "-", ""), 16)
 			if !success {
 				return nil, fmt.Errorf("failed to parse hex string to integer")
 			}

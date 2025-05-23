@@ -31,9 +31,6 @@ import (
 )
 
 func TestBM25FJourneyBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -173,8 +170,8 @@ func TestBM25FJourneyBlock(t *testing.T) {
 			require.Equal(t, len(scores), len(res))
 			// Check results in correct order
 			require.Equal(t, uint64(4), res[0].DocID)
-			require.Equal(t, uint64(5), res[1].DocID)
-			require.Equal(t, uint64(1), res[2].DocID)
+			require.Equal(t, uint64(1), res[1].DocID)
+			require.Equal(t, uint64(5), res[2].DocID)
 			require.Equal(t, uint64(6), res[3].DocID)
 			require.Equal(t, uint64(2), res[4].DocID)
 		})
@@ -187,8 +184,8 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 			// Check results in correct order
 			require.Equal(t, uint64(4), res[0].DocID)
-			require.Equal(t, uint64(5), res[1].DocID)
-			require.Equal(t, uint64(1), res[2].DocID)
+			require.Equal(t, uint64(1), res[1].DocID)
+			require.Equal(t, uint64(5), res[2].DocID)
 			require.Equal(t, uint64(6), res[3].DocID)
 		})
 
@@ -228,8 +225,8 @@ func TestBM25FJourneyBlock(t *testing.T) {
 			require.Nil(t, err)
 
 			require.Equal(t, uint64(9), res[0].DocID)
-			require.Equal(t, uint64(8), res[1].DocID)
-			require.Equal(t, uint64(0), res[2].DocID)
+			require.Equal(t, uint64(0), res[1].DocID)
+			require.Equal(t, uint64(8), res[2].DocID)
 			require.Len(t, res, 3)
 		})
 
@@ -273,15 +270,15 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 			require.Less(t, len(resAutoCut), len(resNoAutoCut))
 
-			EqualFloats(t, float32(0.51602507), noautocutscores[0], 5)
-			EqualFloats(t, float32(0.4975062), noautocutscores[1], 5) // <= autocut last element
-			EqualFloats(t, float32(0.34149727), noautocutscores[2], 5)
-			EqualFloats(t, float32(0.3049518), noautocutscores[3], 5)
-			EqualFloats(t, float32(0.27547202), noautocutscores[4], 5)
+			EqualFloats(t, float32(0.5253056), noautocutscores[0], 5)
+			EqualFloats(t, float32(0.50612706), noautocutscores[1], 5) // <= autocut last element
+			EqualFloats(t, float32(0.35391074), noautocutscores[2], 5)
+			EqualFloats(t, float32(0.31824225), noautocutscores[3], 5)
+			EqualFloats(t, float32(0.28910512), noautocutscores[4], 5)
 
 			require.Len(t, resAutoCut, 2)
-			EqualFloats(t, float32(0.51602507), autocutscores[0], 5)
-			EqualFloats(t, float32(0.4975062), autocutscores[1], 5)
+			EqualFloats(t, float32(0.5253056), autocutscores[0], 5)
+			EqualFloats(t, float32(0.50612706), autocutscores[1], 5)
 		})
 
 		for _, index := range repo.indices {
@@ -296,10 +293,6 @@ func TestBM25FJourneyBlock(t *testing.T) {
 }
 
 func TestBM25FSinglePropBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -318,7 +311,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -335,12 +328,12 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 			}
 			require.Nil(t, err)
 			// Check results in correct order
-			require.Equal(t, uint64(3), res[0].DocID)
-			require.Equal(t, uint64(6), res[3].DocID)
+			require.Equal(t, uint64(5), res[0].DocID)
+			require.Equal(t, uint64(3), res[3].DocID)
 
 			// Check scores
-			EqualFloats(t, float32(0.1248), scores[0], 5)
-			EqualFloats(t, float32(0.0363), scores[1], 5)
+			EqualFloats(t, float32(0.6178051), scores[0], 5)
+			EqualFloats(t, float32(0.6178051), scores[1], 5)
 		})
 
 		for _, index := range repo.indices {
@@ -354,10 +347,6 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 }
 
 func TestBM25FWithFiltersBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -376,7 +365,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -411,6 +400,25 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 		},
 	}
 
+	filterEmpty := &filters.LocalFilter{
+		Root: &filters.Clause{
+			Operator: filters.OperatorAnd,
+			Operands: []filters.Clause{
+				{
+					Operator: filters.OperatorEqual,
+					On: &filters.Path{
+						Class:    schema.ClassName("MyClass"),
+						Property: schema.PropertyName("title"),
+					},
+					Value: &filters.Value{
+						Value: "asdasdas",
+						Type:  schema.DataType("text"),
+					},
+				},
+			},
+		},
+	}
+
 	for _, location := range []string{"memory", "disk"} {
 		t.Run("bm25f with filter "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
@@ -420,6 +428,15 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 			require.Nil(t, err)
 			require.True(t, len(res) == 1)
 			require.Equal(t, uint64(2), res[0].DocID)
+		})
+
+		t.Run("bm25f with filter matching no docs "+location, func(t *testing.T) {
+			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
+			addit := additional.Properties{}
+			res, _, err := idx.objectSearch(context.TODO(), 1000, filterEmpty, kwr, nil, nil, addit, nil, "", 0, props)
+
+			require.Nil(t, err)
+			require.True(t, len(res) == 0)
 		})
 
 		for _, index := range repo.indices {
@@ -433,10 +450,6 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 }
 
 func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -508,10 +521,6 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 }
 
 func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -530,7 +539,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -551,8 +560,8 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 			require.Nil(t, err)
 
 			// Check results in correct order
-			require.Equal(t, uint64(6), res[0].DocID)
-			require.Equal(t, uint64(2), res[2].DocID)
+			require.Equal(t, uint64(5), res[0].DocID)
+			require.Equal(t, uint64(6), res[2].DocID)
 
 			// Print results
 			t.Log("--- Start results for boosted search ---")
@@ -561,8 +570,8 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 			}
 
 			// Check scores
-			EqualFloats(t, float32(0.98), scores[0], 2)
-			EqualFloats(t, float32(0.63), scores[1], 2)
+			EqualFloats(t, float32(1.7730504), scores[0], 2)
+			EqualFloats(t, float32(1.7730504), scores[1], 2)
 		})
 
 		for _, index := range repo.indices {
@@ -577,10 +586,6 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 
 // Compare with previous BM25 version to ensure the algorithm functions correctly
 func TestBM25FCompareBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -599,7 +604,7 @@ func TestBM25FCompareBlock(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
 	defer repo.Shutdown(context.Background())
 
-	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 100)
+	props := SetupClass(t, repo, schemaGetter, logger, 0.5, 1)
 
 	idx := repo.GetIndex("MyClass")
 	require.NotNil(t, idx)
@@ -638,19 +643,19 @@ func TestBM25FCompareBlock(t *testing.T) {
 				}
 
 				// Not all the scores are unique and the search is not stable, so pick ones that don't move
-				require.Equal(t, uint64(4), objs[0].DocID)
-				require.Equal(t, uint64(6), objs[1].DocID)
-				require.Equal(t, uint64(5), objs[2].DocID)
-				require.Equal(t, uint64(1), objs[3].DocID)
-				require.Equal(t, uint64(2), objs[4].DocID)
-				require.Equal(t, uint64(0), objs[5].DocID)
+				require.Equal(t, uint64(1), objs[0].DocID)
+				require.Equal(t, uint64(2), objs[1].DocID)
+				require.Equal(t, uint64(0), objs[2].DocID)
+				require.Equal(t, uint64(6), objs[3].DocID)
+				require.Equal(t, uint64(5), objs[4].DocID)
+				require.Equal(t, uint64(4), objs[5].DocID)
 
-				require.Equal(t, uint64(4), withBM25Fobjs[0].DocID)
-				require.Equal(t, uint64(6), withBM25Fobjs[1].DocID)
-				require.Equal(t, uint64(5), withBM25Fobjs[2].DocID)
-				require.Equal(t, uint64(1), withBM25Fobjs[3].DocID)
-				require.Equal(t, uint64(2), withBM25Fobjs[4].DocID)
-				require.Equal(t, uint64(0), withBM25Fobjs[5].DocID)
+				require.Equal(t, uint64(1), withBM25Fobjs[0].DocID)
+				require.Equal(t, uint64(2), withBM25Fobjs[1].DocID)
+				require.Equal(t, uint64(0), withBM25Fobjs[2].DocID)
+				require.Equal(t, uint64(6), withBM25Fobjs[3].DocID)
+				require.Equal(t, uint64(5), withBM25Fobjs[4].DocID)
+				require.Equal(t, uint64(4), withBM25Fobjs[5].DocID)
 
 			}
 		})
@@ -666,10 +671,6 @@ func TestBM25FCompareBlock(t *testing.T) {
 }
 
 func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()
@@ -720,9 +721,9 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 			require.Len(t, res, 3)
 
 			// Check scores
-			EqualFloats(t, float32(0.8550), scores[0], 5)
-			EqualFloats(t, float32(0.5116), scores[1], 5)
-			EqualFloats(t, float32(0.3325), scores[2], 5)
+			EqualFloats(t, float32(0.93171), scores[0], 5)
+			EqualFloats(t, float32(0.54312956), scores[1], 5)
+			EqualFloats(t, float32(0.3794713), scores[2], 5)
 		})
 
 		t.Run("Results without stopwords "+location, func(t *testing.T) {
@@ -767,10 +768,6 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 }
 
 func TestBM25F_SortMultiPropBlock(t *testing.T) {
-	t.Setenv("USE_INVERTED_SEARCHABLE", "true")
-	t.Setenv("USE_BLOCKMAX_WAND", "true")
-	t.Setenv("COMPUTE_PROPLENGTH_WITH_DUPS", "true")
-
 	dirName := t.TempDir()
 
 	logger := logrus.New()

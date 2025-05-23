@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/test/helper"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func testGetSchemaWithoutClient(t *testing.T) {
@@ -73,6 +74,12 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					"multivector": map[string]interface{}{
 						"enabled":     false,
 						"aggregation": "maxSim",
+						"muvera": map[string]interface{}{
+							"dprojections": float64(16),
+							"enabled":      false,
+							"ksim":         float64(4),
+							"repetitions":  float64(20),
+						},
 					},
 				},
 				"shardingConfig": map[string]interface{}{
@@ -102,6 +109,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"additions": nil,
 						"removals":  nil,
 					},
+					"usingBlockMaxWAND": config.DefaultUsingBlockMaxWAND,
 				},
 				"moduleConfig": map[string]interface{}{
 					"text2vec-contextionary": map[string]interface{}{

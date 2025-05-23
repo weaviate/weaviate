@@ -18,13 +18,19 @@ import (
 	"io"
 	"os"
 
-	"github.com/edsrzf/mmap-go"
 	"github.com/pkg/errors"
+
+	"github.com/bits-and-blooms/bloom/v3"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
-	"github.com/willf/bloom"
+	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/mmap"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type segment struct {
@@ -45,6 +51,7 @@ type segment struct {
 	metrics             *Metrics
 	size                int64
 	mmapContents        bool
+	unMapContents       bool
 
 	useBloomFilter        bool // see bucket for more datails
 	bloomFilter           *bloom.BloomFilter
@@ -57,6 +64,8 @@ type segment struct {
 
 	invertedHeader *segmentindex.HeaderInverted
 	invertedData   *segmentInvertedData
+
+	observeMetaWrite diskio.MeteredWriterCallback // used for precomputing meta (cna + bloom)
 }
 
 type diskIndex interface {
@@ -85,6 +94,8 @@ type segmentConfig struct {
 	calcCountNetAdditions    bool
 	overwriteDerived         bool
 	enableChecksumValidation bool
+	MinMMapSize              int64
+	allocChecker             memwatch.AllocChecker
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -96,14 +107,14 @@ type segmentConfig struct {
 // subtle differences.
 func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, cfg segmentConfig,
-) (_ *segment, err error) {
+) (_ *segment, rerr error) {
 	defer func() {
 		p := recover()
 		if p == nil {
 			return
 		}
 		entsentry.Recover(p)
-		err = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
+		rerr = fmt.Errorf("unexpected error loading segment %q: %v", path, p)
 	}()
 
 	file, err := os.Open(path)
@@ -111,18 +122,48 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		return nil, fmt.Errorf("open file: %w", err)
 	}
 
+	// The lifetime of the `file` exceeds this constructor as we store the open file for later use in `contentFile`.
+	// invariant: We close **only** if any error happened after successfully opening the file. To avoid leaking open file descriptor.
+	// NOTE: This `defer` works even with `err` being shadowed in the whole function because defer checks for named `rerr` return value.
+	defer func() {
+		if rerr != nil {
+			file.Close()
+		}
+	}()
+
 	fileInfo, err := file.Stat()
 	if err != nil {
 		return nil, fmt.Errorf("stat file: %w", err)
 	}
 	size := fileInfo.Size()
 
-	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
-	if err != nil {
-		return nil, fmt.Errorf("mmap file: %w", err)
+	// mmap has some overhead, we can read small files directly to memory
+	var contents []byte
+	var unMapContents bool
+	var allocCheckerErr error
+
+	if size <= cfg.MinMMapSize { // check if it is a candidate for full reading
+		allocCheckerErr = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
+		if allocCheckerErr != nil {
+			logger.Debugf("memory pressure: cannot fully read segment")
+		}
 	}
 
-	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
+	if size > cfg.MinMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
+		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
+		if err != nil {
+			return nil, fmt.Errorf("mmap file: %w", err)
+		}
+		contents = contents2
+		unMapContents = true
+	} else { // read the file into memory if it's small enough and we have enough memory
+		contents, err = io.ReadAll(file)
+		if err != nil {
+			return nil, fmt.Errorf("read file: %w", err)
+		}
+		unMapContents = false
+	}
+	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
@@ -132,6 +173,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation {
+		file.Seek(0, io.SeekStart)
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
@@ -158,6 +200,20 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		dataEndPos = invertedHeader.TombstoneOffset
 	}
 
+	stratLabel := header.Strategy.String()
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"strategy":  stratLabel,
+		"operation": "segmentMetadata",
+	})
+
+	if unMapContents {
+		// a map was created, track it
+		monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
+			"operation": "mmap",
+			"strategy":  stratLabel,
+		}).Inc()
+	}
+
 	seg := &segment{
 		level:                 header.Level,
 		path:                  path,
@@ -177,7 +233,11 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		useBloomFilter:        cfg.useBloomFilter,
 		calcCountNetAdditions: cfg.calcCountNetAdditions,
 		invertedHeader:        invertedHeader,
-		invertedData:          &segmentInvertedData{},
+		invertedData: &segmentInvertedData{
+			tombstones: sroar.NewBitmap(),
+		},
+		unMapContents:    unMapContents,
+		observeMetaWrite: func(n int64) { observeWrite.Observe(float64(n)) },
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
@@ -227,9 +287,15 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 
 func (s *segment) close() error {
 	var munmapErr, fileCloseErr error
-
-	m := mmap.MMap(s.contents)
-	munmapErr = m.Unmap()
+	if s.unMapContents {
+		m := mmap.MMap(s.contents)
+		munmapErr = m.Unmap()
+		stratLabel := s.strategy.String()
+		monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
+			"operation": "munmap",
+			"strategy":  stratLabel,
+		}).Inc()
+	}
 	if s.contentFile != nil {
 		fileCloseErr = s.contentFile.Close()
 	}

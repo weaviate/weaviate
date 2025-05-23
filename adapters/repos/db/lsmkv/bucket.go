@@ -19,9 +19,13 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"sync"
 	"time"
+
+	entcfg "github.com/weaviate/weaviate/entities/config"
+	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -31,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
@@ -65,6 +70,7 @@ type Bucket struct {
 	walThreshold      uint64
 	flushDirtyAfter   time.Duration
 	memtableThreshold uint64
+	minMMapSize       int64
 	memtableResizer   *memtableSizeAdvisor
 	strategy          string
 	// Strategy inverted index is supposed to be created with, but existing
@@ -120,7 +126,8 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction bool
+	forceCompaction   bool
+	disableCompaction bool
 
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
@@ -139,6 +146,16 @@ type Bucket struct {
 	// introduces latency of segment availability, for the tradeoff of
 	// ensuring segment files have integrity before reading them.
 	enableChecksumValidation bool
+
+	// keep segments in memory for more performant search
+	// (currently used by roaringsetrange inverted indexes)
+	keepSegmentsInMemory bool
+
+	// pool of buffers for bitmaps merges
+	// (currently used by roaringsetrange inverted indexes)
+	bitmapBufPool roaringset.BitmapBufPool
+
+	bm25Config *models.BM25Config
 }
 
 func NewBucketCreator() *Bucket { return &Bucket{} }
@@ -188,6 +205,10 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		b.memtableThreshold = uint64(b.memtableResizer.Initial())
 	}
 
+	if b.disableCompaction {
+		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
+	}
+
 	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
 		sgConfig{
 			dir:                      dir,
@@ -202,6 +223,9 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			maxSegmentSize:           b.maxSegmentSize,
 			cleanupInterval:          b.segmentsCleanupInterval,
 			enableChecksumValidation: b.enableChecksumValidation,
+			keepSegmentsInMemory:     b.keepSegmentsInMemory,
+			MinMMapSize:              b.minMMapSize,
+			bm25config:               b.bm25Config,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -259,6 +283,20 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
 		return nil, err
 	}
+
+	// segment load order is as follows:
+	// - find .tmp files and recover them first
+	// - find .db files and load them
+	//   - if there is a .wal file exists for a .db, remove the .db file
+	// - find .wal files and load them into a memtable
+	//   - flush the memtable to a segment file
+	// Thus, files may be loaded in a different order than they were created,
+	// and we need to re-sort them to ensure the order is correct, as compations
+	// and other operations are based on the creation order of the segments
+
+	sort.Slice(b.disk.segments, func(i, j int) bool {
+		return b.disk.segments[i].path < b.disk.segments[j].path
+	})
 
 	err = b.setNewActiveMemtable()
 	if err != nil {
@@ -351,12 +389,17 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 		defer inMemCursor.Close()
 
 		for k, v := inMemCursor.First(); k != nil; k, v = inMemCursor.Next() {
-			obj, err := storobj.FromBinaryUUIDOnly(v)
-			if err != nil {
-				return fmt.Errorf("cannot unmarshal object: %w", err)
-			}
-			if err := f(obj); err != nil {
-				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				obj, err := storobj.FromBinaryUUIDOnly(v)
+				if err != nil {
+					return fmt.Errorf("cannot unmarshal object: %w", err)
+				}
+				if err := f(obj); err != nil {
+					return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+				}
 			}
 		}
 
@@ -367,12 +410,17 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 	}
 
 	for k, v := onDiskCursor.First(); k != nil; k, v = onDiskCursor.Next() {
-		obj, err := storobj.FromBinaryUUIDOnly(v)
-		if err != nil {
-			return fmt.Errorf("cannot unmarshal object: %w", err)
-		}
-		if err := f(obj); err != nil {
-			return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			obj, err := storobj.FromBinaryUUIDOnly(v)
+			if err != nil {
+				return fmt.Errorf("cannot unmarshal object: %w", err)
+			}
+			if err := f(obj); err != nil {
+				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
+			}
 		}
 	}
 
@@ -928,7 +976,7 @@ func (b *Bucket) loadAllTombstones(segmentsDisk []*segment) ([]*sroar.Bitmap, er
 	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
 	for i, segment := range segmentsDisk {
 		if segment.strategy == segmentindex.StrategyInverted {
-			tombstones, err := segment.GetTombstones()
+			tombstones, err := segment.ReadOnlyTombstones()
 			if err != nil {
 				return nil, err
 			}
@@ -939,14 +987,14 @@ func (b *Bucket) loadAllTombstones(segmentsDisk []*segment) ([]*sroar.Bitmap, er
 	if hasTombstones {
 
 		if b.flushing != nil {
-			tombstones, err := b.flushing.GetTombstones()
+			tombstones, err := b.flushing.ReadOnlyTombstones()
 			if err != nil {
 				return nil, err
 			}
 			allTombstones[len(segmentsDisk)] = tombstones
 		}
 
-		tombstones, err := b.active.GetTombstones()
+		tombstones, err := b.active.ReadOnlyTombstones()
 		if err != nil {
 			return nil, err
 		}
@@ -1011,6 +1059,13 @@ func (b *Bucket) MapDeleteKey(rowKey, mapKey []byte) error {
 		Tombstone: true,
 	}
 
+	if b.active.strategy == StrategyInverted {
+		docID := binary.BigEndian.Uint64(mapKey)
+		if err := b.active.SetTombstone(docID); err != nil {
+			return err
+		}
+	}
+
 	return b.active.appendMapSorted(rowKey, pair)
 }
 
@@ -1048,13 +1103,13 @@ func (b *Bucket) DeleteWith(key []byte, deletionTime time.Time, opts ...Secondar
 func (b *Bucket) setNewActiveMemtable() error {
 	path := filepath.Join(b.dir, fmt.Sprintf("segment-%d", time.Now().UnixNano()))
 
-	cl, err := newLazyCommitLogger(path)
+	cl, err := newLazyCommitLogger(path, b.strategy)
 	if err != nil {
 		return errors.Wrap(err, "init commit logger")
 	}
 
 	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
-		b.metrics, b.logger, b.enableChecksumValidation)
+		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config)
 	if err != nil {
 		return err
 	}
@@ -1144,6 +1199,9 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	}
 
 	b.flushLock.Lock()
+	if b.active.strategy == StrategyInverted {
+		b.active.averagePropLength, b.active.propLengthCount = b.disk.GetAveragePropertyLength()
+	}
 	if err := b.active.flush(); err != nil {
 		return err
 	}
@@ -1285,6 +1343,7 @@ func (b *Bucket) isReadOnly() bool {
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
 	before := time.Now()
+	var err error
 
 	bucketPath := b.GetDir()
 
@@ -1306,28 +1365,17 @@ func (b *Bucket) FlushAndSwitch() error {
 		return nil
 	}
 
+	if b.flushing.strategy == StrategyInverted {
+		b.flushing.averagePropLength, b.flushing.propLengthCount = b.disk.GetAveragePropertyLength()
+	}
 	if err := b.flushing.flush(); err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
 
+	var tombstones *sroar.Bitmap
 	if b.strategy == StrategyInverted {
-		tombstones, err := b.flushing.GetTombstones()
-		if err != nil {
+		if tombstones, err = b.flushing.ReadOnlyTombstones(); err != nil {
 			return fmt.Errorf("get tombstones: %w", err)
-		}
-		if tombstones != nil {
-			// add flushing memtable tombstones to all segments
-			for _, seg := range b.disk.segments {
-				segTombstones, err := seg.GetTombstones()
-				if err != nil {
-					return fmt.Errorf("get tombstones: %w", err)
-				}
-				// if there are no tombstones in the segment, init a new Bitmap
-				if segTombstones == nil {
-					segTombstones = sroar.NewBitmap()
-				}
-				segTombstones.Or(tombstones)
-			}
 		}
 	}
 
@@ -1336,8 +1384,35 @@ func (b *Bucket) FlushAndSwitch() error {
 		return fmt.Errorf("precompute metadata: %w", err)
 	}
 
+	flushing := b.flushing
 	if err := b.atomicallyAddDiskSegmentAndRemoveFlushing(segment); err != nil {
 		return fmt.Errorf("add segment and remove flushing: %w", err)
+	}
+
+	switch b.strategy {
+	case StrategyInverted:
+		if !tombstones.IsEmpty() {
+			if err = func() error {
+				b.disk.maintenanceLock.RLock()
+				defer b.disk.maintenanceLock.RUnlock()
+				// add flushing memtable tombstones to all segments
+				for _, seg := range b.disk.segments {
+					if _, err := seg.MergeTombstones(tombstones); err != nil {
+						return fmt.Errorf("merge tombstones: %w", err)
+					}
+				}
+				return nil
+			}(); err != nil {
+				return fmt.Errorf("add tombstones: %w", err)
+			}
+		}
+
+	case StrategyRoaringSetRange:
+		if b.keepSegmentsInMemory {
+			if err := b.disk.roaringSetRangeSegmentInMemory.MergeMemtable(flushing.roaringSetRange); err != nil {
+				return fmt.Errorf("merge roaringsetrange memtable to segment-in-memory: %w", err)
+			}
+		}
 	}
 
 	took := time.Since(before)
@@ -1525,9 +1600,27 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 	return terms.NewSortedDocPointerWithScoreMerger().Do(ctx, segments)
 }
 
-func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, averagePropLength float64, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, func(), error) {
+func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query []string, propName string, propertyBoost float32, duplicateTextBoosts []int, config schema.BM25Config, ctx context.Context) ([][]*SegmentBlockMax, map[string]uint64, func(), error) {
+	release := func() {}
+
+	defer func() {
+		if !entcfg.Enabled(os.Getenv("DISABLE_RECOVERY_ON_PANIC")) {
+			if r := recover(); r != nil {
+				b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
+				debug.PrintStack()
+				release()
+			}
+		}
+	}()
+
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
+
+	averagePropLength, err := b.GetAveragePropertyLength()
+	if err != nil {
+		release()
+		return nil, nil, func() {}, err
+	}
 
 	// The lock is necessary, as data is being read from the disk during blockmax wand search.
 	// BlockMax is ran outside this function, so, the lock is returned to the caller.
@@ -1535,23 +1628,16 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 	// The lock is released after the blockmax search is done, and panics are also handled.
 	segmentsDisk, release := b.disk.getAndLockSegments()
 
-	defer func() {
-		if r := recover(); r != nil {
-			b.logger.Errorf("Recovered from panic in CreateDiskTerm: %v", r)
-			release()
-		}
-	}()
-
 	output := make([][]*SegmentBlockMax, len(segmentsDisk)+2)
 	idfs := make([]float64, len(query))
-
+	idfCounts := make(map[string]uint64, len(query))
 	// flusing memtable
 	output[len(segmentsDisk)] = make([]*SegmentBlockMax, 0, len(query))
 
 	// active memtable
 	output[len(segmentsDisk)+1] = make([]*SegmentBlockMax, 0, len(query))
 
-	allTombstones := make([]*sroar.Bitmap, 2)
+	memTombstones := sroar.NewBitmap()
 
 	for i, queryTerm := range query {
 		key := []byte(queryTerm)
@@ -1560,6 +1646,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		active := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
 		flushing := NewSegmentBlockMaxDecoded(key, i, propertyBoost, filterDocIds, averagePropLength, config)
 
+		var activeTombstones *sroar.Bitmap
 		if b.active != nil {
 			memtable := b.active
 			n2, _ := fillTerm(memtable, key, active, filterDocIds)
@@ -1567,14 +1654,16 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 				output[len(segmentsDisk)+1] = append(output[len(segmentsDisk)+1], active)
 			}
 			n += n2
-			tombstones, err := b.active.GetTombstones()
+
+			var err error
+			activeTombstones, err = b.active.ReadOnlyTombstones()
 			if err != nil {
 				release()
-				return nil, func() {}, err
+				return nil, nil, func() {}, err
 			}
-			allTombstones[1] = tombstones
+			memTombstones.Or(activeTombstones)
 
-			if n2 > 0 {
+			if !active.Exhausted() {
 				active.advanceOnTombstoneOrFilter()
 			}
 		}
@@ -1587,16 +1676,15 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 			}
 			n += n2
 
-			tombstones, err := b.flushing.GetTombstones()
+			tombstones, err := b.flushing.ReadOnlyTombstones()
 			if err != nil {
 				release()
-				return nil, func() {}, err
+				return nil, nil, func() {}, err
 			}
+			memTombstones.Or(tombstones)
 
-			allTombstones[0] = tombstones
-			if n2 > 0 {
-				tombstones, _ = b.active.GetTombstones()
-				flushing.tombstones = tombstones
+			if !flushing.Exhausted() {
+				flushing.tombstones = activeTombstones
 				flushing.advanceOnTombstoneOrFilter()
 			}
 
@@ -1616,33 +1704,32 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 
 		flushing.idf = idfs[i]
 		flushing.currentBlockImpact = float32(idfs[i])
+
+		idfCounts[queryTerm] = n
 	}
 
 	for j := len(segmentsDisk) - 1; j >= 0; j-- {
 		segment := segmentsDisk[j]
 		output[j] = make([]*SegmentBlockMax, 0, len(query))
-		tombstones, err := segment.GetTombstones()
-		if err != nil {
-			release()
-			return nil, func() {}, err
+
+		allTombstones := memTombstones.Clone()
+		if j != len(segmentsDisk)-1 {
+			segTombstones, err := segmentsDisk[j+1].ReadOnlyTombstones()
+			if err != nil {
+				release()
+				return nil, nil, func() {}, err
+			}
+			allTombstones.Or(segTombstones)
 		}
 
-		if b.flushing != nil {
-			tombstones.Or(allTombstones[0])
-		}
-		if b.active != nil {
-			tombstones.Or(allTombstones[1])
-		}
 		for i, key := range query {
-
-			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, tombstones, filterDocIds, averagePropLength, config)
+			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
 		}
-
 	}
-	return output, release, nil
+	return output, idfCounts, release, nil
 }
 
 func fillTerm(memtable *Memtable, key []byte, blockmax *SegmentBlockMax, filterDocIds helpers.AllowList) (uint64, error) {
@@ -1684,6 +1771,7 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 		if filterDocIds != nil && !filterDocIds.Contains(d.Id) {
 			continue
 		}
+
 		term.blockDataDecoded.DocIds = append(term.blockDataDecoded.DocIds, d.Id)
 		term.blockDataDecoded.Tfs = append(term.blockDataDecoded.Tfs, uint64(d.Frequency))
 		term.propLengths[d.Id] = uint32(d.PropLength)
@@ -1692,7 +1780,7 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	if len(term.blockDataDecoded.DocIds) == 0 {
 		return n, nil
 	}
-
+	term.exhausted = false
 	term.blockEntries = make([]*terms.BlockEntry, 1)
 	term.blockEntries[0] = &terms.BlockEntry{
 		MaxId:  term.blockDataDecoded.DocIds[len(term.blockDataDecoded.DocIds)-1],
@@ -1704,4 +1792,42 @@ func addDataToTerm(mem []MapPair, filterDocIds helpers.AllowList, term *SegmentB
 	term.blockDataSize = len(term.blockDataDecoded.DocIds)
 	term.idPointer = term.blockDataDecoded.DocIds[0]
 	return n, nil
+}
+
+func (b *Bucket) GetAveragePropertyLength() (float64, error) {
+	if b.strategy != StrategyInverted {
+		return 0, fmt.Errorf("active memtable is not inverted")
+	}
+
+	var err error
+	propLengthCount := uint64(0)
+	propLengthSum := uint64(0)
+	if b.flushing != nil {
+		propLengthSum, propLengthCount, err = b.flushing.GetPropLengths()
+		if err != nil {
+			return 0, err
+		}
+	}
+	// if the active memtable is inverted, we need to get the average property
+	if b.active != nil {
+		propLengthSum2, propLengthCount2, err := b.active.GetPropLengths()
+		if err != nil {
+			return 0, err
+		}
+		propLengthCount += propLengthCount2
+		propLengthSum += propLengthSum2
+	}
+
+	// weighted average of m.averagePropLength and the average of the current flush
+	// averaged by propLengthCount and m.propLengthCount
+	segmentAveragePropLength, segmentPropCount := b.disk.GetAveragePropertyLength()
+
+	if segmentPropCount != 0 {
+		propLengthSum += uint64(segmentAveragePropLength * float64(segmentPropCount))
+		propLengthCount += segmentPropCount
+	}
+	if propLengthCount == 0 {
+		return 0, nil
+	}
+	return float64(propLengthSum) / float64(propLengthCount), nil
 }

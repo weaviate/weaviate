@@ -19,7 +19,6 @@ import (
 	"sync"
 
 	"github.com/sirupsen/logrus"
-	restCtx "github.com/weaviate/weaviate/adapters/handlers/rest/context"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -41,7 +40,6 @@ type Manager struct {
 	repo         SchemaStore
 	logger       logrus.FieldLogger
 	Authorizer   authorization.Authorizer
-	config       config.Config
 	clusterState clusterState
 
 	sync.RWMutex
@@ -203,7 +201,9 @@ func NewManager(validator validator,
 	schemaManager SchemaManager,
 	schemaReader SchemaReader,
 	repo SchemaStore,
-	logger logrus.FieldLogger, authorizer authorization.Authorizer, managerConfig config.Config,
+	logger logrus.FieldLogger, authorizer authorization.Authorizer,
+	schemaConfig *config.SchemaHandlerConfig,
+	config config.Config,
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
@@ -217,14 +217,14 @@ func NewManager(validator validator,
 		schemaManager,
 		validator,
 		logger, authorizer,
-		managerConfig, configParser, vectorizerValidator, invertedConfigValidator,
+		schemaConfig,
+		config, configParser, vectorizerValidator, invertedConfigValidator,
 		moduleConfig, clusterState, scaleoutManager, cloud, parser, NewClassGetter(&parser, schemaManager, schemaReader, collectionRetrievalStrategyFF, logger),
 	)
 	if err != nil {
 		return nil, fmt.Errorf("cannot init handler: %w", err)
 	}
 	m := &Manager{
-		config:       managerConfig,
 		validator:    validator,
 		repo:         repo,
 		logger:       logger,
@@ -408,13 +408,10 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		Tenants:      make([]*api.Tenant, 0, len(status)),
 		ClusterNodes: m.schemaManager.StorageCandidates(),
 	}
-
-	inactiveTenants := make([]string, 0, len(status))
 	for tenant, s := range status {
 		if s != models.TenantActivityStatusHOT {
 			req.Tenants = append(req.Tenants,
 				&api.Tenant{Name: tenant, Status: models.TenantActivityStatusHOT})
-			inactiveTenants = append(inactiveTenants, tenant)
 		}
 	}
 
@@ -423,14 +420,7 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 		return status, nil
 	}
 
-	principal := restCtx.GetPrincipalFromContext(ctx)
-	resources := authorization.ShardsMetadata(class, inactiveTenants...)
-	err := m.Authorizer.Authorize(principal, authorization.UPDATE, resources...)
-	if err != nil {
-		return nil, err
-	}
-
-	_, err = m.schemaManager.UpdateTenants(ctx, class, req)
+	_, err := m.schemaManager.UpdateTenants(ctx, class, req)
 	if err != nil {
 		names := make([]string, len(req.Tenants))
 		for i, t := range req.Tenants {

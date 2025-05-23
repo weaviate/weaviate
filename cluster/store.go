@@ -22,20 +22,29 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-
-	"github.com/prometheus/client_golang/prometheus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"github.com/jonboulle/clockwork"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/dynusers"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
+	"github.com/weaviate/weaviate/cluster/replication"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -98,6 +107,12 @@ type Config struct {
 	// ReloadConfig.
 	SnapshotInterval time.Duration
 
+	// TrailingLogs controls how many logs we leave after a snapshot. This is used
+	// so that we can quickly replay logs on a follower instead of being forced to
+	// send an entire snapshot. The value passed here is the initial setting used.
+	// This can be tuned during operation using ReloadConfig.
+	TrailingLogs uint64
+
 	// Cluster bootstrap related settings
 
 	// BootstrapTimeout is the time a node will notify other node that it is ready to bootstrap a cluster if it can't
@@ -109,7 +124,6 @@ type Config struct {
 
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
 	ConsistencyWaitTimeout time.Duration
-	NodeToAddressResolver  resolver.NodeToAddress
 	// NodeSelector is the memberlist interface to RAFT
 	NodeSelector cluster.NodeSelector
 	Logger       *logrus.Logger
@@ -141,11 +155,22 @@ type Config struct {
 	// WARNING: This should be run on *actual* one node cluster only.
 	ForceOneNodeRecovery bool
 
-	EnableFQDNResolver bool
-	FQDNResolverTLD    string
-
 	// 	AuthzController to manage RBAC commands and apply it to casbin
-	AuthzController authorization.Controller
+	AuthzController       authorization.Controller
+	AuthNConfig           config.Authentication
+	DynamicUserController *apikey.DBUser
+
+	// ReplicaCopier copies shard replicas between nodes
+	ReplicaCopier replicationTypes.ReplicaCopier
+
+	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
+	ReplicationEngineMaxWorkers int
+
+	// DistributedTasks is the configuration for the distributed task manager.
+	DistributedTasks config.DistributedTasksConfig
+
+	// ReplicaMovementMinimumFinalizingWait is the upper time bound duration for replica movement operations.
+	ReplicaMovementMinimumFinalizingWait *runtime.DynamicValue[time.Duration]
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -192,41 +217,87 @@ type Store struct {
 	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
 	authZManager *rbacRaft.Manager
 
+	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
+	dynUserManager *dynusers.Manager
+
+	// replicationManager is responsible for applying/querying the replication FSM used to handle replication operations
+	replicationManager *replication.Manager
+
+	// distributedTaskManager is responsible for applying/querying the distributed task FSM used to handle distributed tasks.
+	distributedTasksManager *distributedtask.Manager
+
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
+
+	// snapshotter is the snapshotter for the store
+	snapshotter fsm.Snapshotter
+
+	// authZController is the authz controller for the store
+	authZController authorization.Controller
+
+	metrics *storeMetrics
 }
 
-func NewFSM(cfg Config, reg prometheus.Registerer) Store {
-	// We have different resolver in raft so that depending on the environment we can resolve a node-id to an IP using
-	// different methods.
-	var raftResolver types.RaftResolver
-	raftResolver = resolver.NewRaft(resolver.RaftConfig{
-		NodeToAddress:     cfg.NodeToAddressResolver,
-		RaftPort:          cfg.RaftPort,
-		IsLocalHost:       cfg.IsLocalHost,
-		NodeNameToPortMap: cfg.NodeNameToPortMap,
-	})
-	if cfg.EnableFQDNResolver {
-		raftResolver = resolver.NewFQDN(resolver.FQDNConfig{
-			TLD:               cfg.FQDNResolverTLD,
-			RaftPort:          cfg.RaftPort,
-			IsLocalHost:       cfg.IsLocalHost,
-			NodeNameToPortMap: cfg.NodeNameToPortMap,
-		})
-	}
+// storeMetrics exposes RAFT store related prometheus metrics
+type storeMetrics struct {
+	applyDuration    prometheus.Histogram
+	applyFailures    prometheus.Counter
+	lastAppliedIndex prometheus.Gauge
+}
 
+// newStoreMetrics cretes and registers the store related metrics on
+// given prometheus registry.
+func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
+	r := promauto.With(reg)
+	return &storeMetrics{
+		applyDuration: r.NewHistogram(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
+			Help:        "Time to apply cluster store FSM state in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets:     prometheus.ExponentialBuckets(0.001, 5, 5), // 1ms, 5ms, 25ms, 125ms, 625ms
+		}),
+		applyFailures: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_failures_total",
+			Help:        "Total failure count of cluster store FSM state apply in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		lastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_fsm_last_applied_index",
+			Help:        "Current applied index of cluster store FSM in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+	}
+}
+
+func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), reg)
+	schemaManager.SetReplicationsDeleter(replicationManager.GetReplicationFSM())
 
 	return Store{
-		cfg:           cfg,
-		log:           cfg.Logger,
-		candidates:    make(map[string]string, cfg.BootstrapExpect),
-		applyTimeout:  time.Second * 20,
-		raftResolver:  raftResolver,
-		schemaManager: schemaManager,
-		authZManager:  rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
+		cfg:          cfg,
+		log:          cfg.Logger,
+		candidates:   make(map[string]string, cfg.BootstrapExpect),
+		applyTimeout: time.Second * 20,
+		raftResolver: resolver.NewRaft(resolver.RaftConfig{
+			ClusterStateReader: cfg.NodeSelector,
+			RaftPort:           cfg.RaftPort,
+			IsLocalHost:        cfg.IsLocalHost,
+			NodeNameToPortMap:  cfg.NodeNameToPortMap,
+		}),
+		schemaManager:      schemaManager,
+		snapshotter:        snapshotter,
+		authZController:    authZController,
+		authZManager:       rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
+		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
+		replicationManager: replicationManager,
+		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
+			Clock:            clockwork.NewRealClock(),
+			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
+		}),
+		metrics: newStoreMetrics(cfg.NodeID, reg),
 	}
 }
 
@@ -627,9 +698,13 @@ func (st *Store) raftConfig() *raft.Config {
 	if st.cfg.SnapshotThreshold > 0 {
 		cfg.SnapshotThreshold = st.cfg.SnapshotThreshold
 	}
+	if st.cfg.TrailingLogs > 0 {
+		cfg.TrailingLogs = st.cfg.TrailingLogs
+	}
 
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
 	cfg.LogLevel = st.cfg.Logger.GetLevel().String()
+	cfg.NoLegacyTelemetry = true
 
 	logger := log.NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger
@@ -681,6 +756,10 @@ func (st *Store) reloadDBFromSchema() {
 		st.log.WithField("error", err).Warn("can't detect the last applied command, setting the lastLogApplied to 0")
 	}
 	st.lastAppliedIndexToDB.Store(max(lastSnapshotIndex(st.snapshotStore), lastLogApplied))
+}
+
+func (st *Store) FSMHasCaughtUp() bool {
+	return st.lastAppliedIndex.Load() >= st.lastAppliedIndexToDB.Load()
 }
 
 type Response struct {
@@ -747,17 +826,12 @@ func (st *Store) recoverSingleNode(force bool) error {
 	// the restore to avoid any data change.
 	recoveryConfig.MetadataOnlyVoters = true
 	recoveryConfig.DB = nil
-	if err := raft.RecoverCluster(st.raftConfig(), &Store{
-		cfg:           recoveryConfig,
-		log:           st.log,
-		raftResolver:  st.raftResolver,
-		raftTransport: st.raftTransport,
-		applyTimeout:  st.applyTimeout,
-		snapshotStore: st.snapshotStore,
-		schemaManager: st.schemaManager,
-		logStore:      st.logStore,
-		logCache:      st.logCache,
-	}, st.logCache,
+	// we don't use actual registry here, because we don't want to register metrics, it's already registered
+	// in actually FSM and this is FSM is temporary for recovery.
+	tempFSM := NewFSM(recoveryConfig, st.authZController, st.snapshotter, prometheus.NewPedanticRegistry())
+	if err := raft.RecoverCluster(st.raftConfig(),
+		&tempFSM,
+		st.logCache,
 		st.logStore,
 		st.snapshotStore,
 		st.raftTransport,

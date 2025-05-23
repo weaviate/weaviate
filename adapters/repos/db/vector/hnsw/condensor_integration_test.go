@@ -25,7 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
@@ -45,10 +45,10 @@ func TestCondensor(t *testing.T) {
 	defer perfect.Shutdown(ctx)
 
 	t.Run("add redundant data to the original log", func(t *testing.T) {
-		uncondensed.AddNode(graph.NewVertex(0, 3))
-		uncondensed.AddNode(graph.NewVertex(1, 3))
-		uncondensed.AddNode(graph.NewVertex(2, 3))
-		uncondensed.AddNode(graph.NewVertex(3, 3))
+		uncondensed.AddNode(&vertex{id: 0, level: 3})
+		uncondensed.AddNode(&vertex{id: 1, level: 3})
+		uncondensed.AddNode(&vertex{id: 2, level: 3})
+		uncondensed.AddNode(&vertex{id: 3, level: 3})
 
 		// below are some pointless connection replacements, we expect that most of
 		// these will be gone after condensing, this gives us a good way of testing
@@ -90,10 +90,10 @@ func TestCondensor(t *testing.T) {
 	})
 
 	t.Run("create a hypothetical perfect log", func(t *testing.T) {
-		perfect.AddNode(graph.NewVertex(0, 3))
-		perfect.AddNode(graph.NewVertex(1, 3))
-		perfect.AddNode(graph.NewVertex(2, 3))
-		perfect.AddNode(graph.NewVertex(3, 3))
+		perfect.AddNode(&vertex{id: 0, level: 3})
+		perfect.AddNode(&vertex{id: 1, level: 3})
+		perfect.AddNode(&vertex{id: 2, level: 3})
+		perfect.AddNode(&vertex{id: 3, level: 3})
 
 		// below are some pointless connection replacements, we expect that most of
 		// these will be gone after condensing, this gives us a good way of testing
@@ -181,7 +181,7 @@ func TestCondensorAppendNodeLinks(t *testing.T) {
 	})
 
 	t.Run("create a control log", func(t *testing.T) {
-		control.AddNode(graph.NewVertex(0, 0))
+		control.AddNode(&vertex{id: 0, level: 0})
 		control.ReplaceLinksAtLevel(0, 0, []uint64{1, 2, 3, 4, 5, 6})
 
 		require.Nil(t, control.Flush())
@@ -259,7 +259,7 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 	defer control.Shutdown(ctx)
 
 	t.Run("add data to the first log", func(t *testing.T) {
-		uncondensed1.AddNode(graph.NewVertex(0, 1))
+		uncondensed1.AddNode(&vertex{id: 0, level: 1})
 		uncondensed1.AddLinkAtLevel(0, 0, 1)
 		uncondensed1.AddLinkAtLevel(0, 0, 2)
 		uncondensed1.AddLinkAtLevel(0, 0, 3)
@@ -279,7 +279,7 @@ func TestCondensorReplaceNodeLinks(t *testing.T) {
 	})
 
 	t.Run("create a control log", func(t *testing.T) {
-		control.AddNode(graph.NewVertex(0, 1))
+		control.AddNode(&vertex{id: 0, level: 1})
 		control.ReplaceLinksAtLevel(0, 0, []uint64{4, 5, 6, 7})
 		control.ReplaceLinksAtLevel(0, 1, []uint64{8})
 
@@ -358,7 +358,7 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 	defer control.Shutdown(ctx)
 
 	t.Run("add data to the first log", func(t *testing.T) {
-		uncondensed1.AddNode(graph.NewVertex(0, 1))
+		uncondensed1.AddNode(&vertex{id: 0, level: 1})
 		uncondensed1.AddLinkAtLevel(0, 0, 1)
 		uncondensed1.AddLinkAtLevel(0, 0, 2)
 		uncondensed1.AddLinkAtLevel(0, 0, 3)
@@ -382,7 +382,7 @@ func TestCondensorClearLinksAtLevel(t *testing.T) {
 	})
 
 	t.Run("create a control log", func(t *testing.T) {
-		control.AddNode(graph.NewVertex(0, 1))
+		control.AddNode(&vertex{id: 0, level: 1})
 		control.ReplaceLinksAtLevel(0, 0, []uint64{4, 5, 6, 7})
 		control.ReplaceLinksAtLevel(0, 1, []uint64{8})
 
@@ -453,10 +453,10 @@ func TestCondensorTombstones(t *testing.T) {
 	defer control.Shutdown(ctx)
 
 	t.Run("add tombstone data", func(t *testing.T) {
-		uncondensed1.AddNode(graph.NewVertex(0, 1))
-		uncondensed1.AddNode(graph.NewVertex(1, 1))
-		uncondensed1.AddNode(graph.NewVertex(2, 1))
-		uncondensed1.AddNode(graph.NewVertex(3, 1))
+		uncondensed1.AddNode(&vertex{id: 0, level: 1})
+		uncondensed1.AddNode(&vertex{id: 1, level: 1})
+		uncondensed1.AddNode(&vertex{id: 2, level: 1})
+		uncondensed1.AddNode(&vertex{id: 3, level: 1})
 
 		uncondensed1.RemoveTombstone(0)
 		uncondensed1.AddTombstone(1)
@@ -475,10 +475,10 @@ func TestCondensorTombstones(t *testing.T) {
 	})
 
 	t.Run("create a control log", func(t *testing.T) {
-		control.AddNode(graph.NewVertex(0, 1))
-		control.AddNode(graph.NewVertex(1, 1))
-		control.AddNode(graph.NewVertex(2, 1))
-		control.AddNode(graph.NewVertex(3, 1))
+		control.AddNode(&vertex{id: 0, level: 1})
+		control.AddNode(&vertex{id: 1, level: 1})
+		control.AddNode(&vertex{id: 2, level: 1})
+		control.AddNode(&vertex{id: 3, level: 1})
 
 		control.RemoveTombstone(0)
 
@@ -618,7 +618,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 	defer uncondensed.Shutdown(ctx)
 
 	t.Run("add data, but do not set an entrypoint", func(t *testing.T) {
-		uncondensed.AddNode(graph.NewVertex(0, 3))
+		uncondensed.AddNode(&vertex{id: 0, level: 3})
 
 		require.Nil(t, uncondensed.Flush())
 	})
@@ -651,7 +651,7 @@ func TestCondensorWithoutEntrypoint(t *testing.T) {
 		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
 		require.Nil(t, err)
 
-		assert.Equal(t, res.Nodes.Get(0), graph.NewVertexWithConnections(0, 3, make([][]uint64, 4)))
+		assert.Contains(t, res.Nodes, &vertex{id: 0, level: 3, connections: make([][]uint64, 4)})
 		assert.Equal(t, uint64(17), res.Entrypoint)
 		assert.Equal(t, uint16(3), res.Level)
 	})
@@ -668,19 +668,19 @@ func TestCondensorWithPQInformation(t *testing.T) {
 	defer uncondensed.Shutdown(ctx)
 
 	encoders := []compressionhelpers.PQEncoder{
-		compressionhelpers.NewKMeansWithCenters(
+		compressionhelpers.NewKMeansEncoderWithCenters(
 			4,
 			2,
 			0,
 			[][]float32{{1, 2}, {3, 4}, {5, 6}, {7, 8}},
 		),
-		compressionhelpers.NewKMeansWithCenters(
+		compressionhelpers.NewKMeansEncoderWithCenters(
 			4,
 			2,
 			1,
 			[][]float32{{8, 7}, {6, 5}, {4, 3}, {2, 1}},
 		),
-		compressionhelpers.NewKMeansWithCenters(
+		compressionhelpers.NewKMeansEncoderWithCenters(
 			4,
 			2,
 			2,
@@ -741,6 +741,91 @@ func TestCondensorWithPQInformation(t *testing.T) {
 	})
 }
 
+func TestCondensorWithMUVERAInformation(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	uncondensed, err := NewCommitLogger(rootPath, "uncondensed", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+	defer uncondensed.Shutdown(ctx)
+
+	gaussians := [][][]float32{
+		{
+			{1, 2, 3, 4, 5}, // cluster 1
+			{1, 2, 3, 4, 5}, // cluster 2
+		}, // rep 1
+		{
+			{5, 6, 7, 8, 9}, // cluster 1
+			{5, 6, 7, 8, 9}, // cluster 2
+		}, // rep 2
+	} // (repetitions, kSim, dimensions)
+
+	s := [][][]float32{
+		{
+			{-1, 1, 1, -1, 1}, // dprojection 1
+			{1, -1, 1, 1, -1}, // dprojection 2
+		}, // rep 1
+		{
+			{-1, 1, 1, -1, 1}, // dprojection 1
+			{1, -1, 1, 1, -1}, // dprojection 2
+		}, // rep 2
+	} // (repetitions, dProjections, dimensions)
+
+	t.Run("add muvera info", func(t *testing.T) {
+		uncondensed.AddMuvera(multivector.MuveraData{
+			KSim:         2,
+			NumClusters:  4,
+			Dimensions:   5,
+			DProjections: 2,
+			Repetitions:  2,
+			Gaussians:    gaussians,
+			S:            s,
+		})
+
+		require.Nil(t, uncondensed.Flush())
+	})
+
+	t.Run("condense the original and verify the MUVERA info is present", func(t *testing.T) {
+		input, ok, err := getCurrentCommitLogFileName(commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		err = NewMemoryCondensor(logger).Do(commitLogFileName(rootPath, "uncondensed", input))
+		require.Nil(t, err)
+
+		actual, ok, err := getCurrentCommitLogFileName(
+			commitLogDirectory(rootPath, "uncondensed"))
+		require.Nil(t, err)
+		require.True(t, ok)
+
+		assert.True(t, strings.HasSuffix(actual, ".condensed"),
+			"commit log is now saved as condensed")
+
+		initialState := DeserializationResult{}
+		fd, err := os.Open(commitLogFileName(rootPath, "uncondensed", actual))
+		require.Nil(t, err)
+
+		bufr := bufio.NewReader(fd)
+		res, _, err := NewDeserializer(logger).Do(bufr, &initialState, false)
+		require.Nil(t, err)
+
+		assert.True(t, res.MuveraEnabled)
+		expected := multivector.MuveraData{
+			KSim:         2,
+			NumClusters:  4,
+			Dimensions:   5,
+			DProjections: 2,
+			Repetitions:  2,
+			Gaussians:    gaussians,
+			S:            s,
+		}
+
+		assert.Equal(t, expected, *res.EncoderMuvera)
+	})
+}
+
 func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,
 	fileNames []string,
 ) {
@@ -774,23 +859,16 @@ func readFromCommitLogs(t *testing.T, fileNames ...string) *hnsw {
 // just a test helper to make the output easier to compare, remove all trailing
 // nil nodes by starting from the last and stopping as soon as a node is not
 // nil
-func removeTrailingNilNodes(in *graph.Nodes) *graph.Nodes {
-	end := in.Len() - 1
+func removeTrailingNilNodes(in []*vertex) []*vertex {
+	pos := len(in) - 1
 
-	in.IterReverse(func(id uint64, node *graph.Vertex) bool {
-		end = int(id)
-		return false
-	})
+	for pos >= 0 {
+		if in[pos] != nil {
+			break
+		}
 
-	if end == in.Len()-1 {
-		return in
+		pos--
 	}
 
-	nodes := make([]*graph.Vertex, in.Len())
-
-	for i := 0; i < end; i++ {
-		nodes[i] = in.Get(uint64(i))
-	}
-
-	return graph.NewNodesWith(nodes)
+	return in[:pos+1]
 }

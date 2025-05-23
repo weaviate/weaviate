@@ -34,12 +34,14 @@ func Serve(appState *state.State) {
 	classifications := NewClassifications(appState.ClassificationRepo.TxManager(), auth)
 	nodes := NewNodes(appState.RemoteNodeIncoming, auth)
 	backups := NewBackups(appState.BackupManager, auth)
+	dbUsers := NewDbUsers(appState.APIKeyRemote, auth)
 
 	mux := http.NewServeMux()
 	mux.Handle("/classifications/transactions/",
 		http.StripPrefix("/classifications/transactions/",
 			classifications.Transactions()))
 
+	mux.Handle("/cluster/users/db/", dbUsers.Users())
 	mux.Handle("/nodes/", nodes.Nodes())
 	mux.Handle("/indices/", indices.Indices())
 	mux.Handle("/replicas/indices/", replicatedIndices.Indices())

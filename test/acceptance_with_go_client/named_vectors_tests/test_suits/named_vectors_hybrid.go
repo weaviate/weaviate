@@ -47,7 +47,7 @@ func testHybrid(host string) func(t *testing.T) {
 					Vectorizer: map[string]interface{}{
 						text2vecTransformers: map[string]interface{}{
 							"vectorizeClassName": false,
-							"sourceProperties":   []string{"text"},
+							"properties":         []string{"text"},
 						},
 					},
 					VectorIndexType: "flat",
@@ -56,7 +56,7 @@ func testHybrid(host string) func(t *testing.T) {
 					Vectorizer: map[string]interface{}{
 						text2vecContextionary: map[string]interface{}{
 							"vectorizeClassName": false,
-							"sourceProperties":   []string{"text2"},
+							"properties":         []string{"text2"},
 						},
 					},
 					VectorIndexType: "flat",
@@ -151,6 +151,51 @@ func testHybrid(host string) func(t *testing.T) {
 			}, 5*time.Second, 1*time.Second)
 
 			require.ElementsMatch(t, ids, []string{id, id2})
+		})
+
+		t.Run("default vector chosen", func(t *testing.T) {
+			singleVecClass := &models.Class{
+				Class: "TestClass",
+				Properties: []*models.Property{
+					{
+						Name: "text", DataType: []string{schema.DataTypeText.String()},
+					},
+				},
+				VectorConfig: map[string]models.VectorConfig{
+					contextionary: {
+						Vectorizer: map[string]interface{}{
+							text2vecContextionary: map[string]interface{}{},
+						},
+						VectorIndexType: "flat",
+					},
+				},
+			}
+
+			require.NoError(t, client.Schema().ClassCreator().WithClass(singleVecClass).Do(ctx))
+			defer cleanup()
+
+			_, err = client.Data().Creator().
+				WithClassName(class.Class).
+				WithID(id).
+				WithProperties(map[string]interface{}{
+					"text": "Some text goes here",
+				}).
+				Do(ctx)
+			require.NoError(t, err)
+
+			// query without providing target vector
+			resp, err := client.GraphQL().Get().
+				WithClassName(class.Class).
+				WithHybrid(client.GraphQL().
+					HybridArgumentBuilder().
+					WithQuery("Some text goes here").
+					WithAlpha(0.5)).
+				WithFields(field).
+				Do(ctx)
+			require.NoError(t, err)
+
+			ids := acceptance_with_go_client.GetIds(t, resp, class.Class)
+			require.ElementsMatch(t, ids, []string{id})
 		})
 	}
 }

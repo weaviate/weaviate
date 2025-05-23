@@ -21,6 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -109,14 +110,6 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
-	if cls.ShardingConfig != nil && schema.MultiTenancyEnabled(cls) {
-		return nil, 0, fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
-	} else if cls.MultiTenancyConfig == nil {
-		cls.MultiTenancyConfig = &models.MultiTenancyConfig{}
-	} else if cls.MultiTenancyConfig.Enabled {
-		cls.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
-	}
-
 	if err := h.setNewClassDefaults(cls, h.config.Replication); err != nil {
 		return nil, 0, err
 	}
@@ -140,13 +133,15 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		h.logger.WithField("error", err).Error("could not query the collections count")
 	}
 
-	if h.config.MaximumAllowedCollectionsCount != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= h.config.MaximumAllowedCollectionsCount {
+	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
+
+	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
 		return nil, 0, fmt.Errorf(
 			"cannot create collection: maximum number of collections (%d) reached - "+
 				"please consider switching to multi-tenancy or increasing the collection count limit - "+
 				"see https://weaviate.io/collections-count-limit to learn about available options and best practices "+
 				"when working with multiple collections and tenants",
-			h.config.MaximumAllowedCollectionsCount)
+			limit)
 	}
 
 	shardState, err := sharding.InitState(cls.Class,
@@ -195,7 +190,7 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 		return h.schemaReader.ReadOnlyClass(name), nil
 	}
 
-	err = h.validateCanAddClass(ctx, class, classGetterWrapper, true)
+	err = h.validateClassInvariants(ctx, class, classGetterWrapper, true)
 	if err != nil {
 		return err
 	}
@@ -226,8 +221,11 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 
 	class = schema.UppercaseClassName(class)
 
-	_, err = h.schemaManager.DeleteClass(ctx, class)
-	return err
+	if _, err = h.schemaManager.DeleteClass(ctx, class); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
@@ -238,6 +236,12 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		return err
 	}
 
+	return UpdateClassInternal(h, ctx, className, updated)
+}
+
+// bypass the auth check for internal class update requests
+func UpdateClassInternal(h *Handler, ctx context.Context, className string, updated *models.Class,
+) error {
 	// make sure unset optionals on 'updated' don't lead to an error, as all
 	// optionals would have been set with defaults on the initial already
 	if err := h.setClassDefaults(updated, h.config.Replication); err != nil {
@@ -267,7 +271,6 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 	initial := h.schemaReader.ReadOnlyClass(className)
 	var shardingState *sharding.State
 
-	// first layer of defense is basic validation if class already exists
 	if initial != nil {
 		_, err := validateUpdatingMT(initial, updated)
 		if err != nil {
@@ -295,11 +298,19 @@ func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
 		}
 	}
 
-	_, err = h.schemaManager.UpdateClass(ctx, updated, shardingState)
+	_, err := h.schemaManager.UpdateClass(ctx, updated, shardingState)
 	return err
 }
 
 func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
+	if class.ShardingConfig != nil && schema.MultiTenancyEnabled(class) {
+		return fmt.Errorf("cannot have both shardingConfig and multiTenancyConfig")
+	} else if class.MultiTenancyConfig == nil {
+		class.MultiTenancyConfig = &models.MultiTenancyConfig{}
+	} else if class.MultiTenancyConfig.Enabled {
+		class.ShardingConfig = shardingcfg.Config{DesiredCount: 0} // tenant shards will be created dynamically
+	}
+
 	if err := m.setClassDefaults(class, globalCfg); err != nil {
 		return err
 	}
@@ -321,9 +332,8 @@ func (m *Handler) setNewClassDefaults(class *models.Class, globalCfg replication
 func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.GlobalConfig) error {
 	// set legacy vector index defaults only when:
 	// 	- no target vectors are configured
-	//  - OR, there are target vectors configured AND there are hints that legacy index is also needed
-	legacyVectorIndexConfigured := class.Vectorizer != "" || class.VectorIndexType != "" || class.VectorIndexConfig != nil
-	if !hasTargetVectors(class) || legacyVectorIndexConfigured {
+	//  - OR, there are target vectors configured AND there is a legacy vector configured
+	if !hasTargetVectors(class) || modelsext.ClassHasLegacyVectorIndex(class) {
 		if class.Vectorizer == "" {
 			class.Vectorizer = h.config.DefaultVectorizerModule
 		}
@@ -605,7 +615,9 @@ func (h *Handler) validateProperty(
 
 func setInvertedConfigDefaults(class *models.Class) {
 	if class.InvertedIndexConfig == nil {
-		class.InvertedIndexConfig = &models.InvertedIndexConfig{}
+		class.InvertedIndexConfig = &models.InvertedIndexConfig{
+			UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
+		}
 	}
 
 	if class.InvertedIndexConfig.CleanupIntervalSeconds == 0 {
@@ -626,7 +638,17 @@ func setInvertedConfigDefaults(class *models.Class) {
 	}
 }
 
-func (h *Handler) validateCanAddClass(
+func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
+	relaxCrossRefValidation bool,
+) error {
+	if modelsext.ClassHasLegacyVectorIndex(class) && len(class.VectorConfig) > 0 {
+		return fmt.Errorf("creating a class with both a class level vector index and named vectors is forbidden")
+	}
+
+	return h.validateClassInvariants(ctx, class, classGetterWithAuth, relaxCrossRefValidation)
+}
+
+func (h *Handler) validateClassInvariants(
 	ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
@@ -699,9 +721,9 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 			if tokenization == "" {
 				return nil
 			}
-			return fmt.Errorf("Tokenization is not allowed for data type '%s'", primitiveDataType)
+			return fmt.Errorf("tokenization is not allowed for data type '%s'", primitiveDataType)
 		}
-		return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
+		return fmt.Errorf("tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
 	}
 
 	if tokenization == "" {
@@ -709,9 +731,9 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 	}
 
 	if propertyDataType.IsNested() {
-		return fmt.Errorf("Tokenization is not allowed for object/object[] data types")
+		return fmt.Errorf("tokenization is not allowed for object/object[] data types")
 	}
-	return fmt.Errorf("Tokenization is not allowed for reference data type")
+	return fmt.Errorf("tokenization is not allowed for reference data type")
 }
 
 func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
@@ -756,8 +778,7 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 }
 
 func (h *Handler) validateVectorSettings(class *models.Class) error {
-	// legacy vector index is optional, therefore, validate it only if present
-	if class.VectorIndexType != "" {
+	if modelsext.ClassHasLegacyVectorIndex(class) {
 		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
 		}
@@ -808,7 +829,12 @@ func (h *Handler) validateVectorizer(vectorizer string) error {
 
 func (h *Handler) validateVectorIndexType(vectorIndexType string) error {
 	switch vectorIndexType {
-	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT, vectorindex.VectorIndexTypeDYNAMIC:
+	case vectorindex.VectorIndexTypeHNSW, vectorindex.VectorIndexTypeFLAT:
+		return nil
+	case vectorindex.VectorIndexTypeDYNAMIC:
+		if !h.asyncIndexingEnabled {
+			return fmt.Errorf("the dynamic index can only be created under async indexing environment (ASYNC_INDEXING=true)")
+		}
 		return nil
 	default:
 		return errors.Errorf("unrecognized or unsupported vectorIndexType %q",
@@ -859,8 +885,9 @@ func validateImmutableFields(initial, updated *models.Class) error {
 
 	for k, v := range updated.VectorConfig {
 		if _, ok := initial.VectorConfig[k]; !ok {
-			return fmt.Errorf("vector config is immutable")
+			continue
 		}
+
 		if !reflect.DeepEqual(initial.VectorConfig[k].Vectorizer, v.Vectorizer) {
 			return fmt.Errorf("vectorizer config of vector %q is immutable", k)
 		}
@@ -888,7 +915,7 @@ func validateImmutableTextFields(previous, next *models.Class,
 	return nil
 }
 
-func validateVectorIndexConfigImmutableFields(initial, updated *models.Class) error {
+func validateLegacyVectorIndexConfigImmutableFields(initial, updated *models.Class) error {
 	return validateImmutableTextFields(initial, updated, []immutableText{
 		{
 			name:     "vectorizer",
