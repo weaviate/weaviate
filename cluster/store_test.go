@@ -1388,7 +1388,18 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 		},
 		replicationFSM: schema.NewMockreplicationFSM(t),
 	}
-	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry())
+	snapshotRestoreChan := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-snapshotRestoreChan:
+			case <-time.After(20 * time.Second):
+				// Will only happen if a unit test involving MockStore is at all blocked
+				assert.Fail(t, "MockStore: snapshot restore channel timed out")
+			}
+		}
+	}()
+	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry(), snapshotRestoreChan)
 	s.schemaManager.SetReplicationFSM(ms.replicationFSM)
 	ms.store = &s
 	return ms
