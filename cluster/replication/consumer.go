@@ -498,6 +498,11 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 			logger.WithError(err).Error("failure while storing schema version for replication operation")
 			return api.ShardReplicationState(""), err
 		}
+
+		if err := c.leaderClient.WaitForUpdate(ctx, schemaVersion); err != nil {
+			logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
+			return api.ShardReplicationState(""), err
+		}
 	}
 
 	if ctx.Err() != nil {
@@ -527,6 +532,11 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
 		return api.ShardReplicationState(""), ctx.Err()
+	}
+
+	if err := c.leaderClient.WaitForUpdate(ctx, op.Status.SchemaVersion); err != nil {
+		logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
+		return api.ShardReplicationState(""), err
 	}
 
 	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
@@ -628,6 +638,11 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOpAndStatus(c.logger.Logger, op.Op, op.Status)
 	logger.Info("processing dehydrating replication operation")
+
+	if err := c.leaderClient.WaitForUpdate(ctx, op.Status.SchemaVersion); err != nil {
+		logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
+		return api.ShardReplicationState(""), err
+	}
 
 	replicaExists := false
 	nodes, err := c.schemaReader.ShardReplicas(op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)

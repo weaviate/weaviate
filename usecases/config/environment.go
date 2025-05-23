@@ -47,7 +47,7 @@ const (
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
 	DefaultReplicationEngineMaxWorkers     = 5
-	DefaultReplicaMovementMinimumAsyncWait = 100 * time.Second
+	DefaultReplicaMovementMinimumAsyncWait = 20 * time.Second
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 )
