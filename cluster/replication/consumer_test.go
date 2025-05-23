@@ -110,6 +110,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).Return(nil)
 		mockReplicaCopier.EXPECT().
 			RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
+		mockFSMUpdater.EXPECT().
+			ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
+			Return(nil)
 
 		var (
 			prepareProcessingCallbacksCounter int
@@ -403,6 +406,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 			mockFSMUpdater.EXPECT().
 				SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
+			mockFSMUpdater.EXPECT().
+				ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
+				Return(nil)
 		}
 
 		var (
@@ -714,6 +720,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).Return(nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(i), nil)
+				mockFSMUpdater.EXPECT().
+					ReplicationSetUnCancellable(mock.Anything, uint64(opID)).
+					Return(nil)
 				completionWg.Add(1)
 			} else {
 				require.False(t, opsCache.LoadOrStore(opID), "operation should not be stored twice in cache")
@@ -1189,6 +1198,9 @@ func TestConsumerOpDuplication(t *testing.T) {
 		RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
+	mockFSMUpdater.EXPECT().
+		ReplicationSetUnCancellable(mock.Anything, uint64(1)).
+		Return(nil)
 
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.FINALIZING)
@@ -1335,7 +1347,9 @@ func TestConsumerOpSkip(t *testing.T) {
 		RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
-
+	mockFSMUpdater.EXPECT().
+		ReplicationSetUnCancellable(mock.Anything, uint64(1)).
+		Return(nil)
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.FINALIZING)
 
