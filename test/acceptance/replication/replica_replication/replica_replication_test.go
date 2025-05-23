@@ -56,10 +56,28 @@ var paragraphIDs = []strfmt.UUID{
 
 type ReplicationTestSuite struct {
 	suite.Suite
+	compose *docker.DockerCompose
 }
 
 func (suite *ReplicationTestSuite) SetupTest() {
-	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+	t := suite.T()
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+
+	mainCtx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithText2VecContextionary().
+		Start(mainCtx)
+	require.Nil(t, err)
+	suite.compose = compose
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
 }
 
 func TestReplicationTestSuite(t *testing.T) {
@@ -68,28 +86,16 @@ func TestReplicationTestSuite(t *testing.T) {
 
 func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
 	t := suite.T()
-	mainCtx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithText2VecContextionary().
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
-
-	ctx, cancel := context.WithTimeout(mainCtx, 20*time.Minute)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Minute)
 	defer cancel()
 
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	articleClass := articles.ArticlesClass()
 
 	t.Run("stop node 3", func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, 3)
+		common.StopNodeAt(ctx, t, suite.compose, 3)
 	})
 
 	t.Run("create schema", func(t *testing.T) {
@@ -109,11 +115,11 @@ func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
 	})
 
 	t.Run("restart node 3", func(t *testing.T) {
-		common.StartNodeAt(ctx, t, compose, 3)
+		common.StartNodeAt(ctx, t, suite.compose, 3)
 	})
 
 	// Setup client again after restart to avoid HTTP error if client setup to container that now has a changed port
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
 
 	t.Run("insert paragraphs", func(t *testing.T) {
 		batch := make([]*models.Object, len(paragraphIDs))
@@ -123,7 +129,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
 				WithContents(fmt.Sprintf("paragraph#%d", i)).
 				Object()
 		}
-		common.CreateObjects(t, compose.GetWeaviate().URI(), batch)
+		common.CreateObjects(t, suite.compose.GetWeaviate().URI(), batch)
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
@@ -221,17 +227,17 @@ func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
 
 	// Kills the original node with the data to ensure we have only one replica available (the new one)
 	t.Run(fmt.Sprintf("stop node %d", sourceNode), func(t *testing.T) {
-		common.StopNodeAt(ctx, t, compose, sourceNode)
+		common.StopNodeAt(ctx, t, suite.compose, sourceNode)
 	})
 
 	t.Run("assert data is available for paragraph on node3 with consistency level one", func(t *testing.T) {
 		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
 			for _, objId := range paragraphIDs {
-				exists, err := common.ObjectExistsCL(t, compose.ContainerURI(3), paragraphClass.Class, objId, types.ConsistencyLevelOne)
+				exists, err := common.ObjectExistsCL(t, suite.compose.ContainerURI(3), paragraphClass.Class, objId, types.ConsistencyLevelOne)
 				assert.Nil(ct, err)
 				assert.True(ct, exists)
 
-				resp, err := common.GetObjectCL(t, compose.ContainerURI(3), paragraphClass.Class, objId, types.ConsistencyLevelOne)
+				resp, err := common.GetObjectCL(t, suite.compose.ContainerURI(3), paragraphClass.Class, objId, types.ConsistencyLevelOne)
 				assert.Nil(ct, err)
 				assert.NotNil(ct, resp)
 			}

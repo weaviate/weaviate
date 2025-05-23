@@ -29,7 +29,7 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuiteEndpoints) TestReplicationDeletingTenantCleansUpOperations() {
+func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperations() {
 	t := suite.T()
 
 	paragraphClass := articles.ParagraphsClass()

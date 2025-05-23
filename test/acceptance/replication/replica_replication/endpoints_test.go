@@ -12,7 +12,6 @@
 package replica_replication
 
 import (
-	"context"
 	"testing"
 	"time"
 
@@ -20,45 +19,16 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-type ReplicationTestSuiteEndpoints struct {
-	suite.Suite
-}
-
-func (suite *ReplicationTestSuiteEndpoints) SetupTest() {
-	t := suite.T()
-	// t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
-
-	mainCtx := context.Background()
-
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-}
-
-func TestReplicationTestSuiteEndpoints(t *testing.T) {
-	suite.Run(t, new(ReplicationTestSuiteEndpoints))
-}
-
-func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateEndpoints() {
+func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	t := suite.T()
 
 	paragraphClass := articles.ParagraphsClass()
