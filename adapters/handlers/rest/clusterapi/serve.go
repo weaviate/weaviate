@@ -14,6 +14,7 @@ package clusterapi
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 
@@ -121,7 +122,7 @@ func (s *Server) Close(ctx context.Context) error {
 // Serve is kept for backward compatibility
 func Serve(appState *state.State) (*Server, error) {
 	server := NewServer(appState)
-	if err := server.Serve(); err != nil && err != http.ErrServerClosed {
+	if err := server.Serve(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		appState.Logger.WithField("action", "cluster_api_shutdown").
 			WithError(err).
 			Error("server error")
