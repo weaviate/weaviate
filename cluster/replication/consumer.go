@@ -375,8 +375,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			}
 			logger.WithError(err).Warn("state transition handler failed")
 			// Otherwise, register the error with the FSM
-			err = c.leaderClient.ReplicationRegisterError(ctx, op.Op.ID, err.Error())
-			if err != nil {
+			if err := c.leaderClient.ReplicationRegisterError(ctx, op.Op.ID, err.Error()); err != nil {
 				logger.WithError(err).Error("failed to register error for replication operation")
 			}
 			return api.ShardReplicationState(""), err
@@ -608,6 +607,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	switch op.Op.TransferType {
 	case api.COPY:
+		// TODO: move these two functions into a single function to avoid code duplication
 		if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
 			logger.WithError(err).Error("failure while reverting async replication on local node")
 		}
@@ -698,6 +698,7 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		}
 	}
 
+	// TODO: move these two functions into a single function to avoid code duplication
 	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
 		logger.WithError(err).Error("failure while reverting async replication locally")
 	}
@@ -793,6 +794,24 @@ func (c *CopyOpConsumer) waitForAsyncReplication(
 		}).Info("async replication status")
 		if asyncReplStatus.ObjectsPropagated == 0 && asyncReplIsPastUpperTimeBound {
 			return nil
+		}
+
+		// Wait until we've passed the upper time bound before starting status checks
+		// to avoid unnecessary status checks before the upper time bound has passed
+		currentTimeMillis := time.Now().UnixMilli()
+		if currentTimeMillis < asyncReplicationUpperTimeBoundUnixMillis {
+			waitDuration := time.Duration(asyncReplicationUpperTimeBoundUnixMillis-currentTimeMillis) * time.Millisecond
+			logger.WithFields(logrus.Fields{
+				"wait_duration_ms": waitDuration.Milliseconds(),
+				"upper_bound_ms":   asyncReplicationUpperTimeBoundUnixMillis,
+			}).Info("waiting to reach upper time bound before starting async replication status checks")
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(waitDuration):
+				// Time has passed, continue below with the status checks
+			}
 		}
 
 		return errors.New("async replication not done")
