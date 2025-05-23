@@ -272,9 +272,13 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 
 	t.Run("verify get", func(t *testing.T) {
 		for i := range keys {
-			value, err := bucket.RoaringSetGet(keys[i])
-			require.NoError(t, err)
-			assert.ElementsMatch(t, values[i], value.ToArray())
+			func() {
+				value, release, err := bucket.RoaringSetGet(keys[i])
+				require.NoError(t, err)
+				defer release()
+
+				assert.ElementsMatch(t, values[i], value.ToArray())
+			}()
 		}
 	})
 

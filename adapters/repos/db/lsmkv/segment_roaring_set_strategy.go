@@ -62,27 +62,27 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 	return out, release, nil
 }
 
-func (s *segment) roaringSetMergeWith(key []byte, bitmapBufPool roaringset.BitmapBufPool, input roaringset.BitmapLayer,
-) (merged roaringset.BitmapLayer, err error) {
+func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool,
+) error {
 	if err := segmentindex.CheckExpectedStrategy(s.strategy, segmentindex.StrategyRoaringSet); err != nil {
-		return input, err
+		return err
 	}
 
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
-		return input, nil
+		return nil
 	}
 
 	node, err := s.index.Get(key)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
-			return input, nil
+			return nil
 		}
-		return input, err
+		return err
 	}
 
 	sn, _, release, err := s.segmentNodeFromBuffer(nodeOffset{node.Start, node.End}, bitmapBufPool)
 	if err != nil {
-		return input, err
+		return err
 	}
 	defer release()
 
@@ -90,7 +90,7 @@ func (s *segment) roaringSetMergeWith(key []byte, bitmapBufPool roaringset.Bitma
 		AndNotConc(sn.Deletions(), concurrency.SROAR_MERGE).
 		OrConc(sn.Additions(), concurrency.SROAR_MERGE)
 
-	return input, nil
+	return nil
 }
 
 func (s *segment) segmentNodeFromBuffer(offset nodeOffset, bitmapBufPool roaringset.BitmapBufPool,
