@@ -80,15 +80,24 @@ func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, 
 		return err
 	}
 
+	// fmt.Printf("  ==> input add %v del %v\n\n", input.Additions == nil, input.Deletions == nil)
+
 	sn, _, release, err := s.segmentNodeFromBuffer(nodeOffset{node.Start, node.End}, bitmapBufPool)
 	if err != nil {
 		return err
 	}
+	// _ = release
 	defer release()
+
+	// fmt.Printf("  ==> sn add %v del %v\n\n", sn.Additions() == nil, sn.Deletions() == nil)
 
 	input.Additions.
 		AndNotConc(sn.Deletions(), concurrency.SROAR_MERGE).
 		OrConc(sn.Additions(), concurrency.SROAR_MERGE)
+
+	// input.Additions.
+	// 	AndNotConc(sn.Deletions(), concurrency.SROAR_MERGE).
+	// 	OrConc(sn.Additions(), concurrency.SROAR_MERGE)
 
 	return nil
 }
@@ -125,4 +134,4 @@ func (s *segment) segmentNodeFromBuffer(offset nodeOffset, bitmapBufPool roaring
 	return roaringset.NewSegmentNodeFromBuffer(contents), poolUsed, put, nil
 }
 
-var noopRelease func()
+var noopRelease = func() {}

@@ -662,29 +662,41 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, 
 	segments, sgRelease := sg.getAndLockSegments()
 	defer sgRelease()
 
-	release = noopRelease
 	ln := len(segments)
 	if ln == 0 {
-		return out, release, nil
+		return nil, noopRelease, nil
 	}
 
+	release = noopRelease
 	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.5)
 	i := 0
+	// fmt.Printf("  ==> len [%d]\n", ln)
 	for ; i < ln; i++ {
+		// fmt.Printf("  ==> checking i [%d]\n", i)
 		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
-			return out, noopRelease, err
+			return nil, noopRelease, err
 		}
+		// fmt.Printf("  ==> found i [%d]\n", i)
 		out = append(out, layer)
 		release = layerRelease
 		i++
 		break
 	}
+	defer func() {
+		if err != nil {
+			release()
+		}
+	}()
+
 	for ; i < ln; i++ {
-		segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool)
+		// fmt.Printf("  ==> merging i [%d]\n", i)
+		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool); err != nil {
+			return nil, noopRelease, err
+		}
 	}
 
 	return out, release, nil
