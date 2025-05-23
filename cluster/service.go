@@ -179,7 +179,9 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 				// The replication FSM has been restored from a snapshot, we need to stop and restart
 				// the replication engine to ensure that it is in sync with the new state.
 				c.replicationEngine.Stop()
-				if err := c.replicationEngine.Start(context.Background()); err != nil {
+				engineCtx, engineCancel := context.WithCancel(ctx)
+				c.cancelReplicationEngine = engineCancel
+				if err := c.replicationEngine.Start(engineCtx); err != nil {
 					c.logger.WithError(err).Error("replication engine FSM snapshot restore: failed to start")
 				}
 			}
