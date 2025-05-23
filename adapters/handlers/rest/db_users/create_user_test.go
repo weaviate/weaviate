@@ -164,16 +164,40 @@ func TestCreateSuccessWithKey(t *testing.T) {
 	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
-	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{}, nil)
 	dynUser.On("CreateUserWithKey", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
 
 	h := dynUserHandler{
-		dbUsers:    dynUser,
-		authorizer: authorizer, dbUserEnabled: true,
+		dbUsers:              dynUser,
+		authorizer:           authorizer,
+		dbUserEnabled:        true,
+		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{user}, AllowedKeys: []string{"key"}},
 	}
+	tp := true
 
-	res := h.createUser(users.CreateUserParams{UserID: user, Body: users.CreateUserBody{APIKey: "ApiKey"}}, principal)
+	res := h.createUser(users.CreateUserParams{UserID: user, Body: users.CreateUserBody{Import: &tp}}, principal)
 	parsed, ok := res.(*users.CreateUserCreated)
+	assert.True(t, ok)
+	assert.NotNil(t, parsed)
+	assert.Equal(t, *parsed.Payload.Apikey, "key")
+}
+
+func TestCreateNotFoundWithKey(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authorization.NewMockAuthorizer(t)
+	user := "user@weaviate.io"
+	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
+
+	dynUser := NewMockDbUserAndRolesGetter(t)
+	h := dynUserHandler{
+		dbUsers:              dynUser,
+		authorizer:           authorizer,
+		dbUserEnabled:        true,
+		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{user + "false"}, AllowedKeys: []string{"key"}},
+	}
+	tp := true
+
+	res := h.createUser(users.CreateUserParams{UserID: user, Body: users.CreateUserBody{Import: &tp}}, principal)
+	parsed, ok := res.(*users.CreateUserNotFound)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
 }

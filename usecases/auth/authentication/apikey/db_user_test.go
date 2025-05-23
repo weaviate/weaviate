@@ -15,6 +15,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -113,7 +114,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	randomKey, _, err := keys.DecodeApiKey(apiKey)
 	require.NoError(t, err)
 
-	_, ok := dynUsers.memoryOnlyData.WeakKeyStorageById[userId]
+	_, ok := dynUsers.memoryOnlyData.weakKeyStorageById[userId]
 	require.False(t, ok)
 
 	startSlow := time.Now()
@@ -121,7 +122,7 @@ func TestDynUserTestSlowAfterWeakHash(t *testing.T) {
 	require.NoError(t, err)
 	tookSlow := time.Since(startSlow)
 
-	_, ok = dynUsers.memoryOnlyData.WeakKeyStorageById[userId]
+	_, ok = dynUsers.memoryOnlyData.weakKeyStorageById[userId]
 	require.True(t, ok)
 
 	startFast := time.Now()
@@ -321,42 +322,54 @@ func TestLastUsedTime(t *testing.T) {
 func TestImportingStaticKeys(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
-	userId := "user"
-	importedApiKey := "importedApiKey"
 	createdAt := time.Now()
-	require.NoError(t, dynUsers.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
+	for i := 0; i < 10; i++ {
+		userId := "user" + strconv.Itoa(i)
+		importedApiKey := "importedApiKey" + strconv.Itoa(i)
+		require.NoError(t, dynUsers.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
 
-	principal := dynUsers.ValidateImportedKey(importedApiKey)
-	require.NotNil(t, principal)
-	require.Equal(t, userId, principal.Username)
-	require.Equal(t, principal.UserType, models.UserTypeInputDb)
+		principal := dynUsers.ValidateImportedKey(importedApiKey)
+		require.NotNil(t, principal)
+		require.Equal(t, userId, principal.Username)
+		require.Equal(t, principal.UserType, models.UserTypeInputDb)
 
-	users, err := dynUsers.GetUsers(userId)
-	require.NoError(t, err)
-	require.Len(t, users, 1)
-	user, ok := users[userId]
-	require.True(t, ok)
-	require.Equal(t, user.Id, userId)
-	require.Equal(t, user.InternalIdentifier, "imported")
-	require.Equal(t, user.CreatedAt, createdAt)
-	require.True(t, user.ImportedWithKey)
+		require.True(t, dynUsers.IsBlockedKey(importedApiKey))
+	}
 
-	apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
-	require.NoError(t, err)
-	require.NoError(t, dynUsers.RotateKey(userId, apiKey[:3], hash, "imported", identifier))
+	for i := 0; i < 10; i++ {
+		userId := "user" + strconv.Itoa(i)
+		importedApiKey := "importedApiKey" + strconv.Itoa(i)
 
-	login, _, err := keys.DecodeApiKey(apiKey)
-	require.NoError(t, err)
-	_, err = dynUsers.ValidateAndExtract(login, identifier)
-	require.NoError(t, err)
+		users, err := dynUsers.GetUsers(userId)
+		require.NoError(t, err)
+		require.Len(t, users, 1)
+		user, ok := users[userId]
+		require.True(t, ok)
+		require.Equal(t, user.Id, userId)
+		require.Equal(t, user.InternalIdentifier, "imported")
+		require.Equal(t, user.CreatedAt, createdAt)
+		require.True(t, user.ImportedWithKey)
 
-	users, err = dynUsers.GetUsers(userId)
-	require.NoError(t, err)
-	require.Len(t, users, 1)
-	user, ok = users[userId]
-	require.True(t, ok)
-	require.Equal(t, user.Id, userId)
-	require.Equal(t, user.InternalIdentifier, identifier)
-	require.Equal(t, user.CreatedAt, createdAt)
-	require.False(t, user.ImportedWithKey)
+		apiKey, hash, identifier, err := keys.CreateApiKeyAndHash()
+		require.NoError(t, err)
+		require.NoError(t, dynUsers.RotateKey(userId, apiKey[:3], hash, "imported", identifier))
+
+		login, _, err := keys.DecodeApiKey(apiKey)
+		require.NoError(t, err)
+		_, err = dynUsers.ValidateAndExtract(login, identifier)
+		require.NoError(t, err)
+
+		users, err = dynUsers.GetUsers(userId)
+		require.NoError(t, err)
+		require.Len(t, users, 1)
+		user, ok = users[userId]
+		require.True(t, ok)
+		require.Equal(t, user.Id, userId)
+		require.Equal(t, user.InternalIdentifier, identifier)
+		require.Equal(t, user.CreatedAt, createdAt)
+		require.False(t, user.ImportedWithKey)
+
+		require.True(t, dynUsers.IsBlockedKey(importedApiKey))
+
+	}
 }

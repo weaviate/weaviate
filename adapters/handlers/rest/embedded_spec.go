@@ -4360,10 +4360,10 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "api_key": {
-                  "description": "import API key - this parameter exists only temporarily. Do not use",
-                  "type": "string",
-                  "default": ""
+                "import": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
+                  "type": "boolean",
+                  "default": false
                 }
               }
             }
@@ -4387,6 +4387,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11766,10 +11772,10 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
-                "api_key": {
-                  "description": "import API key - this parameter exists only temporarily. Do not use",
-                  "type": "string",
-                  "default": ""
+                "import": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
+                  "type": "boolean",
+                  "default": false
                 }
               }
             }
@@ -11793,6 +11799,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

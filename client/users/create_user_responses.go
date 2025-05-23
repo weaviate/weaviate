@@ -60,6 +60,12 @@ func (o *CreateUserReader) ReadResponse(response runtime.ClientResponse, consume
 			return nil, err
 		}
 		return nil, result
+	case 404:
+		result := NewCreateUserNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 409:
 		result := NewCreateUserConflict()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -343,6 +349,74 @@ func (o *CreateUserForbidden) readResponse(response runtime.ClientResponse, cons
 	return nil
 }
 
+// NewCreateUserNotFound creates a CreateUserNotFound with default headers values
+func NewCreateUserNotFound() *CreateUserNotFound {
+	return &CreateUserNotFound{}
+}
+
+/*
+CreateUserNotFound describes a response with status code 404, with default header values.
+
+user not found
+*/
+type CreateUserNotFound struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this create user not found response has a 2xx status code
+func (o *CreateUserNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this create user not found response has a 3xx status code
+func (o *CreateUserNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this create user not found response has a 4xx status code
+func (o *CreateUserNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this create user not found response has a 5xx status code
+func (o *CreateUserNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this create user not found response a status code equal to that given
+func (o *CreateUserNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the create user not found response
+func (o *CreateUserNotFound) Code() int {
+	return 404
+}
+
+func (o *CreateUserNotFound) Error() string {
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserNotFound  %+v", 404, o.Payload)
+}
+
+func (o *CreateUserNotFound) String() string {
+	return fmt.Sprintf("[POST /users/db/{user_id}][%d] createUserNotFound  %+v", 404, o.Payload)
+}
+
+func (o *CreateUserNotFound) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *CreateUserNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
 // NewCreateUserConflict creates a CreateUserConflict with default headers values
 func NewCreateUserConflict() *CreateUserConflict {
 	return &CreateUserConflict{}
@@ -553,8 +627,8 @@ swagger:model CreateUserBody
 */
 type CreateUserBody struct {
 
-	// import API key - this parameter exists only temporarily. Do not use
-	APIKey string `json:"api_key,omitempty"`
+	// EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user
+	Import *bool `json:"import,omitempty"`
 }
 
 // Validate validates this create user body

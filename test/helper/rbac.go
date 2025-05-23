@@ -128,9 +128,10 @@ func CreateUser(t *testing.T, userId, key string) string {
 	return *resp.Payload.Apikey
 }
 
-func CreateUserWithApiKey(t *testing.T, userId, apiKey, key string) string {
+func CreateUserWithApiKey(t *testing.T, userId, key string) string {
 	t.Helper()
-	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{APIKey: apiKey}), CreateAuth(key))
+	tp := true
+	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{Import: &tp}), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	require.NotNil(t, resp)

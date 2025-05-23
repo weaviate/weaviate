@@ -82,7 +82,17 @@ type dbUserdata struct {
 }
 
 type memoryOnlyData struct {
-	WeakKeyStorageById map[string][sha256.Size]byte
+	weakKeyStorageById map[string][sha256.Size]byte
+	// imported keys from static users should not work after key rotation, eg the following scenario
+	// - import user with "key"
+	// - login works when using "key" through dynamic users
+	// - key rotation "key" => "new-key"
+	// - login works when using "new-key" through dynamic users
+	// - login using "key" is blocked and does not reach static user config where the old key is still present
+	//
+	// Note that this will NOT be persisted and we expect that the static user configuration does not contain "key" anymore
+	// on the next restart
+	importedApiKeysBlocked [][sha256.Size]byte
 }
 
 func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, error) {
@@ -123,11 +133,14 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 	}
 
 	dbUsers := &DBUser{
-		path:           fullpath,
-		lock:           &sync.RWMutex{},
-		weakHashLock:   &sync.RWMutex{},
-		data:           snapshot.Data,
-		memoryOnlyData: memoryOnlyData{WeakKeyStorageById: make(map[string][sha256.Size]byte)},
+		path:         fullpath,
+		lock:         &sync.RWMutex{},
+		weakHashLock: &sync.RWMutex{},
+		data:         snapshot.Data,
+		memoryOnlyData: memoryOnlyData{
+			weakKeyStorageById:     make(map[string][sha256.Size]byte),
+			importedApiKeysBlocked: make([][sha256.Size]byte, 0),
+		},
 	}
 
 	// we save every change to file after a request is done, EXCEPT the lastUsedAt time as we do not want to write to a
@@ -180,6 +193,7 @@ func (c *DBUser) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [
 	}
 
 	c.data.ImportedApiKeysWeakHash[userId] = weakHash
+	c.memoryOnlyData.importedApiKeysBlocked = append(c.memoryOnlyData.importedApiKeysBlocked, weakHash)
 	c.data.Users[userId] = &User{
 		Id:                 userId,
 		Active:             true,
@@ -218,7 +232,7 @@ func (c *DBUser) RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier
 
 	c.data.Users[userId].ApiKeyFirstLetters = apiKeyFirstLetters
 	c.data.SecureKeyStorageById[userId] = secureHash
-	delete(c.memoryOnlyData.WeakKeyStorageById, userId)
+	delete(c.memoryOnlyData.weakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
 	return c.storeToFile()
 }
@@ -231,7 +245,7 @@ func (c *DBUser) DeleteUser(userId string) error {
 	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
 	delete(c.data.IdToIdentifier, userId)
 	delete(c.data.Users, userId)
-	delete(c.memoryOnlyData.WeakKeyStorageById, userId)
+	delete(c.memoryOnlyData.weakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
 	return c.storeToFile()
 }
@@ -307,10 +321,10 @@ func (c *DBUser) ValidateImportedKey(token string) *models.Principal {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
+	keyHashGiven := sha256.Sum256([]byte(token))
 	for userId, keyHashStored := range c.data.ImportedApiKeysWeakHash {
-		keyHashGiven := sha256.Sum256([]byte(token))
 		if subtle.ConstantTimeCompare(keyHashGiven[:], keyHashStored[:]) != 1 {
-			return nil
+			continue
 		}
 		// Last used time does not have to be exact. If we have multiple concurrent requests for the same
 		// user, only recording one of them is good enough
@@ -321,7 +335,18 @@ func (c *DBUser) ValidateImportedKey(token string) *models.Principal {
 
 		return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}
 	}
+
 	return nil
+}
+
+func (c *DBUser) IsBlockedKey(token string) bool {
+	keyHashGiven := sha256.Sum256([]byte(token))
+	for _, keyHashStored := range c.memoryOnlyData.importedApiKeysBlocked {
+		if subtle.ConstantTimeCompare(keyHashGiven[:], keyHashStored[:]) == 1 {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {
@@ -338,7 +363,7 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		return nil, fmt.Errorf("invalid token")
 	}
 	c.weakHashLock.RLock()
-	weakHash, ok := c.memoryOnlyData.WeakKeyStorageById[userId]
+	weakHash, ok := c.memoryOnlyData.weakKeyStorageById[userId]
 	c.weakHashLock.RUnlock()
 	if ok {
 		// use the secureHash as salt for the computation of the weaker in-memory
@@ -390,7 +415,7 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 	weakHash := sha256.Sum256(token)
 
 	c.weakHashLock.Lock()
-	c.memoryOnlyData.WeakKeyStorageById[userId] = weakHash
+	c.memoryOnlyData.weakKeyStorageById[userId] = weakHash
 	c.weakHashLock.Unlock()
 
 	return nil

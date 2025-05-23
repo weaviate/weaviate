@@ -2859,10 +2859,10 @@
             "schema": {
               "type": "object",
               "properties": {
-                "api_key": {
-                  "type":"string",
-                  "description": "import API key - this parameter exists only temporarily. Do not use",
-                  "default": ""
+                "import": {
+                  "type":"boolean",
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
+                  "default": false
                 }
               }
             }
@@ -2886,6 +2886,12 @@
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

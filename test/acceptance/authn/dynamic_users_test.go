@@ -28,8 +28,12 @@ func TestCreateUser(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
 
+	otherUser := "custom-user"
+	otherKey := "custom-key"
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherKey, otherUser).
+		WithDbUsers().
 		WithRBAC().WithRbacAdmins(adminUser).
 		Start(ctx)
 	require.Nil(t, err)
@@ -97,9 +101,8 @@ func TestCreateUser(t *testing.T) {
 
 	t.Run("create user with key and rotate key", func(t *testing.T) {
 		helper.DeleteUser(t, userName, adminKey)
-		apiKeyImport := "ApiKeyImport"
-		oldKey := helper.CreateUserWithApiKey(t, userName, apiKeyImport, adminKey)
-		require.Equal(t, oldKey, apiKeyImport)
+		oldKey := helper.CreateUserWithApiKey(t, userName, adminKey)
+		require.Equal(t, oldKey, otherKey)
 
 		info := helper.GetInfoForOwnUser(t, oldKey)
 		require.Equal(t, userName, *info.Username)

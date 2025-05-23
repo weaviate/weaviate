@@ -89,8 +89,8 @@ func (o *CreateUser) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // swagger:model CreateUserBody
 type CreateUserBody struct {
 
-	// import API key - this parameter exists only temporarily. Do not use
-	APIKey string `json:"api_key,omitempty" yaml:"api_key,omitempty"`
+	// EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user
+	Import *bool `json:"import,omitempty" yaml:"import,omitempty"`
 }
 
 // Validate validates this create user body

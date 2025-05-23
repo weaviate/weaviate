@@ -312,6 +312,29 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
+	if params.Body.Import != nil && *params.Body.Import {
+		if !h.principalIsRootUser(principal.Username) {
+			return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("only root users can import static api keys")))
+		}
+
+		if !h.staticUserExists(params.UserID) {
+			return users.NewCreateUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("static user %v does not exist", params.UserID)))
+		}
+
+		var apiKey string
+		for i, user := range h.staticApiKeysConfigs.Users {
+			if user == params.UserID {
+				apiKey = h.staticApiKeysConfigs.AllowedKeys[i]
+			}
+		}
+
+		if err := h.dbUsers.CreateUserWithKey(params.UserID, apiKey[:3], sha256.Sum256([]byte(apiKey)), time.Now()); err != nil {
+			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
+		}
+
+		return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
+	}
+
 	if h.staticUserExists(params.UserID) {
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' already exists", params.UserID)))
 	}
@@ -329,14 +352,6 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 
 	if len(existingUser) > 0 {
 		return users.NewCreateUserConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' already exists", params.UserID)))
-	}
-
-	if params.Body.APIKey != "" {
-		err := h.dbUsers.CreateUserWithKey(params.UserID, params.Body.APIKey[:3], sha256.Sum256([]byte(params.Body.APIKey)), time.Now())
-		if err != nil {
-			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("create user with api key: %w", err)))
-		}
-		return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &params.Body.APIKey})
 	}
 
 	apiKey, hash, userIdentifier, err := h.getApiKey()
@@ -545,6 +560,18 @@ func (h *dynUserHandler) staticUserExists(newUser string) bool {
 			if staticUser == newUser {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func (h *dynUserHandler) principalIsRootUser(name string) bool {
+	if !h.rbacConfig.Enabled && !h.adminListConfig.Enabled {
+		return true
+	}
+	for i := range h.rbacConfig.RootUsers {
+		if h.rbacConfig.RootUsers[i] == name {
+			return true
 		}
 	}
 	return false
