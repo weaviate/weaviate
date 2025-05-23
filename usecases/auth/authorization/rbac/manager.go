@@ -12,6 +12,8 @@
 package rbac
 
 import (
+	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -24,20 +26,27 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/config"
+)
+
+const (
+	SnapshotVersionV0 = iota
+	SnapshotVersionLatest
 )
 
 type manager struct {
-	casbin *casbin.SyncedCachedEnforcer
-	logger logrus.FieldLogger
+	casbin    *casbin.SyncedCachedEnforcer
+	logger    logrus.FieldLogger
+	authNconf config.Authentication
 }
 
-func New(rbacStoragePath string, rbac rbacconf.Config, logger logrus.FieldLogger) (*manager, error) {
-	csbin, err := Init(rbac, rbacStoragePath)
+func New(rbacStoragePath string, rbac rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*manager, error) {
+	csbin, err := Init(rbac, rbacStoragePath, authNconf)
 	if err != nil {
 		return nil, err
 	}
 
-	return &manager{csbin, logger}, nil
+	return &manager{csbin, logger, authNconf}, nil
 }
 
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
@@ -53,7 +62,7 @@ func (m *manager) upsertRolesPermissions(roles map[string][]authorization.Policy
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
 		// e.g. : g, user:wv_internal_empty, role:roleName
-		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserTypeDb), conv.PrefixRoleName(roleName)); err != nil {
+		if _, err := m.casbin.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserTypeInputDb), conv.PrefixRoleName(roleName)); err != nil {
 			return fmt.Errorf("AddRoleForUser: %w", err)
 		}
 		for _, policy := range policies {
@@ -196,7 +205,7 @@ func (m *manager) AddRolesForUser(user string, roles []string) error {
 	return nil
 }
 
-func (m *manager) GetRolesForUser(userName string, userType models.UserType) (map[string][]authorization.Policy, error) {
+func (m *manager) GetRolesForUser(userName string, userType models.UserTypeInput) (map[string][]authorization.Policy, error) {
 	rolesNames, err := m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
 	if err != nil {
 		return nil, fmt.Errorf("GetRolesForUser: %w", err)
@@ -211,7 +220,7 @@ func (m *manager) GetRolesForUser(userName string, userType models.UserType) (ma
 	return roles, err
 }
 
-func (m *manager) GetUsersForRole(roleName string, userType models.UserType) ([]string, error) {
+func (m *manager) GetUsersForRole(roleName string, userType models.UserTypeInput) ([]string, error) {
 	pusers, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(roleName))
 	if err != nil {
 		return nil, fmt.Errorf("GetUsersForRole: %w", err)
@@ -246,6 +255,87 @@ func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
 	if err := m.casbin.InvalidateCache(); err != nil {
 		return fmt.Errorf("InvalidateCache: %w", err)
 	}
+	return nil
+}
+
+// Snapshot is the RBAC state to be used for RAFT snapshots
+type snapshot struct {
+	Policy         [][]string `json:"roles_policies"`
+	GroupingPolicy [][]string `json:"grouping_policies"`
+	Version        int        `json:"version"`
+}
+
+func (m *manager) Snapshot() ([]byte, error) {
+	if m.casbin == nil {
+		return nil, nil
+	}
+
+	policy, err := m.casbin.GetPolicy()
+	if err != nil {
+		return nil, err
+	}
+	groupingPolicy, err := m.casbin.GetGroupingPolicy()
+	if err != nil {
+		return nil, err
+	}
+
+	// Use a buffer to stream the JSON encoding
+	var buf bytes.Buffer
+	if err := json.NewEncoder(&buf).Encode(snapshot{Policy: policy, GroupingPolicy: groupingPolicy, Version: SnapshotVersionLatest}); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
+
+func (m *manager) Restore(b []byte) error {
+	if m.casbin == nil {
+		return nil
+	}
+
+	// don't overwrite with empty snapshot to avoid overwriting recovery from file
+	// with a non-existent RBAC snapshot when coming from old versions
+	if len(b) == 0 {
+		return nil
+	}
+
+	snapshot := snapshot{}
+	if err := json.Unmarshal(b, &snapshot); err != nil {
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+
+	// we need to clear the policies before adding the new ones
+	m.casbin.ClearPolicy()
+
+	_, err := m.casbin.AddPolicies(snapshot.Policy)
+	if err != nil {
+		return fmt.Errorf("add policies: %w", err)
+	}
+
+	_, err = m.casbin.AddGroupingPolicies(snapshot.GroupingPolicy)
+	if err != nil {
+		return fmt.Errorf("add grouping policies: %w", err)
+	}
+
+	if snapshot.Version == SnapshotVersionV0 {
+		if err := upgradePoliciesFrom129(m.casbin, true); err != nil {
+			return fmt.Errorf("upgrade policies: %w", err)
+		}
+
+		if err := upgradeGroupingsFrom129(m.casbin, m.authNconf); err != nil {
+			return fmt.Errorf("upgrade groupings: %w", err)
+		}
+	}
+
+	// Save the policies to ensure they are persisted
+	if err := m.casbin.SavePolicy(); err != nil {
+		return fmt.Errorf("save policies: %w", err)
+	}
+
+	// Load the policies to ensure they are in memory
+	if err := m.casbin.LoadPolicy(); err != nil {
+		return fmt.Errorf("load policies: %w", err)
+	}
+
 	return nil
 }
 

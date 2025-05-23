@@ -18,19 +18,23 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/fsm"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ  authorization.Controller
-	logger logrus.FieldLogger
+	authZ       authorization.Controller
+	authNconfig config.Authentication
+	snapshotter fsm.Snapshotter
+	logger      logrus.FieldLogger
 }
 
-func NewManager(authZ authorization.Controller, logger logrus.FieldLogger) *Manager {
-	return &Manager{authZ: authZ, logger: logger}
+func NewManager(authZ authorization.Controller, authNconfig config.Authentication, snapshotter fsm.Snapshotter, logger logrus.FieldLogger) *Manager {
+	return &Manager{authZ: authZ, authNconfig: authNconfig, snapshotter: snapshotter, logger: logger}
 }
 
 func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
@@ -191,7 +195,7 @@ func (m *Manager) AddRolesForUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	reqs := migrateAssignRoles(req)
+	reqs := migrateAssignRoles(req, m.authNconfig)
 	for _, req := range reqs {
 		if err := m.authZ.AddRolesForUser(req.User, req.Roles); err != nil {
 			return err
@@ -238,5 +242,23 @@ func (m *Manager) RevokeRolesForUser(c *cmd.ApplyRequest) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func (m *Manager) Snapshot() ([]byte, error) {
+	if m.snapshotter == nil {
+		return nil, nil
+	}
+	return m.snapshotter.Snapshot()
+}
+
+func (m *Manager) Restore(b []byte) error {
+	if m.snapshotter == nil {
+		return nil
+	}
+	if err := m.snapshotter.Restore(b); err != nil {
+		return err
+	}
+	m.logger.Info("successfully restored rbac from snapshot")
 	return nil
 }

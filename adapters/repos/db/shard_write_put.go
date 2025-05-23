@@ -17,7 +17,6 @@ import (
 	"encoding/binary"
 	"fmt"
 	"reflect"
-	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -56,18 +55,18 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 	}
 
 	for targetVector, vector := range object.Vectors {
-		if err := s.updateVectorIndexForName(ctx, vector, status, targetVector); err != nil {
+		if err := s.updateVectorIndex(ctx, vector, status, targetVector); err != nil {
 			return errors.Wrapf(err, "update vector index for target vector %s", targetVector)
 		}
 	}
 	for targetVector, multiVector := range object.MultiVectors {
-		if err := s.updateMultiVectorIndexForName(ctx, multiVector, status, targetVector); err != nil {
+		if err := s.updateMultiVectorIndex(ctx, multiVector, status, targetVector); err != nil {
 			return errors.Wrapf(err, "update multi vector index for target vector %s", targetVector)
 		}
 	}
 
 	if s.hasLegacyVectorIndex() {
-		if err := s.updateVectorIndex(ctx, object.Vector, status); err != nil {
+		if err := s.updateVectorIndex(ctx, object.Vector, status, ""); err != nil {
 			return errors.Wrap(err, "update vector index")
 		}
 	}
@@ -110,8 +109,10 @@ func (s *Shard) updateVectorIndexIgnoreDelete(ctx context.Context, vector []floa
 		return nil
 	}
 
-	if err := s.queue.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector}); err != nil {
-		return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
+	if queue, ok := s.GetVectorIndexQueue(""); ok {
+		if err := queue.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector}); err != nil {
+			return errors.Wrapf(err, "insert doc id %d to vector index", status.docID)
+		}
 	}
 
 	return nil
@@ -137,7 +138,7 @@ func (s *Shard) updateVectorIndexesIgnoreDelete(ctx context.Context,
 	}
 
 	for targetVector, vector := range vectors {
-		if q := s.QueueForName(targetVector); q != nil {
+		if q, ok := s.GetVectorIndexQueue(targetVector); ok {
 			if err := q.Insert(ctx, &common.Vector[[]float32]{ID: status.docID, Vector: vector}); err != nil {
 				return errors.Wrapf(err, "insert doc id %d to vector index for target vector %s", status.docID, targetVector)
 			}
@@ -166,7 +167,7 @@ func (s *Shard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context,
 	}
 
 	for targetVector, vector := range multiVectors {
-		if q := s.QueueForName(targetVector); q != nil {
+		if q, ok := s.GetVectorIndexQueue(targetVector); ok {
 			if err := q.Insert(ctx, &common.Vector[[][]float32]{ID: status.docID, Vector: vector}); err != nil {
 				return errors.Wrapf(err, "insert doc id %d to multi vector index for target vector %s", status.docID, targetVector)
 			}
@@ -177,41 +178,15 @@ func (s *Shard) updateMultiVectorIndexesIgnoreDelete(ctx context.Context,
 }
 
 func (s *Shard) updateVectorIndex(ctx context.Context, vector []float32,
-	status objectInsertStatus,
-) error {
-	return updateVectorInVectorIndex(ctx, vector, status, s.queue, s.vectorIndex)
-}
-
-func (s *Shard) updateVectorIndexForName(ctx context.Context, vector []float32,
 	status objectInsertStatus, targetVector string,
 ) error {
-	queue, vectorIndex, err := s.getQueueAndVectorIndexForName(targetVector)
-	if err != nil {
-		return fmt.Errorf("update vector index: %w", err)
-	}
-	return updateVectorInVectorIndex(ctx, vector, status, queue, vectorIndex)
+	return updateVectorInVectorIndex(ctx, s, targetVector, vector, status)
 }
 
-func (s *Shard) updateMultiVectorIndexForName(ctx context.Context, vector [][]float32,
+func (s *Shard) updateMultiVectorIndex(ctx context.Context, vector [][]float32,
 	status objectInsertStatus, targetVector string,
 ) error {
-	queue, vectorIndex, err := s.getQueueAndVectorIndexForName(targetVector)
-	if err != nil {
-		return fmt.Errorf("update multi vector index: %w", err)
-	}
-	return updateVectorInVectorIndex(ctx, vector, status, queue, vectorIndex)
-}
-
-func (s *Shard) getQueueAndVectorIndexForName(targetVector string) (*VectorIndexQueue, VectorIndex, error) {
-	queue, ok := s.queues[targetVector]
-	if !ok {
-		return nil, nil, fmt.Errorf("vector queue not found for target vector %s", targetVector)
-	}
-	vectorIndex := s.VectorIndexForName(targetVector)
-	if vectorIndex == nil {
-		return nil, nil, fmt.Errorf("vector index not found for target vector %s", targetVector)
-	}
-	return queue, vectorIndex, nil
+	return updateVectorInVectorIndex(ctx, s, targetVector, vector, status)
 }
 
 func fetchObject(bucket *lsmkv.Bucket, idBytes []byte) (*storobj.Object, error) {
@@ -237,7 +212,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	defer s.metrics.PutObject(before)
 
 	for targetVector, vector := range obj.Vectors {
-		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
 			if err := vectorIndex.ValidateBeforeInsert(vector); err != nil {
 				return status, errors.Wrapf(err, "Validate vector index %s for target vector %s", targetVector, obj.ID())
 			}
@@ -245,7 +220,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 	}
 
 	for targetVector, vector := range obj.MultiVectors {
-		if vectorIndex := s.VectorIndexForName(targetVector); vectorIndex != nil {
+		if vectorIndex, ok := s.GetVectorIndex(targetVector); ok {
 			if err := vectorIndex.ValidateMultiBeforeInsert(vector); err != nil {
 				return status, errors.Wrapf(err, "Validate vector index %s for target multi vector %s", targetVector, obj.ID())
 			}
@@ -254,9 +229,10 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 
 	if len(obj.Vector) > 0 && s.hasLegacyVectorIndex() {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		err := s.vectorIndex.ValidateBeforeInsert(obj.Vector)
-		if err != nil {
-			return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+		if index, ok := s.GetVectorIndex(""); ok {
+			if err = index.ValidateBeforeInsert(obj.Vector); err != nil {
+				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
+			}
 		}
 	}
 
@@ -501,18 +477,8 @@ func (s *Shard) updateInvertedIndexLSM(object *storobj.Object,
 
 	// determine only changed properties to avoid unnecessary updates of inverted indexes
 	if status.docIDPreserved {
-		skipDeltaForProps := []string{}
-		// TODO:aliszka	optimize fetching skipDeltaForProps
-		if bucketsInverted := s.store.GetBucketsByStrategy(lsmkv.StrategyInverted); len(bucketsInverted) > 0 {
-			for bucketName := range bucketsInverted {
-				if strings.HasSuffix(bucketName, "_searchable") && strings.HasPrefix(bucketName, "property_") {
-					propName := strings.TrimPrefix(strings.TrimSuffix(bucketName, "_searchable"), "property_")
-					skipDeltaForProps = append(skipDeltaForProps, propName)
-				}
-			}
-		}
+		delta := inverted.DeltaSkipSearchable(prevProps, props, s.getSearchableBlockmaxProperties())
 
-		delta := inverted.DeltaSkipSearchable(prevProps, props, skipDeltaForProps)
 		propsToAdd = delta.ToAdd
 		propsToDel = delta.ToDelete
 		deltaNil := inverted.DeltaNil(prevNilprops, nilprops)
@@ -774,9 +740,14 @@ func propsEqual(prevProps, nextProps map[string]interface{}) bool {
 	return true
 }
 
-func updateVectorInVectorIndex[T dto.Embedding](ctx context.Context, vector T,
-	status objectInsertStatus, queue *VectorIndexQueue, vectorIndex VectorIndex,
+func updateVectorInVectorIndex[T dto.Embedding](ctx context.Context, shard *Shard, targetVector string, vector T,
+	status objectInsertStatus,
 ) error {
+	queue, ok := shard.GetVectorIndexQueue(targetVector)
+	if !ok {
+		return fmt.Errorf("vector index not found for %s", targetVector)
+	}
+
 	// even if no vector is provided in an update, we still need
 	// to delete the previous vector from the index, if it
 	// exists. otherwise, the associated doc id is left dangling,

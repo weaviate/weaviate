@@ -15,28 +15,13 @@ import (
 	"strings"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/storagestate"
 )
 
 type ShardStatus struct {
 	Status storagestate.Status
 	Reason string
-}
-
-func NewShardStatus() ShardStatus {
-	return ShardStatus{Status: storagestate.StatusLoading}
-}
-
-func (s *ShardStatus) Init() {
-	s.Status = storagestate.StatusReady
-	s.Reason = ""
-}
-
-func (s *Shard) initStatus() {
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
-	s.status.Init()
 }
 
 func (s *Shard) GetStatus() storagestate.Status {
@@ -47,7 +32,7 @@ func (s *Shard) GetStatus() storagestate.Status {
 		return s.status.Status
 	}
 
-	if len(s.queues) == 0 && !s.hasLegacyVectorIndex() {
+	if !s.hasAnyVectorIndex() {
 		return s.status.Status
 	}
 
@@ -104,14 +89,15 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 	if err != nil {
 		return errors.Wrap(err, in)
 	}
-
+	oldStatus := s.status.Status
 	s.status.Status = targetStatus
 	s.status.Reason = reason
 
-	err = s.updateStoreStatus(targetStatus)
-	if err != nil {
+	if err = s.store.UpdateBucketsStatus(targetStatus); err != nil {
 		return err
 	}
+
+	s.index.metrics.UpdateShardStatus(oldStatus.String(), targetStatus.String())
 
 	s.index.logger.
 		WithField("action", "update shard status").
@@ -121,8 +107,4 @@ func (s *Shard) updateStatusUnlocked(in, reason string) error {
 		WithField("readOnlyReason", reason)
 
 	return nil
-}
-
-func (s *Shard) updateStoreStatus(targetStatus storagestate.Status) error {
-	return s.store.UpdateBucketsStatus(targetStatus)
 }

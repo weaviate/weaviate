@@ -15,11 +15,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 
-	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 
@@ -371,6 +369,30 @@ func (s *schema) replaceClasses(classes map[string]*metaClass) {
 	}
 }
 
+// replaceStatesNodeName it update the node name inside sharding states.
+// WARNING: this shall be used in one node cluster environments only.
+// because it will replace the shard node name if the node name got updated
+// only if the replication factor is 1, otherwise it's no-op
+func (s *schema) replaceStatesNodeName(new string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	for _, meta := range s.classes {
+		meta.LockGuard(func(mc *metaClass) error {
+			if meta.Class.ReplicationConfig.Factor > 1 {
+				return nil
+			}
+
+			for idx := range meta.Sharding.Physical {
+				cp := meta.Sharding.Physical[idx].DeepCopy()
+				cp.BelongsToNodes = []string{new}
+				meta.Sharding.Physical[idx] = cp
+			}
+			return nil
+		})
+	}
+}
+
 func (s *schema) addProperty(class string, v uint64, props ...*models.Property) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -380,6 +402,26 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 		return ErrClassNotFound
 	}
 	return meta.AddProperty(v, props...)
+}
+
+func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	meta := s.classes[class]
+	if meta == nil {
+		return ErrClassNotFound
+	}
+	return meta.AddReplicaToShard(v, shard, replica)
+}
+
+func (s *schema) deleteReplicaFromShard(class string, v uint64, shard string, replica string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	meta := s.classes[class]
+	if meta == nil {
+		return ErrClassNotFound
+	}
+	return meta.DeleteReplicaFromShard(v, shard, replica)
 }
 
 func (s *schema) addTenants(class string, v uint64, req *command.AddTenantsRequest) error {
@@ -449,25 +491,42 @@ func (s *schema) updateTenantsProcess(class string, v uint64, req *command.Tenan
 	return err
 }
 
-func (s *schema) getTenants(class string, tenants []string) ([]*models.TenantResponse, error) {
+func (s *schema) getTenants(class string, tenants []string) ([]*models.Tenant, error) {
 	ok, meta, _, err := s.multiTenancyEnabled(class)
 	if !ok {
 		return nil, err
 	}
 
 	// Read tenants using the meta lock guard
-	var res []*models.TenantResponse
+	var res []*models.Tenant
 	f := func(_ *models.Class, ss *sharding.State) error {
 		if len(tenants) == 0 {
-			res = make([]*models.TenantResponse, 0, len(ss.Physical))
-			for tenant, physical := range ss.Physical {
-				res = append(res, makeTenantResponse(tenant, physical))
+			res = make([]*models.Tenant, len(ss.Physical))
+			i := 0
+			for tenantName, physical := range ss.Physical {
+				// Ensure we copy the belongs to nodes array to avoid it being modified
+				cpy := make([]string, len(physical.BelongsToNodes))
+				copy(cpy, physical.BelongsToNodes)
+
+				res[i] = &models.Tenant{
+					Name:           tenantName,
+					ActivityStatus: entSchema.ActivityStatus(physical.Status),
+				}
+
+				// Increment our result iterator
+				i++
 			}
 		} else {
-			res = make([]*models.TenantResponse, 0, len(tenants))
-			for _, tenant := range tenants {
-				if physical, ok := ss.Physical[tenant]; ok {
-					res = append(res, makeTenantResponse(tenant, physical))
+			res = make([]*models.Tenant, 0, len(tenants))
+			for _, tenantName := range tenants {
+				if physical, ok := ss.Physical[tenantName]; ok {
+					// Ensure we copy the belongs to nodes array to avoid it being modified
+					cpy := make([]string, len(physical.BelongsToNodes))
+					copy(cpy, physical.BelongsToNodes)
+					res = append(res, &models.Tenant{
+						Name:           tenantName,
+						ActivityStatus: entSchema.ActivityStatus(physical.Status),
+					})
 				}
 			}
 		}
@@ -511,62 +570,30 @@ func (s *schema) MetaClasses() map[string]*metaClass {
 	return classesCopy
 }
 
-func (s *schema) Restore(r io.Reader, parser Parser) error {
-	snap := snapshot{}
-	if err := json.NewDecoder(r).Decode(&snap); err != nil {
+func (s *schema) Restore(data []byte, parser Parser) error {
+	var classes map[string]*metaClass
+	if err := json.Unmarshal(data, &classes); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
-	for _, cls := range snap.Classes {
+
+	return s.restore(classes, parser)
+}
+
+func (s *schema) RestoreLegacy(data []byte, parser Parser) error {
+	snap := snapshot{}
+	if err := json.Unmarshal(data, &snap); err != nil {
+		return fmt.Errorf("restore snapshot: decode json: %w", err)
+	}
+	return s.restore(snap.Classes, parser)
+}
+
+func (s *schema) restore(classes map[string]*metaClass, parser Parser) error {
+	for _, cls := range classes {
 		if err := parser.ParseClass(&cls.Class); err != nil { // should not fail
 			return fmt.Errorf("parsing class %q: %w", cls.Class.Class, err) // schema might be corrupted
 		}
 		cls.Sharding.SetLocalName(s.nodeID)
 	}
-
-	s.replaceClasses(snap.Classes)
+	s.replaceClasses(classes)
 	return nil
-}
-
-// Persist should dump all necessary state to the WriteCloser 'sink',
-// and call sink.Close() when finished or call sink.Cancel() on error.
-func (s *schema) Persist(sink raft.SnapshotSink) (err error) {
-	// we don't need to lock here because, we call MetaClasses() which is thread-safe
-	defer sink.Close()
-	snap := snapshot{
-		NodeID:     s.nodeID,
-		SnapshotID: sink.ID(),
-		Classes:    s.MetaClasses(),
-	}
-	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
-		return fmt.Errorf("encode: %w", err)
-	}
-
-	return nil
-}
-
-func (s *schema) Release() {
-}
-
-// makeTenant creates a tenant with the given name and status
-func makeTenant(name, status string) models.Tenant {
-	return models.Tenant{
-		Name:           name,
-		ActivityStatus: status,
-	}
-}
-
-func makeTenantResponse(tenant string, physical sharding.Physical) *models.TenantResponse {
-	// copy BelongsToNodes to avoid modification of the original slice
-	cpy := make([]string, len(physical.BelongsToNodes))
-	copy(cpy, physical.BelongsToNodes)
-
-	return MakeTenantWithBelongsToNodes(tenant, entSchema.ActivityStatus(physical.Status), cpy)
-}
-
-// MakeTenantWithBelongsToNodes creates a tenant with the given name, status, and belongsToNodes
-func MakeTenantWithBelongsToNodes(name, status string, belongsToNodes []string) *models.TenantResponse {
-	return &models.TenantResponse{
-		Tenant:         makeTenant(name, status),
-		BelongsToNodes: belongsToNodes,
-	}
 }

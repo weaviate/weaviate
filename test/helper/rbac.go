@@ -37,10 +37,10 @@ func GetRoles(t *testing.T, key string) []*models.Role {
 	return resp.Payload
 }
 
-func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
+func GetRolesForUser(t *testing.T, user, key string, includeRoles bool) []*models.Role {
 	t.Helper()
-	userType := models.UserTypeDb
-	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)), CreateAuth(key))
+	userType := models.UserTypeInputDb
+	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)).WithIncludeFullRoles(&includeRoles), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload
@@ -48,8 +48,9 @@ func GetRolesForUser(t *testing.T, user, key string) []*models.Role {
 
 func GetRolesForUserOIDC(t *testing.T, user, key string) []*models.Role {
 	t.Helper()
-	userType := models.UserTypeOidc
-	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)), CreateAuth(key))
+	truep := true
+	userType := models.UserTypeInputOidc
+	resp, err := Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(user).WithUserType(string(userType)).WithIncludeFullRoles(&truep), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload
@@ -57,17 +58,22 @@ func GetRolesForUserOIDC(t *testing.T, user, key string) []*models.Role {
 
 func GetUserForRoles(t *testing.T, roleName, key string) []string {
 	t.Helper()
-	userType := models.UserTypeDb
-	resp, err := Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(roleName).WithUserType(string(userType)), CreateAuth(key))
+	resp, err := Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(roleName), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
-	return resp.Payload
+	userIds := make([]string, 0, len(resp.Payload))
+	for _, user := range resp.Payload {
+		if *user.UserType == models.UserTypeOutputOidc {
+			continue
+		}
+		userIds = append(userIds, user.UserID)
+	}
+	return userIds
 }
 
-func GetUserForRolesOIDC(t *testing.T, roleName, key string) []string {
+func GetUserForRolesBoth(t *testing.T, roleName, key string) []*authz.GetUsersForRoleOKBodyItems0 {
 	t.Helper()
-	userType := models.UserTypeOidc
-	resp, err := Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(roleName).WithUserType(string(userType)), CreateAuth(key))
+	resp, err := Client(t).Authz.GetUsersForRole(authz.NewGetUsersForRoleParams().WithID(roleName), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload
@@ -92,9 +98,18 @@ func DeleteUser(t *testing.T, userId, key string) {
 	}
 }
 
-func GetUser(t *testing.T, userId, key string) *models.UserInfo {
+func GetUser(t *testing.T, userId, key string) *models.DBUserInfo {
 	t.Helper()
 	resp, err := Client(t).Users.GetUserInfo(users.NewGetUserInfoParams().WithUserID(userId), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	require.NotNil(t, resp.Payload)
+	return resp.Payload
+}
+
+func GetUserWithLastUsedTime(t *testing.T, userId, key string, lastUsedTime bool) *models.DBUserInfo {
+	t.Helper()
+	resp, err := Client(t).Users.GetUserInfo(users.NewGetUserInfoParams().WithUserID(userId).WithIncludeLastUsedTime(&lastUsedTime), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	require.NotNil(t, resp.Payload)
@@ -137,9 +152,17 @@ func ActivateUser(t *testing.T, key, userId string) {
 	require.NoError(t, err)
 }
 
-func ListAllUsers(t *testing.T, key string) []*models.UserInfo {
+func ListAllUsers(t *testing.T, key string) []*models.DBUserInfo {
 	t.Helper()
 	resp, err := Client(t).Users.ListAllUsers(users.NewListAllUsersParams(), CreateAuth(key))
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
+func ListAllUsersWithIncludeTime(t *testing.T, key string, includeLastUsedTime bool) []*models.DBUserInfo {
+	t.Helper()
+	resp, err := Client(t).Users.ListAllUsers(users.NewListAllUsersParams().WithIncludeLastUsedTime(&includeLastUsedTime), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	return resp.Payload
@@ -163,7 +186,7 @@ func GetRoleByName(t *testing.T, key, role string) *models.Role {
 
 func AssignRoleToUser(t *testing.T, key, role, user string) {
 	t.Helper()
-	userType := models.UserTypeDb
+	userType := models.UserTypeInputDb
 	resp, err := Client(t).Authz.AssignRoleToUser(
 		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, UserType: userType}),
 		CreateAuth(key),
@@ -174,7 +197,7 @@ func AssignRoleToUser(t *testing.T, key, role, user string) {
 
 func AssignRoleToUserOIDC(t *testing.T, key, role, user string) {
 	t.Helper()
-	userType := models.UserTypeOidc
+	userType := models.UserTypeInputOidc
 	resp, err := Client(t).Authz.AssignRoleToUser(
 		authz.NewAssignRoleToUserParams().WithID(user).WithBody(authz.AssignRoleToUserBody{Roles: []string{role}, UserType: userType}),
 		CreateAuth(key),
@@ -184,7 +207,7 @@ func AssignRoleToUserOIDC(t *testing.T, key, role, user string) {
 }
 
 func RevokeRoleFromUser(t *testing.T, key, role, user string) {
-	userType := models.UserTypeDb
+	userType := models.UserTypeInputDb
 
 	resp, err := Client(t).Authz.RevokeRoleFromUser(
 		authz.NewRevokeRoleFromUserParams().WithID(user).WithBody(authz.RevokeRoleFromUserBody{Roles: []string{role}, UserType: userType}),
@@ -215,6 +238,17 @@ func RevokeRoleFromGroup(t *testing.T, key, role, group string) {
 func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
 	resp, err := Client(t).Authz.AddPermissions(
 		authz.NewAddPermissionsParams().WithID(role).WithBody(authz.AddPermissionsBody{
+			Permissions: permissions,
+		}),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+}
+
+func RemovePermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
+	resp, err := Client(t).Authz.RemovePermissions(
+		authz.NewRemovePermissionsParams().WithID(role).WithBody(authz.RemovePermissionsBody{
 			Permissions: permissions,
 		}),
 		CreateAuth(key),

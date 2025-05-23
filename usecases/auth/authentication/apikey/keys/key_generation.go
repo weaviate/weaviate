@@ -52,30 +52,28 @@ var argonParameters = &argon2id.Params{
 //   - decode the key into the 3 parts mentioned above using DecodeApiKey
 //   - fetch the saved hash based on the returned user identifier
 //   - compare the returned randomKey with the fetched hash using argon2id.ComparePasswordAndHash
-func CreateApiKeyAndHash(existingIdentifier string) (string, string, string, error) {
+func CreateApiKeyAndHash() (string, string, string, error) {
 	randomBytesKey, err := generateRandomBytes(RandomBytesLength)
 	if err != nil {
 		return "", "", "", err
 	}
 	randomKey := base64.StdEncoding.EncodeToString(randomBytesKey)
 
-	if existingIdentifier == "" {
-		randomBytesIdentifier, err := generateRandomBytes(UserIdentifierBytesLength)
-		if err != nil {
-			return "", "", "", err
-		}
-		existingIdentifier = base64.StdEncoding.EncodeToString(randomBytesIdentifier)
+	randomBytesIdentifier, err := generateRandomBytes(UserIdentifierBytesLength)
+	if err != nil {
+		return "", "", "", err
 	}
+	identifier := base64.StdEncoding.EncodeToString(randomBytesIdentifier)
 
-	fullApiKey := generateApiKey(randomKey, existingIdentifier)
+	fullApiKey := generateApiKey(randomKey, identifier)
 
 	hash, err := argon2id.CreateHash(randomKey, argonParameters)
 
-	return fullApiKey, hash, existingIdentifier, err
+	return fullApiKey, hash, identifier, err
 }
 
 func generateApiKey(randomKey, userIdentifier string) string {
-	fullString := randomKey + "_" + userIdentifier + "_" + DynUserIdentifier
+	fullString := userIdentifier + "_" + randomKey + "_" + DynUserIdentifier
 	return base64.StdEncoding.EncodeToString([]byte(fullString))
 }
 
@@ -101,8 +99,8 @@ func DecodeApiKey(fullApiKey string) (string, string, error) {
 		return "", "", fmt.Errorf("invalid token")
 	}
 
-	randomKey := parts[0]
-	userIdentifier := parts[1]
+	userIdentifier := parts[0]
+	randomKey := parts[1]
 	version := parts[2]
 	if version != DynUserIdentifier {
 		return "", "", fmt.Errorf("invalid token")

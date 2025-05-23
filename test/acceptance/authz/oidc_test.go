@@ -39,13 +39,15 @@ func TestRbacWithOIDC(t *testing.T) {
 	tests := []struct {
 		name          string
 		image         *docker.Compose
-		nameCollision bool
+		nameCollision bool // same username for DB and OIDC
+		onlyOIDC      bool
 	}{
 		{
 			name: "RBAC with OIDC",
 			image: docker.New().
 				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
 			nameCollision: false,
+			onlyOIDC:      true,
 		},
 		{
 			name: "RBAC with OIDC and API key",
@@ -114,16 +116,38 @@ func TestRbacWithOIDC(t *testing.T) {
 			// only OIDC user has role assigned
 			rolesOIDC := helper.GetRolesForUserOIDC(t, customUser, tokenAdmin)
 			require.Len(t, rolesOIDC, 1)
-			rolesDB := helper.GetRolesForUser(t, customUser, tokenAdmin)
-			require.Len(t, rolesDB, 0)
 
-			usersOidc := helper.GetUserForRolesOIDC(t, createSchemaRoleName, tokenAdmin)
+			if test.onlyOIDC || !test.nameCollision {
+				// validation check for existence will fail
+				_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)), helper.CreateAuth(tokenAdmin))
+				require.Error(t, err)
+				var notFound *authz.GetRolesForUserNotFound
+				require.True(t, errors.As(err, &notFound))
+			} else {
+				rolesDB := helper.GetRolesForUser(t, customUser, tokenAdmin, true)
+				require.Len(t, rolesDB, 0)
+			}
+
+			usersOidc := helper.GetUserForRolesBoth(t, createSchemaRoleName, tokenAdmin)
 			require.Len(t, usersOidc, 1)
-			usersDB := helper.GetUserForRoles(t, createSchemaRoleName, tokenAdmin)
-			require.Len(t, usersDB, 0)
+			if test.onlyOIDC || !test.nameCollision {
+				_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(customUser).WithUserType(string(models.UserTypeInputDb)), helper.CreateAuth(tokenAdmin))
+				require.Error(t, err)
+				var notFound *authz.GetRolesForUserNotFound
+				require.True(t, errors.As(err, &notFound))
+			} else {
+				usersDB := helper.GetUserForRoles(t, createSchemaRoleName, tokenAdmin)
+				require.Len(t, usersDB, 0)
+			}
 
 			// assign role to non-existing user => no error (if OIDC is enabled)
 			helper.AssignRoleToUserOIDC(t, tokenAdmin, createSchemaRoleName, "i-dont-exist")
+
+			// only oidc root user, as api-keys are either not enabled or do not have a root user
+			users := helper.GetUserForRolesBoth(t, "root", tokenAdmin)
+			for _, user := range users {
+				require.Equal(t, *user.UserType, models.UserTypeOutputOidc)
+			}
 
 			if test.nameCollision {
 				// api key user does NOT have the rights, even though it has the same name
@@ -134,6 +158,36 @@ func TestRbacWithOIDC(t *testing.T) {
 
 				helper.AssignRoleToUser(t, tokenAdmin, createSchemaRoleName, "custom-user")
 				err = createClass(t, &models.Class{Class: "testingApiKey"}, helper.CreateAuth(customKey))
+				require.NoError(t, err)
+			}
+
+			if test.onlyOIDC {
+				// cannot assign/revoke to/from db users
+				resp, err := helper.Client(t).Authz.AssignRoleToUser(
+					authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{createSchemaRoleName}, UserType: models.UserTypeInputDb}),
+					helper.CreateAuth(tokenAdmin),
+				)
+				require.Nil(t, resp)
+				require.Error(t, err)
+
+				resp2, err := helper.Client(t).Authz.RevokeRoleFromUser(
+					authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{createSchemaRoleName}, UserType: models.UserTypeInputDb}),
+					helper.CreateAuth(tokenAdmin),
+				)
+				require.Nil(t, resp2)
+				require.Error(t, err)
+
+				// no validation for deprecated path when OIDC is enabled:
+				_, err = helper.Client(t).Authz.AssignRoleToUser(
+					authz.NewAssignRoleToUserParams().WithID("random-user").WithBody(authz.AssignRoleToUserBody{Roles: []string{createSchemaRoleName}}),
+					helper.CreateAuth(tokenAdmin),
+				)
+				require.NoError(t, err)
+
+				_, err = helper.Client(t).Authz.RevokeRoleFromUser(
+					authz.NewRevokeRoleFromUserParams().WithID("random-user").WithBody(authz.RevokeRoleFromUserBody{Roles: []string{createSchemaRoleName}}),
+					helper.CreateAuth(tokenAdmin),
+				)
 				require.NoError(t, err)
 			}
 		})
@@ -308,4 +362,29 @@ func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
 	// check that revoking the final group is a no-op
 	err = revoke(tokenAdmin)
 	require.NoError(t, err)
+}
+
+func TestOidcRootAndDynamicUsers(t *testing.T) {
+	ctx := context.Background()
+
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithDbUsers().Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	authEndpoint, tokenEndpoint := docker.GetEndpointsFromMockOIDC(compose.GetMockOIDC().URI())
+
+	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+	// description for details
+	tokenAdmin, _ := docker.GetTokensFromMockOIDC(t, authEndpoint, tokenEndpoint)
+
+	helper.DeleteUser(t, "dynamic1", tokenAdmin)
+	apiKey := helper.CreateUser(t, "dynamic1", tokenAdmin)
+
+	info := helper.GetInfoForOwnUser(t, apiKey)
+	require.Equal(t, *info.Username, "dynamic1")
 }

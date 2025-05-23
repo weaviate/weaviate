@@ -23,8 +23,8 @@ import (
 
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/weaviate/weaviate/usecases/byteops"
+	"github.com/weaviate/weaviate/usecases/file"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
@@ -41,30 +41,83 @@ import (
 var IndicesPayloads = indicesPayloads{}
 
 type indicesPayloads struct {
-	ErrorList                 errorListPayload
-	SingleObject              singleObjectPayload
-	MergeDoc                  mergeDocPayload
-	ObjectList                objectListPayload
-	VersionedObjectList       versionedObjectListPayload
-	SearchResults             searchResultsPayload
-	SearchParams              searchParamsPayload
-	VectorDistanceParams      vectorDistanceParamsPayload
-	VectorDistanceResults     vectorDistanceResultsPayload
-	ReferenceList             referenceListPayload
-	AggregationParams         aggregationParamsPayload
-	AggregationResult         aggregationResultPayload
-	FindUUIDsParams           findUUIDsParamsPayload
-	FindUUIDsResults          findUUIDsResultsPayload
-	BatchDeleteParams         batchDeleteParamsPayload
-	BatchDeleteResults        batchDeleteResultsPayload
-	GetShardQueueSizeParams   getShardQueueSizeParamsPayload
-	GetShardQueueSizeResults  getShardQueueSizeResultsPayload
-	GetShardStatusParams      getShardStatusParamsPayload
-	GetShardStatusResults     getShardStatusResultsPayload
-	UpdateShardStatusParams   updateShardStatusParamsPayload
-	UpdateShardsStatusResults updateShardsStatusResultsPayload
-	ShardFiles                shardFilesPayload
-	IncreaseReplicationFactor increaseReplicationFactorPayload
+	ErrorList                     errorListPayload
+	SingleObject                  singleObjectPayload
+	MergeDoc                      mergeDocPayload
+	ObjectList                    objectListPayload
+	VersionedObjectList           versionedObjectListPayload
+	SearchResults                 searchResultsPayload
+	SearchParams                  searchParamsPayload
+	VectorDistanceParams          vectorDistanceParamsPayload
+	VectorDistanceResults         vectorDistanceResultsPayload
+	ReferenceList                 referenceListPayload
+	AggregationParams             aggregationParamsPayload
+	AggregationResult             aggregationResultPayload
+	FindUUIDsParams               findUUIDsParamsPayload
+	FindUUIDsResults              findUUIDsResultsPayload
+	BatchDeleteParams             batchDeleteParamsPayload
+	BatchDeleteResults            batchDeleteResultsPayload
+	GetShardQueueSizeParams       getShardQueueSizeParamsPayload
+	GetShardQueueSizeResults      getShardQueueSizeResultsPayload
+	GetShardStatusParams          getShardStatusParamsPayload
+	GetShardStatusResults         getShardStatusResultsPayload
+	UpdateShardStatusParams       updateShardStatusParamsPayload
+	UpdateShardsStatusResults     updateShardsStatusResultsPayload
+	ShardFiles                    shardFilesPayload
+	IncreaseReplicationFactor     increaseReplicationFactorPayload
+	ShardFileMetadataResults      shardFileMetadataResultsPayload
+	ShardFilesResults             shardFilesResultsPayload
+	SetAsyncReplicationTargetNode setAsyncReplicationTargetNode
+}
+
+type shardFileMetadataResultsPayload struct{}
+
+func (p shardFileMetadataResultsPayload) MIME() string {
+	return "application/vnd.weaviate.shardfilemetadataresults+json"
+}
+
+func (p shardFileMetadataResultsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p shardFileMetadataResultsPayload) Unmarshal(in []byte) (file.FileMetadata, error) {
+	var md file.FileMetadata
+	if err := json.Unmarshal(in, &md); err != nil {
+		return file.FileMetadata{}, fmt.Errorf("unmarshal shard file metadata: %w", err)
+	}
+	return md, nil
+}
+
+type shardFilesResultsPayload struct{}
+
+func (p shardFilesResultsPayload) MIME() string {
+	return "application/vnd.weaviate.shardfilesresults+json"
+}
+
+func (p shardFilesResultsPayload) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p shardFilesResultsPayload) Unmarshal(in []byte) ([]string, error) {
+	var shardFiles []string
+	if err := json.Unmarshal(in, &shardFiles); err != nil {
+		return nil, fmt.Errorf("unmarshal shard files: %w", err)
+	}
+	return shardFiles, nil
+}
+
+type setAsyncReplicationTargetNode struct{}
+
+func (p setAsyncReplicationTargetNode) MIME() string {
+	return "application/vnd.weaviate.setasyncreplicationtargetnode+json"
+}
+
+func (p setAsyncReplicationTargetNode) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p setAsyncReplicationTargetNode) Marshal(in additional.AsyncReplicationTargetNodeOverride) ([]byte, error) {
+	return json.Marshal(in)
 }
 
 type increaseReplicationFactorPayload struct{}
@@ -500,26 +553,11 @@ func (p *searchParametersPayload) UnmarshalJSON(data []byte) error {
 
 type searchParamsPayload struct{}
 
-func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []string, limit int,
+func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []string, distance float32, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 ) ([]byte, error) {
-	type params struct {
-		SearchVector      []float32                    `json:"searchVector"`
-		TargetVector      string                       `json:"targetVector"`
-		Limit             int                          `json:"limit"`
-		Filters           *filters.LocalFilter         `json:"filters"`
-		KeywordRanking    *searchparams.KeywordRanking `json:"keywordRanking"`
-		Sort              []filters.Sort               `json:"sort"`
-		Cursor            *filters.Cursor              `json:"cursor"`
-		GroupBy           *searchparams.GroupBy        `json:"groupBy"`
-		Additional        additional.Properties        `json:"additional"`
-		SearchVectors     []models.Vector              `json:"searchVectors"`
-		TargetVectors     []string                     `json:"targetVectors"`
-		TargetCombination *dto.TargetCombination       `json:"targetCombination"`
-		Properties        []string                     `json:"properties"`
-	}
 	var vector []float32
 	var targetVector string
 	// BC with pre 1.26
@@ -531,7 +569,7 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 		}
 	}
 
-	par := params{vector, targetVector, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties}
+	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties}
 	return json.Marshal(par)
 }
 

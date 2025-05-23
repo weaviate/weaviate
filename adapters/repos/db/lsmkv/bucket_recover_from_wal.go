@@ -21,6 +21,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
@@ -60,17 +61,10 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		}
 
 		if stat.Size() == 0 {
-			logOnceWhenRecoveringFromWAL.Do(func() {
-				b.logger.WithField("action", "lsm_recover_from_active_wal").
-					WithField("path", b.dir).
-					Warning("empty write-ahead-log found. Did weaviate crash prior to this? Nothing to recover from this file.")
-			})
-
 			err := os.Remove(path)
 			if err != nil {
 				return errors.Wrap(err, "remove empty wal file")
 			}
-
 			continue
 		}
 
@@ -89,7 +83,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 	for _, fname := range walFileNames {
 		path := filepath.Join(b.dir, strings.TrimSuffix(fname, ".wal"))
 
-		cl, err := newCommitLogger(path)
+		cl, err := newCommitLogger(path, b.strategy)
 		if err != nil {
 			return errors.Wrap(err, "init commit logger")
 		}
@@ -99,7 +93,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		defer cl.unpause()
 
 		mt, err := newMemtable(path, b.strategy, b.secondaryIndices,
-			cl, b.metrics, b.logger, b.enableChecksumValidation)
+			cl, b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config)
 		if err != nil {
 			return err
 		}
@@ -113,6 +107,9 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 				Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))
 		}
 
+		if mt.strategy == StrategyInverted {
+			mt.averagePropLength, _ = b.disk.GetAveragePropertyLength()
+		}
 		if err := mt.flush(); err != nil {
 			return errors.Wrap(err, "flush memtable after WAL recovery")
 		}

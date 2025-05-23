@@ -20,7 +20,6 @@ import (
 	"os"
 	"os/signal"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 
@@ -30,15 +29,19 @@ import (
 )
 
 var (
-	ErrEmptyConfig         = errors.New("empty runtime config")
-	ErrFailedToOpenConfig  = errors.New("failed to open runtime config")
-	ErrFailedToReadConfig  = errors.New("failed to read runtime config ")
-	ErrFailedToParseConfig = errors.New("failed to parse runtime config ")
+	ErrEmptyConfig             = errors.New("empty runtime config")
+	ErrFailedToOpenConfig      = errors.New("failed to open runtime config")
+	ErrFailedToReadConfig      = errors.New("failed to read runtime config ")
+	ErrFailedToParseConfig     = errors.New("failed to parse runtime config ")
+	ErrUnregisteredConfigFound = errors.New("unregistered config found")
 )
 
 // Parser takes care of unmarshaling a config struct
 // from given raw bytes(e.g: YAML, JSON, etc).
 type Parser[T any] func([]byte) (*T, error)
+
+// Updater try to update `source` config with newly `parsed` config.
+type Updater[T any] func(source, parsed *T) error
 
 // ConfigManager takes care of periodically loading the config from
 // given filepath for every interval period.
@@ -47,15 +50,15 @@ type ConfigManager[T any] struct {
 	path string
 	// interval is how often config manager trigger loading the config file.
 	interval time.Duration
-	// parse takes care of unmarshaling the config struct from a file
-	parse Parser[T]
+
+	parse  Parser[T]
+	update Updater[T]
 
 	// currentConfig is last successfully loaded config.
 	// ConfigManager keep using this config if there are any
 	// failures to load new configs.
 	currentConfig *T
 	currentHash   string
-	mu            sync.RWMutex // protects currentConfig
 
 	log             logrus.FieldLogger
 	lastLoadSuccess prometheus.Gauge
@@ -65,6 +68,8 @@ type ConfigManager[T any] struct {
 func NewConfigManager[T any](
 	filepath string,
 	parser Parser[T],
+	updater Updater[T],
+	registered *T,
 	interval time.Duration,
 	log logrus.FieldLogger,
 	r prometheus.Registerer,
@@ -76,9 +81,10 @@ func NewConfigManager[T any](
 
 	cm := &ConfigManager[T]{
 		path:     filepath,
-		parse:    parser,
 		interval: interval,
 		log:      log,
+		parse:    parser,
+		update:   updater,
 		lastLoadSuccess: promauto.With(r).NewGauge(prometheus.GaugeOpts{
 			Name: "weaviate_runtime_config_last_load_success",
 			Help: "Whether the last loading attempt of runtime config was success",
@@ -87,6 +93,7 @@ func NewConfigManager[T any](
 			Name: "weaviate_runtime_config_hash",
 			Help: "Hash value of the currently active runtime configuration",
 		}, []string{"sha256"}), // sha256 is type of checksum and hard-coded for now
+		currentConfig: registered,
 	}
 
 	// try to load it once to fail early if configs are invalid
@@ -102,20 +109,6 @@ func NewConfigManager[T any](
 // Meaning, cancelling the passed `ctx` stops the actor.
 func (cm *ConfigManager[T]) Run(ctx context.Context) error {
 	return cm.loop(ctx)
-}
-
-// Config returns the current valid config if available. Once the config manager
-// is started without any error, consumer should be able to get **valid** config
-// via this api.
-func (cm *ConfigManager[T]) Config() (*T, error) {
-	cm.mu.RLock()
-	defer cm.mu.RUnlock()
-
-	if cm.currentConfig == nil {
-		return nil, ErrEmptyConfig
-	}
-
-	return cm.currentConfig, nil
 }
 
 // loadConfig reads and unmarshal the config from the file location.
@@ -145,22 +138,16 @@ func (cm *ConfigManager[T]) loadConfig() error {
 		return errors.Join(ErrFailedToParseConfig, err)
 	}
 
-	cm.updateConfig(cfg, hash)
+	if err := cm.update(cm.currentConfig, cfg); err != nil {
+		return err
+	}
 
 	cm.lastLoadSuccess.Set(1)
 	cm.configHash.Reset()
 	cm.configHash.WithLabelValues(hash).Set(1)
+	cm.currentHash = hash
 
 	return nil
-}
-
-// updateConfig mutates the shared config
-func (cm *ConfigManager[T]) updateConfig(cfg *T, hash string) {
-	cm.mu.Lock()
-	defer cm.mu.Unlock()
-
-	cm.currentConfig = cfg
-	cm.currentHash = hash
 }
 
 // loop is a actor loop that runs forever till config manager is stopped.
@@ -177,7 +164,7 @@ func (cm *ConfigManager[T]) loop(ctx context.Context) error {
 		select {
 		case <-ticker.C:
 			if err := cm.loadConfig(); err != nil {
-				cm.log.Error("loading runtime config every %s failed, using old config: %w", cm.interval, err)
+				cm.log.Errorf("loading runtime config every %s failed, using old config: %w", cm.interval, err)
 			}
 		case <-sighup:
 			if err := cm.loadConfig(); err != nil {
@@ -187,20 +174,4 @@ func (cm *ConfigManager[T]) loop(ctx context.Context) error {
 			return ctx.Err()
 		}
 	}
-}
-
-// GetOverrides takes a config value and func to get it's runtime value.
-// It returns a value from func if available else the passed in `val` if failing
-// to get value from the func().
-func GetOverrides[T any](val T, f func() *T) T {
-	if f == nil {
-		return val
-	}
-	x := f()
-
-	if x == nil {
-		return val
-	}
-
-	return *x
 }

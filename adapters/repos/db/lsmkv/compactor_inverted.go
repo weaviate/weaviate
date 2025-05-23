@@ -21,10 +21,12 @@ import (
 	"math"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type compactorInverted struct {
@@ -58,11 +60,14 @@ type compactorInverted struct {
 
 	docIdEncoder varenc.VarEncEncoder[uint64]
 	tfEncoder    varenc.VarEncEncoder[uint64]
+
+	k1, b, avgPropLen float64
 }
 
 func newCompactorInverted(w io.WriteSeeker,
 	c1, c2 *segmentCursorInvertedReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
+	k1, b, avgPropLen float64,
 ) *compactorInverted {
 	return &compactorInverted{
 		c1:                  c1,
@@ -74,6 +79,9 @@ func newCompactorInverted(w io.WriteSeeker,
 		secondaryIndexCount: secondaryIndexCount,
 		scratchSpacePath:    scratchSpacePath,
 		offset:              0,
+		k1:                  k1,
+		b:                   b,
+		avgPropLen:          avgPropLen,
 	}
 }
 
@@ -84,12 +92,12 @@ func (c *compactorInverted) do() error {
 		return errors.Wrap(err, "init")
 	}
 
-	c.tombstonesToWrite, err = c.c1.segment.GetTombstones()
+	c.tombstonesToWrite, err = c.c1.segment.ReadOnlyTombstones()
 	if err != nil {
 		return errors.Wrap(err, "get tombstones")
 	}
 
-	c.tombstonesToClean, err = c.c2.segment.GetTombstones()
+	c.tombstonesToClean, err = c.c2.segment.ReadOnlyTombstones()
 	if err != nil {
 		return errors.Wrap(err, "get tombstones")
 	}
@@ -274,11 +282,7 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 		}
 		if bytes.Equal(key1, key2) {
 
-			value1Clean, skip := c.cleanupValues(value1)
-			if skip {
-				key1, value1, _ = c.c1.next()
-				continue
-			}
+			value1Clean, _ := c.cleanupValues(value1)
 
 			sim.reset([][]MapPair{value1Clean, value2})
 			mergedPairs, err := sim.
@@ -287,15 +291,21 @@ func (c *compactorInverted) writeKeys() ([]segmentindex.Key, error) {
 				return nil, err
 			}
 
-			if values, skip := c.cleanupValues(mergedPairs); !skip {
-				ki, err := c.writeIndividualNode(c.offset, key2, values, c.propertyLengthsToWrite)
-				if err != nil {
-					return nil, errors.Wrap(err, "write individual node (equal keys)")
-				}
-
-				c.offset = ki.ValueEnd
-				kis = append(kis, ki)
+			if len(mergedPairs) == 0 {
+				// skip key if no values left
+				key1, value1, _ = c.c1.next()
+				key2, value2, _ = c.c2.next()
+				continue
 			}
+
+			ki, err := c.writeIndividualNode(c.offset, key2, mergedPairs, c.propertyLengthsToWrite)
+			if err != nil {
+				return nil, errors.Wrap(err, "write individual node (equal keys)")
+			}
+
+			c.offset = ki.ValueEnd
+			kis = append(kis, ki)
+
 			// advance both!
 			key1, value1, _ = c.c1.next()
 			key2, value2, _ = c.c2.next()
@@ -352,7 +362,7 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 		primaryKey:  keyCopy,
 		offset:      offset,
 		propLengths: propertyLengths,
-	}.KeyIndexAndWriteTo(c.bufw, c.docIdEncoder, c.tfEncoder)
+	}.KeyIndexAndWriteTo(c.bufw, c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
 }
 
 func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
@@ -360,6 +370,10 @@ func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
 		Keys:                keys,
 		SecondaryIndexCount: c.secondaryIndexCount,
 		ScratchSpacePath:    c.scratchSpacePath,
+		ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+			"strategy":  StrategyInverted,
+			"operation": "writeIndices",
+		}),
 	}
 
 	_, err := indices.WriteTo(c.bufw)

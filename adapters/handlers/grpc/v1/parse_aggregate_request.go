@@ -19,6 +19,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
@@ -26,10 +27,10 @@ import (
 )
 
 type AggregateParser struct {
-	authorizedGetClass func(string) (*models.Class, error)
+	authorizedGetClass classGetterWithAuthzFunc
 }
 
-func NewAggregateParser(authorizedGetClass func(string) (*models.Class, error)) *AggregateParser {
+func NewAggregateParser(authorizedGetClass classGetterWithAuthzFunc) *AggregateParser {
 	return &AggregateParser{
 		authorizedGetClass: authorizedGetClass,
 	}
@@ -75,7 +76,7 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 	}
 
 	if req.Filters != nil {
-		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection)
+		clause, err := ExtractFilters(req.Filters, p.authorizedGetClass, req.Collection, req.Tenant)
 		if err != nil {
 			return nil, fmt.Errorf("extract filters: %w", err)
 		}
@@ -308,6 +309,9 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 				params.Hybrid.NearTextParams = &searchparams.NearTextParams{
 					Values:        nearTxt.Values,
 					Limit:         nearTxt.Limit,
+					Certainty:     nearTxt.Certainty,
+					Distance:      nearTxt.Distance,
+					WithDistance:  nearTxt.WithDistance,
 					MoveAwayFrom:  searchparams.ExploreMove{Force: nearTxt.MoveAwayFrom.Force, Values: nearTxt.MoveAwayFrom.Values},
 					MoveTo:        searchparams.ExploreMove{Force: nearTxt.MoveTo.Force, Values: nearTxt.MoveTo.Values},
 					TargetVectors: targetVectors,
@@ -506,7 +510,7 @@ func extractTargetVectorsForAggregate(req *pb.AggregateRequest, class *models.Cl
 		combination = &dto.TargetCombination{Type: dto.DefaultTargetCombinationType}
 	}
 
-	if vectorSearch && len(targetVectors) == 0 {
+	if vectorSearch && len(targetVectors) == 0 && !modelsext.ClassHasLegacyVectorIndex(class) {
 		if len(class.VectorConfig) > 1 {
 			return nil, nil, false, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 		} else if len(class.VectorConfig) == 1 {

@@ -13,7 +13,11 @@ package lsmkv
 
 import (
 	"context"
+	"encoding/binary"
+	"fmt"
+	"hash/crc32"
 	"io"
+	"math/rand"
 	"os"
 	"path"
 	"testing"
@@ -336,6 +340,34 @@ func TestLoadWithChecksumErrorCases(t *testing.T) {
 	})
 }
 
+func BenchmarkLoading(b *testing.B) {
+	for _, val := range []int{10, 100, 1000, 10000} {
+		b.Run(fmt.Sprintf("%d", val), func(b *testing.B) {
+			dirName := b.TempDir()
+			fName := path.Join(dirName, fmt.Sprintf("my-file-%d", val))
+			f, err := os.Create(fName)
+			require.Nil(b, err)
+			data := make([]byte, val)
+			for i := 0; i < len(data); i++ {
+				data[i] = byte(rand.Intn(100))
+			}
+			chmsum := crc32.ChecksumIEEE(data[4:])
+			binary.LittleEndian.PutUint32(data[:4], chmsum)
+			_, err = f.Write(data)
+			require.NoError(b, err)
+
+			require.NoError(b, f.Sync())
+			require.NoError(b, f.Close())
+			b.ResetTimer()
+			for i := 0; i < b.N; i++ {
+				loadedData, err := loadWithChecksum(fName, len(data))
+				require.NoError(b, err)
+				require.Equal(b, loadedData, data[4:])
+			}
+		})
+	}
+}
+
 func TestBloom_OFF(t *testing.T) {
 	ctx := context.Background()
 	tests := bucketTests{
@@ -562,4 +594,45 @@ func corruptBloomFileByTruncatingIt(fname string) error {
 	}
 
 	return f.Close()
+}
+
+func BenchmarkName(b *testing.B) {
+	logger, _ := test.NewNullLogger()
+	fn := func(key []byte) (bool, error) { return true, nil }
+
+	for _, val := range []int{10, 100, 1000, 10000} {
+		b.Run(fmt.Sprintf("%d", val), func(b *testing.B) {
+			dirName := b.TempDir()
+			ctx := context.Background()
+			bu, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+				cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(),
+				WithStrategy(StrategyReplace))
+			require.Nil(b, err)
+
+			for i := 0; i < val; i++ {
+				require.Nil(b, bu.Put([]byte(fmt.Sprintf("hello-%v", i)), []byte(fmt.Sprintf("world-%v", i))))
+			}
+
+			require.Nil(b, bu.FlushMemtable())
+			bu.Shutdown(ctx)
+
+			files, err := os.ReadDir(dirName)
+			require.NoError(b, err)
+
+			fnames, ok := findFileWithExt(files, ".db")
+			assert.True(b, ok)
+			assert.NotNil(b, fnames)
+
+			b.ResetTimer()
+			b.ReportAllocs()
+			for i := 0; i < b.N; i++ {
+				_, err := newSegment(path.Join(dirName, fnames), logger, nil, fn, segmentConfig{
+					mmapContents:     false,
+					useBloomFilter:   true,
+					overwriteDerived: true,
+				})
+				require.NoError(b, err)
+			}
+		})
+	}
 }

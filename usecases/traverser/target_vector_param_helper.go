@@ -15,7 +15,7 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -32,7 +32,7 @@ func (t *TargetVectorParamHelper) GetTargetVectorOrDefault(sch schema.Schema, cl
 
 		// If no target vectors provided, check whether legacy vector is configured.
 		// For backwards compatibility, we have to return legacy vector in case no named vectors configured.
-		if hasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {
+		if modelsext.ClassHasLegacyVectorIndex(class) || len(class.VectorConfig) == 0 {
 			return []string{""}, nil
 		}
 
@@ -68,8 +68,4 @@ func (t *TargetVectorParamHelper) GetTargetVectorsFromParams(params dto.GetParam
 		}
 	}
 	return []string{}
-}
-
-func hasLegacyVectorIndex(class *models.Class) bool {
-	return class.Vectorizer != "" || class.VectorIndexConfig != nil
 }

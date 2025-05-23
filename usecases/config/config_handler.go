@@ -26,11 +26,13 @@ import (
 	"gopkg.in/yaml.v2"
 
 	"github.com/weaviate/weaviate/deprecations"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -53,6 +55,8 @@ const (
 	DefaultBM25k1 = float32(1.2)
 	DefaultBM25b  = float32(0.75)
 )
+
+var DefaultUsingBlockMaxWAND = os.Getenv("USE_INVERTED_SEARCHABLE") == "" || entcfg.Enabled(os.Getenv("USE_INVERTED_SEARCHABLE"))
 
 const (
 	DefaultMaxImportGoroutinesFactor = float64(1.5)
@@ -88,8 +92,7 @@ type Flags struct {
 }
 
 type SchemaHandlerConfig struct {
-	MaximumAllowedCollectionsCount   int         `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
-	MaximumAllowedCollectionsCountFn func() *int `json:"-" yaml:"-"`
+	MaximumAllowedCollectionsCount *runtime.DynamicValue[int] `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
 }
 
 type RuntimeOverrides struct {
@@ -131,8 +134,12 @@ type Config struct {
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
 	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
+	TransferInactivityTimeout           time.Duration            `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
+	ReindexerGoroutinesFactor           float64                  `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
+	ReindexMapToBlockmaxAtStartup       bool                     `json:"reindex_map_to_blockmax_at_startup" yaml:"reindex_map_to_blockmax_at_startup"`
+	ReindexMapToBlockmaxConfig          MapToBlockamaxConfig     `json:"reindex_map_to_blockmax_config" yaml:"reindex_map_to_blockmax_config"`
 	IndexMissingTextFilterableAtStartup bool                     `json:"index_missing_text_filterable_at_startup" yaml:"index_missing_text_filterable_at_startup"`
 	DisableGraphQL                      bool                     `json:"disable_graphql" yaml:"disable_graphql"`
 	AvoidMmap                           bool                     `json:"avoid_mmap" yaml:"avoid_mmap"`
@@ -145,7 +152,8 @@ type Config struct {
 	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
-
+	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
+	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
@@ -154,6 +162,26 @@ type Config struct {
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
+
+	ReplicaMovementMinimumFinalizingWait *runtime.DynamicValue[time.Duration] `json:"replica_movement_minimum_finalizing_wait" yaml:"replica_movement_minimum_finalizing_wait"`
+}
+
+type MapToBlockamaxConfig struct {
+	SwapBuckets               bool                     `json:"swap_buckets" yaml:"swap_buckets"`
+	UnswapBuckets             bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
+	TidyBuckets               bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
+	ReloadShards              bool                     `json:"reload_shards" yaml:"reload_shards"`
+	Rollback                  bool                     `json:"rollback" yaml:"rollback"`
+	ConditionalStart          bool                     `json:"conditional_start" yaml:"conditional_start"`
+	ProcessingDurationSeconds int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
+	PauseDurationSeconds      int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
+	Selected                  []CollectionPropsTenants `json:"selected" yaml:"selected"`
+}
+
+type CollectionPropsTenants struct {
+	Collection string   `json:"collection" yaml:"collection"`
+	Props      []string `json:"props" yaml:"props"`
+	Tenants    []string `json:"tenants" yaml:"tenants"`
 }
 
 // Validate the configuration
@@ -225,10 +253,10 @@ func (c *Config) validateDefaultVectorDistanceMetric() error {
 }
 
 type AutoSchema struct {
-	Enabled       bool   `json:"enabled" yaml:"enabled"`
-	DefaultString string `json:"defaultString" yaml:"defaultString"`
-	DefaultNumber string `json:"defaultNumber" yaml:"defaultNumber"`
-	DefaultDate   string `json:"defaultDate" yaml:"defaultDate"`
+	Enabled       *runtime.DynamicValue[bool] `json:"enabled" yaml:"enabled"`
+	DefaultString string                      `json:"defaultString" yaml:"defaultString"`
+	DefaultNumber string                      `json:"defaultNumber" yaml:"defaultNumber"`
+	DefaultDate   string                      `json:"defaultDate" yaml:"defaultDate"`
 }
 
 func (a AutoSchema) Validate() error {
@@ -275,6 +303,11 @@ type Profiling struct {
 	Port                 int  `json:"port" yaml:"port"`
 }
 
+type DistributedTasksConfig struct {
+	CompletedTaskTTL      time.Duration `json:"completedTaskTTL" yaml:"completedTaskTTL"`
+	SchedulerTickInterval time.Duration `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
+}
+
 type Persistence struct {
 	DataPath                            string `json:"dataPath" yaml:"dataPath"`
 	MemtablesFlushDirtyAfter            int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
@@ -287,6 +320,8 @@ type Persistence struct {
 	LSMEnableSegmentsChecksumValidation bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
 	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	HNSWMaxLogSize                      int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
+	IndexRangeableInMemory              bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
+	MinMMapSize                         int64  `json:"minMMapSize" yaml:"minMMapSize"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
@@ -307,6 +342,13 @@ const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
 
+const (
+	DefaultReindexerGoroutinesFactor = 0.5
+
+	DefaultMapToBlockmaxProcessingDurationSeconds = 3 * 60
+	DefaultMapToBlockmaxPauseDurationSeconds      = 60
+)
+
 // MetadataServer is experimental.
 type MetadataServer struct {
 	// When enabled startup will include a "metadata server"
@@ -324,6 +366,8 @@ const (
 const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibility
 
 const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
+
+const DefaultPersistenceMinMMapSize = 8192 // 8kb by default
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
@@ -397,19 +441,25 @@ func (r ResourceUsage) Validate() error {
 }
 
 type Raft struct {
-	Port                   int
-	InternalRPCPort        int
-	RPCMessageMaxSize      int
-	Join                   []string
-	SnapshotThreshold      uint64
+	Port              int
+	InternalRPCPort   int
+	RPCMessageMaxSize int
+	Join              []string
+
+	SnapshotInterval  time.Duration
+	SnapshotThreshold uint64
+	TrailingLogs      uint64
+
 	HeartbeatTimeout       time.Duration
 	ElectionTimeout        time.Duration
-	SnapshotInterval       time.Duration
 	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration
 	BootstrapExpect    int
 	MetadataOnlyVoters bool
+
+	EnableOneNodeRecovery bool
+	ForceOneNodeRecovery  bool
 }
 
 func (r *Raft) Validate() error {

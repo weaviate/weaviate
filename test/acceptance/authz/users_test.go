@@ -20,6 +20,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/client/meta"
+
+	"github.com/go-openapi/strfmt"
+
 	"github.com/weaviate/weaviate/test/docker"
 
 	"github.com/stretchr/testify/assert"
@@ -49,17 +53,17 @@ func TestAuthzRolesForUsers(t *testing.T) {
 	})
 
 	t.Run("role exists for admin", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, adminUser, adminKey)
+		roles := helper.GetRolesForUser(t, adminUser, adminKey, false)
 		require.Equal(t, 1, len(roles))
 	})
 
 	t.Run("get empty roles for existing user without role", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, customUser, adminKey)
+		roles := helper.GetRolesForUser(t, customUser, adminKey, false)
 		require.Equal(t, 0, len(roles))
 	})
 
 	t.Run("get roles for non existing user", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("notExists").WithUserType(string(models.UserTypeDb)), helper.CreateAuth(adminKey))
+		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID("notExists").WithUserType(string(models.UserTypeInputDb)), helper.CreateAuth(adminKey))
 		require.NotNil(t, err)
 		var targetErr *authz.GetRolesForUserNotFound
 		require.True(t, errors.As(err, &targetErr))
@@ -96,7 +100,7 @@ func TestAuthzRolesAndUserHaveTheSameName(t *testing.T) {
 		require.Equal(t, authorization.CreateCollections, *role.Permissions[0].Action)
 		require.Equal(t, "*", *role.Permissions[0].Collections.Collection)
 
-		roles := helper.GetRolesForUser(t, similar, adminKey)
+		roles := helper.GetRolesForUser(t, similar, adminKey, true)
 		require.Equal(t, 1, len(roles))
 		require.NotNil(t, role)
 		require.Equal(t, similar, *role.Name)
@@ -199,9 +203,11 @@ func TestUserPermissions(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, roleNameReadRoles, customUser)
 
 		// revoking works after user has appropriate rights
-		require.Len(t, helper.GetRolesForUser(t, customUser, adminKey), 3)
+		roles := helper.GetRolesForUser(t, customUser, customKey, true)
+		require.Len(t, roles, 3)
 		helper.RevokeRoleFromUser(t, customKey, otherRoleName, customUser)
-		require.Len(t, helper.GetRolesForUser(t, customUser, adminKey), 2)
+		roles = helper.GetRolesForUser(t, customUser, customKey, true)
+		require.Len(t, roles, 2)
 
 		helper.RevokeRoleFromUser(t, adminKey, roleNameUpdate, customUser)
 		helper.RevokeRoleFromUser(t, adminKey, roleNameReadRoles, customUser)
@@ -264,19 +270,19 @@ func TestReadUserPermissions(t *testing.T) {
 	helper.AssignRoleToUser(t, adminKey, otherRoleName, secondUser)
 
 	t.Run("admin can return roles", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, secondUser, adminKey)
+		roles := helper.GetRolesForUser(t, secondUser, adminKey, true)
 		require.NotNil(t, roles)
 		require.Len(t, roles, 1)
 	})
 
 	t.Run("user can return roles for themselves", func(t *testing.T) {
-		roles := helper.GetRolesForUser(t, secondUser, secondKey)
+		roles := helper.GetRolesForUser(t, secondUser, secondKey, true)
 		require.NotNil(t, roles)
 		require.Len(t, roles, 1)
 	})
 
 	t.Run("user cannot return roles for other user", func(t *testing.T) {
-		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(secondUser).WithUserType(string(models.UserTypeDb)), helper.CreateAuth(customKey))
+		_, err := helper.Client(t).Authz.GetRolesForUser(authz.NewGetRolesForUserParams().WithID(secondUser).WithUserType(string(models.UserTypeInputDb)), helper.CreateAuth(customKey))
 		require.Error(t, err)
 		var errType *authz.GetRolesForUserForbidden
 		require.True(t, errors.As(err, &errType))
@@ -285,7 +291,7 @@ func TestReadUserPermissions(t *testing.T) {
 	t.Run("add permission", func(t *testing.T) {
 		helper.AssignRoleToUser(t, adminKey, roleNameReadUsers, customUser)
 		helper.AssignRoleToUser(t, adminKey, roleNameReadRoles, customUser)
-		roles := helper.GetRolesForUser(t, secondUser, customKey)
+		roles := helper.GetRolesForUser(t, secondUser, customKey, false)
 		require.NotNil(t, roles)
 		require.Len(t, roles, 1)
 
@@ -296,7 +302,7 @@ func TestReadUserPermissions(t *testing.T) {
 	t.Run("check returns", func(t *testing.T) {
 		helper.RevokeRoleFromUser(t, adminKey, roleNameReadUsers, customUser)
 		helper.AssignRoleToUser(t, adminKey, roleNameReadUsers, customUser)
-		roles := helper.GetRolesForUser(t, customUser, customKey)
+		roles := helper.GetRolesForUser(t, customUser, customKey, true)
 		require.NotNil(t, roles)
 		require.Len(t, roles, 1)
 		require.Len(t, roles[0].Permissions, 1)
@@ -311,9 +317,9 @@ func TestReadUserPermissions(t *testing.T) {
 func TestUserEndpoint(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
-
+	customUser := "custom-user"
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDynamicUsers().
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "customKey").WithDbUsers().
 		WithRBAC().WithRbacAdmins(adminUser).Start(ctx)
 	require.Nil(t, err)
 
@@ -397,6 +403,7 @@ func TestUserEndpoint(t *testing.T) {
 	})
 
 	t.Run("Read User", func(t *testing.T) {
+		start := time.Now()
 		otherTestUserName := "otherTestUser"
 		helper.DeleteUser(t, otherTestUserName, adminKey)
 		defer helper.DeleteUser(t, otherTestUserName, adminKey)
@@ -413,13 +420,21 @@ func TestUserEndpoint(t *testing.T) {
 
 		otherTestUser := helper.GetUser(t, otherTestUserName, testKey)
 		require.Equal(t, *otherTestUser.UserID, otherTestUserName)
+		require.Less(t, strfmt.DateTime(start), otherTestUser.CreatedAt)
+		require.Less(t, otherTestUser.CreatedAt, strfmt.DateTime(time.Now()))
+	})
+
+	t.Run("Get static user", func(t *testing.T) {
+		staticUser := helper.GetUser(t, customUser, adminKey)
+		require.Equal(t, *staticUser.UserID, customUser)
+		require.Less(t, staticUser.CreatedAt, strfmt.DateTime(time.Now().Add(-1000*time.Hour))) // static user have minimum time
 	})
 
 	t.Run("Update (rotate, Deactivate, activate) user", func(t *testing.T) {
 		otherTestUser := "otherTestUser"
 		helper.DeleteUser(t, otherTestUser, adminKey)
 		defer helper.DeleteUser(t, otherTestUser, adminKey)
-		helper.CreateUser(t, otherTestUser, adminKey)
+		apiKey := helper.CreateUser(t, otherTestUser, adminKey)
 
 		// rotate, Deactivate and activate are all update
 		_, err := helper.Client(t).Users.RotateUserAPIKey(users.NewRotateUserAPIKeyParams().WithUserID(otherTestUser), helper.CreateAuth(testKey))
@@ -443,6 +458,11 @@ func TestUserEndpoint(t *testing.T) {
 		// with update role all three operations work
 		otherTestUserApiKey := helper.RotateKey(t, otherTestUser, testKey)
 		require.Greater(t, len(otherTestUserApiKey), 10)
+
+		// key is not valid anymore
+		_, err = helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(apiKey))
+		var ownInfoUnauthorized *users.GetOwnInfoUnauthorized
+		assert.True(t, errors.As(err, &ownInfoUnauthorized))
 
 		helper.DeactivateUser(t, testKey, otherTestUser, false)
 		helper.ActivateUser(t, testKey, otherTestUser)
@@ -478,14 +498,14 @@ func TestUserEndpoint(t *testing.T) {
 		// create user and assign roles
 		helper.CreateUser(t, testUserName, adminKey)
 		helper.AssignRoleToUser(t, adminKey, deleteUserRoleName, testUserName)
-		testUserRoles := helper.GetRolesForUser(t, testUserName, adminKey)
-		require.Len(t, testUserRoles, 1)
+		rolesRet := helper.GetRolesForUser(t, testUserName, adminKey, false)
+		require.Len(t, rolesRet, 1)
 
 		// delete user and recreate with same name => role assignment should be gone
 		helper.DeleteUser(t, testUserName, adminKey)
 		helper.CreateUser(t, testUserName, adminKey)
-		testUserRolesNew := helper.GetRolesForUser(t, testUserName, adminKey)
-		require.Len(t, testUserRolesNew, 0)
+		rolesRet = helper.GetRolesForUser(t, testUserName, adminKey, false)
+		require.Len(t, rolesRet, 0)
 	})
 }
 
@@ -506,7 +526,7 @@ func TestListAllUsers(t *testing.T) {
 	compose, err := docker.New().WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).WithUserApiKey(viewerUser, viewerKey).WithUserApiKey("editor-user", "editor-key").
 		WithRBAC().WithRbacAdmins(adminUser).
-		WithDynamicUsers().Start(ctx)
+		WithDbUsers().Start(ctx)
 	require.Nil(t, err)
 
 	defer func() {
@@ -518,14 +538,17 @@ func TestListAllUsers(t *testing.T) {
 
 	helper.AssignRoleToUser(t, adminKey, "viewer", viewerUser)
 	t.Run("List all users", func(t *testing.T) {
+		start := time.Now()
 		userNames := make([]string, 0, 10)
 		for i := 0; i < cap(userNames); i++ {
 			userNames = append(userNames, fmt.Sprintf("user-%d", i))
 		}
 
+		apiKeys := make([]string, 0, len(userNames))
 		for i, userName := range userNames {
 			helper.DeleteUser(t, userName, adminKey)
-			helper.CreateUser(t, userName, adminKey)
+			apiKey := helper.CreateUser(t, userName, adminKey)
+			apiKeys = append(apiKeys, apiKey)
 			defer helper.DeleteUser(t, userName, adminKey) // runs at end of test function to clear everything
 			if i%2 == 0 {
 				helper.AssignRoleToUser(t, adminKey, "viewer", userName)
@@ -541,7 +564,8 @@ func TestListAllUsers(t *testing.T) {
 		for _, user := range allUsersAdmin {
 			name := *user.UserID
 
-			if *user.DbUserType == "static" {
+			if *user.DbUserType == models.DBUserInfoDbUserTypeDbEnvUser {
+				require.Less(t, user.CreatedAt, strfmt.DateTime(start)) // minimum time for static users
 				continue
 			}
 
@@ -553,6 +577,10 @@ func TestListAllUsers(t *testing.T) {
 			}
 
 			require.Equal(t, number%5 != 0, *user.Active)
+			require.Less(t, strfmt.DateTime(start), user.CreatedAt)
+			require.Less(t, user.CreatedAt, strfmt.DateTime(time.Now()))
+			require.Len(t, user.APIKeyFirstLetters, 3)
+			require.Equal(t, user.APIKeyFirstLetters, apiKeys[number][:3])
 		}
 
 		allUsersViewer := helper.ListAllUsers(t, viewerKey)
@@ -583,7 +611,7 @@ func TestListAllUsers(t *testing.T) {
 		for _, user := range allUsers {
 			name := *user.UserID
 
-			if *user.DbUserType == "static" {
+			if *user.DbUserType == models.DBUserInfoDbUserTypeDbEnvUser {
 				continue
 			}
 
@@ -672,4 +700,110 @@ func TestUserPermissionReturns(t *testing.T) {
 		require.Equal(t, *roleRet.Permissions[0].Users.Users, all)
 		require.Equal(t, *roleRet.Permissions[0].Action, action)
 	}
+}
+
+func TestGetLastUsageMultinode(t *testing.T) {
+	adminUser := "admin-user"
+	adminKey := "admin-key"
+	ctx := context.Background()
+	compose, err := docker.New().
+		With3NodeCluster().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
+		Start(ctx)
+
+	require.NoError(t, err)
+	defer func() {
+		if err := compose.Terminate(ctx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	t.Run("get last usage multinode", func(t *testing.T) {
+		helper.SetupClient(compose.GetWeaviate().URI())
+
+		dynUser := "dyn-user"
+		helper.DeleteUser(t, dynUser, adminKey)
+		defer helper.DeleteUser(t, dynUser, adminKey)
+		apiKey := helper.CreateUser(t, dynUser, adminKey)
+
+		time.Sleep(time.Millisecond * 100) // sometimes takes a little bit until a user has been propagated to all nodes
+		before := time.Now()
+
+		info := helper.GetInfoForOwnUser(t, apiKey)
+		require.Equal(t, *info.Username, dynUser)
+
+		user := helper.GetUserWithLastUsedTime(t, dynUser, adminKey, true)
+		require.Equal(t, *user.UserID, dynUser)
+		require.Less(t, before, user.LastUsedAt)
+		require.Less(t, user.LastUsedAt, time.Now())
+
+		lastLoginTime := user.LastUsedAt
+		// make request to other node and check that login time has been update in first node
+		helper.SetupClient(compose.GetWeaviateNode2().URI())
+
+		require.Equal(t, *helper.GetInfoForOwnUser(t, apiKey).Username, dynUser)
+
+		helper.SetupClient(compose.GetWeaviateNode3().URI())
+
+		user = helper.GetUserWithLastUsedTime(t, dynUser, adminKey, true)
+		require.Equal(t, *user.UserID, dynUser)
+		require.Less(t, lastLoginTime, user.LastUsedAt)
+		require.Less(t, user.LastUsedAt, time.Now())
+
+		allUsers := helper.ListAllUsersWithIncludeTime(t, adminKey, true)
+		for _, user := range allUsers {
+			if *user.UserID != dynUser {
+				continue
+			}
+			require.Less(t, lastLoginTime, user.LastUsedAt)
+			require.Less(t, user.LastUsedAt, time.Now())
+		}
+	})
+
+	t.Run("last usage with shutdowns", func(t *testing.T) {
+		firstNode := compose.GetWeaviateNode(2)
+		secondNode := compose.GetWeaviateNode(1)
+		helper.SetupClient(firstNode.URI())
+
+		dynUser := "dyn-user"
+		helper.DeleteUser(t, dynUser, adminKey)
+		defer helper.DeleteUser(t, dynUser, adminKey)
+		apiKey := helper.CreateUser(t, dynUser, adminKey)
+
+		time.Sleep(time.Millisecond * 100) // sometimes takes a little bit until a user has been propagated to all nodes
+		before := time.Now()
+
+		info := helper.GetInfoForOwnUser(t, apiKey)
+		require.Equal(t, *info.Username, dynUser)
+
+		user := helper.GetUserWithLastUsedTime(t, dynUser, adminKey, true)
+		require.Equal(t, *user.UserID, dynUser)
+		require.Less(t, before, user.LastUsedAt)
+		require.Less(t, user.LastUsedAt, time.Now())
+
+		// shutdown node, its login time should be transferred to other nodes
+		timeout := time.Minute
+		err := firstNode.Container().Stop(ctx, &timeout)
+		require.NoError(t, err)
+		time.Sleep(time.Second * 5) // wait to make sure that node is gone
+		_, err = helper.Client(t).Meta.MetaGet(meta.NewMetaGetParams(), nil)
+		require.Error(t, err)
+
+		helper.ResetClient()
+		helper.SetupClient(secondNode.URI())
+
+		userNode2 := helper.GetUserWithLastUsedTime(t, dynUser, adminKey, true)
+		require.Equal(t, *user.UserID, dynUser)
+		require.Less(t, before, userNode2.LastUsedAt)
+		require.Less(t, userNode2.LastUsedAt, time.Now())
+		require.Equal(t, userNode2.LastUsedAt, user.LastUsedAt)
+
+		allUsers := helper.ListAllUsersWithIncludeTime(t, adminKey, true)
+		for _, user := range allUsers {
+			if *user.UserID != dynUser {
+				continue
+			}
+			require.Less(t, user.LastUsedAt, time.Now())
+			require.Equal(t, user.LastUsedAt, userNode2.LastUsedAt)
+		}
+	})
 }

@@ -89,10 +89,11 @@ func TestMultiVectorHnsw(t *testing.T) {
 				return multiVectors[id], nil
 			},
 		}, ent.UserConfig{
-			MaxConnections: maxConnections,
-			EFConstruction: efConstruction,
-			EF:             ef,
-			Multivector:    ent.MultivectorConfig{Enabled: true},
+			VectorCacheMaxObjects: 1e12,
+			MaxConnections:        maxConnections,
+			EFConstruction:        efConstruction,
+			EF:                    ef,
+			Multivector:           ent.MultivectorConfig{Enabled: true},
 		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 		require.Nil(t, err)
 		vectorIndex = index
@@ -162,25 +163,28 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 
 	userConfigTest := []ent.UserConfig{
 		{
-			MaxConnections: maxConnections,
-			EFConstruction: efConstruction,
-			EF:             ef,
-			Multivector:    ent.MultivectorConfig{Enabled: true},
-			BQ:             ent.BQConfig{Enabled: true},
+			MaxConnections:        maxConnections,
+			EFConstruction:        efConstruction,
+			EF:                    ef,
+			VectorCacheMaxObjects: 1e12,
+			Multivector:           ent.MultivectorConfig{Enabled: true},
+			PQ: ent.PQConfig{
+				Enabled: true,
+				Encoder: ent.PQEncoder{
+					Type:         ent.PQEncoderTypeKMeans,
+					Distribution: ent.PQEncoderDistributionLogNormal,
+				},
+				Centroids:     256,
+				TrainingLimit: 100_000,
+			},
 		},
 		{
-			MaxConnections: maxConnections,
-			EFConstruction: efConstruction,
-			EF:             ef,
-			Multivector:    ent.MultivectorConfig{Enabled: true},
-			PQ:             ent.PQConfig{Enabled: true},
-		},
-		{
-			MaxConnections: maxConnections,
-			EFConstruction: efConstruction,
-			EF:             ef,
-			Multivector:    ent.MultivectorConfig{Enabled: true},
-			SQ:             ent.SQConfig{Enabled: true},
+			MaxConnections:        maxConnections,
+			EFConstruction:        efConstruction,
+			EF:                    ef,
+			VectorCacheMaxObjects: 1e12,
+			Multivector:           ent.MultivectorConfig{Enabled: true},
+			SQ:                    ent.SQConfig{Enabled: true},
 		},
 	}
 
@@ -192,14 +196,16 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 				MakeCommitLoggerThunk: MakeNoopCommitLogger,
 				DistanceProvider:      distancer.NewDotProductProvider(),
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-					docID, relativeID := vectorIndex.cache.GetKeys(id)
-					return multiVectors[docID][relativeID], nil
+					return []float32{0}, errors.New("can not use VectorForIDThunk with multivector")
+				},
+				MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+					return multiVectors[id], nil
 				},
 				TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
 					return multiVectors[id], nil
 				},
 			}, userConfig, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
-			require.ErrorContains(t, err, "compression is not supported in multivector mode")
+			require.Nil(t, err)
 		}
 	})
 
@@ -211,23 +217,111 @@ func TestMultiVectorCompressHnsw(t *testing.T) {
 				MakeCommitLoggerThunk: MakeNoopCommitLogger,
 				DistanceProvider:      distancer.NewDotProductProvider(),
 				VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
-					docID, relativeID := vectorIndex.cache.GetKeys(id)
-					return multiVectors[docID][relativeID], nil
+					return []float32{0}, errors.New("can not use VectorForIDThunk with multivector")
+				},
+				MultiVectorForIDThunk: func(ctx context.Context, id uint64) ([][]float32, error) {
+					return multiVectors[id], nil
 				},
 				TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
 					return multiVectors[id], nil
 				},
 			}, ent.UserConfig{
-				MaxConnections: maxConnections,
-				EFConstruction: efConstruction,
-				EF:             ef,
-				Multivector:    ent.MultivectorConfig{Enabled: true},
+				VectorCacheMaxObjects: 1e12,
+				MaxConnections:        maxConnections,
+				EFConstruction:        efConstruction,
+				EF:                    ef,
+				Multivector:           ent.MultivectorConfig{Enabled: true},
 			},
 				cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
 			require.Nil(t, err)
 			vectorIndex = index
+			err = vectorIndex.AddMulti(context.Background(), 0, multiVectors[0])
+			require.Nil(t, err)
 			err = vectorIndex.compress(userConfig)
-			require.ErrorContains(t, err, "compression is not supported in multivector mode")
+			require.Nil(t, err)
+		}
+	})
+}
+
+func TestMultiVectorBQHnsw(t *testing.T) {
+	var vectorIndex *hnsw
+	ctx := context.Background()
+	maxConnections := 8
+	efConstruction := 64
+	ef := 64
+	k := 10
+
+	t.Run("importing into hnsw", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "recallbenchmark",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewDotProductProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				docID, relativeID := vectorIndex.cache.GetKeys(id)
+				return multiVectors[docID][relativeID], nil
+			},
+			TempMultiVectorForIDThunk: func(ctx context.Context, id uint64, container *common.VectorSlice) ([][]float32, error) {
+				return multiVectors[id], nil
+			},
+		}, ent.UserConfig{
+			VectorCacheMaxObjects: 1e12,
+			MaxConnections:        maxConnections,
+			EFConstruction:        efConstruction,
+			EF:                    ef,
+			Multivector:           ent.MultivectorConfig{Enabled: true},
+			// BQ:             ent.BQConfig{Enabled: true},
+		}, cyclemanager.NewCallbackGroupNoop(), testinghelpers.NewDummyStore(t))
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range multiVectors {
+			err := vectorIndex.AddMulti(ctx, uint64(i), vec)
+			require.Nil(t, err)
+		}
+		uc := ent.UserConfig{
+			VectorCacheMaxObjects: 1e12,
+			MaxConnections:        maxConnections,
+			EFConstruction:        efConstruction,
+			EF:                    ef,
+			Multivector: ent.MultivectorConfig{
+				Enabled: true,
+			},
+			BQ: ent.BQConfig{
+				Enabled: true,
+			},
+		}
+		err = vectorIndex.compress(uc)
+		require.Nil(t, err)
+	})
+
+	t.Run("inspect a query", func(t *testing.T) {
+		for i, query := range multiQueries {
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			require.Nil(t, err)
+			require.Equal(t, expectedResults[i], ids)
+		}
+	})
+
+	t.Run("delete some nodes", func(t *testing.T) {
+		// Delete the first node and then add back
+		newExpectedResults := [][]uint64{
+			{1, 2},
+			{2, 1},
+		}
+		err := vectorIndex.DeleteMulti(0)
+		require.Nil(t, err)
+		for i, query := range multiQueries {
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			require.Nil(t, err)
+			require.Equal(t, newExpectedResults[i], ids)
+		}
+		err = vectorIndex.AddMulti(ctx, 0, multiVectors[0])
+		require.Nil(t, err)
+		for i, query := range multiQueries {
+			ids, _, err := vectorIndex.SearchByMultiVector(ctx, query, k, nil)
+			require.Nil(t, err)
+			require.Equal(t, expectedResults[i], ids)
 		}
 	})
 }
@@ -261,9 +355,10 @@ func TestMultivectorPersistence(t *testing.T) {
 			return multiVectors[id], nil
 		},
 	}, ent.UserConfig{
-		MaxConnections: maxConnections,
-		EFConstruction: efConstruction,
-		EF:             ef,
+		VectorCacheMaxObjects: 1e12,
+		MaxConnections:        maxConnections,
+		EFConstruction:        efConstruction,
+		EF:                    ef,
 		Multivector: ent.MultivectorConfig{
 			Enabled: true,
 		},
@@ -302,9 +397,10 @@ func TestMultivectorPersistence(t *testing.T) {
 			return multiVectors[id], nil
 		},
 	}, ent.UserConfig{
-		MaxConnections: maxConnections,
-		EFConstruction: efConstruction,
-		EF:             ef,
+		VectorCacheMaxObjects: 1e12,
+		MaxConnections:        maxConnections,
+		EFConstruction:        efConstruction,
+		EF:                    ef,
 		Multivector: ent.MultivectorConfig{
 			Enabled: true,
 		},

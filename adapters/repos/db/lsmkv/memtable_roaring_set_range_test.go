@@ -33,9 +33,9 @@ func TestMemtableRoaringSetRange(t *testing.T) {
 	}
 
 	t.Run("concurrent writes and search", func(t *testing.T) {
-		cl, err := newCommitLogger(memPath())
+		cl, err := newCommitLogger(memPath(), StrategyRoaringSetRange)
 		require.NoError(t, err)
-		m, err := newMemtable(memPath(), StrategyRoaringSetRange, 0, cl, nil, logger, false)
+		m, err := newMemtable(memPath(), StrategyRoaringSetRange, 0, cl, nil, logger, false, nil)
 		require.Nil(t, err)
 
 		addKeyVals := func(k uint64) error {
@@ -66,11 +66,13 @@ func TestMemtableRoaringSetRange(t *testing.T) {
 				1009, 2009, 3009,
 			}
 
-			layerLTE4, err := reader.Read(context.Background(), 4, filters.OperatorLessThanEqual)
+			layerLTE4, release, err := reader.Read(context.Background(), 4, filters.OperatorLessThanEqual)
 			require.NoError(t, err)
+			defer release()
 
-			layerGT7, err := reader.Read(context.Background(), 7, filters.OperatorGreaterThan)
+			layerGT7, release, err := reader.Read(context.Background(), 7, filters.OperatorGreaterThan)
 			require.NoError(t, err)
+			defer release()
 
 			assert.ElementsMatch(t, expAddLTE4, layerLTE4.Additions.ToArray())
 			assert.ElementsMatch(t, expDel, layerLTE4.Deletions.ToArray())

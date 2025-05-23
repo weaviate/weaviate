@@ -44,22 +44,19 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
-func TestGRPCRequest(t *testing.T) {
-	classname := "TestClass"
-	refClass1 := "OtherClass"
-	refClass2 := "AnotherClass"
-	dotClass := "DotClass"
-	objClass := "ObjClass"
-	multiVecClass := "MultiVecClass"
-	multiVecClassWithColBERT := "MultiVecClassWithColBERT"
-	singleNamedVecClass := "SingleNamedVecClass"
-	regularWithColBERTClass := "RegularWithColBERTClass"
-	one := float64(1.0)
+var (
+	classname                = "TestClass"
+	refClass1                = "OtherClass"
+	refClass2                = "AnotherClass"
+	dotClass                 = "DotClass"
+	objClass                 = "ObjClass"
+	multiVecClass            = "MultiVecClass"
+	multiVecClassWithColBERT = "MultiVecClassWithColBERT"
+	singleNamedVecClass      = "SingleNamedVecClass"
+	regularWithColBERTClass  = "RegularWithColBERTClass"
+	mixedVectorsClass        = "MixedVectorsClass"
 
-	defaultTestClassProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
-	defaultNamedVecProps := search.SelectProperties{{Name: "first", IsPrimitive: true}}
-
-	scheme := schema.Schema{
+	scheme = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{
 				{
@@ -235,9 +232,38 @@ func TestGRPCRequest(t *testing.T) {
 						},
 					},
 				},
+				{
+					Class: mixedVectorsClass,
+					Properties: []*models.Property{
+						{Name: "first", DataType: schema.DataTypeText.PropString()},
+					},
+					Vectorizer:        "text2vec-contextionary",
+					VectorIndexType:   "hnsw",
+					VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine},
+					VectorConfig: map[string]models.VectorConfig{
+						"first_vec": {
+							VectorIndexType:   "hnsw",
+							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine},
+							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+						"second_vec": {
+							VectorIndexType:   "hnsw",
+							VectorIndexConfig: hnsw.UserConfig{Distance: vectorIndex.DistanceCosine},
+							Vectorizer:        map[string]interface{}{"text2vec-contextionary": map[string]interface{}{}},
+						},
+					},
+				},
 			},
 		},
 	}
+)
+
+func TestGRPCSearchRequest(t *testing.T) {
+	one := float64(1.0)
+
+	defaultTestClassProps := search.SelectProperties{{Name: "name", IsPrimitive: true}, {Name: "number", IsPrimitive: true}, {Name: "floats", IsPrimitive: true}, {Name: "uuid", IsPrimitive: true}}
+	defaultNamedVecProps := search.SelectProperties{{Name: "first", IsPrimitive: true}}
+
 	defaultPagination := &filters.Pagination{Limit: 10}
 	quorum := pb.ConsistencyLevel_CONSISTENCY_LEVEL_QUORUM
 	someString1 := "a word"
@@ -2254,14 +2280,60 @@ func TestGRPCRequest(t *testing.T) {
 			},
 			error: false,
 		},
-	}
-
-	getClass := func(name string) (*models.Class, error) {
-		class := scheme.GetClass(name)
-		if class == nil {
-			return nil, fmt.Errorf("class %s not found", name)
-		}
-		return class, nil
+		{
+			name: "mixed vector input near vector targeting legacy vector",
+			req: &pb.SearchRequest{
+				Collection: mixedVectorsClass,
+				NearVector: &pb.NearVector{
+					Vector:    []float32{1, 2, 3},
+					Certainty: ptr(0.6),
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName:  mixedVectorsClass,
+				Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: true,
+				},
+				NearVector: &searchparams.NearVector{
+					Vectors:       []models.Vector{[]float32{1, 2, 3}},
+					TargetVectors: nil,
+					Certainty:     0.6,
+				},
+			},
+			error: false,
+		},
+		{
+			name: "mixed vector input near vector targeting named vector",
+			req: &pb.SearchRequest{
+				Collection: mixedVectorsClass,
+				NearVector: &pb.NearVector{
+					Vector: []float32{1, 2, 3},
+					Targets: &pb.Targets{
+						TargetVectors: []string{"first_vec"},
+					},
+					Certainty: ptr(0.6),
+				},
+				Metadata: &pb.MetadataRequest{Certainty: true},
+			},
+			out: dto.GetParams{
+				ClassName:  mixedVectorsClass,
+				Pagination: defaultPagination,
+				Properties: defaultNamedVecProps,
+				AdditionalProperties: additional.Properties{
+					NoProps: false, Certainty: true,
+				},
+				NearVector: &searchparams.NearVector{
+					TargetVectors: []string{"first_vec"},
+					Vectors:       []models.Vector{[]float32{1, 2, 3}},
+					Certainty:     0.6,
+				},
+				TargetVectorCombination: &dto.TargetCombination{Type: dto.Minimum, Weights: []float32{0}},
+			},
+			error: false,
+		},
 	}
 
 	parser := NewParser(false, getClass)
@@ -2283,8 +2355,20 @@ func TestGRPCRequest(t *testing.T) {
 	}
 }
 
+func getClass(name string) (*models.Class, error) {
+	class := scheme.GetClass(name)
+	if class == nil {
+		return nil, fmt.Errorf("class %s not found", name)
+	}
+	return class, nil
+}
+
 func sortNamedVecs(vecs []string) {
 	sort.Slice(vecs, func(i, j int) bool {
 		return vecs[i] < vecs[j]
 	})
+}
+
+func ptr[T any](t T) *T {
+	return &t
 }

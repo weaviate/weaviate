@@ -15,7 +15,6 @@ import (
 	"fmt"
 
 	"github.com/weaviate/weaviate/entities/aggregation"
-	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
@@ -24,7 +23,7 @@ type AggregateReplier struct {
 	authorizedGetDataTypeOfProp func(string) (string, error)
 }
 
-func NewAggregateReplier(authorizedGetClass func(string) (*models.Class, error), params *aggregation.Params) *AggregateReplier {
+func NewAggregateReplier(authorizedGetClass classGetterWithAuthzFunc, params *aggregation.Params) *AggregateReplier {
 	return &AggregateReplier{
 		authorizedGetDataTypeOfProp: func(propName string) (string, error) {
 			class, err := authorizedGetClass(string(params.ClassName))

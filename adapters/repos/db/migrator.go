@@ -116,9 +116,11 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMaxSizeMB:                  m.db.config.MemtablesMaxSizeMB,
 			MemtablesMinActiveSeconds:           m.db.config.MemtablesMinActiveSeconds,
 			MemtablesMaxActiveSeconds:           m.db.config.MemtablesMaxActiveSeconds,
+			MinMMapSize:                         m.db.config.MinMMapSize,
 			SegmentsCleanupIntervalSeconds:      m.db.config.SegmentsCleanupIntervalSeconds,
 			SeparateObjectsCompactions:          m.db.config.SeparateObjectsCompactions,
 			CycleManagerRoutinesFactor:          m.db.config.CycleManagerRoutinesFactor,
+			IndexRangeableInMemory:              m.db.config.IndexRangeableInMemory,
 			MaxSegmentSize:                      m.db.config.MaxSegmentSize,
 			HNSWMaxLogSize:                      m.db.config.HNSWMaxLogSize,
 			HNSWWaitForCachePrefill:             m.db.config.HNSWWaitForCachePrefill,
@@ -129,6 +131,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			AvoidMMap:                           m.db.config.AvoidMMap,
 			DisableLazyLoadShards:               m.db.config.DisableLazyLoadShards,
 			ForceFullReplicasSearch:             m.db.config.ForceFullReplicasSearch,
+			TransferInactivityTimeout:           m.db.config.TransferInactivityTimeout,
 			LSMEnableSegmentsChecksumValidation: m.db.config.LSMEnableSegmentsChecksumValidation,
 			ReplicationFactor:                   class.ReplicationConfig.Factor,
 			AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
@@ -141,9 +144,9 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
-		m.db.replicaClient, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
-		m.db.memMonitor)
+		m.db.router, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
+		m.db.memMonitor, m.db.reindexer)
 	if err != nil {
 		return errors.Wrap(err, "create index")
 	}
@@ -178,6 +181,22 @@ func (m *Migrator) UpdateClass(ctx context.Context, className string, newClassNa
 	}
 
 	return nil
+}
+
+func (m *Migrator) AddReplicaToShard(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+	return idx.LoadLocalShard(ctx, shard)
+}
+
+func (m *Migrator) DeleteReplicaFromShard(ctx context.Context, class, shard string) error {
+	idx := m.db.GetIndex(schema.ClassName(class))
+	if idx == nil {
+		return fmt.Errorf("could not find collection %s", class)
+	}
+	return idx.dropShards([]string{shard})
 }
 
 // UpdateIndex ensures that the local index is up2date with the latest sharding
@@ -463,7 +482,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 				defer cancel()
 
-				if err := idx.loadLocalShard(ctx, name); err != nil {
+				if err := idx.LoadLocalShard(ctx, name); err != nil {
 					ec.Add(err)
 					idx.logger.WithFields(logrus.Fields{
 						"action": "tenant_activation_lazy_load_shard",
@@ -627,7 +646,7 @@ func (m *Migrator) ValidateVectorIndexConfigUpdate(
 	case vectorindex.VectorIndexTypeDYNAMIC:
 		return dynamic.ValidateUserConfigUpdate(old, updated)
 	}
-	return fmt.Errorf("Invalid index type: %s", old.IndexType())
+	return fmt.Errorf("invalid index type: %s", old.IndexType())
 }
 
 func (m *Migrator) ValidateVectorIndexConfigsUpdate(old, updated map[string]schemaConfig.VectorIndexConfig,

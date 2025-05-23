@@ -24,12 +24,18 @@ import (
 
 	"github.com/hashicorp/raft"
 	raftbolt "github.com/hashicorp/raft-boltdb/v2"
+	"github.com/jonboulle/clockwork"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
 	rbacRaft "github.com/weaviate/weaviate/cluster/rbac"
+	"github.com/weaviate/weaviate/cluster/replication"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/types"
@@ -37,6 +43,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -99,6 +107,12 @@ type Config struct {
 	// ReloadConfig.
 	SnapshotInterval time.Duration
 
+	// TrailingLogs controls how many logs we leave after a snapshot. This is used
+	// so that we can quickly replay logs on a follower instead of being forced to
+	// send an entire snapshot. The value passed here is the initial setting used.
+	// This can be tuned during operation using ReloadConfig.
+	TrailingLogs uint64
+
 	// Cluster bootstrap related settings
 
 	// BootstrapTimeout is the time a node will notify other node that it is ready to bootstrap a cluster if it can't
@@ -110,7 +124,6 @@ type Config struct {
 
 	// ConsistencyWaitTimeout is the duration we will wait for a schema version to land on that node
 	ConsistencyWaitTimeout time.Duration
-	NodeToAddressResolver  resolver.NodeToAddress
 	// NodeSelector is the memberlist interface to RAFT
 	NodeSelector cluster.NodeSelector
 	Logger       *logrus.Logger
@@ -134,10 +147,30 @@ type Config struct {
 	// capture traces
 	SentryEnabled bool
 
-	// 	AuthzController to manage RBAC commands and apply it to casbin
-	AuthzController authorization.Controller
+	// EnableOneNodeRecovery enables the actually one node recovery logic to avoid it running all the time when
+	// unnecessary
+	EnableOneNodeRecovery bool
+	// ForceOneNodeRecovery will force the single node recovery routine to run. This is useful if the cluster has
+	// committed wrong peer configuration entry that makes it unable to obtain a quorum to start.
+	// WARNING: This should be run on *actual* one node cluster only.
+	ForceOneNodeRecovery bool
 
-	DynamicUserController apikey.DynamicUser
+	// 	AuthzController to manage RBAC commands and apply it to casbin
+	AuthzController       authorization.Controller
+	AuthNConfig           config.Authentication
+	DynamicUserController *apikey.DBUser
+
+	// ReplicaCopier copies shard replicas between nodes
+	ReplicaCopier replicationTypes.ReplicaCopier
+
+	// ReplicationEngineMaxWorkers is the maximum number of workers for the replication engine
+	ReplicationEngineMaxWorkers int
+
+	// DistributedTasks is the configuration for the distributed task manager.
+	DistributedTasks config.DistributedTasksConfig
+
+	// ReplicaMovementMinimumFinalizingWait is the upper time bound duration for replica movement operations.
+	ReplicaMovementMinimumFinalizingWait *runtime.DynamicValue[time.Duration]
 }
 
 // Store is the implementation of RAFT on this local node. It will handle the local schema and RAFT operations (startup,
@@ -187,14 +220,61 @@ type Store struct {
 	// authZManager is responsible for applying/querying changes committed by RAFT to the rbac representation
 	dynUserManager *dynusers.Manager
 
+	// replicationManager is responsible for applying/querying the replication FSM used to handle replication operations
+	replicationManager *replication.Manager
+
+	// distributedTaskManager is responsible for applying/querying the distributed task FSM used to handle distributed tasks.
+	distributedTasksManager *distributedtask.Manager
+
 	// lastAppliedIndexToDB represents the index of the last applied command when the store is opened.
 	lastAppliedIndexToDB atomic.Uint64
 	// / lastAppliedIndex index of latest update to the store
 	lastAppliedIndex atomic.Uint64
+
+	// snapshotter is the snapshotter for the store
+	snapshotter fsm.Snapshotter
+
+	// authZController is the authz controller for the store
+	authZController authorization.Controller
+
+	metrics *storeMetrics
 }
 
-func NewFSM(cfg Config, reg prometheus.Registerer) Store {
+// storeMetrics exposes RAFT store related prometheus metrics
+type storeMetrics struct {
+	applyDuration    prometheus.Histogram
+	applyFailures    prometheus.Counter
+	lastAppliedIndex prometheus.Gauge
+}
+
+// newStoreMetrics cretes and registers the store related metrics on
+// given prometheus registry.
+func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
+	r := promauto.With(reg)
+	return &storeMetrics{
+		applyDuration: r.NewHistogram(prometheus.HistogramOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_duration_seconds",
+			Help:        "Time to apply cluster store FSM state in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+			Buckets:     prometheus.ExponentialBuckets(0.001, 5, 5), // 1ms, 5ms, 25ms, 125ms, 625ms
+		}),
+		applyFailures: r.NewCounter(prometheus.CounterOpts{
+			Name:        "weaviate_cluster_store_fsm_apply_failures_total",
+			Help:        "Total failure count of cluster store FSM state apply in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+		lastAppliedIndex: r.NewGauge(prometheus.GaugeOpts{
+			Name:        "weaviate_cluster_store_fsm_last_applied_index",
+			Help:        "Current applied index of cluster store FSM in local node",
+			ConstLabels: prometheus.Labels{"nodeID": nodeID},
+		}),
+	}
+}
+
+func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
+	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), reg)
+	schemaManager.SetReplicationsDeleter(replicationManager.GetReplicationFSM())
 
 	return Store{
 		cfg:          cfg,
@@ -202,14 +282,22 @@ func NewFSM(cfg Config, reg prometheus.Registerer) Store {
 		candidates:   make(map[string]string, cfg.BootstrapExpect),
 		applyTimeout: time.Second * 20,
 		raftResolver: resolver.NewRaft(resolver.RaftConfig{
-			NodeToAddress:     cfg.NodeToAddressResolver,
-			RaftPort:          cfg.RaftPort,
-			IsLocalHost:       cfg.IsLocalHost,
-			NodeNameToPortMap: cfg.NodeNameToPortMap,
+			ClusterStateReader: cfg.NodeSelector,
+			RaftPort:           cfg.RaftPort,
+			IsLocalHost:        cfg.IsLocalHost,
+			NodeNameToPortMap:  cfg.NodeNameToPortMap,
 		}),
-		schemaManager:  schemaManager,
-		authZManager:   rbacRaft.NewManager(cfg.AuthzController, cfg.Logger),
-		dynUserManager: dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
+		schemaManager:      schemaManager,
+		snapshotter:        snapshotter,
+		authZController:    authZController,
+		authZManager:       rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
+		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
+		replicationManager: replicationManager,
+		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
+			Clock:            clockwork.NewRealClock(),
+			CompletedTaskTTL: cfg.DistributedTasks.CompletedTaskTTL,
+		}),
+		metrics: newStoreMetrics(cfg.NodeID, reg),
 	}
 }
 
@@ -257,6 +345,14 @@ func (st *Store) Open(ctx context.Context) (err error) {
 	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
 	if err != nil {
 		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
+	}
+
+	// Only if node recovery is enabled will we check if we are either forcing it or automating the detection of a one
+	// node cluster
+	if st.cfg.EnableOneNodeRecovery && (st.cfg.ForceOneNodeRecovery || (st.cfg.BootstrapExpect == 1 && len(st.candidates) < 2)) {
+		if err := st.recoverSingleNode(st.cfg.ForceOneNodeRecovery); err != nil {
+			return err
+		}
 	}
 
 	snapIndex := lastSnapshotIndex(st.snapshotStore)
@@ -602,9 +698,13 @@ func (st *Store) raftConfig() *raft.Config {
 	if st.cfg.SnapshotThreshold > 0 {
 		cfg.SnapshotThreshold = st.cfg.SnapshotThreshold
 	}
+	if st.cfg.TrailingLogs > 0 {
+		cfg.TrailingLogs = st.cfg.TrailingLogs
+	}
 
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
 	cfg.LogLevel = st.cfg.Logger.GetLevel().String()
+	cfg.NoLegacyTelemetry = true
 
 	logger := log.NewHCLogrusLogger("raft", st.log)
 	cfg.Logger = logger
@@ -658,6 +758,10 @@ func (st *Store) reloadDBFromSchema() {
 	st.lastAppliedIndexToDB.Store(max(lastSnapshotIndex(st.snapshotStore), lastLogApplied))
 }
 
+func (st *Store) FSMHasCaughtUp() bool {
+	return st.lastAppliedIndex.Load() >= st.lastAppliedIndexToDB.Load()
+}
+
 type Response struct {
 	Error   error
 	Version uint64
@@ -671,4 +775,87 @@ func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
 		return 0
 	}
 	return ls[0].Index
+}
+
+// recoverSingleNode is used to manually force a new configuration in order to
+// recover from a loss of quorum where the current configuration cannot be
+// WARNING! This operation implicitly commits all entries in the Raft log, so
+// in general this is an extremely unsafe operation and that's why it's made to be
+// used in a single cluster node.
+// for more details see : https://github.com/hashicorp/raft/blob/main/api.go#L279
+func (st *Store) recoverSingleNode(force bool) error {
+	if !force && (st.cfg.BootstrapExpect > 1 || len(st.candidates) > 1) {
+		return fmt.Errorf("bootstrap expect %v, candidates %v, "+
+			"can't perform auto recovery in multi node cluster", st.cfg.BootstrapExpect, st.candidates)
+	}
+	servers := st.raft.GetConfiguration().Configuration().Servers
+	// nothing to do here, wasn't a single node
+	if !force && len(servers) != 1 {
+		st.log.WithFields(logrus.Fields{
+			"servers_from_previous_configuration": servers,
+			"candidates":                          st.candidates,
+		}).Warn("didn't perform cluster recovery")
+		return nil
+	}
+
+	exNode := servers[0]
+	newNode := raft.Server{
+		ID:       raft.ServerID(st.cfg.NodeID),
+		Address:  raft.ServerAddress(fmt.Sprintf("%s:%d", st.cfg.Host, st.cfg.RPCPort)),
+		Suffrage: raft.Voter,
+	}
+
+	// same node nothing to do here
+	if !force && (exNode.ID == newNode.ID && exNode.Address == newNode.Address) {
+		return nil
+	}
+
+	st.log.WithFields(logrus.Fields{
+		"action":                      "raft_cluster_recovery",
+		"existed_single_cluster_node": exNode,
+		"new_single_cluster_node":     newNode,
+	}).Info("perform cluster recovery")
+
+	fut := st.raft.Shutdown()
+	if err := fut.Error(); err != nil {
+		return err
+	}
+
+	recoveryConfig := st.cfg
+	// Force the recovery to be metadata only and un-assign the associated DB to ensure no DB operations are made during
+	// the restore to avoid any data change.
+	recoveryConfig.MetadataOnlyVoters = true
+	recoveryConfig.DB = nil
+	// we don't use actual registry here, because we don't want to register metrics, it's already registered
+	// in actually FSM and this is FSM is temporary for recovery.
+	tempFSM := NewFSM(recoveryConfig, st.authZController, st.snapshotter, prometheus.NewPedanticRegistry())
+	if err := raft.RecoverCluster(st.raftConfig(),
+		&tempFSM,
+		st.logCache,
+		st.logStore,
+		st.snapshotStore,
+		st.raftTransport,
+		raft.Configuration{Servers: []raft.Server{newNode}}); err != nil {
+		return err
+	}
+
+	var err error
+	st.raft, err = raft.NewRaft(st.raftConfig(), st, st.logCache, st.logStore, st.snapshotStore, st.raftTransport)
+	if err != nil {
+		return fmt.Errorf("raft.NewRaft %v %w", st.raftTransport.LocalAddr(), err)
+	}
+
+	if exNode.ID == newNode.ID {
+		// no node name change needed in the state
+		return nil
+	}
+
+	st.log.WithFields(logrus.Fields{
+		"action":                       "replace_states_node_name",
+		"old_single_cluster_node_name": exNode.ID,
+		"new_single_cluster_node_name": newNode.ID,
+	}).Info("perform cluster recovery")
+	st.schemaManager.ReplaceStatesNodeName(string(newNode.ID))
+
+	return nil
 }

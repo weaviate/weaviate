@@ -426,7 +426,7 @@ func (a *Client) GetRolesForUserDeprecated(params *GetRolesForUserDeprecatedPara
 }
 
 /*
-GetUsersForRole gets users or a keys assigned to role
+GetUsersForRole gets users assigned to role
 */
 func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetUsersForRoleOK, error) {
 	// TODO: Validate the params before sending
@@ -436,7 +436,7 @@ func (a *Client) GetUsersForRole(params *GetUsersForRoleParams, authInfo runtime
 	op := &runtime.ClientOperation{
 		ID:                 "getUsersForRole",
 		Method:             "GET",
-		PathPattern:        "/authz/roles/{id}/users/{userType}",
+		PathPattern:        "/authz/roles/{id}/user-assignments",
 		ProducesMediaTypes: []string{"application/json"},
 		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
 		Schemes:            []string{"https"},

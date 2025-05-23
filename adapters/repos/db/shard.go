@@ -20,11 +20,12 @@ import (
 	"sync/atomic"
 	"time"
 
-	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"go.etcd.io/bbolt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -37,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -46,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -86,20 +89,20 @@ type ShardLike interface {
 	DeleteObjectBatch(ctx context.Context, ids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects // Delete many objects by id
 	DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error                                           // Delete object by id
 	MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error)
-	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []replica.RepairResponse, err error)
+	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairResponse, err error)
 	ID() string // Get the shard id
 	drop() error
-	HaltForTransfer(ctx context.Context, offloading bool) error
+	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
+	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
+	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
 	HashTreeLevel(ctx context.Context, level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 	MergeObject(ctx context.Context, object objects.MergeDocument) error
-	Queue() *VectorIndexQueue
-	Queues() map[string]*VectorIndexQueue
 	VectorDistanceForQuery(ctx context.Context, id uint64, searchVectors []models.Vector, targets []string) ([]float32, error)
 	ConvertQueue(targetVector string) error
 	FillQueue(targetVector string, from uint64) error
@@ -110,16 +113,17 @@ type ShardLike interface {
 	ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor,
 		additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) // Search and return objects
 	WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) // Check if an object was deleted
-	VectorIndex() VectorIndex                                                // Get the vector index
-	VectorIndexes() map[string]VectorIndex                                   // Get the vector indexes
-	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
-	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
 	GetVectorIndexQueue(targetVector string) (*VectorIndexQueue, bool)
 	GetVectorIndex(targetVector string) (VectorIndex, bool)
+	ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error
+	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
 
+	UpdateAsyncReplicationConfig(ctx context.Context, enabled bool) error
+
 	isReadOnly() error
+	pathLSM() string
 
 	preparePutObject(context.Context, string, *storobj.Object) replica.SimpleResponse
 	preparePutObjects(context.Context, string, []*storobj.Object) replica.SimpleResponse
@@ -160,7 +164,10 @@ type ShardLike interface {
 	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
-	updateAsyncReplicationConfig(ctx context.Context, enabled bool) error
+	// addTargetNodeOverride adds a target node override to the shard.
+	addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
+	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
 
 	Metrics() *Metrics
 
@@ -173,27 +180,33 @@ type ShardLike interface {
 	RepairIndex(ctx context.Context, targetVector string) error
 }
 
+type onAddToPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
+
+type onDeleteFromPropertyValueIndex func(shard *Shard, docID uint64, property *inverted.Property) error
+
 // Shard is the smallest completely-contained index unit. A shard manages
 // database files for all the objects it owns. How a shard is determined for a
 // target object (e.g. Murmur hash, etc.) is still open at this point
 type Shard struct {
 	index             *Index // a reference to the underlying index, which in turn contains schema information
 	class             *models.Class
-	queue             *VectorIndexQueue
-	queues            map[string]*VectorIndexQueue
 	scheduler         *queue.Scheduler
 	name              string
 	store             *lsmkv.Store
 	counter           *indexcounter.Counter
 	indexCheckpoints  *indexcheckpoint.Checkpoints
-	vectorIndex       VectorIndex
-	vectorIndexes     map[string]VectorIndex
 	metrics           *Metrics
 	promMetrics       *monitoring.PrometheusMetrics
 	slowQueryReporter helpers.SlowQueryReporter
 	propertyIndices   propertyspecific.Indices
 	propLenTracker    *inverted.JsonShardMetaData
 	versioner         *shardVersioner
+
+	vectorIndexMu sync.RWMutex
+	vectorIndex   VectorIndex
+	queue         *VectorIndexQueue
+	vectorIndexes map[string]VectorIndex
+	queues        map[string]*VectorIndexQueue
 
 	// async replication
 	asyncReplicationRWMux      sync.RWMutex
@@ -202,12 +215,19 @@ type Shard struct {
 	hashtreeFullyInitialized   bool
 	asyncReplicationCancelFunc context.CancelFunc
 
-	lastComparedHosts    []string
-	lastComparedHostsMux sync.RWMutex
+	lastComparedHosts                 []string
+	lastComparedHostsMux              sync.RWMutex
+	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
 	//
 
+	haltForTransferMux               sync.Mutex
+	haltForTransferInactivityTimeout time.Duration
+	haltForTransferInactivityTimer   *time.Timer
+	haltForTransferCount             int
+	haltForTransferCancel            func()
+
 	status              ShardStatus
-	statusLock          sync.Mutex
+	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
 
 	stopDimensionTracking        chan struct{}
@@ -232,6 +252,7 @@ type Shard struct {
 
 	cycleCallbacks *shardCycleCallbacks
 	bitmapFactory  *roaringset.BitmapFactory
+	bitmapBufPool  roaringset.BitmapBufPool
 
 	activityTracker atomic.Int32
 
@@ -245,6 +266,17 @@ type Shard struct {
 	inUseCounter atomic.Int64
 	// allows concurrent shut read/write
 	shutdownLock *sync.RWMutex
+
+	reindexer                             ShardReindexerV3
+	callbacksAddToPropertyValueIndex      []onAddToPropertyValueIndex
+	callbacksRemoveFromPropertyValueIndex []onDeleteFromPropertyValueIndex
+	// stores names of properties that are searchable and use buckets of
+	// inverted strategy. for such properties delta analyzer should avoid
+	// computing delta between previous and current values of properties
+	searchableBlockmaxPropNames     []string
+	searchableBlockmaxPropNamesLock *sync.Mutex
+
+	usingBlockMaxWAND bool
 }
 
 func (s *Shard) ID() string {
@@ -256,7 +288,7 @@ func (s *Shard) path() string {
 }
 
 func (s *Shard) pathLSM() string {
-	return path.Join(s.path(), "lsm")
+	return shardPathLSM(s.index.path(), s.name)
 }
 
 func (s *Shard) pathHashTree() string {
@@ -305,7 +337,12 @@ func (s *Shard) UpdateVectorIndexConfig(ctx context.Context, updated schemaConfi
 		return fmt.Errorf("attempt to mark read-only: %w", err)
 	}
 
-	return s.VectorIndex().UpdateUserConfig(updated, func() {
+	index, ok := s.GetVectorIndex("")
+	if !ok {
+		return fmt.Errorf("vector index does not exist")
+	}
+
+	return index.UpdateUserConfig(updated, func() {
 		s.UpdateStatus(storagestate.StatusReady.String())
 	})
 }
@@ -320,10 +357,16 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 
 	wg := new(sync.WaitGroup)
 	var err error
-	for targetName, targetCfg := range updated {
-		wg.Add(1)
-		if err = s.VectorIndexForName(targetName).UpdateUserConfig(targetCfg, wg.Done); err != nil {
-			break
+	for targetVector, targetCfg := range updated {
+		if index, ok := s.GetVectorIndex(targetVector); ok {
+			wg.Add(1)
+			if err = index.UpdateUserConfig(targetCfg, wg.Done); err != nil {
+				break
+			}
+		} else {
+			if err = s.initTargetVector(ctx, targetVector, targetCfg); err != nil {
+				return fmt.Errorf("creating new vector index: %w", err)
+			}
 		}
 	}
 
@@ -357,46 +400,6 @@ func (s *Shard) ObjectCountAsync() int {
 	return b.CountAsync()
 }
 
-// ForEachVectorIndex iterates through each vector index initialized in the shard (named and legacy).
-// Iteration stops at the first return of non-nil error.
-func (s *Shard) ForEachVectorIndex(f func(targetVector string, index VectorIndex) error) error {
-	for targetVector, idx := range s.vectorIndexes {
-		if idx == nil {
-			continue
-		}
-
-		if err := f(targetVector, idx); err != nil {
-			return err
-		}
-	}
-	if s.vectorIndex != nil {
-		if err := f("", s.vectorIndex); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-// ForEachVectorQueue iterates through each vector index queue initialized in the shard (named and legacy).
-// Iteration stops at the first return of non-nil error.
-func (s *Shard) ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error {
-	for targetVector, q := range s.queues {
-		if q == nil {
-			continue
-		}
-
-		if err := f(targetVector, q); err != nil {
-			return err
-		}
-	}
-	if s.queue != nil {
-		if err := f("", s.queue); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func (s *Shard) isFallbackToSearchable() bool {
 	return s.fallbackToSearchable
 }
@@ -417,6 +420,10 @@ func shardPath(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName)
 }
 
+func shardPathLSM(indexPath, shardName string) string {
+	return path.Join(indexPath, shardName, "lsm")
+}
+
 func bucketKeyPropertyLength(length int) ([]byte, error) {
 	return inverted.LexicographicallySortableInt64(int64(length))
 }
@@ -430,4 +437,12 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 
 func (s *Shard) Activity() int32 {
 	return s.activityTracker.Load()
+}
+
+func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {
+	s.callbacksAddToPropertyValueIndex = append(s.callbacksAddToPropertyValueIndex, callback)
+}
+
+func (s *Shard) registerDeleteFromPropertyValueIndex(callback onDeleteFromPropertyValueIndex) {
+	s.callbacksRemoveFromPropertyValueIndex = append(s.callbacksRemoveFromPropertyValueIndex, callback)
 }

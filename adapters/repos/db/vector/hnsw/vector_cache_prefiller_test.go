@@ -17,7 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/graph"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
 func TestVectorCachePrefilling(t *testing.T) {
@@ -25,6 +25,7 @@ func TestVectorCachePrefilling(t *testing.T) {
 	index := &hnsw{
 		nodes:               generateDummyVertices(100),
 		currentMaximumLayer: 3,
+		shardedNodeLocks:    common.NewDefaultShardedRWLocks(),
 	}
 
 	logger, _ := test.NewNullLogger()
@@ -163,25 +164,28 @@ func (f *fakeCache) SetKeys(id uint64, docID uint64, relativeID uint64) {
 	panic("not implemented")
 }
 
-func (f *fakeCache) GrowMultiCache(id uint64) {
-	panic("not implemented")
-}
-
 func (f *fakeCache) PreloadMulti(docID uint64, ids []uint64, vecs [][]float32) {
 	panic("not implemented")
 }
 
-func (f *fakeCache) AllMulti() [][][]float32 {
+func (f *fakeCache) PreloadPassage(id uint64, docID uint64, relativeID uint64, vec []float32) {
 	panic("not implemented")
 }
 
-func generateDummyVertices(amount int) *graph.Nodes {
-	out := make([]*graph.Vertex, amount)
+func (f *fakeCache) GetDoc(ctx context.Context, docID uint64) ([][]float32, error) {
+	panic("not implemented")
+}
+
+func generateDummyVertices(amount int) []*vertex {
+	out := make([]*vertex, amount)
 	for i := range out {
-		out[i] = graph.NewVertex(uint64(i), levelForDummyVertex(i))
+		out[i] = &vertex{
+			id:    uint64(i),
+			level: levelForDummyVertex(i),
+		}
 	}
 
-	return graph.NewNodesWith(out)
+	return out
 }
 
 // maximum of 3 layers

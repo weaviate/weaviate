@@ -13,7 +13,10 @@ package rbac
 
 import (
 	"fmt"
+	"slices"
 	"strings"
+
+	"github.com/weaviate/weaviate/usecases/config"
 
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -247,37 +250,43 @@ func migrateRevokeRolesV0(req *cmd.RevokeRolesForUserRequest) []*cmd.RevokeRoles
 	req1 := &cmd.RevokeRolesForUserRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypeDb),
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputDb),
 	}
 	req2 := &cmd.RevokeRolesForUserRequest{
 		Version: req.Version + 1,
 		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypeOidc),
+		User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputOidc),
 	}
 
 	return []*cmd.RevokeRolesForUserRequest{req1, req2}
 }
 
-func migrateAssignRoles(req *cmd.AddRolesForUsersRequest) []*cmd.AddRolesForUsersRequest {
+func migrateAssignRoles(req *cmd.AddRolesForUsersRequest, authNconfig config.Authentication) []*cmd.AddRolesForUsersRequest {
 	if req.Version == cmd.RBACAssignRevokeCommandPolicyVersionV0 {
-		return migrateAssignRolesV0(req)
+		return migrateAssignRolesV0(req, authNconfig)
 	}
 	return []*cmd.AddRolesForUsersRequest{req}
 }
 
-func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest) []*cmd.AddRolesForUsersRequest {
+func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.Authentication) []*cmd.AddRolesForUsersRequest {
 	user, _ := conv.GetUserAndPrefix(req.User)
 
-	req1 := &cmd.AddRolesForUsersRequest{
-		Version: req.Version + 1,
-		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypeDb),
-	}
-	req2 := &cmd.AddRolesForUsersRequest{
-		Version: req.Version + 1,
-		Roles:   req.Roles,
-		User:    conv.UserNameWithTypeFromId(user, models.UserTypeOidc),
+	var reqs []*cmd.AddRolesForUsersRequest
+	if authNconfig.APIKey.Enabled && slices.Contains(authNconfig.APIKey.Users, user) {
+		reqs = append(reqs, &cmd.AddRolesForUsersRequest{
+			Version: req.Version + 1,
+			Roles:   req.Roles,
+			User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputDb),
+		})
 	}
 
-	return []*cmd.AddRolesForUsersRequest{req1, req2}
+	if authNconfig.OIDC.Enabled {
+		reqs = append(reqs, &cmd.AddRolesForUsersRequest{
+			Version: req.Version + 1,
+			Roles:   req.Roles,
+			User:    conv.UserNameWithTypeFromId(user, models.UserTypeInputOidc),
+		})
+	}
+
+	return reqs
 }

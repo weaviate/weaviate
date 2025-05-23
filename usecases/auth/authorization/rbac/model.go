@@ -12,12 +12,13 @@
 package rbac
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"strings"
-
-	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
@@ -25,10 +26,15 @@ import (
 	casbinutil "github.com/casbin/casbin/v2/util"
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/build"
+	"github.com/weaviate/weaviate/usecases/config"
 )
+
+const DEFAULT_POLICY_VERSION = "1.29.0"
 
 const (
 	// MODEL is the used model for casbin to store roles, permissions, users and comparisons patterns
@@ -73,7 +79,7 @@ func createStorage(filePath string) error {
 	return err
 }
 
-func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer, error) {
+func Init(conf rbacconf.Config, policyPath string, authNconf config.Authentication) (*casbin.SyncedCachedEnforcer, error) {
 	if !conf.Enabled {
 		return nil, nil
 	}
@@ -89,18 +95,38 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 	}
 	enforcer.EnableCache(true)
 
-	rbacStoragePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
+	rbacStoragePath := fmt.Sprintf("%s/rbac", policyPath)
+	rbacStorageFilePath := fmt.Sprintf("%s/rbac/policy.csv", policyPath)
 
-	if err := createStorage(rbacStoragePath); err != nil {
-		return nil, errors.Wrapf(err, "create storage path: %v", rbacStoragePath)
+	if err := createStorage(rbacStorageFilePath); err != nil {
+		return nil, errors.Wrapf(err, "create storage path: %v", rbacStorageFilePath)
 	}
 
-	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStoragePath))
+	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStorageFilePath))
 
 	if err := enforcer.LoadPolicy(); err != nil {
 		return nil, err
 	}
+	// parse version string to check if upgrade is needed
+	policyVersion, err := getVersion(rbacStoragePath)
+	if err != nil {
+		return nil, err
+	}
+	versionParts := strings.Split(policyVersion, ".")
+	minorVersion, err := strconv.Atoi(versionParts[1])
+	if err != nil {
+		return nil, err
+	}
 
+	if versionParts[0] == "1" && minorVersion < 30 {
+		if err := upgradePoliciesFrom129(enforcer, false); err != nil {
+			return nil, err
+		}
+
+		if err := upgradeGroupingsFrom129(enforcer, authNconf); err != nil {
+			return nil, err
+		}
+	}
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
@@ -129,13 +155,16 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 			continue
 		}
 
-		// add root role to db as well as OIDC users - we block dynamic users from being created with the same name
-		if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeDb), conv.PrefixRoleName(authorization.Root)); err != nil {
-			return nil, fmt.Errorf("add role for user: %w", err)
+		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.RootUsers[i]) {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputDb), conv.PrefixRoleName(authorization.Root)); err != nil {
+				return nil, fmt.Errorf("add role for user: %w", err)
+			}
 		}
 
-		if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeOidc), conv.PrefixRoleName(authorization.Root)); err != nil {
-			return nil, fmt.Errorf("add role for user: %w", err)
+		if authNconf.OIDC.Enabled {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Root)); err != nil {
+				return nil, fmt.Errorf("add role for user: %w", err)
+			}
 		}
 	}
 
@@ -161,6 +190,11 @@ func Init(conf rbacconf.Config, policyPath string) (*casbin.SyncedCachedEnforcer
 		return nil, errors.Wrapf(err, "save policy")
 	}
 
+	// update version after casbin policy has been written
+	if err := writeVersion(rbacStoragePath, build.Version); err != nil {
+		return nil, err
+	}
+
 	return enforcer, nil
 }
 
@@ -181,4 +215,48 @@ func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
 	name2 := args[1].(string)
 
 	return (bool)(WeaviateMatcher(name1, name2)), nil
+}
+
+func getVersion(path string) (string, error) {
+	filePath := path + "/version"
+	_, err := os.Stat(filePath)
+	if err != nil { // file exists
+		return DEFAULT_POLICY_VERSION, nil
+	}
+	b, err := os.ReadFile(filePath)
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func writeVersion(path, version string) error {
+	tmpFile, err := os.CreateTemp(path, "policy-temp-*.tmp")
+	if err != nil {
+		return err
+	}
+	tempFilename := tmpFile.Name()
+
+	defer func() {
+		tmpFile.Close()
+		os.Remove(tempFilename) // Remove temp file if it still exists
+	}()
+
+	writer := bufio.NewWriter(tmpFile)
+	if _, err := fmt.Fprint(writer, version); err != nil {
+		return err
+	}
+
+	// Flush the writer to ensure all data is written, then sync and flush tmpfile and atomically rename afterwards
+	if err := writer.Flush(); err != nil {
+		return err
+	}
+	if err := tmpFile.Sync(); err != nil {
+		return err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return err
+	}
+
+	return os.Rename(tempFilename, path+"/version")
 }

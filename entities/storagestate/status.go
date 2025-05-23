@@ -21,6 +21,7 @@ const (
 	StatusIndexing Status = "INDEXING"
 	StatusLoading  Status = "LOADING"
 	StatusReady    Status = "READY"
+	StatusShutdown Status = "SHUTDOWN"
 )
 
 var ErrStatusReadOnlyWithReason = func(reason string) error {
@@ -46,6 +47,8 @@ func ValidateStatus(in string) (status Status, err error) {
 		status = StatusIndexing
 	case string(StatusReady):
 		status = StatusReady
+	case string(StatusShutdown):
+		status = StatusShutdown
 	default:
 		err = ErrInvalidStatus
 	}

@@ -29,7 +29,8 @@ func TestCreateUser(t *testing.T) {
 	adminUser := "admin-user"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDynamicUsers().
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().
+		WithRBAC().WithRbacAdmins(adminUser).
 		Start(ctx)
 	require.Nil(t, err)
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -75,6 +76,8 @@ func TestCreateUser(t *testing.T) {
 		// login works after user creation
 		info := helper.GetInfoForOwnUser(t, oldKey)
 		require.Equal(t, userName, *info.Username)
+		user := helper.GetUser(t, userName, adminKey)
+		require.Equal(t, user.APIKeyFirstLetters, oldKey[:3])
 
 		// rotate key and test that old key is not working anymore
 		newKey := helper.RotateKey(t, userName, adminKey)
@@ -83,6 +86,11 @@ func TestCreateUser(t *testing.T) {
 
 		infoNew := helper.GetInfoForOwnUser(t, newKey)
 		require.Equal(t, userName, *infoNew.Username)
+
+		user = helper.GetUser(t, userName, adminKey)
+		require.Equal(t, user.APIKeyFirstLetters, newKey[:3])
+		require.NotEqual(t, newKey, oldKey)
+		require.NotEqual(t, newKey[:10], oldKey[:10])
 
 		helper.DeleteUser(t, userName, adminKey)
 	})
@@ -96,7 +104,7 @@ func TestWithStaticUser(t *testing.T) {
 	otherUser := "custom-user"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithDynamicUsers().Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithDbUsers().Start(ctx)
 	require.Nil(t, err)
 	helper.SetupClient(compose.GetWeaviate().URI())
 
@@ -136,7 +144,7 @@ func TestSuspendAndActivate(t *testing.T) {
 	adminUser := "admin-user"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDynamicUsers().Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithDbUsers().Start(ctx)
 	require.Nil(t, err)
 	helper.SetupClient(compose.GetWeaviate().URI())
 
@@ -226,6 +234,8 @@ func TestSuspendAndActivate(t *testing.T) {
 		// suspend again
 		_, err := helper.Client(t).Users.DeactivateUser(users.NewDeactivateUserParams().WithUserID(dynamicUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
+		var conflict *users.DeactivateUserConflict
+		require.True(t, errors.As(err, &conflict))
 	})
 
 	t.Run("activate active user", func(t *testing.T) {
@@ -233,5 +243,7 @@ func TestSuspendAndActivate(t *testing.T) {
 		helper.CreateUser(t, dynamicUser, adminKey)
 		_, err := helper.Client(t).Users.ActivateUser(users.NewActivateUserParams().WithUserID(dynamicUser), helper.CreateAuth(adminKey))
 		require.Error(t, err)
+		var conflict *users.ActivateUserConflict
+		require.True(t, errors.As(err, &conflict))
 	})
 }

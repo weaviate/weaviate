@@ -58,6 +58,12 @@ func (o *GetUserInfoReader) ReadResponse(response runtime.ClientResponse, consum
 			return nil, err
 		}
 		return nil, result
+	case 422:
+		result := NewGetUserInfoUnprocessableEntity()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 500:
 		result := NewGetUserInfoInternalServerError()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -80,7 +86,7 @@ GetUserInfoOK describes a response with status code 200, with default header val
 Info about the user
 */
 type GetUserInfoOK struct {
-	Payload *models.UserInfo
+	Payload *models.DBUserInfo
 }
 
 // IsSuccess returns true when this get user info o k response has a 2xx status code
@@ -121,13 +127,13 @@ func (o *GetUserInfoOK) String() string {
 	return fmt.Sprintf("[GET /users/db/{user_id}][%d] getUserInfoOK  %+v", 200, o.Payload)
 }
 
-func (o *GetUserInfoOK) GetPayload() *models.UserInfo {
+func (o *GetUserInfoOK) GetPayload() *models.DBUserInfo {
 	return o.Payload
 }
 
 func (o *GetUserInfoOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.UserInfo)
+	o.Payload = new(models.DBUserInfo)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -313,6 +319,74 @@ func (o *GetUserInfoNotFound) String() string {
 }
 
 func (o *GetUserInfoNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	return nil
+}
+
+// NewGetUserInfoUnprocessableEntity creates a GetUserInfoUnprocessableEntity with default headers values
+func NewGetUserInfoUnprocessableEntity() *GetUserInfoUnprocessableEntity {
+	return &GetUserInfoUnprocessableEntity{}
+}
+
+/*
+GetUserInfoUnprocessableEntity describes a response with status code 422, with default header values.
+
+Request body is well-formed (i.e., syntactically correct), but semantically erroneous.
+*/
+type GetUserInfoUnprocessableEntity struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this get user info unprocessable entity response has a 2xx status code
+func (o *GetUserInfoUnprocessableEntity) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this get user info unprocessable entity response has a 3xx status code
+func (o *GetUserInfoUnprocessableEntity) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this get user info unprocessable entity response has a 4xx status code
+func (o *GetUserInfoUnprocessableEntity) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this get user info unprocessable entity response has a 5xx status code
+func (o *GetUserInfoUnprocessableEntity) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this get user info unprocessable entity response a status code equal to that given
+func (o *GetUserInfoUnprocessableEntity) IsCode(code int) bool {
+	return code == 422
+}
+
+// Code gets the status code for the get user info unprocessable entity response
+func (o *GetUserInfoUnprocessableEntity) Code() int {
+	return 422
+}
+
+func (o *GetUserInfoUnprocessableEntity) Error() string {
+	return fmt.Sprintf("[GET /users/db/{user_id}][%d] getUserInfoUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *GetUserInfoUnprocessableEntity) String() string {
+	return fmt.Sprintf("[GET /users/db/{user_id}][%d] getUserInfoUnprocessableEntity  %+v", 422, o.Payload)
+}
+
+func (o *GetUserInfoUnprocessableEntity) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *GetUserInfoUnprocessableEntity) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
 
 	return nil
 }

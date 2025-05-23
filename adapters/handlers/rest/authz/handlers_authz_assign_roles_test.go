@@ -21,22 +21,20 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/authz/mocks"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations/authz"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	authZmocks "github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func TestAssignRoleToUserSuccess(t *testing.T) {
-	authorizer := authZmocks.NewAuthorizer(t)
-	controller := mocks.NewControllerAndGetUsers(t)
+	authorizer := authorization.NewMockAuthorizer(t)
+	controller := NewMockControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
-	userType := models.UserTypeDb
+	userType := models.UserTypeInputDb
 	principal := &models.Principal{Username: "user1"}
 	params := authz.AssignRoleToUserParams{
 		ID: "user1",
@@ -63,8 +61,8 @@ func TestAssignRoleToUserSuccess(t *testing.T) {
 }
 
 func TestAssignRoleToGroupSuccess(t *testing.T) {
-	authorizer := authZmocks.NewAuthorizer(t)
-	controller := mocks.NewControllerAndGetUsers(t)
+	authorizer := authorization.NewMockAuthorizer(t)
+	controller := NewMockControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
 
 	principal := &models.Principal{Username: "root-user"}
@@ -101,7 +99,7 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 		principal     *models.Principal
 		existedRoles  map[string][]authorization.Policy
 		existedUsers  []string
-		callToGetRole bool
+		callToGetUser bool
 	}
 
 	tests := []testCase{
@@ -113,9 +111,10 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 					Roles: []string{"role1"},
 				},
 			},
-			principal:    &models.Principal{Username: "user1"},
-			existedRoles: map[string][]authorization.Policy{},
-			existedUsers: []string{"user1"},
+			principal:     &models.Principal{Username: "user1"},
+			existedRoles:  map[string][]authorization.Policy{"role1": {}},
+			existedUsers:  []string{"user1"},
+			callToGetUser: true,
 		},
 		{
 			name: "role not found",
@@ -128,21 +127,20 @@ func TestAssignRoleToUserOrUserNotFound(t *testing.T) {
 			principal:     &models.Principal{Username: "user1"},
 			existedRoles:  map[string][]authorization.Policy{},
 			existedUsers:  []string{"user1"},
-			callToGetRole: true,
+			callToGetUser: false,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authZmocks.NewAuthorizer(t)
-			controller := mocks.NewControllerAndGetUsers(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, mock.Anything, mock.Anything).Return(nil)
 
-			if tt.callToGetRole {
-				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
-			} else {
+			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
+			if tt.callToGetUser {
 				controller.On("GetUsers", tt.params.ID).Return(nil, nil)
 			}
 
@@ -186,8 +184,8 @@ func TestAssignRoleToGroupOrUserNotFound(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authZmocks.NewAuthorizer(t)
-			controller := mocks.NewControllerAndGetUsers(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), mock.Anything, mock.Anything).Return(nil)
@@ -244,8 +242,8 @@ func TestAssignRoleToUserBadRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authZmocks.NewAuthorizer(t)
-			controller := mocks.NewControllerAndGetUsers(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			h := &authZHandlers{
@@ -298,8 +296,8 @@ func TestAssignRoleToGroupBadRequest(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authZmocks.NewAuthorizer(t)
-			controller := mocks.NewControllerAndGetUsers(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			h := &authZHandlers{
@@ -359,8 +357,8 @@ func TestAssignRoleToUserForbidden(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authZmocks.NewAuthorizer(t)
-			controller := mocks.NewControllerAndGetUsers(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
@@ -430,8 +428,8 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authZmocks.NewAuthorizer(t)
-			controller := mocks.NewControllerAndGetUsers(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
@@ -467,7 +465,7 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 		expectedError string
 	}
 
-	userType := models.UserTypeDb
+	userType := models.UserTypeInputDb
 
 	tests := []testCase{
 		{
@@ -500,14 +498,14 @@ func TestAssignRoleToUserInternalServerError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authZmocks.NewAuthorizer(t)
-			controller := mocks.NewControllerAndGetUsers(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.USER_ASSIGN_AND_REVOKE, authorization.Users(tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
-			controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
 			if tt.getRolesErr == nil {
+				controller.On("GetUsers", "testUser").Return(map[string]*apikey.User{"testUser": {}}, nil)
 				controller.On("AddRolesForUser", conv.UserNameWithTypeFromId(tt.params.ID, tt.params.Body.UserType), tt.params.Body.Roles).Return(tt.assignErr)
 			}
 
@@ -566,8 +564,8 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			authorizer := authZmocks.NewAuthorizer(t)
-			controller := mocks.NewControllerAndGetUsers(t)
+			authorizer := authorization.NewMockAuthorizer(t)
+			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
 			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)

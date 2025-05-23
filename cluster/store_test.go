@@ -16,20 +16,26 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+	"slices"
 	"testing"
 	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	dto "github.com/prometheus/client_model/go"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"github.com/stretchr/testify/require"
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
@@ -261,7 +267,7 @@ func TestStoreApply(t *testing.T) {
 			},
 		},
 		{
-			name: "DeleteClass/Success",
+			name: "DeleteClass/Success/NoErrorDeletingReplications",
 			req: raft.Log{Data: cmdAsBytes("C1",
 				cmd.ApplyRequest_TYPE_DELETE_CLASS, nil,
 				nil)},
@@ -269,6 +275,26 @@ func TestStoreApply(t *testing.T) {
 			doBefore: func(m *MockStore) {
 				m.indexer.On("DeleteClass", mock.Anything).Return(nil)
 				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.replicationsDeleter.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
+			},
+			doAfter: func(ms *MockStore) error {
+				class := ms.store.SchemaReader().ReadOnlyClass("C1")
+				if class != nil {
+					return fmt.Errorf("class still exists")
+				}
+				return nil
+			},
+		},
+		{
+			name: "DeleteClass/Success/ErrorDeletingReplications",
+			req: raft.Log{Data: cmdAsBytes("C1",
+				cmd.ApplyRequest_TYPE_DELETE_CLASS, nil,
+				nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.indexer.On("DeleteClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.replicationsDeleter.On("DeleteReplicationsByCollection", mock.Anything).Return(fmt.Errorf("any error"))
 			},
 			doAfter: func(ms *MockStore) error {
 				class := ms.store.SchemaReader().ReadOnlyClass("C1")
@@ -495,11 +521,14 @@ func TestStoreApply(t *testing.T) {
 			name: "DeleteTenant/ClassNotFound",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT,
 				nil, &cmd.DeleteTenantsRequest{Tenants: []string{"T1", "T2"}})},
-			resp:     Response{Error: schema.ErrSchema},
-			doBefore: doFirst,
+			resp: Response{Error: schema.ErrSchema},
+			doBefore: func(m *MockStore) {
+				doFirst(m)
+				m.replicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
+			},
 		},
 		{
-			name: "DeleteTenant/Success",
+			name: "DeleteTenant/Success/NoErrorDeletingReplications",
 			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT,
 				nil, &cmd.DeleteTenantsRequest{Tenants: []string{"T1", "T2"}})},
 			resp: Response{Error: nil},
@@ -514,6 +543,7 @@ func TestStoreApply(t *testing.T) {
 					}, nil),
 				})
 				m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
+				m.replicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(nil)
 			},
 			doAfter: func(ms *MockStore) error {
 				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
@@ -521,6 +551,236 @@ func TestStoreApply(t *testing.T) {
 					return fmt.Errorf("sharding state mus be empty after deletion")
 				}
 				return nil
+			},
+		},
+		{
+			name: "DeleteTenant/Success/ErrorDeletingReplications",
+			req: raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_TENANT,
+				nil, &cmd.DeleteTenantsRequest{Tenants: []string{"T1", "T2"}})},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				doFirst(m)
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{
+						Class: cls, State: &sharding.State{
+							Physical: map[string]sharding.Physical{"T1": {}},
+						},
+					}, nil),
+				})
+				m.indexer.On("DeleteTenants", mock.Anything, mock.Anything).Return(nil)
+				m.replicationsDeleter.On("DeleteReplicationsByTenants", mock.Anything, mock.Anything).Return(fmt.Errorf("any error"))
+			},
+			doAfter: func(ms *MockStore) error {
+				shardingState := ms.store.SchemaReader().CopyShardingState("C1")
+				if len(shardingState.Physical) != 0 {
+					return fmt.Errorf("sharding state mus be empty after deletion")
+				}
+				return nil
+			},
+		},
+		{
+			name: "DeleteReplicaFromShard/Success/UpdateDB",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, cmd.DeleteReplicaFromShard{Class: "C1", Shard: "T1", TargetNode: "Node-1"}, nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"Node-1"},
+				}}}
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.indexer.On("DeleteReplicaFromShard", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				replicas, err := ms.store.SchemaReader().ShardReplicas("C1", "T1")
+				if err != nil {
+					return err
+				}
+				if len(replicas) != 0 {
+					return fmt.Errorf("sharding state should have 0 shards for class C1")
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "DeleteReplicaFromShard/Success/NotUpdateDB",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, cmd.DeleteReplicaFromShard{Class: "C1", Shard: "T1", TargetNode: "Node-2"}, nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"Node-2"},
+				}}}
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				replicas, err := ms.store.SchemaReader().ShardReplicas("C1", "T1")
+				if err != nil {
+					return err
+				}
+				if len(replicas) != 0 {
+					return fmt.Errorf("sharding state should have 0 shards for class C1")
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "DeleteReplicaFromShard/Fail/ClassNotFound",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, cmd.DeleteReplicaFromShard{Class: "C1", Shard: "T1", TargetNode: "Node-2"}, nil)},
+			resp: Response{Error: schema.ErrSchema},
+		},
+		{
+			name: "DeleteReplicaFromShard/Fail/ShardNotFound",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, cmd.DeleteReplicaFromShard{Class: "C1", Shard: "T1", TargetNode: "Node-2"}, nil)},
+			resp: Response{Error: schema.ErrSchema},
+			doBefore: func(m *MockStore) {
+				ss := &sharding.State{Physical: map[string]sharding.Physical{"T2": {
+					Name:           "T2",
+					BelongsToNodes: []string{"Node-2"},
+				}}}
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				replicas, err := ms.store.SchemaReader().ShardReplicas("C1", "T2")
+				if err != nil {
+					return err
+				}
+				if len(replicas) != 1 {
+					return fmt.Errorf("sharding state should have 1 shard for class C1")
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "DeleteReplicaFromShard/Success/ReplicaNotFound",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD, cmd.DeleteReplicaFromShard{Class: "C1", Shard: "T2", TargetNode: "Node-2"}, nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				ss := &sharding.State{Physical: map[string]sharding.Physical{"T2": {
+					Name:           "T2",
+					BelongsToNodes: []string{"Node-1"},
+				}}}
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				replicas, err := ms.store.SchemaReader().ShardReplicas("C1", "T2")
+				if err != nil {
+					return err
+				}
+				if len(replicas) != 1 {
+					return fmt.Errorf("sharding state should have 1 shard for class C1")
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "AddReplicaToShard/Success/UpdateDB",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShard{Class: "C1", Shard: "T1", TargetNode: "Node-1"}, nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.indexer.On("AddReplicaToShard", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				replicas, err := ms.store.SchemaReader().ShardReplicas("C1", "T1")
+				if err != nil {
+					return err
+				}
+				if len(replicas) != 2 {
+					return fmt.Errorf("sharding state should have 2 shards for class C1")
+				}
+				if !slices.Contains(replicas, "THIS") || !slices.Contains(replicas, "Node-1") {
+					return fmt.Errorf("replias for coll C1 shard T1 is missing the correct replicas got=%v want=[\"THIS\", \"Node-1\"]", replicas)
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "AddReplicaToShard/Success/NotUpdateDB",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShard{Class: "C1", Shard: "T1", TargetNode: "Node-3"}, nil)},
+			resp: Response{Error: nil},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+			doAfter: func(ms *MockStore) error {
+				replicas, err := ms.store.SchemaReader().ShardReplicas("C1", "T1")
+				if err != nil {
+					return err
+				}
+				if len(replicas) != 2 {
+					return fmt.Errorf("sharding state should have 2 shards for class C1")
+				}
+				if !slices.Contains(replicas, "THIS") || !slices.Contains(replicas, "Node-3") {
+					return fmt.Errorf("replias for coll C1 shard T1 is missing the correct replicas got=%v want=[\"THIS\", \"Node-3\"]", replicas)
+				}
+
+				return nil
+			},
+		},
+		{
+			name: "AddReplicaToShard/FailClassNotFound",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShard{Class: "C1", Shard: "T1", TargetNode: "Node-3"}, nil)},
+			resp: Response{Error: schema.ErrSchema},
+		},
+		{
+			name: "AddReplicaToShard/FailShardNotFound",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShard{Class: "C1", Shard: "T1000", TargetNode: "Node-3"}, nil)},
+			resp: Response{Error: schema.ErrSchema},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
+			},
+		},
+		{
+			name: "AddReplicaToShard/FailReplicaAlreadyExists",
+			req:  raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD, cmd.AddReplicaToShard{Class: "C1", Shard: "T1", TargetNode: "THIS"}, nil)},
+			resp: Response{Error: schema.ErrSchema},
+			doBefore: func(m *MockStore) {
+				m.parser.On("ParseClass", mock.Anything).Return(nil)
+				m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				m.indexer.On("AddClass", mock.Anything).Return(nil)
+				m.store.Apply(&raft.Log{
+					Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS, cmd.AddClassRequest{Class: cls, State: ss}, nil),
+				})
 			},
 		},
 	}
@@ -552,12 +812,126 @@ func TestStoreApply(t *testing.T) {
 	}
 }
 
+func TestStoreMetrics(t *testing.T) {
+	t.Run("store_apply_duration", func(t *testing.T) {
+		doBefore := func(m *MockStore) {
+			m.indexer.On("AddClass", mock.Anything).Return(nil)
+			m.parser.On("ParseClass", mock.Anything).Return(nil)
+			m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		}
+		nodeID := t.Name()
+		cls := &models.Class{Class: "C1", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
+		ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+			Name:           "T1",
+			BelongsToNodes: []string{"THIS"},
+		}, "T2": {
+			Name:           "T2",
+			BelongsToNodes: []string{"THIS"},
+		}}}
+		ms := NewMockStore(t, nodeID, 9092)
+		store := ms.Store(doBefore)
+		m := dto.Metric{}
+		require.NoError(t, store.metrics.applyDuration.Write(&m))
+		// before
+		assert.Equal(t, 0, int(*m.Histogram.SampleCount))
+		store.Apply(
+			&raft.Log{
+				Data: cmdAsBytes("CI",
+					cmd.ApplyRequest_TYPE_ADD_CLASS,
+					cmd.AddClassRequest{Class: cls, State: ss}, nil),
+			},
+		)
+		// after
+		require.NoError(t, store.metrics.applyDuration.Write(&m))
+		assert.Equal(t, 1, int(*m.Histogram.SampleCount))
+		assert.Equal(t, 0, int(testutil.ToFloat64(store.metrics.applyFailures)))
+	})
+	t.Run("last_applied_index", func(t *testing.T) {
+		appliedIndex := 34 // after successful apply, this node should have 34 as last applied index metric
+
+		doBefore := func(m *MockStore) {
+			m.indexer.On("AddClass", mock.Anything).Return(nil)
+			m.parser.On("ParseClass", mock.Anything).Return(nil)
+			m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		}
+		nodeID := t.Name()
+		cls := &models.Class{Class: "C1", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true}}
+		ss := &sharding.State{Physical: map[string]sharding.Physical{"T1": {
+			Name:           "T1",
+			BelongsToNodes: []string{"THIS"},
+		}, "T2": {
+			Name:           "T2",
+			BelongsToNodes: []string{"THIS"},
+		}}}
+		ms := NewMockStore(t, nodeID, 9092)
+		store := ms.Store(doBefore)
+
+		// before
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		store.Apply(
+			&raft.Log{
+				Index: uint64(appliedIndex),
+				Data: cmdAsBytes("CI",
+					cmd.ApplyRequest_TYPE_ADD_CLASS,
+					cmd.AddClassRequest{Class: cls, State: ss}, nil),
+			},
+		)
+		// after
+		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+	})
+
+	t.Run("last_applied_index on Configuration LogType", func(t *testing.T) {
+		appliedIndex := 34 // after successful apply, this node should have 34 as last applied index metric
+
+		doBefore := func(m *MockStore) {
+			m.indexer.On("AddClass", mock.Anything).Return(nil)
+			m.parser.On("ParseClass", mock.Anything).Return(nil)
+			m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		}
+		nodeID := t.Name()
+
+		ms := NewMockStore(t, nodeID, 9092)
+		store := ms.Store(doBefore)
+
+		// before
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+		store.StoreConfiguration(uint64(appliedIndex), raft.Configuration{})
+
+		// after
+		require.Equal(t, appliedIndex, int(testutil.ToFloat64(store.metrics.lastAppliedIndex)))
+	})
+
+	t.Run("apply_failures", func(t *testing.T) {
+		doBefore := func(m *MockStore) {
+			m.indexer.On("AddClass", mock.Anything).Return(nil)
+			m.parser.On("ParseClass", mock.Anything).Return(nil)
+			m.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+		}
+
+		nodeID := t.Name()
+		ms := NewMockStore(t, nodeID, 9092)
+		store := ms.Store(doBefore)
+
+		// before
+		require.Equal(t, 0, int(testutil.ToFloat64(store.metrics.applyFailures)))
+
+		// this apply will trigger failure with BadRequest as we pass empty (nil) AddClassRequest.
+		store.Apply(
+			&raft.Log{Data: cmdAsBytes("C1", cmd.ApplyRequest_TYPE_ADD_CLASS,
+				nil, &cmd.AddTenantsRequest{})},
+		)
+		// after
+		require.Equal(t, 1, int(testutil.ToFloat64(store.metrics.applyFailures)))
+	})
+}
+
 type MockStore struct {
-	indexer *fakes.MockSchemaExecutor
-	parser  *fakes.MockParser
-	logger  *logrus.Logger
-	cfg     Config
-	store   *Store
+	indexer             *fakes.MockSchemaExecutor
+	parser              *fakes.MockParser
+	logger              *logrus.Logger
+	cfg                 Config
+	store               *Store
+	replicationsDeleter *fakes.MockReplicationsDeleter
 }
 
 func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
@@ -581,12 +955,13 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			SnapshotThreshold:      125,
 			DB:                     indexer,
 			Parser:                 parser,
-			NodeToAddressResolver:  fakes.NewMockAddressResolver(nil),
+			NodeSelector:           mocks.NewMockNodeSelector("localhost"),
 			Logger:                 logger,
 			ConsistencyWaitTimeout: time.Millisecond * 50,
 		},
+		replicationsDeleter: fakes.NewMockReplicationsDeleter(),
 	}
-	s := NewFSM(ms.cfg, prometheus.NewPedanticRegistry())
+	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry())
 	ms.store = &s
 	return ms
 }

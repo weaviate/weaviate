@@ -21,24 +21,8 @@ import (
 )
 
 func TestKeyGeneration(t *testing.T) {
-	fullApiKey, hash, userIdentifier, err := CreateApiKeyAndHash("")
+	fullApiKey, hash, userIdentifier, err := CreateApiKeyAndHash()
 	require.NoError(t, err)
-
-	randomKey, userIdentifierDecoded, err := DecodeApiKey(fullApiKey)
-	require.NoError(t, err)
-	require.Equal(t, userIdentifier, userIdentifierDecoded)
-
-	match, err := argon2id.ComparePasswordAndHash(randomKey, hash)
-	require.NoError(t, err)
-	require.True(t, match)
-}
-
-func TestKeyGenerationWithExistingIdentifier(t *testing.T) {
-	randomIdentifierDummy := strings.Repeat("A", UserIdentifierBytesBase64Length)
-
-	fullApiKey, hash, userIdentifier, err := CreateApiKeyAndHash(randomIdentifierDummy)
-	require.NoError(t, err)
-	require.Equal(t, userIdentifier, randomIdentifierDummy)
 
 	randomKey, userIdentifierDecoded, err := DecodeApiKey(fullApiKey)
 	require.NoError(t, err)
@@ -62,13 +46,13 @@ func TestInvalidKeys(t *testing.T) {
 		key   string
 		error bool
 	}{
-		{name: "valid", key: combiner(randomKeyDummy, randomIdentifierDummy, DynUserIdentifier), error: false},
+		{name: "valid", key: combiner(randomIdentifierDummy, randomKeyDummy, DynUserIdentifier), error: false},
 		{name: "invalid base64", key: "i am a string that is not base64", error: true},
-		{name: "invalid version", key: combiner(randomKeyDummy, randomIdentifierDummy, "v123"), error: true},
-		{name: "missing part", key: combiner(randomKeyDummy, randomIdentifierDummy), error: true},
-		{name: "invalid randomKey", key: combiner(randomKeyDummy[:5], randomIdentifierDummy, DynUserIdentifier), error: true},
-		{name: "invalid identifier", key: combiner(randomKeyDummy, randomIdentifierDummy[:5], DynUserIdentifier), error: true},
-		{name: "all wrong", key: combiner(randomKeyDummy[:5], randomIdentifierDummy[:5], "v123"), error: true},
+		{name: "invalid version", key: combiner(randomIdentifierDummy, randomKeyDummy, "v123"), error: true},
+		{name: "missing part", key: combiner(randomIdentifierDummy, randomKeyDummy), error: true},
+		{name: "invalid randomKey", key: combiner(randomIdentifierDummy, randomKeyDummy[:5], DynUserIdentifier), error: true},
+		{name: "invalid identifier", key: combiner(randomIdentifierDummy[:5], randomKeyDummy, DynUserIdentifier), error: true},
+		{name: "all wrong", key: combiner(randomIdentifierDummy[:5], randomKeyDummy[:5], "v123"), error: true},
 	}
 
 	for _, tt := range tests {

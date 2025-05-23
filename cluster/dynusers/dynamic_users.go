@@ -24,11 +24,11 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	dynUser apikey.DynamicUser
+	dynUser *apikey.DBUser
 	logger  logrus.FieldLogger
 }
 
-func NewManager(dynUser apikey.DynamicUser, logger logrus.FieldLogger) *Manager {
+func NewManager(dynUser *apikey.DBUser, logger logrus.FieldLogger) *Manager {
 	return &Manager{dynUser: dynUser, logger: logger}
 }
 
@@ -41,7 +41,7 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier)
+	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.CreatedAt)
 }
 
 func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {
@@ -89,7 +89,7 @@ func (m *Manager) RotateKey(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.RotateKey(req.UserId, req.SecureHash)
+	return m.dynUser.RotateKey(req.UserId, req.ApiKeyFirstLetters, req.SecureHash, req.OldIdentifier, req.NewIdentifier)
 }
 
 func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
@@ -124,7 +124,6 @@ func (m *Manager) CheckUserIdentifierExists(req *cmd.QueryRequest) ([]byte, erro
 	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
-
 	exists, err := m.dynUser.CheckUserIdentifierExists(subCommand.UserIdentifier)
 	if err != nil {
 		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
