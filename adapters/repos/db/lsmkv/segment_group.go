@@ -658,39 +658,36 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []*segm
 	return out[:i], outSegments[:i], release, nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, err error) {
-	segments, release := sg.getAndLockSegments()
-	defer release()
+func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, release func(), err error) {
+	segments, sgRelease := sg.getAndLockSegments()
+	defer sgRelease()
 
-	// start with first and do not exit
-	got := false
-	var layer roaringset.BitmapLayer
-	layerRelease := noopRelease
-	for _, segment := range segments {
-		if !got {
-			layer, layerRelease, err = segment.roaringSetGet(key, sg.bitmapBufPool)
-			if err != nil {
-				if errors.Is(err, lsmkv.NotFound) {
-					continue
-				}
-				return nil, err
-			}
+	release = noopRelease
+	ln := len(segments)
+	if ln == 0 {
+		return out, release, nil
+	}
 
-		}
-
-		layer, _, err := segment.roaringSetGet(key)
+	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.5)
+	i := 0
+	for ; i < ln; i++ {
+		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
-
-			return nil, err
+			return out, noopRelease, err
 		}
-
 		out = append(out, layer)
+		release = layerRelease
+		i++
+		break
+	}
+	for ; i < ln; i++ {
+		segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool)
 	}
 
-	return out, nil
+	return out, release, nil
 }
 
 func (sg *SegmentGroup) count() int {

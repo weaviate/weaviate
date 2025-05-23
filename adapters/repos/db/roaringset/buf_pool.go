@@ -71,24 +71,24 @@ func (p *bitmapBufPool2) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put
 
 // // -----------------------------------------------------------------------------
 
-// type bitmapBufPoolFactorWrapper struct {
-// 	bufPool BitmapBufPool
-// 	factor  float64
-// }
+type bitmapBufPoolFactorWrapper struct {
+	bufPool BitmapBufPool
+	factor  float64
+}
 
-// func NewBitmapBufPoolFactorWrapper(bufPool BitmapBufPool, factor float64) *bitmapBufPoolFactorWrapper {
-// 	return &bitmapBufPoolFactorWrapper{bufPool: bufPool, factor: factor}
-// }
+func NewBitmapBufPoolFactorWrapper(bufPool BitmapBufPool, factor float64) *bitmapBufPoolFactorWrapper {
+	return &bitmapBufPoolFactorWrapper{bufPool: bufPool, factor: factor}
+}
 
-// func (p *bitmapBufPoolFactorWrapper) Get(minCap int) (buf []byte, put func()) {
-// 	return p.bufPool.Get(int(math.Ceil(float64(minCap) * p.factor)))
-// }
+func (p *bitmapBufPoolFactorWrapper) Get(minCap int) (buf []byte, put func()) {
+	return p.bufPool.Get(int(math.Ceil(float64(minCap) * p.factor)))
+}
 
-// func (p *bitmapBufPoolFactorWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-// 	buf, put := p.Get(bm.LenInBytes())
-// 	cloned = bm.CloneToBuf(buf)
-// 	return cloned, put
-// }
+func (p *bitmapBufPoolFactorWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	buf, put := p.Get(bm.LenInBytes())
+	cloned = bm.CloneToBuf(buf)
+	return cloned, put
+}
 
 // // -----------------------------------------------------------------------------
 
