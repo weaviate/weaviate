@@ -106,26 +106,36 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32, className st
 	panicStub("ZeroShotSearch")
 	return nil, nil
 }
-func (db *DB) Backupable(ctx context.Context, classes []string) error { panicStub("Backupable"); return nil }
-func (db *DB) ListBackupable() []string                               { panicStub("ListBackupable"); return nil }
+func (db *DB) Backupable(ctx context.Context, classes []string) error {
+	panicStub("Backupable")
+	return nil
+}
+func (db *DB) ListBackupable() []string { panicStub("ListBackupable"); return nil }
 func (db *DB) ShardsBackup(ctx context.Context, backupID, class string, shardNames []string) (backup.ClassDescriptor, error) {
 	panicStub("ShardsBackup")
 	return backup.ClassDescriptor{}, nil
 }
-func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) error { panicStub("ReleaseBackup"); return nil }
-func (db *DB) ClassExists(name string) bool                                 { panicStub("ClassExists"); return false }
+func (db *DB) ReleaseBackup(ctx context.Context, bakID, class string) error {
+	panicStub("ReleaseBackup")
+	return nil
+}
+func (db *DB) ClassExists(name string) bool { panicStub("ClassExists"); return false }
 func (db *DB) Shards(ctx context.Context, class string) ([]string, error) {
 	panicStub("Shards")
 	return nil, nil
 }
-func (db *DB) ListClasses(ctx context.Context) []string                               { panicStub("ListClasses"); return nil }
-func (db *DB) ResourceUseWarn(mon *memwatch.Monitor, du diskUse, updateMappings bool) { panicStub("ResourceUseWarn") }
-func (db *DB) DiskUseWarn(du diskUse)                                                 { panicStub("DiskUseWarn") }
-func (db *DB) MemUseWarn(mon *memwatch.Monitor)                                       { panicStub("MemUseWarn") }
-func (db *DB) ResourceUseReadonly(mon *memwatch.Monitor, du diskUse)                  { panicStub("ResourceUseReadonly") }
-func (db *DB) DiskUseReadonly(du diskUse)                                             { panicStub("DiskUseReadonly") }
-func (db *DB) MemUseReadonly(mon *memwatch.Monitor)                                   { panicStub("MemUseReadonly") }
-func (db *DB) SetShardsReadOnly(reason string)                                        { panicStub("SetShardsReadOnly") }
+func (db *DB) ListClasses(ctx context.Context) []string { panicStub("ListClasses"); return nil }
+func (db *DB) ResourceUseWarn(mon *memwatch.Monitor, du diskUse, updateMappings bool) {
+	panicStub("ResourceUseWarn")
+}
+func (db *DB) DiskUseWarn(du diskUse)           { panicStub("DiskUseWarn") }
+func (db *DB) MemUseWarn(mon *memwatch.Monitor) { panicStub("MemUseWarn") }
+func (db *DB) ResourceUseReadonly(mon *memwatch.Monitor, du diskUse) {
+	panicStub("ResourceUseReadonly")
+}
+func (db *DB) DiskUseReadonly(du diskUse)           { panicStub("DiskUseReadonly") }
+func (db *DB) MemUseReadonly(mon *memwatch.Monitor) { panicStub("MemUseReadonly") }
+func (db *DB) SetShardsReadOnly(reason string)      { panicStub("SetShardsReadOnly") }
 func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects, additionals *additional.ReplicationProperties, schemaVersion uint64) (objects.BatchObjects, error) {
 	fmt.Printf("I>BatchPutObjects called with %d objects\n", len(objs))
 	for _, obj := range objs {
@@ -150,10 +160,31 @@ func (db *DB) Aggregate(ctx context.Context, params aggregation.Params, modulesP
 }
 func (db *DB) GetQueryMaximumResults() int { panicStub("GetQueryMaximumResults"); return 0 }
 func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
-	fmt.Printf("I>SparseObjectSearch called with params: %+v\n", params)
+	pretty, err := json.Marshal(params)
+	fmt.Printf("I>SparseObjectSearch called with params: %+v\n", pretty)
+	//Figure out which kind of search we are doing
+	var searchQuery string
+	if params.HybridSearch != nil {
+		fmt.Printf("I>HybridSearch called with query: %s\n", params.HybridSearch)
+		searchQuery = params.HybridSearch.Query
+	} else if params.KeywordRanking != nil {
+		fmt.Printf("I>KeywordRanking called with query: %s\n", params.KeywordRanking)
+		searchQuery = params.KeywordRanking.Query
+	} else {
+
+		if err != nil {
+			fmt.Printf("E>Failed to marshal params: %s\n", err)
+			return nil, nil, err
+		}
+		fmt.Printf("E>Unknown search type in SparseObjectSearch: %s\n", pretty)
+		return nil, nil, fmt.Errorf("unknown search type")
+	}
+
+	fmt.Printf("I>Searching for query: %s\n", searchQuery)
+
 	results := make([]*storobj.Object, 0)
 	var scores []float32
-	_, err := theOneTrueFileStore.TheOneTrueFileStore().MapFunc(func(k, v []byte) error {
+	_, err = theOneTrueFileStore.TheOneTrueFileStore().MapFunc(func(k, v []byte) error {
 		var obj StoreObject
 		if err := json.Unmarshal(v, &obj); err != nil {
 			fmt.Printf("E>Failed to unmarshal object: %s\n", err)
@@ -162,36 +193,73 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 
 		// Iterate over the properties and search them for the search term
 		proptext := fmt.Sprintf("%v", obj.Properties)
-			//fmt.Printf("I>Property: %s\n", proptext)
-			val := fmt.Sprintf("%v", proptext)
-			if strings.Contains(val, params.HybridSearch.Query) {
-				fmt.Printf("I>Found match in property: %s\n", proptext)
-				// If a match is found, return the object
-				results = append(results, &storobj.Object{
-					Vector:       obj.Vector,
-					Vectors:      obj.Vectors,
-					MultiVectors: obj.Multivectors,
-					Object: models.Object{
-						Class:              obj.Class,
-						ID:                 obj.ID,
-						Properties:         obj.Properties,
-						CreationTimeUnix:   obj.CreationTimeUnix,
-						LastUpdateTimeUnix: obj.LastUpdateTimeUnix,
-						Tenant:             obj.Tenant,
-						Additional:         obj.Additional,
+		//fmt.Printf("I>Property: %s\n", proptext)
+		val := fmt.Sprintf("%v", proptext)
+		if strings.Contains(val, searchQuery) {
+			fmt.Printf("I>Found match in property: %s\n", proptext)
+			// If a match is found, return the object
+			results = append(results, &storobj.Object{
+				MarshallerVersion: 1,
+				Vector:            obj.Vector,
+				Vectors:           obj.Vectors,
+				MultiVectors:      obj.Multivectors,
+				BelongsToNode:     "TheOneTrueNode",
+				BelongsToShard:    "TheOneTrueShard",
+				IsConsistent:      true,
+				DocID:             0,
+				Object: models.Object{
+					Additional: obj.Additional,
+					Class:      obj.Class,
 
-					},
-				})
-				scores = append(scores, 1.0)
-			}
+					CreationTimeUnix: obj.CreationTimeUnix,
+					ID:               obj.ID,
+
+					LastUpdateTimeUnix: obj.LastUpdateTimeUnix,
+					Properties:         obj.Properties,
+					Tenant:             obj.Tenant,
+					Vector:             obj.Vector,
+					VectorWeights:      nil,
+					Vectors:            mapFloat32ToVectors(obj.Vectors),
+
+				},
+			})
+			scores = append(scores, 1.0)
+		}
 
 		return nil
 	})
+
+	fmt.Printf("I>Found %d results\n", len(results))
 	return results, scores, err
 }
+
+func mapFloat32ToVectors(vectors map[string][]float32) models.Vectors {
+	// Convert the map[string][]float32 to models.Vectors
+	result := make(models.Vectors, len(vectors))
+	for k, v := range vectors {
+		result[k] = v
+	}
+	return result
+}
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
-	panicStub("Search")
-	return nil, nil
+	objs, scores, err:= db.SparseObjectSearch(ctx, params)
+	var results []search.Result
+	for i, obj := range objs {
+		results = append(results, search.Result{
+			ClassName: obj.Object.Class,
+			ID:        obj.ID(),
+			Vector:    obj.Vector,
+			Created:   obj.CreationTimeUnix(),
+			Updated:   obj.LastUpdateTimeUnix(),
+			Tenant:    obj.Object.Tenant,
+			Score:     scores[i],
+			SecondarySortValue: scores[i],
+			Vectors:   mapFloat32ToVectors(obj.Vectors),
+			AdditionalProperties: obj.Object.Additional,
+			Schema: 		  obj.Properties(),
+		})
+	}
+	return results, err
 }
 func (db *DB) VectorSearch(ctx context.Context, params dto.GetParams, tenants []string, searchVectors []models.Vector) ([]search.Result, error) {
 	fmt.Printf("I>VectorSearch called with params: %+v\n", params)
@@ -221,7 +289,7 @@ func (db *DB) VectorSearch(ctx context.Context, params dto.GetParams, tenants []
 					Created:   obj.CreationTimeUnix,
 					Updated:   obj.LastUpdateTimeUnix,
 					Tenant:    obj.Tenant,
-					Score: float32(float32(0) - distance),
+					Score:     float32(float32(0) - distance),
 				})
 			}
 			return nil
@@ -268,8 +336,11 @@ func (db *DB) GetDists(dists []float32, pagination *filters.Pagination) []float3
 	panicStub("GetDists")
 	return nil
 }
-func (db *DB) GetOffsetLimit(arraySize int, offset, limit int) (int, int) { panicStub("GetOffsetLimit"); return 0, 0 }
-func (db *DB) GetLimit(limit int) int                                     { panicStub("GetLimit"); return 0 }
+func (db *DB) GetOffsetLimit(arraySize int, offset, limit int) (int, int) {
+	panicStub("GetOffsetLimit")
+	return 0, 0
+}
+func (db *DB) GetLimit(limit int) int { panicStub("GetLimit"); return 0 }
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
 	return db.schemaGetter
 }
@@ -295,14 +366,24 @@ func (db *DB) GetIndexForIncomingReplica(className schema.ClassName) replica.Rem
 	panicStub("GetIndexForIncomingReplica")
 	return nil
 }
-func (db *DB) DeleteIndex(className schema.ClassName) error                              { panicStub("DeleteIndex"); return nil }
-func (db *DB) Shutdown(ctx context.Context) error                                        { panicStub("Shutdown"); return nil }
-func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB                              { panicStub("WithReindexer"); return db }
-func (db *DB) ReplicateObject(ctx context.Context, class string, obj *models.Object)     { panicStub("ReplicateObject") }
-func (db *DB) ReplicateObjects(ctx context.Context, class string, objs []*models.Object) { panicStub("ReplicateObjects") }
-func (db *DB) ReplicateUpdate(ctx context.Context, class string, obj *models.Object)     { panicStub("ReplicateUpdate") }
-func (db *DB) ReplicateDeletion(ctx context.Context, class string, id strfmt.UUID)       { panicStub("ReplicateDeletion") }
-func (db *DB) ReplicateDeletions(ctx context.Context, class string, ids []strfmt.UUID)   { panicStub("ReplicateDeletions") }
+func (db *DB) DeleteIndex(className schema.ClassName) error { panicStub("DeleteIndex"); return nil }
+func (db *DB) Shutdown(ctx context.Context) error           { panicStub("Shutdown"); return nil }
+func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB { panicStub("WithReindexer"); return db }
+func (db *DB) ReplicateObject(ctx context.Context, class string, obj *models.Object) {
+	panicStub("ReplicateObject")
+}
+func (db *DB) ReplicateObjects(ctx context.Context, class string, objs []*models.Object) {
+	panicStub("ReplicateObjects")
+}
+func (db *DB) ReplicateUpdate(ctx context.Context, class string, obj *models.Object) {
+	panicStub("ReplicateUpdate")
+}
+func (db *DB) ReplicateDeletion(ctx context.Context, class string, id strfmt.UUID) {
+	panicStub("ReplicateDeletion")
+}
+func (db *DB) ReplicateDeletions(ctx context.Context, class string, ids []strfmt.UUID) {
+	panicStub("ReplicateDeletions")
+}
 func (db *DB) ReplicateReferences(ctx context.Context, class string, refs []*crossref.Ref) {
 	panicStub("ReplicateReferences")
 }
@@ -347,7 +428,7 @@ type StoreObject struct {
 }
 
 func (db *DB) PutObject(ctx context.Context, object *models.Object, vector []float32, vectors map[string][]float32, multivectors map[string][][]float32, repli *additional.ReplicationProperties, schemaVersion uint64) error {
-	fmt.Printf("I>PutObject called with object: %+v\n", object)
+	fmt.Printf("I>PutObject called with object: %+v\n", object.Properties)
 	sto := StoreObject{
 		Additional:         object.Additional,
 		Class:              object.Class,
@@ -407,7 +488,9 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID, props se
 	}
 	return result, nil
 }
-func (db *DB) EnrichRefsForSingle(ctx context.Context, obj *search.Result) { panicStub("EnrichRefsForSingle") }
+func (db *DB) EnrichRefsForSingle(ctx context.Context, obj *search.Result) {
+	panicStub("EnrichRefsForSingle")
+}
 func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity string) ([]*models.NodeStatus, error) {
 	panicStub("GetNodeStatus")
 	return nil, nil
@@ -425,16 +508,28 @@ func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, erro
 	panicStub("GetNodeStatistics")
 	return nil, nil
 }
-func (db *DB) IncomingGetNodeStatistics() (*models.Statistics, error) { panicStub("IncomingGetNodeStatistics"); return nil, nil }
-func (db *DB) LocalNodeStatistics() (*models.Statistics, error)       { panicStub("LocalNodeStatistics"); return nil, nil }
+func (db *DB) IncomingGetNodeStatistics() (*models.Statistics, error) {
+	panicStub("IncomingGetNodeStatistics")
+	return nil, nil
+}
+func (db *DB) LocalNodeStatistics() (*models.Statistics, error) {
+	panicStub("LocalNodeStatistics")
+	return nil, nil
+}
 func (db *DB) GetNodeStatisticsByName(ctx context.Context, nodeName string) (*models.Statistics, error) {
 	panicStub("GetNodeStatisticsByName")
 	return nil, nil
 }
-func (db *DB) Init(ctx context.Context) error                   { panicStub("Init"); return nil }
-func (db *DB) LocalTenantActivity() tenantactivity.ByCollection { panicStub("LocalTenantActivity"); return nil }
-func (db *DB) MigrateFileStructureIfNecessary() error           { panicStub("MigrateFileStructureIfNecessary"); return nil }
-func (db *DB) MigrateToHierarchicalFS() error                   { panicStub("MigrateToHierarchicalFS"); return nil }
+func (db *DB) Init(ctx context.Context) error { panicStub("Init"); return nil }
+func (db *DB) LocalTenantActivity() tenantactivity.ByCollection {
+	panicStub("LocalTenantActivity")
+	return nil
+}
+func (db *DB) MigrateFileStructureIfNecessary() error {
+	panicStub("MigrateFileStructureIfNecessary")
+	return nil
+}
+func (db *DB) MigrateToHierarchicalFS() error { panicStub("MigrateToHierarchicalFS"); return nil }
 func (db *DB) AddBatchReferences(context.Context, objects.BatchReferences, *additional.ReplicationProperties, uint64) (objects.BatchReferences, error) {
 	panicStub("AddBatchReferences")
 	return nil, nil

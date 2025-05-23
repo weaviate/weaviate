@@ -18,7 +18,7 @@ func init() {
 	var err error
 
 	// Use multiple bbolt databases to store all data
-	//theOneTrueFileStore, err = ensemblekv.NewEnsembleKv("/tmp/ensemblekv", 200, 999999999, 999999999, 9999999999, ensemblekv.BoltDbCreator)
+	//theOneTrueFileStore, err = ensemblekv.NewEnsembleKv("./ensemblekv", 200, 999999999, 999999999, 9999999999, ensemblekv.BoltDbCreator)
 
 	/*
 	mc alias set defaultRegion http://localhost:55096 minioadmin minioadmin
