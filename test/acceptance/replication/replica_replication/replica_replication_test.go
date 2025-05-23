@@ -237,6 +237,17 @@ func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
 			}
 		}, 10*time.Second, 1*time.Second, "node3 doesn't have paragraph data")
 	})
+
+	t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
+		nodes, err := helper.Client(t).Nodes.
+			NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
+		require.Nil(t, err)
+		for _, node := range nodes.Payload.Nodes {
+			for _, shard := range node.Shards {
+				require.Len(t, shard.AsyncReplicationStatus, 0)
+			}
+		}
+	})
 }
 
 func (suite *ReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
@@ -416,6 +427,17 @@ func (suite *ReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
 				assert.NotNil(ct, obj)
 			}
 		}, 10*time.Second, 1*time.Second, "node3 doesn't have paragraph data")
+	})
+
+	t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
+		nodes, err := helper.Client(t).Nodes.
+			NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
+		require.Nil(t, err)
+		for _, node := range nodes.Payload.Nodes {
+			for _, shard := range node.Shards {
+				require.Len(t, shard.AsyncReplicationStatus, 0)
+			}
+		}
 	})
 }
 
@@ -602,6 +624,17 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 	t.Run("assert correct number of objects on node3", func(t *testing.T) {
 		numObjectsFound := common.CountObjects(t, compose.ContainerURI(3), paragraphClass.Class)
 		assert.Equal(t, numParagraphsInsertedBeforeStart+numParagraphsInsertedWhileStarting, int(numObjectsFound))
+	})
+
+	t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
+		nodes, err := helper.Client(t).Nodes.
+			NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
+		require.Nil(t, err)
+		for _, node := range nodes.Payload.Nodes {
+			for _, shard := range node.Shards {
+				require.Len(t, shard.AsyncReplicationStatus, 0)
+			}
+		}
 	})
 }
 
