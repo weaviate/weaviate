@@ -502,16 +502,19 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 			err = b.RoaringSetAddList(key3, orig3)
 			require.NoError(t, err)
 
-			bm1, err := b.RoaringSetGet(key1)
+			bm1, release, err := b.RoaringSetGet(key1)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, orig1, bm1.ToArray())
 
-			bm2, err := b.RoaringSetGet(key2)
+			bm2, release, err := b.RoaringSetGet(key2)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, orig2, bm2.ToArray())
 
-			bm3, err := b.RoaringSetGet(key3)
+			bm3, release, err := b.RoaringSetGet(key3)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, orig3, bm3.ToArray())
 		})
 
@@ -547,16 +550,19 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 				33, // newly added
 			} // 32 deleted
 
-			bm1, err := b.RoaringSetGet(key1)
+			bm1, release, err := b.RoaringSetGet(key1)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected1, bm1.ToArray())
 
-			bm2, err := b.RoaringSetGet(key2)
+			bm2, release, err := b.RoaringSetGet(key2)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected2, bm2.ToArray())
 
-			bm3, err := b.RoaringSetGet(key3)
+			bm3, release, err := b.RoaringSetGet(key3)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected3, bm3.ToArray())
 		})
 
@@ -601,16 +607,19 @@ func TestRoaringSetStrategy_RecoverFromWAL(t *testing.T) {
 				33, // newly added
 			} // 32 deleted
 
-			bm1, err := bRec.RoaringSetGet(key1)
+			bm1, release, err := bRec.RoaringSetGet(key1)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected1, bm1.ToArray())
 
-			bm2, err := bRec.RoaringSetGet(key2)
+			bm2, release, err := bRec.RoaringSetGet(key2)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected2, bm2.ToArray())
 
-			bm3, err := bRec.RoaringSetGet(key3)
+			bm3, release, err := bRec.RoaringSetGet(key3)
 			require.NoError(t, err)
+			defer release()
 			assert.ElementsMatch(t, expected3, bm3.ToArray())
 		})
 	})

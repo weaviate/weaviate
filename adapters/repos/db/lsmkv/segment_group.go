@@ -89,6 +89,7 @@ type SegmentGroup struct {
 	lastCompactionCall time.Time
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
+	bitmapBufPool                  roaringset.BitmapBufPool
 	bm25config                     *schema.BM25Config
 }
 
@@ -140,6 +141,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		lastCompactionCall:       now,
 		lastCleanupCall:          now,
 		MinMMapSize:              cfg.MinMMapSize,
+
+		bitmapBufPool: roaringset.NewBitmapBufPool2(1.25),
 	}
 
 	segmentIndex := 0
@@ -655,27 +658,48 @@ func (sg *SegmentGroup) getCollectionAndSegments(key []byte) ([][]value, []*segm
 	return out[:i], outSegments[:i], release, nil
 }
 
-func (sg *SegmentGroup) roaringSetGet(key []byte) (roaringset.BitmapLayers, error) {
-	segments, release := sg.getAndLockSegments()
-	defer release()
+func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, release func(), err error) {
+	segments, sgRelease := sg.getAndLockSegments()
+	defer sgRelease()
 
-	var out roaringset.BitmapLayers
+	ln := len(segments)
+	if ln == 0 {
+		return nil, noopRelease, nil
+	}
 
-	// start with first and do not exit
-	for _, segment := range segments {
-		layer, err := segment.roaringSetGet(key)
+	release = noopRelease
+	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.5)
+	i := 0
+	// fmt.Printf("  ==> len [%d]\n", ln)
+	for ; i < ln; i++ {
+		// fmt.Printf("  ==> checking i [%d]\n", i)
+		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
 				continue
 			}
-
-			return nil, err
+			return nil, noopRelease, err
 		}
-
+		// fmt.Printf("  ==> found i [%d]\n", i)
 		out = append(out, layer)
+		release = layerRelease
+		i++
+		break
+	}
+	defer func() {
+		if err != nil {
+			release()
+		}
+	}()
+
+	for ; i < ln; i++ {
+		// fmt.Printf("  ==> merging i [%d]\n", i)
+		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool); err != nil {
+			return nil, noopRelease, err
+		}
 	}
 
-	return out, nil
+	return out, release, nil
 }
 
 func (sg *SegmentGroup) count() int {
