@@ -37,21 +37,21 @@ func TestHnswIndex(t *testing.T) {
 
 	t.Run("searching within cluster 1", func(t *testing.T) {
 		position := 0
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 3, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{0, 1, 2}, res)
 	})
 
 	t.Run("searching within cluster 2", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 3, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{3, 4, 5}, res)
 	})
 
 	t.Run("searching within cluster 3", func(t *testing.T) {
 		position := 6
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 3, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 3, nil)
 		require.Nil(t, err)
 		assert.ElementsMatch(t, []uint64{6, 7, 8}, res)
 	})
