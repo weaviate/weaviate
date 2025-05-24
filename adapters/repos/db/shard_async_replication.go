@@ -21,6 +21,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"runtime/debug"
 	"slices"
 	"strconv"
 	"sync"
@@ -299,6 +300,14 @@ func (s *Shard) initAsyncReplication() error {
 
 		if s.hashtree != nil && s.hashtree.Height() != config.hashtreeHeight {
 			// existing hashtree is erased if a different height was specified
+			s.index.logger.
+				WithField("action", "async_replication").
+				WithField("class_name", s.class.Class).
+				WithField("shard_name", s.name).
+				WithField("existing_height", s.hashtree.Height()).
+				WithField("new_height", config.hashtreeHeight).
+				Info("erasing existing hashtree due to height mismatch")
+			debug.PrintStack()
 			s.hashtree = nil
 		}
 	}
@@ -443,6 +452,12 @@ func (s *Shard) mayStopAsyncReplication() {
 		}
 	}
 
+	s.index.logger.
+		WithField("action", "async_replication").
+		WithField("class_name", s.class.Class).
+		WithField("shard_name", s.name).
+		Info("stopping async replication")
+	debug.PrintStack()
 	s.hashtree = nil
 	s.hashtreeFullyInitialized = false
 }
@@ -465,6 +480,12 @@ func (s *Shard) UpdateAsyncReplicationConfig(_ context.Context, enabled bool) er
 
 	s.asyncReplicationCancelFunc()
 
+	s.index.logger.
+		WithField("action", "async_replication").
+		WithField("class_name", s.class.Class).
+		WithField("shard_name", s.name).
+		Info("stopping async replication after config update")
+	debug.PrintStack()
 	s.hashtree = nil
 	s.hashtreeFullyInitialized = false
 
