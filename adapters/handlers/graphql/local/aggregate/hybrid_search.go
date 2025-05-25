@@ -68,10 +68,14 @@ func hybridOperands(classObject *graphql.Object,
 			Type:        graphql.NewList(graphql.String),
 		},
 		"properties": &graphql.InputObjectFieldConfig{
-			Description: "Target vectors",
+			Description: "Properties to search",
 			Type:        graphql.NewList(graphql.String),
 		},
-
+		"minimumShouldMatch": &graphql.InputObjectFieldConfig{
+			Description: "Minimum number of term matches required",
+			Type:        graphql.Int,
+		},
+		"searchOperator": common_filters.GenerateBM25SearchOperatorFields(prefixName),
 		"searches": &graphql.InputObjectFieldConfig{
 			Description: "Subsearch list",
 			Type: graphql.NewList(graphql.NewInputObject(

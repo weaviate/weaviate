@@ -43,9 +43,10 @@ type Memtable struct {
 	secondaryIndices   uint16
 	secondaryToPrimary []map[string][]byte
 	// stores time memtable got dirty to determine when flush is needed
-	dirtyAt   time.Time
-	createdAt time.Time
-	metrics   *memtableMetrics
+	dirtyAt             time.Time
+	createdAt           time.Time
+	metrics             *memtableMetrics
+	writesSinceLastSync bool
 
 	tombstones *sroar.Bitmap
 
@@ -137,6 +138,7 @@ func (m *Memtable) put(key, value []byte, opts ...SecondaryKeyOption) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
@@ -185,6 +187,7 @@ func (m *Memtable) setTombstone(key []byte, opts ...SecondaryKeyOption) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
@@ -224,6 +227,7 @@ func (m *Memtable) setTombstoneWith(key []byte, deletionTime time.Time, opts ...
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	var secondaryKeys [][]byte
 	if m.secondaryIndices > 0 {
@@ -332,6 +336,8 @@ func (m *Memtable) append(key []byte, values []value) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
+
 	if err := m.commitlog.append(segmentCollectionNode{
 		primaryKey: key,
 		values:     values,
@@ -376,6 +382,7 @@ func (m *Memtable) appendMapSorted(key []byte, pair MapPair) error {
 
 	m.Lock()
 	defer m.Unlock()
+	m.writesSinceLastSync = true
 
 	if err := m.commitlog.append(newNode); err != nil {
 		return errors.Wrap(err, "write into commit log")
