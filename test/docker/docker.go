@@ -14,6 +14,7 @@ package docker
 import (
 	"context"
 	"fmt"
+	"os/exec"
 	"time"
 
 	"github.com/docker/go-connections/nat"
@@ -213,5 +214,51 @@ func (d *DockerCompose) getContainerByName(name string) *DockerContainer {
 			return c
 		}
 	}
+	return nil
+}
+
+// DisconnectFromNetwork disconnects a container from the network by its index
+func (d *DockerCompose) DisconnectFromNetwork(ctx context.Context, nodeIndex int) error {
+	if nodeIndex >= len(d.containers) {
+		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
+	}
+
+	container := d.containers[nodeIndex]
+	if d.network == nil {
+		return fmt.Errorf("network is nil")
+	}
+
+	// Get the network name
+	networkName := d.network.Name
+
+	// Execute docker network disconnect command
+	cmd := exec.CommandContext(ctx, "docker", "network", "disconnect", networkName, container.name)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to disconnect container %s from network: %w", container.name, err)
+	}
+
+	return nil
+}
+
+// ConnectToNetwork connects a container to the network by its index
+func (d *DockerCompose) ConnectToNetwork(ctx context.Context, nodeIndex int) error {
+	if nodeIndex >= len(d.containers) {
+		return fmt.Errorf("node index: %v is greater than available nodes: %v", nodeIndex, len(d.containers))
+	}
+
+	container := d.containers[nodeIndex]
+	if d.network == nil {
+		return fmt.Errorf("network is nil")
+	}
+
+	// Get the network name
+	networkName := d.network.Name
+
+	// Execute docker network connect command
+	cmd := exec.CommandContext(ctx, "docker", "network", "connect", networkName, container.name)
+	if err := cmd.Run(); err != nil {
+		return fmt.Errorf("failed to connect container %s to network: %w", container.name, err)
+	}
+
 	return nil
 }
