@@ -6427,11 +6427,29 @@ func init() {
           "type": "string",
           "x-omitempty": false
         },
+        "numberOfReplicas": {
+          "description": "Number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
+        },
         "objectCount": {
           "description": "The number of objects in shard.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
+        },
+        "replicationFactor": {
+          "description": "Minimum number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
@@ -6764,7 +6782,11 @@ func init() {
             "create_tenants",
             "read_tenants",
             "update_tenants",
-            "delete_tenants"
+            "delete_tenants",
+            "create_replicate",
+            "read_replicate",
+            "update_replicate",
+            "delete_replicate"
           ]
         },
         "backups": {
@@ -6827,6 +6849,22 @@ func init() {
                 "verbose",
                 "minimal"
               ]
+            }
+          }
+        },
+        "replicate": {
+          "description": "resources applicable for replicate actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "shard": {
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
             }
           }
         },
@@ -7258,14 +7296,15 @@ func init() {
           }
         },
         "state": {
-          "description": "The current operational state of the replica during the replication process (e.g., HYDRATING, READY, DEHYDRATING).",
+          "description": "The current operational state of the replica during the replication process.",
           "type": "string",
           "enum": [
+            "REGISTERED",
+            "HYDRATING",
+            "FINALIZING",
+            "DEHYDRATING",
             "READY",
-            "INDEXING",
-            "REPLICATION_FINALIZING",
-            "REPLICATION_HYDRATING",
-            "REPLICATION_DEHYDRATING"
+            "CANCELLED"
           ]
         }
       }
@@ -14713,11 +14752,29 @@ func init() {
           "type": "string",
           "x-omitempty": false
         },
+        "numberOfReplicas": {
+          "description": "Number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
+        },
         "objectCount": {
           "description": "The number of objects in shard.",
           "type": "number",
           "format": "int64",
           "x-omitempty": false
+        },
+        "replicationFactor": {
+          "description": "Minimum number of replicas for the shard.",
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "int64",
+          "x-omitempty": true
         },
         "vectorIndexingStatus": {
           "description": "The status of the vector indexing process.",
@@ -15067,7 +15124,11 @@ func init() {
             "create_tenants",
             "read_tenants",
             "update_tenants",
-            "delete_tenants"
+            "delete_tenants",
+            "create_replicate",
+            "read_replicate",
+            "update_replicate",
+            "delete_replicate"
           ]
         },
         "backups": {
@@ -15130,6 +15191,22 @@ func init() {
                 "verbose",
                 "minimal"
               ]
+            }
+          }
+        },
+        "replicate": {
+          "description": "resources applicable for replicate actions",
+          "type": "object",
+          "properties": {
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "shard": {
+              "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
             }
           }
         },
@@ -15242,6 +15319,22 @@ func init() {
             "verbose",
             "minimal"
           ]
+        }
+      }
+    },
+    "PermissionReplicate": {
+      "description": "resources applicable for replicate actions",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "shard": {
+          "description": "string or regex. if a specific shard name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
         }
       }
     },
@@ -15671,14 +15764,15 @@ func init() {
           }
         },
         "state": {
-          "description": "The current operational state of the replica during the replication process (e.g., HYDRATING, READY, DEHYDRATING).",
+          "description": "The current operational state of the replica during the replication process.",
           "type": "string",
           "enum": [
+            "REGISTERED",
+            "HYDRATING",
+            "FINALIZING",
+            "DEHYDRATING",
             "READY",
-            "INDEXING",
-            "REPLICATION_FINALIZING",
-            "REPLICATION_HYDRATING",
-            "REPLICATION_DEHYDRATING"
+            "CANCELLED"
           ]
         }
       }
