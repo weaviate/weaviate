@@ -41,9 +41,6 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			if isConnectionRefused(err) {
-				return true, fmt.Errorf("node temporarily unavailable: %w", err)
-			}
 			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
@@ -76,9 +73,6 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			if isConnectionRefused(err) {
-				return true, fmt.Errorf("node temporarily unavailable: %w", err)
-			}
 			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
@@ -116,7 +110,7 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 	return backoff.Retry(func() error {
 		keepTrying, err := work(ctx)
 		if err != nil {
-			if isConnectionRefused(err) || isContextDeadlineExceeded(err) {
+			if isNetworkError(err) {
 				return err
 			}
 			if !keepTrying {
@@ -138,12 +132,16 @@ func successCode(code int) bool {
 	return code >= http.StatusOK && code <= http.StatusIMUsed
 }
 
-// isConnectionRefused checks if the error is a connection refused error
-func isConnectionRefused(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "connection refused")
-}
-
-// isContextDeadlineExceeded checks if the error is a context deadline exceeded error
-func isContextDeadlineExceeded(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "context deadline exceeded")
+// isNetworkError checks if the error is a network-related error that should be retried
+func isNetworkError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	return strings.Contains(errStr, "connection refused") ||
+		strings.Contains(errStr, "context deadline exceeded") ||
+		strings.Contains(errStr, "no route to host") ||
+		strings.Contains(errStr, "network is unreachable") ||
+		strings.Contains(errStr, "connection reset by peer") ||
+		strings.Contains(errStr, "broken pipe")
 }

@@ -375,7 +375,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			if isConnectionRefused(err) {
+			if isNetworkError(err) {
 				return true, fmt.Errorf("node temporarily unavailable: %w", err)
 			}
 			return false, fmt.Errorf("connect: %w", err)
