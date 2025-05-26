@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -374,7 +375,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
