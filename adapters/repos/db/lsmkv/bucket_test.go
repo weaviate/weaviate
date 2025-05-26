@@ -474,8 +474,9 @@ func testBucketContent(t *testing.T, strategy string, b *Bucket, maxObject int) 
 			require.NoError(t, err)
 			require.Equal(t, val, get[0])
 		} else if strategy == StrategyRoaringSet {
-			get, err := b.RoaringSetGet(key)
+			get, release, err := b.RoaringSetGet(key)
 			require.NoError(t, err)
+			defer release()
 			require.True(t, get.Contains(uint64(i)))
 		} else if strategy == StrategyRoaringSetRange {
 			//_, err :=  b.Rang

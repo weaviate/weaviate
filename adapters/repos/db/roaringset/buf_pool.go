@@ -14,6 +14,7 @@ package roaringset
 import (
 	"fmt"
 	"math"
+	"slices"
 	"sync"
 
 	"github.com/weaviate/sroar"
@@ -33,18 +34,15 @@ import (
 
 // // -----------------------------------------------------------------------------
 
-type bitmapBufPool2 struct {
-	capFactor float64
-	pool      *sync.Pool
+type simpleBitmapBufPool struct {
+	pool *sync.Pool
 }
 
-func NewBitmapBufPool2(capFactor float64) *bitmapBufPool2 {
-	return &bitmapBufPool2{
-		capFactor: capFactor,
+func NewSimpleBitmapBufPool() *simpleBitmapBufPool {
+	return &simpleBitmapBufPool{
 		pool: &sync.Pool{
 			New: func() any {
-				fmt.Printf("  ==> creating buffer\n\n")
-
+				fmt.Printf("  ==> [simple] creating buffer\n")
 				dummyBuf := make([]byte, 0)
 				return &dummyBuf
 			},
@@ -52,50 +50,163 @@ func NewBitmapBufPool2(capFactor float64) *bitmapBufPool2 {
 	}
 }
 
-func (p *bitmapBufPool2) Get(minCap int) (buf []byte, put func()) {
+func (p *simpleBitmapBufPool) Get(minCap int) (buf []byte, put func()) {
 	ptr := p.pool.Get().(*[]byte)
 	buf = *ptr
-	fmt.Printf("  ==> getting buffer\n")
+	fmt.Printf("  ==> [simple] getting buffer\n")
 
 	if cap(buf) < minCap {
-		cp := int(math.Ceil(float64(minCap) * p.capFactor))
-		fmt.Printf("  ==> changing buffer curCap [%d] minCap [%d] newCap [%d]\n\n", cap(buf), minCap, cp)
-		buf = make([]byte, 0, cp)
+		fmt.Printf("  ==> [simple] changing buffer curCap [%d] minCap [%d]\n\n", cap(buf), minCap)
+		buf = make([]byte, 0, minCap)
 		*ptr = buf
 	} else if len(buf) > 0 {
-		fmt.Printf("  ==> keeping buffer curCap [%d] minCap [%d]\n\n", cap(buf), minCap)
+		fmt.Printf("  ==> [simple] resizing buffer curCap [%d] minCap [%d]\n\n", cap(buf), minCap)
 		buf = buf[:0]
 		*ptr = buf
+	} else {
+		fmt.Printf("  ==> [simple] keeping buffer curCap [%d] minCap [%d]\n\n", cap(buf), minCap)
 	}
 	return buf, func() { p.pool.Put(ptr) }
 }
 
-func (p *bitmapBufPool2) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	buf, put := p.Get(bm.LenInBytes())
+func (p *simpleBitmapBufPool) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	return cloneToBuf(p, bm)
+}
+
+// // -----------------------------------------------------------------------------
+
+type multiBitmapBufPool struct {
+	ranges []int
+	pools  []*simpleBitmapBufPool
+}
+
+// 0 =     1_000
+// 1 =    10_000
+// 2 =   100_000
+// 3 = 1_000_000
+// 4 = 1_000_000+
+
+func NewDefaultMultiBitmapBufPool() BitmapBufPool {
+	p := NewMultiBitmapBufPool(1_000, 10_000, 100_000, 1_000_000, 10_000_000)
+	return NewBitmapBufPoolFactorWrapper(p, 1.1)
+}
+
+func NewMultiBitmapBufPool(ranges ...int) *multiBitmapBufPool {
+	if ln := len(ranges); ln > 0 {
+		slices.Sort(ranges)
+		for i := ln - 1; i >= 0; i-- {
+			if ranges[i] <= 0 {
+				ranges = ranges[i:]
+			}
+		}
+	}
+
+	ln := len(ranges)
+	pools := make([]*simpleBitmapBufPool, ln+1)
+	for i := 0; i < ln+1; i++ {
+		pools[i] = NewSimpleBitmapBufPool()
+	}
+
+	fmt.Printf("  ==> [multi] ranges [%v] [%v]\n", ranges, pools)
+
+	return &multiBitmapBufPool{
+		ranges: ranges,
+		pools:  pools,
+	}
+}
+
+func (p *multiBitmapBufPool) Get(minCap int) (buf []byte, put func()) {
+	i := 0
+	for ; i < len(p.ranges); i++ {
+		if p.ranges[i] >= minCap {
+			break
+		}
+	}
+	fmt.Printf("  ==> [multi] passing to pool [%d] minCap [%d]\n", i, minCap)
+	pool := p.pools[i]
+	return pool.Get(minCap)
+}
+
+func (p *multiBitmapBufPool) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	return cloneToBuf(p, bm)
+}
+
+// // -----------------------------------------------------------------------------
+
+func cloneToBuf(pool BitmapBufPool, bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	buf, put := pool.Get(bm.LenInBytes())
 	cloned = bm.CloneToBuf(buf)
 	return cloned, put
 }
 
 // // -----------------------------------------------------------------------------
 
+// type bitmapBufPool2 struct {
+// 	capFactor float64
+// 	pool      *sync.Pool
+// }
+
+// func NewBitmapBufPool2(capFactor float64) *bitmapBufPool2 {
+// 	return &bitmapBufPool2{
+// 		capFactor: capFactor,
+// 		pool: &sync.Pool{
+// 			New: func() any {
+// 				fmt.Printf("  ==> creating buffer\n")
+
+// 				dummyBuf := make([]byte, 0)
+// 				return &dummyBuf
+// 			},
+// 		},
+// 	}
+// }
+
+// func (p *bitmapBufPool2) Get(minCap int) (buf []byte, put func()) {
+// 	ptr := p.pool.Get().(*[]byte)
+// 	buf = *ptr
+// 	fmt.Printf("  ==> getting buffer\n")
+
+// 	if cap(buf) < minCap {
+// 		cp := int(math.Ceil(float64(minCap) * p.capFactor))
+// 		fmt.Printf("  ==> changing buffer curCap [%d] minCap [%d] newCap [%d]\n\n", cap(buf), minCap, cp)
+// 		buf = make([]byte, 0, cp)
+// 		*ptr = buf
+// 	} else if len(buf) > 0 {
+// 		fmt.Printf("  ==> resizing buffer curCap [%d] minCap [%d]\n\n", cap(buf), minCap)
+// 		buf = buf[:0]
+// 		*ptr = buf
+// 	} else {
+// 		fmt.Printf("  ==> keeping buffer curCap [%d] minCap [%d]\n\n", cap(buf), minCap)
+// 	}
+// 	return buf, func() { p.pool.Put(ptr) }
+// }
+
+// func (p *bitmapBufPool2) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+// 	buf, put := p.Get(bm.LenInBytes())
+// 	cloned = bm.CloneToBuf(buf)
+// 	return cloned, put
+// }
+
+// // -----------------------------------------------------------------------------
+
 type bitmapBufPoolFactorWrapper struct {
-	bufPool BitmapBufPool
-	factor  float64
+	pool   BitmapBufPool
+	factor float64
 }
 
-func NewBitmapBufPoolFactorWrapper(bufPool BitmapBufPool, factor float64) *bitmapBufPoolFactorWrapper {
-	return &bitmapBufPoolFactorWrapper{bufPool: bufPool, factor: factor}
+func NewBitmapBufPoolFactorWrapper(pool BitmapBufPool, factor float64) *bitmapBufPoolFactorWrapper {
+	return &bitmapBufPoolFactorWrapper{pool: pool, factor: factor}
 }
 
 func (p *bitmapBufPoolFactorWrapper) Get(minCap int) (buf []byte, put func()) {
-	return p.bufPool.Get(int(math.Ceil(float64(minCap) * p.factor)))
+	fmt.Printf("  ==> getting factorized minCap [%d]\n", minCap)
+	return p.pool.Get(int(math.Ceil(float64(minCap) * p.factor)))
 }
 
 func (p *bitmapBufPoolFactorWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
-	buf, put := p.Get(bm.LenInBytes())
-	cloned = bm.CloneToBuf(buf)
-	return cloned, put
+	return cloneToBuf(p, bm)
 }
+
+// 1_000, 10_000, 100_000, 1_000_000
 
 // // -----------------------------------------------------------------------------
 

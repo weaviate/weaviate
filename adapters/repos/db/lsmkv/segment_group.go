@@ -142,7 +142,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		lastCleanupCall:          now,
 		MinMMapSize:              cfg.MinMMapSize,
 
-		bitmapBufPool: roaringset.NewBitmapBufPool2(1.25),
+		bitmapBufPool: roaringset.NewDefaultMultiBitmapBufPool(),
 	}
 
 	segmentIndex := 0
@@ -672,7 +672,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, 
 	i := 0
 	// fmt.Printf("  ==> len [%d]\n", ln)
 	for ; i < ln; i++ {
-		// fmt.Printf("  ==> checking i [%d]\n", i)
+		fmt.Printf("  ==> checking i [%d]\n", i)
 		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
@@ -693,7 +693,7 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, 
 	}()
 
 	for ; i < ln; i++ {
-		// fmt.Printf("  ==> merging i [%d]\n", i)
+		fmt.Printf("  ==> merging i [%d]\n", i)
 		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool); err != nil {
 			return nil, noopRelease, err
 		}
