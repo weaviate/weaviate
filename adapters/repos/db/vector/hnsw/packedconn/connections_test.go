@@ -359,9 +359,11 @@ func TestConnections_LayerRange(t *testing.T) {
 	require.Nil(t, err)
 
 	layerCount := 0
-	for layer := range c.LayerRange() {
-		assert.Equal(t, uint8(layerCount), layer.Index)
-		assert.Len(t, layer.Connections, 0)
+	iter := c.Iterator()
+	for iter.Next() {
+		layer, connections := iter.Current()
+		assert.Equal(t, uint8(layerCount), layer)
+		assert.Len(t, connections, 0)
 		layerCount++
 	}
 	assert.Equal(t, 3, layerCount)
@@ -373,9 +375,11 @@ func TestConnections_LayerRange(t *testing.T) {
 	expectedData := [][]uint64{connsSlice1, connsSlice2, connsSlice3}
 	layerCount = 0
 
-	for layer := range c.LayerRange() {
-		assert.Equal(t, uint8(layerCount), layer.Index)
-		assert.ElementsMatch(t, expectedData[layerCount], layer.Connections)
+	iter = c.Iterator()
+	for iter.Next() {
+		layer, connections := iter.Current()
+		assert.Equal(t, uint8(layerCount), layer)
+		assert.ElementsMatch(t, expectedData[layerCount], connections)
 		layerCount++
 	}
 	assert.Equal(t, 3, layerCount)
@@ -388,9 +392,11 @@ func TestConnections_LayerRangeWithSingleLayer(t *testing.T) {
 	c.ReplaceLayer(0, connsSlice1)
 
 	layerCount := 0
-	for layer := range c.LayerRange() {
-		assert.Equal(t, uint8(0), layer.Index)
-		assert.ElementsMatch(t, connsSlice1, layer.Connections)
+	iter := c.Iterator()
+	for iter.Next() {
+		layer, connections := iter.Current()
+		assert.Equal(t, uint8(0), layer)
+		assert.ElementsMatch(t, connsSlice1, connections)
 		layerCount++
 	}
 	assert.Equal(t, 1, layerCount)
@@ -409,9 +415,11 @@ func TestConnections_LayerRangeAfterAddingLayers(t *testing.T) {
 	expectedData := [][]uint64{connsSlice1, connsSlice2, connsSlice3}
 	layerCount := 0
 
-	for layer := range c.LayerRange() {
-		assert.Equal(t, uint8(layerCount), layer.Index)
-		assert.ElementsMatch(t, expectedData[layerCount], layer.Connections)
+	iter := c.Iterator()
+	for iter.Next() {
+		layer, connections := iter.Current()
+		assert.Equal(t, uint8(layerCount), layer)
+		assert.ElementsMatch(t, expectedData[layerCount], connections)
 		layerCount++
 	}
 	assert.Equal(t, 3, layerCount)
@@ -430,18 +438,20 @@ func TestConnections_LayerRangeAfterGrowingLayers(t *testing.T) {
 	expectedLayers := 4
 	layerCount := 0
 
-	for layer := range c.LayerRange() {
-		assert.Equal(t, uint8(layerCount), layer.Index)
+	iter := c.Iterator()
+	for iter.Next() {
+		layer, connections := iter.Current()
+		assert.Equal(t, uint8(layerCount), layer)
 
 		switch layerCount {
 		case 0:
-			assert.ElementsMatch(t, connsSlice1, layer.Connections)
+			assert.ElementsMatch(t, connsSlice1, connections)
 		case 1:
-			assert.ElementsMatch(t, connsSlice2, layer.Connections)
+			assert.ElementsMatch(t, connsSlice2, connections)
 		case 2:
-			assert.ElementsMatch(t, connsSlice3, layer.Connections)
+			assert.ElementsMatch(t, connsSlice3, connections)
 		case 3, 4:
-			assert.Len(t, layer.Connections, 0)
+			assert.Len(t, connections, 0)
 		}
 		layerCount++
 	}
@@ -457,13 +467,15 @@ func TestConnections_LayerRangeWithDynamicModifications(t *testing.T) {
 	c.ReplaceLayer(2, connsSlice3)
 
 	layerCount := 0
-	for layer := range c.LayerRange() {
+	iter := c.Iterator()
+	for iter.Next() {
+		layer, connections := iter.Current()
 		if layerCount == 1 {
 			c.ReplaceLayer(2, []uint64{999, 1000, 1001})
 		}
 
-		assert.Equal(t, uint8(layerCount), layer.Index)
-		assert.True(t, len(layer.Connections) >= 0)
+		assert.Equal(t, uint8(layerCount), layer)
+		assert.True(t, len(connections) >= 0)
 		layerCount++
 	}
 	assert.Equal(t, 3, layerCount)
@@ -485,8 +497,10 @@ func TestConnections_LayerRangeCompareWithIterateOnLayers(t *testing.T) {
 	}
 
 	rangeResults := make(map[uint8][]uint64)
-	for layer := range c.LayerRange() {
-		rangeResults[layer.Index] = layer.Connections
+	iter := c.Iterator()
+	for iter.Next() {
+		layer, connections := iter.Current()
+		rangeResults[layer] = connections
 	}
 
 	iterateResults := make(map[uint8][]uint64)
@@ -513,9 +527,11 @@ func TestConnections_LayerRangeStress(t *testing.T) {
 	}
 
 	layerCount := 0
-	for layer := range c.LayerRange() {
-		assert.Equal(t, uint8(layerCount), layer.Index)
-		assert.ElementsMatch(t, testSlices[layerCount], layer.Connections)
+	iter := c.Iterator()
+	for iter.Next() {
+		layer, connections := iter.Current()
+		assert.Equal(t, uint8(layerCount), layer)
+		assert.ElementsMatch(t, testSlices[layerCount], connections)
 		layerCount++
 	}
 
@@ -527,9 +543,11 @@ func TestConnections_LayerRangeEmptyConnections(t *testing.T) {
 	require.Nil(t, err)
 
 	layerCount := 0
-	for layer := range c.LayerRange() {
-		assert.Equal(t, uint8(layerCount), layer.Index)
-		assert.Len(t, layer.Connections, 0)
+	iter := c.Iterator()
+	for iter.Next() {
+		layer, connections := iter.Current()
+		assert.Equal(t, uint8(layerCount), layer)
+		assert.Len(t, connections, 0)
 		layerCount++
 	}
 	assert.Equal(t, 6, layerCount)
@@ -829,4 +847,28 @@ func TestConnections_ElementRangeConsistentIndexing(t *testing.T) {
 		expectedIndex++
 	}
 	assert.Equal(t, len(testData), expectedIndex)
+}
+
+func BenchmarkInsertAtLayer(b *testing.B) {
+	layers := uint8(5)
+
+	c := make(map[int]*Connections)
+	for i := 0; i < b.N; i++ {
+		cTemp, err := NewWithMaxLayer(layers)
+		require.Nil(b, err)
+		for i := uint8(0); i <= layers; i++ {
+			cTemp.ReplaceLayer(i, randomArray(32))
+		}
+		c[i] = cTemp
+	}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for l := uint8(0); l <= layers; l++ {
+			newNumbers := randomArray(5)
+			for j := range newNumbers {
+				c[i].InsertAtLayer(newNumbers[j], l)
+			}
+		}
+	}
 }

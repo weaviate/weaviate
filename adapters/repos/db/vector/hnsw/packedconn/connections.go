@@ -422,31 +422,6 @@ func (iter *LayerIterator) Reset() {
 	iter.currentLayer = 0
 }
 
-func (c *Connections) LayerRange() <-chan struct {
-	Index       uint8
-	Connections []uint64
-} {
-	ch := make(chan struct {
-		Index       uint8
-		Connections []uint64
-	})
-
-	go func() {
-		defer close(ch)
-		for i := uint8(0); i < c.Layers(); i++ {
-			ch <- struct {
-				Index       uint8
-				Connections []uint64
-			}{
-				Index:       i,
-				Connections: c.GetLayer(i),
-			}
-		}
-	}()
-
-	return ch
-}
-
 type LayerElementIterator struct {
 	connections *Connections
 	layer       uint8

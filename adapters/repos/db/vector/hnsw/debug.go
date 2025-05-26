@@ -41,8 +41,9 @@ func (h *hnsw) Dump(labels ...string) {
 		}
 
 		fmt.Printf("  Node %d (level %d)\n", node.id, node.level)
-		for layer := range node.connections.LayerRange() {
-			level, conns := int(layer.Index), layer.Connections
+		iter := node.connections.Iterator()
+		for iter.Next() {
+			level, conns := iter.Current()
 			fmt.Printf("    Level %d: Connections: %v\n", level, conns)
 		}
 	}
@@ -207,8 +208,9 @@ func (h *hnsw) ValidateLinkIntegrity() {
 			continue
 		}
 
-		for layer := range node.connections.LayerRange() {
-			level, conns := int(layer.Index), layer.Connections
+		iter := node.connections.Iterator()
+		for iter.Next() {
+			level, conns := iter.Current()
 			m := h.maximumConnections
 			if level == 0 {
 				m = h.maximumConnectionsLayerZero
