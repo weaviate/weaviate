@@ -59,6 +59,7 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -662,6 +663,7 @@ type IndexConfig struct {
 	HNSWWaitForCachePrefill             bool
 	HNSWFlatSearchConcurrency           int
 	HNSWAcornFilterRatio                float64
+	FlatSearchRescoreAgainstObjectStore *configRuntime.FeatureFlag[bool]
 	VisitedListPoolMaxSize              int
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
