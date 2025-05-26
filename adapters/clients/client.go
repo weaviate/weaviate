@@ -40,6 +40,9 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
+			if isConnectionRefused(err) {
+				return true, fmt.Errorf("node temporarily unavailable: %w", err)
+			}
 			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
@@ -72,6 +75,9 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
+			if isConnectionRefused(err) {
+				return true, fmt.Errorf("node temporarily unavailable: %w", err)
+			}
 			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
