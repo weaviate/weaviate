@@ -99,10 +99,14 @@ func New(logger logrus.FieldLogger, config Config,
 	return &DB{config: config}, nil
 }
 
+// Something about finding unlabelled objects, i.e. without label properties?
 func (db *DB) GetUnclassified(ctx context.Context, className string, properties, target []string, filter *filters.LocalFilter) ([]search.Result, error) {
 	panicStub("GetUnclassified")
 	return nil, nil
 }
+
+// Do a single-result k-NN lookup for the object whose vector is closest to the supplied vector, subject to an optional filter.
+
 func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32, className string, properties []string, filter *filters.LocalFilter) ([]search.Result, error) {
 	panicStub("ZeroShotSearch")
 	return nil, nil
@@ -477,6 +481,12 @@ type NetObject struct {
 	Multivectors map[string][][]float32 `json:"multivectors,omitempty"`
 }
 
+func FullObjectKey(id string) []byte {
+	// Returns the full key for an object, including the class and tenant.
+	// This is used to store the object in the file store.
+	return []byte(strings.Join([]string{"objects", id}, "/"))
+}
+
 // PutObject stores an object in the database, including its vector and additional properties.
 func (db *DB) PutObject(ctx context.Context, object *models.Object, vector []float32, vectors map[string][]float32, multivectors map[string][][]float32, repli *additional.ReplicationProperties, schemaVersion uint64) error {
 	fmt.Printf("I>PutObject called with object: %+v\n", object.Properties)
@@ -496,7 +506,7 @@ func (db *DB) PutObject(ctx context.Context, object *models.Object, vector []flo
 	if err != nil {
 		return err
 	}
-	err = theOneTrueFileStore.TheOneTrueFileStore().Put([]byte(strings.Join([]string{"objects", object.ID.String()}, "/")), stoData)
+	err = theOneTrueFileStore.TheOneTrueFileStore().Put(FullObjectKey(object.ID.String()), stoData)
 	if err != nil {
 		return err
 	}
@@ -554,7 +564,7 @@ func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Selec
 // Retrive an object and replicated properties, I guess?
 func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID, props search.SelectProperties, additionals additional.Properties, additionalreps *additional.ReplicationProperties, tenant string) (*search.Result, error) {
 	fmt.Printf("I>Object called with class: %s, id: %s, props: %+v, additionals: %+v, tenant: %s\n", class, id.String(), props, additionals, tenant)
-	objData, err := theOneTrueFileStore.TheOneTrueFileStore().Get([]byte(strings.Join([]string{"objects", class, tenant, id.String()}, "/")))
+	objData, err := theOneTrueFileStore.TheOneTrueFileStore().Get(FullObjectKey(id.String()))
 	if err != nil {
 		return nil, err
 	}
@@ -621,17 +631,21 @@ func (db *DB) BackupDescriptors(context.Context, string, []string) <-chan backup
 	panicStub("BackupDescriptors")
 	return nil
 }
+
+//Find the k nearest neighbours that already carry at least one reference label, then aggregate their labels into a vote-like summary that can drive majority-vote (k-NN) classification.
 func (db *DB) AggregateNeighbors(context.Context, []float32, string, []string, int, *filters.LocalFilter) ([]classification.NeighborRef, error) {
 	panicStub("AggregateNeighbors")
 	return nil, nil
 }
-func (db *DB) DeleteObject(context.Context, string, strfmt.UUID, time.Time, *additional.ReplicationProperties, string, uint64) error {
-	panicStub("DeleteObject")
+
+func (db *DB) DeleteObject(ctx context.Context, className string, id strfmt.UUID, t time.Time, repl *additional.ReplicationProperties, tenant string, schemaVersion uint64) error {
+	fmt.Printf("I>DeleteObject called with className: %s, id: %s, time: %s, tenant: %s\n", className, id.String(), t.String(), tenant)
+	theOneTrueFileStore.TheOneTrueFileStore().Delete(FullObjectKey(id.String()))
 	return nil
 }
-func (db *DB) Exists(context.Context, string, strfmt.UUID, *additional.ReplicationProperties, string) (bool, error) {
-	panicStub("Exists")
-	return false, nil
+func (db *DB) Exists(ctx context.Context, className string, id strfmt.UUID, repl *additional.ReplicationProperties, tenant string) (bool, error) {
+	exists := theOneTrueFileStore.TheOneTrueFileStore().Exists(FullObjectKey(id.String()))
+	return exists, nil
 }
 func (db *DB) Merge(context.Context, objects.MergeDocument, *additional.ReplicationProperties, string, uint64) error {
 	panicStub("Merge")
