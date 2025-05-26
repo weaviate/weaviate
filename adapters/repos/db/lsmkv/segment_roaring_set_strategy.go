@@ -111,6 +111,7 @@ func (s *segment) segmentNodeFromBuffer(offset nodeOffset, bitmapBufPool roaring
 
 		ln := int(offset.end - offset.start)
 		contents, put = bitmapBufPool.Get(ln)
+		contents = contents[:ln] // buffer's len is 0, it has to be adjusted
 		defer func() {
 			if err != nil {
 				put()
