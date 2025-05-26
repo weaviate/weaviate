@@ -75,7 +75,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	_, err = c.do(c.timeoutUnit*60, req, body, nil, successCode)
+	_, err = c.do(c.timeoutUnit*60, req, body, nil, 9, successCode)
 	return err
 }
 
@@ -255,7 +255,7 @@ func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 		return false, fmt.Errorf("create http request: %w", err)
 	}
 	ok := func(code int) bool { return code == http.StatusNotFound || code == http.StatusNoContent }
-	code, err := c.do(c.timeoutUnit*20, req, nil, nil, ok)
+	code, err := c.do(c.timeoutUnit*20, req, nil, nil, 9, ok)
 	return code != http.StatusNotFound, err
 }
 

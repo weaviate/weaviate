@@ -32,7 +32,9 @@ type retryClient struct {
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int,
 ) (err error) {
-	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+	// Calculate total retry time: initial timeout + max retry time + buffer
+	totalTimeout := timeout + (c.maxBackOff * 2) + (time.Second * 5) // Add buffer for network latency
+	ctx, cancel := context.WithTimeout(req.Context(), totalTimeout)
 	defer cancel()
 	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (b bool, e error) {
@@ -63,8 +65,10 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	return c.retry(ctx, numRetries, try)
 }
 
-func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, success func(code int) bool) (code int, err error) {
-	ctx, cancel := context.WithTimeout(req.Context(), timeout)
+func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int, success func(code int) bool) (code int, err error) {
+	// Calculate total retry time: initial timeout + max retry time + buffer
+	totalTimeout := timeout + (c.maxBackOff * 2) + (time.Second * 5) // Add buffer for network latency
+	ctx, cancel := context.WithTimeout(req.Context(), totalTimeout)
 	defer cancel()
 	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (bool, error) {
@@ -88,7 +92,7 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		}
 		return false, nil
 	}
-	return code, c.retry(ctx, 9, try)
+	return code, c.retry(ctx, numRetries, try)
 }
 
 type retryer struct {

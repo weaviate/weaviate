@@ -38,13 +38,15 @@ import (
 
 // ReplicationClient is to coordinate operations among replicas
 
-type replicationClient retryClient
+type replicationClient struct {
+	retryClient
+}
 
 func NewReplicationClient(httpClient *http.Client) replica.Client {
-	return &replicationClient{
+	return &replicationClient{retryClient{
 		client:  httpClient,
 		retryer: newRetryer(),
-	}
+	}}
 }
 
 // FetchObject fetches one object it exits
@@ -365,39 +367,16 @@ func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader
 	return http.NewRequest(http.MethodPost, url.String(), body)
 }
 
-func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
-	ctx, cancel := context.WithTimeout(req.Context(), timeout)
-	defer cancel()
-	req = req.WithContext(ctx)
-	try := func(ctx context.Context) (bool, error) {
-		if body != nil {
-			req.Body = io.NopCloser(bytes.NewReader(body))
-		}
-		res, err := c.client.Do(req)
-		if err != nil {
-			if isNetworkError(err) {
-				return true, fmt.Errorf("node temporarily unavailable: %w", err)
-			}
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
-		}
-		defer res.Body.Close()
-
-		if code := res.StatusCode; code != http.StatusOK {
-			b, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
-		}
-		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
-			return false, fmt.Errorf("decode response: %w", err)
-		}
-		return false, nil
-	}
-	return c.retry(ctx, numRetries, try)
+func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) error {
+	ok := func(code int) bool { return code == http.StatusOK }
+	_, err := c.retryClient.do(timeout, req, body, resp, numRetries, ok)
+	return err
 }
 
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 	req *http.Request, body []byte, decode func([]byte) error, numRetries int,
 ) (err error) {
-	return (*retryClient)(c).doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
+	return c.doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
 }
 
 // backOff return a new random duration in the interval [d, 3d].
