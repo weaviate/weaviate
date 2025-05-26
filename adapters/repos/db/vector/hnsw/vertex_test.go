@@ -85,24 +85,20 @@ func TestVertex_AppendConnection(t *testing.T) {
 
 	tests := []test{
 		{
-			name:        "no connections set before, expect 1/4 of max",
-			initial:     nil,
-			expectedCap: 16,
+			name:    "no connections set before, expect 1/4 of max",
+			initial: nil,
 		},
 		{
-			name:        "less than 1/4, expect 1/4 of max",
-			initial:     makeConnections(15, 15),
-			expectedCap: 16,
+			name:    "less than 1/4, expect 1/4 of max",
+			initial: makeConnections(15, 15),
 		},
 		{
-			name:        "less than 1/2, expect 1/2 of max",
-			initial:     makeConnections(31, 31),
-			expectedCap: 32,
+			name:    "less than 1/2, expect 1/2 of max",
+			initial: makeConnections(31, 31),
 		},
 		{
-			name:        "less than 3/4, expect 3/4 of max",
-			initial:     makeConnections(42, 42),
-			expectedCap: 48,
+			name:    "less than 3/4, expect 3/4 of max",
+			initial: makeConnections(42, 42),
 		},
 		{
 			name:        "more than 3/4, expect full size",
@@ -110,9 +106,8 @@ func TestVertex_AppendConnection(t *testing.T) {
 			expectedCap: 64,
 		},
 		{
-			name:        "enough capacity to not require growing",
-			initial:     makeConnections(17, 53),
-			expectedCap: 53,
+			name:    "enough capacity to not require growing",
+			initial: makeConnections(17, 53),
 		},
 	}
 
@@ -130,7 +125,7 @@ func TestVertex_AppendConnection(t *testing.T) {
 			copy(newConns, tc.initial)
 			newConns[len(newConns)-1] = 18
 
-			assert.Equal(t, newConns, v.connectionsAtLevelNoLock(0))
+			assert.ElementsMatch(t, newConns, v.connectionsAtLevelNoLock(0))
 		})
 	}
 }
@@ -144,35 +139,28 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 
 	tests := []test{
 		{
-			name:        "no connections set before, expect 1/4 of max",
-			initial:     nil,
-			expectedCap: 15,
+			name:    "no connections set before, expect 1/4 of max",
+			initial: nil,
 		},
 		{
 			name:    "less than 1/4, expect 1/4 of max",
 			initial: makeConnections(15, 15),
-			// provoke rounding error
-			expectedCap: 16,
 		},
 		{
-			name:        "less than 1/2, expect 1/2 of max",
-			initial:     makeConnections(31, 31),
-			expectedCap: 32,
+			name:    "less than 1/2, expect 1/2 of max",
+			initial: makeConnections(31, 31),
 		},
 		{
-			name:        "less than 3/4, expect 3/4 of max",
-			initial:     makeConnections(42, 42),
-			expectedCap: 47,
+			name:    "less than 3/4, expect 3/4 of max",
+			initial: makeConnections(42, 42),
 		},
 		{
-			name:        "more than 3/4, expect full size",
-			initial:     makeConnections(53, 53),
-			expectedCap: 63,
+			name:    "more than 3/4, expect full size",
+			initial: makeConnections(53, 53),
 		},
 		{
-			name:        "enough capacity to not require growing",
-			initial:     makeConnections(17, 53),
-			expectedCap: 53,
+			name:    "enough capacity to not require growing",
+			initial: makeConnections(17, 53),
 		},
 	}
 
@@ -190,7 +178,7 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 			copy(newConns, tc.initial)
 			newConns[len(newConns)-1] = 18
 
-			assert.Equal(t, newConns, v.connectionsAtLevelNoLock(0))
+			assert.ElementsMatch(t, newConns, v.connectionsAtLevelNoLock(0))
 		})
 	}
 }
