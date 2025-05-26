@@ -202,7 +202,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 				}
 			}
 		}
-		require.True(t, foundSrc, "source replica should be there")
+		require.False(t, foundSrc, "source replica should not be there")
 		require.True(t, foundDst, "destination replica should be there")
 	})
 }
