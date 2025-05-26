@@ -69,7 +69,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 				}
 			}
 			require.True(ct, replicaPresent)
-		}, 60*time.Second, 100*time.Millisecond, "shard should be present in the destination node")
+		}, 60*time.Second, 100*time.Millisecond, "replica should be present in the destination node")
 	})
 
 	t.Run("fail to cancel replication operation due to operation being uncancellable", func(t *testing.T) {
@@ -133,48 +133,53 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 	created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(req), nil)
 	require.Nil(t, err)
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		verbose := verbosity.OutputVerbose
-		nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class), nil)
+		shardingState, err := helper.Client(t).Replication.
+			GetCollectionShardingState(replication.
+				NewGetCollectionShardingStateParams().
+				WithCollection(&paragraphClass.Class), nil)
 		require.Nil(t, err)
-		shardPresent := false
-		for _, node := range nodes.Payload.Nodes {
-			if node.Name != *req.DestinationNodeName {
+		replicaPresent := false
+		for _, shard := range shardingState.Payload.ShardingState.Shards {
+			if shard.Shard != *req.ShardID {
 				continue
 			}
-			for _, shard := range node.Shards {
-				if shard.Name == *req.ShardID {
-					shardPresent = true
+			for _, replica := range shard.Replicas {
+				if replica == *req.DestinationNodeName {
+					replicaPresent = true
 					break
 				}
 			}
 		}
-		require.True(ct, shardPresent)
-	}, 60*time.Second, 100*time.Millisecond, "shard should be present in the destination node")
+		require.True(ct, replicaPresent)
+	}, 60*time.Second, 100*time.Millisecond, "replica should be present in the destination node")
+	id := *created.Payload.ID
 
-	t.Run("fail to cancel replication operation due to uncancellable stqate", func(t *testing.T) {
-		_, err := helper.Client(t).Replication.CancelReplication(replication.NewCancelReplicationParams().WithID(*created.Payload.ID), nil)
+	t.Run("fail to cancel replication operation due to uncancellable state", func(t *testing.T) {
+		_, err := helper.Client(t).Replication.CancelReplication(replication.NewCancelReplicationParams().WithID(id), nil)
 		require.NotNil(t, err)
 		require.IsType(t, &replication.CancelReplicationConflict{}, err)
 	})
 
 	t.Run("fail to delete replication operation due to uncancellable state", func(t *testing.T) {
-		_, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(*created.Payload.ID), nil)
+		_, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(id), nil)
 		require.NotNil(t, err)
 		require.IsType(t, &replication.DeleteReplicationConflict{}, err)
 	})
 
 	// Wait until the replication operation is READY
 	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(*created.Payload.ID), nil)
+		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 		require.Nil(t, err)
 		require.Equal(ct, "READY", status.Payload.Status.State)
 	}, 60*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
 
 	t.Run("succeed to delete the replication operation without a conflict", func(t *testing.T) {
-		_, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(*created.Payload.ID), nil)
+		_, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(id), nil)
 		require.Nil(t, err)
 	})
 
+	// A move op with replication factor = 1 becomes an effective copy op since the source replica cannot be removed below the replication factor.
+	// Ensure that the source shard is still there and the destination shard is there
 	t.Run("ensure target and source shards are still there", func(t *testing.T) {
 		verbose := verbosity.OutputVerbose
 		nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(paragraphClass.Class), nil)
@@ -197,7 +202,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 				}
 			}
 		}
-		require.True(t, foundSrc, "source shard should be there")
-		require.True(t, foundDst, "destination shard should be there")
+		require.True(t, foundSrc, "source replica should be there")
+		require.True(t, foundDst, "destination replica should be there")
 	})
 }

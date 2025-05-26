@@ -39,8 +39,8 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperation
 	}
 
 	for _, state := range stateToDeleteIn {
+		helper.DeleteClass(t, paragraphClass.Class)
 		helper.CreateClass(t, paragraphClass)
-		defer helper.DeleteClass(t, paragraphClass.Class)
 
 		t.Run("insert paragraphs", func(t *testing.T) {
 			batch := make([]*models.Object, 10000)

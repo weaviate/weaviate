@@ -50,8 +50,8 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingTenantCleansUpOperatio
 
 	for _, state := range stateToDeleteIn {
 		t.Run(fmt.Sprintf("delete tenant when op is %s", state), func(t *testing.T) {
+			helper.DeleteClass(t, paragraphClass.Class)
 			helper.CreateClass(t, paragraphClass)
-			defer helper.DeleteClass(t, paragraphClass.Class)
 
 			t.Run(fmt.Sprintf("insert paragraphs into %s", tenant1), func(t *testing.T) {
 				batch := make([]*models.Object, 5000)
