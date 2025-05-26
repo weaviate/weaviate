@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
@@ -104,8 +105,8 @@ type retryer struct {
 
 func newRetryer() *retryer {
 	return &retryer{
-		minBackOff:  time.Millisecond * 50,
-		maxBackOff:  time.Second * 10,
+		minBackOff:  time.Millisecond * 25, // Start with 25ms for very fast initial retries
+		maxBackOff:  time.Second * 5,       // Cap at 5s to fail faster
 		timeoutUnit: time.Second,
 	}
 }
@@ -115,7 +116,7 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 	return backoff.Retry(func() error {
 		keepTrying, err := work(ctx)
 		if err != nil {
-			if isConnectionRefused(err) {
+			if isConnectionRefused(err) || isContextDeadlineExceeded(err) {
 				return err
 			}
 			if !keepTrying {
@@ -128,11 +129,21 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 			backoff.NewExponentialBackOff(
 				backoff.WithInitialInterval(r.minBackOff),
 				backoff.WithMaxInterval(r.maxBackOff),
-				backoff.WithMultiplier(1.2),
+				backoff.WithMultiplier(1.1),
 			),
 			uint64(n)), ctx))
 }
 
 func successCode(code int) bool {
 	return code >= http.StatusOK && code <= http.StatusIMUsed
+}
+
+// isConnectionRefused checks if the error is a connection refused error
+func isConnectionRefused(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "connection refused")
+}
+
+// isContextDeadlineExceeded checks if the error is a context deadline exceeded error
+func isContextDeadlineExceeded(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "context deadline exceeded")
 }
