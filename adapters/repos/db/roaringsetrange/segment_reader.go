@@ -246,6 +246,11 @@ func (r *SegmentReader) readGreaterThanEqual(ctx context.Context, value uint64,
 		return firstLayer, nil
 	}
 
+	if value == 0 {
+		// all values are >= 0
+		return firstLayer, nil
+	}
+
 	gte, err := r.mergeGreaterThanEqual(ctx, value, firstLayer.Additions)
 	if err != nil {
 		return roaringset.BitmapLayer{}, err
