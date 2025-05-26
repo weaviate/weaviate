@@ -114,10 +114,7 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 	return backoff.Retry(func() error {
 		keepTrying, err := work(ctx)
 		if err != nil {
-			if isNetworkError(err) {
-				return err
-			}
-			if !keepTrying {
+			if isNetworkError(err) || !keepTrying {
 				return backoff.Permanent(err)
 			}
 		}
