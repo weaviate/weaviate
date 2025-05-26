@@ -40,16 +40,19 @@ func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
 		return nil, fmt.Errorf("max supported layer is %d",
 			math.MaxUint8-1)
 	}
-	c := Connections{
-		// TODO: low initial size and grow dynamically
-		data: make([]byte, initialSize+1+(maxLayer+1)*3),
-	}
+	// TODO: low initial size and grow dynamically
+	c := NewWithData(make([]byte, initialSize+1+(maxLayer+1)*3))
 
 	c.initLayers(maxLayer)
 
-	c.buff = make([]byte, 16)
+	return c, nil
+}
 
-	return &c, nil
+func NewWithData(data []byte) *Connections {
+	return &Connections{
+		data: data,
+		buff: make([]byte, 16),
+	}
 }
 
 func (c *Connections) AddLayer() {
@@ -97,6 +100,12 @@ func (c Connections) LenAtLayer(layer uint8) int {
 	}
 
 	return int(c.layerLength(layer))
+}
+
+// Returns the underlying data buffer. Do not modify the contents
+// of the buffer or call this method concurrently.
+func (c *Connections) Data() []byte {
+	return c.data
 }
 
 func (c Connections) CopyLayer(conns []uint64, layer uint8) []uint64 {
