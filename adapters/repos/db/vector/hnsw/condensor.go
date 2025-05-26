@@ -93,7 +93,8 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			}
 		}
 
-		for level, links := range node.connections {
+		for layer := range node.connections.LayerRange() {
+			level, links := int(layer.Index), layer.Connections
 			if res.ReplaceLinks(node.id, uint16(level)) {
 				if err := c.SetLinksAtLevel(node.id, level, links); err != nil {
 					return errors.Wrapf(err,

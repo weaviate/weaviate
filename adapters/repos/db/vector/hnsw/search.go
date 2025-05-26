@@ -293,7 +293,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		}
 
 		if strategy != ACORN {
-			if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+			if candidateNode.connections.LenAtLayer(uint8(level)) > h.maximumConnectionsLayerZero {
 				// How is it possible that we could ever have more connections than the
 				// allowed maximum? It is not anymore, but there was a bug that allowed
 				// this to happen in versions prior to v1.12.0:
@@ -305,11 +305,11 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				//
 				// This was discovered as part of
 				// https://github.com/weaviate/weaviate/issues/1897
-				connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
+				connectionsReusable = make([]uint64, candidateNode.connections.LenAtLayer(uint8(level)))
 			} else {
-				connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
+				connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(uint8(level))]
 			}
-			copy(connectionsReusable, candidateNode.connections[level])
+			copy(connectionsReusable, candidateNode.connections.GetLayer(uint8(level)))
 		} else {
 			connectionsReusable = sliceConnectionsReusable.Slice
 			pendingNextRound := slicePendingNextRound.Slice
@@ -318,8 +318,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			realLen := 0
 			index := 0
 
-			pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
-			copy(pendingNextRound, candidateNode.connections[level])
+			pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
+			copy(pendingNextRound, candidateNode.connections.GetLayer(uint8(level)))
 			hop := 1
 			maxHops := 2
 			for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
@@ -358,7 +358,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					if node == nil {
 						continue
 					}
-					for _, expId := range node.connections[level] {
+					for element := range node.connections.ElementRange(uint8(level)) {
+						expId := element.Value
 						if visitedExp.Visited(expId) {
 							continue
 						}
@@ -710,16 +711,16 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		} else {
 			counter := float32(0)
 			entryPointNode.Lock()
-			if len(entryPointNode.connections) < 1 {
+			if entryPointNode.connections.Layers() < 1 {
 				strategy = ACORN
 			} else {
-				for _, id := range entryPointNode.connections[0] {
-					if allowList.Contains(id) {
+				for element := range entryPointNode.connections.ElementRange(0) {
+					if allowList.Contains(element.Value) {
 						counter++
 					}
 				}
 				entryPointNode.Unlock()
-				if counter/float32(len(h.nodes[entryPointID].connections[0])) > float32(h.acornFilterRatio) {
+				if counter/float32(h.nodes[entryPointID].connections.LenAtLayer(0)) > float32(h.acornFilterRatio) {
 					strategy = RRE
 				} else {
 					strategy = ACORN
