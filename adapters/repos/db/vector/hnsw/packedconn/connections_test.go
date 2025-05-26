@@ -558,7 +558,8 @@ func TestConnections_ElementRange(t *testing.T) {
 	require.Nil(t, err)
 
 	elementCount := 0
-	for range c.ElementRange(0) {
+	iter := c.ElementIterator(0)
+	for iter.Next() {
 		elementCount++
 	}
 	assert.Equal(t, 0, elementCount)
@@ -573,9 +574,11 @@ func TestConnections_ElementRange(t *testing.T) {
 	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
 
 	actualElements := make([]uint64, 0)
-	for element := range c.ElementRange(0) {
-		assert.Equal(t, elementCount, element.Index)
-		actualElements = append(actualElements, element.Value)
+	iter = c.ElementIterator(0)
+	for iter.Next() {
+		index, value := iter.Current()
+		assert.Equal(t, elementCount, index)
+		actualElements = append(actualElements, value)
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice1), elementCount)
@@ -587,9 +590,11 @@ func TestConnections_ElementRange(t *testing.T) {
 	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
 
 	actualElements = make([]uint64, 0)
-	for element := range c.ElementRange(1) {
-		assert.Equal(t, elementCount, element.Index)
-		actualElements = append(actualElements, element.Value)
+	iter = c.ElementIterator(1)
+	for iter.Next() {
+		index, value := iter.Current()
+		assert.Equal(t, elementCount, index)
+		actualElements = append(actualElements, value)
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice2), elementCount)
@@ -601,9 +606,11 @@ func TestConnections_ElementRange(t *testing.T) {
 	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
 
 	actualElements = make([]uint64, 0)
-	for element := range c.ElementRange(2) {
-		assert.Equal(t, elementCount, element.Index)
-		actualElements = append(actualElements, element.Value)
+	iter = c.ElementIterator(2)
+	for iter.Next() {
+		index, value := iter.Current()
+		assert.Equal(t, elementCount, index)
+		actualElements = append(actualElements, value)
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice3), elementCount)
@@ -622,9 +629,11 @@ func TestConnections_ElementRangeWithSingleLayer(t *testing.T) {
 	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
 
 	actualElements := make([]uint64, 0)
-	for element := range c.ElementRange(0) {
-		assert.Equal(t, elementCount, element.Index)
-		actualElements = append(actualElements, element.Value)
+	iter := c.ElementIterator(0)
+	for iter.Next() {
+		index, value := iter.Current()
+		assert.Equal(t, elementCount, index)
+		actualElements = append(actualElements, value)
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice1), elementCount)
@@ -648,9 +657,11 @@ func TestConnections_ElementRangeAfterAddingLayers(t *testing.T) {
 	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
 
 	actualElements := make([]uint64, 0)
-	for element := range c.ElementRange(2) {
-		assert.Equal(t, elementCount, element.Index)
-		actualElements = append(actualElements, element.Value)
+	iter := c.ElementIterator(2)
+	for iter.Next() {
+		index, value := iter.Current()
+		assert.Equal(t, elementCount, index)
+		actualElements = append(actualElements, value)
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice3), elementCount)
@@ -673,22 +684,26 @@ func TestConnections_ElementRangeAfterGrowingLayers(t *testing.T) {
 	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
 
 	actualElements := make([]uint64, 0)
-	for element := range c.ElementRange(2) {
-		assert.Equal(t, elementCount, element.Index)
-		actualElements = append(actualElements, element.Value)
+	iter := c.ElementIterator(2)
+	for iter.Next() {
+		index, value := iter.Current()
+		assert.Equal(t, elementCount, index)
+		actualElements = append(actualElements, value)
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice3), elementCount)
 	assert.Equal(t, expectedElements, actualElements)
 
 	elementCount = 0
-	for range c.ElementRange(3) {
+	iter = c.ElementIterator(3)
+	for iter.Next() {
 		elementCount++
 	}
 	assert.Equal(t, 0, elementCount)
 
 	elementCount = 0
-	for range c.ElementRange(4) {
+	iter = c.ElementIterator(4)
+	for iter.Next() {
 		elementCount++
 	}
 	assert.Equal(t, 0, elementCount)
@@ -703,7 +718,8 @@ func TestConnections_ElementRangeWithInvalidLayer(t *testing.T) {
 	c.ReplaceLayer(2, connsSlice3)
 
 	elementCount := 0
-	for range c.ElementRange(5) {
+	iter := c.ElementIterator(5)
+	for iter.Next() {
 		elementCount++
 	}
 	assert.Equal(t, 0, elementCount)
@@ -730,13 +746,15 @@ func TestConnections_ElementRangeCompareWithElementIterator(t *testing.T) {
 			Value uint64
 		}, 0)
 
-		for element := range c.ElementRange(layer) {
+		iter := c.ElementIterator(layer)
+		for iter.Next() {
+			index, value := iter.Current()
 			rangeResults = append(rangeResults, struct {
 				Index int
 				Value uint64
 			}{
-				Index: element.Index,
-				Value: element.Value,
+				Index: index,
+				Value: value,
 			})
 		}
 
@@ -745,7 +763,7 @@ func TestConnections_ElementRangeCompareWithElementIterator(t *testing.T) {
 			Value uint64
 		}, 0)
 
-		iter := c.ElementIterator(layer)
+		iter = c.ElementIterator(layer)
 		for iter.Next() {
 			index, value := iter.Current()
 			iteratorResults = append(iteratorResults, struct {
@@ -783,9 +801,11 @@ func TestConnections_ElementRangeStress(t *testing.T) {
 		sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
 
 		actualElements := make([]uint64, 0)
-		for element := range c.ElementRange(layer) {
-			assert.Equal(t, elementCount, element.Index)
-			actualElements = append(actualElements, element.Value)
+		iter := c.ElementIterator(layer)
+		for iter.Next() {
+			index, value := iter.Current()
+			assert.Equal(t, elementCount, index)
+			actualElements = append(actualElements, value)
 			elementCount++
 		}
 
@@ -800,7 +820,8 @@ func TestConnections_ElementRangeEmptyConnections(t *testing.T) {
 
 	for layer := uint8(0); layer <= 5; layer++ {
 		elementCount := 0
-		for range c.ElementRange(layer) {
+		iter := c.ElementIterator(layer)
+		for iter.Next() {
 			elementCount++
 		}
 		assert.Equal(t, 0, elementCount)
@@ -824,9 +845,11 @@ func TestConnections_ElementRangeWithInsertions(t *testing.T) {
 
 	elementCount := 0
 	actualElements := make([]uint64, 0)
-	for element := range c.ElementRange(0) {
-		assert.Equal(t, elementCount, element.Index)
-		actualElements = append(actualElements, element.Value)
+	iter := c.ElementIterator(0)
+	for iter.Next() {
+		index, value := iter.Current()
+		assert.Equal(t, elementCount, index)
+		actualElements = append(actualElements, value)
 		elementCount++
 	}
 
@@ -842,8 +865,10 @@ func TestConnections_ElementRangeConsistentIndexing(t *testing.T) {
 	c.ReplaceLayer(0, testData)
 
 	expectedIndex := 0
-	for element := range c.ElementRange(0) {
-		assert.Equal(t, expectedIndex, element.Index)
+	iter := c.ElementIterator(0)
+	for iter.Next() {
+		index, _ := iter.Current()
+		assert.Equal(t, expectedIndex, index)
 		expectedIndex++
 	}
 	assert.Equal(t, len(testData), expectedIndex)
