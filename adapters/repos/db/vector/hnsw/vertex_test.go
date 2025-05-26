@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 )
 
 func TestVertex_SetConnections(t *testing.T) {
@@ -62,15 +63,15 @@ func TestVertex_SetConnections(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			connections, _ := packedconn.NewWithMaxLayer(0)
 			v := &vertex{
-				connections: make([][]uint64, 1),
+				connections: connections,
 			}
-			v.connections[0] = tc.initial
+			v.connections.ReplaceLayer(0, tc.initial)
 
 			v.setConnectionsAtLevel(0, tc.updated)
 
-			assert.Equal(t, tc.updated, v.connections[0])
-			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
+			assert.Equal(t, tc.updated, v.connections.GetLayer(0))
 		})
 	}
 }
@@ -117,10 +118,11 @@ func TestVertex_AppendConnection(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			connections, _ := packedconn.NewWithMaxLayer(0)
 			v := &vertex{
-				connections: make([][]uint64, 1),
+				connections: connections,
 			}
-			v.connections[0] = tc.initial
+			v.connections.ReplaceLayer(0, tc.initial)
 
 			v.appendConnectionAtLevelNoLock(0, 18, 64)
 
@@ -129,7 +131,6 @@ func TestVertex_AppendConnection(t *testing.T) {
 			newConns[len(newConns)-1] = 18
 
 			assert.Equal(t, newConns, v.connectionsAtLevelNoLock(0))
-			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
 		})
 	}
 }
@@ -177,10 +178,11 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
+			connections, _ := packedconn.NewWithMaxLayer(1)
 			v := &vertex{
-				connections: make([][]uint64, 1),
+				connections: connections,
 			}
-			v.connections[0] = tc.initial
+			v.connections.ReplaceLayer(0, tc.initial)
 
 			v.appendConnectionAtLevelNoLock(0, 18, 63)
 
@@ -189,20 +191,19 @@ func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 			newConns[len(newConns)-1] = 18
 
 			assert.Equal(t, newConns, v.connectionsAtLevelNoLock(0))
-			assert.Equal(t, tc.expectedCap, cap(v.connections[0]))
 		})
 	}
 }
 
 func TestVertex_ResetConnections(t *testing.T) {
+	connections, _ := packedconn.NewWithMaxLayer(1)
 	v := &vertex{
-		connections: make([][]uint64, 1),
+		connections: connections,
 	}
-	v.connections[0] = makeConnections(4, 4)
+	v.connections.ReplaceLayer(0, makeConnections(4, 4))
 
 	v.resetConnectionsAtLevelNoLock(0)
-	assert.Equal(t, 0, len(v.connections[0]))
-	assert.Equal(t, 4, cap(v.connections[0]))
+	assert.Equal(t, 0, len(v.connections.GetLayer(0)))
 }
 
 func makeConnections(length, capacity int) []uint64 {

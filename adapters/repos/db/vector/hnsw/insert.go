@@ -22,6 +22,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 )
 
@@ -394,18 +395,13 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.RUnlock()
 
 	targetLevel := node.level
-	node.connections = make([][]uint64, targetLevel+1)
-
-	for i := targetLevel; i >= 0; i-- {
-		capacity := h.maximumConnections
-		if i == 0 {
-			capacity = h.maximumConnectionsLayerZero
-		}
-
-		node.connections[i] = make([]uint64, 0, capacity)
+	var err error
+	node.connections, err = packedconn.NewWithMaxLayer(uint8(targetLevel))
+	if err != nil {
+		return err
 	}
 
-	if err := h.commitLog.AddNode(node); err != nil {
+	if err = h.commitLog.AddNode(node); err != nil {
 		return err
 	}
 
@@ -427,7 +423,6 @@ func (h *hnsw) addOne(ctx context.Context, vector []float32, node *vertex) error
 	h.insertMetrics.prepareAndInsertNode(before)
 	before = time.Now()
 
-	var err error
 	var distancer compressionhelpers.CompressorDistancer
 	var returnFn compressionhelpers.ReturnDistancerFn
 	if h.compressed.Load() {
@@ -494,15 +489,19 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 	h.entryPointID = node.id
 	h.currentMaximumLayer = 0
-	node.connections = [][]uint64{
+	conns, err := packedconn.NewWithElements([][]uint64{
 		make([]uint64, 0, h.maximumConnectionsLayerZero),
+	})
+	if err != nil {
+		return err
 	}
+	node.connections = conns
 	node.level = 0
 	if err := h.commitLog.AddNode(node); err != nil {
 		return err
 	}
 
-	err := h.growIndexToAccomodateNode(node.id, h.logger)
+	err = h.growIndexToAccomodateNode(node.id, h.logger)
 	if err != nil {
 		return errors.Wrapf(err, "grow HNSW index to accommodate node %d", node.id)
 	}
