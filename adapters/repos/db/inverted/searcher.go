@@ -85,10 +85,6 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	}
 	defer allowList.Close()
 
-	fmt.Printf("  ==> allowlist len [%d]\n\n", allowList.Len())
-
-	allowList = helpers.NewAllowList()
-
 	var it docIDsIterator
 	if len(sort) > 0 {
 		docIDs, err := s.sort(ctx, limit, sort, allowList, className)
