@@ -148,7 +148,8 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			for level, conns := range node.connections {
+			for layer := range node.connections.LayerRange() {
+				level, conns := int(layer.Index), layer.Connections
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -199,7 +200,8 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			for level, conns := range node.connections {
+			for layer := range node.connections.LayerRange() {
+				level, conns := int(layer.Index), layer.Connections
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
@@ -249,7 +251,8 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 				continue
 			}
 
-			for level, conns := range node.connections {
+			for layer := range node.connections.LayerRange() {
+				level, conns := int(layer.Index), layer.Connections
 				m := index.maximumConnections
 				if level == 0 {
 					m = index.maximumConnectionsLayerZero
