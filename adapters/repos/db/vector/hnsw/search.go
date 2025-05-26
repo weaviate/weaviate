@@ -358,8 +358,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					if node == nil {
 						continue
 					}
-					for element := range node.connections.ElementRange(uint8(level)) {
-						expId := element.Value
+					iterator := node.connections.ElementIterator(uint8(level))
+					for iterator.Next() {
+						_, expId := iterator.Current()
 						if visitedExp.Visited(expId) {
 							continue
 						}
@@ -714,8 +715,10 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			if entryPointNode.connections.Layers() < 1 {
 				strategy = ACORN
 			} else {
-				for element := range entryPointNode.connections.ElementRange(0) {
-					if allowList.Contains(element.Value) {
+				iterator := entryPointNode.connections.ElementIterator(0)
+				for iterator.Next() {
+					_, value := iterator.Current()
+					if allowList.Contains(value) {
 						counter++
 					}
 				}

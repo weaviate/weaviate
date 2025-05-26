@@ -491,35 +491,3 @@ func (iter *LayerElementIterator) HasElements() bool {
 func (iter *LayerElementIterator) Count() int {
 	return iter.connections.LenAtLayer(iter.layer)
 }
-
-func (c *Connections) ElementRange(layer uint8) <-chan struct {
-	Index int
-	Value uint64
-} {
-	ch := make(chan struct {
-		Index int
-		Value uint64
-	})
-
-	go func() {
-		defer close(ch)
-
-		if layer >= c.Layers() {
-			return
-		}
-
-		iter := c.ElementIterator(layer)
-		for iter.Next() {
-			index, value := iter.Current()
-			ch <- struct {
-				Index int
-				Value uint64
-			}{
-				Index: index,
-				Value: value,
-			}
-		}
-	}()
-
-	return ch
-}
