@@ -12,6 +12,7 @@
 package compressionhelpers_test
 
 import (
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"testing"
@@ -203,5 +204,20 @@ func TestRotatedVectorsAreUniformOnSphere(t *testing.T) {
 	for _, c := range count {
 		assert.Greater(t, c, m-dev)
 		assert.Less(t, c, m+dev)
+	}
+}
+
+func BenchmarkRotation(b *testing.B) {
+	vg := NewVectorGenerator()
+	dimensions := []int{64, 256, 1024, 2048}
+	for _, dim := range dimensions {
+		r := compressionhelpers.NewRotation(dim, 42)
+		x := vg.RandomUnitVector(dim)
+		b.Run(fmt.Sprintf("Rotation-d%d", dim), func(b *testing.B) {
+			for b.Loop() {
+				r.Rotate(x)
+			}
+			b.ReportMetric(float64(b.Elapsed().Microseconds())/float64(b.N), "us/op")
+		})
 	}
 }

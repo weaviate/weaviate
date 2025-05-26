@@ -345,6 +345,62 @@ func (rq *RQNeighborProvider) NearestNeighbors(query []float32, k int) []int {
 
 // End of rotational quantization
 
+// Fast rotational quantization
+
+type FastRQSettings struct {
+	QueryBits int
+	DataBits  int
+	Endpoints compressionhelpers.QuantizerEndpoints
+	Rounding  compressionhelpers.QuantizationRounding
+}
+
+func (s *FastRQSettings) BitsPerDimension() float64 {
+	return float64(s.DataBits)
+}
+
+func (s *FastRQSettings) Description() string {
+	return fmt.Sprintf("FastRQ-%s-%s-QueryBits%d", s.Endpoints, s.Rounding, s.QueryBits)
+}
+
+type FastRQNeighborProvider struct {
+	quantizer     *compressionhelpers.FastRotationalQuantizer
+	quantizedData []compressionhelpers.FastRQCode
+	distance      distancer.Provider
+	dataBits      int
+	queryBits     int
+}
+
+func NewFastRQNeighborProvider(data [][]float32, settings FastRQSettings, distance distancer.Provider) *FastRQNeighborProvider {
+	d := len(data[0])
+	quantizer := compressionhelpers.NewFastRotationalQuantizer(d, 42)
+	quantizer.Endpoints = settings.Endpoints
+	quantizer.Rounding = settings.Rounding
+	quantizedData := make([]compressionhelpers.FastRQCode, len(data))
+	for i, v := range data {
+		quantizedData[i] = quantizer.Encode(v, settings.DataBits)
+	}
+	frq := &FastRQNeighborProvider{
+		quantizer:     quantizer,
+		quantizedData: quantizedData,
+		distance:      distance,
+		dataBits:      settings.DataBits,
+		queryBits:     settings.QueryBits,
+	}
+	return frq
+}
+
+func (rq *FastRQNeighborProvider) NearestNeighbors(query []float32, k int) []int {
+	queue := NewSimplePriorityQueue(k)
+	distancer := rq.quantizer.NewFastRQDistancer(query, rq.distance, rq.queryBits)
+	for i, c := range rq.quantizedData {
+		dist, _ := distancer.Distance(c)
+		queue.Insert(i, dist)
+	}
+	return queue.Neighbors()
+}
+
+// End of fast rotational quantization
+
 type NeighborProvider interface {
 	NearestNeighbors(query []float32, k int) []int
 }
@@ -364,6 +420,8 @@ func neighborProviderFactory(data [][]float32, distance distancer.Provider, sett
 		return NewBQNeighborProvider(data, *s, distance)
 	case *RQSettings:
 		return NewRQNeighborProvider(data, *s, distance)
+	case *FastRQSettings:
+		return NewFastRQNeighborProvider(data, *s, distance)
 	default:
 		return nil
 	}
@@ -395,47 +453,92 @@ func overlap(a []int, b []int) int {
 func BenchmarkQuantizationRecall(b *testing.B) {
 	dataDir := "/Users/tobiaschristiani/code/datasets"
 	datasets := []ANNBenchDataDescriptor{
-		// {Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		//{Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
 		//{Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
 		// {Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
-		{Name: "sift-128-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		// {Name: "sift-128-euclidean", Distance: distancer.NewL2SquaredProvider()},
 		// {Name: "gist-960-euclidean", Distance: distancer.NewL2SquaredProvider()},
 		// {Name: "glove-200-angular", Distance: distancer.NewCosineDistanceProvider()},
+
+		// Classic datasets
+		// {Name: "sift-128-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		// {Name: "gist-960-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		// {Name: "glove-200-angular", Distance: distancer.NewCosineDistanceProvider()},
+
+		// // Smaller OpenAI datasets
+		{Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
+		// {Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
+
+		// // Bigger datasets
+		// {Name: "dbpedia-500k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		// {Name: "dbpedia-openai-1000k-angular", Distance: distancer.NewCosineDistanceProvider()},
+		// {Name: "sphere-1M-meta-dpr", Distance: distancer.NewDotProductProvider()},
+		// {Name: "snowflake-msmarco-arctic-embed-m-v1.5-angular", Distance: distancer.NewCosineDistanceProvider()},
 	}
 
 	algorithms := []QuantizationSettings{
-		// 1 bit
-		&BQSettings{},
-		&PQSettings{Centroids: 256, SegmentLength: 8, TrainingSize: 100_000},
-		&PQSettings{Centroids: 16, SegmentLength: 4, TrainingSize: 100_000},
-		&RQSettings{Bits: 1, Centers: 0, TrainingSize: 100_000},
-		&RQSettings{Bits: 1, Centers: 1, TrainingSize: 100_000},
-		&RQSettings{Bits: 1, Centers: 16, TrainingSize: 100_000},
-		&RQSettings{Bits: 1, Centers: 256, TrainingSize: 100_000},
-		// 2 bits
-		&PQSettings{Centroids: 256, SegmentLength: 4, TrainingSize: 100_000},
-		&PQSettings{Centroids: 16, SegmentLength: 2, TrainingSize: 100_000},
-		&RQSettings{Bits: 2, Centers: 0, TrainingSize: 100_000},
-		&RQSettings{Bits: 2, Centers: 1, TrainingSize: 100_000},
-		&RQSettings{Bits: 2, Centers: 16, TrainingSize: 100_000},
-		&RQSettings{Bits: 2, Centers: 256, TrainingSize: 100_000},
-		// 4 bits
-		&PQSettings{Centroids: 256, SegmentLength: 2, TrainingSize: 100_000},
-		&PQSettings{Centroids: 16, SegmentLength: 1, TrainingSize: 100_000},
-		&RQSettings{Bits: 4, Centers: 0, TrainingSize: 100_000},
-		&RQSettings{Bits: 4, Centers: 1, TrainingSize: 100_000},
-		&RQSettings{Bits: 4, Centers: 16, TrainingSize: 100_000},
-		&RQSettings{Bits: 4, Centers: 256, TrainingSize: 100_000},
-		// 8 bits
+		// &FastRQSettings{Bits: 2, Endpoints: compressionhelpers.LearnedSQEndpoints},
+		// &FastRQSettings{Bits: 2, Endpoints: compressionhelpers.GaussianSQEndpoints},
+		// &FastRQSettings{Bits: 4, Endpoints: compressionhelpers.LearnedSQEndpoints},
+		// &FastRQSettings{Bits: 4, Endpoints: compressionhelpers.GaussianSQEndpoints},
+		// &FastRQSettings{Bits: 6, Endpoints: compressionhelpers.LearnedSQEndpoints},
+		// &FastRQSettings{Bits: 6, Endpoints: compressionhelpers.GaussianSQEndpoints},
+		//&FastRQSettings{Bits: 4, Endpoints: compressionhelpers.LearnedSQ507},
+		// &FastRQSettings{Bits: 4, Endpoints: compressionhelpers.Rank0Endpoints, Rounding: compressionhelpers.DeterministicRounding},
+		// &FastRQSettings{Bits: 6, Endpoints: compressionhelpers.Rank0Endpoints, Rounding: compressionhelpers.DeterministicRounding},
+
+		&FastRQSettings{DataBits: 8, QueryBits: 8, Endpoints: compressionhelpers.Rank0Endpoints, Rounding: compressionhelpers.DeterministicRounding},
+		&FastRQSettings{DataBits: 8, QueryBits: 32, Endpoints: compressionhelpers.Rank0Endpoints, Rounding: compressionhelpers.DeterministicRounding},
+		// &RQSettings{Bits: 8, Centers: 0, TrainingSize: 100_000},
+		// &RQSettings{Bits: 8, Centers: 256, TrainingSize: 100_000},
 		&SQSettings{TrainingSize: 100_000},
-		&RQSettings{Bits: 8, Centers: 0, TrainingSize: 100_000},
-		&RQSettings{Bits: 8, Centers: 1, TrainingSize: 100_000},
-		&RQSettings{Bits: 8, Centers: 16, TrainingSize: 100_000},
-		&RQSettings{Bits: 8, Centers: 256, TrainingSize: 100_000},
+
+		// Focus on moderate compression
+		// 4 bits
+		//&PQSettings{Centroids: 256, SegmentLength: 2, TrainingSize: 100_000},
+		//&RQSettings{Bits: 4, Centers: 0, TrainingSize: 100_000},
+		//&RQSettings{Bits: 4, Centers: 256, TrainingSize: 100_000},
+		// 8 bits
+		//&SQSettings{TrainingSize: 100_000},
+		// &RQSettings{Bits: 8, Centers: 0, TrainingSize: 100_000},
+		// &RQSettings{Bits: 8, Centers: 256, TrainingSize: 100_000},
+
+		// Focus on high compression
+
+		// Full comparison
+		// // 1 bit
+		// &BQSettings{},
+		// &PQSettings{Centroids: 256, SegmentLength: 8, TrainingSize: 100_000},
+		// &PQSettings{Centroids: 16, SegmentLength: 4, TrainingSize: 100_000},
+		// &RQSettings{Bits: 1, Centers: 0, TrainingSize: 100_000},
+		// &RQSettings{Bits: 1, Centers: 1, TrainingSize: 100_000},
+		// &RQSettings{Bits: 1, Centers: 16, TrainingSize: 100_000},
+		// &RQSettings{Bits: 1, Centers: 256, TrainingSize: 100_000},
+		// // 2 bits
+		// &PQSettings{Centroids: 256, SegmentLength: 4, TrainingSize: 100_000},
+		// &PQSettings{Centroids: 16, SegmentLength: 2, TrainingSize: 100_000},
+		// &RQSettings{Bits: 2, Centers: 0, TrainingSize: 100_000},
+		// &RQSettings{Bits: 2, Centers: 1, TrainingSize: 100_000},
+		// &RQSettings{Bits: 2, Centers: 16, TrainingSize: 100_000},
+		// &RQSettings{Bits: 2, Centers: 256, TrainingSize: 100_000},
+		// // 4 bits
+		// &PQSettings{Centroids: 256, SegmentLength: 2, TrainingSize: 100_000},
+		// &PQSettings{Centroids: 16, SegmentLength: 1, TrainingSize: 100_000},
+		// &RQSettings{Bits: 4, Centers: 0, TrainingSize: 100_000},
+		// &RQSettings{Bits: 4, Centers: 1, TrainingSize: 100_000},
+		// &RQSettings{Bits: 4, Centers: 16, TrainingSize: 100_000},
+		// &RQSettings{Bits: 4, Centers: 256, TrainingSize: 100_000},
+		// // 8 bits
+		// &SQSettings{TrainingSize: 100_000},
+		// &RQSettings{Bits: 8, Centers: 0, TrainingSize: 100_000},
+		// &RQSettings{Bits: 8, Centers: 1, TrainingSize: 100_000},
+		// &RQSettings{Bits: 8, Centers: 16, TrainingSize: 100_000},
+		// &RQSettings{Bits: 8, Centers: 256, TrainingSize: 100_000},
 	}
 
 	maxVectors := 100_000
-	maxQueries := 500
+	maxQueries := 250
 
 	for _, descriptor := range datasets {
 		data := NewANNBenchData(dataDir, descriptor.Name, descriptor.Distance)
@@ -460,21 +563,21 @@ func BenchmarkQuantizationRecall(b *testing.B) {
 
 				b.ResetTimer()
 				var matches100At100 int
-				var matches100At500 int
+				var matches100At200 int
 				for i := 0; i < b.N; i++ {
 					for j, q := range test {
 						b.StartTimer()
-						neighbors := provider.NearestNeighbors(q, 500)
+						neighbors := provider.NearestNeighbors(q, 200)
 						b.StopTimer()
 						matches100At100 += overlap(neighbors[:100], kNN[j])
-						matches100At500 += overlap(neighbors[:500], kNN[j])
+						matches100At200 += overlap(neighbors[:200], kNN[j])
 					}
 				}
 				query_ms := b.Elapsed().Milliseconds()
 				b.ReportMetric(float64(train_ms), "encode(ms)")
 				b.ReportMetric(float64(query_ms), "query(ms)")
 				b.ReportMetric(float64(matches100At100)/float64(k*m*b.N), "rec100@100")
-				b.ReportMetric(float64(matches100At500)/float64(k*m*b.N), "rec100@500")
+				b.ReportMetric(float64(matches100At200)/float64(k*m*b.N), "rec100@200")
 				b.ReportMetric(algorithm.BitsPerDimension(), "bits")
 			})
 		}
