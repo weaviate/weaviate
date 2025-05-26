@@ -104,9 +104,9 @@ type retryer struct {
 
 func newRetryer() *retryer {
 	return &retryer{
-		minBackOff:  time.Millisecond * 250,
-		maxBackOff:  time.Second * 30,
-		timeoutUnit: time.Second, // used by unit tests
+		minBackOff:  time.Millisecond * 50,
+		maxBackOff:  time.Second * 10,
+		timeoutUnit: time.Second,
 	}
 }
 
@@ -114,8 +114,13 @@ func newRetryer() *retryer {
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
 	return backoff.Retry(func() error {
 		keepTrying, err := work(ctx)
-		if err != nil && !keepTrying {
-			return backoff.Permanent(err)
+		if err != nil {
+			if isConnectionRefused(err) {
+				return err
+			}
+			if !keepTrying {
+				return backoff.Permanent(err)
+			}
 		}
 		return err
 	}, backoff.WithContext(
@@ -123,6 +128,7 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 			backoff.NewExponentialBackOff(
 				backoff.WithInitialInterval(r.minBackOff),
 				backoff.WithMaxInterval(r.maxBackOff),
+				backoff.WithMultiplier(1.2),
 			),
 			uint64(n)), ctx))
 }

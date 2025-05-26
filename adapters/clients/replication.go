@@ -21,6 +21,7 @@ import (
 	"math/rand"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 
 	"github.com/go-openapi/strfmt"
@@ -414,6 +415,5 @@ func shouldRetry(code int) bool {
 
 // isConnectionRefused checks if the error is a connection refused error
 func isConnectionRefused(err error) bool {
-	return err != nil && (err.Error() == "connect: connection refused" ||
-		err.Error() == "dial tcp: connect: connection refused")
+	return err != nil && strings.Contains(err.Error(), "connection refused")
 }
