@@ -7,12 +7,19 @@
   "definitions": {
     "UserTypeInput": {
       "type": "string",
-      "enum": ["db", "oidc"],
+      "enum": [
+        "db",
+        "oidc"
+      ],
       "description": "the type of user"
     },
     "UserTypeOutput": {
       "type": "string",
-      "enum": ["db_user", "db_env_user", "oidc"],
+      "enum": [
+        "db_user",
+        "db_env_user",
+        "oidc"
+      ],
       "description": "the type of user"
     },
     "UserOwnInfo": {
@@ -56,7 +63,7 @@
           "type": "string",
           "description": "The user id of the given user"
         },
-        "dbUserType":{
+        "dbUserType": {
           "type": "string",
           "enum": [
             "db_user",
@@ -64,12 +71,15 @@
           ],
           "description": "type of the returned user"
         },
-        "active":{
+        "active": {
           "type": "boolean",
           "description": "activity status of the returned user"
         },
         "createdAt": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time",
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)"
         },
@@ -82,13 +92,20 @@
           "description": "First 3 letters of the associated API-key"
         },
         "lastUsedAt": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time",
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)"
         }
       },
       "required": [
-        "userId", "dbUserType", "roles", "active"]
+        "userId",
+        "dbUserType",
+        "roles",
+        "active"
+      ]
     },
     "UserApiKey": {
       "type": "object",
@@ -98,7 +115,9 @@
           "description": "The apikey"
         }
       },
-      "required": ["apikey"]
+      "required": [
+        "apikey"
+      ]
     },
     "Role": {
       "type": "object",
@@ -2820,7 +2839,7 @@
           ]
         }
       }
-    }    
+    }
   },
   "externalDocs": {
     "url": "https://github.com/weaviate/weaviate"
@@ -3856,7 +3875,7 @@
               "type": "object",
               "properties": {
                 "revoke_key": {
-                  "type":"boolean",
+                  "type": "boolean",
                   "description": "if the key should be revoked when deactivating the user",
                   "default": false
                 }
@@ -4409,7 +4428,10 @@
                     "$ref": "#/definitions/UserTypeOutput"
                   }
                 },
-                "required": ["name", "userType"]
+                "required": [
+                  "name",
+                  "userType"
+                ]
               }
             }
           },
@@ -4523,7 +4545,10 @@
             "name": "userType",
             "required": true,
             "type": "string",
-            "enum": ["oidc", "db"],
+            "enum": [
+              "oidc",
+              "db"
+            ],
             "description": "The type of user"
           },
           {
@@ -4608,7 +4633,7 @@
                   }
                 },
                 "userType": {
-                   "$ref": "#/definitions/UserTypeInput"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
