@@ -33,6 +33,14 @@ func testText2VecVoyageAI(rest, grpc string) func(t *testing.T) {
 			model string
 		}{
 			{
+				name:  "voyage-3.5",
+				model: "voyage-3.5",
+			},
+			{
+				name:  "voyage-3.5-lite",
+				model: "voyage-3.5-lite",
+			},
+			{
 				name:  "voyage-3",
 				model: "voyage-3",
 			},

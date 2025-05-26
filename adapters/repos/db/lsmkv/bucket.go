@@ -1302,10 +1302,21 @@ func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
 
 	hasWrites := b.active.writesSinceLastSync
 	if !hasWrites {
-		return true
+		// had no work this iteration, cycle manager can back off
+		return false
 	}
 
-	err := b.active.commitlog.sync()
+	err := b.active.commitlog.flushBuffers()
+	if err != nil {
+		b.logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", b.dir).
+			WithError(err).
+			Errorf("flush and switch failed")
+
+		return false
+	}
+
+	err = b.active.commitlog.sync()
 	if err != nil {
 		b.logger.WithField("action", "lsm_memtable_flush").
 			WithField("path", b.dir).
@@ -1315,6 +1326,7 @@ func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
 		return false
 	}
 	b.active.writesSinceLastSync = false
+	// there was work in this iteration, cycle manager should not back off and revisit soon
 	return true
 }
 
