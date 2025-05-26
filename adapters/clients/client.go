@@ -19,6 +19,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"github.com/cenkalti/backoff/v4"
 )
 
 type retryClient struct {
@@ -38,7 +40,6 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			// Retry on any connection error
 			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
@@ -71,7 +72,6 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			// Retry on any connection error
 			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
@@ -106,26 +106,19 @@ func newRetryer() *retryer {
 
 // n is the number of retries, work will always be called at least once.
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
-	delay := r.minBackOff
-	for {
+	return backoff.Retry(func() error {
 		keepTrying, err := work(ctx)
-		if !keepTrying || n < 1 || err == nil {
-			return err
+		if err != nil && !keepTrying {
+			return backoff.Permanent(err)
 		}
-
-		n--
-		if delay = backOff(delay); delay > r.maxBackOff {
-			delay = r.maxBackOff
-		}
-		timer := time.NewTimer(delay)
-		select {
-		case <-ctx.Done():
-			timer.Stop()
-			return fmt.Errorf("%w: %w", err, ctx.Err())
-		case <-timer.C:
-		}
-		timer.Stop()
-	}
+		return err
+	}, backoff.WithContext(
+		backoff.WithMaxRetries(
+			backoff.NewExponentialBackOff(
+				backoff.WithInitialInterval(r.minBackOff),
+				backoff.WithMaxInterval(r.maxBackOff),
+			),
+			uint64(n)), ctx))
 }
 
 func successCode(code int) bool {
