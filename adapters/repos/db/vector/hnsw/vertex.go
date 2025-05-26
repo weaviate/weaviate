@@ -13,6 +13,8 @@ package hnsw
 
 import (
 	"sync"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 )
 
 type vertex struct {
@@ -20,7 +22,10 @@ type vertex struct {
 	sync.Mutex
 	level       int
 	connections [][]uint64
-	maintenance bool
+	// temporary change to allow snapshot logic update,
+	// will be removed once connections are fully migrated to packedconn
+	packedConnections *packedconn.Connections
+	maintenance       bool
 }
 
 func (v *vertex) markAsMaintenance() {

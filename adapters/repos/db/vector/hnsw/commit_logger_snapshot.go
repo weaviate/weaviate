@@ -29,6 +29,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -45,6 +46,12 @@ const (
 	SnapshotCompressionTypePQ = iota + 1
 	SnapshotCompressionTypeSQ
 	SnapshotEncoderTypeMuvera
+)
+
+// version of the snapshot file format
+const (
+	snapshotVersionV1 = 1 // initial version
+	snapshotVersionV2 = 2 // added packed connections support
 )
 
 func snapshotName(path string) string {
@@ -664,24 +671,17 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 		}
 		offset += writeUint32Size
 
-		if err := writeUint32(w, uint32(len(n.connections))); err != nil {
+		connData := n.packedConnections.Data()
+		if err := writeUint32(w, uint32(len(connData))); err != nil {
 			return nil, err
 		}
 		offset += writeUint32Size
 
-		for _, ls := range n.connections {
-			if err := writeUint32(w, uint32(len(ls))); err != nil {
-				return nil, err
-			}
-			offset += writeUint32Size
-
-			for _, c := range ls {
-				if err := writeUint64(w, c); err != nil {
-					return nil, err
-				}
-				offset += writeUint64Size
-			}
+		_, err = w.Write(connData)
+		if err != nil {
+			return nil, errors.Wrapf(err, "write connections data for node %d", n.id)
 		}
+		offset += len(connData)
 
 		nonNilNodes++
 	}
@@ -702,7 +702,7 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 
 	// version
 	offset = 0
-	if err := writeByte(w, 0); err != nil {
+	if err := writeByte(w, snapshotVersionV2); err != nil {
 		return 0, err
 	}
 	offset += writeByteSize
@@ -878,7 +878,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 
 	var b [8]byte
 
-	_, err = ReadAndHash(r, hasher, b[:1]) // version
+	version, err := ReadAndHash(r, hasher, b[:1]) // version
 	if err != nil {
 		return nil, errors.Wrapf(err, "read version")
 	}
@@ -1162,29 +1162,43 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				connCount := int(binary.LittleEndian.Uint32(b[:4]))
 
 				if connCount > 0 {
-					node.connections = make([][]uint64, connCount)
-
-					for l := 0; l < connCount; l++ {
-						n, err = io.ReadFull(r, b[:4]) // connections count at level
+					if version < snapshotVersionV2 {
+						pconn, err := packedconn.NewWithMaxLayer(uint8(connCount))
 						if err != nil {
-							return errors.Wrapf(err, "read node connections count at level")
+							return errors.Wrapf(err, "create packed connections for node %d", node.id)
 						}
-						read += n
-						connCountAtLevel := int(binary.LittleEndian.Uint32(b[:4]))
 
-						if connCountAtLevel > 0 {
-							node.connections[l] = make([]uint64, connCountAtLevel)
+						for l := uint8(0); l < uint8(connCount); l++ {
+							n, err = io.ReadFull(r, b[:4]) // connections count at level
+							if err != nil {
+								return errors.Wrapf(err, "read node connections count at level")
+							}
+							read += n
+							connCountAtLevel := uint64(binary.LittleEndian.Uint32(b[:4]))
 
-							for c := 0; c < connCountAtLevel; c++ {
-								n, err = io.ReadFull(r, b[:8]) // connection at level
-								if err != nil {
-									return errors.Wrapf(err, "read node connection at level")
+							if connCountAtLevel > 0 {
+								for c := uint64(0); c < connCountAtLevel; c++ {
+									n, err = io.ReadFull(r, b[:8]) // connection at level
+									if err != nil {
+										return errors.Wrapf(err, "read node connection at level")
+									}
+									pconn.InsertAtLayer(c, l)
+									read += n
 								}
-								node.connections[l][c] = binary.LittleEndian.Uint64(b[:8])
-								read += n
 							}
 						}
 
+						node.packedConnections = pconn
+					} else {
+						// read the connections data
+						connData := make([]byte, connCount)
+						n, err = io.ReadFull(r, connData)
+						if err != nil {
+							return errors.Wrapf(err, "read node connections data")
+						}
+						read += n
+
+						node.packedConnections = packedconn.NewWithData(connData)
 					}
 				}
 
