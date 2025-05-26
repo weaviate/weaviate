@@ -136,6 +136,8 @@ func (db *DB) ResourceUseReadonly(mon *memwatch.Monitor, du diskUse) {
 func (db *DB) DiskUseReadonly(du diskUse)           { panicStub("DiskUseReadonly") }
 func (db *DB) MemUseReadonly(mon *memwatch.Monitor) { panicStub("MemUseReadonly") }
 func (db *DB) SetShardsReadOnly(reason string)      { panicStub("SetShardsReadOnly") }
+
+// Adds multiple objects at once, returning the objects that were successfully added.
 func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects, additionals *additional.ReplicationProperties, schemaVersion uint64) (objects.BatchObjects, error) {
 	fmt.Printf("I>BatchPutObjects called with %d objects\n", len(objs))
 	for _, obj := range objs {
@@ -149,6 +151,8 @@ func (db *DB) BatchPutObjects(ctx context.Context, objs objects.BatchObjects, ad
 	var bo []objects.BatchObject = objs
 	return bo, nil
 }
+
+// Deletes multiple objects at once, returning the objects that were successfully deleted.
 func (db *DB) BatchDeleteObjects(ctx context.Context, params objects.BatchDeleteParams, timestamp time.Time, repl *additional.ReplicationProperties, tenant string, consistencyLevel uint64) (objects.BatchDeleteResult, error) {
 	panicStub("BatchDeleteObjects")
 	return objects.BatchDeleteResult{}, nil
@@ -159,17 +163,62 @@ func (db *DB) Aggregate(ctx context.Context, params aggregation.Params, modulesP
 	return nil, nil
 }
 func (db *DB) GetQueryMaximumResults() int { panicStub("GetQueryMaximumResults"); return 0 }
+
+func NetObjToStorObj(obj *NetObject) *storobj.Object {
+	return &storobj.Object{
+		MarshallerVersion: 1,
+		Vector:            obj.Vector,
+		Vectors:           obj.Vectors,
+		MultiVectors:      obj.Multivectors,
+		BelongsToNode:     "TheOneTrueNode",
+		BelongsToShard:    "TheOneTrueShard",
+		IsConsistent:      true,
+		DocID:             0,
+		Object: models.Object{
+			Additional: obj.Additional,
+			Class:      obj.Class,
+
+			CreationTimeUnix: obj.CreationTimeUnix,
+			ID:               obj.ID,
+
+			LastUpdateTimeUnix: obj.LastUpdateTimeUnix,
+			Properties:         obj.Properties,
+			Tenant:             obj.Tenant,
+			Vector:             obj.Vector,
+			VectorWeights:      nil,
+			Vectors:            mapFloat32ToVectors(obj.Vectors),
+		},
+	}
+}
+
+func NetObjectToResultObject(obj *NetObject) *search.Result {
+	return &search.Result{
+		ClassName:            obj.Class,
+		ID:                   obj.ID,
+		Vector:               obj.Vector,
+		Created:              obj.CreationTimeUnix,
+		Updated:              obj.LastUpdateTimeUnix,
+		Tenant:               obj.Tenant,
+		Vectors:              mapFloat32ToVectors(obj.Vectors),
+		AdditionalProperties: obj.Additional,
+		Schema:               obj.Properties,
+	}
+}
+
+// Keyword search for objects, returning the results that match the search query, and their scores.
 func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*storobj.Object, []float32, error) {
 	pretty, err := json.Marshal(params)
-	fmt.Printf("I>SparseObjectSearch called with params: %+v\n", pretty)
+	fmt.Printf("I>SparseObjectSearch called with params: %+v\n", string(pretty))
 	//Figure out which kind of search we are doing
 	var searchQuery string
 	if params.HybridSearch != nil {
-		fmt.Printf("I>HybridSearch called with query: %s\n", params.HybridSearch)
+
 		searchQuery = params.HybridSearch.Query
+		fmt.Printf("I>HybridSearch called with query: %s\n", params.HybridSearch.Query)
 	} else if params.KeywordRanking != nil {
-		fmt.Printf("I>KeywordRanking called with query: %s\n", params.KeywordRanking)
+
 		searchQuery = params.KeywordRanking.Query
+		fmt.Printf("I>KeywordRanking called with query: %s\n", params.KeywordRanking.Query)
 	} else {
 
 		if err != nil {
@@ -184,50 +233,53 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 
 	results := make([]*storobj.Object, 0)
 	var scores []float32
+	var FoundObjects map[string]bool = make(map[string]bool)
 	_, err = theOneTrueFileStore.TheOneTrueFileStore().MapFunc(func(k, v []byte) error {
-		var obj StoreObject
-		if err := json.Unmarshal(v, &obj); err != nil {
-			fmt.Printf("E>Failed to unmarshal object: %s\n", err)
-			return err
+
+		key := strings.TrimPrefix(string(k), "/")
+		if !strings.HasPrefix(key, "keywords/") {
+			return nil
 		}
+		//fmt.Printf("I>Processing key: %s\n", key)
 
-		// Iterate over the properties and search them for the search term
-		proptext := fmt.Sprintf("%v", obj.Properties)
-		//fmt.Printf("I>Property: %s\n", proptext)
-		val := fmt.Sprintf("%v", proptext)
-		if strings.Contains(val, searchQuery) {
-			fmt.Printf("I>Found match in property: %s\n", proptext)
-			// If a match is found, return the object
-			results = append(results, &storobj.Object{
-				MarshallerVersion: 1,
-				Vector:            obj.Vector,
-				Vectors:           obj.Vectors,
-				MultiVectors:      obj.Multivectors,
-				BelongsToNode:     "TheOneTrueNode",
-				BelongsToShard:    "TheOneTrueShard",
-				IsConsistent:      true,
-				DocID:             0,
-				Object: models.Object{
-					Additional: obj.Additional,
-					Class:      obj.Class,
-
-					CreationTimeUnix: obj.CreationTimeUnix,
-					ID:               obj.ID,
-
-					LastUpdateTimeUnix: obj.LastUpdateTimeUnix,
-					Properties:         obj.Properties,
-					Tenant:             obj.Tenant,
-					Vector:             obj.Vector,
-					VectorWeights:      nil,
-					Vectors:            mapFloat32ToVectors(obj.Vectors),
-
-				},
-			})
-			scores = append(scores, 1.0)
+		// Extract the class and tenant and object ID from the key
+		parts := strings.Split(key, "/")
+		if len(parts) < 4 {
+			fmt.Printf("E>Invalid key format: %s\n", key)
+			return nil
 		}
-
+		class := parts[1]
+		//tenant := parts[2]
+		word := parts[2]
+		objectID := parts[3]
+		//fmt.Printf("I>Examining key: class: %s, tenant: %s, word: %s, objectID: %s\n", class, "", word, objectID)
+		if strings.HasPrefix(key, "keywords/") &&
+			searchQuery == word {
+			fmt.Printf("I>Found keyword match for class: %s, tenant: %s, objectID: %s\n", class, "", objectID)
+			FoundObjects[objectID] = true
+		}
 		return nil
 	})
+
+	for objID := range FoundObjects {
+		var obj NetObject
+		key := "objects/" + objID
+		objPack, err := theOneTrueFileStore.TheOneTrueFileStore().Get([]byte(key))
+		if err != nil || objPack == nil {
+			fmt.Printf("E>Failed to get object with ID %s: %s\n", objID, err)
+			continue
+		}
+
+		fmt.Printf("I>Unmarshalling object with ID %s\n", objID)
+		if err := json.Unmarshal(objPack, &obj); err != nil {
+			fmt.Printf("E>Failed to unmarshal object with ID %s: %s: %s\n", objID, err, string(objPack))
+			continue
+		}
+		fmt.Printf("I>Found object with ID %s, class %s, tenant %s\n", obj.ID, obj.Class, obj.Tenant)
+
+		results = append(results, NetObjToStorObj(&obj))
+		scores = append(scores, 1.0)
+	}
 
 	fmt.Printf("I>Found %d results\n", len(results))
 	return results, scores, err
@@ -241,31 +293,35 @@ func mapFloat32ToVectors(vectors map[string][]float32) models.Vectors {
 	}
 	return result
 }
+
+// Keyword search for objects, returning the results that match the search query.
 func (db *DB) Search(ctx context.Context, params dto.GetParams) ([]search.Result, error) {
-	objs, scores, err:= db.SparseObjectSearch(ctx, params)
+	objs, scores, err := db.SparseObjectSearch(ctx, params)
 	var results []search.Result
 	for i, obj := range objs {
 		results = append(results, search.Result{
-			ClassName: obj.Object.Class,
-			ID:        obj.ID(),
-			Vector:    obj.Vector,
-			Created:   obj.CreationTimeUnix(),
-			Updated:   obj.LastUpdateTimeUnix(),
-			Tenant:    obj.Object.Tenant,
-			Score:     scores[i],
-			SecondarySortValue: scores[i],
-			Vectors:   mapFloat32ToVectors(obj.Vectors),
+			ClassName:            obj.Object.Class,
+			ID:                   obj.ID(),
+			Vector:               obj.Vector,
+			Created:              obj.CreationTimeUnix(),
+			Updated:              obj.LastUpdateTimeUnix(),
+			Tenant:               obj.Object.Tenant,
+			Score:                scores[i],
+			SecondarySortValue:   scores[i],
+			Vectors:              mapFloat32ToVectors(obj.Vectors),
 			AdditionalProperties: obj.Object.Additional,
-			Schema: 		  obj.Properties(),
+			Schema:               obj.Properties(),
 		})
 	}
 	return results, err
 }
+
+// Vector search for objects, returning the results that match the search vectors.
 func (db *DB) VectorSearch(ctx context.Context, params dto.GetParams, tenants []string, searchVectors []models.Vector) ([]search.Result, error) {
 	fmt.Printf("I>VectorSearch called with params: %+v\n", params)
 	results := make([]search.Result, 0)
 	_, err := theOneTrueFileStore.TheOneTrueFileStore().MapFunc(func(k, v []byte) error {
-		var obj StoreObject
+		var obj NetObject
 		if err := json.Unmarshal(v, &obj); err != nil {
 			fmt.Printf("E>Failed to unmarshal object: %s\n", err)
 		}
@@ -281,16 +337,9 @@ func (db *DB) VectorSearch(ctx context.Context, params dto.GetParams, tenants []
 					distance += (obj.Vector[i] - searchVector[i]) * (obj.Vector[i] - searchVector[i])
 				}
 				distance = distance / float32(len(obj.Vector))
-
-				results = append(results, search.Result{
-					ClassName: obj.Class,
-					ID:        obj.ID,
-					Vector:    obj.Vector,
-					Created:   obj.CreationTimeUnix,
-					Updated:   obj.LastUpdateTimeUnix,
-					Tenant:    obj.Tenant,
-					Score:     float32(float32(0) - distance),
-				})
+				res :=NetObjectToResultObject(&obj)
+				res.Score = float32(float32(0) - distance)
+				results = append(results, *res)
 			}
 			return nil
 		}
@@ -367,7 +416,7 @@ func (db *DB) GetIndexForIncomingReplica(className schema.ClassName) replica.Rem
 	return nil
 }
 func (db *DB) DeleteIndex(className schema.ClassName) error { panicStub("DeleteIndex"); return nil }
-func (db *DB) Shutdown(ctx context.Context) error           { panicStub("Shutdown"); return nil }
+func (db *DB) Shutdown(ctx context.Context) error           { return nil }
 func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB { panicStub("WithReindexer"); return db }
 func (db *DB) ReplicateObject(ctx context.Context, class string, obj *models.Object) {
 	panicStub("ReplicateObject")
@@ -394,7 +443,7 @@ func (db *DB) ReplicatedIndex(name string) (*Index, *replica.SimpleResponse) {
 	return nil, nil
 }
 
-type StoreObject struct {
+type NetObject struct {
 	// additional
 	Additional models.AdditionalProperties `json:"additional,omitempty"`
 
@@ -427,9 +476,10 @@ type StoreObject struct {
 	Multivectors map[string][][]float32 `json:"multivectors,omitempty"`
 }
 
+// PutObject stores an object in the database, including its vector and additional properties.
 func (db *DB) PutObject(ctx context.Context, object *models.Object, vector []float32, vectors map[string][]float32, multivectors map[string][][]float32, repli *additional.ReplicationProperties, schemaVersion uint64) error {
 	fmt.Printf("I>PutObject called with object: %+v\n", object.Properties)
-	sto := StoreObject{
+	sto := NetObject{
 		Additional:         object.Additional,
 		Class:              object.Class,
 		CreationTimeUnix:   object.CreationTimeUnix,
@@ -445,10 +495,44 @@ func (db *DB) PutObject(ctx context.Context, object *models.Object, vector []flo
 	if err != nil {
 		return err
 	}
-	err = theOneTrueFileStore.TheOneTrueFileStore().Put([]byte(strings.Join([]string{"objects", object.Class, object.Tenant, object.ID.String()}, "/")), stoData)
+	err = theOneTrueFileStore.TheOneTrueFileStore().Put([]byte(strings.Join([]string{"objects", object.ID.String()}, "/")), stoData)
 	if err != nil {
 		return err
 	}
+
+	// Break the object and properties into words and store them for keyword search
+	words := strings.Fields(fmt.Sprintf("%v", object.Properties))
+	for _, word := range words {
+		word = strings.ToLower(word)
+		//Strip non-alphanumeric characters
+		word = strings.Map(func(r rune) rune {
+			if r >= 'a' && r <= 'z' || r >= '0' && r <= '9' {
+				return r
+			}
+			return -1 // Remove non-alphanumeric characters
+		}, word)
+		if len(word) == 0 {
+			continue // Skip empty words
+		}
+		tenant := object.Tenant
+		if tenant == "" {
+			tenant = "default" // Use a default tenant if none is specified
+		}
+		class := object.Class
+		if class == "" {
+			class = "default" // Use a default class if none is specified
+		}
+		// Create a unique key for the word, class, and tenant
+
+		wordKey := fmt.Sprintf("%s/%s/%s", object.Class, object.Tenant, word)
+		storeKey := "/keywords/" + wordKey + "/" + object.ID.String()
+		fmt.Printf("I>Storing %s¥n", storeKey)
+		err = theOneTrueFileStore.TheOneTrueFileStore().Put([]byte(storeKey), stoData)
+		if err != nil {
+			fmt.Printf("E>Failed to store keyword %s for object %s: %s\n", word, object.ID.String(), err)
+		}
+	}
+	fmt.Printf("I>Stored object %s in class %s with tenant %s\n", object.ID.String(), object.Class, object.Tenant)
 
 	return nil
 }

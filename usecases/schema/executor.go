@@ -120,7 +120,7 @@ func (s *StubMigrator) WaitForStartup(ctx context.Context) error {
 }
 
 func (s *StubMigrator) Shutdown(ctx context.Context) error {
-	panic("not implemented")
+	return nil
 }
 
 type executor struct {
