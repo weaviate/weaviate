@@ -38,7 +38,8 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
+			// Retry on any connection error
+			return true, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -70,7 +71,8 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
+			// Retry on any connection error
+			return true, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
