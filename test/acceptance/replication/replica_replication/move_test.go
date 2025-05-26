@@ -24,10 +24,10 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-//	func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceReplica() {
-//		t := suite.T()
-func TestReplicationReplicateMOVEDeletesSourceReplica(t *testing.T) {
-	helper.SetupClient("localhost:8080")
+func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceReplica() {
+	t := suite.T()
+
+	helper.SetupClient(suite.compose.GetWeaviate().GrpcURI())
 	paragraphClass := articles.ParagraphsClass()
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)
