@@ -1829,8 +1829,9 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 			continue
 		}
 		assert.NotEqual(t, 0, i%2)
-		for layer := range node.connections.LayerRange() {
-			level, connections := int(layer.Index), layer.Connections
+		iter := node.connections.Iterator()
+		for iter.Next() {
+			level, connections := iter.Current()
 			for _, id := range connections {
 				assert.NotEqual(t, uint64(0), id%2)
 				if id%2 == 0 {
