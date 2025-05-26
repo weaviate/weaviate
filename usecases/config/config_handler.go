@@ -470,6 +470,8 @@ type Raft struct {
 
 	HeartbeatTimeout       time.Duration
 	ElectionTimeout        time.Duration
+	LeaderLeaseTimeout     time.Duration
+	TimeoutsMultiplier     int
 	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration

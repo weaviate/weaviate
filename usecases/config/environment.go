@@ -818,6 +818,22 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 		return cfg, err
 	}
 
+	if err := parsePositiveFloat(
+		"RAFT_LEADER_LEASE_TIMEOUT",
+		func(val float64) { cfg.LeaderLeaseTimeout = time.Second * time.Duration(val) },
+		0.5, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_TIMEOUTS_MULTIPLIER",
+		func(val int) { cfg.TimeoutsMultiplier = val },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
 	if err := parsePositiveInt(
 		"RAFT_SNAPSHOT_INTERVAL",
 		func(val int) { cfg.SnapshotInterval = time.Second * time.Duration(val) },
