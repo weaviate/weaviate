@@ -50,15 +50,20 @@ type ReaderRoaringSetRange interface {
 func (b *Bucket) ReaderRoaringSetRange() ReaderRoaringSetRange {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSetRange)
 
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil
+	}
+
 	b.flushLock.RLock()
 
 	var release func()
 	var readers []roaringsetrange.InnerReader
 	if b.keepSegmentsInMemory {
-		reader, releaseInt := roaringsetrange.NewSegmentInMemoryReader(b.disk.roaringSetRangeSegmentInMemory, b.bitmapBufPool)
+		reader, releaseInt := roaringsetrange.NewSegmentInMemoryReader(disk.roaringSetRangeSegmentInMemory, b.bitmapBufPool)
 		readers, release = []roaringsetrange.InnerReader{reader}, releaseInt
 	} else {
-		readers, release = b.disk.newRoaringSetRangeReaders()
+		readers, release = disk.newRoaringSetRangeReaders()
 	}
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state

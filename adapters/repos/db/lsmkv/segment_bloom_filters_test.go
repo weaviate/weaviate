@@ -111,6 +111,9 @@ func TestCreateBloomInit(t *testing.T) {
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
+	_, err = b2.getDisk()
+	require.NoError(t, err)
+
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
 	_, ok := findFileWithExt(files, ".bloom")
