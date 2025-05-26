@@ -167,6 +167,8 @@ func (rq *RotationalQuantizer) CompressedBytes(compressed []vector_types.RQEncod
 }
 
 func (rq *RotationalQuantizer) FromCompressedBytes(compressed []byte) []vector_types.RQEncoding {
+	// this function is used when a cache miss happened, so we get the compressed bytes from the store
+	// and we need to decode them into RQ format
 	panic("from compressed bytes not implemented")
 }
 
@@ -179,6 +181,7 @@ func (rq *RotationalQuantizer) NewQuantizerDistancer(vec []float32) quantizerDis
 }
 
 func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
+	// this is used when we want to persist some compression parameters
 	panic("persist compression not implemented")
 }
 

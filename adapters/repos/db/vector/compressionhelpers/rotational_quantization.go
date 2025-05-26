@@ -335,10 +335,14 @@ func (rq *RQDistancer) Distance(cs []vector_types.RQEncoding) (float32, error) {
 }
 
 func (rq *RQDistancer) DistanceToFloat(x []float32) (float32, error) {
+	// this function could be skipped because it looks like it is only used for
+	// rescoring
 	panic("distance to float not implemented")
 }
 
 func (rq RotationalQuantizer) DistanceBetweenCompressedVectors(x, y []vector_types.RQEncoding) (float32, error) {
+	// this function is used when we want to compute the distance between two compressed vectors
+	// for example, when we are calling the function that finds the nearest neighbors
 	panic("DistanceBetweenCompressedVectors not implemented")
 }
 
