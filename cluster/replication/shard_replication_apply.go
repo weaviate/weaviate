@@ -250,9 +250,8 @@ func (s *ShardReplicationFSM) PurgeReplications(c *api.ReplicationPurgeRequest) 
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
-	for id, status := range s.statusById {
-		status.TriggerDeletion()
-		s.statusById[id] = status
+	for id := range s.statusById {
+		s.removeReplicationOp(id)
 	}
 	return nil
 }
