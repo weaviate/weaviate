@@ -375,8 +375,7 @@ func (c *CopyOpConsumer) processStateAndTransition(ctx context.Context, op Shard
 			}
 			logger.WithError(err).Warn("state transition handler failed")
 			// Otherwise, register the error with the FSM
-			err = c.leaderClient.ReplicationRegisterError(ctx, op.Op.ID, err.Error())
-			if err != nil {
+			if err := c.leaderClient.ReplicationRegisterError(ctx, op.Op.ID, err.Error()); err != nil {
 				logger.WithError(err).Error("failed to register error for replication operation")
 			}
 			return api.ShardReplicationState(""), err
@@ -499,6 +498,11 @@ func (c *CopyOpConsumer) processHydratingOp(ctx context.Context, op ShardReplica
 			logger.WithError(err).Error("failure while storing schema version for replication operation")
 			return api.ShardReplicationState(""), err
 		}
+
+		if err := c.leaderClient.WaitForUpdate(ctx, schemaVersion); err != nil {
+			logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
+			return api.ShardReplicationState(""), err
+		}
 	}
 
 	if ctx.Err() != nil {
@@ -528,6 +532,11 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
 		return api.ShardReplicationState(""), ctx.Err()
+	}
+
+	if err := c.leaderClient.WaitForUpdate(ctx, op.Status.SchemaVersion); err != nil {
+		logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
+		return api.ShardReplicationState(""), err
 	}
 
 	if err := c.replicaCopier.LoadLocalShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
@@ -604,6 +613,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	switch op.Op.TransferType {
 	case api.COPY:
+		// TODO: move these two functions into a single function to avoid code duplication
 		if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
 			logger.WithError(err).Error("failure while reverting async replication on local node")
 		}
@@ -628,6 +638,11 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardReplicationOpAndStatus) (api.ShardReplicationState, error) {
 	logger := getLoggerForOpAndStatus(c.logger.Logger, op.Op, op.Status)
 	logger.Info("processing dehydrating replication operation")
+
+	if err := c.leaderClient.WaitForUpdate(ctx, op.Status.SchemaVersion); err != nil {
+		logger.WithError(err).Error("failure while waiting for schema version to be applied to local node")
+		return api.ShardReplicationState(""), err
+	}
 
 	replicaExists := false
 	nodes, err := c.schemaReader.ShardReplicas(op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId)
@@ -694,8 +709,12 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		}
 	}
 
+	// TODO: move these two functions into a single function to avoid code duplication
 	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
 		logger.WithError(err).Error("failure while reverting async replication locally")
+	}
+	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
+		logger.WithError(err).Error("failure while removing async replication target node")
 	}
 	// sync the replica shard to ensure that the schema and store are consistent on each node
 	// In a COPY this happens in the FINALIZING state, in a MOVE this happens now
@@ -786,6 +805,24 @@ func (c *CopyOpConsumer) waitForAsyncReplication(
 		}).Info("async replication status")
 		if asyncReplStatus.ObjectsPropagated == 0 && asyncReplIsPastUpperTimeBound {
 			return nil
+		}
+
+		// Wait until we've passed the upper time bound before starting status checks
+		// to avoid unnecessary status checks before the upper time bound has passed
+		currentTimeMillis := time.Now().UnixMilli()
+		if currentTimeMillis < asyncReplicationUpperTimeBoundUnixMillis {
+			waitDuration := time.Duration(asyncReplicationUpperTimeBoundUnixMillis-currentTimeMillis) * time.Millisecond
+			logger.WithFields(logrus.Fields{
+				"wait_duration_ms": waitDuration.Milliseconds(),
+				"upper_bound_ms":   asyncReplicationUpperTimeBoundUnixMillis,
+			}).Info("waiting to reach upper time bound before starting async replication status checks")
+
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			case <-time.After(waitDuration):
+				// Time has passed, continue below with the status checks
+			}
 		}
 
 		return errors.New("async replication not done")

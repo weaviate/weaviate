@@ -47,7 +47,7 @@ const (
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
 	DefaultReplicationEngineMaxWorkers     = 5
-	DefaultReplicaMovementMinimumAsyncWait = 100 * time.Second
+	DefaultReplicaMovementMinimumAsyncWait = 20 * time.Second
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 )
@@ -813,6 +813,22 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	if err := parsePositiveInt(
 		"RAFT_ELECTION_TIMEOUT",
 		func(val int) { cfg.ElectionTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveFloat(
+		"RAFT_LEADER_LEASE_TIMEOUT",
+		func(val float64) { cfg.LeaderLeaseTimeout = time.Second * time.Duration(val) },
+		0.5, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_TIMEOUTS_MULTIPLIER",
+		func(val int) { cfg.TimeoutsMultiplier = val },
 		1, // raft default
 	); err != nil {
 		return cfg, err
