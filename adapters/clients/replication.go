@@ -57,7 +57,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.doCustomUnmarshal(c.timeoutUnit*90, req, nil, resp.UnmarshalBinary, numRetries)
+	err = c.doCustomUnmarshal(c.timeoutUnit*30, req, nil, resp.UnmarshalBinary, numRetries)
 	return resp, err
 }
 
@@ -75,7 +75,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*60, req, body, &resp, numRetries)
+	err = c.do(c.timeoutUnit*30, req, body, &resp, numRetries)
 	return resp, err
 }
 
@@ -99,7 +99,7 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 	}
 
 	var resp replica.DigestObjectsInRangeResp
-	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*30, req, body, &resp, 9)
 	return resp.Digests, err
 }
 
@@ -378,7 +378,7 @@ func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []
 			if isNetworkError(err) {
 				return true, fmt.Errorf("node temporarily unavailable: %w", err)
 			}
-			return false, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 

@@ -41,7 +41,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -73,7 +73,7 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
+			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -99,8 +99,8 @@ type retryer struct {
 
 func newRetryer() *retryer {
 	return &retryer{
-		minBackOff:  time.Millisecond * 25, // Start with 25ms for very fast initial retries
-		maxBackOff:  time.Second * 5,       // Cap at 5s to fail faster
+		minBackOff:  time.Millisecond * 100, // Start with 25ms for very fast initial retries
+		maxBackOff:  time.Second * 5,        // Cap at 5s to fail faster
 		timeoutUnit: time.Second,
 	}
 }
