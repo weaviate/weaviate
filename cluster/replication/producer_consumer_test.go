@@ -95,6 +95,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
+					ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
+					Return(nil)
+				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
 						wg.Done()
@@ -152,6 +155,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
+					ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
@@ -213,6 +219,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
+					ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
@@ -286,6 +295,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
+					ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
+					Return(nil)
+				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
 						wg.Done()
@@ -345,6 +357,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockFSMUpdater.EXPECT().
 					DeleteReplicaFromShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
+				mockFSMUpdater.EXPECT().
+					ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
