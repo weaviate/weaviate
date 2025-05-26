@@ -143,7 +143,6 @@ func isNetworkError(err error) bool {
 	}
 	errStr := err.Error()
 	return strings.Contains(errStr, "connection refused") ||
-		strings.Contains(errStr, "context deadline exceeded") ||
 		strings.Contains(errStr, "no route to host") ||
 		strings.Contains(errStr, "network is unreachable") ||
 		strings.Contains(errStr, "connection reset by peer") ||
