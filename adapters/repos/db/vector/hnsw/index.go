@@ -964,7 +964,7 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 			node.Lock()
 			defer node.Unlock()
 			l := node.level
-			if l == 0 && len(node.connections) == 0 {
+			if l == 0 && node.connections.Layers() == 0 {
 				return
 			}
 			c, ok := distributionLayers[l]
