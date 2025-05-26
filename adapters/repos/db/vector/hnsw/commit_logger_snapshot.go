@@ -671,7 +671,7 @@ func (l *hnswCommitLogger) writeStateTo(state *DeserializationResult, wr io.Writ
 		}
 		offset += writeUint32Size
 
-		connData := n.packedConnections.Data()
+		connData := n.connections.Data()
 		if err := writeUint32(w, uint32(len(connData))); err != nil {
 			return nil, err
 		}
@@ -1188,7 +1188,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 							}
 						}
 
-						node.packedConnections = pconn
+						node.connections = pconn
 					} else {
 						// read the connections data
 						connData := make([]byte, connCount)
@@ -1198,7 +1198,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 						}
 						read += n
 
-						node.packedConnections = packedconn.NewWithData(connData)
+						node.connections = packedconn.NewWithData(connData)
 					}
 				}
 
