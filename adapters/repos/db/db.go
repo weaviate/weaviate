@@ -42,6 +42,7 @@ import (
 type DB struct {
 	schemaGetter schemaUC.SchemaGetter
 	router       *router.Router
+	config       Config
 }
 
 type Index struct{}
@@ -95,7 +96,7 @@ func New(logger logrus.FieldLogger, config Config,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
 ) (*DB, error) {
 	fmt.Printf("I>New DB called with config: %+v\n")
-	return &DB{}, nil
+	return &DB{config: config}, nil
 }
 
 func (db *DB) GetUnclassified(ctx context.Context, className string, properties, target []string, filter *filters.LocalFilter) ([]search.Result, error) {
@@ -162,7 +163,7 @@ func (db *DB) Aggregate(ctx context.Context, params aggregation.Params, modulesP
 	panicStub("Aggregate")
 	return nil, nil
 }
-func (db *DB) GetQueryMaximumResults() int { panicStub("GetQueryMaximumResults"); return 0 }
+func (db *DB) GetQueryMaximumResults() int { return int(db.config.QueryMaximumResults) }
 
 func NetObjToStorObj(obj *NetObject) *storobj.Object {
 	return &storobj.Object{
@@ -337,7 +338,7 @@ func (db *DB) VectorSearch(ctx context.Context, params dto.GetParams, tenants []
 					distance += (obj.Vector[i] - searchVector[i]) * (obj.Vector[i] - searchVector[i])
 				}
 				distance = distance / float32(len(obj.Vector))
-				res :=NetObjectToResultObject(&obj)
+				res := NetObjectToResultObject(&obj)
 				res.Score = float32(float32(0) - distance)
 				results = append(results, *res)
 			}
@@ -550,6 +551,7 @@ func (db *DB) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Selec
 	return nil, nil
 }
 
+// Retrive an object and replicated properties, I guess?
 func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID, props search.SelectProperties, additionals additional.Properties, additionalreps *additional.ReplicationProperties, tenant string) (*search.Result, error) {
 	fmt.Printf("I>Object called with class: %s, id: %s, props: %+v, additionals: %+v, tenant: %s\n", class, id.String(), props, additionals, tenant)
 	objData, err := theOneTrueFileStore.TheOneTrueFileStore().Get([]byte(strings.Join([]string{"objects", class, tenant, id.String()}, "/")))
@@ -557,19 +559,12 @@ func (db *DB) Object(ctx context.Context, class string, id strfmt.UUID, props se
 		return nil, err
 	}
 
-	obj := &models.Object{}
+	obj := &NetObject{}
 	if err := json.Unmarshal(objData, obj); err != nil {
 		return nil, err
 	}
 
-	result := &search.Result{
-		ClassName: class,
-		ID:        obj.ID,
-		Vector:    obj.Vector,
-		Vectors:   obj.Vectors,
-		Created:   obj.CreationTimeUnix,
-		Updated:   obj.LastUpdateTimeUnix,
-	}
+	result := NetObjectToResultObject(obj)
 	return result, nil
 }
 func (db *DB) EnrichRefsForSingle(ctx context.Context, obj *search.Result) {
