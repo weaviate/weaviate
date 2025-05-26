@@ -2570,6 +2570,9 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 					i.shardTransferMutex.RLockGuard(func() error {
 						defer release()
 						objs = shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
+						if len(objs) > 0 && objs[0].Err != nil {
+							return objs[0].Err
+						}
 						return nil
 					})
 				} else {
@@ -2606,8 +2609,13 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 		}
 	}
 	defer release()
-
-	return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
+	objs := shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
+	if len(objs) > 0 && objs[0].Err != nil {
+		return objects.BatchSimpleObjects{
+			objects.BatchSimpleObject{Err: objs[0].Err},
+		}
+	}
+	return objs
 }
 
 func defaultConsistency(l ...replica.ConsistencyLevel) *additional.ReplicationProperties {
