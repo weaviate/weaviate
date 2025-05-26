@@ -48,12 +48,14 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 	}()
 
 	var releaseAdd, releaseDel func()
-	out.Deletions, releaseDel = bitmapBufPool.CloneToBuf(sn.Deletions())
+	// if pool was used, reuse it for additions (clone just deletions)
+	// if not, clone both additions and deletions
 	if poolUsed {
 		out.Additions, releaseAdd = sn.Additions(), release
 	} else {
 		out.Additions, releaseAdd = bitmapBufPool.CloneToBuf(sn.Additions())
 	}
+	out.Deletions, releaseDel = bitmapBufPool.CloneToBuf(sn.Deletions())
 	release = func() {
 		releaseAdd()
 		releaseDel()
@@ -80,24 +82,15 @@ func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, 
 		return err
 	}
 
-	// fmt.Printf("  ==> input add %v del %v\n\n", input.Additions == nil, input.Deletions == nil)
-
 	sn, _, release, err := s.segmentNodeFromBuffer(nodeOffset{node.Start, node.End}, bitmapBufPool)
 	if err != nil {
 		return err
 	}
-	// _ = release
 	defer release()
-
-	// fmt.Printf("  ==> sn add %v del %v\n\n", sn.Additions() == nil, sn.Deletions() == nil)
 
 	input.Additions.
 		AndNotConc(sn.Deletions(), concurrency.SROAR_MERGE).
 		OrConc(sn.Additions(), concurrency.SROAR_MERGE)
-
-	// input.Additions.
-	// 	AndNotConc(sn.Deletions(), concurrency.SROAR_MERGE).
-	// 	OrConc(sn.Additions(), concurrency.SROAR_MERGE)
 
 	return nil
 }

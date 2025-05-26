@@ -113,7 +113,7 @@ type sgConfig struct {
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
-	allocChecker memwatch.AllocChecker,
+	allocChecker memwatch.AllocChecker, bitmapBufPool roaringset.BitmapBufPool,
 ) (*SegmentGroup, error) {
 	list, err := os.ReadDir(cfg.dir)
 	if err != nil {
@@ -141,8 +141,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		lastCompactionCall:       now,
 		lastCleanupCall:          now,
 		MinMMapSize:              cfg.MinMMapSize,
-
-		bitmapBufPool: roaringset.NewDefaultMultiBitmapBufPool(),
+		bitmapBufPool:            bitmapBufPool,
 	}
 
 	segmentIndex := 0
@@ -668,11 +667,12 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, 
 	}
 
 	release = noopRelease
+	// use bigger buffer for first layer, to make space for further merges
+	// with following layers
 	bitmapBufPool := roaringset.NewBitmapBufPoolFactorWrapper(sg.bitmapBufPool, 1.5)
+
 	i := 0
-	// fmt.Printf("  ==> len [%d]\n", ln)
 	for ; i < ln; i++ {
-		fmt.Printf("  ==> checking i [%d]\n", i)
 		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
 		if err != nil {
 			if errors.Is(err, lsmkv.NotFound) {
@@ -680,7 +680,6 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, 
 			}
 			return nil, noopRelease, err
 		}
-		// fmt.Printf("  ==> found i [%d]\n", i)
 		out = append(out, layer)
 		release = layerRelease
 		i++
@@ -693,7 +692,6 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, 
 	}()
 
 	for ; i < ln; i++ {
-		fmt.Printf("  ==> merging i [%d]\n", i)
 		if err := segments[i].roaringSetMergeWith(key, out[0], sg.bitmapBufPool); err != nil {
 			return nil, noopRelease, err
 		}
