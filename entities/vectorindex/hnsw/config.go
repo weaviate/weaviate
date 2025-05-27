@@ -224,6 +224,10 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 		return uc, err
 	}
 
+	if err := parseRQMap(asMap, &uc.RQ); err != nil {
+		return uc, err
+	}
+
 	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "filterStrategy", func(v string) {
 		uc.FilterStrategy = v
 	}); err != nil {
@@ -270,6 +274,9 @@ func (u *UserConfig) validate() error {
 		enabled++
 	}
 	if u.SQ.Enabled {
+		enabled++
+	}
+	if u.RQ.Enabled {
 		enabled++
 	}
 	if enabled > 1 {

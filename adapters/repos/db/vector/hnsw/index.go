@@ -359,7 +359,6 @@ func New(cfg Config, uc ent.UserConfig,
 		index.cache = nil
 	}
 
-	uc.RQ.Enabled = true
 	if uc.RQ.Enabled {
 		var err error
 		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {

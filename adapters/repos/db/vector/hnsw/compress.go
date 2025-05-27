@@ -23,7 +23,7 @@ import (
 )
 
 func (h *hnsw) compress(cfg ent.UserConfig) error {
-	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled {
+	if !cfg.PQ.Enabled && !cfg.BQ.Enabled && !cfg.SQ.Enabled && !cfg.RQ.Enabled {
 		return nil
 	}
 	h.compressActionLock.Lock()
