@@ -178,7 +178,6 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 		require.Nil(t, err)
 	})
 
-	// A move op with replication factor = 1 becomes an effective copy op since the source replica cannot be removed below the replication factor.
 	// Ensure that the source shard is still there and the destination shard is there
 	t.Run("ensure target and source shards are still there", func(t *testing.T) {
 		verbose := verbosity.OutputVerbose
