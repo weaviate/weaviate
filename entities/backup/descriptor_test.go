@@ -30,9 +30,6 @@ func TestExcludeClasses(t *testing.T) {
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "a"}}}, xs: []string{"a"}, out: []string{}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}, {Name: "4"}}}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
 		{in: BackupDescriptor{Classes: []ClassDescriptor{{Name: "1"}, {Name: "2"}, {Name: "3"}}}, xs: []string{"1", "3"}, out: []string{"2"}},
-
-		// {in: []BackupDescriptor{"1", "2", "3", "4"}, xs: []string{"2", "3"}, out: []string{"1", "4"}},
-		// {in: []BackupDescriptor{"1", "2", "3"}, xs: []string{"1", "3"}, out: []string{"2"}},
 	}
 	for _, tc := range tests {
 		tc.in.Exclude(tc.xs)
@@ -289,14 +286,13 @@ func TestDistributedBackupExcludeClasses(t *testing.T) {
 		{
 			in: DistributedBackupDescriptor{
 				Nodes: map[string]*NodeDescriptor{
-					"N1": {Classes: []string{"1", "2"}},
-					"N2": {Classes: []string{"3", "4"}},
+					"N1": {Classes: []string{"1", "2", "20"}},
+					"N2": {Classes: []string{"3", "4", "a"}},
 				},
 			},
-			xs:  []string{"2", "3"},
-			out: []string{"1", "4"},
+			xs:  []string{"[a-zA-Z]", "\\d{2}"},
+			out: []string{"1", "2", "3", "4"},
 		},
-
 		{
 			in: DistributedBackupDescriptor{
 				Nodes: map[string]*NodeDescriptor{
@@ -349,14 +345,13 @@ func TestDistributedBackupIncludeClasses(t *testing.T) {
 		{
 			in: DistributedBackupDescriptor{
 				Nodes: map[string]*NodeDescriptor{
-					"N1": {Classes: []string{"1", "2"}},
-					"N2": {Classes: []string{"3", "4"}},
+					"N1": {Classes: []string{"1", "2", "a"}},
+					"N2": {Classes: []string{"3", "4", "20", "30"}},
 				},
 			},
-			xs:  []string{"2", "3"},
-			out: []string{"2", "3"},
+			xs:  []string{"[a-zA-Z]", "\\d{2}"},
+			out: []string{"20", "30", "a"},
 		},
-
 		{
 			in: DistributedBackupDescriptor{
 				Nodes: map[string]*NodeDescriptor{
