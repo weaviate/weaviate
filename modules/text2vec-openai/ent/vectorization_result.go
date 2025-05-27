@@ -40,8 +40,8 @@ func GetRateLimitsFromHeader(l *logrusext.Sampler, header http.Header, isAzure b
 
 	// azure returns 0 as limit, make sure this does not block anything by setting a high value
 	if isAzure {
-		limitTokens = dummyLimit
 		limitRequests = dummyLimit
+		remainingRequests = dummyLimit
 	}
 
 	updateWithMissingValues := false
