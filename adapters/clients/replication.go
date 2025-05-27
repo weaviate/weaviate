@@ -77,7 +77,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*30, req, body, &resp, numRetries)
+	err = c.do(c.timeoutUnit*90, req, body, &resp, numRetries)
 	return resp, err
 }
 
@@ -101,7 +101,7 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 	}
 
 	var resp replica.DigestObjectsInRangeResp
-	err = c.do(c.timeoutUnit*30, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*90, req, body, &resp, 9)
 	return resp.Digests, err
 }
 
@@ -158,7 +158,7 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	}
 
 	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
-	err = c.doCustomUnmarshal(c.timeoutUnit*90, req, nil, resp.UnmarshalBinary, 9)
+	err = c.doCustomUnmarshal(c.timeoutUnit*30, req, nil, resp.UnmarshalBinary, 9)
 	return resp, err
 }
 
