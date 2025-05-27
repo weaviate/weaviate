@@ -14,7 +14,6 @@ package replica
 import (
 	"context"
 	"fmt"
-	"strings"
 	"sync"
 	"time"
 
@@ -103,35 +102,6 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 				g := func() {
 					defer wg.Done()
 					err := op(ctx, replica, c.TxID)
-					if isNetworkError(err) {
-						backoffConfig := backoff.NewExponentialBackOff()
-						backoffConfig.InitialInterval = time.Second * 1
-						backoffConfig.MaxInterval = time.Second * 15
-						backoffConfig.Multiplier = 2.0
-						backoffConfig.MaxElapsedTime = time.Second * 60 * 3
-
-						err = backoff.Retry(func() error {
-							c.log.WithFields(logrus.Fields{
-								"op":      "broadcast",
-								"replica": replica,
-								"error":   err,
-								"tx_id":   c.TxID,
-								"shard":   c.Shard,
-								"class":   c.Class,
-							}).Debug("retrying broadcast after network error")
-							return op(ctx, replica, c.TxID)
-						}, backoff.WithContext(backoffConfig, ctx))
-					}
-					if err != nil {
-						c.log.WithFields(logrus.Fields{
-							"op":      "broadcast",
-							"replica": replica,
-							"error":   err,
-							"tx_id":   c.TxID,
-							"shard":   c.Shard,
-							"class":   c.Class,
-						}).Error("broadcast operation failed after retries")
-					}
 					resChan <- _Result[string]{replica, err}
 				}
 				enterrors.GoWrapper(g, c.log)
@@ -217,11 +187,6 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	level := state.Level
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
 	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 180*time.Second)
-	c.log.WithFields(logrus.Fields{
-		"action":   "coordinator_push",
-		"duration": 20 * time.Second,
-		"level":    level,
-	}).Debug("context.WithTimeout")
 	nodeCh := c.broadcast(ctxWithTimeout, state.Hosts, ask, level)
 	return c.commitAll(context.Background(), nodeCh, com), level, nil
 }
@@ -332,21 +297,4 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 type hostRetry struct {
 	host           string
 	currentBackOff backoff.BackOff
-}
-
-// isNetworkError checks if the error is a network-related error that should be retried
-func isNetworkError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "connection refused") ||
-		strings.Contains(errStr, "no route to host") ||
-		strings.Contains(errStr, "network is unreachable") ||
-		strings.Contains(errStr, "connection reset by peer") ||
-		strings.Contains(errStr, "broken pipe") ||
-		strings.Contains(errStr, "connection reset") ||
-		strings.Contains(errStr, "i/o timeout") ||
-		strings.Contains(errStr, "connection timed out") ||
-		strings.Contains(errStr, "EOF")
 }

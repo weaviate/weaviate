@@ -124,7 +124,7 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 			backoff.NewExponentialBackOff(
 				backoff.WithInitialInterval(r.minBackOff),
 				backoff.WithMaxInterval(r.maxBackOff),
-				backoff.WithMultiplier(1.1),
+				backoff.WithMultiplier(1.5),
 			),
 			uint64(n)), ctx))
 }
