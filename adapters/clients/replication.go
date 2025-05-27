@@ -77,7 +77,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*90, req, body, &resp, numRetries)
+	err = c.do(c.timeoutUnit*180, req, body, &resp, numRetries)
 	return resp, err
 }
 
