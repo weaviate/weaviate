@@ -1578,16 +1578,15 @@ func (c clientWithAuth) RoundTrip(r *http.Request) (*http.Response, error) {
 }
 
 func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
+	// TODO: the client config should be configurable based on the cluster size
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			Timeout:   30 * time.Second,
 			KeepAlive: 15 * time.Second, // More frequent keepalive to detect pod terminations faster
 		}).DialContext,
-		// TODO: MaxIdleConns* shall be configurable and relate to the number of nodes in the cluster
-		MaxIdleConnsPerHost:   10,  // formula MaxIdleConns / (number_of_nodes * 2)
-		MaxIdleConns:          200, // 200 / (10 * 2) = 10 connections per node
-		MaxConnsPerHost:       20,  //  Double of MaxIdleConnsPerHost for headroom
+		MaxIdleConnsPerHost:   100,
+		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
