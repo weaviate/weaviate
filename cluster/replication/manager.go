@@ -351,16 +351,6 @@ func (m *Manager) DeleteAllReplications(c *cmd.ApplyRequest) error {
 	return m.replicationFSM.DeleteAllReplications(req)
 }
 
-func (m *Manager) PurgeReplications(c *cmd.ApplyRequest) error {
-	req := &cmd.ReplicationPurgeRequest{}
-	if err := json.Unmarshal(c.SubCommand, req); err != nil {
-		return fmt.Errorf("%w: %w", ErrBadRequest, err)
-	}
-
-	// Trigger deletion of all replication operation in the FSM
-	return m.replicationFSM.PurgeReplications(req)
-}
-
 func (m *Manager) RemoveReplicaOp(c *cmd.ApplyRequest) error {
 	req := &cmd.ReplicationRemoveOpRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {

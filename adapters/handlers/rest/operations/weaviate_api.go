@@ -257,9 +257,6 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ObjectsObjectsValidateHandler: objects.ObjectsValidateHandlerFunc(func(params objects.ObjectsValidateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation objects.ObjectsValidate has not yet been implemented")
 		}),
-		ReplicationPurgeReplicationsHandler: replication.PurgeReplicationsHandlerFunc(func(params replication.PurgeReplicationsParams, principal *models.Principal) middleware.Responder {
-			return middleware.NotImplemented("operation replication.PurgeReplications has not yet been implemented")
-		}),
 		AuthzRemovePermissionsHandler: authz.RemovePermissionsHandlerFunc(func(params authz.RemovePermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.RemovePermissions has not yet been implemented")
 		}),
@@ -520,8 +517,6 @@ type WeaviateAPI struct {
 	ObjectsObjectsUpdateHandler objects.ObjectsUpdateHandler
 	// ObjectsObjectsValidateHandler sets the operation handler for the objects validate operation
 	ObjectsObjectsValidateHandler objects.ObjectsValidateHandler
-	// ReplicationPurgeReplicationsHandler sets the operation handler for the purge replications operation
-	ReplicationPurgeReplicationsHandler replication.PurgeReplicationsHandler
 	// AuthzRemovePermissionsHandler sets the operation handler for the remove permissions operation
 	AuthzRemovePermissionsHandler authz.RemovePermissionsHandler
 	// ReplicationReplicateHandler sets the operation handler for the replicate operation
@@ -837,9 +832,6 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ObjectsObjectsValidateHandler == nil {
 		unregistered = append(unregistered, "objects.ObjectsValidateHandler")
-	}
-	if o.ReplicationPurgeReplicationsHandler == nil {
-		unregistered = append(unregistered, "replication.PurgeReplicationsHandler")
 	}
 	if o.AuthzRemovePermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.RemovePermissionsHandler")
@@ -1258,10 +1250,6 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/objects/validate"] = objects.NewObjectsValidate(o.context, o.ObjectsObjectsValidateHandler)
-	if o.handlers["POST"] == nil {
-		o.handlers["POST"] = make(map[string]http.Handler)
-	}
-	o.handlers["POST"]["/replication/replicate/purge"] = replication.NewPurgeReplications(o.context, o.ReplicationPurgeReplicationsHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

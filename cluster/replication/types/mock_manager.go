@@ -564,52 +564,6 @@ func (_c *MockManager_GetReplicationDetailsByTargetNode_Call) RunAndReturn(run f
 	return _c
 }
 
-// PurgeReplications provides a mock function with given fields: ctx
-func (_m *MockManager) PurgeReplications(ctx context.Context) error {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for PurgeReplications")
-	}
-
-	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context) error); ok {
-		r0 = rf(ctx)
-	} else {
-		r0 = ret.Error(0)
-	}
-
-	return r0
-}
-
-// MockManager_PurgeReplications_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'PurgeReplications'
-type MockManager_PurgeReplications_Call struct {
-	*mock.Call
-}
-
-// PurgeReplications is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockManager_Expecter) PurgeReplications(ctx interface{}) *MockManager_PurgeReplications_Call {
-	return &MockManager_PurgeReplications_Call{Call: _e.mock.On("PurgeReplications", ctx)}
-}
-
-func (_c *MockManager_PurgeReplications_Call) Run(run func(ctx context.Context)) *MockManager_PurgeReplications_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *MockManager_PurgeReplications_Call) Return(_a0 error) *MockManager_PurgeReplications_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockManager_PurgeReplications_Call) RunAndReturn(run func(context.Context) error) *MockManager_PurgeReplications_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // QueryShardingStateByCollection provides a mock function with given fields: ctx, collection
 func (_m *MockManager) QueryShardingStateByCollection(ctx context.Context, collection string) (api.ShardingState, error) {
 	ret := _m.Called(ctx, collection)

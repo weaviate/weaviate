@@ -246,16 +246,6 @@ func (s *ShardReplicationFSM) DeleteAllReplications(c *api.ReplicationDeleteAllR
 	return nil
 }
 
-func (s *ShardReplicationFSM) PurgeReplications(c *api.ReplicationPurgeRequest) error {
-	s.opsLock.Lock()
-	defer s.opsLock.Unlock()
-
-	for id := range s.statusById {
-		s.removeReplicationOp(id)
-	}
-	return nil
-}
-
 func (s *ShardReplicationFSM) RemoveReplicationOp(c *api.ReplicationRemoveOpRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()

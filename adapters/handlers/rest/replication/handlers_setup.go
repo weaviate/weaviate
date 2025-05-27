@@ -41,7 +41,6 @@ func SetupHandlers(api *operations.WeaviateAPI, replicationManager replicationTy
 	api.ReplicationCancelReplicationHandler = replication.CancelReplicationHandlerFunc(h.cancelReplication)
 	api.ReplicationDeleteReplicationHandler = replication.DeleteReplicationHandlerFunc(h.deleteReplication)
 	api.ReplicationDeleteAllReplicationsHandler = replication.DeleteAllReplicationsHandlerFunc(h.deleteAllReplications)
-	api.ReplicationPurgeReplicationsHandler = replication.PurgeReplicationsHandlerFunc(h.purgeReplications)
 
 	// Sharding state query handlers
 	api.ReplicationGetCollectionShardingStateHandler = replication.GetCollectionShardingStateHandlerFunc(h.getCollectionShardingState)

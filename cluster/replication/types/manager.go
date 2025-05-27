@@ -115,10 +115,4 @@ type Manager interface {
 	// Returns:
 	//   - error: any error explaining why cancelling the replication operation failed.
 	DeleteAllReplications(ctx context.Context) error
-	// PurgeReplications removes all replication operation from the FSM as fast as possible.
-	// It does not attempt to move them to the CANCELLED state first instead ending the op removing them from the FSM immediately.
-	//
-	// Returns:
-	//   - error: any error explaining why cancelling the replication operation failed.
-	PurgeReplications(ctx context.Context) error
 }

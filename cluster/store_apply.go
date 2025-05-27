@@ -297,10 +297,6 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.replicationManager.DeleteAllReplications(&cmd)
 		}
-	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_PURGE:
-		f = func() {
-			ret.Error = st.replicationManager.PurgeReplications(&cmd)
-		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE:
 		f = func() {
 			ret.Error = st.replicationManager.RemoveReplicaOp(&cmd)
