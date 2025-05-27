@@ -163,30 +163,43 @@ func (db *DB) localNodeBatchStats() *models.BatchStats {
 	return stats
 }
 
+// getShardsNodeStatus modifies the status slice to include the shard statuses.
+// If shardName is provided, it will only get the status of the specific shard.
+// Otherwise, it will get the status of all shards.
+// Return the total object count and the number of shards.
+// If an error occurs, it will return 0, 0 (doesn't return the error
+// to preserve backwards compatibility).
 func (i *Index) getShardsNodeStatus(ctx context.Context,
 	status *[]*models.NodeShardStatus, shardName string,
-) (totalCount, shardCount int64) {
+) (int64, int64) {
 	// if shardName is provided, get the status of the specific shard
 	if shardName != "" {
 		shard, release, err := i.GetShard(ctx, shardName)
 		if err != nil {
-			return
+			i.logger.Errorf("error while getting shard %s: %w", shardName, err)
+			return 0, 0
 		}
 		defer release()
 		shardStatus, err := i.getShardStatus(ctx, shard)
 		if err != nil {
-			return
+			i.logger.Errorf("error while getting shard status for shard %s: %w", shardName, err)
+			return 0, 0
 		}
 		*status = append(*status, &shardStatus)
 		return shardStatus.ObjectCount, 1
 	}
+
+	totalCount := int64(0)
+	shardCount := int64(0)
 	// if shardName is not provided, get the status of all shards
 	i.ForEachShard(func(name string, shard ShardLike) error {
 		if err := ctx.Err(); err != nil {
+			i.logger.Errorf("context error while getting shard status for shard %s: %w", shardName, err)
 			return err
 		}
 		shardStatus, err := i.getShardStatus(ctx, shard)
 		if err != nil {
+			i.logger.Errorf("error while getting shard status for shard %s: %w", shardName, err)
 			return err
 		}
 		*status = append(*status, &shardStatus)
@@ -194,7 +207,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		shardCount++
 		return nil
 	})
-	return
+	return totalCount, shardCount
 }
 
 func (i *Index) getShardStatus(ctx context.Context, shard ShardLike) (models.NodeShardStatus, error) {
