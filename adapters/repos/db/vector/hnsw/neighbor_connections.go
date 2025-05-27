@@ -139,7 +139,7 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 		return nil
 	}
 	connections := make([]uint64, n.graph.nodes[from].connections.LenAtLayer(uint8(level)))
-	copy(connections, n.graph.nodes[from].connections.GetLayer(uint8(level)))
+	n.graph.nodes[from].connections.CopyLayer(connections, uint8(level))
 	n.graph.nodes[from].Unlock()
 	n.graph.shardedNodeLocks.RUnlock(from)
 	for _, id := range connections {
@@ -208,7 +208,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		n.graph.pools.visitedListsLock.RUnlock()
 		n.node.Lock()
 		connections := make([]uint64, n.node.connections.LenAtLayer(uint8(level)))
-		copy(connections, n.node.connections.GetLayer(uint8(level)))
+		n.node.connections.CopyLayer(connections, uint8(level))
 		n.node.Unlock()
 		visited.Visit(n.node.id)
 		top := n.graph.efConstruction
