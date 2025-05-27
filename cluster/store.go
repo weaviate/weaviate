@@ -27,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/cluster/log"
@@ -833,17 +834,18 @@ func (st *Store) recoverSingleNode(force bool) error {
 	recoveryConfig.MetadataOnlyVoters = true
 	recoveryConfig.DB = nil
 	if err := raft.RecoverCluster(st.raftConfig(), &Store{
-		cfg:           recoveryConfig,
-		log:           st.log,
-		raftResolver:  st.raftResolver,
-		raftTransport: st.raftTransport,
-		applyTimeout:  st.applyTimeout,
-		snapshotStore: st.snapshotStore,
-		schemaManager: st.schemaManager,
-		authZManager:  st.authZManager,
-		logStore:      st.logStore,
-		logCache:      st.logCache,
-		metrics:       st.metrics,
+		cfg:            recoveryConfig,
+		log:            st.log,
+		raftResolver:   st.raftResolver,
+		raftTransport:  st.raftTransport,
+		applyTimeout:   st.applyTimeout,
+		snapshotStore:  st.snapshotStore,
+		schemaManager:  st.schemaManager,
+		authZManager:   st.authZManager,
+		dynUserManager: st.dynUserManager,
+		logStore:       st.logStore,
+		logCache:       st.logCache,
+		metrics:        st.metrics,
 	}, st.logCache,
 		st.logStore,
 		st.snapshotStore,
