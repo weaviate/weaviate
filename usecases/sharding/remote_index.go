@@ -13,26 +13,32 @@ package sharding
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"math/rand"
 	"sync"
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
+	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
+	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/objects"
 )
 
@@ -40,7 +46,9 @@ type RemoteIndex struct {
 	class        string
 	stateGetter  shardingStateGetter
 	client       RemoteIndexClient
+	grpcClient   RemoteIndexGRPCClient
 	nodeResolver nodeResolver
+	grpcEnabled  bool
 }
 
 type shardingStateGetter interface {
@@ -52,17 +60,22 @@ type shardingStateGetter interface {
 func NewRemoteIndex(className string,
 	stateGetter shardingStateGetter, nodeResolver nodeResolver,
 	client RemoteIndexClient,
+	grpcEnabled bool,
 ) *RemoteIndex {
 	return &RemoteIndex{
 		class:        className,
 		stateGetter:  stateGetter,
 		client:       client,
 		nodeResolver: nodeResolver,
+		grpcEnabled:  grpcEnabled,
 	}
 }
 
 type nodeResolver interface {
 	NodeHostname(nodeName string) (string, bool)
+}
+type RemoteIndexGRPCClient interface {
+	BatchObjects(ctx context.Context, in *pb.BatchObjectsRequest, opts ...grpc.CallOption) (*pb.BatchObjectsReply, error)
 }
 
 type RemoteIndexClient interface {
@@ -145,7 +158,60 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 			owner), len(objs))
 	}
 
-	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil, schemaVersion)
+	if !ri.grpcEnabled || ri.grpcClient != nil {
+		return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil, schemaVersion)
+	}
+
+	// Convert to protocol/v1 format
+	batchObjects := make([]*pb.BatchObject, len(objs))
+	for i, obj := range objs {
+		// Convert properties to structpb.Struct
+		props := &structpb.Struct{
+			Fields: make(map[string]*structpb.Value),
+		}
+		if propsMap, ok := obj.Properties().(map[string]interface{}); ok {
+			for k, v := range propsMap {
+				switch val := v.(type) {
+				case string:
+					props.Fields[k] = structpb.NewStringValue(val)
+				case float64:
+					props.Fields[k] = structpb.NewNumberValue(val)
+				case bool:
+					props.Fields[k] = structpb.NewBoolValue(val)
+				}
+			}
+		}
+
+		// Convert vector to bytes
+		vectorBytes, err := proto.Marshal(&pb.Vectors{
+			Name: "default",
+			VectorBytes: func() []byte {
+				buf := make([]byte, len(obj.Vector)*4)
+				for i, v := range obj.Vector {
+					binary.LittleEndian.PutUint32(buf[i*4:], math.Float32bits(v))
+				}
+				return buf
+			}(),
+			Type: pb.Vectors_VECTOR_TYPE_SINGLE_FP32,
+		})
+		if err != nil {
+			return duplicateErr(fmt.Errorf("failed to marshal vector: %w", err), len(objs))
+		}
+
+		batchObjects[i] = &pb.BatchObject{
+			Uuid:       string(obj.ID()),
+			Collection: string(obj.Class()),
+			Properties: &pb.BatchObject_Properties{
+				NonRefProperties: props,
+			},
+			VectorBytes: vectorBytes,
+		}
+	}
+	_, err = ri.grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{
+		Objects: batchObjects,
+	})
+
+	return duplicateErr(fmt.Errorf("failed to put objects via gRPC: %w", err), len(objs))
 }
 
 func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,

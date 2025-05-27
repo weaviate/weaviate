@@ -27,10 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-
-	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
-
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	armonmetrics "github.com/armon/go-metrics"
 	armonprometheus "github.com/armon/go-metrics/prometheus"
@@ -49,8 +45,10 @@ import (
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
+	grpcHandler "github.com/weaviate/weaviate/adapters/handlers/grpc"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
@@ -123,6 +121,7 @@ import (
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
@@ -367,7 +366,20 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	// TODO: configure http transport for efficient intra-cluster comm
+	// mooga
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
+	// TODO: pass here the grpc client satisfy the remoteIndex interface
+	// remoteIndexGRPCClient, err := internalgrpc.NewIndicesClient("") // TODO pass here the grpc config
+	// if err != nil {
+	// 	appState.Logger.WithError(err).Fatal("failed to create grpc client")
+	// }
+
+	conn, err := grpcHandler.CreateGrpcConnectionClient(fmt.Sprintf(":%d", appState.ServerConfig.Config.GRPC.Port))
+	if err != nil {
+		appState.Logger.WithError(err).Fatal("failed to create grpc client")
+	}
+	grpcClient := grpcHandler.CreateGrpcWeaviateClient(conn)
+
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
 	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
 	repo, err := db.New(appState.Logger, db.Config{
@@ -401,6 +413,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
+		EnableInternalGRPC:                  appState.ServerConfig.Config.EnableInternalGRPC,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
 		// with factor=1 before the change was introduced. Now their setup would no
@@ -412,7 +425,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			AsyncReplicationDisabled: appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
 		},
 		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
+	}, remoteIndexClient, grpcClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -564,6 +577,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		schemaManager, repo, appState.Modules)
 	appState.BackupManager = backupManager
 
+	// TODO mooga start grpc server
+	// indicesServer := internalgrpc.NewIndicesServer(appState)
+	// grpcAddr := fmt.Sprintf(":%d", appState.ServerConfig.Config.GRPC.Port)
+	// enterrors.GoWrapper(func() { indicesServer.StartServer() }, appState.Logger)
 	enterrors.GoWrapper(func() { clusterapi.Serve(appState) }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
