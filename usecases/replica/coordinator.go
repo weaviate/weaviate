@@ -186,7 +186,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	}
 	level := state.Level
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 180*time.Second) // match base timeout
+	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 180*time.Second) // increased to 180s to handle rollout scenarios
 	nodeCh := c.broadcast(ctxWithTimeout, state.Hosts, ask, level)
 	return c.commitAll(ctxWithTimeout, nodeCh, com), level, nil
 }
