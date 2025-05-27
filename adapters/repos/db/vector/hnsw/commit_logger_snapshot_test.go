@@ -415,7 +415,7 @@ func TestCreateAndLoadSnapshot(t *testing.T) {
 }
 
 func TestCreateSnapshot_NextOne(t *testing.T) {
-	s1982 := 1200 // commitlog of size 1200 makes snapshot of size 2008
+	s1982 := 1200 // commitlog of size 1200 makes snapshot of size s1982
 
 	tests := []struct {
 		name                string
@@ -512,8 +512,8 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "too small delta size (required 125%)",
-			setup:               []any{"1000.condensed", s1982, "1001", 2490},
-			delta:               []any{"1002", 1200},
+			setup:               []any{"1000.condensed", s1982, "1001", 1500},
+			delta:               []any{"1002", 1100},
 			deltaSizePercentage: 125,
 			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
 			expectedCreated:     false,
@@ -521,7 +521,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 		{
 			name:                "too small delta size, multiple files (required 125%)",
 			setup:               []any{"1000.condensed", s1982, "1001", 820},
-			delta:               []any{"1002.condensed", 820, "1003.condensed", 820, "1004", 1200},
+			delta:               []any{"1002.condensed", 820, "1003.condensed", 750, "1004", 1200},
 			deltaSizePercentage: 125,
 			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
 			expectedCreated:     false,
