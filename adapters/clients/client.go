@@ -100,7 +100,7 @@ type retryer struct {
 func newRetryer() *retryer {
 	return &retryer{
 		minBackOff:  time.Millisecond * 250,
-		maxBackOff:  time.Second * 10,
+		maxBackOff:  time.Second * 30,
 		timeoutUnit: time.Second,
 	}
 }
