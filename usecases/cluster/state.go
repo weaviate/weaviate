@@ -71,7 +71,8 @@ type Config struct {
 	// bool because it allows us to set the same config/env vars on all nodes to put a subset of
 	// them in maintenance mode. In addition, we may want to have the cluster nodes not in
 	// maintenance mode be aware of which nodes are in maintenance mode in the future.
-	MaintenanceNodes []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
+	MaintenanceNodes    []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
+	RaftBootstrapExpect int
 }
 
 type AuthConfig struct {
@@ -87,7 +88,8 @@ func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
 }
 
-func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
+func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
+	userConfig.RaftBootstrapExpect = raftBootstrapExpect
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
@@ -155,6 +157,7 @@ func Init(userConfig Config, dataPath string, nonStorageNodes map[string]struct{
 			}
 		}
 	}
+
 	return &state, nil
 }
 
@@ -305,6 +308,33 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 func (s *State) NodeAddress(id string) string {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
+
+	// network interruption detection which can cause a single node to be isolated from the cluster (split brain)
+	nodeCount := s.list.NumMembers()
+	var joinAddr []string
+	if s.config.Join != "" {
+		joinAddr = strings.Split(s.config.Join, ",")
+	}
+	if nodeCount == 1 && len(joinAddr) > 0 && s.config.RaftBootstrapExpect > 1 {
+		s.delegate.log.WithFields(logrus.Fields{
+			"action":     "memberlist_rejoin",
+			"node_count": nodeCount,
+		}).Warn("detected single node split-brain, attempting to rejoin memberlist cluster")
+		// Only attempt rejoin if we're supposed to be part of a larger cluster
+		_, err := s.list.Join(joinAddr)
+		if err != nil {
+			s.delegate.log.WithFields(logrus.Fields{
+				"action":          "memberlist_rejoin",
+				"remote_hostname": joinAddr,
+			}).WithError(err).Error("memberlist rejoin not successful")
+		} else {
+			s.delegate.log.WithFields(logrus.Fields{
+				"action":     "memberlist_rejoin",
+				"node_count": nodeCount,
+			}).Info("Successfully rejoined the memberlist cluster")
+		}
+	}
+
 	for _, mem := range s.list.Members() {
 		if mem.Name == id {
 			return mem.Addr.String()
