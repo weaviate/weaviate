@@ -67,6 +67,10 @@ func NewWithElements(elements [][]uint64) (*Connections, error) {
 	return c, nil
 }
 
+func (c *Connections) ClearBuff() {
+	c.buff = make([]byte, 16)
+}
+
 func (c *Connections) AddLayer() {
 	layers := c.Layers()
 	c.expandDataIfRequired(3)
