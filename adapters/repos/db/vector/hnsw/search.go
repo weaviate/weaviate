@@ -309,7 +309,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			} else {
 				connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(uint8(level))]
 			}
-			copy(connectionsReusable, candidateNode.connections.GetLayer(uint8(level)))
+			candidateNode.connections.CopyLayer(connectionsReusable, uint8(level))
 		} else {
 			connectionsReusable = sliceConnectionsReusable.Slice
 			pendingNextRound := slicePendingNextRound.Slice
@@ -319,7 +319,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			index := 0
 
 			pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
-			copy(pendingNextRound, candidateNode.connections.GetLayer(uint8(level)))
+			candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
 			hop := 1
 			maxHops := 2
 			for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
