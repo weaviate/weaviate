@@ -406,8 +406,8 @@ func (d *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 		return nil
 	}
 
-	res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(res.Nodes[id].connections.Layers())
-	return nil
+	res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(res.Nodes[id].level))
+	return err
 }
 
 func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationResult,
