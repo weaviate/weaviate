@@ -216,7 +216,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	}
 	level := state.Level
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 20*time.Second)
+	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 180*time.Second)
 	c.log.WithFields(logrus.Fields{
 		"action":   "coordinator_push",
 		"duration": 20 * time.Second,
