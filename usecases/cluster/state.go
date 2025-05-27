@@ -315,21 +315,20 @@ func (s *State) NodeAddress(id string) string {
 	if s.config.Join != "" {
 		joinAddr = strings.Split(s.config.Join, ",")
 	}
-	logger := s.delegate.log
 	if nodeCount == 1 && len(joinAddr) > 0 && s.config.RaftBootstrapExpect > 1 {
-		logger.WithFields(logrus.Fields{
+		s.delegate.log.WithFields(logrus.Fields{
 			"action":     "memberlist_rejoin",
 			"node_count": nodeCount,
 		}).Warn("detected single node split-brain, attempting to rejoin memberlist cluster")
 		// Only attempt rejoin if we're supposed to be part of a larger cluster
 		_, err := s.list.Join(joinAddr)
 		if err != nil {
-			logger.WithFields(logrus.Fields{
+			s.delegate.log.WithFields(logrus.Fields{
 				"action":          "memberlist_rejoin",
 				"remote_hostname": joinAddr,
 			}).WithError(err).Error("memberlist rejoin not successful")
 		} else {
-			logger.WithFields(logrus.Fields{
+			s.delegate.log.WithFields(logrus.Fields{
 				"action":     "memberlist_rejoin",
 				"node_count": nodeCount,
 			}).Info("Successfully rejoined the memberlist cluster")
