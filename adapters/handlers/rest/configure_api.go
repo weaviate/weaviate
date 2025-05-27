@@ -958,21 +958,11 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	if cfg := serverConfig.Config.Raft; cfg.MetadataOnlyVoters {
 		nonStorageNodes = parseVotersNames(cfg)
 	}
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, dataPath, nonStorageNodes, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.BootstrapExpect, dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
 		logger.Exit(1)
-	}
-
-	// In a multi-node cluster, periodically check for split-brain
-	if appState.ServerConfig.Config.Raft.BootstrapExpect > 1 {
-		go func() {
-			for {
-				time.Sleep(time.Minute)
-				clusterState.MaybeRejoinMemberlistCluster(logger)
-			}
-		}()
 	}
 
 	appState.Cluster = clusterState
