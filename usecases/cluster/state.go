@@ -71,7 +71,9 @@ type Config struct {
 	// bool because it allows us to set the same config/env vars on all nodes to put a subset of
 	// them in maintenance mode. In addition, we may want to have the cluster nodes not in
 	// maintenance mode be aware of which nodes are in maintenance mode in the future.
-	MaintenanceNodes    []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
+	MaintenanceNodes []string `json:"maintenanceNodes" yaml:"maintenanceNodes"`
+	// RaftBootstrapExpect is used to detect split-brain scenarios and attempt to rejoin the cluster
+	// TODO-RAFT-DB-63 : shall be removed once NodeAddress() is moved under raft cluster package
 	RaftBootstrapExpect int
 }
 
@@ -305,6 +307,7 @@ func (s *State) NodeHostname(nodeName string) (string, bool) {
 }
 
 // NodeAddress is used to resolve the node name into an ip address without the port
+// TODO-RAFT-DB-63 : shall be replaced by Members() which returns members in the list
 func (s *State) NodeAddress(id string) string {
 	s.listLock.RLock()
 	defer s.listLock.RUnlock()
