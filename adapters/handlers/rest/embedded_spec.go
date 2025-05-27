@@ -7374,6 +7374,11 @@ func init() {
           "description": "The name of the collection to which the shard being replicated belongs.",
           "type": "string"
         },
+        "dryRun": {
+          "description": "If true, the operation will not actually delete anything but will return the expected outcome of the deletion.",
+          "type": "boolean",
+          "default": false
+        },
         "id": {
           "description": "The unique identifier (ID) of the replication operation to be forcefully deleted.",
           "type": "string",
@@ -7393,13 +7398,17 @@ func init() {
       "description": "Provides the UUIDs that were successfully force deleted as part of the replication operation. If dryRun is true, this will return the expected outcome without actually deleting anything.",
       "type": "object",
       "properties": {
-        "ids": {
+        "deleted": {
           "description": "The unique identifiers (IDs) of the replication operations that were forcefully deleted.",
           "type": "array",
           "items": {
             "type": "string",
             "format": "uuid"
           }
+        },
+        "dryRun": {
+          "description": "Indicates whether the operation was a dry run (true) or an actual deletion (false).",
+          "type": "boolean"
         }
       }
     },
@@ -15936,6 +15945,11 @@ func init() {
           "description": "The name of the collection to which the shard being replicated belongs.",
           "type": "string"
         },
+        "dryRun": {
+          "description": "If true, the operation will not actually delete anything but will return the expected outcome of the deletion.",
+          "type": "boolean",
+          "default": false
+        },
         "id": {
           "description": "The unique identifier (ID) of the replication operation to be forcefully deleted.",
           "type": "string",
@@ -15955,13 +15969,17 @@ func init() {
       "description": "Provides the UUIDs that were successfully force deleted as part of the replication operation. If dryRun is true, this will return the expected outcome without actually deleting anything.",
       "type": "object",
       "properties": {
-        "ids": {
+        "deleted": {
           "description": "The unique identifiers (IDs) of the replication operations that were forcefully deleted.",
           "type": "array",
           "items": {
             "type": "string",
             "format": "uuid"
           }
+        },
+        "dryRun": {
+          "description": "Indicates whether the operation was a dry run (true) or an actual deletion (false).",
+          "type": "boolean"
         }
       }
     },

@@ -32,14 +32,17 @@ import (
 type ReplicationReplicateForceDeleteResponse struct {
 
 	// The unique identifiers (IDs) of the replication operations that were forcefully deleted.
-	Ids []strfmt.UUID `json:"ids"`
+	Deleted []strfmt.UUID `json:"deleted"`
+
+	// Indicates whether the operation was a dry run (true) or an actual deletion (false).
+	DryRun bool `json:"dryRun,omitempty"`
 }
 
 // Validate validates this replication replicate force delete response
 func (m *ReplicationReplicateForceDeleteResponse) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateIds(formats); err != nil {
+	if err := m.validateDeleted(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -49,14 +52,14 @@ func (m *ReplicationReplicateForceDeleteResponse) Validate(formats strfmt.Regist
 	return nil
 }
 
-func (m *ReplicationReplicateForceDeleteResponse) validateIds(formats strfmt.Registry) error {
-	if swag.IsZero(m.Ids) { // not required
+func (m *ReplicationReplicateForceDeleteResponse) validateDeleted(formats strfmt.Registry) error {
+	if swag.IsZero(m.Deleted) { // not required
 		return nil
 	}
 
-	for i := 0; i < len(m.Ids); i++ {
+	for i := 0; i < len(m.Deleted); i++ {
 
-		if err := validate.FormatOf("ids"+"."+strconv.Itoa(i), "body", "uuid", m.Ids[i].String(), formats); err != nil {
+		if err := validate.FormatOf("deleted"+"."+strconv.Itoa(i), "body", "uuid", m.Deleted[i].String(), formats); err != nil {
 			return err
 		}
 

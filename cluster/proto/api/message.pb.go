@@ -25,51 +25,47 @@ const (
 type ApplyRequest_Type int32
 
 const (
-	ApplyRequest_TYPE_UNSPECIFIED                                                ApplyRequest_Type = 0
-	ApplyRequest_TYPE_ADD_CLASS                                                  ApplyRequest_Type = 1
-	ApplyRequest_TYPE_UPDATE_CLASS                                               ApplyRequest_Type = 2
-	ApplyRequest_TYPE_DELETE_CLASS                                               ApplyRequest_Type = 3
-	ApplyRequest_TYPE_RESTORE_CLASS                                              ApplyRequest_Type = 4
-	ApplyRequest_TYPE_ADD_PROPERTY                                               ApplyRequest_Type = 5
-	ApplyRequest_TYPE_UPDATE_SHARD_STATUS                                        ApplyRequest_Type = 10
-	ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD                                       ApplyRequest_Type = 11
-	ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD                                  ApplyRequest_Type = 12
-	ApplyRequest_TYPE_ADD_TENANT                                                 ApplyRequest_Type = 16
-	ApplyRequest_TYPE_UPDATE_TENANT                                              ApplyRequest_Type = 17
-	ApplyRequest_TYPE_DELETE_TENANT                                              ApplyRequest_Type = 18
-	ApplyRequest_TYPE_TENANT_PROCESS                                             ApplyRequest_Type = 19
-	ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS                                   ApplyRequest_Type = 60
-	ApplyRequest_TYPE_DELETE_ROLES                                               ApplyRequest_Type = 61
-	ApplyRequest_TYPE_REMOVE_PERMISSIONS                                         ApplyRequest_Type = 62
-	ApplyRequest_TYPE_ADD_ROLES_FOR_USER                                         ApplyRequest_Type = 63
-	ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER                                      ApplyRequest_Type = 64
-	ApplyRequest_TYPE_UPSERT_USER                                                ApplyRequest_Type = 80
-	ApplyRequest_TYPE_DELETE_USER                                                ApplyRequest_Type = 81
-	ApplyRequest_TYPE_ROTATE_USER_API_KEY                                        ApplyRequest_Type = 82
-	ApplyRequest_TYPE_SUSPEND_USER                                               ApplyRequest_Type = 83
-	ApplyRequest_TYPE_ACTIVATE_USER                                              ApplyRequest_Type = 84
-	ApplyRequest_TYPE_STORE_SCHEMA_V1                                            ApplyRequest_Type = 99
-	ApplyRequest_TYPE_REPLICATION_REPLICATE                                      ApplyRequest_Type = 200
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE                         ApplyRequest_Type = 201
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR                       ApplyRequest_Type = 202
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL                               ApplyRequest_Type = 203
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE                               ApplyRequest_Type = 204
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE                               ApplyRequest_Type = 205
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE                ApplyRequest_Type = 206
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_ALL                           ApplyRequest_Type = 207
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION                 ApplyRequest_Type = 208
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS                    ApplyRequest_Type = 209
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD                           ApplyRequest_Type = 210
-	ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION                        ApplyRequest_Type = 211
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL                     ApplyRequest_Type = 220
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_ID                   ApplyRequest_Type = 221
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION           ApplyRequest_Type = 222
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD ApplyRequest_Type = 223
-	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE          ApplyRequest_Type = 224
-	ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD                                       ApplyRequest_Type = 300
-	ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL                                    ApplyRequest_Type = 301
-	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED                     ApplyRequest_Type = 302
-	ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP                                  ApplyRequest_Type = 303
+	ApplyRequest_TYPE_UNSPECIFIED                                 ApplyRequest_Type = 0
+	ApplyRequest_TYPE_ADD_CLASS                                   ApplyRequest_Type = 1
+	ApplyRequest_TYPE_UPDATE_CLASS                                ApplyRequest_Type = 2
+	ApplyRequest_TYPE_DELETE_CLASS                                ApplyRequest_Type = 3
+	ApplyRequest_TYPE_RESTORE_CLASS                               ApplyRequest_Type = 4
+	ApplyRequest_TYPE_ADD_PROPERTY                                ApplyRequest_Type = 5
+	ApplyRequest_TYPE_UPDATE_SHARD_STATUS                         ApplyRequest_Type = 10
+	ApplyRequest_TYPE_ADD_REPLICA_TO_SHARD                        ApplyRequest_Type = 11
+	ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD                   ApplyRequest_Type = 12
+	ApplyRequest_TYPE_ADD_TENANT                                  ApplyRequest_Type = 16
+	ApplyRequest_TYPE_UPDATE_TENANT                               ApplyRequest_Type = 17
+	ApplyRequest_TYPE_DELETE_TENANT                               ApplyRequest_Type = 18
+	ApplyRequest_TYPE_TENANT_PROCESS                              ApplyRequest_Type = 19
+	ApplyRequest_TYPE_UPSERT_ROLES_PERMISSIONS                    ApplyRequest_Type = 60
+	ApplyRequest_TYPE_DELETE_ROLES                                ApplyRequest_Type = 61
+	ApplyRequest_TYPE_REMOVE_PERMISSIONS                          ApplyRequest_Type = 62
+	ApplyRequest_TYPE_ADD_ROLES_FOR_USER                          ApplyRequest_Type = 63
+	ApplyRequest_TYPE_REVOKE_ROLES_FOR_USER                       ApplyRequest_Type = 64
+	ApplyRequest_TYPE_UPSERT_USER                                 ApplyRequest_Type = 80
+	ApplyRequest_TYPE_DELETE_USER                                 ApplyRequest_Type = 81
+	ApplyRequest_TYPE_ROTATE_USER_API_KEY                         ApplyRequest_Type = 82
+	ApplyRequest_TYPE_SUSPEND_USER                                ApplyRequest_Type = 83
+	ApplyRequest_TYPE_ACTIVATE_USER                               ApplyRequest_Type = 84
+	ApplyRequest_TYPE_STORE_SCHEMA_V1                             ApplyRequest_Type = 99
+	ApplyRequest_TYPE_REPLICATION_REPLICATE                       ApplyRequest_Type = 200
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE          ApplyRequest_Type = 201
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR        ApplyRequest_Type = 202
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL                ApplyRequest_Type = 203
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE                ApplyRequest_Type = 204
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE                ApplyRequest_Type = 205
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE ApplyRequest_Type = 206
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_ALL            ApplyRequest_Type = 207
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION  ApplyRequest_Type = 208
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS     ApplyRequest_Type = 209
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD            ApplyRequest_Type = 210
+	ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION         ApplyRequest_Type = 211
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS   ApplyRequest_Type = 212
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD                        ApplyRequest_Type = 300
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_CANCEL                     ApplyRequest_Type = 301
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED      ApplyRequest_Type = 302
+	ApplyRequest_TYPE_DISTRIBUTED_TASK_CLEAN_UP                   ApplyRequest_Type = 303
 )
 
 // Enum value maps for ApplyRequest_Type.
@@ -111,62 +107,54 @@ var (
 		209: "TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS",
 		210: "TYPE_REPLICATION_REPLICATE_SYNC_SHARD",
 		211: "TYPE_REPLICATION_REGISTER_SCHEMA_VERSION",
-		220: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL",
-		221: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_ID",
-		222: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION",
-		223: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD",
-		224: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE",
+		212: "TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS",
 		300: "TYPE_DISTRIBUTED_TASK_ADD",
 		301: "TYPE_DISTRIBUTED_TASK_CANCEL",
 		302: "TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED",
 		303: "TYPE_DISTRIBUTED_TASK_CLEAN_UP",
 	}
 	ApplyRequest_Type_value = map[string]int32{
-		"TYPE_UNSPECIFIED":                                                0,
-		"TYPE_ADD_CLASS":                                                  1,
-		"TYPE_UPDATE_CLASS":                                               2,
-		"TYPE_DELETE_CLASS":                                               3,
-		"TYPE_RESTORE_CLASS":                                              4,
-		"TYPE_ADD_PROPERTY":                                               5,
-		"TYPE_UPDATE_SHARD_STATUS":                                        10,
-		"TYPE_ADD_REPLICA_TO_SHARD":                                       11,
-		"TYPE_DELETE_REPLICA_FROM_SHARD":                                  12,
-		"TYPE_ADD_TENANT":                                                 16,
-		"TYPE_UPDATE_TENANT":                                              17,
-		"TYPE_DELETE_TENANT":                                              18,
-		"TYPE_TENANT_PROCESS":                                             19,
-		"TYPE_UPSERT_ROLES_PERMISSIONS":                                   60,
-		"TYPE_DELETE_ROLES":                                               61,
-		"TYPE_REMOVE_PERMISSIONS":                                         62,
-		"TYPE_ADD_ROLES_FOR_USER":                                         63,
-		"TYPE_REVOKE_ROLES_FOR_USER":                                      64,
-		"TYPE_UPSERT_USER":                                                80,
-		"TYPE_DELETE_USER":                                                81,
-		"TYPE_ROTATE_USER_API_KEY":                                        82,
-		"TYPE_SUSPEND_USER":                                               83,
-		"TYPE_ACTIVATE_USER":                                              84,
-		"TYPE_STORE_SCHEMA_V1":                                            99,
-		"TYPE_REPLICATION_REPLICATE":                                      200,
-		"TYPE_REPLICATION_REPLICATE_UPDATE_STATE":                         201,
-		"TYPE_REPLICATION_REPLICATE_REGISTER_ERROR":                       202,
-		"TYPE_REPLICATION_REPLICATE_CANCEL":                               203,
-		"TYPE_REPLICATION_REPLICATE_DELETE":                               204,
-		"TYPE_REPLICATION_REPLICATE_REMOVE":                               205,
-		"TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE":                206,
-		"TYPE_REPLICATION_REPLICATE_DELETE_ALL":                           207,
-		"TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION":                 208,
-		"TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS":                    209,
-		"TYPE_REPLICATION_REPLICATE_SYNC_SHARD":                           210,
-		"TYPE_REPLICATION_REGISTER_SCHEMA_VERSION":                        211,
-		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL":                     220,
-		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_ID":                   221,
-		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION":           222,
-		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD": 223,
-		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE":          224,
-		"TYPE_DISTRIBUTED_TASK_ADD":                                       300,
-		"TYPE_DISTRIBUTED_TASK_CANCEL":                                    301,
-		"TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED":                     302,
-		"TYPE_DISTRIBUTED_TASK_CLEAN_UP":                                  303,
+		"TYPE_UNSPECIFIED":                                 0,
+		"TYPE_ADD_CLASS":                                   1,
+		"TYPE_UPDATE_CLASS":                                2,
+		"TYPE_DELETE_CLASS":                                3,
+		"TYPE_RESTORE_CLASS":                               4,
+		"TYPE_ADD_PROPERTY":                                5,
+		"TYPE_UPDATE_SHARD_STATUS":                         10,
+		"TYPE_ADD_REPLICA_TO_SHARD":                        11,
+		"TYPE_DELETE_REPLICA_FROM_SHARD":                   12,
+		"TYPE_ADD_TENANT":                                  16,
+		"TYPE_UPDATE_TENANT":                               17,
+		"TYPE_DELETE_TENANT":                               18,
+		"TYPE_TENANT_PROCESS":                              19,
+		"TYPE_UPSERT_ROLES_PERMISSIONS":                    60,
+		"TYPE_DELETE_ROLES":                                61,
+		"TYPE_REMOVE_PERMISSIONS":                          62,
+		"TYPE_ADD_ROLES_FOR_USER":                          63,
+		"TYPE_REVOKE_ROLES_FOR_USER":                       64,
+		"TYPE_UPSERT_USER":                                 80,
+		"TYPE_DELETE_USER":                                 81,
+		"TYPE_ROTATE_USER_API_KEY":                         82,
+		"TYPE_SUSPEND_USER":                                83,
+		"TYPE_ACTIVATE_USER":                               84,
+		"TYPE_STORE_SCHEMA_V1":                             99,
+		"TYPE_REPLICATION_REPLICATE":                       200,
+		"TYPE_REPLICATION_REPLICATE_UPDATE_STATE":          201,
+		"TYPE_REPLICATION_REPLICATE_REGISTER_ERROR":        202,
+		"TYPE_REPLICATION_REPLICATE_CANCEL":                203,
+		"TYPE_REPLICATION_REPLICATE_DELETE":                204,
+		"TYPE_REPLICATION_REPLICATE_REMOVE":                205,
+		"TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE": 206,
+		"TYPE_REPLICATION_REPLICATE_DELETE_ALL":            207,
+		"TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION":  208,
+		"TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS":     209,
+		"TYPE_REPLICATION_REPLICATE_SYNC_SHARD":            210,
+		"TYPE_REPLICATION_REGISTER_SCHEMA_VERSION":         211,
+		"TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS":   212,
+		"TYPE_DISTRIBUTED_TASK_ADD":                        300,
+		"TYPE_DISTRIBUTED_TASK_CANCEL":                     301,
+		"TYPE_DISTRIBUTED_TASK_RECORD_NODE_COMPLETED":      302,
+		"TYPE_DISTRIBUTED_TASK_CLEAN_UP":                   303,
 	}
 )
 
@@ -1644,7 +1632,7 @@ var file_api_message_proto_rawDesc = []byte{
 	0x09, 0x52, 0x02, 0x69, 0x64, 0x12, 0x18, 0x0a, 0x07, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73,
 	0x18, 0x02, 0x20, 0x01, 0x28, 0x09, 0x52, 0x07, 0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x22,
 	0x14, 0x0a, 0x12, 0x4e, 0x6f, 0x74, 0x69, 0x66, 0x79, 0x50, 0x65, 0x65, 0x72, 0x52, 0x65, 0x73,
-	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0xf4, 0x0d, 0x0a, 0x0c, 0x41, 0x70, 0x70, 0x6c, 0x79, 0x52,
+	0x70, 0x6f, 0x6e, 0x73, 0x65, 0x22, 0x84, 0x0c, 0x0a, 0x0c, 0x41, 0x70, 0x70, 0x6c, 0x79, 0x52,
 	0x65, 0x71, 0x75, 0x65, 0x73, 0x74, 0x12, 0x40, 0x0a, 0x04, 0x74, 0x79, 0x70, 0x65, 0x18, 0x01,
 	0x20, 0x01, 0x28, 0x0e, 0x32, 0x2c, 0x2e, 0x77, 0x65, 0x61, 0x76, 0x69, 0x61, 0x74, 0x65, 0x2e,
 	0x69, 0x6e, 0x74, 0x65, 0x72, 0x6e, 0x61, 0x6c, 0x2e, 0x63, 0x6c, 0x75, 0x73, 0x74, 0x65, 0x72,
@@ -1654,7 +1642,7 @@ var file_api_message_proto_rawDesc = []byte{
 	0x0a, 0x07, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x18, 0x03, 0x20, 0x01, 0x28, 0x04, 0x52,
 	0x07, 0x76, 0x65, 0x72, 0x73, 0x69, 0x6f, 0x6e, 0x12, 0x1f, 0x0a, 0x0b, 0x73, 0x75, 0x62, 0x5f,
 	0x63, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x18, 0x04, 0x20, 0x01, 0x28, 0x0c, 0x52, 0x0a, 0x73,
-	0x75, 0x62, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x22, 0xd0, 0x0c, 0x0a, 0x04, 0x54, 0x79,
+	0x75, 0x62, 0x43, 0x6f, 0x6d, 0x6d, 0x61, 0x6e, 0x64, 0x22, 0xe0, 0x0a, 0x0a, 0x04, 0x54, 0x79,
 	0x70, 0x65, 0x12, 0x14, 0x0a, 0x10, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x55, 0x4e, 0x53, 0x50, 0x45,
 	0x43, 0x49, 0x46, 0x49, 0x45, 0x44, 0x10, 0x00, 0x12, 0x12, 0x0a, 0x0e, 0x54, 0x59, 0x50, 0x45,
 	0x5f, 0x41, 0x44, 0x44, 0x5f, 0x43, 0x4c, 0x41, 0x53, 0x53, 0x10, 0x01, 0x12, 0x15, 0x0a, 0x11,
@@ -1727,26 +1715,11 @@ var file_api_message_proto_rawDesc = []byte{
 	0x5f, 0x53, 0x59, 0x4e, 0x43, 0x5f, 0x53, 0x48, 0x41, 0x52, 0x44, 0x10, 0xd2, 0x01, 0x12, 0x2d,
 	0x0a, 0x28, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x49,
 	0x4f, 0x4e, 0x5f, 0x52, 0x45, 0x47, 0x49, 0x53, 0x54, 0x45, 0x52, 0x5f, 0x53, 0x43, 0x48, 0x45,
-	0x4d, 0x41, 0x5f, 0x56, 0x45, 0x52, 0x53, 0x49, 0x4f, 0x4e, 0x10, 0xd3, 0x01, 0x12, 0x30, 0x0a,
-	0x2b, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x49, 0x4f,
+	0x4d, 0x41, 0x5f, 0x56, 0x45, 0x52, 0x53, 0x49, 0x4f, 0x4e, 0x10, 0xd3, 0x01, 0x12, 0x33, 0x0a,
+	0x2e, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x49, 0x4f,
 	0x4e, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x45, 0x5f, 0x46, 0x4f, 0x52, 0x43,
-	0x45, 0x5f, 0x44, 0x45, 0x4c, 0x45, 0x54, 0x45, 0x5f, 0x41, 0x4c, 0x4c, 0x10, 0xdc, 0x01, 0x12,
-	0x32, 0x0a, 0x2d, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54,
-	0x49, 0x4f, 0x4e, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x45, 0x5f, 0x46, 0x4f,
-	0x52, 0x43, 0x45, 0x5f, 0x44, 0x45, 0x4c, 0x45, 0x54, 0x45, 0x5f, 0x42, 0x59, 0x5f, 0x49, 0x44,
-	0x10, 0xdd, 0x01, 0x12, 0x3a, 0x0a, 0x35, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c,
-	0x49, 0x43, 0x41, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54,
-	0x45, 0x5f, 0x46, 0x4f, 0x52, 0x43, 0x45, 0x5f, 0x44, 0x45, 0x4c, 0x45, 0x54, 0x45, 0x5f, 0x42,
-	0x59, 0x5f, 0x43, 0x4f, 0x4c, 0x4c, 0x45, 0x43, 0x54, 0x49, 0x4f, 0x4e, 0x10, 0xde, 0x01, 0x12,
-	0x44, 0x0a, 0x3f, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54,
-	0x49, 0x4f, 0x4e, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x45, 0x5f, 0x46, 0x4f,
-	0x52, 0x43, 0x45, 0x5f, 0x44, 0x45, 0x4c, 0x45, 0x54, 0x45, 0x5f, 0x42, 0x59, 0x5f, 0x43, 0x4f,
-	0x4c, 0x4c, 0x45, 0x43, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x41, 0x4e, 0x44, 0x5f, 0x53, 0x48, 0x41,
-	0x52, 0x44, 0x10, 0xdf, 0x01, 0x12, 0x3b, 0x0a, 0x36, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x52, 0x45,
-	0x50, 0x4c, 0x49, 0x43, 0x41, 0x54, 0x49, 0x4f, 0x4e, 0x5f, 0x52, 0x45, 0x50, 0x4c, 0x49, 0x43,
-	0x41, 0x54, 0x45, 0x5f, 0x46, 0x4f, 0x52, 0x43, 0x45, 0x5f, 0x44, 0x45, 0x4c, 0x45, 0x54, 0x45,
-	0x5f, 0x42, 0x59, 0x5f, 0x54, 0x41, 0x52, 0x47, 0x45, 0x54, 0x5f, 0x4e, 0x4f, 0x44, 0x45, 0x10,
-	0xe0, 0x01, 0x12, 0x1e, 0x0a, 0x19, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x44, 0x49, 0x53, 0x54, 0x52,
+	0x45, 0x5f, 0x44, 0x45, 0x4c, 0x45, 0x54, 0x45, 0x5f, 0x42, 0x59, 0x5f, 0x49, 0x44, 0x53, 0x10,
+	0xd4, 0x01, 0x12, 0x1e, 0x0a, 0x19, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x44, 0x49, 0x53, 0x54, 0x52,
 	0x49, 0x42, 0x55, 0x54, 0x45, 0x44, 0x5f, 0x54, 0x41, 0x53, 0x4b, 0x5f, 0x41, 0x44, 0x44, 0x10,
 	0xac, 0x02, 0x12, 0x21, 0x0a, 0x1c, 0x54, 0x59, 0x50, 0x45, 0x5f, 0x44, 0x49, 0x53, 0x54, 0x52,
 	0x49, 0x42, 0x55, 0x54, 0x45, 0x44, 0x5f, 0x54, 0x41, 0x53, 0x4b, 0x5f, 0x43, 0x41, 0x4e, 0x43,

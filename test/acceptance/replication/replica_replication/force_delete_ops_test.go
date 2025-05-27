@@ -95,11 +95,13 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationForceDeleteOperations
 	})
 
 	t.Run("force delete all operations", func(t *testing.T) {
-		_, err := helper.Client(t).Replication.ForceDeleteReplications(
+		resp, err := helper.Client(t).Replication.ForceDeleteReplications(
 			replication.NewForceDeleteReplicationsParams(),
 			nil,
 		)
 		require.Nil(t, err, "failed to force delete all replication operations")
+		require.Len(t, resp.Payload.Deleted, howManyNodes, "there should be %d replication operations deleted", howManyNodes)
+		require.Equal(t, resp.Payload.DryRun, false, "dry run should be false, we are not in dry run mode")
 	})
 
 	t.Run("assert that there are no replication operations left", func(t *testing.T) {

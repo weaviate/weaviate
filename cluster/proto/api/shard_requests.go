@@ -178,21 +178,6 @@ type ReplicationStoreSchemaVersionRequest struct {
 	Id            uint64
 }
 
-type ReplicationForceDeleteAllRequest struct{}
-
-type ReplicationForceDeleteByReplicationIdRequest struct {
-	Uuid strfmt.UUID
-}
-
-type ReplicationForceDeleteByCollectionRequest struct {
-	Collection string
-}
-
-type ReplicationForceDeleteByCollectionAndShardRequest struct {
-	Collection string
-	Shard      string
-}
-
-type ReplicationForceDeleteByTargetNodeRequest struct {
-	Node string
+type ReplicationForceDeleteRequest struct {
+	Uuids []strfmt.UUID
 }
