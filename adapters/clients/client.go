@@ -99,8 +99,8 @@ type retryer struct {
 
 func newRetryer() *retryer {
 	return &retryer{
-		minBackOff:  time.Millisecond * 100, // Start with 25ms for very fast initial retries
-		maxBackOff:  time.Second * 5,        // Cap at 5s to fail faster
+		minBackOff:  time.Millisecond * 250,
+		maxBackOff:  time.Second * 10,
 		timeoutUnit: time.Second,
 	}
 }
@@ -139,5 +139,9 @@ func isNetworkError(err error) bool {
 		strings.Contains(errStr, "no route to host") ||
 		strings.Contains(errStr, "network is unreachable") ||
 		strings.Contains(errStr, "connection reset by peer") ||
-		strings.Contains(errStr, "broken pipe")
+		strings.Contains(errStr, "broken pipe") ||
+		strings.Contains(errStr, "connection reset") ||
+		strings.Contains(errStr, "i/o timeout") ||
+		strings.Contains(errStr, "connection timed out") ||
+		strings.Contains(errStr, "EOF")
 }
