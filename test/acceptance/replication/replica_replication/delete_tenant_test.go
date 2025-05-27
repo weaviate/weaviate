@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replica_replication
+package replication
 
 import (
 	"fmt"
