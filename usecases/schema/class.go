@@ -207,6 +207,10 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	shardingState.MigrateFromOldFormat()
+	err = shardingState.MigrateShardingStateReplicationFactor()
+	if err != nil {
+		return fmt.Errorf("error while migrating replication factor: %w", err)
+	}
 	shardingState.ApplyNodeMapping(m)
 	_, err = h.schemaManager.RestoreClass(ctx, class, &shardingState)
 	return err

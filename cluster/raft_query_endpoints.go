@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"slices"
-	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/getsentry/sentry-go"
@@ -380,15 +379,13 @@ func (s *Raft) Query(ctx context.Context, req *cmd.QueryRequest) (*cmd.QueryResp
 	var leader string
 	if err := backoff.Retry(func() error {
 		if leader = s.store.Leader(); leader == "" {
-			err := s.leaderErr()
-			s.log.Warnf("query: could not find leader: %s", err)
-			return err
+			return s.leaderErr()
 		}
 
 		return nil
-	}, backoff.WithContext(backoff.WithMaxRetries(
-		backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx)); err != nil {
-		s.log.Errorf("query: failed to find leader after retries: %s", err)
+		// pass in the election timeout after applying multiplier
+	}, backoffConfig(ctx, s.store.raftConfig().ElectionTimeout)); err != nil {
+		s.log.Warnf("query: failed to find leader after retries: %s", err)
 		return &cmd.QueryResponse{}, err
 	}
 

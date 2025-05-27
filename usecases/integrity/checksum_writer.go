@@ -40,6 +40,13 @@ func NewCRC32Writer(w io.Writer) *CRC32Writer {
 	}
 }
 
+func NewCRC32WriterWithSeed(w io.Writer, seed uint32) *CRC32Writer {
+	return &CRC32Writer{
+		w:    w,
+		hash: NewCRC32Resumable(seed),
+	}
+}
+
 func (wc *CRC32Writer) Write(p []byte) (n int, err error) {
 	n, err = wc.w.Write(p)
 	wc.n += n

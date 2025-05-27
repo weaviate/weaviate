@@ -41,6 +41,8 @@ type Config struct {
 	WaitForCachePrefill       bool
 	FlatSearchConcurrency     int
 	AcornFilterRatio          float64
+	DisableSnapshots          bool
+	SnapshotOnStartup         bool
 
 	// metadata for monitoring
 	ShardName string

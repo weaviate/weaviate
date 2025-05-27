@@ -47,16 +47,16 @@ func TestUpdateRuntimeConfig(t *testing.T) {
 		)
 
 		reg := &WeaviateRuntimeConfig{
-			MaximumAllowedCollectionsCount:       &colCount,
-			AutoschemaEnabled:                    &autoSchema,
-			AsyncReplicationDisabled:             &asyncRep,
-			ReplicaMovementMinimumFinalizingWait: &minFinWait,
+			MaximumAllowedCollectionsCount:  &colCount,
+			AutoschemaEnabled:               &autoSchema,
+			AsyncReplicationDisabled:        &asyncRep,
+			ReplicaMovementMinimumAsyncWait: &minFinWait,
 		}
 
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
 maximum_allowed_collections_count: 13
-replica_movement_minimum_finalizing_wait: 10s`)
+REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT: 10s`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
@@ -86,16 +86,16 @@ replica_movement_minimum_finalizing_wait: 10s`)
 		)
 
 		reg := &WeaviateRuntimeConfig{
-			MaximumAllowedCollectionsCount:       &colCount,
-			AutoschemaEnabled:                    &autoSchema,
-			AsyncReplicationDisabled:             &asyncRep,
-			ReplicaMovementMinimumFinalizingWait: &minFinWait,
+			MaximumAllowedCollectionsCount:  &colCount,
+			AutoschemaEnabled:               &autoSchema,
+			AsyncReplicationDisabled:        &asyncRep,
+			ReplicaMovementMinimumAsyncWait: &minFinWait,
 		}
 
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
 maximum_allowed_collections_count: 13
-replica_movement_minimum_finalizing_wait: 10s`)
+REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT: 10s`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 

@@ -26,6 +26,10 @@ func (d *CosineDistance) Distance(b []float32) (float32, error) {
 	}
 
 	dist := 1 - dotProductImplementation(d.a, b)
+
+	if dist < 0 {
+		return 0, nil
+	}
 	return dist, nil
 }
 
@@ -43,6 +47,9 @@ func (d CosineDistanceProvider) SingleDist(a, b []float32) (float32, error) {
 
 	prod := 1 - dotProductImplementation(a, b)
 
+	if prod < 0 {
+		return 0, nil
+	}
 	return prod, nil
 }
 
@@ -64,5 +71,9 @@ func (d CosineDistanceProvider) Step(x, y []float32) float32 {
 }
 
 func (d CosineDistanceProvider) Wrap(x float32) float32 {
-	return 1 - x
+	w := 1 - x
+	if w < 0 {
+		return 0
+	}
+	return w
 }

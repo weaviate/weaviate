@@ -33,7 +33,7 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants]
+	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants create_replicate read_replicate update_replicate delete_replicate]
 	Action *string `json:"action"`
 
 	// backups
@@ -47,6 +47,9 @@ type Permission struct {
 
 	// nodes
 	Nodes *PermissionNodes `json:"nodes,omitempty"`
+
+	// replicate
+	Replicate *PermissionReplicate `json:"replicate,omitempty"`
 
 	// roles
 	Roles *PermissionRoles `json:"roles,omitempty"`
@@ -82,6 +85,10 @@ func (m *Permission) Validate(formats strfmt.Registry) error {
 		res = append(res, err)
 	}
 
+	if err := m.validateReplicate(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateRoles(formats); err != nil {
 		res = append(res, err)
 	}
@@ -104,7 +111,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_users","read_users","update_users","delete_users","create_tenants","read_tenants","update_tenants","delete_tenants"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_users","read_users","update_users","delete_users","create_tenants","read_tenants","update_tenants","delete_tenants","create_replicate","read_replicate","update_replicate","delete_replicate"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -185,6 +192,18 @@ const (
 
 	// PermissionActionDeleteTenants captures enum value "delete_tenants"
 	PermissionActionDeleteTenants string = "delete_tenants"
+
+	// PermissionActionCreateReplicate captures enum value "create_replicate"
+	PermissionActionCreateReplicate string = "create_replicate"
+
+	// PermissionActionReadReplicate captures enum value "read_replicate"
+	PermissionActionReadReplicate string = "read_replicate"
+
+	// PermissionActionUpdateReplicate captures enum value "update_replicate"
+	PermissionActionUpdateReplicate string = "update_replicate"
+
+	// PermissionActionDeleteReplicate captures enum value "delete_replicate"
+	PermissionActionDeleteReplicate string = "delete_replicate"
 )
 
 // prop value enum
@@ -285,6 +304,25 @@ func (m *Permission) validateNodes(formats strfmt.Registry) error {
 	return nil
 }
 
+func (m *Permission) validateReplicate(formats strfmt.Registry) error {
+	if swag.IsZero(m.Replicate) { // not required
+		return nil
+	}
+
+	if m.Replicate != nil {
+		if err := m.Replicate.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("replicate")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("replicate")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (m *Permission) validateRoles(formats strfmt.Registry) error {
 	if swag.IsZero(m.Roles) { // not required
 		return nil
@@ -362,6 +400,10 @@ func (m *Permission) ContextValidate(ctx context.Context, formats strfmt.Registr
 		res = append(res, err)
 	}
 
+	if err := m.contextValidateReplicate(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateRoles(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -436,6 +478,22 @@ func (m *Permission) contextValidateNodes(ctx context.Context, formats strfmt.Re
 				return ve.ValidateName("nodes")
 			} else if ce, ok := err.(*errors.CompositeError); ok {
 				return ce.ValidateName("nodes")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *Permission) contextValidateReplicate(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Replicate != nil {
+		if err := m.Replicate.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("replicate")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("replicate")
 			}
 			return err
 		}
@@ -712,6 +770,46 @@ func (m *PermissionNodes) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *PermissionNodes) UnmarshalBinary(b []byte) error {
 	var res PermissionNodes
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// PermissionReplicate resources applicable for replicate actions
+//
+// swagger:model PermissionReplicate
+type PermissionReplicate struct {
+
+	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	Collection *string `json:"collection,omitempty"`
+
+	// string or regex. if a specific shard name, if left empty it will be ALL or *
+	Shard *string `json:"shard,omitempty"`
+}
+
+// Validate validates this permission replicate
+func (m *PermissionReplicate) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this permission replicate based on context it is used
+func (m *PermissionReplicate) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *PermissionReplicate) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *PermissionReplicate) UnmarshalBinary(b []byte) error {
+	var res PermissionReplicate
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

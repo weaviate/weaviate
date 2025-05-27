@@ -73,7 +73,6 @@ type ReplicationRegisterErrorRequest struct {
 
 	Id    uint64
 	Error string
-	Uuid  strfmt.UUID
 }
 
 type ReplicationRegisterErrorResponse struct{}
@@ -163,4 +162,18 @@ type ReplicationQueryShardingStateByCollectionAndShardRequest struct {
 
 type ReplicationDeleteAllRequest struct {
 	Version int
+}
+
+type ReplicationOperationStateRequest struct {
+	Id uint64
+}
+
+type ReplicationOperationStateResponse struct {
+	State ShardReplicationState
+}
+
+type ReplicationStoreSchemaVersionRequest struct {
+	Version       int
+	SchemaVersion uint64
+	Id            uint64
 }

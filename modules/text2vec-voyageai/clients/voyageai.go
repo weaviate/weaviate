@@ -26,9 +26,11 @@ import (
 )
 
 var rateLimitPerModel = map[string]voyageai.VoyageRLModel{
-	"voyage-3":      {TokenLimit: 2_000_000, RequestLimit: 1000},
-	"voyage-3-lite": {TokenLimit: 4_000_000, RequestLimit: 1000},
-	"default":       {TokenLimit: 1_000_000, RequestLimit: 1000},
+	"voyage-3.5":      {TokenLimit: 8_000_000, RequestLimit: 2000},
+	"voyage-3.5-lite": {TokenLimit: 16_000_000, RequestLimit: 2000},
+	"voyage-3":        {TokenLimit: 2_000_000, RequestLimit: 1000},
+	"voyage-3-lite":   {TokenLimit: 4_000_000, RequestLimit: 1000},
+	"default":         {TokenLimit: 1_000_000, RequestLimit: 1000},
 }
 
 func getLimitForModel(model string) voyageai.VoyageRLModel {

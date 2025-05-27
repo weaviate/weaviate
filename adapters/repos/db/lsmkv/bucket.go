@@ -67,6 +67,7 @@ type Bucket struct {
 	flushLock        sync.RWMutex
 	haltedFlushTimer *interval.BackoffTimer
 
+	minWalThreshold   uint64
 	walThreshold      uint64
 	flushDirtyAfter   time.Duration
 	memtableThreshold uint64
@@ -298,9 +299,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return b.disk.segments[i].path < b.disk.segments[j].path
 	})
 
-	err = b.setNewActiveMemtable()
-	if err != nil {
-		return nil, err
+	if b.active == nil {
+		err = b.setNewActiveMemtable()
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	id := "bucket/flush/" + b.dir
@@ -1202,8 +1205,16 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 	if b.active.strategy == StrategyInverted {
 		b.active.averagePropLength, b.active.propLengthCount = b.disk.GetAveragePropertyLength()
 	}
-	if err := b.active.flush(); err != nil {
-		return err
+	if b.shouldReuseWAL() {
+		if err := b.active.flushWAL(); err != nil {
+			b.flushLock.Unlock()
+			return err
+		}
+	} else {
+		if err := b.active.flush(); err != nil {
+			b.flushLock.Unlock()
+			return err
+		}
 	}
 	b.flushLock.Unlock()
 
@@ -1226,6 +1237,10 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 			}
 		}
 	}
+}
+
+func (b *Bucket) shouldReuseWAL() bool {
+	return uint64(b.active.commitlog.size()) <= uint64(b.minWalThreshold)
 }
 
 // flushAndSwitchIfThresholdsMet is part of flush callbacks of the bucket.
@@ -1253,6 +1268,11 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 		return false
 	}
 
+	if b.shouldReuseWAL() {
+		defer b.flushLock.RUnlock()
+		return b.getAndUpdateWritesSinceLastSync()
+	}
+
 	b.flushLock.RUnlock()
 	if shouldSwitch {
 		b.haltedFlushTimer.Reset()
@@ -1274,6 +1294,40 @@ func (b *Bucket) flushAndSwitchIfThresholdsMet(shouldAbort cyclemanager.ShouldAb
 		return true
 	}
 	return false
+}
+
+func (b *Bucket) getAndUpdateWritesSinceLastSync() bool {
+	b.active.Lock()
+	defer b.active.Unlock()
+
+	hasWrites := b.active.writesSinceLastSync
+	if !hasWrites {
+		// had no work this iteration, cycle manager can back off
+		return false
+	}
+
+	err := b.active.commitlog.flushBuffers()
+	if err != nil {
+		b.logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", b.dir).
+			WithError(err).
+			Errorf("flush and switch failed")
+
+		return false
+	}
+
+	err = b.active.commitlog.sync()
+	if err != nil {
+		b.logger.WithField("action", "lsm_memtable_flush").
+			WithField("path", b.dir).
+			WithError(err).
+			Errorf("flush and switch failed")
+
+		return false
+	}
+	b.active.writesSinceLastSync = false
+	// there was work in this iteration, cycle manager should not back off and revisit soon
+	return true
 }
 
 // UpdateStatus is used by the parent shard to communicate to the bucket
