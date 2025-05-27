@@ -32,9 +32,7 @@ type retryClient struct {
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int,
 ) (err error) {
-	// Calculate total retry time: initial timeout + max retry time + buffer
-	totalTimeout := timeout + (c.maxBackOff * 2) + (time.Second * 5) // Add buffer for network latency
-	ctx, cancel := context.WithTimeout(req.Context(), totalTimeout)
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (b bool, e error) {
@@ -43,7 +41,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -66,9 +64,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 }
 
 func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int, success func(code int) bool) (code int, err error) {
-	// Calculate total retry time: initial timeout + max retry time + buffer
-	totalTimeout := timeout + (c.maxBackOff * 2) + (time.Second * 5) // Add buffer for network latency
-	ctx, cancel := context.WithTimeout(req.Context(), totalTimeout)
+	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	req = req.WithContext(ctx)
 	try := func(ctx context.Context) (bool, error) {
@@ -77,7 +73,7 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 

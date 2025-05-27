@@ -605,7 +605,7 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -615,17 +615,17 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 		}
 		resBytes, err := io.ReadAll(res.Body)
 		if err != nil {
-			return ctx.Err() == nil, errors.Wrap(err, "read body")
+			return false, errors.Wrap(err, "read body")
 		}
 
 		ct, ok := clusterapi.IndicesPayloads.GetShardQueueSizeResults.CheckContentTypeHeader(res)
 		if !ok {
-			return ctx.Err() == nil, errors.Errorf("unexpected content type: %s", ct)
+			return false, errors.Errorf("unexpected content type: %s", ct)
 		}
 
 		size, err = clusterapi.IndicesPayloads.GetShardQueueSizeResults.Unmarshal(resBytes)
 		if err != nil {
-			return ctx.Err() == nil, errors.Wrap(err, "unmarshal body")
+			return false, errors.Wrap(err, "unmarshal body")
 		}
 		return false, nil
 	}
@@ -648,7 +648,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -702,7 +702,7 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -734,7 +734,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -768,7 +768,7 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -797,7 +797,7 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -832,7 +832,7 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
