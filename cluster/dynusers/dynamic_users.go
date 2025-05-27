@@ -138,9 +138,21 @@ func (m *Manager) CheckUserIdentifierExists(req *cmd.QueryRequest) ([]byte, erro
 }
 
 func (m *Manager) Snapshot() ([]byte, error) {
+	if m.dynUser == nil {
+		return nil, nil
+	}
 	return m.dynUser.Snapshot()
 }
 
 func (m *Manager) Restore(snapshot []byte) error {
-	return m.dynUser.Restore(snapshot)
+	if m.dynUser == nil {
+		return nil
+	}
+	err := m.dynUser.Restore(snapshot)
+	if err != nil {
+		m.logger.Errorf("restored db users from snapshot failed with: %v", err)
+		return err
+	}
+	m.logger.Info("successfully restored dynamic users from snapshot")
+	return nil
 }
