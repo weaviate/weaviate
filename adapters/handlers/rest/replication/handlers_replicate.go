@@ -204,6 +204,44 @@ func (h *replicationHandler) deleteAllReplications(params replication.DeleteAllR
 	return replication.NewDeleteAllReplicationsNoContent()
 }
 
+func (h *replicationHandler) forceDeleteReplications(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
+	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
+		return replication.NewForceDeleteReplicationsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	if params.Body == nil {
+		return replication.NewForceDeleteReplicationsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("request body is required")))
+	}
+
+	var err error
+	if params.Body.Collection == "" && params.Body.Shard == "" && params.Body.ID == "" {
+		err = h.replicationManager.ForceDeleteAllReplications(params.HTTPRequest.Context())
+	} else if params.Body.Collection != "" {
+		if params.Body.Shard != "" {
+			err = h.replicationManager.ForceDeleteReplicationsByCollectionAndShard(params.HTTPRequest.Context(), params.Body.Collection, params.Body.Shard)
+		} else {
+			err = h.replicationManager.ForceDeleteReplicationsByCollection(params.HTTPRequest.Context(), params.Body.Collection)
+		}
+	} else if params.Body.ID != "" {
+		err = h.replicationManager.ForceDeleteReplicationsByReplicationId(params.HTTPRequest.Context(), params.Body.ID)
+	} else if params.Body.Node != "" {
+		err = h.replicationManager.ForceDeleteReplicationsByTargetNode(params.HTTPRequest.Context(), params.Body.Node)
+	} else {
+		// This can happen if the user provides only a shard id without a collection id
+		return replication.NewForceDeleteReplicationsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("shard id provided without collection id")))
+	}
+	if err != nil {
+		return replication.NewForceDeleteReplicationsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action": "replication",
+		"op":     "force_delete_operations",
+	}).Info("force delete replication operations")
+
+	return replication.NewForceDeleteReplicationsOK()
+}
+
 func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
 	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.HTTPRequest.Context(), params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {

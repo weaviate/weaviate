@@ -295,6 +295,95 @@ func (s *ShardReplicationFSM) DeleteReplicationsByTenants(collection string, ten
 	return nil
 }
 
+func (s *ShardReplicationFSM) ForceDeleteAll() error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	for id := range s.statusById {
+		err := s.removeReplicationOp(id)
+		if err != nil {
+			return fmt.Errorf("could not remove op %d: %w", id, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByUuid(uuid strfmt.UUID) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	id, ok := s.idsByUuid[uuid]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	if err := s.removeReplicationOp(id); err != nil {
+		return fmt.Errorf("could not remove op %d: %w", id, err)
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByTargetNode(node string) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	ops, ok := s.opsByTarget[node]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	for _, op := range ops {
+		if err := s.removeReplicationOp(op.ID); err != nil {
+			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByCollection(collection string) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	ops, ok := s.opsByCollection[collection]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	for _, op := range ops {
+		if err := s.removeReplicationOp(op.ID); err != nil {
+			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByCollectionAndShard(collection, shard string) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	shardOps, ok := s.opsByCollectionAndShard[collection]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	ops, ok := shardOps[shard]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	for _, op := range ops {
+		if err := s.removeReplicationOp(op.ID); err != nil {
+			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
+		}
+	}
+
+	return nil
+}
+
 func (s *ShardReplicationFSM) hasOngoingSourceReplication(sourceFQDN shardFQDN) bool {
 	ops, ok := s.opsBySourceFQDN[sourceFQDN]
 	if !ok {

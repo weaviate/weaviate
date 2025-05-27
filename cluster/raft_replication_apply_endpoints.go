@@ -173,6 +173,100 @@ func (s *Raft) ReplicationRemoveReplicaOp(ctx context.Context, id uint64) error 
 	return nil
 }
 
+func (s *Raft) ForceDeleteAllReplications(ctx context.Context) error {
+	req := &api.ReplicationForceDeleteAllRequest{}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) ForceDeleteReplicationsByReplicationId(ctx context.Context, uuid strfmt.UUID) error {
+	req := &api.ReplicationForceDeleteByReplicationIdRequest{
+		Uuid: uuid,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_ID,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) ForceDeleteReplicationsByCollection(ctx context.Context, collection string) error {
+	req := &api.ReplicationForceDeleteByCollectionRequest{
+		Collection: collection,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) ForceDeleteReplicationsByCollectionAndShard(ctx context.Context, collection, shard string) error {
+	req := &api.ReplicationForceDeleteByCollectionAndShardRequest{
+		Collection: collection,
+		Shard:      shard,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (s *Raft) ForceDeleteReplicationsByTargetNode(ctx context.Context, node string) error {
+	req := &api.ReplicationForceDeleteByTargetNodeRequest{
+		Node: node,
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Raft) DeleteAllReplications(ctx context.Context) error {
 	req := &api.ReplicationDeleteAllRequest{
 		Version: api.ReplicationCommandVersionV0,

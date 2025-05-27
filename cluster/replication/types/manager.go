@@ -114,4 +114,35 @@ type Manager interface {
 	// Returns:
 	//   - error: any error explaining why cancelling the replication operation failed.
 	DeleteAllReplications(ctx context.Context) error
+
+	// ForceDeleteReplicationsByReplicationId removes the replication operation specified by the UUID from the FSM as fast as possible.
+	// It does not attempt to move them to the CANCELLED state first instead ending the op immediately by removing them from the FSM.
+	//
+	// Returns:
+	//   - error: any error explaining why cancelling the replication operation failed.
+	ForceDeleteReplicationsByReplicationId(ctx context.Context, uuid strfmt.UUID) error
+	// ForceDeleteReplicationsByTargetNode removes all replication operations specific to a target node from the FSM as fast as possible.
+	// It does not attempt to move them to the CANCELLED state first instead ending the op immediately by removing them from the FSM.
+	//
+	// Returns:
+	//   - error: any error explaining why cancelling the replication operation failed.
+	ForceDeleteReplicationsByTargetNode(ctx context.Context, node string) error
+	// ForceDeleteReplicationsByCollection removes all replication operations specific to a collection from the FSM as fast as possible.
+	// It does not attempt to move them to the CANCELLED state first instead ending the op immediately by removing them from the FSM.
+	//
+	// Returns:
+	//   - error: any error explaining why cancelling the replication operation failed.
+	ForceDeleteReplicationsByCollection(ctx context.Context, collection string) error
+	// ForceDeleteReplicationsByCollectionAndShard removes all replication operations specific to a collection and shard from the FSM as fast as possible.
+	// It does not attempt to move them to the CANCELLED state first instead ending the op immediately by removing them from the FSM.
+	//
+	// Returns:
+	//   - error: any error explaining why cancelling the replication operation failed.
+	ForceDeleteReplicationsByCollectionAndShard(ctx context.Context, collection, shard string) error
+	// ForceDeleteReplications removes all replication operation from the FSM as fast as possible.
+	// It does not attempt to move them to the CANCELLED state first instead ending the op immediately by removing them from the FSM.
+	//
+	// Returns:
+	//   - error: any error explaining why cancelling the replication operation failed.
+	ForceDeleteAllReplications(ctx context.Context) error
 }
