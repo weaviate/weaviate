@@ -83,3 +83,7 @@ func (s *Raft) NewRouter(logger *logrus.Logger) *router.Router {
 func (s *Raft) WaitUntilDBRestored(ctx context.Context, period time.Duration, close chan struct{}) error {
 	return s.store.WaitToRestoreDB(ctx, period, close)
 }
+
+func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return s.store.WaitForAppliedIndex(ctx, time.Millisecond*50, schemaVersion)
+}

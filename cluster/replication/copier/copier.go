@@ -278,10 +278,12 @@ func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName
 		return fmt.Errorf("index for collection %s not found", collectionName)
 	}
 
-	// TODO: check that this does not create a shard if it does not exist (I think it does)
 	shard, release, err := index.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return fmt.Errorf("get shard %s: %w", shardName, err)
+	if err != nil {
+		return fmt.Errorf("get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("get shard %s: not found", shardName)
 	}
 	defer release()
 
@@ -295,8 +297,11 @@ func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionNa
 	}
 
 	shard, release, err := index.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return fmt.Errorf("get shard %s: %w", shardName, err)
+	if err != nil {
+		return fmt.Errorf("get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("get shard %s: not found", shardName)
 	}
 	defer release()
 
