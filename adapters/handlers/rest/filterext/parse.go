@@ -123,6 +123,8 @@ func parseOperator(in string) (filters.Operator, error) {
 		return filters.OperatorEqual, nil
 	case models.WhereFilterOperatorLike:
 		return filters.OperatorLike, nil
+	case "NotLike":
+		return filters.OperatorNotLike, nil
 	case models.WhereFilterOperatorLessThan:
 		return filters.OperatorLessThan, nil
 	case models.WhereFilterOperatorLessThanEqual:

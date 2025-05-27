@@ -87,7 +87,9 @@ func (rr *RowReaderRoaringSet) Read(ctx context.Context, readFn ReadFn) error {
 	case filters.OperatorLessThanEqual:
 		return rr.lessThan(ctx, readFn, true)
 	case filters.OperatorLike:
-		return rr.like(ctx, readFn)
+		return rr.likeOrNotLike(ctx, readFn, false)
+	case filters.OperatorNotLike:
+		return rr.likeOrNotLike(ctx, readFn, true)
 	default:
 		return fmt.Errorf("operator %v not supported", rr.operator)
 	}
@@ -176,39 +178,29 @@ func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 	return nil
 }
 
-func (rr *RowReaderRoaringSet) like(ctx context.Context,
-	readFn ReadFn,
-) error {
+func (rr *RowReaderRoaringSet) likeOrNotLike(ctx context.Context, readFn ReadFn, invert bool) error {
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
 		return fmt.Errorf("parse like value: %w", err)
 	}
-
 	c := rr.newCursor()
 	defer c.Close()
-
 	var (
 		initialK   []byte
 		initialV   *sroar.Bitmap
 		likeMinLen int
 	)
-
 	if like.optimizable {
 		initialK, initialV = c.Seek(like.min)
 		likeMinLen = len(like.min)
 	} else {
 		initialK, initialV = c.First()
 	}
-
 	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-
 		if like.optimizable {
-			// if the query is optimizable, i.e. it doesn't start with a wildcard, we
-			// can abort once we've moved past the point where the fixed characters
-			// no longer match
 			if len(k) < likeMinLen {
 				break
 			}
@@ -216,18 +208,21 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 				break
 			}
 		}
-
-		if !like.regexp.Match(k) {
+		match := like.regexp.Match(k)
+		if invert {
+			match = !match
+		}
+		if !match {
 			continue
 		}
-
-		if continueReading, err := readFn(k, v, noopRelease); err != nil {
+		continueReading, err := readFn(k, v, noopRelease)
+		if err != nil {
 			return err
-		} else if !continueReading {
+		}
+		if !continueReading {
 			break
 		}
 	}
-
 	return nil
 }
 

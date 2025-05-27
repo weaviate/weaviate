@@ -106,6 +106,31 @@ func TestExtractFilterLike(t *testing.T) {
 			}) }`
 		resolver.AssertResolve(t, query)
 	})
+
+	t.Run("extracts with valueText NotLike", func(t *testing.T) {
+		resolver := newMockResolver(t, mockParams{reportFilter: true})
+		expectedParams := &filters.LocalFilter{Root: &filters.Clause{
+			Operator: filters.OperatorNotLike,
+			On: &filters.Path{
+				Class:    schema.AssertValidClassName("SomeAction"),
+				Property: schema.AssertValidPropertyName("name"),
+			},
+			Value: &filters.Value{
+				Value: "Schn*el",
+				Type:  schema.DataTypeText,
+			},
+		}}
+
+		resolver.On("ReportFilters", expectedParams).
+			Return(test_helper.EmptyList(), nil).Once()
+
+		query := `{ SomeAction(where: {
+			path: ["name"],
+			operator: NotLike,
+			valueText: "Schn*el",
+		}) }`
+		resolver.AssertResolve(t, query)
+	})
 }
 
 func TestExtractFilterLike_ValueText(t *testing.T) {
