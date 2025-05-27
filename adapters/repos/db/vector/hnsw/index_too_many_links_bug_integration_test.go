@@ -156,7 +156,6 @@ func Test_NoRace_ManySmallCommitlogs(t *testing.T) {
 
 				assert.LessOrEqualf(t, len(conns), m, "node %d at level %d with %d conns",
 					i, level, len(conns))
-
 			})
 		}
 	})

@@ -132,9 +132,8 @@ func TestVertex_AppendConnection(t *testing.T) {
 
 func TestVertex_AppendConnection_NotCleanlyDivisible(t *testing.T) {
 	type test struct {
-		name        string
-		initial     []uint64
-		expectedCap int
+		name    string
+		initial []uint64
 	}
 
 	tests := []test{
