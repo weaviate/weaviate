@@ -186,9 +186,9 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	}
 	level := state.Level
 	//nolint:govet // we expressely don't want to cancel that context as the timeout will take care of it
-	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 180*time.Second) // increased to 180s to handle rollout scenarios
+	ctxWithTimeout, _ := context.WithTimeout(context.Background(), 60*time.Second)
 	nodeCh := c.broadcast(ctxWithTimeout, state.Hosts, ask, level)
-	return c.commitAll(ctxWithTimeout, nodeCh, com), level, nil
+	return c.commitAll(context.Background(), nodeCh, com), level, nil
 }
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls
