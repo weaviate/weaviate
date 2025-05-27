@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/client/nodes"
@@ -79,18 +80,17 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	// Wait for cluster to recover
-	<-time.After(10 * time.Second)
-
 	t.Run("verify nodes are healthy and 3rd node successfully rejoined ", func(t *testing.T) {
-		resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
-		require.Nil(t, err)
+		assert.Eventually(t, func() bool {
+			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
+			assert.Nil(t, err)
 
-		nodeStatusResp := resp.GetPayload()
-		require.NotNil(t, nodeStatusResp)
+			nodeStatusResp := resp.GetPayload()
+			assert.NotNil(t, nodeStatusResp)
 
-		nodes := nodeStatusResp.Nodes
-		require.NotNil(t, nodes)
-		require.Len(t, nodes, 3)
+			nodes := nodeStatusResp.Nodes
+			assert.NotNil(t, nodes)
+			return len(nodes) == 3
+		}, 15*time.Second, 500*time.Millisecond)
 	})
 }
