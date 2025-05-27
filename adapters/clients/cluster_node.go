@@ -31,13 +31,16 @@ func NewRemoteNode(httpClient *http.Client) *RemoteNode {
 	return &RemoteNode{client: httpClient}
 }
 
-func (c *RemoteNode) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
+func (c *RemoteNode) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
 	p := "/nodes/status"
 	if className != "" {
 		p = path.Join(p, className)
 	}
 	method := http.MethodGet
 	params := url.Values{"output": []string{output}}
+	if shardName != "" {
+		params.Add("shard", shardName)
+	}
 	url := url.URL{Scheme: "http", Host: hostName, Path: p, RawQuery: params.Encode()}
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
