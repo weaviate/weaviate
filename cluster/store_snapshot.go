@@ -37,11 +37,18 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 	if err != nil {
 		return fmt.Errorf("rbac snapshot: %w", err)
 	}
+
+	dbUserSnapshot, err := s.dynUserManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("db user snapshot: %w", err)
+	}
+
 	snap := fsm.Snapshot{
 		NodeID:     s.cfg.NodeID,
 		SnapshotID: sink.ID(),
 		Schema:     schemaSnapshot,
 		RBAC:       rbacSnapshot,
+		DbUsers:    dbUserSnapshot,
 	}
 	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
 		return fmt.Errorf("encode: %w", err)
@@ -113,6 +120,13 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 			if err := st.authZManager.Restore(snap.RBAC); err != nil {
 				st.log.WithError(err).Error("restoring rbac from snapshot")
 				return fmt.Errorf("restore rbac from snapshot: %w", err)
+			}
+		}
+
+		if snap.DbUsers != nil {
+			if err := st.dynUserManager.Restore(snap.DbUsers); err != nil {
+				st.log.WithError(err).Error("restoring db user from snapshot")
+				return fmt.Errorf("restore db user from snapshot: %w", err)
 			}
 		}
 
