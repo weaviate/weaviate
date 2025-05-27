@@ -166,9 +166,6 @@ func (c Connections) CopyLayer(conns []uint64, layer uint8) []uint64 {
 		offset += uint16(n)
 
 		// TODO: allocate exact size, don't rely on dynamic growing
-		if len(conns) <= i {
-			fmt.Println(offset, end, i, len(conns), c.layerLength(layer))
-		}
 		conns[i] = last + val
 		last += val
 		i++
@@ -186,10 +183,6 @@ func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
 	end := c.layerEndOffset(layer)
 	val := uint64(0)
 	var n int
-	if int(offset) > len(c.data) {
-		fmt.Println(len(c.data), offset, layer, c.Layers())
-		fmt.Println(c.data)
-	}
 	val, n = binary.Uvarint(c.data[offset:])
 	offset += uint16(n)
 	for end > offset-uint16(n) && val < conn {

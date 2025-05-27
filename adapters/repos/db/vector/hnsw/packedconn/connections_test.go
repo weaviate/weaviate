@@ -897,3 +897,45 @@ func BenchmarkInsertAtLayer(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkInsertAtLayerLarge(b *testing.B) {
+	layers := uint8(5)
+
+	c, err := NewWithMaxLayer(layers)
+	require.Nil(b, err)
+
+	for i := uint8(0); i <= layers; i++ {
+		c.ReplaceLayer(i, randomArray(32))
+	}
+
+	newNumbers := randomArray(1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for l := uint8(0); l <= layers; l++ {
+			for j := range newNumbers {
+				c.InsertAtLayer(newNumbers[j], l)
+			}
+		}
+
+		b.StopTimer()
+		for i := uint8(0); i <= layers; i++ {
+			c.ReplaceLayer(i, randomArray(32))
+		}
+		b.StartTimer()
+	}
+}
+
+func BenchmarkReplaceLayer(b *testing.B) {
+	layers := uint8(5)
+
+	c, err := NewWithMaxLayer(layers)
+	require.Nil(b, err)
+
+	newNumbers := randomArray(1000)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for i := uint8(0); i <= layers; i++ {
+			c.ReplaceLayer(i, newNumbers)
+		}
+	}
+}
