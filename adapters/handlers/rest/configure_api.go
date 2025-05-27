@@ -1584,8 +1584,10 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 			Timeout:   30 * time.Second,
 			KeepAlive: 120 * time.Second,
 		}).DialContext,
-		MaxIdleConnsPerHost:   100,
-		MaxIdleConns:          100,
+		// TODO: MaxIdleConns* shall be configurable and relate to the number of nodes in the cluster
+		MaxIdleConnsPerHost:   10,  // formula MaxIdleConns / (number_of_nodes * 2)
+		MaxIdleConns:          200, // 200 / (10 * 2) = 10 connections per node
+		MaxConnsPerHost:       20,  //  Double of MaxIdleConnsPerHost for headroom
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
