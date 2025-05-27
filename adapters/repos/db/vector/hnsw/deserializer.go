@@ -202,7 +202,14 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 		}
 		res.Nodes[id] = &vertex{level: int(level), id: id, connections: conns}
 	} else {
-		res.Nodes[id].connections.GrowLayersTo(uint8(level))
+		if res.Nodes[id].connections == nil {
+			res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(level))
+			if err != nil {
+				return err
+			}
+		} else {
+			res.Nodes[id].connections.GrowLayersTo(uint8(level))
+		}
 		res.Nodes[id].level = int(level)
 	}
 	return nil
@@ -255,7 +262,15 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 		res.Nodes[int(source)] = &vertex{id: source, connections: conns}
 	}
 
-	res.Nodes[source].connections.GrowLayersTo(uint8(level))
+	if res.Nodes[source].connections == nil {
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[source].connections = conns
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
+	}
 	res.Nodes[source].connections.InsertAtLayer(target, uint8(level))
 	return nil
 }
@@ -295,7 +310,15 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 		res.Nodes[int(source)] = &vertex{id: source, connections: conns}
 	}
 
-	res.Nodes[source].connections.GrowLayersTo(uint8(level))
+	if res.Nodes[source].connections == nil {
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return 0, err
+		}
+		res.Nodes[source].connections = conns
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
+	}
 	res.Nodes[source].connections.ReplaceLayer(uint8(level), targets)
 
 	if keepReplaceInfo {
@@ -340,13 +363,18 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	}
 
 	if res.Nodes[int(source)] == nil {
+		res.Nodes[int(source)] = &vertex{id: source}
+	}
+	if res.Nodes[source].connections == nil {
 		conns, err := packedconn.NewWithMaxLayer(uint8(level))
 		if err != nil {
 			return 0, err
 		}
-		res.Nodes[int(source)] = &vertex{id: source, connections: conns}
+		res.Nodes[source].connections = conns
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
 	}
-	res.Nodes[source].connections.GrowLayersTo(uint8(level))
+
 	for _, target := range targets {
 		res.Nodes[source].connections.InsertAtLayer(target, uint8(level))
 	}
