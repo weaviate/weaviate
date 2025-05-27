@@ -1582,7 +1582,9 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
 			// TCP timeouts are often around 3 minutes timeout to handle longer pod startup times during rollouts
-			Timeout: 180 * time.Second, //
+			// we chose 90 seconds to be more conservative and avoid timeouts during rollouts
+			// and most of the operation will complete well within these timeouts
+			Timeout: 90 * time.Second,
 			// More frequent keepalive to detect pod terminations faster
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
