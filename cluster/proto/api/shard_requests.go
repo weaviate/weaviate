@@ -182,6 +182,8 @@ type ReplicationStoreSchemaVersionRequest struct {
 	Id            uint64
 }
 
-type ReplicationSetUnCancellableRequest struct {
-	Id uint64
+type ReplicationAddReplicaToShard struct {
+	OpId                     uint64
+	Class, Shard, TargetNode string
+	SchemaVersion            uint64
 }

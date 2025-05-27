@@ -317,9 +317,9 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.replicationManager.StoreSchemaVersion(&cmd)
 		}
-	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SET_UNCANCELLABLE:
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD:
 		f = func() {
-			ret.Error = st.replicationManager.SetUnCancellable(&cmd)
+			ret.Error = st.schemaManager.ReplicationAddReplicaToShard(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:

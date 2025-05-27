@@ -597,13 +597,8 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if err := c.leaderClient.ReplicationSetUnCancellable(ctx, op.Op.ID); err != nil {
-		logger.WithError(err).Error("failure while setting operation to un-cancellable")
-		return api.ShardReplicationState(""), err
-	}
-
 	if !replicaExists {
-		if _, err := c.leaderClient.AddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
+		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
 			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
 				// The replica already exists, this is not an error and it got updated after our sanity check
 				// due to eventual consistency of the sharding state.

@@ -266,22 +266,3 @@ func (s *Raft) ReplicationStoreSchemaVersion(ctx context.Context, id uint64, sch
 	}
 	return nil
 }
-
-func (s *Raft) ReplicationSetUnCancellable(ctx context.Context, id uint64) error {
-	req := &api.ReplicationSetUnCancellableRequest{
-		Id: id,
-	}
-
-	subCommand, err := json.Marshal(req)
-	if err != nil {
-		return fmt.Errorf("marshal request: %w", err)
-	}
-	command := &api.ApplyRequest{
-		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SET_UNCANCELLABLE,
-		SubCommand: subCommand,
-	}
-	if _, err := s.Execute(ctx, command); err != nil {
-		return err
-	}
-	return nil
-}

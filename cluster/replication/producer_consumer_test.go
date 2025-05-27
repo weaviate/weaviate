@@ -89,14 +89,11 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
-				mockFSMUpdater.EXPECT().
-					ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
-					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
@@ -150,14 +147,11 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
-				mockFSMUpdater.EXPECT().
-					ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
-					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
@@ -214,14 +208,11 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
-				mockFSMUpdater.EXPECT().
-					ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
-					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
@@ -289,14 +280,11 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
-				mockFSMUpdater.EXPECT().
-					ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
-					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {
@@ -346,7 +334,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -357,9 +345,6 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 				mockFSMUpdater.EXPECT().
 					DeleteReplicaFromShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 					Return(uint64(0), nil)
-				mockFSMUpdater.EXPECT().
-					ReplicationSetUnCancellable(mock.Anything, uint64(opId)).
-					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 					Run(func(ctx context.Context, opId uint64, state api.ShardReplicationState) {

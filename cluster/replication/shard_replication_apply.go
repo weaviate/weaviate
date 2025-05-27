@@ -151,16 +151,16 @@ func (s *ShardReplicationFSM) StoreSchemaVersion(c *api.ReplicationStoreSchemaVe
 	return nil
 }
 
-func (s *ShardReplicationFSM) SetUnCancellable(c *api.ReplicationSetUnCancellableRequest) error {
+func (s *ShardReplicationFSM) SetUnCancellable(id uint64) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
-	status, ok := s.statusById[c.Id]
+	status, ok := s.statusById[id]
 	if !ok {
-		return fmt.Errorf("could not find op status for op %d", c.Id)
+		return fmt.Errorf("could not find op status for op %d", id)
 	}
 	status.UnCancellable = true
-	s.statusById[c.Id] = status
+	s.statusById[id] = status
 
 	return nil
 }
