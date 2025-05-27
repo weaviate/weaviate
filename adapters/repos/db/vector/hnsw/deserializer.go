@@ -910,15 +910,3 @@ func (d *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error
 
 	return d.reusableConnectionsSlice, nil
 }
-
-// If the connections array is to small to contain the current target-levelit
-// will be grown. Otherwise, nothing happens.
-func maybeGrowConnectionsForLevel(connsPtr *[][]uint64, level uint16) {
-	conns := *connsPtr
-	if len(conns) <= int(level) {
-		// we need to grow the connections slice
-		newConns := make([][]uint64, level+1)
-		copy(newConns, conns)
-		*connsPtr = newConns
-	}
-}
