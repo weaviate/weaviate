@@ -47,7 +47,7 @@ func TestParseRuntimeConfig(t *testing.T) {
 		var vv map[string]any
 		require.NoError(t, json.Unmarshal(jd, &vv))
 
-		for k, _ := range vv {
+		for k := range vv {
 			// check if all the keys lower_snake_case.
 			assertConfigKey(t, k)
 		}
@@ -62,7 +62,7 @@ func TestParseRuntimeConfig(t *testing.T) {
 		var vv map[string]any
 		require.NoError(t, yaml.Unmarshal(yd, &vv))
 
-		for k, _ := range vv {
+		for k := range vv {
 			// check if all the keys lower_snake_case.
 			assertConfigKey(t, k)
 		}
