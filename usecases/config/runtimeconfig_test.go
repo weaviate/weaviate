@@ -12,11 +12,14 @@
 package config
 
 import (
+	"regexp"
 	"testing"
 
+	"github.com/go-jose/go-jose/v4/json"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"gopkg.in/yaml.v3"
 )
 
 func TestParseRuntimeConfig(t *testing.T) {
@@ -34,6 +37,46 @@ func TestParseRuntimeConfig(t *testing.T) {
 		require.ErrorContains(t, err, "autoschema_enbaled") // should contain misspelled field
 		assert.Nil(t, cfg)
 	})
+
+	t.Run("YAML tag should be lower_snake_case", func(t *testing.T) {
+		var r WeaviateRuntimeConfig
+
+		jd, err := json.Marshal(r)
+		require.NoError(t, err)
+
+		var vv map[string]any
+		require.NoError(t, json.Unmarshal(jd, &vv))
+
+		for k, _ := range vv {
+			// check if all the keys lower_snake_case.
+			assertConfigKey(t, k)
+		}
+	})
+
+	t.Run("JSON tag should be lower_snake_case in the runtime config", func(t *testing.T) {
+		var r WeaviateRuntimeConfig
+
+		yd, err := yaml.Marshal(r)
+		require.NoError(t, err)
+
+		var vv map[string]any
+		require.NoError(t, yaml.Unmarshal(yd, &vv))
+
+		for k, _ := range vv {
+			// check if all the keys lower_snake_case.
+			assertConfigKey(t, k)
+		}
+	})
+}
+
+// assertConfigKey asserts if the `yaml` key is standard `lower_snake_case` (e.g: not `UPPER_CASE`)
+func assertConfigKey(t *testing.T, key string) {
+	t.Helper()
+
+	re := regexp.MustCompile(`^[a-z]+(_[a-z]+)*$`)
+	if !re.MatchString(key) {
+		t.Fatalf("given key %v is not lower snake case. The json/yaml tag for runtime config should be all lower snake case (e.g my_key, not MY_KEY)", key)
+	}
 }
 
 func TestUpdateRuntimeConfig(t *testing.T) {
