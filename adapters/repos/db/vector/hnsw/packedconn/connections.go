@@ -32,7 +32,7 @@ type Connections struct {
 
 const (
 	layerPos    = 0
-	initialSize = 50
+	initialSize = 16
 )
 
 func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
