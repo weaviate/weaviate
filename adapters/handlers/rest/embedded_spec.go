@@ -7374,11 +7374,6 @@ func init() {
           "description": "The name of the collection to which the shard being replicated belongs.",
           "type": "string"
         },
-        "dryRun": {
-          "description": "If set to true, the operation will not be executed but will return the expected outcome of the deletion. Defaults to false.",
-          "type": "boolean",
-          "default": false
-        },
         "id": {
           "description": "The unique identifier (ID) of the replication operation to be forcefully deleted.",
           "type": "string",
@@ -15940,11 +15935,6 @@ func init() {
         "collection": {
           "description": "The name of the collection to which the shard being replicated belongs.",
           "type": "string"
-        },
-        "dryRun": {
-          "description": "If set to true, the operation will not be executed but will return the expected outcome of the deletion. Defaults to false.",
-          "type": "boolean",
-          "default": false
         },
         "id": {
           "description": "The unique identifier (ID) of the replication operation to be forcefully deleted.",

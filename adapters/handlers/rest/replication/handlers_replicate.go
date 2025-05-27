@@ -209,12 +209,8 @@ func (h *replicationHandler) forceDeleteReplications(params replication.ForceDel
 		return replication.NewForceDeleteReplicationsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if params.Body == nil {
-		return replication.NewForceDeleteReplicationsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("request body is required")))
-	}
-
 	var err error
-	if params.Body.Collection == "" && params.Body.Shard == "" && params.Body.ID == "" {
+	if params.Body == nil || (params.Body.Collection == "" && params.Body.Shard == "" && params.Body.ID == "" && params.Body.Node == "") {
 		err = h.replicationManager.ForceDeleteAllReplications(params.HTTPRequest.Context())
 	} else if params.Body.Collection != "" {
 		if params.Body.Shard != "" {

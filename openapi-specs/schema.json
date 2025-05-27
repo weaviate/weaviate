@@ -1107,11 +1107,6 @@
         "node": {
           "description": "The name of the target node where the replication operations are registered.",
           "type": "string"
-        },
-        "dryRun": {
-          "description": "If set to true, the operation will not be executed but will return the expected outcome of the deletion. Defaults to false.",
-          "type": "boolean",
-          "default": false
         }
       },
       "type": "object"

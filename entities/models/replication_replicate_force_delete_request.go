@@ -33,9 +33,6 @@ type ReplicationReplicateForceDeleteRequest struct {
 	// The name of the collection to which the shard being replicated belongs.
 	Collection string `json:"collection,omitempty"`
 
-	// If set to true, the operation will not be executed but will return the expected outcome of the deletion. Defaults to false.
-	DryRun *bool `json:"dryRun,omitempty"`
-
 	// The unique identifier (ID) of the replication operation to be forcefully deleted.
 	// Format: uuid
 	ID strfmt.UUID `json:"id,omitempty"`
