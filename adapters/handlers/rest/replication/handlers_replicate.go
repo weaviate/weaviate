@@ -240,8 +240,6 @@ func (h *replicationHandler) forceDeleteReplications(params replication.ForceDel
 	for i, detail := range details {
 		uuids[i] = detail.Uuid
 	}
-	fmt.Println("Found replication operations to force delete:", details)
-	fmt.Println("Force deleting replication operations with IDs:", uuids)
 
 	if params.Body != nil && params.Body.DryRun != nil && *params.Body.DryRun {
 		h.logger.WithFields(logrus.Fields{
