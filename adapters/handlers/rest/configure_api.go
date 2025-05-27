@@ -1581,10 +1581,13 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   120 * time.Second,
+			// TCP timeouts are often around 3 minutes timeout to handle longer pod startup times during rollouts
+			Timeout: 180 * time.Second, //
+			// More frequent keepalive to detect pod terminations faster
 			KeepAlive: 15 * time.Second,
 		}).DialContext,
-		MaxIdleConnsPerHost:   100,
+		// TODO: MaxIdleConns* shall be configurable and relate to the number of nodes in the cluster
+		MaxIdleConnsPerHost:   20, // formula MaxIdleConns / (number_of_nodes * 2)
 		MaxIdleConns:          100,
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
