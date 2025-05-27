@@ -645,6 +645,13 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 			case <-ctx.Done():
 				return
 			case <-propagationRequired:
+				// Reload target node overrides
+				func() {
+					s.asyncReplicationRWMux.Lock()
+					defer s.asyncReplicationRWMux.Unlock()
+					config.targetNodeOverrides = s.asyncReplicationConfig.targetNodeOverrides
+				}()
+
 				stats, err := s.hashBeat(ctx, config)
 				// update the shard stats for the target node
 				// anonymous func only here so we can use defer unlock
