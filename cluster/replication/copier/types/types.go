@@ -29,7 +29,7 @@ type DbWrapper interface {
 	GetIndex(name schema.ClassName) *db.Index
 
 	// GetOneNodeStatus See adapters/repos/db.DB.GetOneNodeStatus
-	GetOneNodeStatus(ctx context.Context, nodeName string, className, output string) (*models.NodeStatus, error)
+	GetOneNodeStatus(ctx context.Context, nodeName string, className, shardName, output string) (*models.NodeStatus, error)
 }
 
 // ShardLoader is a type that can load a shard from disk files, this is used to avoid a circular

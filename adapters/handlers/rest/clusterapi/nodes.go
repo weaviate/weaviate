@@ -25,7 +25,7 @@ import (
 )
 
 type nodesManager interface {
-	GetNodeStatus(ctx context.Context, className, output string) (*models.NodeStatus, error)
+	GetNodeStatus(ctx context.Context, className, shardName, output string) (*models.NodeStatus, error)
 	GetStatistics(ctx context.Context) (*models.Statistics, error)
 }
 
@@ -89,12 +89,15 @@ func (s *nodes) incomingNodeStatus() http.Handler {
 			className = args[3]
 		}
 
+		// shard is an optional query parameter
+		shardName := r.URL.Query().Get("shard")
+
 		output := verbosity.OutputMinimal
 		out, found := r.URL.Query()["output"]
 		if found && len(out) > 0 {
 			output = out[0]
 		}
-		nodeStatus, err := s.nodesManager.GetNodeStatus(r.Context(), className, output)
+		nodeStatus, err := s.nodesManager.GetNodeStatus(r.Context(), className, shardName, output)
 		if err != nil {
 			http.Error(w, "/nodes fulfill request: "+err.Error(),
 				http.StatusBadRequest)

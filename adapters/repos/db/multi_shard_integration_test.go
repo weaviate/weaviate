@@ -647,7 +647,7 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 
 func testNodesAPI(repo *DB) func(t *testing.T) {
 	return func(t *testing.T) {
-		nodeStatues, err := repo.GetNodeStatus(context.Background(), "", verbosity.OutputVerbose)
+		nodeStatues, err := repo.GetNodeStatus(context.Background(), "", "", verbosity.OutputVerbose)
 		require.Nil(t, err)
 		require.NotNil(t, nodeStatues)
 
