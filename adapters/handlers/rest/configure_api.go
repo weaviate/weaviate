@@ -1582,19 +1582,18 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second, // increased to 180s to handle rollout scenarios
-			KeepAlive: 15 * time.Second, // keep at 30s for pod termination detection
+			Timeout:   30 * time.Second,
+			KeepAlive: 15 * time.Second, // keep at 15s for pod termination detection
 		}).DialContext,
 		MaxIdleConnsPerHost:   100,
 		MaxIdleConns:          100,
-		IdleConnTimeout:       180 * time.Second, // increased to match dial timeout
+		IdleConnTimeout:       60 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
 		ForceAttemptHTTP2:     true,
-		// connection pooling settings for better rollout handling
-		DisableKeepAlives:     false, // ensure keep-alive is enabled
-		MaxConnsPerHost:       100,   // allow more connections per host during rollouts
-		ResponseHeaderTimeout: 30 * time.Second,
+		DisableKeepAlives:     false,
+		MaxConnsPerHost:       100,
+		ResponseHeaderTimeout: 15 * time.Second,
 	}
 
 	if authConfig.BasicAuth.Enabled() {
