@@ -930,12 +930,13 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 
 	var b [8]byte
 
-	version, err := ReadAndHash(r, hasher, b[:1]) // version
+	_, err = ReadAndHash(r, hasher, b[:1]) // version
 	if err != nil {
 		return nil, errors.Wrapf(err, "read version")
 	}
-	if b[0] != 0 {
-		return nil, fmt.Errorf("unsupported version %d", b[0])
+	version := int(b[0])
+	if version < 0 || version > snapshotVersionV2 {
+		return nil, fmt.Errorf("unsupported snapshot version %d", version)
 	}
 
 	_, err = ReadAndHash(r, hasher, b[:8]) // entrypoint
