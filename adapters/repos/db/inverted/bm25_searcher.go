@@ -233,7 +233,7 @@ func (b *BM25Searcher) wand(
 
 	allRequests := make([]termListRequest, 0, 1000)
 	allQueryTerms := make([]string, 0, 1000)
-	minimumShouldMatch := math.MaxInt64
+	MinimumOrTokenMatch := math.MaxInt64
 
 	for _, tokenization := range helpers.Tokenizations {
 		propNames := propNamesByTokenization[tokenization]
@@ -249,12 +249,12 @@ func (b *BM25Searcher) wand(
 				})
 				allQueryTerms = append(allQueryTerms, queryTerm)
 			}
-			minimumShouldMatchByTokenization := params.MinimumShouldMatch
+			MinimumOrTokenMatchByTokenization := params.MinimumOrTokensMatch
 			if params.SearchOperator == common_filters.SearchOperatorAnd {
-				minimumShouldMatchByTokenization = len(queryTerms)
+				MinimumOrTokenMatchByTokenization = len(queryTerms)
 			}
-			if minimumShouldMatchByTokenization < minimumShouldMatch {
-				minimumShouldMatch = minimumShouldMatchByTokenization
+			if MinimumOrTokenMatchByTokenization < MinimumOrTokenMatch {
+				MinimumOrTokenMatch = MinimumOrTokenMatchByTokenization
 			}
 		}
 	}
@@ -318,7 +318,7 @@ func (b *BM25Searcher) wand(
 		Count: len(allRequests),
 	}
 
-	topKHeap := lsmkv.DoWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations, minimumShouldMatch)
+	topKHeap := lsmkv.DoWand(limit, combinedTerms, averagePropLength, params.AdditionalExplanations, MinimumOrTokenMatch)
 
 	return b.getTopKObjects(topKHeap, params.AdditionalExplanations, allQueryTerms, additional)
 }
