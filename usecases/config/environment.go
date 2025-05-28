@@ -288,6 +288,17 @@ func FromEnv(config *Config) error {
 		config.Persistence.MinMMapSize = DefaultPersistenceMinMMapSize
 	}
 
+	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_MAX_REUSE_WAL_SIZE: %w", err)
+		}
+
+		config.Persistence.MaxReuseWalSize = parsed
+	} else {
+		config.Persistence.MaxReuseWalSize = DefaultPersistenceMaxReuseWalSize
+	}
+
 	if err := parseInt(
 		"PERSISTENCE_LSM_CYCLEMANAGER_ROUTINES_FACTOR",
 		func(factor int) { config.Persistence.LSMCycleManagerRoutinesFactor = factor },
@@ -719,6 +730,22 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	if err := parsePositiveInt(
 		"RAFT_ELECTION_TIMEOUT",
 		func(val int) { cfg.ElectionTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveFloat(
+		"RAFT_LEADER_LEASE_TIMEOUT",
+		func(val float64) { cfg.LeaderLeaseTimeout = time.Second * time.Duration(val) },
+		0.5, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_TIMEOUTS_MULTIPLIER",
+		func(val int) { cfg.TimeoutsMultiplier = val },
 		1, // raft default
 	); err != nil {
 		return cfg, err

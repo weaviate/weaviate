@@ -85,6 +85,12 @@ type Config struct {
 	// ElectionTimeout specifies the time in candidate state without contact
 	// from a leader before we attempt an election.
 	ElectionTimeout time.Duration
+	// LeaderLeaseTimeout specifies the time in leader state without contact
+	// from a follower before we attempt an election.
+	LeaderLeaseTimeout time.Duration
+	// TimeoutsMultiplier is the multiplier for the timeout values for
+	// raft election, heartbeat, and leader lease
+	TimeoutsMultiplier int
 
 	// Raft snapshot related settings
 
@@ -671,11 +677,25 @@ func (st *Store) assertFuture(fut raft.IndexFuture) error {
 
 func (st *Store) raftConfig() *raft.Config {
 	cfg := raft.DefaultConfig()
+	// If the TimeoutsMultiplier is set, use it to multiply the timeout values
+	// This is used to speed up the raft election, heartbeat, and leader lease
+	// in a multi-node cluster.
+	// the default value is 1
+	// for production requirement,it's recommended to set it to 5
+	// this in order to tolerate the network delay and avoid extensive leader election triggered more frequently
+	// example : https://developer.hashicorp.com/consul/docs/reference/architecture/server#production-server-requirements
+	timeOutMultiplier := 1
+	if st.cfg.TimeoutsMultiplier > 1 {
+		timeOutMultiplier = st.cfg.TimeoutsMultiplier
+	}
 	if st.cfg.HeartbeatTimeout > 0 {
 		cfg.HeartbeatTimeout = st.cfg.HeartbeatTimeout
 	}
 	if st.cfg.ElectionTimeout > 0 {
 		cfg.ElectionTimeout = st.cfg.ElectionTimeout
+	}
+	if st.cfg.LeaderLeaseTimeout > 0 {
+		cfg.LeaderLeaseTimeout = st.cfg.LeaderLeaseTimeout
 	}
 	if st.cfg.SnapshotInterval > 0 {
 		cfg.SnapshotInterval = st.cfg.SnapshotInterval
@@ -686,7 +706,9 @@ func (st *Store) raftConfig() *raft.Config {
 	if st.cfg.TrailingLogs > 0 {
 		cfg.TrailingLogs = st.cfg.TrailingLogs
 	}
-
+	cfg.HeartbeatTimeout *= time.Duration(timeOutMultiplier)
+	cfg.ElectionTimeout *= time.Duration(timeOutMultiplier)
+	cfg.LeaderLeaseTimeout *= time.Duration(timeOutMultiplier)
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
 	cfg.LogLevel = st.cfg.Logger.GetLevel().String()
 	cfg.NoLegacyTelemetry = true
