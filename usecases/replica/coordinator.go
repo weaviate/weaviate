@@ -134,7 +134,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 								"op":      "broadcast",
 								"replica": replica,
 								"error":   err,
-							}).Debug("network error during broadcast, attempting to re-resolve node address")
+							}).Error("network error during broadcast, attempting to re-resolve node address")
 
 							// Re-resolve the node address using the same consistency level as the original request
 							newState, resolveErr := c.Resolver.State(c.Shard, cl, replica)
@@ -146,7 +146,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 										"op":          "broadcast",
 										"old_replica": replica,
 										"new_replica": newReplica,
-									}).Debug("re-resolved node address, retrying broadcast")
+									}).Error("re-resolved node address, retrying broadcast")
 
 									// Try with the new address
 									err = op(nodeCtx, newReplica, c.TxID)
