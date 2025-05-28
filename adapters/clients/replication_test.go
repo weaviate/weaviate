@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -582,19 +583,6 @@ func TestReplicationOverwriteObjects(t *testing.T) {
 	assert.Equal(t, expected[0].ID, resp[0].ID)
 	assert.Equal(t, expected[0].Version, resp[0].Version)
 	assert.Equal(t, expected[0].UpdateTime, resp[0].UpdateTime)
-}
-
-func TestExpBackOff(t *testing.T) {
-	N := 200
-	av := time.Duration(0)
-	delay := time.Nanosecond * 20
-	for i := 0; i < N; i++ {
-		av += backOff(delay)
-	}
-	av /= time.Duration(N)
-	if av < time.Nanosecond*30 || av > time.Nanosecond*50 {
-		t.Errorf("average time got %v", av)
-	}
 }
 
 func newReplicationClient(httpClient *http.Client) *replicationClient {

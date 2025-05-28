@@ -18,13 +18,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -37,13 +37,15 @@ import (
 
 // ReplicationClient is to coordinate operations among replicas
 
-type replicationClient retryClient
+type replicationClient struct {
+	retryClient
+}
 
 func NewReplicationClient(httpClient *http.Client) replica.Client {
-	return &replicationClient{
+	return &replicationClient{retryClient{
 		client:  httpClient,
 		retryer: newRetryer(),
-	}
+	}}
 }
 
 // FetchObject fetches one object it exits
@@ -56,7 +58,7 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.doCustomUnmarshal(c.timeoutUnit*20, req, nil, resp.UnmarshalBinary, numRetries)
+	err = c.doCustomUnmarshal(c.timeoutUnit*30, req, nil, resp.UnmarshalBinary, numRetries)
 	return resp, err
 }
 
@@ -74,7 +76,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*20, req, body, &resp, numRetries)
+	err = c.do(c.timeoutUnit*180, req, body, &resp, numRetries)
 	return resp, err
 }
 
@@ -98,7 +100,7 @@ func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 	}
 
 	var resp replica.DigestObjectsInRangeResp
-	err = c.do(c.timeoutUnit*20, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*180, req, body, &resp, 9)
 	return resp.Digests, err
 }
 
@@ -116,7 +118,7 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
 	}
-	err = c.do(c.timeoutUnit*20, req, body, &resp, 9)
+	err = c.do(c.timeoutUnit*30, req, body, &resp, 9)
 	return resp, err
 }
 
@@ -155,7 +157,7 @@ func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	}
 
 	req.URL.RawQuery = url.Values{"ids": []string{idsEncoded}}.Encode()
-	err = c.doCustomUnmarshal(c.timeoutUnit*90, req, nil, resp.UnmarshalBinary, 9)
+	err = c.doCustomUnmarshal(c.timeoutUnit*30, req, nil, resp.UnmarshalBinary, 9)
 	return resp, err
 }
 
@@ -364,42 +366,16 @@ func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader
 	return http.NewRequest(http.MethodPost, url.String(), body)
 }
 
-func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) (err error) {
-	ctx, cancel := context.WithTimeout(req.Context(), timeout)
-	defer cancel()
-	req = req.WithContext(ctx)
-	try := func(ctx context.Context) (bool, error) {
-		if body != nil {
-			req.Body = io.NopCloser(bytes.NewReader(body))
-		}
-		res, err := c.client.Do(req)
-		if err != nil {
-			return false, fmt.Errorf("connect: %w", err)
-		}
-		defer res.Body.Close()
-
-		if code := res.StatusCode; code != http.StatusOK {
-			b, _ := io.ReadAll(res.Body)
-			return shouldRetry(code), fmt.Errorf("status code: %v, error: %s", code, b)
-		}
-		if err := json.NewDecoder(res.Body).Decode(resp); err != nil {
-			return false, fmt.Errorf("decode response: %w", err)
-		}
-		return false, nil
-	}
-	return c.retry(ctx, numRetries, try)
+func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) error {
+	ok := func(code int) bool { return code == http.StatusOK }
+	_, err := c.retryClient.do(timeout, req, body, resp, numRetries, ok, "")
+	return err
 }
 
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 	req *http.Request, body []byte, decode func([]byte) error, numRetries int,
 ) (err error) {
-	return (*retryClient)(c).doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
-}
-
-// backOff return a new random duration in the interval [d, 3d].
-// It implements truncated exponential back-off with introduced jitter.
-func backOff(d time.Duration) time.Duration {
-	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
+	return c.doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries, "")
 }
 
 func shouldRetry(code int) bool {
