@@ -34,7 +34,7 @@ type KeywordRanking struct {
 	Properties             []string `json:"properties"`
 	Query                  string   `json:"query"`
 	AdditionalExplanations bool     `json:"additionalExplanations"`
-	MinimumOrTokensMatch   int      `json:"MinimumOrTokenMatch"`
+	MinimumOrTokensMatch   int      `json:"minimumOrTokensMatch"`
 	SearchOperator         string   `json:"searchOperator"`
 }
 
