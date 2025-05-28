@@ -18,6 +18,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/schema"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -734,7 +736,7 @@ func (f *fakeFactory) AddShard(shard string, nodes []string) {
 	f.Shard2replicas[shard] = nodes
 }
 
-func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
+func (f *fakeFactory) newRouter(thisNode string) clusterRouter.Router {
 	nodes := make([]string, 0, len(f.Nodes))
 	for _, n := range f.Nodes {
 		if n == thisNode {
@@ -744,6 +746,7 @@ func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
 		}
 	}
 	clusterState := clusterMocks.NewMockNodeSelector(nodes...)
+	schemaGetterMock := schema.NewMockSchemaGetter(f.t)
 	schemaReaderMock := schemaTypes.NewMockSchemaReader(f.t)
 	schemaReaderMock.On("ShardReplicas", mock.Anything, mock.Anything).Return(func(class string, shard string) ([]string, error) {
 		v, ok := f.Shard2replicas[shard]
@@ -756,7 +759,10 @@ func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
 	replicationFsmMock.On("FilterOneShardReplicasReadWrite", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
 		return shardReplicasLocation, shardReplicasLocation
 	}).Maybe()
-	router := clusterRouter.New(f.log, clusterState, schemaReaderMock, replicationFsmMock)
+	router, err := clusterRouter.NewBuilder("TestClass", false, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
+	if err != nil {
+		return nil
+	}
 	return router
 }
 
