@@ -455,6 +455,15 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 	}
 }
 
+func (c *CopyOpConsumer) stopAsyncReplication(ctx context.Context, op ShardReplicationOpAndStatus, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, logger *logrus.Entry) {
+	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
+		logger.WithError(err).Error("failure while reverting async replication on local node")
+	}
+	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
+		logger.WithError(err).Error("failure while removing async replication target node")
+	}
+}
+
 func (c *CopyOpConsumer) sync(ctx context.Context, op ShardReplicationOpAndStatus) error {
 	if _, err := c.leaderClient.SyncShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
 		return fmt.Errorf("failure while syncing replica shard: %w", err)
@@ -612,13 +621,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	switch op.Op.TransferType {
 	case api.COPY:
-		// TODO: move these two functions into a single function to avoid code duplication
-		if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
-			logger.WithError(err).Error("failure while reverting async replication on local node")
-		}
-		if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
-			logger.WithError(err).Error("failure while removing async replication target node")
-		}
+		c.stopAsyncReplication(ctx, op, targetNodeOverride, logger)
 		// sync the replica shard to ensure that the schema and store are consistent on each node
 		// In a COPY this happens now, in a MOVE this happens in the DEHYDRATING state
 		if err := c.sync(ctx, op); err != nil {
@@ -700,13 +703,7 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	// TODO: move these two functions into a single function to avoid code duplication
-	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
-		logger.WithError(err).Error("failure while reverting async replication locally")
-	}
-	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
-		logger.WithError(err).Error("failure while removing async replication target node")
-	}
+	c.stopAsyncReplication(ctx, op, targetNodeOverride, logger)
 
 	if replicaExists {
 		// If the replica got deleted due to eventual consistency between our sanity check and this call, the delete will be a no-op and return no error
