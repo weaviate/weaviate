@@ -42,6 +42,8 @@ type Config struct {
 	SharedDB              *bolt.DB
 	HNSWDisableSnapshots  bool
 	HNSWSnapshotOnStartup bool
+	MinMMapSize           int64
+	MaxWalReuseSize       int64
 }
 
 func (c Config) Validate() error {
