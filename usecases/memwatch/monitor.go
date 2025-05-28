@@ -13,7 +13,9 @@ package memwatch
 
 import (
 	"bufio"
+	"bytes"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"runtime"
@@ -60,6 +62,7 @@ type Monitor struct {
 	reservedMappings       int64
 	reservedMappingsBuffer []int64
 	lastReservationsClear  time.Time
+	readBuf                []byte
 }
 
 // Refresh retrieves the current memory stats from the runtime and stores them
@@ -91,6 +94,7 @@ func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 		maxMemoryMappings:      getMaxMemoryMappings(),
 		reservedMappingsBuffer: make([]int64, mappingsEntries), // one entry per second + buffer to handle delays
 		lastReservationsClear:  time.Now(),
+		readBuf:                make([]byte, 32*1024),
 	}
 	m.Refresh(true)
 	return m
@@ -178,24 +182,24 @@ func (m *Monitor) obtainCurrentUsage() {
 }
 
 func (m *Monitor) obtainCurrentMappings() {
-	used := getCurrentMappings()
+	used := getCurrentMappings(m.readBuf)
 	monitoring.GetMetrics().MmapProcMaps.Set(float64(used))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.usedMappings = used
 }
 
-func getCurrentMappings() int64 {
+func getCurrentMappings(tmpBuf []byte) int64 {
 	switch runtime.GOOS {
 	case "linux":
-		return currentMappingsLinux()
+		return currentMappingsLinux(tmpBuf)
 	default:
 		return 0
 	}
 }
 
 // Counts the number of mappings by counting the number of lines within the maps file
-func currentMappingsLinux() int64 {
+func currentMappingsLinux(tmpBuf []byte) int64 {
 	filePath := fmt.Sprintf("/proc/%d/maps", os.Getpid())
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -203,17 +207,20 @@ func currentMappingsLinux() int64 {
 	}
 	defer file.Close()
 
-	var mappings int64
-	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
-		mappings++
-	}
+	count := int64(0)
+	lineSep := []byte{'\n'}
 
-	if err := scanner.Err(); err != nil {
-		return 0
-	}
+	for {
+		c, err := file.Read(tmpBuf)
+		count += int64(bytes.Count(tmpBuf[:c], lineSep))
 
-	return mappings
+		switch {
+		case err == io.EOF:
+			return count
+		case err != nil:
+			return 0
+		}
+	}
 }
 
 func getMaxMemoryMappings() int64 {

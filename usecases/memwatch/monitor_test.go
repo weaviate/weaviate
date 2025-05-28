@@ -140,12 +140,13 @@ func TestMappings(t *testing.T) {
 	})
 
 	t.Run("current memory settings", func(t *testing.T) {
+		tmpBuf := make([]byte, 4096)
 		switch runtime.GOOS {
 		case "linux":
-			assert.Greater(t, getCurrentMappings(), int64(0))
-			assert.Less(t, getCurrentMappings(), int64(math.MaxInt64))
+			assert.Greater(t, getCurrentMappings(tmpBuf), int64(0))
+			assert.Less(t, getCurrentMappings(tmpBuf), int64(math.MaxInt64))
 		case "darwin":
-			assert.Equal(t, getCurrentMappings(), int64(0))
+			assert.Equal(t, getCurrentMappings(tmpBuf), int64(0))
 		}
 	})
 
@@ -153,7 +154,7 @@ func TestMappings(t *testing.T) {
 		if runtime.GOOS == "darwin" {
 			t.Skip("macOS does not have a limit on mappings")
 		}
-		currentMappings := getCurrentMappings()
+		currentMappings := getCurrentMappings(make([]byte, 4096))
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
 		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
@@ -179,7 +180,7 @@ func TestMappings(t *testing.T) {
 
 			// there might be other processes that use mappings. Don't check any specific number just that we have
 			// reached the limit
-			if mappingsLeft := getMaxMemoryMappings() - getCurrentMappings(); mappingsLeft <= 0 {
+			if mappingsLeft := getMaxMemoryMappings() - getCurrentMappings(make([]byte, 4096)); mappingsLeft <= 0 {
 				limitReached = true
 				break
 			} else {
@@ -231,7 +232,7 @@ func TestMappings(t *testing.T) {
 	})
 
 	t.Run("check reservations", func(t *testing.T) {
-		currentMappings := getCurrentMappings()
+		currentMappings := getCurrentMappings(make([]byte, 4096))
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
 		maxMappings := getMaxMemoryMappings()
