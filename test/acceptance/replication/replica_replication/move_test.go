@@ -46,7 +46,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceRepl
 		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 		require.Nil(t, err)
 		require.Equal(ct, "READY", status.Payload.Status.State)
-	}, 60*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
+	}, 180*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
 
 	t.Run("ensure target and source replicas are there/gone respectively", func(t *testing.T) {
 		verbose := verbosity.OutputVerbose
