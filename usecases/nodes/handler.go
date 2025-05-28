@@ -29,7 +29,7 @@ import (
 const GetNodeStatusTimeout = 30 * time.Second
 
 type db interface {
-	GetNodeStatus(ctx context.Context, className, verbosity string) ([]*models.NodeStatus, error)
+	GetNodeStatus(ctx context.Context, className, shardName, verbosity string) ([]*models.NodeStatus, error)
 	GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error)
 }
 
@@ -50,7 +50,7 @@ func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
 // GetNodeStatus aggregates the status across all nodes. It will try for a
 // maximum of the configured timeout, then mark nodes as timed out.
 func (m *Manager) GetNodeStatus(ctx context.Context,
-	principal *models.Principal, className string, verbosityString string,
+	principal *models.Principal, className, shardName, verbosityString string,
 ) ([]*models.NodeStatus, error) {
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
 	defer cancel()
@@ -64,7 +64,7 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 		}
 	}
 
-	status, err := m.db.GetNodeStatus(ctxWithTimeout, className, verbosityString)
+	status, err := m.db.GetNodeStatus(ctxWithTimeout, className, shardName, verbosityString)
 	if err != nil {
 		return nil, err
 	}

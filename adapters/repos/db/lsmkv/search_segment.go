@@ -20,7 +20,7 @@ import (
 )
 
 func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additionalExplanations bool,
-	termCount, minimumShouldMatch int,
+	termCount, minimumOrTokensMatch int,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	var docInfos []*terms.DocPointerWithScore
 	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
@@ -103,7 +103,7 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 					}
 					term.Advance()
 				}
-				if topKHeap.ShouldEnqueue(float32(score), limit) && termsMatched >= minimumShouldMatch {
+				if topKHeap.ShouldEnqueue(float32(score), limit) && termsMatched >= minimumOrTokensMatch {
 					topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
 				}
 
@@ -175,7 +175,7 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 }
 
 func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, additionalExplanations bool,
-	termCount int, minimumShouldMatch int,
+	termCount int, minimumOrTokensMatch int,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	results := TermsBySize(resultsByTerm)
 	var docInfos []*terms.DocPointerWithScore
@@ -186,7 +186,7 @@ func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, ad
 	pivotID := uint64(0)
 	upperBound := float32(0)
 
-	if minimumShouldMatch > len(results) {
+	if minimumOrTokensMatch > len(results) {
 		return topKHeap
 	}
 
@@ -261,7 +261,7 @@ func DoBlockMaxAnd(limit int, resultsByTerm Terms, averagePropLength float64, ad
 }
 
 func DoWand(limit int, results *terms.Terms, averagePropLength float64, additionalExplanations bool,
-	minimumShouldMatch int,
+	minimumOrTokensMatch int,
 ) *priorityqueue.Queue[[]*terms.DocPointerWithScore] {
 	topKHeap := priorityqueue.NewMinWithId[[]*terms.DocPointerWithScore](limit)
 	worstDist := float64(-10000) // tf score can be negative
@@ -272,7 +272,7 @@ func DoWand(limit int, results *terms.Terms, averagePropLength float64, addition
 			return topKHeap
 		}
 
-		id, score, additional, ok := results.ScoreNext(averagePropLength, additionalExplanations, minimumShouldMatch)
+		id, score, additional, ok := results.ScoreNext(averagePropLength, additionalExplanations, minimumOrTokensMatch)
 		results.SortFull()
 		if topKHeap.ShouldEnqueue(float32(score), limit) && ok {
 			topKHeap.InsertAndPop(id, score, limit, &worstDist, additional)
