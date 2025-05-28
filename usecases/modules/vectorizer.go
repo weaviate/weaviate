@@ -92,7 +92,7 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	logger logrus.FieldLogger,
 ) (map[int]error, error) {
 	if ctx.Err() != nil {
-		return nil, fmt.Errorf("context is done: %w", ctx.Err())
+		return nil, ctx.Err()
 	}
 	modConfigs, err := p.getModuleConfigs(class)
 	if err != nil {
@@ -118,7 +118,7 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 	eg.SetLimit(_NUMCPU)
 	for targetVector, modConfig := range modConfigs {
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("context is done: %w", ctx.Err())
+			return nil, ctx.Err()
 		}
 		shouldVectorizeClass, err := p.shouldVectorizeClass(class, targetVector, logger)
 		if err != nil {
@@ -142,7 +142,7 @@ func (p *Provider) BatchUpdateVector(ctx context.Context, class *models.Class, o
 		counter += 1
 	}
 	if ctx.Err() != nil {
-		return nil, fmt.Errorf("context is done: %w", ctx.Err())
+		return nil, ctx.Err()
 	}
 	if err := eg.Wait(); err != nil {
 		return nil, err
@@ -219,7 +219,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 			}
 		}
 		if ctx.Err() != nil {
-			return nil, fmt.Errorf("context is done: %w", ctx.Err())
+			return nil, ctx.Err()
 		}
 		vectors, addProps, vecErrors := vectorizer.VectorizeBatch(ctx, objects, skipRevectorization, cfg)
 		for i := range objects {
@@ -318,7 +318,7 @@ func (p *Provider) UpdateVector(ctx context.Context, object *models.Object, clas
 		}, targetVector)
 	}
 	if ctx.Err() != nil {
-		return fmt.Errorf("context is done: %w", ctx.Err())
+		return ctx.Err()
 	}
 	if err = eg.Wait(); err != nil {
 		return err
@@ -364,7 +364,7 @@ func (p *Provider) vectorizeOne(ctx context.Context, object *models.Object, clas
 	logger logrus.FieldLogger,
 ) error {
 	if ctx.Err() != nil {
-		return fmt.Errorf("context is done: %w", ctx.Err())
+		return ctx.Err()
 	}
 	vectorize, err := p.shouldVectorize(object, class, targetVector, logger)
 	if err != nil {
@@ -383,7 +383,7 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 	targetVector string, modConfig map[string]interface{},
 ) error {
 	if ctx.Err() != nil {
-		return fmt.Errorf("context is done: %w", ctx.Err())
+		return ctx.Err()
 	}
 	found := p.getModule(modConfig)
 	if found == nil {
