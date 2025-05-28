@@ -338,10 +338,8 @@ func (s *SchemaManager) AddReplicaToShard(cmd *command.ApplyRequest, schemaOnly 
 
 	return s.apply(
 		applyOp{
-			op: cmd.GetType().String(),
-			updateSchema: func() error {
-				return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode)
-			},
+			op:           cmd.GetType().String(),
+			updateSchema: func() error { return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode) },
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
 					return s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode)
