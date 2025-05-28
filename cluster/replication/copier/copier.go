@@ -311,8 +311,7 @@ func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionNa
 // AsyncReplicationStatus returns the async replication status for a shard.
 // The first two return values are the number of objects propagated and the start diff time in unix milliseconds.
 func (c *Copier) AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (models.AsyncReplicationStatus, error) {
-	// TODO can using verbose here blow up if the node has many shards/tenants? i could add a new method to get only one shard?
-	status, err := c.dbWrapper.GetOneNodeStatus(ctx, srcNodeId, collectionName, "verbose")
+	status, err := c.dbWrapper.GetOneNodeStatus(ctx, srcNodeId, collectionName, shardName, "verbose")
 	if err != nil {
 		return models.AsyncReplicationStatus{}, err
 	}
