@@ -75,7 +75,7 @@ func (b *BatchManager) addObjects(ctx context.Context, principal *models.Princip
 	objects []*models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (BatchObjects, error) {
 	if ctx.Err() != nil {
-		return nil, fmt.Errorf("context is done: %w", ctx.Err())
+		return nil, ctx.Err()
 	}
 	ctx = classcache.ContextWithClassCache(ctx)
 
