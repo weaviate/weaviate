@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
 
 func TestShardActivity(t *testing.T) {
@@ -73,7 +74,7 @@ func TestShardActivity(t *testing.T) {
 	o.observeActivity()
 
 	t.Run("total usage", func(t *testing.T) {
-		usage := o.Usage(UsageFilterAll)
+		usage := o.Usage(tenantactivity.UsageFilterAll)
 		_, ok := usage["NonMT"]
 		assert.False(t, ok, "only MT cols should be contained")
 
@@ -87,7 +88,7 @@ func TestShardActivity(t *testing.T) {
 	})
 
 	t.Run("display only reads", func(t *testing.T) {
-		usage := o.Usage(UsageFilterOnlyReads)
+		usage := o.Usage(tenantactivity.UsageFilterOnlyReads)
 		_, ok := usage["NonMT"]
 		assert.False(t, ok, "only MT cols should be contained")
 
@@ -111,7 +112,7 @@ func TestShardActivity(t *testing.T) {
 	})
 
 	t.Run("display only writes", func(t *testing.T) {
-		usage := o.Usage(UsageFilterOnlyWrites)
+		usage := o.Usage(tenantactivity.UsageFilterOnlyWrites)
 		_, ok := usage["NonMT"]
 		assert.False(t, ok, "only MT cols should be contained")
 
@@ -131,7 +132,7 @@ func TestShardActivity(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 		o.observeActivity()
 
-		usage = o.Usage(UsageFilterOnlyWrites)
+		usage = o.Usage(tenantactivity.UsageFilterOnlyWrites)
 		col, ok = usage["Col1"]
 		require.True(t, ok, "MT col should be contained")
 
