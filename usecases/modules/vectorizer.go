@@ -284,7 +284,7 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 		errs := make(map[int]error, 0)
 		for i, obj := range objects {
 			if ctx.Err() != nil {
-				return nil, fmt.Errorf("context is done: %w", ctx.Err())
+				return nil, ctx.Err()
 			}
 			vector, err := refVectorizer.VectorizeObject(ctx, obj, cfg, findObjectFn)
 			if err != nil {
