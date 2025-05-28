@@ -12,6 +12,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"os"
@@ -21,6 +22,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -52,6 +54,31 @@ const (
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 )
 
+var errlogLevelNotRecognized = errors.New("log level not recognized")
+
+// logLevelFromString converts a string to a logrus log level, returns a logLevelNotRecognized
+// error if the string is not recognized. level is case insensitive.
+func logLevelFromString(level string) (logrus.Level, error) {
+	switch strings.ToLower(level) {
+	case "panic":
+		return logrus.PanicLevel, nil
+	case "fatal":
+		return logrus.FatalLevel, nil
+	case "error":
+		return logrus.ErrorLevel, nil
+	case "warn", "warning":
+		return logrus.WarnLevel, nil
+	case "info":
+		return logrus.InfoLevel, nil
+	case "debug":
+		return logrus.DebugLevel, nil
+	case "trace":
+		return logrus.TraceLevel, nil
+	default:
+		return 0, errlogLevelNotRecognized
+	}
+}
+
 // FromEnv takes a *Config as it will respect initial config that has been
 // provided by other means (e.g. a config file) and will only extend those that
 // are set
@@ -82,6 +109,12 @@ func FromEnv(config *Config) error {
 			config.Monitoring.MonitorCriticalBucketsOnly = true
 		}
 	}
+
+	level, err := logLevelFromString(os.Getenv("LOG_LEVEL"))
+	if err != nil {
+		return fmt.Errorf("parse LOG_LEVEL: %w", err)
+	}
+	config.LogLevel = level.String()
 
 	if entcfg.Enabled(os.Getenv("TRACK_VECTOR_DIMENSIONS")) {
 		config.TrackVectorDimensions = true

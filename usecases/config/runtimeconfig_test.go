@@ -56,6 +56,7 @@ func TestUpdateRuntimeConfig(t *testing.T) {
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
 maximum_allowed_collections_count: 13
+log_level: debug
 REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT: 10s`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)

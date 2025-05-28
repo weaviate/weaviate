@@ -935,7 +935,20 @@ func startBackupScheduler(appState *state.State) *backup.Scheduler {
 func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) *state.State {
 	appState := &state.State{}
 
-	logger := logger()
+	// bootstrap logger.
+	logger := logrus.New()
+	logger.SetFormatter(NewWeaviateTextFormatter())
+
+	// Load the config using the flags
+	serverConfig := &config.WeaviateConfig{}
+	appState.ServerConfig = serverConfig
+	err := serverConfig.LoadConfig(options, logger)
+	if err != nil {
+		logger.WithField("action", "startup").WithError(err).Error("could not load config")
+		logger.Exit(1)
+	}
+	serverConfig.Config.LogLevel
+	logger := logger(serverConfig.Config.LogLevel)
 	appState.Logger = logger
 
 	logger.WithField("action", "startup").WithField("startup_time_left", timeTillDeadline(ctx)).
@@ -946,14 +959,6 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 		logger.WithField("action", "startup").Infof("Feature flag LD integration disabled: %s", err)
 	}
 	appState.LDIntegration = ldInteg
-	// Load the config using the flags
-	serverConfig := &config.WeaviateConfig{}
-	appState.ServerConfig = serverConfig
-	err = serverConfig.LoadConfig(options, logger)
-	if err != nil {
-		logger.WithField("action", "startup").WithError(err).Error("could not load config")
-		logger.Exit(1)
-	}
 	dataPath := serverConfig.Config.Persistence.DataPath
 	if err := os.MkdirAll(dataPath, 0o777); err != nil {
 		logger.WithField("action", "startup").
@@ -1028,8 +1033,6 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 //
 // Defaults to log level info and json format
 func logger() *logrus.Logger {
-	logger := logrus.New()
-	logger.SetFormatter(NewWeaviateTextFormatter())
 
 	if os.Getenv("LOG_FORMAT") != "text" {
 		logger.SetFormatter(NewWeaviateJSONFormatter())

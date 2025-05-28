@@ -103,8 +103,7 @@ type RuntimeOverrides struct {
 
 // Config outline of the config file
 type Config struct {
-	Name                                string                   `json:"name" yaml:"name"`
-	Debug                               bool                     `json:"debug" yaml:"debug"`
+	LogLevel                            string                   `json:"log_level" yaml:"log_level"`
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
 	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
 	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
