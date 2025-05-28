@@ -452,7 +452,7 @@ func TestConnections_LayerRangeAfterGrowingLayers(t *testing.T) {
 	c.GrowLayersTo(4)
 	c.ReplaceLayer(2, connsSlice3)
 
-	expectedLayers := 4
+	expectedLayers := 5
 	layerCount := 0
 
 	iter := c.Iterator()
