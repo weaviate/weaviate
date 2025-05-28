@@ -176,6 +176,25 @@ func Test_ExtractFlatFilters(t *testing.T) {
 					},
 				}},
 			},
+			{
+				name: "valid notlike filter",
+				input: &models.WhereFilter{
+					Operator: "NotLike",
+					ValueText: ptString("foo*"),
+					Path:     []string{"textField"},
+				},
+				expectedFilter: &filters.LocalFilter{Root: &filters.Clause{
+					Operator: filters.OperatorNotLike,
+					On: &filters.Path{
+						Class:    schema.AssertValidClassName("Todo"),
+						Property: schema.AssertValidPropertyName("textField"),
+					},
+					Value: &filters.Value{
+						Value: "foo*",
+						Type:  schema.DataTypeText,
+					},
+				}},
+			},
 		}
 
 		for _, test := range tests {

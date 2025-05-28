@@ -66,8 +66,10 @@ func (rr *RowReader) Read(ctx context.Context, readFn ReadFn) error {
 	case filters.OperatorLessThanEqual:
 		return rr.lessThan(ctx, readFn, true)
 	case filters.OperatorLike:
-		return rr.like(ctx, readFn)
-	case filters.OperatorIsNull: // we need to fetch a row with a given value (there is only nil and !nil) and can reuse equal to get the correct row
+		return rr.likeOrNotLike(ctx, readFn, false)
+	case filters.OperatorNotLike:
+		return rr.likeOrNotLike(ctx, readFn, true)
+	case filters.OperatorIsNull:
 		return rr.equal(ctx, readFn)
 	default:
 		return fmt.Errorf("operator %v not supported", rr.operator)
@@ -160,58 +162,49 @@ func (rr *RowReader) lessThan(ctx context.Context, readFn ReadFn,
 	return nil
 }
 
-func (rr *RowReader) like(ctx context.Context, readFn ReadFn) error {
+func (rr *RowReader) likeOrNotLike(ctx context.Context, readFn ReadFn, invert bool) error {
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
 		return fmt.Errorf("parse like value: %w", err)
 	}
-
 	c := rr.newCursor()
 	defer c.Close()
-
 	var (
 		initialK []byte
 		initialV [][]byte
 	)
-
 	if like.optimizable {
 		initialK, initialV = c.Seek(like.min)
 	} else {
 		initialK, initialV = c.First()
 	}
-
 	for k, v := initialK, initialV; k != nil; k, v = c.Next() {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-
 		if like.optimizable {
-			// if the query is optimizable, i.e. it doesn't start with a wildcard, we
-			// can abort once we've moved past the point where the fixed characters
-			// no longer match
 			if len(k) < len(like.min) {
 				break
 			}
-
 			if bytes.Compare(like.min, k[:len(like.min)]) == -1 {
 				break
 			}
 		}
-
-		if !like.regexp.Match(k) {
+		match := like.regexp.Match(k)
+		if invert {
+			match = !match
+		}
+		if !match {
 			continue
 		}
-
 		continueReading, err := readFn(k, rr.transformToBitmap(v), noopRelease)
 		if err != nil {
 			return err
 		}
-
 		if !continueReading {
 			break
 		}
 	}
-
 	return nil
 }
 

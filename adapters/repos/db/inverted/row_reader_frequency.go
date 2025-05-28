@@ -63,7 +63,9 @@ func (rr *RowReaderFrequency) Read(ctx context.Context, readFn ReadFn) error {
 	case filters.OperatorLessThanEqual:
 		return rr.lessThan(ctx, readFn, true)
 	case filters.OperatorLike:
-		return rr.like(ctx, readFn)
+		return rr.likeOrNotLike(ctx, readFn, false)
+	case filters.OperatorNotLike:
+		return rr.likeOrNotLike(ctx, readFn, true)
 	default:
 		return fmt.Errorf("operator %v supported", rr.operator)
 	}
@@ -155,60 +157,49 @@ func (rr *RowReaderFrequency) lessThan(ctx context.Context, readFn ReadFn,
 	return nil
 }
 
-func (rr *RowReaderFrequency) like(ctx context.Context, readFn ReadFn) error {
+func (rr *RowReaderFrequency) likeOrNotLike(ctx context.Context, readFn ReadFn, invert bool) error {
 	like, err := parseLikeRegexp(rr.value)
 	if err != nil {
 		return fmt.Errorf("parse like value: %w", err)
 	}
-
-	// TODO: don't we need to check here if this is a doc id vs a object search?
-	// Or is this not a problem because the latter removes duplicates anyway?
 	c := rr.newCursor(lsmkv.MapListAcceptDuplicates())
 	defer c.Close()
-
 	var (
 		initialK []byte
 		initialV []lsmkv.MapPair
 	)
-
 	if like.optimizable {
 		initialK, initialV = c.Seek(ctx, like.min)
 	} else {
 		initialK, initialV = c.First(ctx)
 	}
-
 	for k, v := initialK, initialV; k != nil; k, v = c.Next(ctx) {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-
 		if like.optimizable {
-			// if the query is optimizable, i.e. it doesn't start with a wildcard, we
-			// can abort once we've moved past the point where the fixed characters
-			// no longer match
 			if len(k) < len(like.min) {
 				break
 			}
-
 			if bytes.Compare(like.min, k[:len(like.min)]) == -1 {
 				break
 			}
 		}
-
-		if !like.regexp.Match(k) {
+		match := like.regexp.Match(k)
+		if invert {
+			match = !match
+		}
+		if !match {
 			continue
 		}
-
 		continueReading, err := readFn(k, rr.transformToBitmap(v), noopRelease)
 		if err != nil {
 			return err
 		}
-
 		if !continueReading {
 			break
 		}
 	}
-
 	return nil
 }
 
