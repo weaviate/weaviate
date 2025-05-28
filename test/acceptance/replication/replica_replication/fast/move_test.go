@@ -32,6 +32,7 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateMOVEDeletesS
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
