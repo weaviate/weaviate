@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
 	"github.com/weaviate/weaviate/entities/additional"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -62,39 +64,22 @@ func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string
 	}
 }
 
-// RemoveLocalReplica removes the local replica of a shard on this node.
-//
-// This method is a best effort and will not return an error if the shard does not exist nor if the index doesn't exist.
-//
-// It is used during cleanup after a replication is cancelled or deleted. Since replications must be cancelled when indexes
-// are dropped, the index could be gone by the time this method is called meaning that this cleanup is not necessary; hence the no-op.
-func (c *Copier) RemoveLocalReplica(ctx context.Context, collectionName, shardName string) {
-	index := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
-	if index == nil {
-		return // no index found, nothing to do
-	}
-	err := index.DropShard(shardName)
-	if err != nil {
-		return // no shard found, nothing to do
-	}
-}
-
-// CopyReplica copies a shard replica from the source node to this node.
-func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, shardName string) error {
+// CopyReplicaFiles copies a shard replica from the source node to this node.
+func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
 	sourceNodeHostname, ok := c.nodeSelector.NodeHostname(srcNodeId)
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", srcNodeId)
 	}
 
-	err := c.remoteIndex.PauseFileActivity(ctx, sourceNodeHostname, collectionName, shardName)
+	err := c.remoteIndex.PauseFileActivity(ctx, sourceNodeHostname, collectionName, shardName, schemaVersion)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to pause file activity: %w", err)
 	}
 	defer c.remoteIndex.ResumeFileActivity(ctx, sourceNodeHostname, collectionName, shardName)
 
 	relativeFilePaths, err := c.remoteIndex.ListFiles(ctx, sourceNodeHostname, collectionName, shardName)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to list files: %w", err)
 	}
 
 	// TODO remove this once we have a passing test that constantly inserts in parallel
@@ -109,26 +94,103 @@ func (c *Copier) CopyReplica(ctx context.Context, srcNodeId, collectionName, sha
 		time.Sleep(sleepTime)
 	}
 
+	err = c.prepareLocalFolder(relativeFilePaths)
+	if err != nil {
+		return fmt.Errorf("failed to prepare local folder: %w", err)
+	}
+
 	eg, gctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
 	eg.SetLimit(concurrency)
-
 	for _, relativeFilePath := range relativeFilePaths {
-		filePath := relativeFilePath
-
+		relativeFilePath := relativeFilePath
 		eg.Go(func() error {
-			return c.syncFile(gctx, sourceNodeHostname, collectionName, shardName, filePath)
+			return c.syncFile(gctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
 		})
 	}
 
 	err = eg.Wait()
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to sync files: %w", err)
 	}
 
-	err = c.dbWrapper.GetIndex(schema.ClassName(collectionName)).LoadLocalShard(ctx, shardName)
+	err = diskio.Fsync(c.rootDataPath)
 	if err != nil {
-		return err
+		return fmt.Errorf("failed to fsync local folder: %w", err)
 	}
+
+	err = c.validateLocalFolder(relativeFilePaths)
+	if err != nil {
+		return fmt.Errorf("failed to validate local folder: %w", err)
+	}
+
+	return nil
+}
+
+func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName string) error {
+	idx := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
+	if idx == nil {
+		return fmt.Errorf("index for collection %s not found", collectionName)
+	}
+
+	return idx.LoadLocalShard(ctx, shardName)
+}
+
+func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
+	relativeFilePathsMap := make(map[string]struct{}, len(relativeFilePaths))
+	for _, path := range relativeFilePaths {
+		relativeFilePathsMap[path] = struct{}{}
+	}
+
+	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("walking local folder: %w", err)
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		relativeFilePath := filepath.Join(c.rootDataPath, d.Name())
+
+		if _, ok := relativeFilePathsMap[relativeFilePath]; !ok {
+			err := os.Remove(relativeFilePath)
+			if err != nil {
+				return fmt.Errorf("removing local file %q not present in source node: %w", d.Name(), err)
+			}
+		}
+
+		return nil
+	})
+
+	return nil
+}
+
+func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
+	i := 0
+
+	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("walking local folder: %w", err)
+		}
+
+		if d.IsDir() {
+			return nil
+		}
+
+		localRelFilePath := filepath.Join(c.rootDataPath, d.Name())
+
+		if relativeFilePaths[i] != localRelFilePath {
+			return fmt.Errorf("unexpected: local folder contains unexpected content")
+		}
+
+		i++
+		// exit WalkDir early if we have more files in the local folder than expected
+		if len(relativeFilePaths) < i {
+			return fmt.Errorf("unexpected: local folder has more files than source node")
+		}
+
+		return nil
+	})
 
 	return nil
 }
@@ -190,14 +252,24 @@ func (c *Copier) syncFile(ctx context.Context, sourceNodeHostname, collectionNam
 	return nil
 }
 
-// SetAsyncReplicationTargetNode adds a target node override for a shard.
-func (c *Copier) SetAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+// AddAsyncReplicationTargetNode adds a target node override for a shard.
+func (c *Copier) AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
 	srcNodeHostname, ok := c.nodeSelector.NodeHostname(targetNodeOverride.SourceNode)
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", targetNodeOverride.SourceNode)
 	}
 
-	return c.remoteIndex.SetAsyncReplicationTargetNode(ctx, srcNodeHostname, targetNodeOverride.CollectionID, targetNodeOverride.ShardID, targetNodeOverride)
+	return c.remoteIndex.AddAsyncReplicationTargetNode(ctx, srcNodeHostname, targetNodeOverride.CollectionID, targetNodeOverride.ShardID, targetNodeOverride, schemaVersion)
+}
+
+// RemoveAsyncReplicationTargetNode removes a target node override for a shard.
+func (c *Copier) RemoveAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	srcNodeHostname, ok := c.nodeSelector.NodeHostname(targetNodeOverride.SourceNode)
+	if !ok {
+		return fmt.Errorf("source node address not found in cluster membership for node %s", targetNodeOverride.SourceNode)
+	}
+
+	return c.remoteIndex.RemoveAsyncReplicationTargetNode(ctx, srcNodeHostname, targetNodeOverride.CollectionID, targetNodeOverride.ShardID, targetNodeOverride)
 }
 
 func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error {
@@ -206,38 +278,75 @@ func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName
 		return fmt.Errorf("index for collection %s not found", collectionName)
 	}
 
-	// TODO: check that this does not create a shard if it does not exist (I think it does)
 	shard, release, err := index.GetShard(ctx, shardName)
-	if err != nil || shard == nil {
-		return fmt.Errorf("get shard %s: %w", shardName, err)
+	if err != nil {
+		return fmt.Errorf("get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("get shard %s: not found", shardName)
 	}
 	defer release()
 
 	return shard.UpdateAsyncReplicationConfig(ctx, true)
 }
 
+func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error {
+	index := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
+	if index == nil {
+		return fmt.Errorf("index for collection %s not found", collectionName)
+	}
+
+	shard, release, err := index.GetShard(ctx, shardName)
+	if err != nil {
+		return fmt.Errorf("get shard %s err: %w", shardName, err)
+	}
+	if shard == nil {
+		return fmt.Errorf("get shard %s: not found", shardName)
+	}
+	defer release()
+
+	return shard.UpdateAsyncReplicationConfig(ctx, shard.Index().Config.AsyncReplicationEnabled)
+}
+
 // AsyncReplicationStatus returns the async replication status for a shard.
 // The first two return values are the number of objects propagated and the start diff time in unix milliseconds.
 func (c *Copier) AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (models.AsyncReplicationStatus, error) {
-	// TODO can using verbose here blow up if the node has many shards/tenants? i could add a new method to get only one shard?
-	status, err := c.dbWrapper.GetOneNodeStatus(ctx, srcNodeId, collectionName, "verbose")
+	status, err := c.dbWrapper.GetOneNodeStatus(ctx, srcNodeId, collectionName, shardName, "verbose")
 	if err != nil {
 		return models.AsyncReplicationStatus{}, err
 	}
 
+	if len(status.Shards) == 0 {
+		return models.AsyncReplicationStatus{}, fmt.Errorf("stats are empty for node %s", srcNodeId)
+	}
+
+	shardFound := false
 	for _, shard := range status.Shards {
-		if shard.Name == shardName && shard.Class == collectionName {
-			for _, asyncReplicationStatus := range shard.AsyncReplicationStatus {
-				if asyncReplicationStatus.TargetNode == targetNodeId {
-					return models.AsyncReplicationStatus{
-						ObjectsPropagated:       asyncReplicationStatus.ObjectsPropagated,
-						StartDiffTimeUnixMillis: asyncReplicationStatus.StartDiffTimeUnixMillis,
-						TargetNode:              asyncReplicationStatus.TargetNode,
-					}, nil
-				}
+		if shard.Name != shardName || shard.Class != collectionName {
+			continue
+		}
+
+		shardFound = true
+		if len(shard.AsyncReplicationStatus) == 0 {
+			return models.AsyncReplicationStatus{}, fmt.Errorf("async replication status empty for shard %s in node %s", shardName, srcNodeId)
+		}
+
+		for _, asyncReplicationStatus := range shard.AsyncReplicationStatus {
+			if asyncReplicationStatus.TargetNode != targetNodeId {
+				continue
 			}
+
+			return models.AsyncReplicationStatus{
+				ObjectsPropagated:       asyncReplicationStatus.ObjectsPropagated,
+				StartDiffTimeUnixMillis: asyncReplicationStatus.StartDiffTimeUnixMillis,
+				TargetNode:              asyncReplicationStatus.TargetNode,
+			}, nil
 		}
 	}
 
-	return models.AsyncReplicationStatus{}, fmt.Errorf("shard %s or collection %s not found in node %s or stats are nil", shardName, collectionName, srcNodeId)
+	if !shardFound {
+		return models.AsyncReplicationStatus{}, fmt.Errorf("shard %s not found in node %s", shardName, srcNodeId)
+	}
+
+	return models.AsyncReplicationStatus{}, fmt.Errorf("async replication status not found for shard %s in node %s", shardName, srcNodeId)
 }
