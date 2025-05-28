@@ -91,6 +91,34 @@ func TestSuccessListAll(t *testing.T) {
 	}
 }
 
+func TestSuccessListAllAfterImport(t *testing.T) {
+	exStaticUser := "static"
+	authorizer := authorization.NewMockAuthorizer(t)
+	authorizer.On("Authorize", &models.Principal{Username: "root"}, authorization.READ, authorization.Users()[0]).Return(nil)
+	dynUser := NewMockDbUserAndRolesGetter(t)
+	dynUser.On("GetUsers").Return(map[string]*apikey.User{exStaticUser: {Id: exStaticUser, Active: true}}, nil)
+	dynUser.On("GetRolesForUser", exStaticUser, models.UserTypeInputDb).Return(
+		map[string][]authorization.Policy{"role": {}}, nil)
+
+	h := dynUserHandler{
+		dbUsers:              dynUser,
+		authorizer:           authorizer,
+		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{exStaticUser}, AllowedKeys: []string{"static"}},
+		rbacConfig:           rbacconf.Config{Enabled: true, RootUsers: []string{"root"}},
+		dbUserEnabled:        true,
+	}
+
+	res := h.listUsers(users.ListAllUsersParams{}, &models.Principal{Username: "root"})
+	parsed, ok := res.(*users.ListAllUsersOK)
+	assert.True(t, ok)
+	assert.NotNil(t, parsed)
+	require.Len(t, parsed.Payload, 1)
+	user := parsed.Payload[0]
+	require.Equal(t, *user.UserID, exStaticUser)
+	require.Equal(t, *user.Active, true)
+	require.Equal(t, *user.DbUserType, string(models.UserTypeOutputDbUser))
+}
+
 func TestSuccessListAllUserMultiNode(t *testing.T) {
 	baseTime := time.Now()
 

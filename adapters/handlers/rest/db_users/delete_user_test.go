@@ -71,6 +71,7 @@ func TestDeleteUnprocessableEntityStaticUser(t *testing.T) {
 	authorizer.On("Authorize", principal, authorization.DELETE, authorization.Users("user")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
+	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
 	h := dynUserHandler{
 		dbUsers:    dynUser,

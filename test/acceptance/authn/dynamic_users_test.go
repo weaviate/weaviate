@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/models"
+
 	"github.com/weaviate/weaviate/test/docker"
 
 	"github.com/stretchr/testify/require"
@@ -32,13 +34,12 @@ func TestCreateUser(t *testing.T) {
 	otherKey := "custom-key"
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherKey, otherUser).
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).
 		WithDbUsers().
 		WithRBAC().WithRbacAdmins(adminUser).
 		Start(ctx)
 	require.Nil(t, err)
 	helper.SetupClient(compose.GetWeaviate().URI())
-
 	defer func() {
 		helper.ResetClient()
 		require.NoError(t, compose.Terminate(ctx))
@@ -99,30 +100,41 @@ func TestCreateUser(t *testing.T) {
 		helper.DeleteUser(t, userName, adminKey)
 	})
 
-	t.Run("create user with key and rotate key", func(t *testing.T) {
-		helper.DeleteUser(t, userName, adminKey)
-		oldKey := helper.CreateUserWithApiKey(t, userName, adminKey)
+	t.Run("import static user and rotate key", func(t *testing.T) {
+		allUsers := helper.ListAllUsers(t, adminKey)
+		found := false
+		for _, user := range allUsers {
+			if *user.UserID == otherUser {
+				require.Equal(t, *user.DbUserType, string(models.UserTypeOutputDbEnvUser))
+				found = true
+				break
+			}
+		}
+		require.True(t, found)
+
+		oldKey := helper.CreateUserWithApiKey(t, otherUser, adminKey)
 		require.Equal(t, oldKey, otherKey)
 
 		info := helper.GetInfoForOwnUser(t, oldKey)
-		require.Equal(t, userName, *info.Username)
-		user := helper.GetUser(t, userName, adminKey)
+		require.Equal(t, otherUser, *info.Username)
+		user := helper.GetUser(t, otherUser, adminKey)
 		require.Equal(t, user.APIKeyFirstLetters, oldKey[:3])
+		require.Equal(t, *user.DbUserType, string(models.UserTypeOutputDbUser))
 
 		// rotate key and test that old key is not working anymore
-		newKey := helper.RotateKey(t, userName, adminKey)
+		newKey := helper.RotateKey(t, otherUser, adminKey)
 		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(oldKey))
 		require.Error(t, err)
 
 		infoNew := helper.GetInfoForOwnUser(t, newKey)
-		require.Equal(t, userName, *infoNew.Username)
+		require.Equal(t, otherUser, *infoNew.Username)
 
-		user = helper.GetUser(t, userName, adminKey)
+		user = helper.GetUser(t, otherUser, adminKey)
 		require.Equal(t, user.APIKeyFirstLetters, newKey[:3])
 		require.NotEqual(t, newKey, oldKey)
 		require.NotEqual(t, newKey[:10], oldKey[:10])
 
-		helper.DeleteUser(t, userName, adminKey)
+		helper.DeleteUser(t, otherUser, adminKey)
 	})
 }
 

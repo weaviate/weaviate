@@ -122,6 +122,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		usersWithTime = h.getLastUsed(filteredUsers)
 	}
 
+	allDynamicUsers := map[string]struct{}{}
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dbUser := range filteredUsers {
 		apiKeyFirstLetter := ""
@@ -136,10 +137,17 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
+		if isRootUser {
+			allDynamicUsers[dbUser.Id] = struct{}{}
+		}
 	}
 
 	if isRootUser {
 		for _, staticUser := range h.staticApiKeysConfigs.Users {
+			if _, ok := allDynamicUsers[staticUser]; ok {
+				// don't overwrite dynamic users with the same name. Can happen after import
+				continue
+			}
 			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", nil, nil)
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -190,19 +198,16 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 
 	// also check for existing static users if request comes from root
 	isRootUser := h.isRequestFromRootUser(principal)
-	isStaticUser := isRootUser && h.staticUserExists(params.UserID)
 
 	active := true
 	response := &models.DBUserInfo{UserID: &params.UserID, Active: &active}
-	if !isStaticUser {
-		existingDbUsers, err := h.dbUsers.GetUsers(params.UserID)
-		if err != nil {
-			return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
-		}
 
-		if len(existingDbUsers) == 0 {
-			return users.NewGetUserInfoNotFound()
-		}
+	existingDbUsers, err := h.dbUsers.GetUsers(params.UserID)
+	if err != nil {
+		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
+	}
+	var userType string
+	if len(existingDbUsers) > 0 {
 		user := existingDbUsers[params.UserID]
 		response.Active = &user.Active
 		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
@@ -214,24 +219,24 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 			usersWithTime := h.getLastUsed([]*apikey.User{user})
 			response.LastUsedAt = strfmt.DateTime(usersWithTime[params.UserID])
 		}
+		userType = string(models.UserTypeOutputDbUser)
+	} else if isRootUser && h.staticUserExists(params.UserID) {
+		userType = string(models.UserTypeOutputDbEnvUser)
+	} else {
+		return users.NewGetUserInfoNotFound()
 	}
+	response.DbUserType = &userType
 
-	existedRoles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
+	existingRoles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
 	if err != nil {
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("get roles: %w", err)))
 	}
 
-	roles := make([]string, 0, len(existedRoles))
-	for roleName := range existedRoles {
+	roles := make([]string, 0, len(existingRoles))
+	for roleName := range existingRoles {
 		roles = append(roles, roleName)
 	}
 	response.Roles = roles
-
-	userType := string(models.UserTypeOutputDbUser)
-	if isStaticUser {
-		userType = string(models.UserTypeOutputDbEnvUser)
-	}
-	response.DbUserType = &userType
 
 	return users.NewGetUserInfoOK().WithPayload(response)
 }
@@ -375,18 +380,18 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
-	if h.staticUserExists(params.UserID) {
-		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
-	}
-
 	existingUser, err := h.dbUsers.GetUsers(params.UserID)
 	if err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
 	}
 
 	if len(existingUser) == 0 {
+		if h.staticUserExists(params.UserID) {
+			return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
+		}
 		return users.NewRotateUserAPIKeyNotFound()
 	}
+
 	oldUserIdentifier := existingUser[params.UserID].InternalIdentifier
 
 	apiKey, hash, newUserIdentifier, err := h.getApiKey()
@@ -437,10 +442,6 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
-	if h.staticUserExists(params.UserID) {
-		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
-	}
-
 	if h.isRootUser(params.UserID) {
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot delete root user")))
 	}
@@ -449,6 +450,9 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 	if len(existingUsers) == 0 {
+		if h.staticUserExists(params.UserID) {
+			return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
+		}
 		return users.NewDeleteUserNotFound()
 	}
 	roles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
@@ -484,10 +488,6 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' cannot self-deactivate", params.UserID)))
 	}
 
-	if h.staticUserExists(params.UserID) {
-		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
-	}
-
 	if h.isRootUser(params.UserID) {
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot deactivate root user")))
 	}
@@ -498,6 +498,9 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 	}
 
 	if len(existingUser) == 0 {
+		if h.staticUserExists(params.UserID) {
+			return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
+		}
 		return users.NewDeactivateUserNotFound()
 	}
 
@@ -526,10 +529,6 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
 	}
 
-	if h.staticUserExists(params.UserID) {
-		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
-	}
-
 	if h.isRootUser(params.UserID) {
 		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("cannot activate root user")))
 	}
@@ -540,6 +539,9 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 	}
 
 	if len(existingUser) == 0 {
+		if h.staticUserExists(params.UserID) {
+			return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
+		}
 		return users.NewActivateUserNotFound()
 	}
 
