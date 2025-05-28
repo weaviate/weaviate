@@ -359,11 +359,11 @@ func (x *VectorForTarget) GetVectors() []*Vectors {
 }
 
 type SearchOperatorOptions struct {
-	state               protoimpl.MessageState         `protogen:"open.v1"`
-	Operator            SearchOperatorOptions_Operator `protobuf:"varint,1,opt,name=operator,proto3,enum=weaviate.v1.SearchOperatorOptions_Operator" json:"operator,omitempty"`
-	MinimumOrTokenMatch *int32                         `protobuf:"varint,2,opt,name=minimum_or_token_match,json=minimumOrTokenMatch,proto3,oneof" json:"minimum_or_token_match,omitempty"`
-	unknownFields       protoimpl.UnknownFields
-	sizeCache           protoimpl.SizeCache
+	state                protoimpl.MessageState         `protogen:"open.v1"`
+	Operator             SearchOperatorOptions_Operator `protobuf:"varint,1,opt,name=operator,proto3,enum=weaviate.v1.SearchOperatorOptions_Operator" json:"operator,omitempty"`
+	MinimumOrTokensMatch *int32                         `protobuf:"varint,2,opt,name=minimum_or_tokens_match,json=minimumOrTokensMatch,proto3,oneof" json:"minimum_or_tokens_match,omitempty"`
+	unknownFields        protoimpl.UnknownFields
+	sizeCache            protoimpl.SizeCache
 }
 
 func (x *SearchOperatorOptions) Reset() {
@@ -403,9 +403,9 @@ func (x *SearchOperatorOptions) GetOperator() SearchOperatorOptions_Operator {
 	return SearchOperatorOptions_OPERATOR_UNSPECIFIED
 }
 
-func (x *SearchOperatorOptions) GetMinimumOrTokenMatch() int32 {
-	if x != nil && x.MinimumOrTokenMatch != nil {
-		return *x.MinimumOrTokenMatch
+func (x *SearchOperatorOptions) GetMinimumOrTokensMatch() int32 {
+	if x != nil && x.MinimumOrTokensMatch != nil {
+		return *x.MinimumOrTokensMatch
 	}
 	return 0
 }
@@ -1480,15 +1480,15 @@ const file_v1_base_search_proto_rawDesc = "" +
 	"\x0fVectorForTarget\x12\x12\n" +
 	"\x04name\x18\x01 \x01(\tR\x04name\x12%\n" +
 	"\fvector_bytes\x18\x02 \x01(\fB\x02\x18\x01R\vvectorBytes\x12.\n" +
-	"\avectors\x18\x03 \x03(\v2\x14.weaviate.v1.VectorsR\avectors\"\xfe\x01\n" +
+	"\avectors\x18\x03 \x03(\v2\x14.weaviate.v1.VectorsR\avectors\"\x81\x02\n" +
 	"\x15SearchOperatorOptions\x12G\n" +
-	"\boperator\x18\x01 \x01(\x0e2+.weaviate.v1.SearchOperatorOptions.OperatorR\boperator\x128\n" +
-	"\x16minimum_or_token_match\x18\x02 \x01(\x05H\x00R\x13minimumOrTokenMatch\x88\x01\x01\"G\n" +
+	"\boperator\x18\x01 \x01(\x0e2+.weaviate.v1.SearchOperatorOptions.OperatorR\boperator\x12:\n" +
+	"\x17minimum_or_tokens_match\x18\x02 \x01(\x05H\x00R\x14minimumOrTokensMatch\x88\x01\x01\"G\n" +
 	"\bOperator\x12\x18\n" +
 	"\x14OPERATOR_UNSPECIFIED\x10\x00\x12\x0f\n" +
 	"\vOPERATOR_OR\x10\x01\x12\x10\n" +
-	"\fOPERATOR_AND\x10\x02B\x19\n" +
-	"\x17_minimum_or_token_match\"\xe6\x05\n" +
+	"\fOPERATOR_AND\x10\x02B\x1a\n" +
+	"\x18_minimum_or_tokens_match\"\xe6\x05\n" +
 	"\x06Hybrid\x12\x14\n" +
 	"\x05query\x18\x01 \x01(\tR\x05query\x12\x1e\n" +
 	"\n" +

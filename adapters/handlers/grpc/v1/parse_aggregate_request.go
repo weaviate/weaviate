@@ -290,8 +290,8 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 			}
 
 			if hs.Bm25SearchOperator != nil {
-				if hs.Bm25SearchOperator.MinimumOrTokenMatch != nil {
-					params.Hybrid.MinimumOrTokenMatch = int(*hs.Bm25SearchOperator.MinimumOrTokenMatch)
+				if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
+					params.Hybrid.MinimumOrTokensMatch = int(*hs.Bm25SearchOperator.MinimumOrTokensMatch)
 				}
 				params.Hybrid.SearchOperator = hs.Bm25SearchOperator.Operator.String()
 			}

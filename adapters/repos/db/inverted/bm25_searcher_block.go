@@ -111,7 +111,7 @@ func (b *BM25Searcher) wandBlock(
 				allResults = append(allResults, results)
 				termCounts = append(termCounts, queryTerms)
 
-				MinimumOrTokenMatch := params.MinimumOrTokenMatch
+				MinimumOrTokenMatch := params.MinimumOrTokensMatch
 				if params.SearchOperator == common_filters.SearchOperatorAnd {
 					MinimumOrTokenMatch = len(queryTerms)
 				}

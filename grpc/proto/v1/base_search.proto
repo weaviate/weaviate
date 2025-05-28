@@ -42,7 +42,7 @@ message SearchOperatorOptions {
     OPERATOR_AND = 2;
   }
   Operator operator = 1;
-  optional int32 minimum_or_token_match = 2;
+  optional int32 minimum_or_tokens_match = 2;
 }
 
 message Hybrid {

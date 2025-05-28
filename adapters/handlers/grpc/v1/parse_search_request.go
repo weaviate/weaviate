@@ -107,8 +107,8 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
 
 		if bm25.SearchOperator != nil {
-			if bm25.SearchOperator.MinimumOrTokenMatch != nil {
-				out.KeywordRanking.MinimumOrTokenMatch = int(*bm25.SearchOperator.MinimumOrTokenMatch)
+			if bm25.SearchOperator.MinimumOrTokensMatch != nil {
+				out.KeywordRanking.MinimumOrTokensMatch = int(*bm25.SearchOperator.MinimumOrTokensMatch)
 			}
 			out.KeywordRanking.SearchOperator = bm25.SearchOperator.Operator.String()
 		}
@@ -298,8 +298,8 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		}
 
 		if hs.Bm25SearchOperator != nil {
-			if hs.Bm25SearchOperator.MinimumOrTokenMatch != nil {
-				out.HybridSearch.MinimumOrTokenMatch = int(*hs.Bm25SearchOperator.MinimumOrTokenMatch)
+			if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
+				out.HybridSearch.MinimumOrTokensMatch = int(*hs.Bm25SearchOperator.MinimumOrTokensMatch)
 			}
 			out.HybridSearch.SearchOperator = hs.Bm25SearchOperator.Operator.String()
 		}

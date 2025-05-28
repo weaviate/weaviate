@@ -249,7 +249,7 @@ func (b *BM25Searcher) wand(
 				})
 				allQueryTerms = append(allQueryTerms, queryTerm)
 			}
-			MinimumOrTokenMatchByTokenization := params.MinimumOrTokenMatch
+			MinimumOrTokenMatchByTokenization := params.MinimumOrTokensMatch
 			if params.SearchOperator == common_filters.SearchOperatorAnd {
 				MinimumOrTokenMatchByTokenization = len(queryTerms)
 			}
