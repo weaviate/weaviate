@@ -103,7 +103,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		index.metrics.ObserveUpdateShardStatus(s.status.Status.String(), time.Since(start))
 	}()
 
-	s.activityTracker.Store(1) // initial state
+	s.activityTrackerRead.Store(1)  // initial state
+	s.activityTrackerWrite.Store(1) // initial state
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
