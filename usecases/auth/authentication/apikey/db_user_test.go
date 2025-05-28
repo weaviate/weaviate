@@ -13,7 +13,6 @@ package apikey
 
 import (
 	"crypto/sha256"
-	"encoding/json"
 	"fmt"
 	"strconv"
 	"sync"
@@ -215,24 +214,21 @@ func TestSnapShotAndRestore(t *testing.T) {
 
 	require.NoError(t, dynUsers.DeactivateUser(userId2, true))
 
-	snapShot := dynUsers.Snapshot()
-
 	// create snapshot and restore to an empty new DBUser struct
-	marshal, err := json.Marshal(snapShot)
+	snapShot, err := dynUsers.Snapshot()
 	require.NoError(t, err)
-
-	snapshotRestore := DBUserSnapshot{}
-	require.NoError(t, json.Unmarshal(marshal, &snapshotRestore))
 
 	dynUsers2, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)
-	require.NoError(t, dynUsers2.Restore(snapshotRestore))
+	require.NoError(t, dynUsers2.Restore(snapShot))
 
 	// content should be identical:
 	// - all users and their status present
 	// - taking a new snapshot should be identical
 	// - only weak hash is missing => first login should be slow again
-	require.Equal(t, snapshotRestore, dynUsers2.Snapshot())
+	snapshot2, err := dynUsers2.Snapshot()
+	require.NoError(t, err)
+	require.Equal(t, snapShot, snapshot2)
 
 	startAfterRestoreSlow := time.Now()
 	_, err = dynUsers2.ValidateAndExtract(login1, identifier)
@@ -372,4 +368,33 @@ func TestImportingStaticKeys(t *testing.T) {
 		require.True(t, dynUsers.IsBlockedKey(importedApiKey))
 
 	}
+}
+
+func TestSnapshotRestoreEmpty(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+	userId := "user"
+
+	_, hash, identifier, err := keys.CreateApiKeyAndHash()
+	require.NoError(t, err)
+
+	require.NoError(t, dynUsers.CreateUser(userId, hash, identifier, "", time.Now()))
+	user, err := dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+	require.Equal(t, user[userId].Id, userId)
+
+	err = dynUsers.Restore([]byte{})
+	require.NoError(t, err)
+
+	// nothing overwritten
+	user, err = dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+	require.Equal(t, user[userId].Id, userId)
+}
+
+func TestRestoreInvalidData(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+
+	require.Error(t, dynUsers.Restore([]byte("invalid json")))
 }

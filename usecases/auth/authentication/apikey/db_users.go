@@ -421,21 +421,37 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 	return nil
 }
 
-func (c *DBUser) Snapshot() DBUserSnapshot {
+func (c *DBUser) Snapshot() ([]byte, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	return DBUserSnapshot{Data: c.data, Version: SnapshotVersion}
+	marshal, err := json.Marshal(DBUserSnapshot{Data: c.data, Version: SnapshotVersion})
+	if err != nil {
+		return nil, err
+	}
+	return marshal, nil
 }
 
-func (c *DBUser) Restore(snapshot DBUserSnapshot) error {
+func (c *DBUser) Restore(snapshot []byte) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if snapshot.Version != SnapshotVersion {
+	// don't overwrite with empty snapshot to avoid overwriting recovery from file
+	// with a non-existent db user snapshot when coming from old versions
+	if len(snapshot) == 0 {
+		return nil
+	}
+
+	snapshotRestore := DBUserSnapshot{}
+	err := json.Unmarshal(snapshot, &snapshotRestore)
+	if err != nil {
+		return err
+	}
+
+	if snapshotRestore.Version != SnapshotVersion {
 		return fmt.Errorf("invalid snapshot version")
 	}
-	c.data = snapshot.Data
+	c.data = snapshotRestore.Data
 
 	return nil
 }
