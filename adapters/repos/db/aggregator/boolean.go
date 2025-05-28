@@ -14,6 +14,7 @@ package aggregator
 import (
 	"bytes"
 	"encoding/binary"
+	"sync"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -24,6 +25,7 @@ func newBoolAggregator() *boolAggregator {
 }
 
 type boolAggregator struct {
+	sync.Mutex
 	countTrue  uint64
 	countFalse uint64
 }
@@ -51,6 +53,8 @@ func (a *boolAggregator) AddBoolRow(value []byte, count uint64) error {
 }
 
 func (a *boolAggregator) AddBool(value bool) error {
+	a.Lock()
+	defer a.Unlock()
 	if value {
 		a.countTrue++
 	} else {
