@@ -289,6 +289,13 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 				WithDistance:    withDistance,
 			}
 
+			if hs.Bm25SearchOperator != nil {
+				if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
+					params.Hybrid.MinimumOrTokensMatch = int(*hs.Bm25SearchOperator.MinimumOrTokensMatch)
+				}
+				params.Hybrid.SearchOperator = hs.Bm25SearchOperator.Operator.String()
+			}
+
 			if nearVec != nil {
 				params.Hybrid.NearVectorParams, _, err = parseNearVec(nearVec, targetVectors, class, nil)
 				if err != nil {

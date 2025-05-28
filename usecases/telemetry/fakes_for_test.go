@@ -24,9 +24,9 @@ type fakeNodesStatusGetter struct {
 }
 
 func (n *fakeNodesStatusGetter) LocalNodeStatus(ctx context.Context,
-	className, verbosity string,
+	className, shardName, verbosity string,
 ) *models.NodeStatus {
-	args := n.Called(ctx, className, verbosity)
+	args := n.Called(ctx, className, shardName, verbosity)
 	if args.Get(0) != nil {
 		return args.Get(0).(*models.NodeStatus)
 	}

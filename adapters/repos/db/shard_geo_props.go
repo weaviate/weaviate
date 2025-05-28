@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
@@ -35,6 +36,12 @@ func (s *Shard) initGeoProp(prop *models.Property) error {
 		CoordinatesForID:   s.makeCoordinatesForID(prop.Name),
 		DisablePersistence: false,
 		Logger:             s.index.logger,
+
+		SnapshotDisabled:                         s.index.Config.HNSWDisableSnapshots,
+		SnapshotOnStartup:                        s.index.Config.HNSWSnapshotOnStartup,
+		SnapshotCreateInterval:                   time.Duration(s.index.Config.HNSWSnapshotIntervalSeconds) * time.Second,
+		SnapshotMinDeltaCommitlogsNumer:          s.index.Config.HNSWSnapshotMinDeltaCommitlogsNumber,
+		SnapshotMinDeltaCommitlogsSizePercentage: s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
 	},
 		s.cycleCallbacks.geoPropsCommitLoggerCallbacks,
 		s.cycleCallbacks.geoPropsTombstoneCleanupCallbacks,

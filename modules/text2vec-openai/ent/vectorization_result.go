@@ -40,8 +40,8 @@ func GetRateLimitsFromHeader(l *logrusext.Sampler, header http.Header, isAzure b
 
 	// azure returns 0 as limit, make sure this does not block anything by setting a high value
 	if isAzure {
-		limitTokens = dummyLimit
 		limitRequests = dummyLimit
+		remainingRequests = dummyLimit
 	}
 
 	updateWithMissingValues := false
@@ -54,7 +54,7 @@ func GetRateLimitsFromHeader(l *logrusext.Sampler, header http.Header, isAzure b
 		// https://platform.openai.com/docs/api-reference/debugging-requests
 		l.WithSampling(func(l logrus.FieldLogger) {
 			l.WithField("headers", header).
-				Warn("rate limit headers are missing or invalid, going to keep using the old values")
+				Debug("rate limit headers are missing or invalid, going to keep using the old values")
 		})
 	}
 

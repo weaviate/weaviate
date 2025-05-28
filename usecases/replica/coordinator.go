@@ -198,7 +198,16 @@ func (c *coordinator[T]) Push(ctx context.Context,
 		"level":    level,
 	}).Debug("context.WithTimeout")
 	nodeCh := c.broadcast(ctxWithTimeout, routingPlan.ReplicasHostAddrs, ask, level)
-	return c.commitAll(context.Background(), nodeCh, com), level, nil
+	commitCh := c.commitAll(context.Background(), nodeCh, com)
+
+	// if there are additional hosts, we do a "best effort" write to them
+	// where we don't wait for a response because they are not part of the
+	// replicas used to reach level consistency
+	if len(routingPlan.AdditionalHostAddrs) > 0 {
+		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, routingPlan.AdditionalHostAddrs, ask, len(routingPlan.AdditionalHostAddrs))
+		c.commitAll(context.Background(), additionalHostsBroadcast, com)
+	}
+	return commitCh, level, nil
 }
 
 // Pull data from replica depending on consistency level, trying to reach level successful calls
