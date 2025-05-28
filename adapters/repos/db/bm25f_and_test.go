@@ -102,9 +102,9 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 
 		// depending on the minimum should match, we will have a different number of results showing up
 		expectedSizes := []int{3, 3, 2, 2, 2, 2, 1, 1}
-		for MinimumOrTokensMatch, expectedSize := range expectedSizes {
+		for minimumOrTokensMatch, expectedSize := range expectedSizes {
 			t.Run("bm25f text with minimum should match with 0...len(queryTerms) "+location, func(t *testing.T) {
-				kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", MinimumOrTokensMatch: MinimumOrTokensMatch}
+				kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", MinimumOrTokensMatch: minimumOrTokensMatch}
 				res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 				// Print results
 				t.Log("--- Start results for search with AND ---")
@@ -115,8 +115,8 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 				require.Equal(t, expectedSize, len(res))
 				require.Equal(t, uint64(0), res[0].DocID)
 
-				// if MinimumOrTokensMatch < 3, title and description will both match, and thus the score will be higher
-				if MinimumOrTokensMatch < 3 {
+				// if minimumOrTokensMatch < 3, title and description will both match, and thus the score will be higher
+				if minimumOrTokensMatch < 3 {
 					EqualFloats(t, scores[0], 5.470736, 3)
 				} else {
 					EqualFloats(t, scores[0], 4.0164075, 3)
@@ -200,9 +200,9 @@ func TestBM25FJourneyAnd(t *testing.T) {
 
 		// depending on the minimum should match, we will have a different number of results showing up
 		expectedSizes := []int{3, 3, 2, 2, 2, 2, 1, 1}
-		for MinimumOrTokensMatch, expectedSize := range expectedSizes {
+		for minimumOrTokensMatch, expectedSize := range expectedSizes {
 			t.Run("bm25f text with minimum should match with 0...len(queryTerms) "+location, func(t *testing.T) {
-				kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", MinimumOrTokensMatch: MinimumOrTokensMatch}
+				kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", MinimumOrTokensMatch: minimumOrTokensMatch}
 				res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
 				// Print results
 				t.Log("--- Start results for search with AND ---")
