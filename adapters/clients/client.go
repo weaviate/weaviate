@@ -31,8 +31,7 @@ type retryClient struct {
 }
 
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
-	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int,
-	owner string) (err error) {
+	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int, owner string) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -46,6 +45,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 				newHost, ok := c.nodeResolver.NodeHostname(owner)
 				if ok {
 					logrus.WithFields(logrus.Fields{
+						"action":  "resolve",
 						"owner":   owner,
 						"newHost": newHost,
 						"oldHost": req.Host,
@@ -90,6 +90,7 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 				newHost, ok := c.nodeResolver.NodeHostname(owner)
 				if ok {
 					logrus.WithFields(logrus.Fields{
+						"action":  "resolve",
 						"owner":   owner,
 						"newHost": newHost,
 						"oldHost": req.Host,

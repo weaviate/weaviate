@@ -66,41 +66,41 @@ type nodeResolver interface {
 }
 
 type RemoteIndexClient interface {
-	PutObject(ctx context.Context, hostName, indexName, shardName string,
-		obj *storobj.Object, schemaVersion uint64, owner string) error
-	BatchPutObjects(ctx context.Context, hostName, indexName, shardName string,
-		objs []*storobj.Object, repl *additional.ReplicationProperties, schemaVersion uint64, owner string) []error
-	BatchAddReferences(ctx context.Context, hostName, indexName, shardName string,
-		refs objects.BatchReferences, schemaVersion uint64, owner string) []error
-	GetObject(ctx context.Context, hostname, indexName, shardName string,
+	PutObject(ctx context.Context, owner, indexName, shardName string,
+		obj *storobj.Object, schemaVersion uint64) error
+	BatchPutObjects(ctx context.Context, owner, indexName, shardName string,
+		objs []*storobj.Object, repl *additional.ReplicationProperties, schemaVersion uint64) []error
+	BatchAddReferences(ctx context.Context, owner, indexName, shardName string,
+		refs objects.BatchReferences, schemaVersion uint64) []error
+	GetObject(ctx context.Context, owner, indexName, shardName string,
 		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, owner string) (*storobj.Object, error)
-	Exists(ctx context.Context, hostname, indexName, shardName string,
-		id strfmt.UUID, owner string) (bool, error)
-	DeleteObject(ctx context.Context, hostname, indexName, shardName string,
-		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64, owner string) error
-	MergeObject(ctx context.Context, hostname, indexName, shardName string,
-		mergeDoc objects.MergeDocument, schemaVersion uint64, owner string) error
-	MultiGetObjects(ctx context.Context, hostname, indexName, shardName string,
-		ids []strfmt.UUID, owner string) ([]*storobj.Object, error)
-	SearchShard(ctx context.Context, hostname, indexName, shardName string,
+		additional additional.Properties) (*storobj.Object, error)
+	Exists(ctx context.Context, owner, indexName, shardName string,
+		id strfmt.UUID) (bool, error)
+	DeleteObject(ctx context.Context, owner, indexName, shardName string,
+		id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error
+	MergeObject(ctx context.Context, owner, indexName, shardName string,
+		mergeDoc objects.MergeDocument, schemaVersion uint64) error
+	MultiGetObjects(ctx context.Context, owner, indexName, shardName string,
+		ids []strfmt.UUID) ([]*storobj.Object, error)
+	SearchShard(ctx context.Context, owner, indexName, shardName string,
 		searchVector []models.Vector, targetVector []string, distance float32, limit int, filters *filters.LocalFilter,
 		keywordRanking *searchparams.KeywordRanking, sort []filters.Sort,
 		cursor *filters.Cursor, groupBy *searchparams.GroupBy,
 		additional additional.Properties, targetCombination *dto.TargetCombination, properties []string,
 	) ([]*storobj.Object, []float32, error)
 
-	Aggregate(ctx context.Context, hostname, indexName, shardName string,
+	Aggregate(ctx context.Context, owner, indexName, shardName string,
 		params aggregation.Params) (*aggregation.Result, error)
-	FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
-		filters *filters.LocalFilter, owner string) ([]strfmt.UUID, error)
-	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
-		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64, owner string) objects.BatchSimpleObjects
-	GetShardQueueSize(ctx context.Context, hostName, indexName, shardName string, owner string) (int64, error)
-	GetShardStatus(ctx context.Context, hostName, indexName, shardName string, owner string) (string, error)
-	UpdateShardStatus(ctx context.Context, hostName, indexName, shardName, targetStatus string, schemaVersion uint64, owner string) error
+	FindUUIDs(ctx context.Context, owner, indexName, shardName string,
+		filters *filters.LocalFilter) ([]strfmt.UUID, error)
+	DeleteObjectBatch(ctx context.Context, owner, indexName, shardName string,
+		uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects
+	GetShardQueueSize(ctx context.Context, owner, indexName, shardName string) (int64, error)
+	GetShardStatus(ctx context.Context, owner, indexName, shardName string) (string, error)
+	UpdateShardStatus(ctx context.Context, owner, indexName, shardName, targetStatus string, schemaVersion uint64) error
 
-	PutFile(ctx context.Context, hostName, indexName, shardName, fileName string,
+	PutFile(ctx context.Context, owner, indexName, shardName, fileName string,
 		payload io.ReadSeekCloser) error
 }
 
@@ -112,12 +112,7 @@ func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.PutObject(ctx, host, ri.class, shardName, obj, schemaVersion, owner)
+	return ri.client.PutObject(ctx, owner, ri.class, shardName, obj, schemaVersion)
 }
 
 // helper for single errors that affect the entire batch, assign the error to
@@ -139,13 +134,7 @@ func (ri *RemoteIndex) BatchPutObjects(ctx context.Context, shardName string,
 			ri.class, shardName, err), len(objs))
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return duplicateErr(fmt.Errorf("resolve node name %q to host",
-			owner), len(objs))
-	}
-
-	return ri.client.BatchPutObjects(ctx, host, ri.class, shardName, objs, nil, schemaVersion, owner)
+	return ri.client.BatchPutObjects(ctx, owner, ri.class, shardName, objs, nil, schemaVersion)
 }
 
 func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
@@ -157,13 +146,7 @@ func (ri *RemoteIndex) BatchAddReferences(ctx context.Context, shardName string,
 			ri.class, shardName, err), len(refs))
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return duplicateErr(fmt.Errorf("resolve node name %q to host",
-			owner), len(refs))
-	}
-
-	return ri.client.BatchAddReferences(ctx, host, ri.class, shardName, refs, schemaVersion, owner)
+	return ri.client.BatchAddReferences(ctx, owner, ri.class, shardName, refs, schemaVersion)
 }
 
 func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
@@ -174,12 +157,7 @@ func (ri *RemoteIndex) Exists(ctx context.Context, shardName string,
 		return false, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return false, fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.Exists(ctx, host, ri.class, shardName, id, owner)
+	return ri.client.Exists(ctx, owner, ri.class, shardName, id)
 }
 
 func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
@@ -190,12 +168,7 @@ func (ri *RemoteIndex) DeleteObject(ctx context.Context, shardName string,
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.DeleteObject(ctx, host, ri.class, shardName, id, deletionTime, schemaVersion, owner)
+	return ri.client.DeleteObject(ctx, owner, ri.class, shardName, id, deletionTime, schemaVersion)
 }
 
 func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
@@ -206,12 +179,7 @@ func (ri *RemoteIndex) MergeObject(ctx context.Context, shardName string,
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.MergeObject(ctx, host, ri.class, shardName, mergeDoc, schemaVersion, owner)
+	return ri.client.MergeObject(ctx, owner, ri.class, shardName, mergeDoc, schemaVersion)
 }
 
 func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
@@ -223,12 +191,7 @@ func (ri *RemoteIndex) GetObject(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return nil, fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.GetObject(ctx, host, ri.class, shardName, id, props, additional, owner)
+	return ri.client.GetObject(ctx, owner, ri.class, shardName, id, props, additional)
 }
 
 func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
@@ -239,12 +202,7 @@ func (ri *RemoteIndex) MultiGetObjects(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return nil, fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.MultiGetObjects(ctx, host, ri.class, shardName, ids, owner)
+	return ri.client.MultiGetObjects(ctx, owner, ri.class, shardName, ids)
 }
 
 type ReplicasSearchResult struct {
@@ -344,12 +302,7 @@ func (ri *RemoteIndex) FindUUIDs(ctx context.Context, shardName string,
 		return nil, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return nil, fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.FindUUIDs(ctx, host, ri.class, shardName, filters, owner)
+	return ri.client.FindUUIDs(ctx, owner, ri.class, shardName, filters)
 }
 
 func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
@@ -361,13 +314,7 @@ func (ri *RemoteIndex) DeleteObjectBatch(ctx context.Context, shardName string,
 		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		err := fmt.Errorf("resolve node name %q to host", owner)
-		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
-	}
-
-	return ri.client.DeleteObjectBatch(ctx, host, ri.class, shardName, uuids, deletionTime, dryRun, schemaVersion, owner)
+	return ri.client.DeleteObjectBatch(ctx, owner, ri.class, shardName, uuids, deletionTime, dryRun, schemaVersion)
 }
 
 func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) (int64, error) {
@@ -376,12 +323,7 @@ func (ri *RemoteIndex) GetShardQueueSize(ctx context.Context, shardName string) 
 		return 0, fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return 0, fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.GetShardQueueSize(ctx, host, ri.class, shardName, owner)
+	return ri.client.GetShardQueueSize(ctx, owner, ri.class, shardName)
 }
 
 func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (string, error) {
@@ -390,12 +332,7 @@ func (ri *RemoteIndex) GetShardStatus(ctx context.Context, shardName string) (st
 		return "", fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return "", fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.GetShardStatus(ctx, host, ri.class, shardName, owner)
+	return ri.client.GetShardStatus(ctx, owner, ri.class, shardName)
 }
 
 func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
@@ -404,12 +341,7 @@ func (ri *RemoteIndex) UpdateShardStatus(ctx context.Context, shardName, targetS
 		return fmt.Errorf("class %s has no physical shard %q: %w", ri.class, shardName, err)
 	}
 
-	host, ok := ri.nodeResolver.NodeHostname(owner)
-	if !ok {
-		return fmt.Errorf("resolve node name %q to host", owner)
-	}
-
-	return ri.client.UpdateShardStatus(ctx, host, ri.class, shardName, targetStatus, schemaVersion, owner)
+	return ri.client.UpdateShardStatus(ctx, owner, ri.class, shardName, targetStatus, schemaVersion)
 }
 
 func (ri *RemoteIndex) queryAllReplicas(
