@@ -303,6 +303,23 @@ func TestConnections_InsertLayersByNumber(t *testing.T) {
 	assert.ElementsMatch(t, []uint64{}, c.GetLayer(4))
 }
 
+func TestConnections_GrowsLayersSuccessfully(t *testing.T) {
+	c, err := NewWithMaxLayer(0)
+	require.Nil(t, err)
+
+	assert.Equal(t, 0, c.LenAtLayer(0))
+	assert.Len(t, c.GetLayer(0), 0)
+
+	c.ReplaceLayer(0, connsSlice3)
+
+	assert.ElementsMatch(t, connsSlice3, c.GetLayer(0))
+
+	c.GrowLayersTo(1)
+
+	c.ReplaceLayer(1, connsSlice2)
+	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
+}
+
 func randomArray(size int) []uint64 {
 	res := make([]uint64, 0, size)
 	for i := 0; i < size; i++ {
