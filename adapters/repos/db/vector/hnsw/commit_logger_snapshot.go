@@ -452,6 +452,12 @@ func (l *hnswCommitLogger) cleanupSnapshots(before int64) error {
 }
 
 func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state *DeserializationResult, metrics *Metrics) (*DeserializationResult, error) {
+	start := time.Now()
+	defer func() {
+		logger.WithField("commitlog_files", len(fileNames)).
+			WithField("took", time.Since(start)).
+			Debug("commit log files loaded")
+	}()
 	var err error
 
 	fileNames, err = NewCorruptedCommitLogFixer().Do(fileNames)
@@ -577,6 +583,11 @@ func (l *hnswCommitLogger) writeSnapshot(state *DeserializationResult, filename 
 }
 
 func (l *hnswCommitLogger) readSnapshot(path string) (*DeserializationResult, error) {
+	start := time.Now()
+	defer func() {
+		l.logger.WithField("snapshot", path).WithField("took", time.Since(start)).Debug("snapshot loaded")
+	}()
+
 	checkpoints, err := readCheckpoints(path)
 	if err != nil {
 		// if for any reason the checkpoints file is not found or corrupted
