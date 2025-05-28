@@ -218,11 +218,11 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				})
 			}
 		}
+		if ctx.Err() != nil {
+			return nil, fmt.Errorf("context is done: %w", ctx.Err())
+		}
 		vectors, addProps, vecErrors := vectorizer.VectorizeBatch(ctx, objects, skipRevectorization, cfg)
 		for i := range objects {
-			if ctx.Err() != nil {
-				return nil, fmt.Errorf("context is done: %w", ctx.Err())
-			}
 			if _, ok := vecErrors[i]; ok || skipRevectorization[i] {
 				continue
 			}
@@ -245,9 +245,6 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 		// simplifies the mapping of the returned vectors to the objects.
 		skipRevectorization := make([]bool, len(objects))
 		for i, obj := range objects {
-			if ctx.Err() != nil {
-				return nil, fmt.Errorf("context is done: %w", ctx.Err())
-			}
 			if !p.shouldVectorizeObject(obj, cfg) {
 				skipRevectorization[i] = true
 				continue
@@ -267,9 +264,6 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 		}
 		multiVectors, addProps, vecErrors := vectorizer.VectorizeBatch(ctx, objects, skipRevectorization, cfg)
 		for i := range objects {
-			if ctx.Err() != nil {
-				return nil, fmt.Errorf("context is done: %w", ctx.Err())
-			}
 			if _, ok := vecErrors[i]; ok || skipRevectorization[i] {
 				continue
 			}
