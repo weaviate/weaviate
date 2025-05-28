@@ -214,7 +214,9 @@ func (c *Service) Close(ctx context.Context) error {
 	}, c.logger)
 
 	c.logger.Info("closing replication engine ...")
-	c.cancelReplicationEngine()
+	if c.cancelReplicationEngine != nil {
+		c.cancelReplicationEngine()
+	}
 	c.replicationEngine.Stop()
 
 	c.logger.Info("closing raft FSM store ...")
