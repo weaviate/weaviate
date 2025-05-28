@@ -31,7 +31,8 @@ type retryClient struct {
 }
 
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
-	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int, owner string) (err error) {
+	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int, owner string,
+) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	req = req.WithContext(ctx)

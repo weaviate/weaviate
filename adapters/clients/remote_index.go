@@ -94,7 +94,8 @@ func duplicateErr(in error, count int) []error {
 }
 
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, owner, index,
-	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64) []error {
+	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64,
+) []error {
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	host, ok := c.nodeResolver.NodeHostname(owner)
 	if !ok {
@@ -133,7 +134,8 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, owner, index,
 }
 
 func (c *RemoteIndex) BatchAddReferences(ctx context.Context, owner, indexName,
-	shardName string, refs objects.BatchReferences, schemaVersion uint64) []error {
+	shardName string, refs objects.BatchReferences, schemaVersion uint64,
+) []error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/references", indexName, shardName)
 	method := http.MethodPost
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
