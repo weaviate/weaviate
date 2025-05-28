@@ -99,7 +99,7 @@ func TestUpdateRuntimeConfig(t *testing.T) {
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
 maximum_allowed_collections_count: 13
-REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT: 10s`)
+replica_movement_minimum_async_wait: 10s`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
@@ -138,7 +138,7 @@ REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT: 10s`)
 		// parsed from yaml configs for example
 		buf := []byte(`autoschema_enabled: true
 maximum_allowed_collections_count: 13
-REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT: 10s`)
+replica_movement_minimum_async_wait: 10s`)
 		parsed, err := ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
