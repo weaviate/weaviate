@@ -712,9 +712,9 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				objectEx(ids[2], 6, shard, "A"),
 			}
 			directRe = []replica.Replica{
-				makeReplica(ids[0], 4, false),
-				makeReplica(ids[1], 5, false),
-				makeReplica(ids[2], 6, false),
+				repl(ids[0], 4, false),
+				repl(ids[1], 5, false),
+				repl(ids[2], 6, false),
 			}
 
 			digestR2 = []types.RepairResponse{
@@ -811,7 +811,7 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			}
 
 			directRe = []replica.Replica{
-				makeReplica(ids[3], 4, false),
+				repl(ids[3], 4, false),
 			}
 			digestR2 = []types.RepairResponse{
 				{ID: ids[0].String(), UpdateTime: 2}, // latest
@@ -828,12 +828,12 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[4].String(), UpdateTime: 3}, // latest
 			}
 			directR2 = []replica.Replica{
-				makeReplica(ids[0], 2, false),
-				makeReplica(ids[1], 2, false),
+				repl(ids[0], 2, false),
+				repl(ids[1], 2, false),
 			}
 			directR3 = []replica.Replica{
-				makeReplica(ids[2], 3, false),
-				makeReplica(ids[4], 3, false),
+				repl(ids[2], 3, false),
+				repl(ids[4], 3, false),
 			}
 			want = setObjectsConsistency(result, true)
 		)
@@ -1003,9 +1003,9 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 			}
 
 			directRe = []replica.Replica{
-				makeReplica(ids[0], 4, false),
-				makeReplica(ids[1], 5, false),
-				makeReplica(ids[2], 6, false),
+				repl(ids[0], 4, false),
+				repl(ids[1], 5, false),
+				repl(ids[2], 6, false),
 			}
 		)
 		want := setObjectsConsistency(xs, true)
@@ -1096,14 +1096,14 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[2].String(), UpdateTime: 4}, // latest
 			}
 			directR2 = []replica.Replica{
-				makeReplica(ids[1], 3, false),
+				repl(ids[1], 3, false),
 			}
 			directR3 = []replica.Replica{
-				makeReplica(ids[2], 4, false),
+				repl(ids[2], 4, false),
 			}
 			directRe = []replica.Replica{
-				makeReplica(ids[0], 2, false),
-				makeReplica(ids[1], 3, false),
+				repl(ids[0], 2, false),
+				repl(ids[1], 3, false),
 			}
 		)
 
@@ -1189,10 +1189,10 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[2].String(), UpdateTime: 4}, // latest
 			}
 			directR2 = []replica.Replica{
-				makeReplica(ids[1], 3, false),
+				repl(ids[1], 3, false),
 			}
 			directR3 = []replica.Replica{
-				makeReplica(ids[2], 4, false),
+				repl(ids[2], 4, false),
 			}
 		)
 
@@ -1258,14 +1258,14 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[2].String(), UpdateTime: 4}, // latest
 			}
 			directR2 = []replica.Replica{
-				makeReplica(ids[1], 3, false),
+				repl(ids[1], 3, false),
 			}
 			// unexpected response UpdateTime  is 3 instead of 4
-			directR3 = []replica.Replica{makeReplica(ids[2], 3, false)}
+			directR3 = []replica.Replica{repl(ids[2], 3, false)}
 
 			directRe = []replica.Replica{
-				makeReplica(ids[0], 2, false),
-				makeReplica(ids[1], 3, false),
+				repl(ids[0], 2, false),
+				repl(ids[1], 3, false),
 			}
 		)
 
@@ -1339,12 +1339,12 @@ func TestRepairerCheckConsistencyAll(t *testing.T) {
 				{ID: ids[2].String(), UpdateTime: 4, Deleted: true}, // latest
 			}
 			directR2 = []replica.Replica{
-				makeReplica(ids[1], 3, false),
+				repl(ids[1], 3, false),
 			}
 
 			directRe = []replica.Replica{
-				makeReplica(ids[0], 2, false),
-				makeReplica(ids[1], 3, false),
+				repl(ids[0], 2, false),
+				repl(ids[1], 3, false),
 			}
 		)
 
@@ -1420,9 +1420,9 @@ func TestRepairerCheckConsistencyQuorum(t *testing.T) {
 			{ID: ids[2].String(), UpdateTime: 3},
 		}
 		directRe = []replica.Replica{
-			makeReplica(ids[0], 4, false),
-			// replica(ids[1], 5, false),
-			makeReplica(ids[2], 6, false),
+			repl(ids[0], 4, false),
+			// repl(ids[1], 5, false),
+			repl(ids[2], 6, false),
 		}
 		want = setObjectsConsistency(xs, true)
 	)

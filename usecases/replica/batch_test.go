@@ -9,12 +9,14 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replica
+package replica_test
 
 import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/replica"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -34,9 +36,9 @@ func TestBatchInput(t *testing.T) {
 		ids[i] = uuid
 		data[i] = objectEx(uuid, 1, "S1", "N1")
 	}
-	parts := cluster(createBatch(data))
+	parts := replica.Cluster(replica.CreateBatch(data))
 	assert.Len(t, parts, 1)
-	assert.Equal(t, parts[0], shardPart{
+	assert.Equal(t, parts[0], replica.ShardPart{
 		Shard: "S1",
 		Node:  "N1",
 		Data:  data,
@@ -53,7 +55,7 @@ func TestBatchInput(t *testing.T) {
 	data[5].BelongsToShard = "S2"
 	data[5].BelongsToNode = "N2"
 
-	parts = cluster(createBatch(data))
+	parts = replica.Cluster(replica.CreateBatch(data))
 	sort.Slice(parts, func(i, j int) bool { return len(parts[i].Index) < len(parts[j].Index) })
 	assert.Len(t, parts, 2)
 	assert.ElementsMatch(t, parts[0].ObjectIDs(), []strfmt.UUID{ids[0], ids[2], ids[3], ids[5]})

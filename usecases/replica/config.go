@@ -61,7 +61,7 @@ func ValidateConfigUpdate(old, updated *models.Class, nodeCounter nodeCounter) e
 	if old.ReplicationConfig.Factor != updated.ReplicationConfig.Factor {
 		nc := nodeCounter.NodeCount()
 		if int(updated.ReplicationConfig.Factor) > nc {
-			return fmt.Errorf("cannot scale to %d replicas, cluster has only %d nodes",
+			return fmt.Errorf("cannot scale to %d replicas, Cluster has only %d nodes",
 				updated.ReplicationConfig.Factor, nc)
 		}
 	}

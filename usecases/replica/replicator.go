@@ -334,7 +334,7 @@ func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 
 // requestID returns ID as [CoordinatorName-OpCode-TimeStamp-Counter].
 // The coordinator uses it to uniquely identify a transaction.
-// ID makes the request observable in the cluster by specifying its origin
+// ID makes the request observable in the Cluster by specifying its origin
 // and the kind of replication request.
 func (r *Replicator) requestID(op opID) string {
 	return fmt.Sprintf("%s-%.2x-%x-%x",

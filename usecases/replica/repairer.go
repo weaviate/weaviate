@@ -35,7 +35,9 @@ var (
 	// It depends on the order of operations
 	// Created -> Deleted    => It is safe in this case to propagate deletion to all replicas
 	// Created -> Deleted -> Created => propagating deletion will result in data lost
-	ErrConflictExistOrDeleted = errors.New("conflict: object has been deleted on another replica")
+	ErrConflictExistOrDeleted = errors.New(
+		"conflict: object has been deleted on another replica",
+	)
 
 	// ErrConflictObjectChanged object changed since last time and cannot be repaired
 	ErrConflictObjectChanged = errors.New("source object changed during repair")

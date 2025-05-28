@@ -203,7 +203,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 // readBatchPart reads in replicated objects specified by their ids
 // It checks each object x for consistency and sets x.IsConsistent
 func (f *finderStream) readBatchPart(ctx context.Context,
-	batch shardPart,
+	batch ShardPart,
 	ids []strfmt.UUID,
 	ch <-chan _Result[batchReply],
 	level int,

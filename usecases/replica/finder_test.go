@@ -51,7 +51,7 @@ func objectWithVectors(id strfmt.UUID, lastTime int64, vectors map[string][]floa
 	}
 }
 
-func makeReplica(id strfmt.UUID, lastTime int64, deleted bool) replica.Replica {
+func repl(id strfmt.UUID, lastTime int64, deleted bool) replica.Replica {
 	x := replica.Replica{
 		Deleted: deleted,
 		Object: &storobj.Object{
@@ -208,7 +208,7 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 	// 		f         = newFakeFactory("C1", shard, nodes)
 	// 		finder    = f.newFinder("A")
 	// 		digestIDs = []strfmt.UUID{id}
-	// 		item      = Replica{ID: id, object: object(id, 3)}
+	// 		item      = replica.Replica{ID: id, Object: object(id, 3)}
 	// 		digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 	// 	)
 	// 	f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(emptyItem, errAny)
@@ -220,7 +220,7 @@ func TestFinderGetOneWithConsistencyLevelALL(t *testing.T) {
 
 	// 	got, err := finder.GetOne(ctx, Quorum, shard, id, proj, adds)
 	// 	assert.Nil(t, err)
-	// 	assert.Equal(t, item.object, got)
+	// 	assert.Equal(t, item.Object, got)
 	// })
 }
 
@@ -361,7 +361,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 	// 		f         = newFakeFactory("C1", shard, nodes)
 	// 		finder    = f.newFinder("A")
 	// 		digestIDs = []strfmt.UUID{id}
-	// 		item      = Replica{ID: id, object: object(id, 3)}
+	// 		item      = replica.Replica{ID: id, Object: object(id, 3)}
 	// 		digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 	// 	)
 	// 	f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(item, errAny)
@@ -373,7 +373,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 
 	// 	got, err := finder.GetOne(ctx, Quorum, shard, id, proj, adds)
 	// 	assert.Nil(t, err)
-	// 	assert.Equal(t, item.object, got)
+	// 	assert.Equal(t, item.Object, got)
 	// })
 
 	// investigate flakiness
@@ -383,7 +383,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 	// 		f         = newFakeFactory("C1", shard, nodes)
 	// 		finder    = f.newFinder("A")
 	// 		digestIDs = []strfmt.UUID{id}
-	// 		item      = Replica{ID: id, object: object(id, 3)}
+	// 		item      = replica.Replica{ID: id, Object: object(id, 3)}
 	// 		digestR   = []types.RepairResponse{{ID: id.String(), UpdateTime: 3}}
 	// 	)
 	// 	f.RClient.On("FetchObject", anyVal, nodes[0], cls, shard, id, proj, adds).Return(emptyItem, errAny)
@@ -395,7 +395,7 @@ func TestFinderGetOneWithConsistencyLevelQuorum(t *testing.T) {
 
 	// 	got, err := finder.GetOne(ctx, Quorum, shard, id, proj, adds)
 	// 	assert.Nil(t, err)
-	// 	assert.Equal(t, item.object, got)
+	// 	assert.Equal(t, item.Object, got)
 	// })
 }
 
@@ -416,7 +416,7 @@ func TestFinderGetOneWithConsistencyLevelOne(t *testing.T) {
 		var (
 			f      = newFakeFactory(t, "C1", shard, nodes)
 			finder = f.newFinder("A")
-			// obj    = Replica{ID: id, object: object(id, 3)
+			// obj    = replica.Replica{ID: id, Object: object(id, 3)
 		)
 		for _, n := range nodes {
 			f.RClient.On("FetchObject", anyVal, n, cls, shard, id, proj, adds).Return(emptyItem, errAny)
@@ -612,33 +612,6 @@ func TestFinderExistsWithConsistencyLevelOne(t *testing.T) {
 	})
 }
 
-func setObjectsConsistency(xs []*storobj.Object, isConsistent bool) []*storobj.Object {
-	want := make([]*storobj.Object, len(xs))
-	for i, x := range xs {
-		cp := *x
-		cp.IsConsistent = isConsistent
-		want[i] = &cp
-	}
-	return want
-}
-
-func genInputs(node, shard string, updateTime int64, ids []strfmt.UUID) ([]*storobj.Object, []types.RepairResponse) {
-	xs := make([]*storobj.Object, len(ids))
-	digestR := make([]types.RepairResponse, len(ids))
-	for i, id := range ids {
-		xs[i] = &storobj.Object{
-			Object: models.Object{
-				ID:                 id,
-				LastUpdateTimeUnix: updateTime,
-			},
-			BelongsToShard: shard,
-			BelongsToNode:  node,
-		}
-		digestR[i] = types.RepairResponse{ID: ids[i].String(), UpdateTime: updateTime}
-	}
-	return xs, digestR
-}
-
 func TestFinderCheckConsistencyALL(t *testing.T) {
 	var (
 		ids    = []strfmt.UUID{"0", "1", "2", "3", "4", "5"}
@@ -783,17 +756,6 @@ func TestFinderCheckConsistencyALL(t *testing.T) {
 		assert.Nil(t, err)
 		assert.ElementsMatch(t, want, xs)
 	})
-}
-
-func objectEx(id strfmt.UUID, lastTime int64, shard, node string) *storobj.Object {
-	return &storobj.Object{
-		Object: models.Object{
-			ID:                 id,
-			LastUpdateTimeUnix: lastTime,
-		},
-		BelongsToShard: shard,
-		BelongsToNode:  node,
-	}
 }
 
 func TestFinderCheckConsistencyQuorum(t *testing.T) {

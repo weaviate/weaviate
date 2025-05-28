@@ -32,8 +32,8 @@ type indexedBatch struct {
 	Index []int
 }
 
-// createBatch creates indexedBatch from xs
-func createBatch(xs []*storobj.Object) indexedBatch {
+// CreateBatch creates indexedBatch from xs
+func CreateBatch(xs []*storobj.Object) indexedBatch {
 	var bi indexedBatch
 	bi.Data = xs
 	bi.Index = make([]int, len(xs))
@@ -43,14 +43,14 @@ func createBatch(xs []*storobj.Object) indexedBatch {
 	return bi
 }
 
-// cluster data object by shard
-func cluster(bi indexedBatch) []shardPart {
+// Cluster data object by shard
+func Cluster(bi indexedBatch) []ShardPart {
 	index := bi.Index
 	data := bi.Data
 	sort.Slice(index, func(i, j int) bool {
 		return data[index[i]].BelongsToShard < data[index[j]].BelongsToShard
 	})
-	clusters := make([]shardPart, 0, 16)
+	clusters := make([]ShardPart, 0, 16)
 	// partition
 	cur := data[index[0]]
 	j := 0
@@ -58,7 +58,7 @@ func cluster(bi indexedBatch) []shardPart {
 		if data[index[i]].BelongsToShard == cur.BelongsToShard {
 			continue
 		}
-		clusters = append(clusters, shardPart{
+		clusters = append(clusters, ShardPart{
 			Shard: cur.BelongsToShard,
 			Node:  cur.BelongsToNode, Data: data,
 			Index: index[j:i],
@@ -67,7 +67,7 @@ func cluster(bi indexedBatch) []shardPart {
 		cur = data[index[j]]
 
 	}
-	clusters = append(clusters, shardPart{
+	clusters = append(clusters, ShardPart{
 		Shard: cur.BelongsToShard,
 		Node:  cur.BelongsToNode, Data: data,
 		Index: index[j:],
@@ -75,8 +75,8 @@ func cluster(bi indexedBatch) []shardPart {
 	return clusters
 }
 
-// shardPart represents a data partition belonging to a physical shard
-type shardPart struct {
+// ShardPart represents a data partition belonging to a physical shard
+type ShardPart struct {
 	Shard string // one-to-one mapping between Shard and Node
 	Node  string
 
@@ -84,7 +84,7 @@ type shardPart struct {
 	Index []int // index for data
 }
 
-func (b *shardPart) ObjectIDs() []strfmt.UUID {
+func (b *ShardPart) ObjectIDs() []strfmt.UUID {
 	xs := make([]strfmt.UUID, len(b.Index))
 	for i, idx := range b.Index {
 		xs[i] = b.Data[idx].ID()
@@ -92,7 +92,7 @@ func (b *shardPart) ObjectIDs() []strfmt.UUID {
 	return xs
 }
 
-func (b *shardPart) Extract() ([]Replica, []strfmt.UUID) {
+func (b *ShardPart) Extract() ([]Replica, []strfmt.UUID) {
 	xs := make([]Replica, len(b.Index))
 	ys := make([]strfmt.UUID, len(b.Index))
 

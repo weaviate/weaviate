@@ -214,7 +214,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	}
 	// check shard consistency concurrently
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
-	for _, part := range cluster(createBatch(xs)) {
+	for _, part := range Cluster(CreateBatch(xs)) {
 		part := part
 		gr.Go(func() error {
 			_, err := f.checkShardConsistency(ctx, l, part)
@@ -279,7 +279,7 @@ func (f *Finder) NodeObject(ctx context.Context,
 // It returns the most recent objects or and error
 func (f *Finder) checkShardConsistency(ctx context.Context,
 	l types.ConsistencyLevel,
-	batch shardPart,
+	batch ShardPart,
 ) ([]*storobj.Object, error) {
 	var (
 		c = newReadCoordinator[batchReply](f, batch.Shard,
