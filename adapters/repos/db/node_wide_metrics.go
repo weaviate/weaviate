@@ -138,6 +138,16 @@ func (o *nodeWideMetricsObserver) observeActivity() {
 	}).Debug("observed tenant activity stats")
 }
 
+func (o *nodeWideMetricsObserver) logActivity(col, tenant, activityType string, value int32) {
+	o.db.logger.WithFields(logrus.Fields{
+		"action":             "tenant_activity_change",
+		"collection":         col,
+		"tenant":             tenant,
+		"activity_type":      activityType,
+		"last_counter_value": value,
+	}).Debugf("tenant %s activity change: %s", tenant, activityType)
+}
+
 func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity activityByCollection) (total, reads, writes tenantactivity.ByCollection) {
 	previousActivity := o.activityTracker
 	if previousActivity == nil {
@@ -173,9 +183,16 @@ func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity activityB
 				// activity
 				if act.read > 1 {
 					newUsageReads[class][tenant] = now
+					o.logActivity(class, tenant, "read", act.read)
 				}
 				if act.write > 1 {
 					newUsageWrites[class][tenant] = now
+					o.logActivity(class, tenant, "write", act.write)
+				}
+
+				if act.read == 1 && act.write == 1 {
+					// no specific activity, just an activation
+					o.logActivity(class, tenant, "activation", 1)
 				}
 				continue
 			}
@@ -196,12 +213,14 @@ func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity activityB
 				newUsageTotal[class][tenant] = now
 				if act.read > previous.read {
 					newUsageReads[class][tenant] = now
+					o.logActivity(class, tenant, "read", act.read)
 				} else if lastRead, ok := o.lastTenantUsageReads[class][tenant]; ok {
 					newUsageReads[class][tenant] = lastRead
 				}
 
 				if act.write > previous.write {
 					newUsageWrites[class][tenant] = now
+					o.logActivity(class, tenant, "write", act.write)
 				} else if lastWrite, ok := o.lastTenantUsageWrites[class][tenant]; ok {
 					newUsageWrites[class][tenant] = lastWrite
 				}
