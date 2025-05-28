@@ -98,7 +98,7 @@ func (c *Connections) GrowLayersTo(newLayers uint8) {
 
 	c.expandDataIfRequired(3 * uint16(delta))
 	c.shiftRightBy(1+uint16(layers)*3, 3*uint16(delta))
-	c.data[layerPos] = newLayers
+	c.data[layerPos] = newLayers + 1
 	layer := newLayers
 	for layer >= layers {
 		c.setLayerLength(layer, 0)
