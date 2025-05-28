@@ -14,6 +14,7 @@ package clients
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/url"
@@ -24,14 +25,19 @@ import (
 )
 
 type RemoteNode struct {
-	client *http.Client
+	client       *http.Client
+	nodeResolver nodeResolver
 }
 
-func NewRemoteNode(httpClient *http.Client) *RemoteNode {
-	return &RemoteNode{client: httpClient}
+func NewRemoteNode(httpClient *http.Client, nodeResolver nodeResolver) *RemoteNode {
+	return &RemoteNode{client: httpClient, nodeResolver: nodeResolver}
 }
 
-func (c *RemoteNode) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
+func (c *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, output string) (*models.NodeStatus, error) {
+	hostName, ok := c.nodeResolver.NodeHostname(nodeName)
+	if !ok {
+		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
+	}
 	p := "/nodes/status"
 	if className != "" {
 		p = path.Join(p, className)
@@ -65,7 +71,11 @@ func (c *RemoteNode) GetNodeStatus(ctx context.Context, hostName, className, out
 	return &nodeStatus, nil
 }
 
-func (c *RemoteNode) GetStatistics(ctx context.Context, hostName string) (*models.Statistics, error) {
+func (c *RemoteNode) GetStatistics(ctx context.Context, nodeName string) (*models.Statistics, error) {
+	hostName, ok := c.nodeResolver.NodeHostname(nodeName)
+	if !ok {
+		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
+	}
 	p := "/nodes/statistics"
 	method := http.MethodGet
 	url := url.URL{Scheme: "http", Host: hostName, Path: p}
