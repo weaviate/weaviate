@@ -317,9 +317,25 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.replicationManager.StoreSchemaVersion(&cmd)
 		}
-	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_IDS:
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL:
 		f = func() {
-			ret.Error = st.replicationManager.ForceDeleteByIds(&cmd)
+			ret.Error = st.replicationManager.ForceDeleteAll(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByCollection(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByCollectionAndShard(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByTargetNode(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByUuid(&cmd)
 		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:

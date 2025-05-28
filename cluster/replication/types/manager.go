@@ -115,12 +115,47 @@ type Manager interface {
 	//   - error: any error explaining why cancelling the replication operation failed.
 	DeleteAllReplications(ctx context.Context) error
 
-	// ForceDeleteReplicationsByIds removes the replication operation specified by their internal operation IDs from the FSM as fast as possible.
-	// It does not attempt to move them to the CANCELLED state first instead ending the op immediately by removing them from the FSM.
+	// ForceDeleteReplicationByReplicationId forcefully deletes a replication operation by its UUID.
+	// This operation does not cancel the replication operation, it simply removes it from the FSM.
 	//
 	// Parameters:
-	//   - uuids: The list of unique identifiers for the replication operations (strfmt.UUID).
+	//   - uuid: The unique identifier for the replication operation (strfmt.UUID).
+	//
 	// Returns:
-	//   - error: any error explaining why cancelling the replication operation failed.
-	ForceDeleteReplicationsByIds(ctx context.Context, uuids []strfmt.UUID) error
+	//   - error: Returns an error if force deleting the replication operation failed.
+	ForceDeleteReplicationByUuid(ctx context.Context, uuid strfmt.UUID) error
+	// ForceDeleteReplicationByCollection forcefully deletes all replication operations for a given collection.
+	// This operation does not cancel the replication operations, it simply removes it from the FSM.
+	//
+	// Parameters:
+	//   - collection: The name of the collection to force delete replication operations for.
+	//
+	// Returns:
+	//   - error: Returns an error if force deleting the replication operation failed.
+	ForceDeleteReplicationsByCollection(ctx context.Context, collection string) error
+	// ForceDeleteReplicationByCollectionAndShard forcefully deletes all replication operations for a given collection and shard.
+	// This operation does not cancel the replication operations, it simply removes it from the FSM.
+	//
+	// Parameters:
+	//   - collection: The name of the collection to force delete replication operations for.
+	//   - shard: The name of the shard to force delete replication operations for.
+	//
+	// Returns:
+	//   - error: Returns an error if force deleting the replication operation failed.
+	ForceDeleteReplicationsByCollectionAndShard(ctx context.Context, collection string, shard string) error
+	// ForceDeleteReplicationByTargetNode forcefully deletes all replication operations for a given target node.
+	// This operation does not cancel the replication operations, it simply removes it from the FSM.
+	//
+	// Parameters:
+	//   - node: The name of the target node to force delete replication operations for.
+	//
+	// Returns:
+	//   - error: Returns an error if force deleting the replication operation failed.
+	ForceDeleteReplicationsByTargetNode(ctx context.Context, node string) error
+	// ForceDeleteAllReplication forcefully deletes all replication operations.
+	// This operation does not cancel the replication operations, it simply removes it from the FSM.
+	//
+	// Returns:
+	//   - error: Returns an error if force deleting the replication operation failed.
+	ForceDeleteAllReplications(ctx context.Context) error
 }

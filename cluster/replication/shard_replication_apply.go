@@ -295,19 +295,93 @@ func (s *ShardReplicationFSM) DeleteReplicationsByTenants(collection string, ten
 	return nil
 }
 
-func (s *ShardReplicationFSM) ForceDelete(uuids []strfmt.UUID) error {
+func (s *ShardReplicationFSM) ForceDeleteAll() error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
-	for _, uid := range uuids {
-		id, ok := s.idsByUuid[uid]
-		if !ok {
-			return fmt.Errorf("could not find op with uuid %s: %w", uid, types.ErrReplicationOperationNotFound)
-		}
+	for id := range s.opsById {
 		err := s.removeReplicationOp(id)
 		if err != nil {
 			return fmt.Errorf("could not remove op %d: %w", id, err)
 		}
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByCollection(collection string) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	ops, ok := s.opsByCollection[collection]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	for _, op := range ops {
+		err := s.removeReplicationOp(op.ID)
+		if err != nil {
+			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByCollectionAndShard(collection, shard string) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	collectionOps, ok := s.opsByCollectionAndShard[collection]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	shardOps, ok := collectionOps[shard]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	for _, op := range shardOps {
+		err := s.removeReplicationOp(op.ID)
+		if err != nil {
+			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByTargetNode(node string) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	ops, ok := s.opsByTarget[node]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	for _, op := range ops {
+		err := s.removeReplicationOp(op.ID)
+		if err != nil {
+			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByUuid(uuid strfmt.UUID) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	id, ok := s.idsByUuid[uuid]
+	if !ok {
+		return fmt.Errorf("could not find op with uuid %s: %w", uuid, types.ErrReplicationOperationNotFound)
+	}
+
+	if err := s.removeReplicationOp(id); err != nil {
+		return fmt.Errorf("could not remove op %d: %w", id, err)
 	}
 
 	return nil
