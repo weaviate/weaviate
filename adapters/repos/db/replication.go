@@ -800,27 +800,27 @@ func (i *Index) IncomingHashTreeLevel(ctx context.Context,
 
 func (i *Index) FetchObject(ctx context.Context,
 	shardName string, id strfmt.UUID,
-) (objects.Replica, error) {
+) (replica.Replica, error) {
 	shard, release, err := i.getOrInitShard(ctx, shardName)
 	if err != nil {
-		return objects.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
+		return replica.Replica{}, fmt.Errorf("shard %q does not exist locally", shardName)
 	}
 
 	defer release()
 
 	if shard.GetStatus() == storagestate.StatusLoading {
-		return objects.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
+		return replica.Replica{}, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	}
 
 	obj, err := shard.ObjectByID(ctx, id, nil, additional.Properties{})
 	if err != nil {
-		return objects.Replica{}, fmt.Errorf("shard %q read repair get object: %w", shard.ID(), err)
+		return replica.Replica{}, fmt.Errorf("shard %q read repair get object: %w", shard.ID(), err)
 	}
 
 	if obj == nil {
 		deleted, deletionTime, err := shard.WasDeleted(ctx, id)
 		if err != nil {
-			return objects.Replica{}, err
+			return replica.Replica{}, err
 		}
 
 		var updateTime int64
@@ -828,14 +828,14 @@ func (i *Index) FetchObject(ctx context.Context,
 			updateTime = deletionTime.UnixMilli()
 		}
 
-		return objects.Replica{
+		return replica.Replica{
 			ID:                      id,
 			Deleted:                 deleted,
 			LastUpdateTimeUnixMilli: updateTime,
 		}, nil
 	}
 
-	return objects.Replica{
+	return replica.Replica{
 		Object:                  obj,
 		ID:                      obj.ID(),
 		LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
@@ -844,7 +844,7 @@ func (i *Index) FetchObject(ctx context.Context,
 
 func (i *Index) FetchObjects(ctx context.Context,
 	shardName string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
+) ([]replica.Replica, error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, fmt.Errorf("shard %q does not exist locally", shardName)
@@ -863,7 +863,7 @@ func (i *Index) FetchObjects(ctx context.Context,
 		return nil, fmt.Errorf("shard %q replication multi get objects: %w", shard.ID(), err)
 	}
 
-	resp := make([]objects.Replica, len(ids))
+	resp := make([]replica.Replica, len(ids))
 
 	for j, obj := range objs {
 		if obj == nil {
@@ -877,13 +877,13 @@ func (i *Index) FetchObjects(ctx context.Context,
 				updateTime = deletionTime.UnixMilli()
 			}
 
-			resp[j] = objects.Replica{
+			resp[j] = replica.Replica{
 				ID:                      ids[j],
 				Deleted:                 deleted,
 				LastUpdateTimeUnixMilli: updateTime,
 			}
 		} else {
-			resp[j] = objects.Replica{
+			resp[j] = replica.Replica{
 				Object:                  obj,
 				ID:                      obj.ID(),
 				LastUpdateTimeUnixMilli: obj.LastUpdateTimeUnix(),
