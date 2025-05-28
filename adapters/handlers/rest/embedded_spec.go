@@ -2087,6 +2087,11 @@ func init() {
             "required": true
           },
           {
+            "type": "string",
+            "name": "shardName",
+            "in": "query"
+          },
+          {
             "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
           }
         ],
@@ -10140,6 +10145,11 @@ func init() {
             "name": "className",
             "in": "path",
             "required": true
+          },
+          {
+            "type": "string",
+            "name": "shardName",
+            "in": "query"
           },
           {
             "type": "string",
