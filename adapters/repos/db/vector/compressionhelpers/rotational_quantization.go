@@ -216,17 +216,24 @@ func (rq *RotationalQuantizer) Stats() CompressionStats {
 }
 
 func (rq *RotationalQuantizer) CompressedBytes(compressed []byte) []byte {
-	panic("from compressed bytes not implemented")
+	return compressed
 }
 
 func (rq *RotationalQuantizer) FromCompressedBytes(compressed []byte) []byte {
-	// this function is used when a cache miss happened, so we get the compressed bytes from the store
-	// and we need to decode them into RQ format
-	panic("from compressed bytes not implemented")
+	return compressed
 }
 
 func (rq *RotationalQuantizer) FromCompressedBytesWithSubsliceBuffer(compressed []byte, buffer *[]byte) []byte {
-	panic("from compressed bytes with subslice buffer not implemented")
+	if len(*buffer) < len(compressed) {
+		*buffer = make([]byte, len(compressed)*1000)
+	}
+
+	// take from end so we can address the start of the buffer
+	out := (*buffer)[len(*buffer)-len(compressed):]
+	copy(out, compressed)
+	*buffer = (*buffer)[:len(*buffer)-len(compressed)]
+
+	return out
 }
 
 func (rq *RotationalQuantizer) NewQuantizerDistancer(vec []float32) quantizerDistancer[byte] {

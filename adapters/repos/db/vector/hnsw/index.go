@@ -366,11 +366,10 @@ func New(cfg Config, uc ent.UserConfig,
 			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
 			cfg.AllocChecker)*/
 		} else {
-			// TODO: pass the bits in the RQ Compressor build
-			fmt.Println("NewRQCompressor")
+			dim := 128
 			index.compressor, err = compressionhelpers.NewRQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.AllocChecker)
+				cfg.AllocChecker, int(uc.RQ.DataBits), dim)
 		}
 		if err != nil {
 			return nil, err

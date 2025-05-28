@@ -637,14 +637,15 @@ func NewRQCompressor(
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
+	bits int,
+	dim int,
 ) (VectorCompressor, error) {
-	dim := 128
-	seed := uint64(1234567890)
-	bits := 8
+	seed := uint64(0x535ab5105169b1df)
+
 	quantizer := NewRotationalQuantizer(dim, seed, bits, bits, distance)
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
 	switch bits {
-	case 1:
+	case 8:
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
 			quantizer:       quantizer,
 			compressedStore: store,

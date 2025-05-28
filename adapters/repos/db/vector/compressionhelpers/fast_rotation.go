@@ -20,7 +20,7 @@ type FastRotation struct {
 	rounds       int       // The number of rounds of random signs, permutations, and blocked transforms that the Rotate() function is going to apply.
 	permutations [][]int32 // For each round the permutation to apply prior to transforming.
 	signs        [][]int8  // For each round the vector of random signs to apply prior to transforming.
-	tmp          []float64 // Temporary vector used to hold the input while we apply the transform.
+	//tmp          []float64 // Temporary vector used to hold the input while we apply the transform.
 }
 
 func randomSignsInt8(dim int, rng *rand.Rand) []int8 {
@@ -50,7 +50,7 @@ func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
 		outputDim += 64
 	}
 	rng := rand.New(rand.NewPCG(seed, 0x385ab5285169b1ac))
-	tmp := make([]float64, outputDim)
+	//tmp := make([]float64, outputDim)
 	permutations := make([][]int32, rounds)
 	signs := make([][]int8, rounds)
 	for i := range rounds {
@@ -62,7 +62,7 @@ func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
 		rounds:       rounds,
 		permutations: permutations,
 		signs:        signs,
-		tmp:          tmp,
+		//tmp:          tmp,
 	}
 }
 
@@ -90,11 +90,15 @@ func permuteAndApplySigns(x []float64, p []int32, s []int8) {
 }
 
 func (r *FastRotation) Rotate(x []float32) []float32 {
+	tmp := make([]float64, len(x))
 	for i := range x {
-		r.tmp[i] = float64(x[i])
+		tmp[i] = float64(x[i])
 	}
+	/*for i := range x {
+		r.tmp[i] = float64(x[i])
+	}*/
 	for i := range r.rounds {
-		permuteAndApplySigns(r.tmp, r.permutations[i], r.signs[i])
+		permuteAndApplySigns(tmp, r.permutations[i], r.signs[i])
 		// Greedily apply the largest possible FWHT of length 2^2k >= 64 to the
 		// remaining untransformed portion of the vector. We restrict ourselves
 		// to lengths of the form 2^2k because the normalization factors
@@ -108,17 +112,17 @@ func (r *FastRotation) Rotate(x []float32) []float32 {
 				length *= 4
 				normalize *= 0.5
 			}
-			FastWalshHadamardTransform64(r.tmp[pos : pos+length])
+			FastWalshHadamardTransform64(tmp[pos : pos+length])
 			for j := range length {
-				r.tmp[pos+j] *= normalize
+				tmp[pos+j] *= normalize
 			}
 			pos += length
 		}
 	}
 	y := make([]float32, r.outputDim)
-	for i := range r.tmp {
-		y[i] = float32(r.tmp[i])
-		r.tmp[i] = 0 // Clear for next Rotation.
+	for i := range tmp {
+		y[i] = float32(tmp[i])
+		//tmp[i] = 0 // Clear for next Rotation.
 	}
 	return y
 }
