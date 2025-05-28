@@ -521,6 +521,18 @@ func FromEnv(config *Config) error {
 		config.AutoSchema.DefaultDate = v
 	}
 
+	tenantActivityReadLogLevel := "debug"
+	if v := os.Getenv("TENANT_ACTIVITY_READ_LOG_LEVEL"); v != "" {
+		tenantActivityReadLogLevel = v
+	}
+	config.TenantActivityReadLogLevel = runtime.NewDynamicValue(tenantActivityReadLogLevel)
+
+	tenantActivityWriteLogLevel := "debug"
+	if v := os.Getenv("TENANT_ACTIVITY_WRITE_LOG_LEVEL"); v != "" {
+		tenantActivityWriteLogLevel = v
+	}
+	config.TenantActivityWriteLogLevel = runtime.NewDynamicValue(tenantActivityWriteLogLevel)
+
 	ru, err := parseResourceUsageEnvVars()
 	if err != nil {
 		return err

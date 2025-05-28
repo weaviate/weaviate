@@ -12,6 +12,7 @@
 package db
 
 import (
+	"strings"
 	"sync"
 	"time"
 
@@ -139,13 +140,32 @@ func (o *nodeWideMetricsObserver) observeActivity() {
 }
 
 func (o *nodeWideMetricsObserver) logActivity(col, tenant, activityType string, value int32) {
-	o.db.logger.WithFields(logrus.Fields{
+	logBase := o.db.logger.WithFields(logrus.Fields{
 		"action":             "tenant_activity_change",
 		"collection":         col,
 		"tenant":             tenant,
 		"activity_type":      activityType,
 		"last_counter_value": value,
-	}).Debugf("tenant %s activity change: %s", tenant, activityType)
+	})
+
+	var lvlStr string
+	switch activityType {
+	case "read":
+		lvlStr = o.db.config.TenantActivityReadLogLevel.Get()
+	case "write":
+		lvlStr = o.db.config.TenantActivityWriteLogLevel.Get()
+	default:
+		lvlStr = "debug" // fall-back for any unknown activityType
+	}
+
+	level, err := logrus.ParseLevel(strings.ToLower(lvlStr))
+	if err != nil {
+		level = logrus.DebugLevel
+		logBase.WithField("invalid_level", lvlStr).
+			Warn("unknown tenant activity log level, defaulting to debug")
+	}
+
+	logBase.Logf(level, "tenant %s activity change: %s", tenant, activityType)
 }
 
 func (o *nodeWideMetricsObserver) analyzeActivityDelta(currentActivity activityByCollection) (total, reads, writes tenantactivity.ByCollection) {
