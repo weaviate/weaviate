@@ -19,6 +19,9 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"time"
+
+	"github.com/cenkalti/backoff/v4"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -34,26 +37,35 @@ func NewRemoteNode(httpClient *http.Client, nodeResolver nodeResolver) *RemoteNo
 }
 
 func (c *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, output string) (*models.NodeStatus, error) {
-	hostName, ok := c.nodeResolver.NodeHostname(nodeName)
-	if !ok {
-		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
-	}
 	p := "/nodes/status"
 	if className != "" {
 		p = path.Join(p, className)
 	}
 	method := http.MethodGet
 	params := url.Values{"output": []string{output}}
-	url := url.URL{Scheme: "http", Host: hostName, Path: p, RawQuery: params.Encode()}
+	var res *http.Response
+	if err := backoff.Retry(func() error {
+		hostName, ok := c.nodeResolver.NodeHostname(nodeName)
+		if !ok {
+			return fmt.Errorf("resolve node name %q to host", nodeName)
+		}
+		url := url.URL{Scheme: "http", Host: hostName, Path: p, RawQuery: params.Encode()}
 
-	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
-	if err != nil {
-		return nil, enterrors.NewErrOpenHttpRequest(err)
-	}
+		req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+		if err != nil {
+			return enterrors.NewErrOpenHttpRequest(err)
+		}
 
-	res, err := c.client.Do(req)
-	if err != nil {
-		return nil, enterrors.NewErrSendHttpRequest(err)
+		res, err = c.client.Do(req)
+		return enterrors.NewErrSendHttpRequest(err)
+	}, backoff.WithContext(
+		backoff.WithMaxRetries(
+			backoff.NewExponentialBackOff(
+				backoff.WithInitialInterval(100*time.Millisecond),
+				backoff.WithMaxInterval(30*time.Second),
+				backoff.WithMultiplier(1.5),
+			), 10), ctx)); err != nil {
+		return nil, err
 	}
 
 	defer res.Body.Close()
@@ -63,8 +75,7 @@ func (c *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, out
 	}
 
 	var nodeStatus models.NodeStatus
-	err = json.Unmarshal(body, &nodeStatus)
-	if err != nil {
+	if err := json.Unmarshal(body, &nodeStatus); err != nil {
 		return nil, enterrors.NewErrUnmarshalBody(err)
 	}
 
@@ -72,22 +83,32 @@ func (c *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, out
 }
 
 func (c *RemoteNode) GetStatistics(ctx context.Context, nodeName string) (*models.Statistics, error) {
-	hostName, ok := c.nodeResolver.NodeHostname(nodeName)
-	if !ok {
-		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
-	}
 	p := "/nodes/statistics"
 	method := http.MethodGet
-	url := url.URL{Scheme: "http", Host: hostName, Path: p}
 
-	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
-	if err != nil {
-		return nil, enterrors.NewErrOpenHttpRequest(err)
-	}
+	var res *http.Response
+	if err := backoff.Retry(func() error {
+		hostName, ok := c.nodeResolver.NodeHostname(nodeName)
+		if !ok {
+			return fmt.Errorf("resolve node name %q to host", nodeName)
+		}
+		url := url.URL{Scheme: "http", Host: hostName, Path: p}
 
-	res, err := c.client.Do(req)
-	if err != nil {
-		return nil, enterrors.NewErrSendHttpRequest(err)
+		req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+		if err != nil {
+			return enterrors.NewErrOpenHttpRequest(err)
+		}
+
+		res, err = c.client.Do(req)
+		return enterrors.NewErrSendHttpRequest(err)
+	}, backoff.WithContext(
+		backoff.WithMaxRetries(
+			backoff.NewExponentialBackOff(
+				backoff.WithInitialInterval(100*time.Millisecond),
+				backoff.WithMaxInterval(30*time.Second),
+				backoff.WithMultiplier(1.5),
+			), 10), ctx)); err != nil {
+		return nil, err
 	}
 
 	defer res.Body.Close()
@@ -97,8 +118,7 @@ func (c *RemoteNode) GetStatistics(ctx context.Context, nodeName string) (*model
 	}
 
 	var statistics models.Statistics
-	err = json.Unmarshal(body, &statistics)
-	if err != nil {
+	if err := json.Unmarshal(body, &statistics); err != nil {
 		return nil, enterrors.NewErrUnmarshalBody(err)
 	}
 

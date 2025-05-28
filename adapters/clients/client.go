@@ -137,10 +137,8 @@ func newRetryer() *retryer {
 func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (bool, error)) error {
 	return backoff.Retry(func() error {
 		keepTrying, err := work(ctx)
-		if err != nil {
-			if !keepTrying {
-				return backoff.Permanent(err)
-			}
+		if err != nil && !keepTrying {
+			return backoff.Permanent(err)
 		}
 		return err
 	}, backoff.WithContext(

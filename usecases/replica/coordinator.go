@@ -162,7 +162,7 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 								"op":      "broadcast",
 								"replica": replica,
 								"error":   err,
-							}).Debug("broadcast to replica failed")
+							}).Error("broadcast to replica failed")
 						}
 					}
 					resChan <- _Result[string]{replica, err}
