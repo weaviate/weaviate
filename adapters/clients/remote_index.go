@@ -44,15 +44,17 @@ type RemoteIndex struct {
 	retryClient
 }
 
-func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
+func NewRemoteIndex(httpClient *http.Client, nodeResolver nodeResolver) *RemoteIndex {
 	return &RemoteIndex{retryClient: retryClient{
-		client:  httpClient,
-		retryer: newRetryer(),
+		client:       httpClient,
+		nodeResolver: nodeResolver,
+		retryer:      newRetryer(),
 	}}
 }
 
 func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	shard string, obj *storobj.Object, schemaVersion uint64,
+	owner string,
 ) error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", index, shard)
 	method := http.MethodPost
@@ -75,7 +77,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	_, err = c.do(c.timeoutUnit*60, req, body, nil, 9, successCode)
+	_, err = c.do(c.timeoutUnit*60, req, body, nil, 9, successCode, owner)
 	return err
 }
 
@@ -89,7 +91,7 @@ func duplicateErr(in error, count int) []error {
 
 func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64,
-) []error {
+	owner string) []error {
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	url := url.URL{
 		Scheme:   "http",
@@ -115,7 +117,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return nil
 	}
 
-	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode, 9); err != nil {
+	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode, 9, owner); err != nil {
 		return duplicateErr(err, len(objs))
 	}
 
@@ -124,6 +126,7 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 
 func (c *RemoteIndex) BatchAddReferences(ctx context.Context, hostName, indexName,
 	shardName string, refs objects.BatchReferences, schemaVersion uint64,
+	owner string,
 ) []error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/references", indexName, shardName)
 	method := http.MethodPost
@@ -177,6 +180,7 @@ func (c *RemoteIndex) BatchAddReferences(ctx context.Context, hostName, indexNam
 func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, selectProps search.SelectProperties,
 	additional additional.Properties,
+	owner string,
 ) (*storobj.Object, error) {
 	selectPropsBytes, err := json.Marshal(selectProps)
 	if err != nil {
@@ -242,6 +246,7 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 
 func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID,
+	owner string,
 ) (bool, error) {
 	rURL := url.URL{
 		Scheme:   "http",
@@ -255,12 +260,13 @@ func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 		return false, fmt.Errorf("create http request: %w", err)
 	}
 	ok := func(code int) bool { return code == http.StatusNotFound || code == http.StatusNoContent }
-	code, err := c.do(c.timeoutUnit*20, req, nil, nil, 9, ok)
+	code, err := c.do(c.timeoutUnit*20, req, nil, nil, 9, ok, "")
 	return code != http.StatusNotFound, err
 }
 
 func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,
 	shardName string, id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
+	owner string,
 ) error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s/%d", indexName, shardName, id, deletionTime.UnixMilli())
 	method := http.MethodDelete
@@ -300,6 +306,7 @@ func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,
 
 func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
+	owner string,
 ) error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s", indexName, shardName,
 		mergeDoc.ID)
@@ -341,6 +348,7 @@ func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 
 func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 	shardName string, ids []strfmt.UUID,
+	owner string,
 ) ([]*storobj.Object, error) {
 	idsBytes, err := json.Marshal(ids)
 	if err != nil {
@@ -430,7 +438,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 
 	// send request
 	resp := &searchShardResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9, "")
 	return resp.Objects, resp.Distributions, err
 }
 
@@ -475,12 +483,13 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 
 	// send request
 	resp := &aggregateResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9, "")
 	return resp.Result, err
 }
 
 func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 	shardName string, filters *filters.LocalFilter,
+	owner string,
 ) ([]strfmt.UUID, error) {
 	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters)
 	if err != nil {
@@ -529,6 +538,7 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 
 func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
 	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
+	owner string,
 ) objects.BatchSimpleObjects {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodDelete
@@ -591,6 +601,7 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 
 func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	hostName, indexName, shardName string,
+	owner string,
 ) (int64, error) {
 	path := fmt.Sprintf("/indices/%s/shards/%s/queuesize", indexName, shardName)
 	method := http.MethodGet
@@ -634,6 +645,7 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	hostName, indexName, shardName string,
+	owner string,
 ) (string, error) {
 	path := fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName)
 	method := http.MethodGet
@@ -677,6 +689,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 
 func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
 	targetStatus string, schemaVersion uint64,
+	owner string,
 ) error {
 	paramsBytes, err := clusterapi.IndicesPayloads.UpdateShardStatusParams.Marshal(targetStatus)
 	if err != nil {

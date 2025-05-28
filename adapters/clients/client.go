@@ -18,20 +18,21 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"strings"
 	"time"
 
 	"github.com/cenkalti/backoff/v4"
+	"github.com/sirupsen/logrus"
 )
 
 type retryClient struct {
-	client *http.Client
+	client       *http.Client
+	nodeResolver nodeResolver
 	*retryer
 }
 
 func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	req *http.Request, data []byte, decode func([]byte) error, success func(code int) bool, numRetries int,
-) (err error) {
+	owner string) (err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -41,6 +42,18 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
+			if owner != "" {
+				newHost, ok := c.nodeResolver.NodeHostname(owner)
+				if ok {
+					logrus.WithFields(logrus.Fields{
+						"owner":   owner,
+						"newHost": newHost,
+						"oldHost": req.Host,
+					}).Error("connect: %w", err)
+					req.Host = newHost
+					return true, fmt.Errorf("connect: %w", err)
+				}
+			}
 			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
@@ -63,7 +76,7 @@ func (c *retryClient) doWithCustomMarshaller(timeout time.Duration,
 	return c.retry(ctx, numRetries, try)
 }
 
-func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int, success func(code int) bool) (code int, err error) {
+func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int, success func(code int) bool, owner string) (code int, err error) {
 	ctx, cancel := context.WithTimeout(req.Context(), timeout)
 	defer cancel()
 	req = req.WithContext(ctx)
@@ -73,6 +86,19 @@ func (c *retryClient) do(timeout time.Duration, req *http.Request, body []byte, 
 		}
 		res, err := c.client.Do(req)
 		if err != nil {
+			if owner != "" {
+				newHost, ok := c.nodeResolver.NodeHostname(owner)
+				if ok {
+					logrus.WithFields(logrus.Fields{
+						"owner":   owner,
+						"newHost": newHost,
+						"oldHost": req.Host,
+					}).Error("connect: %w", err)
+					req.Host = newHost
+					return true, fmt.Errorf("connect: %w", err)
+				}
+			}
+
 			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
@@ -110,7 +136,7 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 	return backoff.Retry(func() error {
 		keepTrying, err := work(ctx)
 		if err != nil {
-			if !keepTrying || isNetworkError(err) {
+			if !keepTrying {
 				return backoff.Permanent(err)
 			}
 		}
@@ -127,21 +153,4 @@ func (r *retryer) retry(ctx context.Context, n int, work func(context.Context) (
 
 func successCode(code int) bool {
 	return code >= http.StatusOK && code <= http.StatusIMUsed
-}
-
-// isNetworkError checks if the error is a network-related error that should be retried
-func isNetworkError(err error) bool {
-	if err == nil {
-		return false
-	}
-	errStr := err.Error()
-	return strings.Contains(errStr, "connection refused") ||
-		strings.Contains(errStr, "no route to host") ||
-		strings.Contains(errStr, "network is unreachable") ||
-		strings.Contains(errStr, "connection reset by peer") ||
-		strings.Contains(errStr, "broken pipe") ||
-		strings.Contains(errStr, "connection reset") ||
-		strings.Contains(errStr, "i/o timeout") ||
-		strings.Contains(errStr, "connection timed out") ||
-		strings.Contains(errStr, "EOF")
 }

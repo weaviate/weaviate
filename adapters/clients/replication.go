@@ -18,7 +18,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"net/url"
 	"time"
@@ -369,20 +368,14 @@ func newHttpReplicaCMD(host, cmd, index, shard, requestId string, body io.Reader
 
 func (c *replicationClient) do(timeout time.Duration, req *http.Request, body []byte, resp interface{}, numRetries int) error {
 	ok := func(code int) bool { return code == http.StatusOK }
-	_, err := c.retryClient.do(timeout, req, body, resp, numRetries, ok)
+	_, err := c.retryClient.do(timeout, req, body, resp, numRetries, ok, "")
 	return err
 }
 
 func (c *replicationClient) doCustomUnmarshal(timeout time.Duration,
 	req *http.Request, body []byte, decode func([]byte) error, numRetries int,
 ) (err error) {
-	return c.doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries)
-}
-
-// backOff return a new random duration in the interval [d, 3d].
-// It implements truncated exponential back-off with introduced jitter.
-func backOff(d time.Duration) time.Duration {
-	return time.Duration(float64(d.Nanoseconds()*2) * (0.5 + rand.Float64()))
+	return c.doWithCustomMarshaller(timeout, req, body, decode, successCode, numRetries, "")
 }
 
 func shouldRetry(code int) bool {
