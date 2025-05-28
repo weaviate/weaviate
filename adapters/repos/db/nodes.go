@@ -56,7 +56,7 @@ func (db *DB) GetNodeStatus(ctx context.Context, className, shardName string, ve
 	return nodeStatuses, nil
 }
 
-func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName string, className, shardName, output string) (*models.NodeStatus, error) {
+func (db *DB) GetOneNodeStatus(ctx context.Context, nodeName, className, shardName, output string) (*models.NodeStatus, error) {
 	if db.schemaGetter.NodeName() == nodeName {
 		return db.LocalNodeStatus(ctx, className, shardName, output), nil
 	}
@@ -166,102 +166,84 @@ func (db *DB) localNodeBatchStats() *models.BatchStats {
 // getShardsNodeStatus modifies the status slice to include the shard statuses.
 // If shardName is provided, it will only get the status of the specific shard.
 // Otherwise, it will get the status of all shards.
-// Return the total object count and the number of shards.
-// If an error occurs, it will return 0, 0 (doesn't return the error
-// to preserve backwards compatibility).
+// Returns the total object count and the number of shards.
+// If an error occurs, the status slice may have been modified and this method
+// may return a partial result.
 func (i *Index) getShardsNodeStatus(ctx context.Context,
 	status *[]*models.NodeShardStatus, shardName string,
-) (int64, int64) {
-	// if shardName is provided, get the status of the specific shard
-	if shardName != "" {
-		shard, release, err := i.GetShard(ctx, shardName)
-		if err != nil {
-			i.logger.Errorf("error while getting shard %s: %w", shardName, err)
-			return 0, 0
-		}
-		defer release()
-		shardStatus, err := i.getShardStatus(ctx, shard)
-		if err != nil {
-			i.logger.Errorf("error while getting shard status for shard %s: %w", shardName, err)
-			return 0, 0
-		}
-		*status = append(*status, &shardStatus)
-		return shardStatus.ObjectCount, 1
-	}
-
-	totalCount := int64(0)
-	shardCount := int64(0)
-	// if shardName is not provided, get the status of all shards
+) (totalCount, shardCount int64) {
 	i.ForEachShard(func(name string, shard ShardLike) error {
 		if err := ctx.Err(); err != nil {
-			i.logger.Errorf("context error while getting shard status for shard %s: %w", shardName, err)
 			return err
 		}
-		shardStatus, err := i.getShardStatus(ctx, shard)
+		// if shardName is provided, only return the status for the specified shard
+		if shardName != "" && shardName != name {
+			return nil
+		}
+
+		// Don't force load a lazy shard to get nodes status
+		if lazy, ok := shard.(*LazyLoadShard); ok {
+			if !lazy.isLoaded() {
+				class := shard.Index().Config.ClassName.String()
+				shardingState := shard.Index().getSchema.CopyShardingState(class)
+				numberOfReplicas, err := shardingState.NumberOfReplicas(shard.Name())
+				if err != nil {
+					i.logger.Errorf("error while getting number of replicas for shard %s: %w", shard.Name(), err)
+				}
+				shardStatus := &models.NodeShardStatus{
+					Name:                 name,
+					Class:                class,
+					VectorIndexingStatus: shard.GetStatus().String(),
+					Loaded:               false,
+					ReplicationFactor:    shardingState.ReplicationFactor,
+					NumberOfReplicas:     numberOfReplicas,
+				}
+				*status = append(*status, shardStatus)
+				shardCount++
+				return nil
+			}
+		}
+
+		objectCount := int64(shard.ObjectCountAsync())
+		totalCount += objectCount
+
+		// FIXME stats of target vectors
+		var queueLen int64
+		_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
+			queueLen += queue.Size()
+			return nil
+		})
+
+		var compressed bool
+		_ = shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
+			compressed = compressed || index.Compressed()
+			return nil
+		})
+
+		class := shard.Index().Config.ClassName.String()
+		shardingState := shard.Index().getSchema.CopyShardingState(class)
+		numberOfReplicas, err := shardingState.NumberOfReplicas(shard.Name())
 		if err != nil {
-			i.logger.Errorf("error while getting shard status for shard %s: %w", shardName, err)
-			return err
+			i.logger.Errorf("error while getting number of replicas for shard %s: %w", shard.Name(), err)
 		}
-		*status = append(*status, &shardStatus)
-		totalCount += shardStatus.ObjectCount
+
+		shardStatus := &models.NodeShardStatus{
+			Name:                   name,
+			Class:                  class,
+			ObjectCount:            objectCount,
+			VectorIndexingStatus:   shard.GetStatus().String(),
+			VectorQueueLength:      queueLen,
+			Compressed:             compressed,
+			Loaded:                 true,
+			AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
+			ReplicationFactor:      shardingState.ReplicationFactor,
+			NumberOfReplicas:       numberOfReplicas,
+		}
+		*status = append(*status, shardStatus)
 		shardCount++
 		return nil
 	})
-	return totalCount, shardCount
-}
-
-func (i *Index) getShardStatus(ctx context.Context, shard ShardLike) (models.NodeShardStatus, error) {
-	if lazy, ok := shard.(*LazyLoadShard); ok {
-		if !lazy.isLoaded() {
-			class := shard.Index().Config.ClassName.String()
-			shardingState := shard.Index().getSchema.CopyShardingState(class)
-			numberOfReplicas, err := shardingState.NumberOfReplicas(shard.Name())
-			if err != nil {
-				return models.NodeShardStatus{}, fmt.Errorf("error while getting number of replicas for shard %s: %w", shard.Name(), err)
-			}
-			return models.NodeShardStatus{
-				Name:                 shard.Name(),
-				Class:                class,
-				VectorIndexingStatus: shard.GetStatus().String(),
-				Loaded:               false,
-				ReplicationFactor:    shardingState.ReplicationFactor,
-				NumberOfReplicas:     numberOfReplicas,
-			}, nil
-		}
-	}
-
-	// FIXME stats of target vectors
-	var queueLen int64
-	_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
-		queueLen += queue.Size()
-		return nil
-	})
-
-	var compressed bool
-	_ = shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
-		compressed = compressed || index.Compressed()
-		return nil
-	})
-
-	class := shard.Index().Config.ClassName.String()
-	shardingState := shard.Index().getSchema.CopyShardingState(class)
-	numberOfReplicas, err := shardingState.NumberOfReplicas(shard.Name())
-	if err != nil {
-		return models.NodeShardStatus{}, fmt.Errorf("error while getting number of replicas for shard %s: %w", shard.Name(), err)
-	}
-
-	return models.NodeShardStatus{
-		Name:                   shard.Name(),
-		Class:                  class,
-		ObjectCount:            int64(shard.ObjectCountAsync()),
-		VectorIndexingStatus:   shard.GetStatus().String(),
-		VectorQueueLength:      queueLen,
-		Compressed:             compressed,
-		Loaded:                 true,
-		AsyncReplicationStatus: shard.getAsyncReplicationStats(ctx),
-		ReplicationFactor:      shardingState.ReplicationFactor,
-		NumberOfReplicas:       numberOfReplicas,
-	}, nil
+	return
 }
 
 func (db *DB) GetNodeStatistics(ctx context.Context) ([]*models.Statistics, error) {
