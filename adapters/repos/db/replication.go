@@ -60,6 +60,8 @@ type Replicator interface {
 		requestID string) interface{}
 }
 
+const tmpCopyExtension = ".copy.tmp" // indexcount and proplen temporary copy
+
 func (db *DB) ReplicateObject(ctx context.Context, class,
 	shard, requestID string, object *storobj.Object,
 ) replica.SimpleResponse {
@@ -401,24 +403,12 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 		return nil, fmt.Errorf("shard %q could not list backup files: %w", shardName, err)
 	}
 
-	docIDCounter, err := os.OpenFile(shard.Counter().FileName()+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
-	if err != nil {
-		return nil, err
-	}
-	defer docIDCounter.Close()
-
-	_, err = io.Copy(docIDCounter, bytes.NewBuffer(sd.DocIDCounter))
+	err = i.tmpCopy(shard.Counter().FileName(), sd.DocIDCounter)
 	if err != nil {
 		return nil, err
 	}
 
-	propLengthTracker, err := os.OpenFile(shard.GetPropertyLengthTracker().FileName()+".tmp", os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
-	if err != nil {
-		return nil, err
-	}
-	defer propLengthTracker.Close()
-
-	_, err = io.Copy(propLengthTracker, bytes.NewBuffer(sd.PropLengthTracker))
+	err = i.tmpCopy(shard.GetPropertyLengthTracker().FileName(), sd.PropLengthTracker)
 	if err != nil {
 		return nil, err
 	}
@@ -433,6 +423,17 @@ func (i *Index) IncomingListFiles(ctx context.Context,
 	return files, nil
 }
 
+func (i *Index) tmpCopy(path string, b []byte) error {
+	tmpFile, err := os.OpenFile(path+tmpCopyExtension, os.O_RDWR|os.O_CREATE|os.O_TRUNC, 0o666)
+	if err != nil {
+		return err
+	}
+	defer tmpFile.Close()
+
+	_, err = io.Copy(tmpFile, bytes.NewBuffer(b))
+	return err
+}
+
 // IncomingGetFileMetadata returns file metadata at the given path in the specified shards's root
 // directory.
 func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relativeFilePath string) (file.FileMetadata, error) {
@@ -445,9 +446,9 @@ func (i *Index) IncomingGetFileMetadata(ctx context.Context, shardName, relative
 	}
 	defer release()
 
-	if strings.HasSuffix(relativeFilePath, shard.Counter().FileName()) ||
-		strings.HasSuffix(relativeFilePath, shard.GetPropertyLengthTracker().FileName()) {
-		relativeFilePath = relativeFilePath + ".tmp"
+	if strings.HasSuffix(shard.Counter().FileName(), relativeFilePath) ||
+		strings.HasSuffix(shard.GetPropertyLengthTracker().FileName(), relativeFilePath) {
+		relativeFilePath = relativeFilePath + tmpCopyExtension
 	}
 
 	return shard.GetFileMetadata(ctx, relativeFilePath)
@@ -467,9 +468,9 @@ func (i *Index) IncomingGetFile(ctx context.Context, shardName,
 	}
 	defer release()
 
-	if strings.HasSuffix(relativeFilePath, shard.Counter().FileName()) ||
-		strings.HasSuffix(relativeFilePath, shard.GetPropertyLengthTracker().FileName()) {
-		relativeFilePath = relativeFilePath + ".tmp"
+	if strings.HasSuffix(shard.Counter().FileName(), relativeFilePath) ||
+		strings.HasSuffix(shard.GetPropertyLengthTracker().FileName(), relativeFilePath) {
+		relativeFilePath = relativeFilePath + tmpCopyExtension
 	}
 
 	return shard.GetFile(ctx, relativeFilePath)
