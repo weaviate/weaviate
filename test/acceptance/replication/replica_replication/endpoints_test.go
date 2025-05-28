@@ -235,6 +235,17 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		}, 30*time.Second, 1*time.Second, "replication operation should be cancelled")
 	})
 
+	t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
+		nodes, err := helper.Client(t).Nodes.
+			NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
+		require.Nil(t, err)
+		for _, node := range nodes.Payload.Nodes {
+			for _, shard := range node.Shards {
+				require.Len(t, shard.AsyncReplicationStatus, 0)
+			}
+		}
+	})
+
 	t.Run("delete replication operation", func(t *testing.T) {
 		deleted, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(id), nil)
 		require.Nil(t, err)
@@ -276,6 +287,17 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		require.NotNil(t, details)
 		require.NotNil(t, details.Payload)
 		require.Len(t, details.Payload, 0)
+	})
+
+	t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
+		nodes, err := helper.Client(t).Nodes.
+			NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
+		require.Nil(t, err)
+		for _, node := range nodes.Payload.Nodes {
+			for _, shard := range node.Shards {
+				require.Len(t, shard.AsyncReplicationStatus, 0)
+			}
+		}
 	})
 }
 

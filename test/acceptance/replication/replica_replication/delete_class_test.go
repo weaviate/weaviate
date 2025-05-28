@@ -19,6 +19,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
@@ -82,6 +83,16 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperation
 				require.NotNil(ct, err)
 				assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
 			}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
+		})
+
+		t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
+			nodes, err := helper.Client(t).Nodes.NodesGet(nodes.NewNodesGetParams(), nil)
+			require.Nil(t, err)
+			for _, node := range nodes.Payload.Nodes {
+				for _, shard := range node.Shards {
+					require.Len(t, shard.AsyncReplicationStatus, 0)
+				}
+			}
 		})
 	}
 }

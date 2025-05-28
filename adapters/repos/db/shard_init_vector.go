@@ -152,6 +152,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			Logger:           s.index.logger,
 			DistanceProvider: distProv,
 			AllocChecker:     s.index.allocChecker,
+			MinMMapSize:      s.index.Config.MinMMapSize,
+			MaxWalReuseSize:  s.index.Config.MaxReuseWalSize,
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
@@ -205,6 +207,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			SharedDB:              sharedDB,
 			HNSWDisableSnapshots:  s.index.Config.HNSWDisableSnapshots,
 			HNSWSnapshotOnStartup: s.index.Config.HNSWSnapshotOnStartup,
+			MinMMapSize:           s.index.Config.MinMMapSize,
+			MaxWalReuseSize:       s.index.Config.MaxReuseWalSize,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
