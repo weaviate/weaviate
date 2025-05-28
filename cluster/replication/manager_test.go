@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -173,7 +174,7 @@ func TestManager_Replicate(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, reg)
+			manager := replication.NewManager(schemaReader, reg, nil)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -308,7 +309,7 @@ func TestManager_ReplicateMultipleOps(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, reg)
+			manager := replication.NewManager(schemaReader, reg, nil)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -506,7 +507,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, reg)
+			manager := replication.NewManager(schemaReader, reg, nil)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -681,7 +682,8 @@ func TestManager_SnapshotRestore(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, reg)
+			snapshotRestoreChan := make(chan struct{})
+			manager := replication.NewManager(schemaReader, reg, snapshotRestoreChan)
 			if tt.schemaSetup != nil {
 				tt.schemaSetup(t, schemaManager)
 			}
@@ -730,6 +732,15 @@ func TestManager_SnapshotRestore(t *testing.T) {
 				logIndex++
 			}
 
+			go func() {
+				select {
+				case <-snapshotRestoreChan:
+					// The replication FSM has been restored from a snapshot, we need to stop and restart
+				case <-time.After(5 * time.Second):
+					// Fail the test
+					assert.Fail(t, "Snapshot restore took too long")
+				}
+			}()
 			err = manager.Restore(bytes)
 			require.NoError(t, err)
 
@@ -838,7 +849,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
-		manager := replication.NewManager(schemaReader, reg)
+		manager := replication.NewManager(schemaReader, reg, nil)
 		err := schemaManager.AddClass(buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 			State: &sharding.State{
@@ -910,7 +921,7 @@ func TestManager_MetricsTracking(t *testing.T) {
 		parser.On("ParseClass", mock.Anything).Return(nil)
 		schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 		schemaReader := schemaManager.NewSchemaReader()
-		manager := replication.NewManager(schemaReader, reg)
+		manager := replication.NewManager(schemaReader, reg, nil)
 		err := schemaManager.AddClass(buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 			Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 			State: &sharding.State{
@@ -1250,7 +1261,7 @@ func TestReplicationFSM_HasOngoingReplication(t *testing.T) {
 			parser.On("ParseClass", mock.Anything).Return(nil)
 			schemaManager := schema.NewSchemaManager("test-node", nil, parser, prometheus.NewPedanticRegistry(), logrus.New())
 			schemaReader := schemaManager.NewSchemaReader()
-			manager := replication.NewManager(schemaReader, reg)
+			manager := replication.NewManager(schemaReader, reg, nil)
 			schemaManager.AddClass(
 				buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
 					Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
