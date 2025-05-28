@@ -130,24 +130,12 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 					if err != nil {
 						// If we get a network error, try to re-resolve the node address
 						if isNetworkError(err) {
-							c.log.WithFields(logrus.Fields{
-								"op":      "broadcast",
-								"replica": replica,
-								"error":   err,
-							}).Error("network error during broadcast, attempting to re-resolve node address")
-
 							// Re-resolve the node address using the same consistency level as the original request
 							newState, resolveErr := c.Resolver.State(c.Shard, cl, replica)
 							if resolveErr == nil && len(newState.Hosts) > 0 {
 								// Try the operation with the new address
 								newReplica := newState.Hosts[0]
 								if newReplica != replica {
-									c.log.WithFields(logrus.Fields{
-										"op":          "broadcast",
-										"old_replica": replica,
-										"new_replica": newReplica,
-									}).Error("re-resolved node address, retrying broadcast")
-
 									// Try with the new address
 									err = op(nodeCtx, newReplica, c.TxID)
 									if err == nil {
@@ -155,14 +143,6 @@ func (c *coordinator[T]) broadcast(ctx context.Context,
 									}
 								}
 							}
-						}
-
-						if err != nil {
-							c.log.WithFields(logrus.Fields{
-								"op":      "broadcast",
-								"replica": replica,
-								"error":   err,
-							}).Error("broadcast to replica failed")
 						}
 					}
 					resChan <- _Result[string]{replica, err}

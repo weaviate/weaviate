@@ -44,7 +44,8 @@ func (c *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, out
 	method := http.MethodGet
 	params := url.Values{"output": []string{output}}
 	var res *http.Response
-	if err := backoff.Retry(func() error {
+
+	if err := retry(ctx, func() error {
 		hostName, ok := c.nodeResolver.NodeHostname(nodeName)
 		if !ok {
 			return fmt.Errorf("resolve node name %q to host", nodeName)
@@ -58,13 +59,7 @@ func (c *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, out
 
 		res, err = c.client.Do(req)
 		return enterrors.NewErrSendHttpRequest(err)
-	}, backoff.WithContext(
-		backoff.WithMaxRetries(
-			backoff.NewExponentialBackOff(
-				backoff.WithInitialInterval(100*time.Millisecond),
-				backoff.WithMaxInterval(30*time.Second),
-				backoff.WithMultiplier(1.5),
-			), 10), ctx)); err != nil {
+	}, 10, 100*time.Millisecond, 30*time.Second); err != nil {
 		return nil, err
 	}
 
@@ -87,7 +82,7 @@ func (c *RemoteNode) GetStatistics(ctx context.Context, nodeName string) (*model
 	method := http.MethodGet
 
 	var res *http.Response
-	if err := backoff.Retry(func() error {
+	if err := retry(ctx, func() error {
 		hostName, ok := c.nodeResolver.NodeHostname(nodeName)
 		if !ok {
 			return fmt.Errorf("resolve node name %q to host", nodeName)
@@ -101,13 +96,7 @@ func (c *RemoteNode) GetStatistics(ctx context.Context, nodeName string) (*model
 
 		res, err = c.client.Do(req)
 		return enterrors.NewErrSendHttpRequest(err)
-	}, backoff.WithContext(
-		backoff.WithMaxRetries(
-			backoff.NewExponentialBackOff(
-				backoff.WithInitialInterval(100*time.Millisecond),
-				backoff.WithMaxInterval(30*time.Second),
-				backoff.WithMultiplier(1.5),
-			), 10), ctx)); err != nil {
+	}, 10, 100*time.Millisecond, 30*time.Second); err != nil {
 		return nil, err
 	}
 
@@ -123,4 +112,17 @@ func (c *RemoteNode) GetStatistics(ctx context.Context, nodeName string) (*model
 	}
 
 	return &statistics, nil
+}
+
+func retry(ctx context.Context, fn func() error, maxRetries int, initialInterval time.Duration, maxInterval time.Duration) error {
+	return backoff.Retry(func() (err error) {
+		return fn()
+
+	}, backoff.WithContext(
+		backoff.WithMaxRetries(
+			backoff.NewExponentialBackOff(
+				backoff.WithInitialInterval(initialInterval),
+				backoff.WithMaxInterval(maxInterval),
+				backoff.WithMultiplier(1.5),
+			), uint64(maxRetries)), ctx))
 }
