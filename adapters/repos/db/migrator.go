@@ -252,6 +252,7 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 			}
 		} else {
 			// Shutdown the tenant if activity status != HOT
+			m.logger.WithField("shard", shardName).Debug("shutting down tenant")
 			shard := idx.shards.Load(shardName)
 			if shard == nil {
 				continue
@@ -563,6 +564,8 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 						ec.Add(err)
 					}
 				}
+
+				m.logger.WithField("shard", name).Debug("successfully shutdown")
 
 				return nil
 			})
