@@ -20,7 +20,7 @@ type FastRotation struct {
 	rounds       int       // The number of rounds of random signs, permutations, and blocked transforms that the Rotate() function is going to apply.
 	permutations [][]int32 // For each round the permutation to apply prior to transforming.
 	signs        [][]int8  // For each round the vector of random signs to apply prior to transforming.
-	//tmp          []float64 // Temporary vector used to hold the input while we apply the transform.
+	// tmp          []float64 // Temporary vector used to hold the input while we apply the transform.
 }
 
 func randomSignsInt8(dim int, rng *rand.Rand) []int8 {
@@ -50,7 +50,7 @@ func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
 		outputDim += 64
 	}
 	rng := rand.New(rand.NewPCG(seed, 0x385ab5285169b1ac))
-	//tmp := make([]float64, outputDim)
+	// tmp := make([]float64, outputDim)
 	permutations := make([][]int32, rounds)
 	signs := make([][]int8, rounds)
 	for i := range rounds {
@@ -62,7 +62,7 @@ func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
 		rounds:       rounds,
 		permutations: permutations,
 		signs:        signs,
-		//tmp:          tmp,
+		// tmp:          tmp,
 	}
 }
 
@@ -76,7 +76,7 @@ func permuteAndApplySigns(x []float64, p []int32, s []int8) {
 	for i := range p {
 		from := int32(i)
 		tmp := x[from]
-		for !(p[from] < 0) {
+		for p[from] >= 0 {
 			to := p[from]
 			tmp, x[to] = x[to], float64(s[to])*tmp
 			p[from] = -p[from] - 1
@@ -122,7 +122,7 @@ func (r *FastRotation) Rotate(x []float32) []float32 {
 	y := make([]float32, r.outputDim)
 	for i := range tmp {
 		y[i] = float32(tmp[i])
-		//tmp[i] = 0 // Clear for next Rotation.
+		// tmp[i] = 0 // Clear for next Rotation.
 	}
 	return y
 }
