@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -486,14 +487,21 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 						// return early
 						return nil
 					}
-					// collection is single-tenant and shard is present
+					// if shard doesn't belong to this node
+					if !slices.Contains(physical.BelongsToNodes, req.NodeId) {
+						// shut it down
+						s.db.ShutdownShard(cmd.Class, req.Shard)
+						// return early
+						return nil
+					}
+					// collection is single-tenant, shard is present, replica belongs to node
 					if !state.PartitioningEnabled {
 						// load it
 						s.db.LoadShard(cmd.Class, req.Shard)
 						// return early
 						return nil
 					}
-					// collection has multi-tenancy enabled and shard is present
+					// collection is multi-tenant, shard is present, replica belongs to node
 					switch physical.ActivityStatus() {
 					// tenant is active
 					case models.TenantActivityStatusACTIVE:
