@@ -19,9 +19,6 @@ import (
 	"net/http"
 	"net/url"
 	"path"
-	"time"
-
-	"github.com/cenkalti/backoff/v4"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -43,24 +40,21 @@ func (c *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, out
 	}
 	method := http.MethodGet
 	params := url.Values{"output": []string{output}}
-	var res *http.Response
 
-	if err := retry(ctx, func() error {
-		hostName, ok := c.nodeResolver.NodeHostname(nodeName)
-		if !ok {
-			return fmt.Errorf("resolve node name %q to host", nodeName)
-		}
-		url := url.URL{Scheme: "http", Host: hostName, Path: p, RawQuery: params.Encode()}
+	hostName, ok := c.nodeResolver.NodeHostname(nodeName)
+	if !ok {
+		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
+	}
+	url := url.URL{Scheme: "http", Host: hostName, Path: p, RawQuery: params.Encode()}
 
-		req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
-		if err != nil {
-			return enterrors.NewErrOpenHttpRequest(err)
-		}
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return nil, enterrors.NewErrOpenHttpRequest(err)
+	}
 
-		res, err = c.client.Do(req)
-		return enterrors.NewErrSendHttpRequest(err)
-	}, 10, 100*time.Millisecond, 30*time.Second); err != nil {
-		return nil, err
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, enterrors.NewErrSendHttpRequest(err)
 	}
 
 	defer res.Body.Close()
@@ -80,24 +74,20 @@ func (c *RemoteNode) GetNodeStatus(ctx context.Context, nodeName, className, out
 func (c *RemoteNode) GetStatistics(ctx context.Context, nodeName string) (*models.Statistics, error) {
 	p := "/nodes/statistics"
 	method := http.MethodGet
+	hostName, ok := c.nodeResolver.NodeHostname(nodeName)
+	if !ok {
+		return nil, fmt.Errorf("resolve node name %q to host", nodeName)
+	}
+	url := url.URL{Scheme: "http", Host: hostName, Path: p}
 
-	var res *http.Response
-	if err := retry(ctx, func() error {
-		hostName, ok := c.nodeResolver.NodeHostname(nodeName)
-		if !ok {
-			return fmt.Errorf("resolve node name %q to host", nodeName)
-		}
-		url := url.URL{Scheme: "http", Host: hostName, Path: p}
+	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
+	if err != nil {
+		return nil, enterrors.NewErrOpenHttpRequest(err)
+	}
 
-		req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
-		if err != nil {
-			return enterrors.NewErrOpenHttpRequest(err)
-		}
-
-		res, err = c.client.Do(req)
-		return enterrors.NewErrSendHttpRequest(err)
-	}, 10, 100*time.Millisecond, 30*time.Second); err != nil {
-		return nil, err
+	res, err := c.client.Do(req)
+	if err != nil {
+		return nil, enterrors.NewErrSendHttpRequest(err)
 	}
 
 	defer res.Body.Close()
@@ -112,17 +102,4 @@ func (c *RemoteNode) GetStatistics(ctx context.Context, nodeName string) (*model
 	}
 
 	return &statistics, nil
-}
-
-func retry(ctx context.Context, fn func() error, maxRetries int, initialInterval time.Duration, maxInterval time.Duration) error {
-	return backoff.Retry(func() (err error) {
-		return fn()
-
-	}, backoff.WithContext(
-		backoff.WithMaxRetries(
-			backoff.NewExponentialBackOff(
-				backoff.WithInitialInterval(initialInterval),
-				backoff.WithMaxInterval(maxInterval),
-				backoff.WithMultiplier(1.5),
-			), uint64(maxRetries)), ctx))
 }
