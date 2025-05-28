@@ -41,6 +41,16 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
+	CancelReplication(params *CancelReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CancelReplicationNoContent, error)
+
+	DeleteAllReplications(params *DeleteAllReplicationsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteAllReplicationsNoContent, error)
+
+	DeleteReplication(params *DeleteReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteReplicationNoContent, error)
+
+	GetCollectionShardingState(params *GetCollectionShardingStateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetCollectionShardingStateOK, error)
+
+	ListReplication(params *ListReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListReplicationOK, error)
+
 	Replicate(params *ReplicateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateOK, error)
 
 	ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error)
@@ -49,7 +59,212 @@ type ClientService interface {
 }
 
 /*
-Replicate starts the async operation to replicate a replica between two nodes
+CancelReplication cancels a replication operation
+
+Requests the cancellation of an active replication operation identified by its ID. The operation will be stopped, but its record will remain in the 'CANCELLED' state (can't be resumed) and will not be automatically deleted.
+*/
+func (a *Client) CancelReplication(params *CancelReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*CancelReplicationNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewCancelReplicationParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "cancelReplication",
+		Method:             "POST",
+		PathPattern:        "/replication/replicate/{id}/cancel",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &CancelReplicationReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*CancelReplicationNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for cancelReplication: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+DeleteAllReplications schedules all replication operations for deletion across all collections shards and nodes
+*/
+func (a *Client) DeleteAllReplications(params *DeleteAllReplicationsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteAllReplicationsNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewDeleteAllReplicationsParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "deleteAllReplications",
+		Method:             "DELETE",
+		PathPattern:        "/replication/replicate",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &DeleteAllReplicationsReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*DeleteAllReplicationsNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for deleteAllReplications: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+DeleteReplication deletes a replication operation
+
+Removes a specific replication operation. If the operation is currently active, it will be cancelled and its resources cleaned up before the operation is deleted.
+*/
+func (a *Client) DeleteReplication(params *DeleteReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*DeleteReplicationNoContent, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewDeleteReplicationParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "deleteReplication",
+		Method:             "DELETE",
+		PathPattern:        "/replication/replicate/{id}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &DeleteReplicationReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*DeleteReplicationNoContent)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for deleteReplication: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetCollectionShardingState gets sharding state
+
+Fetches the current sharding state, including replica locations and statuses, for all collections or a specified collection. If a shard name is provided along with a collection, the state for that specific shard is returned.
+*/
+func (a *Client) GetCollectionShardingState(params *GetCollectionShardingStateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetCollectionShardingStateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetCollectionShardingStateParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getCollectionShardingState",
+		Method:             "GET",
+		PathPattern:        "/replication/sharding-state",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetCollectionShardingStateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetCollectionShardingStateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getCollectionShardingState: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+ListReplication lists replication operations
+
+Retrieves a list of currently registered replication operations, optionally filtered by collection, shard, or node ID.
+*/
+func (a *Client) ListReplication(params *ListReplicationParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ListReplicationOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewListReplicationParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "listReplication",
+		Method:             "GET",
+		PathPattern:        "/replication/replicate/list",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ListReplicationReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ListReplicationOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for listReplication: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+Replicate initiates a replica movement
+
+Begins an asynchronous operation to move or copy a specific shard replica from its current node to a designated target node. The operation involves copying data, synchronizing, and potentially decommissioning the source replica.
 */
 func (a *Client) Replicate(params *ReplicateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateOK, error) {
 	// TODO: Validate the params before sending
@@ -88,9 +303,9 @@ func (a *Client) Replicate(params *ReplicateParams, authInfo runtime.ClientAuthI
 }
 
 /*
-ReplicationDetails gets the details of a replication operation
+ReplicationDetails retrieves a replication operation
 
-Returns the details of a replication operation for a given shard, identified by the provided replication operation id.
+Fetches the current status and detailed information for a specific replication operation, identified by its unique ID. Optionally includes historical data of the operation's progress if requested.
 */
 func (a *Client) ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error) {
 	// TODO: Validate the params before sending

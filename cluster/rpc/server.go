@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -193,6 +194,8 @@ func toRPCError(err error) error {
 		ec = codes.Unavailable
 	case errors.Is(err, schema.ErrMTDisabled):
 		ec = codes.FailedPrecondition
+	case strings.Contains(err.Error(), types.ErrNotFound.Error()):
+		ec = codes.NotFound
 	default:
 		ec = codes.Internal
 	}

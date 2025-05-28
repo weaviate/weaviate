@@ -29,19 +29,6 @@ const (
 	replicationEngineLogAction = "replication_engine"
 )
 
-// TimeProvider abstracts time operations to enable testing without time dependencies.
-type TimeProvider interface {
-	Now() time.Time
-}
-
-// RealTimeProvider implements the TimeProvider interface using the standard time package
-type RealTimeProvider struct{}
-
-// Now returns the current time
-func (p RealTimeProvider) Now() time.Time {
-	return time.Now()
-}
-
 // ShardReplicationEngine coordinates the replication of shard data between nodes in a distributed system.
 //
 // It uses a producer-consumer pattern where replication operations are pulled from a source (e.g., FSM)
@@ -89,7 +76,7 @@ type ShardReplicationEngine struct {
 	// opsChan is the buffered channel used to pass operations from the producer to the consumer.
 	// A bounded channel ensures that backpressure is applied when the consumer is overwhelmed or when
 	// a certain number of concurrent workers are already busy processing replication operations.
-	opsChan chan ShardReplicationOp
+	opsChan chan ShardReplicationOpAndStatus
 
 	// stopChan is a signal-only channel used to trigger graceful shutdown of the engine.
 	// It is closed when Stop() is invoked, prompting shutdown of producer and consumer goroutines.
@@ -105,12 +92,6 @@ type ShardReplicationEngine struct {
 	// It ensures graceful shutdown by waiting for all background goroutines to exit cleanly.
 	// The wait group helps ensure that the engine doesn't terminate prematurely before all goroutines have finished.
 	wg sync.WaitGroup
-
-	// cancel is a function that cancels the context associated with the replication engine's main execution loop.
-	// It is used to gracefully stop the operation of the engine by canceling the context passed to the producer
-	// and consumer goroutines. The context cancellation triggers the shutdown sequence for the engine, allowing
-	// the producer and consumer to stop gracefully.
-	cancel context.CancelFunc
 
 	// maxWorkers controls the maximum number of concurrent workers in the consumer pool.
 	// It is used to limit the parallelism of replication operations, preventing the system from being overwhelmed by
@@ -168,11 +149,10 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 
 	e.engineMetricCallbacks.OnEngineStart(e.nodeId)
 	// Channels are creating while starting the replication engine to allow start/stop.
-	e.opsChan = make(chan ShardReplicationOp, e.opBufferSize)
+	e.opsChan = make(chan ShardReplicationOpAndStatus, e.opBufferSize)
 	e.stopChan = make(chan struct{})
 
 	engineCtx, engineCancel := context.WithCancel(ctx)
-	e.cancel = engineCancel
 	e.logger.WithFields(logrus.Fields{"engine": e}).Info("starting replication engine")
 
 	// Channels for error reporting used by producer and consumer.
@@ -231,8 +211,8 @@ func (e *ShardReplicationEngine) Start(ctx context.Context) error {
 	// Always cancel the replication engine context and wait for the producer and consumers to terminate to gracefully
 	// shut down the replication engine the both the producer and consumer.
 	engineCancel()
-	e.wg.Wait()
 	close(e.opsChan)
+	e.wg.Wait()
 	e.isRunning.Store(false)
 	return err
 }
@@ -252,26 +232,7 @@ func (e *ShardReplicationEngine) Stop() {
 	// Closing the stop channel notifies both the producer and consumer to shut down gracefully coordinating with the
 	// replication engine.
 	close(e.stopChan)
-	e.cancel()
-
-	// We use a timeout mechanism to wait for the replication engine to shut down and prevent it from running
-	// indefinitely.
-	timeoutCtx, timeoutCancel := context.WithTimeout(context.Background(), e.shutdownTimeout)
-	defer timeoutCancel()
-
-	done := make(chan struct{})
-	enterrors.GoWrapper(func() {
-		e.wg.Wait()
-		close(done)
-	}, e.logger)
-
-	select {
-	case <-done:
-		e.logger.WithField("engine", e).Info("replication engine shutdown completed successfully")
-	case <-timeoutCtx.Done():
-		e.logger.WithField("engine", e).WithField("timeout", e.shutdownTimeout).Warn("replication engine shutdown timed out")
-	}
-
+	e.wg.Wait()
 	e.isRunning.Store(false)
 	e.engineMetricCallbacks.OnEngineStop(e.nodeId)
 }

@@ -102,6 +102,10 @@ type RemoteIndexIncomingRepo interface {
 	IncomingGetFileMetadata(ctx context.Context, shardName, relativeFilePath string) (file.FileMetadata, error)
 	// IncomingGetFile See adapters/clients.RemoteIndex.GetFile
 	IncomingGetFile(ctx context.Context, shardName, relativeFilePath string) (io.ReadCloser, error)
+	// IncomingAddAsyncReplicationTargetNode See adapters/clients.RemoteIndex.AddAsyncReplicationTargetNode
+	IncomingAddAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+	// IncomingRemoveAsyncReplicationTargetNode See adapters/clients.RemoteIndex.RemoveAsyncReplicationTargetNode
+	IncomingRemoveAsyncReplicationTargetNode(ctx context.Context, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 }
 
 type RemoteIndexIncoming struct {
@@ -323,10 +327,10 @@ func (rii *RemoteIndexIncoming) ReInitShard(ctx context.Context,
 
 // PauseFileActivity see adapters/clients.RemoteIndex.PauseFileActivity
 func (rii *RemoteIndexIncoming) PauseFileActivity(ctx context.Context,
-	indexName, shardName string,
+	indexName, shardName string, schemaVersion uint64,
 ) error {
-	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
-	if index == nil {
+	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if err != nil {
 		return errors.Errorf("local index %q not found", indexName)
 	}
 
@@ -438,4 +442,31 @@ func (rii *RemoteIndexIncoming) HashTreeLevel(ctx context.Context,
 	}
 
 	return index.IncomingHashTreeLevel(ctx, shardName, level, discriminant)
+}
+
+func (rii *RemoteIndexIncoming) AddAsyncReplicationTargetNode(
+	ctx context.Context,
+	indexName, shardName string,
+	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
+	schemaVersion uint64,
+) error {
+	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
+	if err != nil {
+		return fmt.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingAddAsyncReplicationTargetNode(ctx, shardName, targetNodeOverride)
+}
+
+func (rii *RemoteIndexIncoming) RemoveAsyncReplicationTargetNode(
+	ctx context.Context,
+	indexName, shardName string,
+	targetNodeOverride additional.AsyncReplicationTargetNodeOverride,
+) error {
+	index := rii.repo.GetIndexForIncomingSharding(schema.ClassName(indexName))
+	if index == nil {
+		return fmt.Errorf("local index %q not found", indexName)
+	}
+
+	return index.IncomingRemoveAsyncReplicationTargetNode(ctx, shardName, targetNodeOverride)
 }

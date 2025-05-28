@@ -46,6 +46,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	tenantNames := []string{
 		"Tenant1", "Tenant2", "Tenant3",
 	}
+	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(adminKey))
 	helper.CreateClassAuth(t, &models.Class{Class: className, MultiTenancyConfig: &models.MultiTenancyConfig{
 		Enabled: true,
 	}}, adminKey)
@@ -70,6 +71,9 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/backups/{backend}", // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
 		"/backups/{backend}/{id}",
 		"/backups/{backend}/{id}/restore",
+		"/replication/replicate/{id}", // for the same reason as backups above
+		"/replication/replicate/{id}/cancel",
+		"/replication/sharding-state",
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
 	}
 
@@ -86,6 +90,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		url := fmt.Sprintf("http://%s/v1%s", compose.GetWeaviate().URI(), endpoint.path)
 		url = strings.ReplaceAll(url, "/objects/{className}/{id}", fmt.Sprintf("/objects/%s/%s", className, UUID1.String()))
 		url = strings.ReplaceAll(url, "/objects/{id}", fmt.Sprintf("/objects/%s", UUID1.String()))
+		url = strings.ReplaceAll(url, "/replication/replicate/{id}", fmt.Sprintf("/replication/replicate/%s", UUID1.String()))
 		url = strings.ReplaceAll(url, "{className}", className)
 		url = strings.ReplaceAll(url, "{tenantName}", "Tenant1")
 		url = strings.ReplaceAll(url, "{shardName}", "Shard1")

@@ -233,7 +233,12 @@ func (r *ShardInvertedReindexer) createTempBucket(ctx context.Context, name stri
 	strategy string, options ...lsmkv.BucketOption,
 ) error {
 	tempName := helpers.TempBucketFromBucketName(name)
-	bucketOptions := append(options, lsmkv.WithStrategy(strategy))
+	index := r.shard.Index()
+	bucketOptions := append(options,
+		lsmkv.WithStrategy(strategy),
+		lsmkv.WithMinMMapSize(index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(index.Config.MaxReuseWalSize),
+	)
 
 	if err := r.shard.Store().CreateBucket(ctx, tempName, bucketOptions...); err != nil {
 		return errors.Wrapf(err, "failed creating temp bucket '%s'", tempName)

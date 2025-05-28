@@ -399,7 +399,7 @@ func (f *fakeRemoteClient) GetFile(ctx context.Context, hostName, indexName, sha
 }
 
 func (f *fakeRemoteClient) PauseFileActivity(ctx context.Context,
-	hostName, indexName, shardName string,
+	hostName, indexName, shardName string, schemaVersion uint64,
 ) error {
 	return nil
 }
@@ -414,6 +414,14 @@ func (f *fakeRemoteClient) ListFiles(ctx context.Context,
 	hostName, indexName, shardName string,
 ) ([]string, error) {
 	return nil, nil
+}
+
+func (f *fakeRemoteClient) AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
+	return nil
+}
+
+func (f *fakeRemoteClient) RemoveAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	return nil
 }
 
 func (f *fakeRemoteClient) GetObject(ctx context.Context, hostName, indexName,

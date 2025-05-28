@@ -42,6 +42,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -272,11 +273,41 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) updateAsyncReplicationConfig(ctx context.Context, enabled bool) error {
+func (l *LazyLoadShard) UpdateAsyncReplicationConfig(ctx context.Context, enabled bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.updateAsyncReplicationConfig(ctx, enabled)
+	return l.shard.UpdateAsyncReplicationConfig(ctx, enabled)
+}
+
+func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	l.shard.addTargetNodeOverride(ctx, targetNodeOverride)
+	return nil
+}
+
+func (l *LazyLoadShard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	l.shard.removeTargetNodeOverride(ctx, targetNodeOverride)
+	return nil
+}
+
+func (l *LazyLoadShard) removeAllTargetNodeOverrides(ctx context.Context) error {
+	if err := l.Load(ctx); err != nil {
+		return err
+	}
+	return l.shard.removeAllTargetNodeOverrides(ctx)
+}
+
+func (l *LazyLoadShard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
+	if err := l.Load(ctx); err != nil {
+		return nil
+	}
+	return l.shard.getAsyncReplicationStats(ctx)
 }
 
 func (l *LazyLoadShard) AddReferencesBatch(ctx context.Context, refs objects.BatchReferences) []error {
@@ -371,11 +402,11 @@ func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.E
 	l.shard.initPropertyBuckets(ctx, eg, props...)
 }
 
-func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool) error {
+func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.HaltForTransfer(ctx, offloading)
+	return l.shard.HaltForTransfer(ctx, offloading, inactivityTimeout)
 }
 
 func (l *LazyLoadShard) ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error {
@@ -390,6 +421,20 @@ func (l *LazyLoadShard) resumeMaintenanceCycles(ctx context.Context) error {
 		return err
 	}
 	return l.shard.resumeMaintenanceCycles(ctx)
+}
+
+func (l *LazyLoadShard) GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error) {
+	if err := l.Load(ctx); err != nil {
+		return file.FileMetadata{}, err
+	}
+	return l.shard.GetFileMetadata(ctx, relativeFilePath)
+}
+
+func (l *LazyLoadShard) GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error) {
+	if err := l.Load(ctx); err != nil {
+		return nil, err
+	}
+	return l.shard.GetFile(ctx, relativeFilePath)
 }
 
 func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {

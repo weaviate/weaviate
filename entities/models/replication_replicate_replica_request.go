@@ -18,6 +18,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -25,26 +26,30 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationReplicateReplicaRequest Request body to add a replica of given shard of a given collection
+// ReplicationReplicateReplicaRequest Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and destination node, the collection and type of transfer.
 //
 // swagger:model ReplicationReplicateReplicaRequest
 type ReplicationReplicateReplicaRequest struct {
 
-	// The collection name holding the shard
+	// The unique identifier (name) of the collection to which the target shard belongs.
 	// Required: true
 	CollectionID *string `json:"collectionId"`
 
-	// The node to add a copy of the replica on
+	// The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.
 	// Required: true
 	DestinationNodeName *string `json:"destinationNodeName"`
 
-	// The shard id holding the replica to be copied
+	// The ID of the shard whose replica is to be moved or copied.
 	// Required: true
 	ShardID *string `json:"shardId"`
 
-	// The node containing the replica
+	// The name of the Weaviate node currently hosting the shard replica that needs to be moved or copied.
 	// Required: true
 	SourceNodeName *string `json:"sourceNodeName"`
+
+	// Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.
+	// Enum: [COPY MOVE]
+	TransferType *string `json:"transferType,omitempty"`
 }
 
 // Validate validates this replication replicate replica request
@@ -64,6 +69,10 @@ func (m *ReplicationReplicateReplicaRequest) Validate(formats strfmt.Registry) e
 	}
 
 	if err := m.validateSourceNodeName(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTransferType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -103,6 +112,48 @@ func (m *ReplicationReplicateReplicaRequest) validateShardID(formats strfmt.Regi
 func (m *ReplicationReplicateReplicaRequest) validateSourceNodeName(formats strfmt.Registry) error {
 
 	if err := validate.Required("sourceNodeName", "body", m.SourceNodeName); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var replicationReplicateReplicaRequestTypeTransferTypePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["COPY","MOVE"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		replicationReplicateReplicaRequestTypeTransferTypePropEnum = append(replicationReplicateReplicaRequestTypeTransferTypePropEnum, v)
+	}
+}
+
+const (
+
+	// ReplicationReplicateReplicaRequestTransferTypeCOPY captures enum value "COPY"
+	ReplicationReplicateReplicaRequestTransferTypeCOPY string = "COPY"
+
+	// ReplicationReplicateReplicaRequestTransferTypeMOVE captures enum value "MOVE"
+	ReplicationReplicateReplicaRequestTransferTypeMOVE string = "MOVE"
+)
+
+// prop value enum
+func (m *ReplicationReplicateReplicaRequest) validateTransferTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, replicationReplicateReplicaRequestTypeTransferTypePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *ReplicationReplicateReplicaRequest) validateTransferType(formats strfmt.Registry) error {
+	if swag.IsZero(m.TransferType) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateTransferTypeEnum("transferType", "body", *m.TransferType); err != nil {
 		return err
 	}
 

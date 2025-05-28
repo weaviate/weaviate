@@ -14,6 +14,7 @@ package cluster
 import (
 	"fmt"
 	"sync"
+	"time"
 
 	"github.com/hashicorp/raft"
 	"github.com/sirupsen/logrus"
@@ -59,12 +60,30 @@ func (st *Store) Execute(req *api.ApplyRequest) (uint64, error) {
 	return resp.Version, resp.Error
 }
 
+// StoreConfiguration is invoked once a log entry containing a configuration
+// change is committed. It takes the index at which the configuration was
+// written and the configuration value.
+
+// We implemented this to keep `lastAppliedIndex` metric to correct value
+// to also handle `LogConfiguration` type of Raft command.
+func (st *Store) StoreConfiguration(index uint64, _ raft.Configuration) {
+	st.metrics.raftLastAppliedIndex.Set(float64(index))
+}
+
 // Apply is called once a log entry is committed by a majority of the cluster.
 // Apply should apply the log to the FSM. Apply must be deterministic and
 // produce the same result on all peers in the cluster.
 // The returned value is returned to the client as the ApplyFuture.Response.
-func (st *Store) Apply(l *raft.Log) interface{} {
+func (st *Store) Apply(l *raft.Log) any {
 	ret := Response{Version: l.Index}
+
+	start := time.Now()
+	defer func() {
+		// this defer is final one that called before returning and thus capturing the
+		// applyDuration correctly.
+		st.metrics.applyDuration.Observe(float64(time.Since(start).Seconds()))
+	}()
+
 	if l.Type != raft.LogCommand {
 		st.log.WithFields(logrus.Fields{
 			"type":  l.Type,
@@ -87,6 +106,8 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	defer func() {
 		// If we have an applied index from the previous store (i.e from disk). Then reload the DB once we catch up as
 		// that means we're done doing schema only.
+		// we do this at the beginning to handle situation were schema was catching up
+		// and to make sure no matter is the error status we are going to open the db on startup
 		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
@@ -97,9 +118,13 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 			st.reloadDBFromSchema()
 		}
 
+		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,
+		// however we do not update the metrics so the metric will be the source of truth
+		// about AppliedIndex
 		st.lastAppliedIndex.Store(l.Index)
 
 		if ret.Error != nil {
+			st.metrics.applyFailures.Inc()
 			st.log.WithFields(logrus.Fields{
 				"log_type":      l.Type,
 				"log_name":      l.Type.String(),
@@ -108,7 +133,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 				"cmd_type_name": cmd.Type.String(),
 				"cmd_class":     cmd.Class,
 			}).WithError(ret.Error).Error("apply command")
+			return
 		}
+
+		st.metrics.fsmLastAppliedIndex.Set(float64(l.Index))
+		st.metrics.raftLastAppliedIndex.Set(float64(l.Index))
 	}()
 
 	cmd.Version = l.Index
@@ -119,7 +148,7 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	// This can happen for example if quorum is lost briefly.
 	// By checking lastAppliedIndexToDB we ensure that we never print past that index
 	if !st.Ready() && l.Index <= st.lastAppliedIndexToDB.Load() {
-		st.log.Infof("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
+		st.log.Debugf("Schema catching up: applying log entry: [%d/%d]", l.Index, st.lastAppliedIndexToDB.Load())
 	}
 	st.log.WithFields(logrus.Fields{
 		"log_type":        l.Type,
@@ -168,6 +197,10 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.schemaManager.AddReplicaToShard(&cmd, schemaOnly)
 		}
+	case api.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.DeleteReplicaFromShard(&cmd, schemaOnly)
+		}
 
 	case api.ApplyRequest_TYPE_ADD_TENANT:
 		f = func() {
@@ -187,6 +220,11 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 	case api.ApplyRequest_TYPE_TENANT_PROCESS:
 		f = func() {
 			ret.Error = st.schemaManager.UpdateTenantsProcess(&cmd, schemaOnly)
+		}
+
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.SyncShard(&cmd, schemaOnly)
 		}
 
 	case api.ApplyRequest_TYPE_STORE_SCHEMA_V1:
@@ -239,10 +277,47 @@ func (st *Store) Apply(l *raft.Log) interface{} {
 		f = func() {
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REGISTER_ERROR:
+		f = func() {
+			ret.Error = st.replicationManager.RegisterError(&cmd)
+		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_UPDATE_STATE:
 		f = func() {
 			ret.Error = st.replicationManager.UpdateReplicateOpState(&cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCEL:
+		f = func() {
+			ret.Error = st.replicationManager.CancelReplication(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteReplication(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_ALL:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteAllReplications(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_REMOVE:
+		f = func() {
+			ret.Error = st.replicationManager.RemoveReplicaOp(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_CANCELLATION_COMPLETE:
+		f = func() {
+			ret.Error = st.replicationManager.ReplicationCancellationComplete(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_COLLECTION:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteReplicationsByCollection(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_DELETE_BY_TENANTS:
+		f = func() {
+			ret.Error = st.replicationManager.DeleteReplicationsByTenants(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION:
+		f = func() {
+			ret.Error = st.replicationManager.StoreSchemaVersion(&cmd)
+		}
+
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		f = func() {
 			ret.Error = st.distributedTasksManager.AddTask(&cmd, l.Index)

@@ -13,10 +13,10 @@ package schema
 
 import (
 	"fmt"
-	"reflect"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -26,32 +26,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 )
-
-func TestMakeTenantWithBelongsToNodes(t *testing.T) {
-	const tenant = "tenant"
-	const status = "status"
-
-	physical := sharding.Physical{
-		Status:         status,
-		BelongsToNodes: []string{"node1"},
-	}
-
-	t.Run("Creates valid response", func(t *testing.T) {
-		tenantResp := makeTenantResponse(tenant, physical)
-
-		assert.Equal(t, tenant, tenantResp.Name)
-		assert.Equal(t, status, tenantResp.ActivityStatus)
-		assert.ElementsMatch(t, tenantResp.BelongsToNodes, physical.BelongsToNodes)
-	})
-
-	t.Run("BelongsToNodes is a copy", func(t *testing.T) {
-		tenantResp := makeTenantResponse(tenant, physical)
-
-		assert.NotEqual(t,
-			reflect.ValueOf(tenantResp.BelongsToNodes).Pointer(),
-			reflect.ValueOf(physical.BelongsToNodes).Pointer())
-	})
-}
 
 func Test_schemaCollectionMetrics(t *testing.T) {
 	r := prometheus.NewPedanticRegistry()
@@ -172,10 +146,12 @@ func Test_schemaShardMetrics(t *testing.T) {
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))
 
 	// update tenant status
+	fsm := NewMockreplicationFSM(t)
+	fsm.On("HasOngoingReplication", mock.Anything, mock.Anything, mock.Anything).Return(false).Maybe()
 	err = s.updateTenants(c2.Class, 0, &api.UpdateTenantsRequest{
 		Tenants:      []*api.Tenant{{Name: "tenant2", Status: "HOT"}}, // FROZEN -> HOT
 		ClusterNodes: []string{"testNode"},
-	})
+	}, fsm)
 	require.NoError(t, err)
 	assert.Equal(t, float64(1), testutil.ToFloat64(s.shardsCount.WithLabelValues("UNFREEZING")))
 	assert.Equal(t, float64(0), testutil.ToFloat64(s.shardsCount.WithLabelValues("FROZEN")))

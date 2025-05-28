@@ -40,12 +40,6 @@ func (o *ReplicationDetailsReader) ReadResponse(response runtime.ClientResponse,
 			return nil, err
 		}
 		return result, nil
-	case 400:
-		result := NewReplicationDetailsBadRequest()
-		if err := result.readResponse(response, consumer, o.formats); err != nil {
-			return nil, err
-		}
-		return nil, result
 	case 401:
 		result := NewReplicationDetailsUnauthorized()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -143,74 +137,6 @@ func (o *ReplicationDetailsOK) readResponse(response runtime.ClientResponse, con
 	return nil
 }
 
-// NewReplicationDetailsBadRequest creates a ReplicationDetailsBadRequest with default headers values
-func NewReplicationDetailsBadRequest() *ReplicationDetailsBadRequest {
-	return &ReplicationDetailsBadRequest{}
-}
-
-/*
-ReplicationDetailsBadRequest describes a response with status code 400, with default header values.
-
-Malformed request.
-*/
-type ReplicationDetailsBadRequest struct {
-	Payload *models.ErrorResponse
-}
-
-// IsSuccess returns true when this replication details bad request response has a 2xx status code
-func (o *ReplicationDetailsBadRequest) IsSuccess() bool {
-	return false
-}
-
-// IsRedirect returns true when this replication details bad request response has a 3xx status code
-func (o *ReplicationDetailsBadRequest) IsRedirect() bool {
-	return false
-}
-
-// IsClientError returns true when this replication details bad request response has a 4xx status code
-func (o *ReplicationDetailsBadRequest) IsClientError() bool {
-	return true
-}
-
-// IsServerError returns true when this replication details bad request response has a 5xx status code
-func (o *ReplicationDetailsBadRequest) IsServerError() bool {
-	return false
-}
-
-// IsCode returns true when this replication details bad request response a status code equal to that given
-func (o *ReplicationDetailsBadRequest) IsCode(code int) bool {
-	return code == 400
-}
-
-// Code gets the status code for the replication details bad request response
-func (o *ReplicationDetailsBadRequest) Code() int {
-	return 400
-}
-
-func (o *ReplicationDetailsBadRequest) Error() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsBadRequest  %+v", 400, o.Payload)
-}
-
-func (o *ReplicationDetailsBadRequest) String() string {
-	return fmt.Sprintf("[GET /replication/replicate/{id}][%d] replicationDetailsBadRequest  %+v", 400, o.Payload)
-}
-
-func (o *ReplicationDetailsBadRequest) GetPayload() *models.ErrorResponse {
-	return o.Payload
-}
-
-func (o *ReplicationDetailsBadRequest) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
-
-	o.Payload = new(models.ErrorResponse)
-
-	// response payload
-	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
-		return err
-	}
-
-	return nil
-}
-
 // NewReplicationDetailsUnauthorized creates a ReplicationDetailsUnauthorized with default headers values
 func NewReplicationDetailsUnauthorized() *ReplicationDetailsUnauthorized {
 	return &ReplicationDetailsUnauthorized{}
@@ -275,7 +201,7 @@ func NewReplicationDetailsForbidden() *ReplicationDetailsForbidden {
 /*
 ReplicationDetailsForbidden describes a response with status code 403, with default header values.
 
-Forbidden
+Forbidden.
 */
 type ReplicationDetailsForbidden struct {
 	Payload *models.ErrorResponse
@@ -343,7 +269,7 @@ func NewReplicationDetailsNotFound() *ReplicationDetailsNotFound {
 /*
 ReplicationDetailsNotFound describes a response with status code 404, with default header values.
 
-Shard replica operation not found
+Shard replica operation not found.
 */
 type ReplicationDetailsNotFound struct {
 }

@@ -16,6 +16,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/binary"
+	"math"
 	"math/rand"
 	"os"
 	"testing"
@@ -24,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
@@ -54,13 +56,11 @@ func BenchmarkDeserializer2ReadUint16(b *testing.B) {
 	val := make([]byte, 2)
 	binary.LittleEndian.PutUint16(val, randUint16)
 	data := bytes.NewReader(val)
-	logger, _ := test.NewNullLogger()
-	d := NewDeserializer(logger)
 	reader := bufio.NewReader(data)
 	b.StartTimer()
 
 	for i := 0; i < b.N; i++ {
-		d.readUint16(reader)
+		readUint16(reader)
 	}
 }
 
@@ -72,13 +72,11 @@ func BenchmarkDeserializer2ReadCommitType(b *testing.B) {
 	val := make([]byte, 1)
 	val[0] = byte(commitType)
 	data := bytes.NewReader(val)
-	logger, _ := test.NewNullLogger()
-	d := NewDeserializer(logger)
 	reader := bufio.NewReader(data)
 	b.StartTimer()
 
 	for i := 0; i < b.N; i++ {
-		d.ReadCommitType(reader)
+		ReadCommitType(reader)
 	}
 }
 
@@ -120,10 +118,8 @@ func TestDeserializer2ReadCommitType(t *testing.T) {
 		b := make([]byte, 1)
 		b[0] = byte(commitType)
 		data := bytes.NewReader(b)
-		logger, _ := test.NewNullLogger()
-		d := NewDeserializer(logger)
 		reader := bufio.NewReader(data)
-		res, err := d.ReadCommitType(reader)
+		res, err := ReadCommitType(reader)
 		if err != nil {
 			t.Errorf("Error reading commit type: %v", err)
 		}
@@ -498,6 +494,83 @@ func TestDeserializerTotalReadPQ(t *testing.T) {
 		require.Nil(t, err)
 
 		require.Equal(t, 4*centroids*dimensions+10, deserializeSize)
+		t.Logf("deserializeSize: %v\n", deserializeSize)
+	})
+}
+
+func TestDeserializerTotalReadMUVERA(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	commitLogger, err := NewCommitLogger(rootPath, "tmpLogger", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+
+	repetitions := 2
+	ksim := 2
+	dimensions := 5
+	dprojections := 2
+	t.Run("add muvera data to the first log", func(t *testing.T) {
+		gaussians := [][][]float32{
+			{
+				{1, 2, 3, 4, 5}, // cluster 1
+				{1, 2, 3, 4, 5}, // cluster 2
+			}, // rep 1
+			{
+				{5, 6, 7, 8, 9}, // cluster 1
+				{5, 6, 7, 8, 9}, // cluster 2
+			}, // rep 2
+		} // (repetitions, kSim, dimensions)
+
+		s := [][][]float32{
+			{
+				{-1, 1, 1, -1, 1}, // dprojection 1
+				{1, -1, 1, 1, -1}, // dprojection 2
+			}, // rep 1
+			{
+				{-1, 1, 1, -1, 1}, // dprojection 1
+				{1, -1, 1, 1, -1}, // dprojection 2
+			}, // rep 2
+		} // (repetitions, dProjections, dimensions)
+
+		muveraData := multivector.MuveraData{
+			KSim:         uint32(ksim),
+			NumClusters:  uint32(math.Pow(2, float64(ksim))),
+			Dimensions:   uint32(dimensions),
+			DProjections: uint32(dprojections),
+			Repetitions:  uint32(repetitions),
+			Gaussians:    gaussians,
+			S:            s,
+		}
+
+		commitLogger.AddMuvera(muveraData)
+		require.Nil(t, commitLogger.Flush())
+		require.Nil(t, commitLogger.Shutdown(ctx))
+	})
+
+	t.Run("deserialize the first log", func(t *testing.T) {
+		nullLogger, _ := test.NewNullLogger()
+		commitLoggerPath := rootPath + "/tmpLogger.hnsw.commitlog.d"
+
+		fileName, found, err := getCurrentCommitLogFileName(commitLoggerPath)
+		require.Nil(t, err)
+		require.True(t, found)
+
+		t.Logf("name: %v\n", fileName)
+
+		fd, err := os.Open(commitLoggerPath + "/" + fileName)
+		require.Nil(t, err)
+
+		defer fd.Close()
+		fdBuf := bufio.NewReaderSize(fd, 256*1024)
+
+		_, deserializeSize, err := NewDeserializer(nullLogger).Do(fdBuf, nil, true)
+		require.Nil(t, err)
+
+		gaussianSize := 4 * repetitions * ksim * dimensions
+		randomSize := 4 * repetitions * dprojections * dimensions
+		require.Equal(t, gaussianSize+randomSize+21, deserializeSize)
 		t.Logf("deserializeSize: %v\n", deserializeSize)
 	})
 }

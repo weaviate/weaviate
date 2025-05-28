@@ -41,32 +41,33 @@ import (
 var IndicesPayloads = indicesPayloads{}
 
 type indicesPayloads struct {
-	ErrorList                 errorListPayload
-	SingleObject              singleObjectPayload
-	MergeDoc                  mergeDocPayload
-	ObjectList                objectListPayload
-	VersionedObjectList       versionedObjectListPayload
-	SearchResults             searchResultsPayload
-	SearchParams              searchParamsPayload
-	VectorDistanceParams      vectorDistanceParamsPayload
-	VectorDistanceResults     vectorDistanceResultsPayload
-	ReferenceList             referenceListPayload
-	AggregationParams         aggregationParamsPayload
-	AggregationResult         aggregationResultPayload
-	FindUUIDsParams           findUUIDsParamsPayload
-	FindUUIDsResults          findUUIDsResultsPayload
-	BatchDeleteParams         batchDeleteParamsPayload
-	BatchDeleteResults        batchDeleteResultsPayload
-	GetShardQueueSizeParams   getShardQueueSizeParamsPayload
-	GetShardQueueSizeResults  getShardQueueSizeResultsPayload
-	GetShardStatusParams      getShardStatusParamsPayload
-	GetShardStatusResults     getShardStatusResultsPayload
-	UpdateShardStatusParams   updateShardStatusParamsPayload
-	UpdateShardsStatusResults updateShardsStatusResultsPayload
-	ShardFiles                shardFilesPayload
-	IncreaseReplicationFactor increaseReplicationFactorPayload
-	ShardFileMetadataResults  shardFileMetadataResultsPayload
-	ShardFilesResults         shardFilesResultsPayload
+	ErrorList                  errorListPayload
+	SingleObject               singleObjectPayload
+	MergeDoc                   mergeDocPayload
+	ObjectList                 objectListPayload
+	VersionedObjectList        versionedObjectListPayload
+	SearchResults              searchResultsPayload
+	SearchParams               searchParamsPayload
+	VectorDistanceParams       vectorDistanceParamsPayload
+	VectorDistanceResults      vectorDistanceResultsPayload
+	ReferenceList              referenceListPayload
+	AggregationParams          aggregationParamsPayload
+	AggregationResult          aggregationResultPayload
+	FindUUIDsParams            findUUIDsParamsPayload
+	FindUUIDsResults           findUUIDsResultsPayload
+	BatchDeleteParams          batchDeleteParamsPayload
+	BatchDeleteResults         batchDeleteResultsPayload
+	GetShardQueueSizeParams    getShardQueueSizeParamsPayload
+	GetShardQueueSizeResults   getShardQueueSizeResultsPayload
+	GetShardStatusParams       getShardStatusParamsPayload
+	GetShardStatusResults      getShardStatusResultsPayload
+	UpdateShardStatusParams    updateShardStatusParamsPayload
+	UpdateShardsStatusResults  updateShardsStatusResultsPayload
+	ShardFiles                 shardFilesPayload
+	IncreaseReplicationFactor  increaseReplicationFactorPayload
+	ShardFileMetadataResults   shardFileMetadataResultsPayload
+	ShardFilesResults          shardFilesResultsPayload
+	AsyncReplicationTargetNode asyncReplicationTargetNode
 }
 
 type shardFileMetadataResultsPayload struct{}
@@ -103,6 +104,20 @@ func (p shardFilesResultsPayload) Unmarshal(in []byte) ([]string, error) {
 		return nil, fmt.Errorf("unmarshal shard files: %w", err)
 	}
 	return shardFiles, nil
+}
+
+type asyncReplicationTargetNode struct{}
+
+func (p asyncReplicationTargetNode) MIME() string {
+	return "application/vnd.weaviate.asyncreplicationtargetnode+json"
+}
+
+func (p asyncReplicationTargetNode) SetContentTypeHeaderReq(r *http.Request) {
+	r.Header.Set("content-type", p.MIME())
+}
+
+func (p asyncReplicationTargetNode) Marshal(in additional.AsyncReplicationTargetNodeOverride) ([]byte, error) {
+	return json.Marshal(in)
 }
 
 type increaseReplicationFactorPayload struct{}

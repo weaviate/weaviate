@@ -19,6 +19,7 @@ package models
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -26,35 +27,43 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationReplicateDetailsReplicaResponse The current status and details of a replication operation, including information about the resources involved in the replication process.
+// ReplicationReplicateDetailsReplicaResponse Provides a comprehensive overview of a specific replication operation, detailing its unique ID, the involved collection, shard, source and target nodes, transfer type, current status, and optionally, its status history.
 //
 // swagger:model ReplicationReplicateDetailsReplicaResponse
 type ReplicationReplicateDetailsReplicaResponse struct {
 
-	// The name of the collection holding data being replicated.
+	// The name of the collection to which the shard being replicated belongs.
 	// Required: true
 	Collection *string `json:"collection"`
 
-	// The unique id of the replication operation.
+	// The unique identifier (ID) of this specific replication operation.
 	// Required: true
-	ID *string `json:"id"`
+	// Format: uuid
+	ID *strfmt.UUID `json:"id"`
 
-	// The id of the shard to collect replication details for.
+	// The identifier of the shard involved in this replication operation.
 	// Required: true
 	ShardID *string `json:"shardId"`
 
-	// The id of the node where the source replica is allocated.
+	// The identifier of the node from which the replica is being moved or copied (the source node).
 	// Required: true
 	SourceNodeID *string `json:"sourceNodeId"`
 
-	// The current status of the replication operation, indicating the replication phase the operation is in.
+	// An object detailing the current operational state of the replica movement and any errors encountered.
 	// Required: true
-	// Enum: [READY INDEXING REPLICATION_FINALIZING REPLICATION_HYDRATING REPLICATION_DEHYDRATING]
-	Status *string `json:"status"`
+	Status *ReplicationReplicateDetailsReplicaStatus `json:"status"`
 
-	// The id of the node where the target replica is allocated.
+	// An array detailing the historical sequence of statuses the replication operation has transitioned through, if requested and available.
+	StatusHistory []*ReplicationReplicateDetailsReplicaStatus `json:"statusHistory"`
+
+	// The identifier of the node to which the replica is being moved or copied (the destination node).
 	// Required: true
 	TargetNodeID *string `json:"targetNodeId"`
+
+	// Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).
+	// Required: true
+	// Enum: [COPY MOVE]
+	TransferType *string `json:"transferType"`
 }
 
 // Validate validates this replication replicate details replica response
@@ -81,7 +90,15 @@ func (m *ReplicationReplicateDetailsReplicaResponse) Validate(formats strfmt.Reg
 		res = append(res, err)
 	}
 
+	if err := m.validateStatusHistory(formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.validateTargetNodeID(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateTransferType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -106,6 +123,10 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateID(formats strfmt.R
 		return err
 	}
 
+	if err := validate.FormatOf("id", "body", "uuid", m.ID.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -127,53 +148,47 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateSourceNodeID(format
 	return nil
 }
 
-var replicationReplicateDetailsReplicaResponseTypeStatusPropEnum []interface{}
-
-func init() {
-	var res []string
-	if err := json.Unmarshal([]byte(`["READY","INDEXING","REPLICATION_FINALIZING","REPLICATION_HYDRATING","REPLICATION_DEHYDRATING"]`), &res); err != nil {
-		panic(err)
-	}
-	for _, v := range res {
-		replicationReplicateDetailsReplicaResponseTypeStatusPropEnum = append(replicationReplicateDetailsReplicaResponseTypeStatusPropEnum, v)
-	}
-}
-
-const (
-
-	// ReplicationReplicateDetailsReplicaResponseStatusREADY captures enum value "READY"
-	ReplicationReplicateDetailsReplicaResponseStatusREADY string = "READY"
-
-	// ReplicationReplicateDetailsReplicaResponseStatusINDEXING captures enum value "INDEXING"
-	ReplicationReplicateDetailsReplicaResponseStatusINDEXING string = "INDEXING"
-
-	// ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONFINALIZING captures enum value "REPLICATION_FINALIZING"
-	ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONFINALIZING string = "REPLICATION_FINALIZING"
-
-	// ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONHYDRATING captures enum value "REPLICATION_HYDRATING"
-	ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONHYDRATING string = "REPLICATION_HYDRATING"
-
-	// ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONDEHYDRATING captures enum value "REPLICATION_DEHYDRATING"
-	ReplicationReplicateDetailsReplicaResponseStatusREPLICATIONDEHYDRATING string = "REPLICATION_DEHYDRATING"
-)
-
-// prop value enum
-func (m *ReplicationReplicateDetailsReplicaResponse) validateStatusEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, replicationReplicateDetailsReplicaResponseTypeStatusPropEnum, true); err != nil {
-		return err
-	}
-	return nil
-}
-
 func (m *ReplicationReplicateDetailsReplicaResponse) validateStatus(formats strfmt.Registry) error {
 
 	if err := validate.Required("status", "body", m.Status); err != nil {
 		return err
 	}
 
-	// value enum
-	if err := m.validateStatusEnum("status", "body", *m.Status); err != nil {
-		return err
+	if m.Status != nil {
+		if err := m.Status.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("status")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("status")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ReplicationReplicateDetailsReplicaResponse) validateStatusHistory(formats strfmt.Registry) error {
+	if swag.IsZero(m.StatusHistory) { // not required
+		return nil
+	}
+
+	for i := 0; i < len(m.StatusHistory); i++ {
+		if swag.IsZero(m.StatusHistory[i]) { // not required
+			continue
+		}
+
+		if m.StatusHistory[i] != nil {
+			if err := m.StatusHistory[i].Validate(formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("statusHistory" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("statusHistory" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
 	}
 
 	return nil
@@ -188,8 +203,100 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateTargetNodeID(format
 	return nil
 }
 
-// ContextValidate validates this replication replicate details replica response based on context it is used
+var replicationReplicateDetailsReplicaResponseTypeTransferTypePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["COPY","MOVE"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		replicationReplicateDetailsReplicaResponseTypeTransferTypePropEnum = append(replicationReplicateDetailsReplicaResponseTypeTransferTypePropEnum, v)
+	}
+}
+
+const (
+
+	// ReplicationReplicateDetailsReplicaResponseTransferTypeCOPY captures enum value "COPY"
+	ReplicationReplicateDetailsReplicaResponseTransferTypeCOPY string = "COPY"
+
+	// ReplicationReplicateDetailsReplicaResponseTransferTypeMOVE captures enum value "MOVE"
+	ReplicationReplicateDetailsReplicaResponseTransferTypeMOVE string = "MOVE"
+)
+
+// prop value enum
+func (m *ReplicationReplicateDetailsReplicaResponse) validateTransferTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, replicationReplicateDetailsReplicaResponseTypeTransferTypePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *ReplicationReplicateDetailsReplicaResponse) validateTransferType(formats strfmt.Registry) error {
+
+	if err := validate.Required("transferType", "body", m.TransferType); err != nil {
+		return err
+	}
+
+	// value enum
+	if err := m.validateTransferTypeEnum("transferType", "body", *m.TransferType); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// ContextValidate validate this replication replicate details replica response based on the context it is used
 func (m *ReplicationReplicateDetailsReplicaResponse) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	var res []error
+
+	if err := m.contextValidateStatus(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.contextValidateStatusHistory(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (m *ReplicationReplicateDetailsReplicaResponse) contextValidateStatus(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Status != nil {
+		if err := m.Status.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("status")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("status")
+			}
+			return err
+		}
+	}
+
+	return nil
+}
+
+func (m *ReplicationReplicateDetailsReplicaResponse) contextValidateStatusHistory(ctx context.Context, formats strfmt.Registry) error {
+
+	for i := 0; i < len(m.StatusHistory); i++ {
+
+		if m.StatusHistory[i] != nil {
+			if err := m.StatusHistory[i].ContextValidate(ctx, formats); err != nil {
+				if ve, ok := err.(*errors.Validation); ok {
+					return ve.ValidateName("statusHistory" + "." + strconv.Itoa(i))
+				} else if ce, ok := err.(*errors.CompositeError); ok {
+					return ce.ValidateName("statusHistory" + "." + strconv.Itoa(i))
+				}
+				return err
+			}
+		}
+
+	}
+
 	return nil
 }
 

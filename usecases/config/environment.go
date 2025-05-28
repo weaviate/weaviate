@@ -45,6 +45,11 @@ const (
 
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
+
+	DefaultReplicationEngineMaxWorkers     = 5
+	DefaultReplicaMovementMinimumAsyncWait = 20 * time.Second
+
+	DefaultTransferInactivityTimeout = 5 * time.Minute
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -94,6 +99,16 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("FORCE_FULL_REPLICAS_SEARCH")) {
 		config.ForceFullReplicasSearch = true
+	}
+
+	if v := os.Getenv("TRANSFER_INACTIVITY_TIMEOUT"); v != "" {
+		timeout, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse TRANSFER_INACTIVITY_TIMEOUT as duration: %w", err)
+		}
+		config.TransferInactivityTimeout = timeout
+	} else {
+		config.TransferInactivityTimeout = DefaultTransferInactivityTimeout
 	}
 
 	// Recount all property lengths at startup to support accurate BM25 scoring
@@ -280,6 +295,28 @@ func FromEnv(config *Config) error {
 		config.Persistence.LSMEnableSegmentsChecksumValidation = true
 	}
 
+	if v := os.Getenv("PERSISTENCE_MIN_MMAP_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_MIN_MMAP_SIZE: %w", err)
+		}
+
+		config.Persistence.MinMMapSize = parsed
+	} else {
+		config.Persistence.MinMMapSize = DefaultPersistenceMinMMapSize
+	}
+
+	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
+		parsed, err := parseResourceString(v)
+		if err != nil {
+			return fmt.Errorf("parse PERSISTENCE_MAX_REUSE_WAL_SIZE: %w", err)
+		}
+
+		config.Persistence.MaxReuseWalSize = parsed
+	} else {
+		config.Persistence.MaxReuseWalSize = DefaultPersistenceMaxReuseWalSize
+	}
+
 	if err := parseInt(
 		"PERSISTENCE_LSM_CYCLEMANAGER_ROUTINES_FACTOR",
 		func(factor int) { config.Persistence.LSMCycleManagerRoutinesFactor = factor },
@@ -298,6 +335,42 @@ func FromEnv(config *Config) error {
 	} else {
 		config.Persistence.HNSWMaxLogSize = DefaultPersistenceHNSWMaxLogSize
 	}
+
+	// ---- HNSW snapshots ----
+	config.Persistence.HNSWDisableSnapshots = DefaultHNSWSnapshotDisabled
+	if v := os.Getenv("PERSISTENCE_HNSW_DISABLE_SNAPSHOTS"); v != "" {
+		config.Persistence.HNSWDisableSnapshots = entcfg.Enabled(v)
+	}
+
+	if err := parseNonNegativeInt(
+		"PERSISTENCE_HNSW_SNAPSHOT_INTERVAL_SECONDS",
+		func(seconds int) { config.Persistence.HNSWSnapshotIntervalSeconds = seconds },
+		DefaultHNSWSnapshotIntervalSeconds,
+	); err != nil {
+		return err
+	}
+
+	config.Persistence.HNSWSnapshotOnStartup = DefaultHNSWSnapshotOnStartup
+	if v := os.Getenv("PERSISTENCE_HNSW_SNAPSHOT_ON_STARTUP"); v != "" {
+		config.Persistence.HNSWSnapshotOnStartup = entcfg.Enabled(v)
+	}
+
+	if err := parsePositiveInt(
+		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_NUMBER",
+		func(number int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber = number },
+		DefaultHNSWSnapshotMinDeltaCommitlogsNumber,
+	); err != nil {
+		return err
+	}
+
+	if err := parseNonNegativeInt(
+		"PERSISTENCE_HNSW_SNAPSHOT_MIN_DELTA_COMMITLOGS_SIZE_PERCENTAGE",
+		func(percentage int) { config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage = percentage },
+		DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage,
+	); err != nil {
+		return err
+	}
+	// ---- HNSW snapshots ----
 
 	if entcfg.Enabled(os.Getenv("INDEX_RANGEABLE_IN_MEMORY")) {
 		config.Persistence.IndexRangeableInMemory = true
@@ -660,6 +733,19 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT as time.Duration: %w", err)
+		}
+		if duration < 0 {
+			return fmt.Errorf("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT must be a positive duration")
+		}
+		config.ReplicaMovementMinimumAsyncWait = runtime.NewDynamicValue(duration)
+	} else {
+		config.ReplicaMovementMinimumAsyncWait = runtime.NewDynamicValue(DefaultReplicaMovementMinimumAsyncWait)
+	}
+
 	return nil
 }
 
@@ -727,6 +813,22 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	if err := parsePositiveInt(
 		"RAFT_ELECTION_TIMEOUT",
 		func(val int) { cfg.ElectionTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveFloat(
+		"RAFT_LEADER_LEASE_TIMEOUT",
+		func(val float64) { cfg.LeaderLeaseTimeout = time.Second * time.Duration(val) },
+		0.5, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_TIMEOUTS_MULTIPLIER",
+		func(val int) { cfg.TimeoutsMultiplier = val },
 		1, // raft default
 	); err != nil {
 		return cfg, err
@@ -842,6 +944,14 @@ func (c *Config) parseMemtableConfig() error {
 		return err
 	}
 
+	if err := parsePositiveInt(
+		"REPLICATION_ENGINE_MAX_WORKERS",
+		func(val int) { c.ReplicationEngineMaxWorkers = val },
+		DefaultReplicationEngineMaxWorkers,
+	); err != nil {
+		return err
+	}
+
 	return nil
 }
 
@@ -873,11 +983,11 @@ func parseFloat64(envName string, defaultValue float64, verify func(val float64)
 }
 
 func parseInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int) error { return nil })
+	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error { return nil })
 }
 
 func parsePositiveInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
+	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
 		if val <= 0 {
 			return fmt.Errorf("%s must be an integer greater than 0. Got: %v", envName, val)
 		}
@@ -886,7 +996,7 @@ func parsePositiveInt(envName string, cb func(val int), defaultValue int) error 
 }
 
 func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) error {
-	return parseIntVerify(envName, defaultValue, cb, func(val int) error {
+	return parseIntVerify(envName, defaultValue, cb, func(val int, envName string) error {
 		if val < 0 {
 			return fmt.Errorf("%s must be an integer greater than or equal 0. Got %v", envName, val)
 		}
@@ -894,7 +1004,7 @@ func parseNonNegativeInt(envName string, cb func(val int), defaultValue int) err
 	})
 }
 
-func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int) error) error {
+func parseIntVerify(envName string, defaultValue int, cb func(val int), verify func(val int, envName string) error) error {
 	var err error
 	asInt := defaultValue
 
@@ -903,7 +1013,7 @@ func parseIntVerify(envName string, defaultValue int, cb func(val int), verify f
 		if err != nil {
 			return fmt.Errorf("parse %s as int: %w", envName, err)
 		}
-		if err = verify(asInt); err != nil {
+		if err = verify(asInt, envName); err != nil {
 			return err
 		}
 	}

@@ -100,6 +100,10 @@ func (h *hnsw) DeleteMulti(docIDs ...uint64) error {
 	before := time.Now()
 	defer h.metrics.TrackDelete(before, "total")
 
+	if h.muvera.Load() {
+		return h.Delete(docIDs...)
+	}
+
 	for _, docID := range docIDs {
 		h.RLock()
 		vecIDs := h.docIDVectors[docID]
@@ -845,12 +849,25 @@ func (h *hnsw) removeTombstonesAndNodes(deleteList helpers.AllowList, breakClean
 
 		h.resetLock.Lock()
 		h.shardedNodeLocks.Lock(id)
-		h.nodes[id] = nil
+		if uint64(len(h.nodes)) > id {
+			h.nodes[id] = nil
+		}
 		h.shardedNodeLocks.Unlock(id)
 		if h.compressed.Load() {
 			h.compressor.Delete(context.TODO(), id)
 		} else {
 			h.cache.Delete(context.TODO(), id)
+		}
+		if h.muvera.Load() {
+			idBytes := make([]byte, 8)
+			binary.BigEndian.PutUint64(idBytes, id)
+			if err := h.store.Bucket(h.id + "_muvera_vectors").Delete(idBytes); err != nil {
+				h.logger.WithFields(logrus.Fields{
+					"action": "muvera_delete",
+					"id":     id,
+				}).WithError(err).
+					Warnf("cannot delete vector from muvera bucket")
+			}
 		}
 		if err := h.commitLog.DeleteNode(id); err != nil {
 			h.resetLock.Unlock()

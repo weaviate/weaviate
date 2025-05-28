@@ -210,25 +210,34 @@ type Config struct {
 	MemtablesMaxSizeMB                  int
 	MemtablesMinActiveSeconds           int
 	MemtablesMaxActiveSeconds           int
+	MinMMapSize                         int64
+	MaxReuseWalSize                     int64
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	MaxSegmentSize                      int64
-	HNSWMaxLogSize                      int64
-	HNSWWaitForCachePrefill             bool
-	HNSWFlatSearchConcurrency           int
-	HNSWAcornFilterRatio                float64
-	VisitedListPoolMaxSize              int
 	TrackVectorDimensions               bool
 	ServerVersion                       string
 	GitHash                             string
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
 	ForceFullReplicasSearch             bool
+	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	Replication                         replication.GlobalConfig
 	MaximumConcurrentShardLoads         int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+
+	HNSWMaxLogSize                               int64
+	HNSWDisableSnapshots                         bool
+	HNSWSnapshotIntervalSeconds                  int
+	HNSWSnapshotOnStartup                        bool
+	HNSWSnapshotMinDeltaCommitlogsNumber         int
+	HNSWSnapshotMinDeltaCommitlogsSizePercentage int
+	HNSWWaitForCachePrefill                      bool
+	HNSWFlatSearchConcurrency                    int
+	HNSWAcornFilterRatio                         float64
+	VisitedListPoolMaxSize                       int
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

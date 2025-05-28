@@ -29,6 +29,8 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
@@ -76,6 +78,7 @@ type SegmentGroup struct {
 	calcCountNetAdditions    bool // see bucket for more details
 	compactLeftOverSegments  bool // see bucket for more details
 	enableChecksumValidation bool
+	MinMMapSize              int64
 
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
@@ -86,6 +89,7 @@ type SegmentGroup struct {
 	lastCompactionCall time.Time
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
+	bm25config                     *schema.BM25Config
 }
 
 type sgConfig struct {
@@ -102,6 +106,8 @@ type sgConfig struct {
 	cleanupInterval          time.Duration
 	enableChecksumValidation bool
 	keepSegmentsInMemory     bool
+	MinMMapSize              int64
+	bm25config               *models.BM25Config
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -133,6 +139,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		allocChecker:             allocChecker,
 		lastCompactionCall:       now,
 		lastCleanupCall:          now,
+		MinMMapSize:              cfg.MinMMapSize,
 	}
 
 	segmentIndex := 0
@@ -211,6 +218,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 					calcCountNetAdditions:    sg.calcCountNetAdditions,
 					overwriteDerived:         false,
 					enableChecksumValidation: sg.enableChecksumValidation,
+					MinMMapSize:              sg.MinMMapSize,
+					allocChecker:             sg.allocChecker,
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -259,6 +268,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				calcCountNetAdditions:    sg.calcCountNetAdditions,
 				overwriteDerived:         true,
 				enableChecksumValidation: sg.enableChecksumValidation,
+				MinMMapSize:              sg.MinMMapSize,
+				allocChecker:             sg.allocChecker,
 			},
 		)
 		if err != nil {
@@ -330,6 +341,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 				calcCountNetAdditions:    sg.calcCountNetAdditions,
 				overwriteDerived:         false,
 				enableChecksumValidation: sg.enableChecksumValidation,
+				MinMMapSize:              sg.MinMMapSize,
+				allocChecker:             sg.allocChecker,
 			})
 		if err != nil {
 			return nil, fmt.Errorf("init segment %s: %w", entry.Name(), err)
@@ -427,6 +440,8 @@ func (sg *SegmentGroup) add(path string) error {
 			calcCountNetAdditions:    sg.calcCountNetAdditions,
 			overwriteDerived:         true,
 			enableChecksumValidation: sg.enableChecksumValidation,
+			MinMMapSize:              sg.MinMMapSize,
+			allocChecker:             sg.allocChecker,
 		})
 	if err != nil {
 		return fmt.Errorf("init segment %s: %w", path, err)
@@ -791,4 +806,29 @@ func (sg *SegmentGroup) Len() int {
 	defer release()
 
 	return len(segments)
+}
+
+func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
+	segments, release := sg.getAndLockSegments()
+	defer release()
+
+	if len(segments) == 0 {
+		return 0, 0
+	}
+
+	totalDocCount := uint64(0)
+	for _, segment := range segments {
+		totalDocCount += segment.invertedData.avgPropertyLengthsCount
+	}
+
+	if totalDocCount == 0 {
+		return defaultAveragePropLength, 0
+	}
+
+	weightedAverage := 0.0
+	for _, segment := range segments {
+		weightedAverage += float64(segment.invertedData.avgPropertyLengthsCount) / float64(totalDocCount) * segment.invertedData.avgPropertyLengthsAvg
+	}
+
+	return weightedAverage, totalDocCount
 }

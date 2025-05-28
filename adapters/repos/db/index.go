@@ -494,6 +494,7 @@ func (i *Index) IterateObjects(ctx context.Context, cb func(index *Index, shard 
 // Calling this method may lead to shards being force-loaded, causing
 // unexpected CPU spikes. If you only want to apply f on loaded shards,
 // call ForEachLoadedShard instead.
+// Note: except Dropping and Shutting Down
 func (i *Index) ForEachShard(f func(name string, shard ShardLike) error) error {
 	return i.shards.Range(f)
 }
@@ -615,7 +616,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.updateAsyncReplicationConfig(ctx, i.Config.AsyncReplicationEnabled); err != nil {
+		if err := shard.UpdateAsyncReplicationConfig(ctx, i.Config.AsyncReplicationEnabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil
@@ -652,25 +653,34 @@ type IndexConfig struct {
 	MemtablesMaxSizeMB                  int
 	MemtablesMinActiveSeconds           int
 	MemtablesMaxActiveSeconds           int
+	MinMMapSize                         int64
+	MaxReuseWalSize                     int64
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
 	MaxSegmentSize                      int64
-	HNSWMaxLogSize                      int64
-	HNSWWaitForCachePrefill             bool
-	HNSWFlatSearchConcurrency           int
-	HNSWAcornFilterRatio                float64
-	VisitedListPoolMaxSize              int
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
 	AsyncReplicationEnabled             bool
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
 	ForceFullReplicasSearch             bool
+	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 	ShardLoadLimiter                    ShardLoadLimiter
+
+	HNSWMaxLogSize                               int64
+	HNSWDisableSnapshots                         bool
+	HNSWSnapshotIntervalSeconds                  int
+	HNSWSnapshotOnStartup                        bool
+	HNSWSnapshotMinDeltaCommitlogsNumber         int
+	HNSWSnapshotMinDeltaCommitlogsSizePercentage int
+	HNSWWaitForCachePrefill                      bool
+	HNSWFlatSearchConcurrency                    int
+	HNSWAcornFilterRatio                         float64
+	VisitedListPoolMaxSize                       int
 }
 
 func indexID(class schema.ClassName) string {
@@ -751,6 +761,8 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		}
 		return nil
 	}
+
+	// TODO how to support "additional host writes" with RF 1 during shard replica movement?
 
 	// no replication, remote shard (or local not yet inited)
 	shard, release, err := i.GetShard(ctx, shardName)
@@ -909,6 +921,8 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		pos     []int
 	}
 	out := make([]error, len(objects))
+	// TODO this check causes problems because i think we'll write only write locally (no best effort)
+	// when rf=1, address in best effort pr
 	if i.replicationEnabled() && replProps == nil {
 		replProps = defaultConsistency()
 	}
@@ -2272,6 +2286,10 @@ func (i *Index) drop() error {
 	}
 
 	return os.RemoveAll(i.path())
+}
+
+func (i *Index) DropShard(name string) error {
+	return i.dropShards([]string{name})
 }
 
 func (i *Index) dropShards(names []string) error {

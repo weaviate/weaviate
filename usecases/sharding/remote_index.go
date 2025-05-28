@@ -106,7 +106,7 @@ type RemoteIndexClient interface {
 
 	// PauseFileActivity pauses the shard replica background processes on the specified node.
 	// You should explicitly resume the background processes once you're done.
-	PauseFileActivity(ctx context.Context, hostName, indexName, shardName string) error
+	PauseFileActivity(ctx context.Context, hostName, indexName, shardName string, schemaVersion uint64) error
 	// ResumeFileActivity resumes the shard replica background processes on the specified node.
 	ResumeFileActivity(ctx context.Context, hostName, indexName, shardName string) error
 	// ListFiles returns a list of files that can be used to get the shard data at the time the pause was
@@ -117,6 +117,10 @@ type RemoteIndexClient interface {
 	// GetFile returns a reader for the file at the given path in the shard's root directory.
 	// The caller must close the returned io.ReadCloser if no error is returned.
 	GetFile(ctx context.Context, hostName, indexName, shardName, fileName string) (io.ReadCloser, error)
+	// AddAsyncReplicationTargetNode adds the async replication target node for a shard.
+	AddAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error
+	// RemoveAsyncReplicationTargetNode removes the async replication target node for a shard.
+	RemoveAsyncReplicationTargetNode(ctx context.Context, hostName, indexName, shardName string, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
 }
 
 func (ri *RemoteIndex) PutObject(ctx context.Context, shardName string,

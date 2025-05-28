@@ -36,9 +36,9 @@ import (
 
 const (
 	// TODO: consider exposing these as settings
-	replicationEngineMaxWorkers      = 5
 	shardReplicationEngineBufferSize = 16
-	replicationEngineShutdownTimeout = 10 * time.Minute
+	fsmOpProducerPollingInterval     = 5 * time.Second
+	replicationEngineShutdownTimeout = 20 * time.Second
 	replicationOperationTimeout      = 24 * time.Hour
 	catchUpInterval                  = 5 * time.Second
 )
@@ -57,10 +57,10 @@ type Service struct {
 	logger    *logrus.Logger
 
 	// closing channels
+	cancelReplicationEngine context.CancelFunc
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
 	closeWaitForDB          chan struct{}
-	replicationEngineCancel context.CancelFunc
 }
 
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
@@ -76,23 +76,21 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	fsmOpProducer := replication.NewFSMOpProducer(
 		cfg.Logger,
 		fsm.replicationManager.GetReplicationFSM(),
-		replicationEngineMaxWorkers*time.Second,
+		fsmOpProducerPollingInterval,
 		cfg.NodeSelector.LocalName(),
 	)
-	realTimeProvider := replication.RealTimeProvider{}
 	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
 		cfg.Logger,
-		func(op replication.ShardReplicationOp) bool {
-			return fsm.replicationManager.GetReplicationFSM().IsOpCompletedOrInProgress(op)
-		},
 		raft,
 		cfg.ReplicaCopier,
-		realTimeProvider,
 		cfg.NodeSelector.LocalName(),
 		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
 		replicationOperationTimeout,
-		replicationEngineMaxWorkers,
+		cfg.ReplicationEngineMaxWorkers,
+		cfg.ReplicaMovementMinimumAsyncWait,
 		metrics.NewReplicationEngineOpsCallbacks(prometheus.DefaultRegisterer),
+		raft.SchemaReader(),
 	)
 	replicationEngine := replication.NewShardReplicationEngine(
 		cfg.Logger,
@@ -100,7 +98,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 		fsmOpProducer,
 		replicaCopyOpConsumer,
 		shardReplicationEngineBufferSize,
-		replicationEngineMaxWorkers,
+		cfg.ReplicationEngineMaxWorkers,
 		replicationEngineShutdownTimeout,
 		metrics.NewReplicationEngineCallbacks(prometheus.DefaultRegisterer),
 	)
@@ -130,10 +128,11 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 		case <-ticker.C:
 			if c.Raft.store.FSMHasCaughtUp() {
 				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
-				replicationEngineCtx, replicationEngineCancel := context.WithCancel(ctx)
-				c.replicationEngineCancel = replicationEngineCancel
+				engineCtx, engineCancel := context.WithCancel(ctx)
+				c.cancelReplicationEngine = engineCancel
 				enterrors.GoWrapper(func() {
-					if err := c.replicationEngine.Start(replicationEngineCtx); err != nil {
+					// The context is cancelled by the engine itself when it is stopped
+					if err := c.replicationEngine.Start(engineCtx); err != nil {
 						c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
 					}
 				}, c.logger)
@@ -214,10 +213,9 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	if c.replicationEngineCancel != nil {
-		c.logger.Infof("Closing replication engine %v", c)
-		c.replicationEngineCancel()
-	}
+	c.logger.Info("closing replication engine ...")
+	c.cancelReplicationEngine()
+	c.replicationEngine.Stop()
 
 	c.logger.Info("closing raft FSM store ...")
 	if err := c.Raft.Close(ctx); err != nil {

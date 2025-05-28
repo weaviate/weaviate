@@ -16,6 +16,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
@@ -35,6 +36,20 @@ func WithStrategy(strategy string) BucketOption {
 func WithMemtableThreshold(threshold uint64) BucketOption {
 	return func(b *Bucket) error {
 		b.memtableThreshold = threshold
+		return nil
+	}
+}
+
+func WithMinMMapSize(minMMapSize int64) BucketOption {
+	return func(b *Bucket) error {
+		b.minMMapSize = minMMapSize
+		return nil
+	}
+}
+
+func WithMinWalThreshold(threshold int64) BucketOption {
+	return func(b *Bucket) error {
+		b.minWalThreshold = uint64(threshold)
 		return nil
 	}
 }
@@ -204,6 +219,13 @@ func WithKeepSegmentsInMemory(keep bool) BucketOption {
 func WithBitmapBufPool(bufPool roaringset.BitmapBufPool) BucketOption {
 	return func(b *Bucket) error {
 		b.bitmapBufPool = bufPool
+		return nil
+	}
+}
+
+func WithBM25Config(bm25Config *models.BM25Config) BucketOption {
+	return func(b *Bucket) error {
+		b.bm25Config = bm25Config
 		return nil
 	}
 }

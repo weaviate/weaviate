@@ -134,6 +134,7 @@ type Config struct {
 	ReindexVectorDimensionsAtStartup    bool                     `json:"reindex_vector_dimensions_at_startup" yaml:"reindex_vector_dimensions_at_startup"`
 	DisableLazyLoadShards               bool                     `json:"disable_lazy_load_shards" yaml:"disable_lazy_load_shards"`
 	ForceFullReplicasSearch             bool                     `json:"force_full_replicas_search" yaml:"force_full_replicas_search"`
+	TransferInactivityTimeout           time.Duration            `json:"transfer_inactivity_timeout" yaml:"transfer_inactivity_timeout"`
 	RecountPropertiesAtStartup          bool                     `json:"recount_properties_at_startup" yaml:"recount_properties_at_startup"`
 	ReindexSetToRoaringsetAtStartup     bool                     `json:"reindex_set_to_roaringset_at_startup" yaml:"reindex_set_to_roaringset_at_startup"`
 	ReindexerGoroutinesFactor           float64                  `json:"reindexer_goroutines_factor" yaml:"reindexer_goroutines_factor"`
@@ -152,7 +153,7 @@ type Config struct {
 	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
 	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
 	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
-
+	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
@@ -161,6 +162,8 @@ type Config struct {
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
+
+	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration] `json:"REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT" yaml:"REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"`
 }
 
 type MapToBlockamaxConfig struct {
@@ -306,18 +309,25 @@ type DistributedTasksConfig struct {
 }
 
 type Persistence struct {
-	DataPath                            string `json:"dataPath" yaml:"dataPath"`
-	MemtablesFlushDirtyAfter            int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
-	MemtablesMaxSizeMB                  int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
-	MemtablesMinActiveDurationSeconds   int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
-	MemtablesMaxActiveDurationSeconds   int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
-	LSMMaxSegmentSize                   int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
-	LSMSegmentsCleanupIntervalSeconds   int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
-	LSMSeparateObjectsCompactions       bool   `json:"lsmSeparateObjectsCompactions" yaml:"lsmSeparateObjectsCompactions"`
-	LSMEnableSegmentsChecksumValidation bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
-	LSMCycleManagerRoutinesFactor       int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
-	HNSWMaxLogSize                      int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
-	IndexRangeableInMemory              bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
+	DataPath                                     string `json:"dataPath" yaml:"dataPath"`
+	MemtablesFlushDirtyAfter                     int    `json:"flushDirtyMemtablesAfter" yaml:"flushDirtyMemtablesAfter"`
+	MemtablesMaxSizeMB                           int    `json:"memtablesMaxSizeMB" yaml:"memtablesMaxSizeMB"`
+	MemtablesMinActiveDurationSeconds            int    `json:"memtablesMinActiveDurationSeconds" yaml:"memtablesMinActiveDurationSeconds"`
+	MemtablesMaxActiveDurationSeconds            int    `json:"memtablesMaxActiveDurationSeconds" yaml:"memtablesMaxActiveDurationSeconds"`
+	LSMMaxSegmentSize                            int64  `json:"lsmMaxSegmentSize" yaml:"lsmMaxSegmentSize"`
+	LSMSegmentsCleanupIntervalSeconds            int    `json:"lsmSegmentsCleanupIntervalSeconds" yaml:"lsmSegmentsCleanupIntervalSeconds"`
+	LSMSeparateObjectsCompactions                bool   `json:"lsmSeparateObjectsCompactions" yaml:"lsmSeparateObjectsCompactions"`
+	LSMEnableSegmentsChecksumValidation          bool   `json:"lsmEnableSegmentsChecksumValidation" yaml:"lsmEnableSegmentsChecksumValidation"`
+	LSMCycleManagerRoutinesFactor                int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
+	IndexRangeableInMemory                       bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
+	MinMMapSize                                  int64  `json:"minMMapSize" yaml:"minMMapSize"`
+	MaxReuseWalSize                              int64  `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
+	HNSWMaxLogSize                               int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
+	HNSWDisableSnapshots                         bool   `json:"hnswDisableSnapshots" yaml:"hnswDisableSnapshots"`
+	HNSWSnapshotIntervalSeconds                  int    `json:"hnswSnapshotIntervalSeconds" yaml:"hnswSnapshotIntervalSeconds"`
+	HNSWSnapshotOnStartup                        bool   `json:"hnswSnapshotOnStartup" yaml:"hnswSnapshotOnStartup"`
+	HNSWSnapshotMinDeltaCommitlogsNumber         int    `json:"hnswSnapshotMinDeltaCommitlogsNumber" yaml:"hnswSnapshotMinDeltaCommitlogsNumber"`
+	HNSWSnapshotMinDeltaCommitlogsSizePercentage int    `json:"hnswSnapshotMinDeltaCommitlogsSizePercentage" yaml:"hnswSnapshotMinDeltaCommitlogsSizePercentage"`
 }
 
 // DefaultPersistenceDataPath is the default location for data directory when no location is provided
@@ -337,6 +347,15 @@ const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
 
 const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
+
+const (
+	// minimal interval for new hnws snapshot to be created after last one
+	DefaultHNSWSnapshotIntervalSeconds                  = 6 * 3600 // 6h
+	DefaultHNSWSnapshotDisabled                         = true
+	DefaultHNSWSnapshotOnStartup                        = true
+	DefaultHNSWSnapshotMinDeltaCommitlogsNumber         = 1
+	DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage = 5 // 5%
+)
 
 const (
 	DefaultReindexerGoroutinesFactor = 0.5
@@ -362,6 +381,11 @@ const (
 const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibility
 
 const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
+
+const (
+	DefaultPersistenceMinMMapSize     = 8192 // 8kb by default
+	DefaultPersistenceMaxReuseWalSize = 4096 // 4kb by default
+)
 
 func (p Persistence) Validate() error {
 	if p.DataPath == "" {
@@ -446,6 +470,8 @@ type Raft struct {
 
 	HeartbeatTimeout       time.Duration
 	ElectionTimeout        time.Duration
+	LeaderLeaseTimeout     time.Duration
+	TimeoutsMultiplier     int
 	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration

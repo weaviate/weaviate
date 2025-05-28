@@ -21,11 +21,11 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"go.etcd.io/bbolt"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
@@ -38,6 +38,7 @@ import (
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
@@ -47,6 +48,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -56,7 +58,10 @@ import (
 
 const IdLockPoolSize = 128
 
-var errAlreadyShutdown = errors.New("already shut or dropped")
+var (
+	errAlreadyShutdown    = errors.New("already shut or dropped")
+	errShutdownInProgress = errors.New("shard shutdown in progress")
+)
 
 type ShardLike interface {
 	Index() *Index                  // Get the parent index
@@ -90,10 +95,12 @@ type ShardLike interface {
 	ObjectDigestsInRange(ctx context.Context, initialUUID, finalUUID strfmt.UUID, limit int) (objs []types.RepairResponse, err error)
 	ID() string // Get the shard id
 	drop() error
-	HaltForTransfer(ctx context.Context, offloading bool) error
+	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
 	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
+	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
+	GetFile(ctx context.Context, relativeFilePath string) (io.ReadCloser, error)
 	SetPropertyLengths(props []inverted.Property) error
 	AnalyzeObject(*storobj.Object) ([]inverted.Property, []inverted.NilProperty, error)
 	Aggregate(ctx context.Context, params aggregation.Params, modules *modules.Provider) (*aggregation.Result, error)
@@ -115,6 +122,8 @@ type ShardLike interface {
 	ForEachVectorQueue(f func(targetVector string, queue *VectorIndexQueue) error) error
 	// TODO tests only
 	Versioner() *shardVersioner // Get the shard versioner
+
+	UpdateAsyncReplicationConfig(ctx context.Context, enabled bool) error
 
 	isReadOnly() error
 	pathLSM() string
@@ -158,7 +167,16 @@ type ShardLike interface {
 	updateVectorIndexesIgnoreDelete(ctx context.Context, vectors map[string][]float32, status objectInsertStatus) error
 	updateMultiVectorIndexesIgnoreDelete(ctx context.Context, multiVectors map[string][][]float32, status objectInsertStatus) error
 	hasGeoIndex() bool
-	updateAsyncReplicationConfig(ctx context.Context, enabled bool) error
+	// addTargetNodeOverride adds a target node override to the shard.
+	addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+	// removeTargetNodeOverride removes a target node override from the shard.
+	removeTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error
+	// removeAllTargetNodeOverrides removes all target node overrides from the shard
+	// and resets the async replication config.
+	removeAllTargetNodeOverrides(ctx context.Context) error
+
+	// getAsyncReplicationStats returns all current sync replication stats for this node/shard
+	getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus
 
 	Metrics() *Metrics
 
@@ -206,12 +224,19 @@ type Shard struct {
 	hashtreeFullyInitialized   bool
 	asyncReplicationCancelFunc context.CancelFunc
 
-	lastComparedHosts    []string
-	lastComparedHostsMux sync.RWMutex
+	lastComparedHosts                 []string
+	lastComparedHostsMux              sync.RWMutex
+	asyncReplicationStatsByTargetNode map[string]*hashBeatHostStats
 	//
 
+	haltForTransferMux               sync.Mutex
+	haltForTransferInactivityTimeout time.Duration
+	haltForTransferInactivityTimer   *time.Timer
+	haltForTransferCount             int
+	haltForTransferCancel            func()
+
 	status              ShardStatus
-	statusLock          sync.Mutex
+	statusLock          sync.RWMutex
 	propertyIndicesLock sync.RWMutex
 
 	stopDimensionTracking        chan struct{}
@@ -245,7 +270,7 @@ type Shard struct {
 	dynamicVectorIndexDB *bbolt.DB
 
 	// indicates whether shard is shut down or dropped (or ongoing)
-	shut bool
+	shut atomic.Bool
 	// indicates whether shard in being used at the moment (e.g. write request)
 	inUseCounter atomic.Int64
 	// allows concurrent shut read/write
@@ -261,6 +286,9 @@ type Shard struct {
 	searchableBlockmaxPropNamesLock *sync.Mutex
 
 	usingBlockMaxWAND bool
+
+	// shutdownRequested marks shard as requested for shutdown
+	shutdownRequested atomic.Bool
 }
 
 func (s *Shard) ID() string {

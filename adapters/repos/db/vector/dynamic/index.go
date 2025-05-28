@@ -19,7 +19,6 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 
@@ -35,7 +34,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
-	werrors "github.com/weaviate/weaviate/entities/errors"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -112,9 +111,14 @@ type dynamic struct {
 	threshold             uint64
 	index                 VectorIndex
 	upgraded              atomic.Bool
+	upgradeOnce           sync.Once
 	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
 	hnswUC                hnswent.UserConfig
 	db                    *bbolt.DB
+	ctx                   context.Context
+	cancel                context.CancelFunc
+	hnswDisableSnapshots  bool
+	hnswSnapshotOnStartup bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -140,6 +144,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		DistanceProvider: cfg.DistanceProvider,
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+
 	index := &dynamic{
 		id:                    cfg.ID,
 		targetVector:          cfg.TargetVector,
@@ -157,6 +163,10 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		tombstoneCallbacks:    cfg.TombstoneCallbacks,
 		hnswUC:                uc.HnswUC,
 		db:                    cfg.SharedDB,
+		ctx:                   ctx,
+		cancel:                cancel,
+		hnswDisableSnapshots:  cfg.HNSWDisableSnapshots,
+		hnswSnapshotOnStartup: cfg.HNSWSnapshotOnStartup,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
@@ -198,6 +208,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				TempVectorForIDThunk:  index.tempVectorForIDThunk,
 				DistanceProvider:      index.distanceProvider,
 				MakeCommitLoggerThunk: index.makeCommitLoggerThunk,
+				DisableSnapshots:      index.hnswDisableSnapshots,
+				SnapshotOnStartup:     index.hnswSnapshotOnStartup,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
@@ -338,8 +350,17 @@ func (dynamic *dynamic) GetKeys(id uint64) (uint64, uint64, error) {
 }
 
 func (dynamic *dynamic) Drop(ctx context.Context) error {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
+	if dynamic.ctx.Err() != nil {
+		// already dropped
+		return nil
+	}
+
+	// cancel the context before locking to stop any ongoing operations
+	// and prevent new ones from starting
+	dynamic.cancel()
+
+	dynamic.Lock()
+	defer dynamic.Unlock()
 	if err := dynamic.db.Close(); err != nil {
 		return err
 	}
@@ -354,8 +375,18 @@ func (dynamic *dynamic) Flush() error {
 }
 
 func (dynamic *dynamic) Shutdown(ctx context.Context) error {
-	dynamic.RLock()
-	defer dynamic.RUnlock()
+	if dynamic.ctx.Err() != nil {
+		// already closed
+		return nil
+	}
+
+	// cancel the context before locking to stop any ongoing operations
+	// and prevent new ones from starting
+	dynamic.cancel()
+
+	dynamic.Lock()
+	defer dynamic.Unlock()
+
 	if err := dynamic.db.Close(); err != nil {
 		return err
 	}
@@ -451,11 +482,36 @@ func float32SliceFromByteSlice(vector []byte, slice []float32) []float32 {
 }
 
 func (dynamic *dynamic) Upgrade(callback func()) error {
-	dynamic.Lock()
-	defer dynamic.Unlock()
+	if dynamic.ctx.Err() != nil {
+		// already closed
+		return dynamic.ctx.Err()
+	}
+
 	if dynamic.upgraded.Load() {
 		return dynamic.index.(upgradableIndexer).Upgrade(callback)
 	}
+
+	dynamic.upgradeOnce.Do(func() {
+		enterrors.GoWrapper(func() {
+			defer callback()
+
+			err := dynamic.doUpgrade()
+			if err != nil {
+				dynamic.logger.WithError(err).Error("failed to upgrade index")
+				return
+			}
+		}, dynamic.logger)
+	})
+
+	return nil
+}
+
+func (dynamic *dynamic) doUpgrade() error {
+	// Start with a read lock to prevent reading from the index
+	// while it's being dropped or closed.
+	// This allows search operations to continue while the index is being
+	// upgraded.
+	dynamic.RLock()
 
 	index, err := hnsw.New(
 		hnsw.Config{
@@ -469,62 +525,54 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 			TempVectorForIDThunk:  dynamic.tempVectorForIDThunk,
 			DistanceProvider:      dynamic.distanceProvider,
 			MakeCommitLoggerThunk: dynamic.makeCommitLoggerThunk,
+			DisableSnapshots:      dynamic.hnswDisableSnapshots,
+			SnapshotOnStartup:     dynamic.hnswSnapshotOnStartup,
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,
 		dynamic.store,
 	)
 	if err != nil {
-		callback()
+		dynamic.RUnlock()
 		return err
 	}
 
 	bucket := dynamic.store.Bucket(dynamic.getBucketName())
 
-	g := werrors.NewErrorGroupWrapper(dynamic.logger)
-	workerCount := runtime.GOMAXPROCS(0)
-	type task struct {
-		id     uint64
-		vector []float32
-	}
-
-	ch := make(chan task, workerCount)
-
-	// For now use an unlimited context here – for backward compatibility. This
-	// is probably not ideal and I assume also an upgrade operation should have
-	// some sort of a timeout.
-	ctx := context.TODO()
-
-	for i := 0; i < workerCount; i++ {
-		g.Go(func() error {
-			for t := range ch {
-				err := index.Add(ctx, t.id, t.vector)
-				if err != nil {
-					return err
-				}
-			}
-
-			return nil
-		})
-	}
-
 	cursor := bucket.Cursor()
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
+		if dynamic.ctx.Err() != nil {
+			cursor.Close()
+			// context was cancelled, stop processing
+			dynamic.RUnlock()
+			return dynamic.ctx.Err()
+		}
+
 		id := binary.BigEndian.Uint64(k)
 		vc := make([]float32, len(v)/4)
 		float32SliceFromByteSlice(v, vc)
 
-		ch <- task{id: id, vector: vc}
+		err := index.Add(dynamic.ctx, id, vc)
+		if err != nil {
+			dynamic.logger.WithField("id", id).WithError(err).Error("failed to add vector")
+			continue
+		}
 	}
+
 	cursor.Close()
 
-	close(ch)
+	// end of read-only zone
+	dynamic.RUnlock()
 
-	err = g.Wait()
-	if err != nil {
-		callback()
-		return errors.Wrap(err, "upgrade")
+	// Lock the index for writing but check if it was already
+	// closed in the meantime
+	dynamic.Lock()
+	defer dynamic.Unlock()
+
+	if err := dynamic.ctx.Err(); err != nil {
+		// already closed
+		return errors.Wrap(err, "index was closed while upgrading")
 	}
 
 	err = dynamic.db.Update(func(tx *bbolt.Tx) error {
@@ -537,7 +585,7 @@ func (dynamic *dynamic) Upgrade(callback func()) error {
 
 	dynamic.index = index
 	dynamic.upgraded.Store(true)
-	callback()
+
 	return nil
 }
 

@@ -308,12 +308,14 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		t.Run("new segments created", func(t *testing.T) {
 			sg.segments = append(sg.segments,
 				&segment{
-					path: filepath.Join(dir, "segment-0005.db"),
-					size: 10005,
+					path:             filepath.Join(dir, "segment-0005.db"),
+					size:             10005,
+					observeMetaWrite: func(n int64) {},
 				},
 				&segment{
-					path: filepath.Join(dir, "segment-0006.db"),
-					size: 10006,
+					path:             filepath.Join(dir, "segment-0006.db"),
+					size:             10006,
+					observeMetaWrite: func(n int64) {},
 				},
 			)
 		})
@@ -456,12 +458,14 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		t.Run("new segments created", func(t *testing.T) {
 			sg.segments = append(sg.segments,
 				&segment{
-					path: filepath.Join(dir, "segment-0005.db"),
-					size: 405,
+					path:             filepath.Join(dir, "segment-0005.db"),
+					size:             405,
+					observeMetaWrite: func(n int64) {},
 				},
 				&segment{
-					path: filepath.Join(dir, "segment-0006.db"),
-					size: 406,
+					path:             filepath.Join(dir, "segment-0006.db"),
+					size:             406,
+					observeMetaWrite: func(n int64) {},
 				},
 			)
 		})
@@ -508,12 +512,14 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		t.Run("new segments created", func(t *testing.T) {
 			sg.segments = append(sg.segments,
 				&segment{
-					path: filepath.Join(dir, "segment-0007.db"),
-					size: 407,
+					path:             filepath.Join(dir, "segment-0007.db"),
+					size:             407,
+					observeMetaWrite: func(n int64) {},
 				},
 				&segment{
-					path: filepath.Join(dir, "segment-0008.db"),
-					size: 408,
+					path:             filepath.Join(dir, "segment-0008.db"),
+					size:             408,
+					observeMetaWrite: func(n int64) {},
 				},
 			)
 		})
@@ -695,8 +701,9 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		t.Run("new segments created", func(t *testing.T) {
 			sg.segments = append(sg.segments,
 				&segment{
-					path: filepath.Join(dir, "segment-0006.db"),
-					size: 10006,
+					path:             filepath.Join(dir, "segment-0006.db"),
+					size:             10006,
+					observeMetaWrite: func(n int64) {},
 				},
 			)
 		})
@@ -729,8 +736,9 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		t.Run("new segments created while 3rd round", func(t *testing.T) {
 			sg.segments = append(sg.segments,
 				&segment{
-					path: filepath.Join(dir, "segment-0007.db"),
-					size: 10007,
+					path:             filepath.Join(dir, "segment-0007.db"),
+					size:             10007,
+					observeMetaWrite: func(n int64) {},
 				},
 			)
 		})
@@ -786,8 +794,9 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 		t.Run("new segments created", func(t *testing.T) {
 			sg.segments = append(sg.segments,
 				&segment{
-					path: filepath.Join(dir, "segment-0008.db"),
-					size: 10008,
+					path:             filepath.Join(dir, "segment-0008.db"),
+					size:             10008,
+					observeMetaWrite: func(n int64) {},
 				},
 			)
 		})
