@@ -7829,6 +7829,12 @@
             "type": "string"
           },
           {
+            "name": "shardName",
+            "in": "query",
+            "required": false,
+            "type": "string"
+          },
+          {
             "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
           }
         ],
