@@ -143,7 +143,7 @@ func (s *ShardReplicationFSM) StoreSchemaVersion(c *api.ReplicationStoreSchemaVe
 
 	status, ok := s.statusById[c.Id]
 	if !ok {
-		return fmt.Errorf("could not find op status for op %d", c.Id)
+		return fmt.Errorf("could not find op status for op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
 	}
 	status.SchemaVersion = c.SchemaVersion
 	s.statusById[c.Id] = status
@@ -157,7 +157,7 @@ func (s *ShardReplicationFSM) SetUnCancellable(id uint64) error {
 
 	status, ok := s.statusById[id]
 	if !ok {
-		return fmt.Errorf("could not find op status for op %d", id)
+		return fmt.Errorf("could not find op status for op %d: %w", id, types.ErrReplicationOperationNotFound)
 	}
 	status.UnCancellable = true
 	s.statusById[id] = status
@@ -283,7 +283,7 @@ func (s *ShardReplicationFSM) DeleteReplicationsByCollection(collection string) 
 	for _, op := range ops {
 		status, ok := s.statusById[op.ID]
 		if !ok {
-			return fmt.Errorf("could not find op status for op %d", op.ID)
+			return fmt.Errorf("could not find op status for op %d: %w", op.ID, types.ErrReplicationOperationNotFound)
 		}
 		status.TriggerDeletion()
 		s.statusById[op.ID] = status
@@ -311,7 +311,7 @@ func (s *ShardReplicationFSM) DeleteReplicationsByTenants(collection string, ten
 	for _, op := range ops {
 		status, ok := s.statusById[op.ID]
 		if !ok {
-			return fmt.Errorf("could not find op status for op %d", op.ID)
+			return fmt.Errorf("could not find op status for op %d: %w", op.ID, types.ErrReplicationOperationNotFound)
 		}
 		status.TriggerDeletion()
 		s.statusById[op.ID] = status
