@@ -34,7 +34,7 @@ func reVectorize(ctx context.Context,
 	findObjectFn modulecapabilities.FindObjectFn,
 ) (bool, models.AdditionalProperties, []float32, error) {
 	if ctx.Err() != nil {
-		return false, nil, nil, fmt.Errorf("context is done: %w", ctx.Err())
+		return false, nil, nil, ctx.Err()
 	}
 	shouldReVectorize, oldObject := reVectorizeEmbeddings(ctx, cfg, mod, object, class, sourceProperties, findObjectFn)
 	if shouldReVectorize {
