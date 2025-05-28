@@ -24,7 +24,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/vector_types"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -71,7 +70,7 @@ type VectorCompressor interface {
 	Stats() CompressionStats
 }
 
-type quantizedVectorsCompressor[T byte | uint64 | vector_types.RQEncoding] struct {
+type quantizedVectorsCompressor[T byte | uint64] struct {
 	cache           cache.Cache[T]
 	compressedStore *lsmkv.Store
 	quantizer       quantizer[T]
@@ -641,12 +640,12 @@ func NewRQCompressor(
 ) (VectorCompressor, error) {
 	dim := 128
 	seed := uint64(1234567890)
-	bits := 1
-	quantizer := NewRotationalQuantizer(dim, seed, bits, distance)
-	var rqVectorsCompressor *quantizedVectorsCompressor[vector_types.RQEncoding]
+	bits := 8
+	quantizer := NewRotationalQuantizer(dim, seed, bits, bits, distance)
+	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
 	switch bits {
 	case 1:
-		rqVectorsCompressor = &quantizedVectorsCompressor[vector_types.RQEncoding]{
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
 			quantizer:       quantizer,
 			compressedStore: store,
 			storeId:         binary.BigEndian.PutUint64,
@@ -657,7 +656,7 @@ func NewRQCompressor(
 		panic("invalid bits value")
 	}
 	rqVectorsCompressor.initCompressedStore()
-	rqVectorsCompressor.cache = cache.NewShardedRQEncodingLockCache(
+	rqVectorsCompressor.cache = cache.NewShardedRQCodeLockCache(
 		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 		0, allocChecker)
 	return rqVectorsCompressor, nil
@@ -739,7 +738,7 @@ func RestoreRQMultiCompressor(
 	return sqVectorsCompressor, nil
 }*/
 
-type quantizedCompressorDistancer[T byte | uint64 | vector_types.RQEncoding] struct {
+type quantizedCompressorDistancer[T byte | uint64] struct {
 	compressor *quantizedVectorsCompressor[T]
 	distancer  quantizerDistancer[T]
 }

@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -22,62 +23,88 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-func codebook(d int, bits int) [][]float32 {
-	// All values (pre-normalization) in any one dimension.
-	values := make([]float32, 1<<bits)
-	for i := range 1 << bits {
-		values[i] = -float32(int(1<<(bits-1))) + 0.5 + float32(i)
-	}
+func defaultRotationalQuantizer(dim int, seed uint64) *compressionhelpers.RotationalQuantizer {
+	return compressionhelpers.NewRotationalQuantizer(dim, seed, 8, 8, distancer.NewCosineDistanceProvider())
+}
 
-	// Generate all codes.
-	codes := make([][]float32, 0, 1<<bits)
-	for _, v := range values {
-		x := make([]float32, 1)
-		x[0] = v
-		codes = append(codes, x)
-	}
+// Create two d-dimensional unit vectors with a cosine similarity of alpha.
+func correlatedVectors(d int, alpha float32) ([]float32, []float32) {
+	x := make([]float32, d)
+	x[0] = 1.0
+	y := make([]float32, d)
+	y[0] = alpha
+	y[1] = float32(math.Sqrt(float64(1 - alpha*alpha)))
+	return x, y
+}
 
-	for i := range d - 1 {
-		newCodes := make([][]float32, 0, len(codes)*(1<<bits))
-		for j := range codes {
-			for _, v := range values {
-				x := make([]float32, i+2)
-				copy(x, codes[j])
-				x[i+1] = v
-				newCodes = append(newCodes, x)
-			}
+// There is perhaps no reason to expose the RQCode type at all..
+func TestRQCodeToFromBytes(t *testing.T) {
+	rng := newRNG(42)
+	length := 634
+	bytes := make([]byte, length)
+	for i := range bytes {
+		bytes[i] = byte(rng.UintN(256))
+	}
+	c := compressionhelpers.NewRQCodeFromBackingBytes(bytes)
+	assert.True(t, slices.Equal(bytes, c.Bytes()))
+}
+
+func TestRQDistanceEstimate(t *testing.T) {
+	d := 1024
+	rq := defaultRotationalQuantizer(d, 43)
+
+	var alpha float32 = 0.5
+	x, y := correlatedVectors(d, alpha)
+
+	target := 1 - alpha
+	cx, cy := rq.Encode(x), rq.Encode(y)
+	estimate, _ := rq.DistanceBetweenCompressedVectors(cx, cy)
+	assert.Less(t, math.Abs(float64(target-estimate)), 1e-4)
+}
+
+// Consider adding an inverse transform to restore the input vector.
+func TestRQEncodeRestore(t *testing.T) {
+	d := 1536
+	rq := defaultRotationalQuantizer(d, 42)
+	x := make([]float32, d)
+	x[0] = 1.0
+	cx := rq.Encode(x)
+	target := rq.Rotate(x)
+	restored := rq.Restore(cx)
+	for i := range target {
+		assert.Less(t, math.Abs(float64(target[i]-restored[i])), 4e-4)
+	}
+}
+
+// TODO: Test that RQ obeys the empirical extended RaBitQ bounds (test exists in previous version).
+func TestRQDistancer(t *testing.T) {
+	metrics := []distancer.Provider{
+		distancer.NewCosineDistanceProvider(),
+		distancer.NewDotProductProvider(),
+		distancer.NewL2SquaredProvider(),
+	}
+	rng := newRNG(678)
+	n := 250
+	for range n {
+		d := 2 + rng.IntN(1000)
+		alpha := -1.0 + 2*rng.Float32()
+		q, x := correlatedVectors(d, alpha)
+		for _, m := range metrics {
+			bits := 8
+			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, bits, m)
+			distancer := rq.NewDistancer(q)
+			expected, _ := m.SingleDist(q, x)
+			cx := rq.Encode(x)
+			estimated, _ := distancer.Distance(cx)
+			assert.Less(t, math.Abs(float64(estimated-expected)), 0.004)
 		}
-		codes = newCodes
-	}
-
-	// Normalize the codes to lie on the unit sphere.
-	for _, c := range codes {
-		l2norm := float32(norm(c))
-		for j := range c {
-			c[j] = c[j] / l2norm
-		}
-	}
-	return codes
-}
-
-type VectorGenerator struct {
-	rng *rand.Rand
-}
-
-func NewVectorGenerator() *VectorGenerator {
-	return NewVectorGeneratorWithSeed(42)
-}
-
-func NewVectorGeneratorWithSeed(seed uint64) *VectorGenerator {
-	return &VectorGenerator{
-		rng: rand.New(rand.NewPCG(seed, 0x385ab5285169b1ac)),
 	}
 }
 
-func (vg *VectorGenerator) RandomUnitVector(d int) []float32 {
+func randomUnitVector(d int, rng *rand.Rand) []float32 {
 	x := make([]float32, d)
 	for i := range x {
-		x[i] = float32(vg.rng.NormFloat64())
+		x[i] = float32(rng.NormFloat64())
 	}
 	xNorm := float32(norm(x))
 	for i := range x {
@@ -86,263 +113,77 @@ func (vg *VectorGenerator) RandomUnitVector(d int) []float32 {
 	return x
 }
 
-func findNearestCode(x []float32, codes [][]float32) []float32 {
-	var minDist float64 = math.MaxFloat64
-	var minIndex int
-	for i, c := range codes {
-		if dist := dist(x, c); dist < minDist {
-			minDist = dist
-			minIndex = i
-		}
+func scale(x []float32, s float32) {
+	for i := range x {
+		x[i] *= s
 	}
-	return codes[minIndex]
 }
 
-func TestRQEncodesToNearest(t *testing.T) {
-	d := 3
-	maxBits := 4
+func TestRQDistancerRandomVectorsWithScaling(t *testing.T) {
+	metrics := []distancer.Provider{
+		distancer.NewCosineDistanceProvider(),
+		distancer.NewDotProductProvider(),
+		distancer.NewL2SquaredProvider(),
+	}
+	rng := newRNG(7743)
 	n := 100
-
-	var seed uint64 = 42
-	rq := compressionhelpers.NewRotationalQuantizer(d, seed)
-	vg := NewVectorGenerator()
-
-	for i := range maxBits {
-		bits := i + 1
-		codes := codebook(d, bits)
-		for range n {
-			x := vg.RandomUnitVector(d)
-			c := rq.Encode(x, bits)
-			qx := rq.Decode(c)
-			// Apply the same underlying rotation of x and find the nearest code point by brute force.
-			rx := rq.Rotate(x)
-			bx := findNearestCode(rx, codes)
-			assert.Less(t, math.Abs(float64(dist(x, qx)-dist(x, bx))), 1e-6)
+	for range n {
+		d := 2 + rng.IntN(1000)
+		q, x := randomUnitVector(d, rng), randomUnitVector(d, rng)
+		s1 := 1000 * rng.Float32()
+		s2 := 1000 * rng.Float32()
+		scale(q, s1)
+		scale(x, s2)
+		for _, m := range metrics {
+			bits := 8
+			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, bits, m)
+			distancer := rq.NewDistancer(q)
+			expected, _ := m.SingleDist(q, x)
+			cx := rq.Encode(x)
+			estimated, _ := distancer.Distance(cx)
+			assert.Less(t, math.Abs(float64(estimated-expected)), float64(s1*s2*0.004))
 		}
-	}
-}
-
-func TestRQEstimationConcentrationBounds(t *testing.T) {
-	// Create a number of rotational quantizers. Construct two vectors with a given cosine similarity.
-	// Verify that the estimator behaves according to the concentration bounds specified in the paper.
-	d := 256
-	m := 10
-	rq := make([]*compressionhelpers.RotationalQuantizer, m)
-	for i := range rq {
-		rq[i] = compressionhelpers.NewRotationalQuantizer(d, uint64(i))
-	}
-
-	q := make([]float32, d)
-	x := make([]float32, d)
-
-	var alpha float32 = 0.5
-	q[0] = 1.0
-	x[0] = alpha
-	x[1] = float32(math.Sqrt(1.0 - float64(alpha*alpha)))
-	for i := range 1 {
-		bits := i + 1
-
-		// With probability > 0.999 the absolute error should be less than eps.
-		// For d = 256 the error for b bits is 2^(-b) * 0.36, so 0.18, 0.9,
-		// 0.045.. for b = 1, 2, 3,...
-		eps := math.Pow(2.0, -float64(bits)) * 5.75 / math.Sqrt(float64(d))
-
-		cos := make([]float32, m)
-		for i := range rq {
-			c := rq[i].Encode(x, bits)
-			dist := rq[i].NewDistancer(q, distancer.NewDotProductProvider(), bits)
-			estimate, _ := dist.Distance(c)
-			cos[i] = -estimate // Holds for unit vectors.
-			assert.Less(t, math.Abs(float64(cos[i]-alpha)), eps)
-		}
-	}
-}
-
-func TestRQDistancer(t *testing.T) {
-	d := 256
-	var alpha float32 = 0.5
-	var qNorm float32 = 0.76
-	var xNorm float32 = 3.14
-	q := make([]float32, d)
-	x := make([]float32, d)
-	q[0] = qNorm
-	x[0] = xNorm * alpha
-	x[1] = xNorm * float32(math.Sqrt(1.0-float64(alpha*alpha)))
-
-	bits := 8
-	rq := compressionhelpers.NewRotationalQuantizer(d, 42)
-	code := rq.Encode(x, bits)
-
-	metrics := []distancer.Provider{
-		distancer.NewCosineDistanceProvider(),
-		distancer.NewDotProductProvider(),
-		distancer.NewL2SquaredProvider(),
-	}
-
-	for _, m := range metrics {
-		expected, _ := m.SingleDist(q, x)
-		distancer := rq.NewDistancer(q, m, bits)
-		estimated, _ := distancer.Distance(code)
-		eps := 0.0002
-		assert.Less(t, math.Abs(float64(estimated-expected)), eps)
-	}
-}
-
-func TestRQRestore(t *testing.T) {
-	d := 32
-	vg := NewVectorGenerator()
-	x := vg.RandomUnitVector(d)
-	// Set some entries manually to ensure that it works for non-unit vectors.
-	x[3] = -3.67
-	x[9] = 4.99
-
-	bits := 8
-	rq := compressionhelpers.NewRotationalQuantizer(d, 42)
-	code := rq.Encode(x, bits)
-	xRestored := rq.Restore(code)
-	t.Log(x)
-	t.Log(xRestored)
-	for i := range d {
-		assert.Less(t, math.Abs(float64(x[i]-xRestored[i])), 0.015)
-	}
-}
-
-func l2Squared(x []float32, y []float32) float32 {
-	provider := distancer.NewL2SquaredProvider()
-	dist, _ := provider.SingleDist(x, y)
-	return dist
-}
-
-func TestRQRestoreWithCenters(t *testing.T) {
-	d := 4
-	numCenters := 25
-	numVectors := 100
-	bits := 6
-	centers := make([][]float32, numCenters)
-	vg := NewVectorGenerator()
-	for i := range numCenters {
-		centers[i] = vg.RandomUnitVector(d)
-	}
-	rq := compressionhelpers.NewRotationalQuantizerWithCenters(d, 42, centers)
-
-	for range numVectors {
-		v := vg.RandomUnitVector(d)
-		c := rq.Encode(v, bits)
-		vRestored := rq.Restore(c)
-		var eps float32 = 1e-3
-		assert.Less(t, l2Squared(v, vRestored), eps)
-	}
-}
-
-func TestRQDistancerWithCentersSimple(t *testing.T) {
-	d := 2
-	bits := 4
-	x := []float32{1.0, 0.0}
-	q := []float32{-1.0, 0.0}
-	centers := [][]float32{{0.5, 0.5}}
-	rq := compressionhelpers.NewRotationalQuantizerWithCenters(d, 42, centers)
-	distancer := rq.NewDistancer(q, distancer.NewDotProductProvider(), bits)
-	c := rq.Encode(x, bits)
-	dist, _ := distancer.Distance(c)
-	assert.Less(t, math.Abs(float64(dist-1.0)), 0.002)
-}
-
-// Create vectors clustered around different centers.
-// Verify that RQ with centers is at least as accurate as RQ without centers.
-func TestRQDistancerWithCenters(t *testing.T) {
-	d := 128
-	bits := 8
-	numCenters := 10
-	numClusterVectors := 10
-
-	vg := NewVectorGenerator()
-	centers := make([][]float32, numCenters)
-	for i := range centers {
-		centers[i] = vg.RandomUnitVector(d)
-	}
-
-	rq := compressionhelpers.NewRotationalQuantizer(d, 42)
-	rqCentered := compressionhelpers.NewRotationalQuantizerWithCenters(d, 42, centers)
-
-	n := numCenters * numClusterVectors
-	vectors := make([][]float32, n)
-	codes := make([]compressionhelpers.RQEncoding, n)
-	codesCentered := make([]compressionhelpers.RQEncoding, n)
-	i := 0
-	for _, c := range centers {
-		for range numClusterVectors {
-			// Generate a random point that is highly correlated with the current center.
-			v := vg.RandomUnitVector(d)
-			for s := range v {
-				v[s] = 0.75*c[s] + 0.25*v[s]
-			}
-			vectors[i] = v
-			i++
-		}
-	}
-
-	for i := range vectors {
-		codes[i] = rq.Encode(vectors[i], bits)
-		codesCentered[i] = rqCentered.Encode(vectors[i], bits)
-	}
-
-	query := vg.RandomUnitVector(d)
-
-	metrics := []distancer.Provider{
-		distancer.NewCosineDistanceProvider(),
-		distancer.NewDotProductProvider(),
-		distancer.NewL2SquaredProvider(),
-	}
-
-	for _, m := range metrics {
-		distancer := rq.NewDistancer(query, m, bits)
-		distancerCentered := rqCentered.NewDistancer(query, m, bits)
-		var errorSum float64
-		var errorSumCentered float64
-		for i := range vectors {
-			expected, _ := m.SingleDist(query, vectors[i])
-			estimated, _ := distancer.Distance(codes[i])
-			estimatedCentered, _ := distancerCentered.Distance(codesCentered[i])
-			absDiff := math.Abs(float64(expected - estimated))
-			errorSum += absDiff
-			absDiffCentered := math.Abs(float64(expected - estimatedCentered))
-			errorSumCentered += absDiffCentered
-			assert.Less(t, absDiff, 1e-2)
-			assert.Less(t, absDiffCentered, 1e-2)
-		}
-		// Centering tends to reduce the error.
-		assert.Less(t, errorSumCentered/errorSum, 0.5)
 	}
 }
 
 func BenchmarkRQEncode(b *testing.B) {
-	dimensions := []int{64, 256, 1024}
-	encodingBits := []int{1, 2, 4, 8}
-	vg := NewVectorGenerator()
+	rng := newRNG(42)
+	dimensions := []int{64, 128, 256, 512, 1024, 2048}
 	for _, dim := range dimensions {
-		for _, bits := range encodingBits {
-			rq := compressionhelpers.NewRotationalQuantizer(dim, 42)
-			b.Run(fmt.Sprintf("RQ-d%d-b%d", dim, bits), func(b *testing.B) {
-				for b.Loop() {
-					b.StopTimer()
-					x := vg.RandomUnitVector(dim)
-					b.StartTimer()
-					rq.Encode(x, bits)
-				}
-				b.ReportMetric(float64(b.Elapsed().Microseconds())/float64(b.N), "us/op")
-			})
-		}
+		quantizer := defaultRotationalQuantizer(dim, rng.Uint64())
+		x := make([]float32, dim)
+		b.Run(fmt.Sprintf("FastRQEncode-d%d", dim), func(b *testing.B) {
+			for b.Loop() {
+				quantizer.Encode(x)
+			}
+			b.ReportMetric(float64(b.Elapsed().Microseconds())/float64(b.N), "us/op")
+			b.ReportMetric(float64(b.N)/float64(b.Elapsed().Seconds()), "ops/sec")
+		})
 	}
 }
 
-func BenchmarkRQNew(b *testing.B) {
-	dimensions := []int{32, 128, 512, 1024, 1536}
+// Could be made faster if we didn't have to do the conversion to an RQCode internally.
+func BenchmarkRQDistancer(b *testing.B) {
+	rng := newRNG(42)
+	dimensions := []int{64, 128, 256, 512, 1024, 1536, 2048}
+	metrics := []distancer.Provider{
+		distancer.NewCosineDistanceProvider(),
+		distancer.NewDotProductProvider(),
+		distancer.NewL2SquaredProvider(),
+	}
 	for _, dim := range dimensions {
-		b.Run(fmt.Sprintf("RQ-d%d", dim), func(b *testing.B) {
-			for b.Loop() {
-				compressionhelpers.NewRotationalQuantizer(dim, 42)
-			}
-			b.ReportMetric(float64(b.Elapsed().Seconds())/float64(b.N), "sec/op")
-		})
+		for _, m := range metrics {
+			bits := 8
+			quantizer := compressionhelpers.NewRotationalQuantizer(dim, rng.Uint64(), bits, bits, m)
+			q, x := correlatedVectors(dim, 0.5)
+			cx := quantizer.Encode(x)
+			distancer := quantizer.NewDistancer(q)
+			b.Run(fmt.Sprintf("RQDistancer-d%d-%s", dim, m.Type()), func(b *testing.B) {
+				for b.Loop() {
+					distancer.Distance(cx)
+				}
+				b.ReportMetric((float64(b.N)/1e6)/float64(b.Elapsed().Seconds()), "m.ops/sec")
+			})
+		}
 	}
 }
