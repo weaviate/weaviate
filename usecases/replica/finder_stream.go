@@ -67,7 +67,7 @@ func (f *finderStream) readOne(ctx context.Context,
 				f.log.WithField("op", "get").WithField("replica", resp.sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
-				resultCh <- objResult{nil, errRead}
+				resultCh <- objResult{nil, ErrRead}
 				return
 			}
 			if !resp.DigestRead {
@@ -106,7 +106,7 @@ func (f *finderStream) readOne(ctx context.Context,
 			return
 		}
 
-		resultCh <- objResult{nil, errors.Wrap(err, errRepair.Error())}
+		resultCh <- objResult{nil, errors.Wrap(err, ErrRepair.Error())}
 		var sb strings.Builder
 		for i, c := range votes {
 			if i != 0 {
@@ -153,7 +153,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 				f.log.WithField("op", "exists").WithField("replica", resp.Sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
-				resultCh <- _Result[bool]{false, errRead}
+				resultCh <- _Result[bool]{false, ErrRead}
 				return
 			}
 
@@ -183,7 +183,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 			resultCh <- _Result[bool]{obj, nil}
 			return
 		}
-		resultCh <- _Result[bool]{false, errors.Wrap(err, errRepair.Error())}
+		resultCh <- _Result[bool]{false, errors.Wrap(err, ErrRepair.Error())}
 
 		var sb strings.Builder
 		for i, c := range votes {
@@ -224,7 +224,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 			if r.Err != nil { // at least one node is not responding
 				f.log.WithField("op", "read_batch.get").WithField("replica", r.Value.Sender).
 					WithField("class", f.class).WithField("shard", batch.Shard).Error(r.Err)
-				resultCh <- batchResult{nil, errRead}
+				resultCh <- batchResult{nil, ErrRead}
 				return
 			}
 			if !resp.IsDigest {
@@ -262,7 +262,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		}
 		res, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, contentIdx)
 		if err != nil {
-			resultCh <- batchResult{nil, errRepair}
+			resultCh <- batchResult{nil, ErrRepair}
 			f.log.WithField("op", "repair_batch").WithField("class", f.class).
 				WithField("shard", batch.Shard).WithField("uuids", ids).Error(err)
 			return
