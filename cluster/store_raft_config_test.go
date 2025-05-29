@@ -157,7 +157,7 @@ func TestRaftConfig(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := NewFSM(tt.config, nil, nil, prometheus.NewPedanticRegistry(), nil)
+			store := NewFSM(tt.config, nil, nil, prometheus.NewPedanticRegistry())
 			cfg := store.raftConfig()
 			require.NotNil(t, cfg)
 			tt.expectedConfig(cfg)
