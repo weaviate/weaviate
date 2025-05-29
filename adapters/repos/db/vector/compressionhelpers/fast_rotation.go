@@ -90,7 +90,7 @@ func permuteAndApplySigns(x []float64, p []int32, s []int8) {
 }
 
 func (r *FastRotation) Rotate(x []float32) []float32 {
-	tmp := make([]float64, len(x))
+	tmp := make([]float64, r.outputDim)
 	for i := range x {
 		tmp[i] = float64(x[i])
 	}
