@@ -15,7 +15,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"math/rand"
+	"math/rand/v2"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -37,11 +37,15 @@ type MuveraEncoder struct {
 	gaussians            [][][]float32 // Random Gaussian vectors for SimHash projection
 	S                    [][][]float32 // Random projection matrix with ±1 entries
 	Sfinal               [][]float32   // Random projection matrix with ±1 entries
+	Seed                 uint64
+	rng                  *rand.Rand
 	dotDistancerProvider distancer.Provider
 	muveraStore          *lsmkv.Store
 }
 
 func NewMuveraEncoder(config ent.MuveraConfig, muveraStore *lsmkv.Store) *MuveraEncoder {
+	seed := uint64(0x535ab5105169b1df)
+	rng := rand.New(rand.NewPCG(seed, 0x385ab5285169b1ac))
 	encoder := &MuveraEncoder{
 		config: MuveraConfig{
 			KSim:         config.KSim,
@@ -49,6 +53,8 @@ func NewMuveraEncoder(config ent.MuveraConfig, muveraStore *lsmkv.Store) *Muvera
 			DProjections: config.DProjections,
 			Repetitions:  config.Repetitions,
 		},
+		Seed:                 seed,
+		rng:                  rng,
 		dotDistancerProvider: distancer.NewDotProductProvider(),
 		muveraStore:          muveraStore,
 	}
@@ -66,22 +72,22 @@ func (encoder *MuveraEncoder) InitEncoder(dimensions int) {
 		for i := 0; i < encoder.config.KSim; i++ {
 			encoder.gaussians[rep][i] = make([]float32, encoder.config.Dimensions)
 			for j := 0; j < encoder.config.Dimensions; j++ {
-				u1 := rand.Float64()
-				u2 := rand.Float64()
+				u1 := encoder.rng.Float64()
+				u2 := encoder.rng.Float64()
 				encoder.gaussians[rep][i][j] = float32(math.Sqrt(-2.0*math.Log(u1)) * math.Cos(2*math.Pi*u2))
 			}
 		}
 
-		encoder.S[rep] = initProjectionMatrix(encoder.config.DProjections, encoder.config.Dimensions)
+		encoder.S[rep] = encoder.initProjectionMatrix(encoder.config.DProjections, encoder.config.Dimensions)
 	}
 }
 
-func initProjectionMatrix(rows int, cols int) [][]float32 {
+func (e *MuveraEncoder) initProjectionMatrix(rows int, cols int) [][]float32 {
 	matrix := make([][]float32, rows)
 	for i := 0; i < rows; i++ {
 		matrix[i] = make([]float32, cols)
 		for j := 0; j < cols; j++ {
-			matrix[i][j] = float32(rand.Intn(2)*2 - 1)
+			matrix[i][j] = float32(e.rng.IntN(2)*2 - 1)
 		}
 	}
 	return matrix
