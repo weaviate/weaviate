@@ -39,15 +39,21 @@ func TestParseRuntimeConfig(t *testing.T) {
 func TestUpdateRuntimeConfig(t *testing.T) {
 	t.Run("updating should reflect changes in registered configs", func(t *testing.T) {
 		var (
-			colCount   runtime.DynamicValue[int]
-			autoSchema runtime.DynamicValue[bool]
-			asyncRep   runtime.DynamicValue[bool]
+			colCount                 runtime.DynamicValue[int]
+			autoSchema               runtime.DynamicValue[bool]
+			asyncRep                 runtime.DynamicValue[bool]
+			readLogLevel             runtime.DynamicValue[string]
+			writeLogLevel            runtime.DynamicValue[string]
+			revectorizeCheckDisabled runtime.DynamicValue[bool]
 		)
 
 		reg := &WeaviateRuntimeConfig{
 			MaximumAllowedCollectionsCount: &colCount,
 			AutoschemaEnabled:              &autoSchema,
 			AsyncReplicationDisabled:       &asyncRep,
+			TenantActivityReadLogLevel:     &readLogLevel,
+			TenantActivityWriteLogLevel:    &writeLogLevel,
+			RevectorizeCheckDisabled:       &revectorizeCheckDisabled,
 		}
 
 		// parsed from yaml configs for example
@@ -73,15 +79,21 @@ maximum_allowed_collections_count: 13`)
 		// 2. If field exist, but removed next time, should return default value not the old value.
 
 		var (
-			colCount   runtime.DynamicValue[int]
-			autoSchema runtime.DynamicValue[bool]
-			asyncRep   runtime.DynamicValue[bool]
+			colCount                 runtime.DynamicValue[int]
+			autoSchema               runtime.DynamicValue[bool]
+			asyncRep                 runtime.DynamicValue[bool]
+			readLogLevel             runtime.DynamicValue[string]
+			writeLogLevel            runtime.DynamicValue[string]
+			revectorizeCheckDisabled runtime.DynamicValue[bool]
 		)
 
 		reg := &WeaviateRuntimeConfig{
 			MaximumAllowedCollectionsCount: &colCount,
 			AutoschemaEnabled:              &autoSchema,
 			AsyncReplicationDisabled:       &asyncRep,
+			TenantActivityReadLogLevel:     &readLogLevel,
+			TenantActivityWriteLogLevel:    &writeLogLevel,
+			RevectorizeCheckDisabled:       &revectorizeCheckDisabled,
 		}
 
 		// parsed from yaml configs for example
