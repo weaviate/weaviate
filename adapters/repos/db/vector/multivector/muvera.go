@@ -44,7 +44,7 @@ type MuveraEncoder struct {
 }
 
 func NewMuveraEncoder(config ent.MuveraConfig, muveraStore *lsmkv.Store) *MuveraEncoder {
-	seed := uint64(0x535ab5105169b1df)
+	seed := uint64(0x532ca5105169b1df)
 	rng := rand.New(rand.NewPCG(seed, 0x385ab5285169b1ac))
 	encoder := &MuveraEncoder{
 		config: MuveraConfig{
