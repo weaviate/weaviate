@@ -156,6 +156,17 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationDeletingTenantCleansU
 					assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
 				}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
 			})
+
+			t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {
+				nodes, err := helper.Client(t).Nodes.
+					NodesGetClass(nodes.NewNodesGetClassParams().WithClassName(paragraphClass.Class), nil)
+				require.Nil(t, err)
+				for _, node := range nodes.Payload.Nodes {
+					for _, shard := range node.Shards {
+						require.Len(t, shard.AsyncReplicationStatus, 0)
+					}
+				}
+			})
 		})
 	}
 }
