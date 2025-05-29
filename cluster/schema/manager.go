@@ -38,6 +38,7 @@ type replicationFSM interface {
 	HasOngoingReplication(collection string, shard string, replica string) bool
 	DeleteReplicationsByCollection(collection string) error
 	DeleteReplicationsByTenants(collection string, tenants []string) error
+	SetUnCancellable(id uint64) error
 }
 
 type SchemaManager struct {
@@ -518,6 +519,33 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 					}
 					return nil
 				})
+			},
+			schemaOnly: schemaOnly,
+		},
+	)
+}
+
+func (s *SchemaManager) ReplicationAddReplicaToShard(cmd *command.ApplyRequest, schemaOnly bool) error {
+	req := command.ReplicationAddReplicaToShard{}
+	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return s.apply(
+		applyOp{
+			op: cmd.GetType().String(),
+			updateSchema: func() error {
+				err := s.replicationFSM.SetUnCancellable(req.OpId)
+				if err != nil {
+					return fmt.Errorf("set un-cancellable: %w", err)
+				}
+				return s.schema.addReplicaToShard(cmd.Class, cmd.Version, req.Shard, req.TargetNode)
+			},
+			updateStore: func() error {
+				if req.TargetNode == s.schema.nodeID {
+					return s.db.AddReplicaToShard(req.Class, req.Shard, req.TargetNode)
+				}
+				return nil
 			},
 			schemaOnly: schemaOnly,
 		},

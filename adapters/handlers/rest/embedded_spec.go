@@ -3719,6 +3719,12 @@ func init() {
           "404": {
             "description": "Shard replica operation not found."
           },
+          "409": {
+            "description": "The operation is not in a deletable state, e.g. it is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -3764,6 +3770,12 @@ func init() {
           },
           "404": {
             "description": "Shard replica operation not found."
+          },
+          "409": {
+            "description": "The operation is not in a cancellable state, e.g. it is READY or is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
@@ -11873,6 +11885,12 @@ func init() {
           "404": {
             "description": "Shard replica operation not found."
           },
+          "409": {
+            "description": "The operation is not in a deletable state, e.g. it is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
             "schema": {
@@ -11918,6 +11936,12 @@ func init() {
           },
           "404": {
             "description": "Shard replica operation not found."
+          },
+          "409": {
+            "description": "The operation is not in a cancellable state, e.g. it is READY or is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
