@@ -131,11 +131,9 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 		case <-ticker.C:
 			if c.Raft.store.FSMHasCaughtUp() {
 				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
-				engineCtx, engineCancel := context.WithCancel(ctx)
-				c.cancelReplicationEngine = engineCancel
 				enterrors.GoWrapper(func() {
 					// The context is cancelled by the engine itself when it is stopped
-					if err := c.replicationEngine.Start(engineCtx); err != nil {
+					if err := c.replicationEngine.Start(ctx); err != nil {
 						c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
 					}
 				}, c.logger)
@@ -148,6 +146,9 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 // Open internal RPC service to handle node communication,
 // bootstrap the Raft node, and restore the database state
 func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
+	replicationEngineCtx, replicationEngineCancel := context.WithCancel(ctx)
+	c.cancelReplicationEngine = replicationEngineCancel
+
 	c.logger.WithField("servers", c.config.NodeNameToPortMap).Info("open cluster service")
 	if err := c.rpcServer.Open(); err != nil {
 		return fmt.Errorf("start rpc service: %w", err)
@@ -178,6 +179,8 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			case <-c.snapshotRestoreChan:
 				// The replication FSM has been restored from a snapshot, we need to stop and restart
 				// the replication engine to ensure that it is in sync with the new state.
+				// If there is already a replication engine running, we cancel it to ensure that the new one starts cleanly.
+				c.cancelReplicationEngine()
 				c.replicationEngine.Stop()
 				engineCtx, engineCancel := context.WithCancel(ctx)
 				c.cancelReplicationEngine = engineCancel
@@ -227,7 +230,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	}
 
 	enterrors.GoWrapper(func() {
-		c.onFSMCaughtUp(ctx)
+		c.onFSMCaughtUp(replicationEngineCtx)
 	}, c.logger)
 	return nil
 }
@@ -242,9 +245,7 @@ func (c *Service) Close(ctx context.Context) error {
 	}, c.logger)
 
 	c.logger.Info("closing replication engine ...")
-	if c.cancelReplicationEngine != nil {
-		c.cancelReplicationEngine()
-	}
+	c.cancelReplicationEngine()
 	c.replicationEngine.Stop()
 
 	c.logger.Info("closing raft FSM store ...")
