@@ -53,7 +53,9 @@ func (m *Manager) Snapshot() ([]byte, error) {
 func (m *Manager) Restore(bytes []byte) error {
 	// Push a sentinel to the snapshot restore channel to signal that a restore is in progress
 	// This is done asynchronously to avoid blocking the FSM restore operations while the replication engine restarts
-	m.snapshotRestoreChan <- struct{}{}
+	if m.snapshotRestoreChan != nil {
+		m.snapshotRestoreChan <- struct{}{}
+	}
 	return m.replicationFSM.Restore(bytes)
 }
 
