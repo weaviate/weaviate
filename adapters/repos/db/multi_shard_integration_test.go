@@ -23,10 +23,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/replication/types"
-	types2 "github.com/weaviate/weaviate/cluster/schema/types"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -290,7 +286,7 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil, cluster.NewMockNodeSelector(t), types2.NewMockSchemaReader(t), types.NewMockReplicationFSMReader(t))
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
 	require.Nil(t, err)
 	return repo, logger
 }

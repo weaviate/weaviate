@@ -34,8 +34,8 @@ const (
 
 // Client is used to read and write objects on replicas
 type Client interface {
-	rClient
-	wClient
+	RClient
+	WClient
 }
 
 // StatusCode is communicate the cause of failure during replication
@@ -173,8 +173,8 @@ type DigestObjectsInRangeResp struct {
 	Digests []types.RepairResponse `json:"digests,omitempty"`
 }
 
-// wClient is the client used to write to replicas
-type wClient interface {
+// WClient is the client used to write to replicas
+type WClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
 		obj *storobj.Object, schemaVersion uint64) (SimpleResponse, error)
 	DeleteObject(ctx context.Context, host, index, shard, requestID string,
@@ -191,8 +191,8 @@ type wClient interface {
 	Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error)
 }
 
-// rClient is the client used to read from remote replicas
-type rClient interface {
+// RClient is the client used to read from remote replicas
+type RClient interface {
 	// FetchObject fetches one object
 	FetchObject(_ context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
@@ -225,7 +225,7 @@ type rClient interface {
 
 // finderClient extends RClient with consistency checks
 type finderClient struct {
-	cl rClient
+	cl RClient
 }
 
 // FullRead reads full object

@@ -18,7 +18,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
@@ -63,33 +62,6 @@ func TestBatchInput(t *testing.T) {
 	assert.ElementsMatch(t, parts[1].ObjectIDs(), []strfmt.UUID{ids[1], ids[4], ids[6], ids[7], ids[8]})
 	assert.Equal(t, parts[1].Shard, "S1")
 	assert.Equal(t, parts[1].Node, "N1")
-}
-
-func genInputs(node, shard string, updateTime int64, ids []strfmt.UUID) ([]*storobj.Object, []types.RepairResponse) {
-	xs := make([]*storobj.Object, len(ids))
-	digestR := make([]types.RepairResponse, len(ids))
-	for i, id := range ids {
-		xs[i] = &storobj.Object{
-			Object: models.Object{
-				ID:                 id,
-				LastUpdateTimeUnix: updateTime,
-			},
-			BelongsToShard: shard,
-			BelongsToNode:  node,
-		}
-		digestR[i] = types.RepairResponse{ID: ids[i].String(), UpdateTime: updateTime}
-	}
-	return xs, digestR
-}
-
-func setObjectsConsistency(xs []*storobj.Object, isConsistent bool) []*storobj.Object {
-	want := make([]*storobj.Object, len(xs))
-	for i, x := range xs {
-		cp := *x
-		cp.IsConsistent = isConsistent
-		want[i] = &cp
-	}
-	return want
 }
 
 func objectEx(id strfmt.UUID, lastTime int64, shard, node string) *storobj.Object {

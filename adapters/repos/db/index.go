@@ -224,7 +224,6 @@ type Index struct {
 	closed    bool
 
 	shardReindexer ShardReindexerV3
-	router         router.Router
 }
 
 func (i *Index) ID() string {
@@ -246,7 +245,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig,
-	router router.Router, sg schemaUC.SchemaGetter,
+	router *router.Router, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
@@ -291,7 +290,6 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		shardCreateLocks:        esync.NewKeyLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
-		router:                  router,
 	}
 
 	getDeletionStrategy := func() string {
