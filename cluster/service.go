@@ -154,16 +154,6 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("start rpc service: %w", err)
 	}
 
-	if err := c.Raft.Open(ctx, db); err != nil {
-		return fmt.Errorf("open raft store: %w", err)
-	}
-
-	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
-	if err != nil {
-		return err
-	}
-	c.log.WithField("hasState", hasState).Info("raft init")
-
 	// Spawn a background goroutine to respond to snapshot restore events that require the replication engine to
 	// restart. This is required so that potentially stale replication operations are cancelled after a snapshot restore.
 	// The goroutine will be closed when the bootstrapper is closed.
@@ -190,6 +180,16 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			}
 		}
 	}, c.logger)
+
+	if err := c.Raft.Open(ctx, db); err != nil {
+		return fmt.Errorf("open raft store: %w", err)
+	}
+
+	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
+	if err != nil {
+		return err
+	}
+	c.log.WithField("hasState", hasState).Info("raft init")
 
 	// If we have a state in raft, we only want to re-join the nodes in raft_join list to ensure that we update the
 	// configuration with our current ip.
