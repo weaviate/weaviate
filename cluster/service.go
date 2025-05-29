@@ -143,33 +143,34 @@ func (c *Service) onFSMCaughtUp(ctx context.Context) {
 	}
 }
 
-// Spawn a background goroutine to respond to snapshot restore events that require the replication engine to
-// restart.
+// listenToSnapshotRestore listens for snapshot restore events and restarts the replication engine if needed by looping
+// forever until the bootstrapper is closed or a snapshot restore event is received.
 //
 // This is required so that potentially stale replication operations are cancelled after a snapshot restore.
 // The goroutine will be closed when the bootstrapper is closed.
-func (c *Service) listenToSnapshotRestore() {
+func (c *Service) listenToSnapshotRestore(ctx context.Context) {
 	// This method is used to listen to snapshot restore events and restart the replication engine if needed.
 	// It is called in the Open method to ensure that the replication engine is restarted when a snapshot restore occurs.
-	enterrors.GoWrapper(func() {
-		for {
-			select {
-			case <-c.closeBootstrapper:
-				c.logger.Info("snapshot restore listener: bootstrapper closed")
-				return
-			case <-c.snapshotRestoreChan:
-				if c.cancelReplicationEngine != nil {
-					c.cancelReplicationEngine()
-				}
-				c.replicationEngine.Stop()
-				engineCtx, engineCancel := context.WithCancel(context.Background())
-				c.cancelReplicationEngine = engineCancel
-				if err := c.replicationEngine.Start(engineCtx); err != nil {
-					c.logger.WithError(err).Error("replication engine FSM snapshot restore: failed to start")
-				}
+	for {
+		select {
+		case <-ctx.Done():
+			c.logger.Info("snapshot restore listener: context done")
+			return
+		case <-c.closeBootstrapper:
+			c.logger.Info("snapshot restore listener: bootstrapper closed")
+			return
+		case <-c.snapshotRestoreChan:
+			if c.cancelReplicationEngine != nil {
+				c.cancelReplicationEngine()
+			}
+			c.replicationEngine.Stop()
+			engineCtx, engineCancel := context.WithCancel(ctx)
+			c.cancelReplicationEngine = engineCancel
+			if err := c.replicationEngine.Start(engineCtx); err != nil {
+				c.logger.WithError(err).Error("replication engine FSM snapshot restore: failed to start")
 			}
 		}
-	}, c.logger)
+	}
 }
 
 // Open internal RPC service to handle node communication,
@@ -183,7 +184,9 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("start rpc service: %w", err)
 	}
 
-	c.listenToSnapshotRestore()
+	enterrors.GoWrapper(func() {
+		c.listenToSnapshotRestore(ctx)
+	}, c.logger)
 
 	if err := c.Raft.Open(ctx, db); err != nil {
 		return fmt.Errorf("open raft store: %w", err)
