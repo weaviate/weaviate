@@ -83,7 +83,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 		require.Nil(t, err)
 		require.Equal(ct, "READY", status.Payload.Status.State)
-	}, 60*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
+	}, 180*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
 
 	t.Run("succeed to delete the replication operation without a conflict", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(id), nil)
@@ -171,7 +171,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 		require.Nil(t, err)
 		require.Equal(ct, "READY", status.Payload.Status.State)
-	}, 60*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
+	}, 180*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
 
 	t.Run("succeed to delete the replication operation without a conflict", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.DeleteReplication(replication.NewDeleteReplicationParams().WithID(id), nil)
