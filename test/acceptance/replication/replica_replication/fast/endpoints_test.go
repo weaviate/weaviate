@@ -45,7 +45,7 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithText2VecContextionary().
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		Start(mainCtx)
 	require.Nil(t, err)
 	suite.compose = compose

@@ -362,7 +362,8 @@ jobs:
           "--acceptance-only-authz",
           "--acceptance-only-replication",
           "--acceptance-only-async-replication",
-          "--acceptance-only-replica-replication",
+          "--acceptance-only-replica-replication-fast",
+          "--acceptance-only-replica-replication-slow",
           "--acceptance-go-client-only-fast",
           "--acceptance-only-python",
         ]
