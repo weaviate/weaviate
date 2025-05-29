@@ -68,6 +68,7 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
 			assert.Nil(t, err)
 
+			assert.NotNil(t, resp)
 			nodeStatusResp := resp.GetPayload()
 			assert.NotNil(t, nodeStatusResp)
 
