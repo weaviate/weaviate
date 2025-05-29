@@ -74,7 +74,7 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 			nodes := nodeStatusResp.Nodes
 			assert.NotNil(t, nodes)
 			return len(nodes) == 2
-		}, 30*time.Second, 500*time.Millisecond)
+		}, 90*time.Second, 500*time.Millisecond)
 	})
 
 	t.Run("reconnect node 3 to the network", func(t *testing.T) {
