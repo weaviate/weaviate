@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replica_replication
+package replication
 
 import (
 	"context"
@@ -48,19 +48,20 @@ var paragraphIDs = []strfmt.UUID{
 	strfmt.UUID("50566856-5d0a-4fb1-a390-e099bc236f66"),
 }
 
-type ReplicationTestSuite struct {
+type ReplicationHappyPathTestSuite struct {
 	suite.Suite
 }
 
-func (suite *ReplicationTestSuite) SetupTest() {
-	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+func (suite *ReplicationHappyPathTestSuite) SetupSuite() {
+	t := suite.T()
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 }
 
-func TestReplicationTestSuite(t *testing.T) {
-	suite.Run(t, new(ReplicationTestSuite))
+func TestReplicationHappyPathTestSuite(t *testing.T) {
+	suite.Run(t, new(ReplicationHappyPathTestSuite))
 }
 
-func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
+func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 	t := suite.T()
 	mainCtx := context.Background()
 
@@ -244,7 +245,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementHappyPath() {
 	})
 }
 
-func (suite *ReplicationTestSuite) TestReplicaMovementTenantHappyPath() {
+func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath() {
 	t := suite.T()
 	mainCtx := context.Background()
 
