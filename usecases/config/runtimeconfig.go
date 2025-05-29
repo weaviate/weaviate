@@ -31,6 +31,7 @@ type WeaviateRuntimeConfig struct {
 	AsyncReplicationDisabled       *runtime.DynamicValue[bool]   `json:"async_replication_disabled" yaml:"async_replication_disabled"`
 	TenantActivityReadLogLevel     *runtime.DynamicValue[string] `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
 	TenantActivityWriteLogLevel    *runtime.DynamicValue[string] `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
+	RevectorizeCheckDisabled       *runtime.DynamicValue[bool]   `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
