@@ -577,7 +577,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	// this time will be used to make sure async replication has propagated any writes which
 	// were received during the hydrating phase
-	asyncReplicationUpperTimeBoundUnixMillis := time.Now().UnixMilli()
+	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(time.Second * 5).UnixMilli()
 
 	// start async replication from source node to target node
 	targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
