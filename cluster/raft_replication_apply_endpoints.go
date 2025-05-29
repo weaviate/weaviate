@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -128,6 +129,12 @@ func (s *Raft) CancelReplication(ctx context.Context, uuid strfmt.UUID) error {
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(ctx, command); err != nil {
+		if strings.Contains(err.Error(), replicationTypes.ErrReplicationOperationNotFound.Error()) {
+			return fmt.Errorf("execute cancel replication: %w", replicationTypes.ErrReplicationOperationNotFound)
+		}
+		if strings.Contains(err.Error(), replicationTypes.ErrCancellationImpossible.Error()) {
+			return fmt.Errorf("execute cancel replication: %w", replicationTypes.ErrCancellationImpossible)
+		}
 		return err
 	}
 	return nil
@@ -148,6 +155,12 @@ func (s *Raft) DeleteReplication(ctx context.Context, uuid strfmt.UUID) error {
 		SubCommand: subCommand,
 	}
 	if _, err := s.Execute(ctx, command); err != nil {
+		if strings.Contains(err.Error(), replicationTypes.ErrReplicationOperationNotFound.Error()) {
+			return fmt.Errorf("execute delete replication: %w", replicationTypes.ErrReplicationOperationNotFound)
+		}
+		if strings.Contains(err.Error(), replicationTypes.ErrDeletionImpossible.Error()) {
+			return fmt.Errorf("execute delete replication: %w", replicationTypes.ErrDeletionImpossible)
+		}
 		return err
 	}
 	return nil

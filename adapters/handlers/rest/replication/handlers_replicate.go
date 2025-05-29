@@ -175,6 +175,9 @@ func (h *replicationHandler) deleteReplication(params replication.DeleteReplicat
 		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
 			return replication.NewDeleteReplicationNoContent()
 		}
+		if errors.Is(err, replicationTypes.ErrDeletionImpossible) {
+			return replication.NewDeleteReplicationConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
 		return replication.NewDeleteReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -218,9 +221,12 @@ func (h *replicationHandler) cancelReplication(params replication.CancelReplicat
 
 	if err := h.replicationManager.CancelReplication(params.HTTPRequest.Context(), params.ID); err != nil {
 		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
-			return h.handleOperationNotFoundError(params.ID, err)
+			return replication.NewCancelReplicationNoContent()
 		}
-		return h.handleInternalServerError(params.ID, err)
+		if errors.Is(err, replicationTypes.ErrCancellationImpossible) {
+			return replication.NewCancelReplicationConflict().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+		return replication.NewCancelReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	h.logger.WithFields(logrus.Fields{

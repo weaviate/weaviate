@@ -169,6 +169,52 @@ func (_c *MockreplicationFSM_HasOngoingReplication_Call) RunAndReturn(run func(s
 	return _c
 }
 
+// SetUnCancellable provides a mock function with given fields: id
+func (_m *MockreplicationFSM) SetUnCancellable(id uint64) error {
+	ret := _m.Called(id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for SetUnCancellable")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(uint64) error); ok {
+		r0 = rf(id)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockreplicationFSM_SetUnCancellable_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'SetUnCancellable'
+type MockreplicationFSM_SetUnCancellable_Call struct {
+	*mock.Call
+}
+
+// SetUnCancellable is a helper method to define mock.On call
+//   - id uint64
+func (_e *MockreplicationFSM_Expecter) SetUnCancellable(id interface{}) *MockreplicationFSM_SetUnCancellable_Call {
+	return &MockreplicationFSM_SetUnCancellable_Call{Call: _e.mock.On("SetUnCancellable", id)}
+}
+
+func (_c *MockreplicationFSM_SetUnCancellable_Call) Run(run func(id uint64)) *MockreplicationFSM_SetUnCancellable_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(uint64))
+	})
+	return _c
+}
+
+func (_c *MockreplicationFSM_SetUnCancellable_Call) Return(_a0 error) *MockreplicationFSM_SetUnCancellable_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockreplicationFSM_SetUnCancellable_Call) RunAndReturn(run func(uint64) error) *MockreplicationFSM_SetUnCancellable_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockreplicationFSM creates a new instance of MockreplicationFSM. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockreplicationFSM(t interface {
