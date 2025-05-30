@@ -22,8 +22,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,12 +44,11 @@ func TestEstimation(t *testing.T) {
 }
 
 func TestMonitor(t *testing.T) {
-	logger, _ := test.NewNullLogger()
 	t.Run("with constant profiles (no changes)", func(t *testing.T) {
 		metrics := &fakeHeapReader{val: 30000}
 		limiter := &fakeLimitSetter{limit: 100000}
 
-		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97, logger)
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
 		m.Refresh(true)
 
 		assert.Equal(t, 0.3, m.Ratio())
@@ -61,7 +58,7 @@ func TestMonitor(t *testing.T) {
 		metrics := &fakeHeapReader{val: 700 * MiB}
 		limiter := &fakeLimitSetter{limit: 1 * GiB}
 
-		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97, logger)
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
 		m.Refresh(true)
 
 		err := m.CheckAlloc(100 * MiB)
@@ -78,7 +75,7 @@ func TestMonitor(t *testing.T) {
 		metrics := &fakeHeapReader{val: 1025 * MiB}
 		limiter := &fakeLimitSetter{limit: 1 * GiB}
 
-		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97, logger)
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
 		m.Refresh(true)
 
 		err := m.CheckAlloc(1 * B)
@@ -93,7 +90,7 @@ func TestMonitor(t *testing.T) {
 	})
 
 	t.Run("with real dependencies", func(t *testing.T) {
-		m := NewMonitor(LiveHeapReader, debug.SetMemoryLimit, 0.97, logger)
+		m := NewMonitor(LiveHeapReader, debug.SetMemoryLimit, 0.97)
 		_ = m.Ratio()
 	})
 }
@@ -102,7 +99,6 @@ func TestMappings(t *testing.T) {
 	// dont matter here
 	metrics := &fakeHeapReader{val: 30000}
 	limiter := &fakeLimitSetter{limit: 100000}
-	logger, _ := test.NewNullLogger()
 
 	t.Run("max memory mappings set correctly", func(t *testing.T) {
 		t.Setenv("MAX_MEMORY_MAPPINGS", "120")
@@ -147,10 +143,10 @@ func TestMappings(t *testing.T) {
 		tmpBuf := make([]byte, 4096)
 		switch runtime.GOOS {
 		case "linux":
-			assert.Greater(t, getCurrentMappings(tmpBuf, logger), int64(0))
-			assert.Less(t, getCurrentMappings(tmpBuf, logger), int64(math.MaxInt64))
+			assert.Greater(t, getCurrentMappings(tmpBuf), int64(0))
+			assert.Less(t, getCurrentMappings(tmpBuf), int64(math.MaxInt64))
 		case "darwin":
-			assert.Equal(t, getCurrentMappings(tmpBuf, logger), int64(0))
+			assert.Equal(t, getCurrentMappings(tmpBuf), int64(0))
 		}
 	})
 
@@ -158,10 +154,10 @@ func TestMappings(t *testing.T) {
 		if runtime.GOOS == "darwin" {
 			t.Skip("macOS does not have a limit on mappings")
 		}
-		currentMappings := getCurrentMappings(make([]byte, 4096), logger)
+		currentMappings := getCurrentMappings(make([]byte, 4096))
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
-		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97, logger)
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
 		m.Refresh(true)
 
 		mappingsLeft := getMaxMemoryMappings() - currentMappings
@@ -184,7 +180,7 @@ func TestMappings(t *testing.T) {
 
 			// there might be other processes that use mappings. Don't check any specific number just that we have
 			// reached the limit
-			if mappingsLeft := getMaxMemoryMappings() - getCurrentMappings(make([]byte, 4096), logger); mappingsLeft <= 0 {
+			if mappingsLeft := getMaxMemoryMappings() - getCurrentMappings(make([]byte, 4096)); mappingsLeft <= 0 {
 				limitReached = true
 				break
 			} else {
@@ -236,11 +232,11 @@ func TestMappings(t *testing.T) {
 	})
 
 	t.Run("check reservations", func(t *testing.T) {
-		currentMappings := getCurrentMappings(make([]byte, 4096), logger)
+		currentMappings := getCurrentMappings(make([]byte, 4096))
 		addMappings := 15
 		t.Setenv("MAX_MEMORY_MAPPINGS", strconv.FormatInt(currentMappings+int64(addMappings), 10))
 		maxMappings := getMaxMemoryMappings()
-		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97, logger)
+		m := NewMonitor(metrics.Read, limiter.SetMemoryLimit, 0.97)
 		m.Refresh(true)
 
 		// reserve up available mappings
