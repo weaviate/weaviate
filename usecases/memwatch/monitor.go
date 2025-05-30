@@ -24,6 +24,9 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -53,6 +56,7 @@ type Monitor struct {
 	limitSetter       limitSetter
 	maxRatio          float64
 	maxMemoryMappings int64
+	logger            logrus.FieldLogger
 
 	// state
 	mu                     sync.Mutex
@@ -85,7 +89,7 @@ type limitSetter func(size int64) int64
 // Typically this would be called with LiveHeapReader and
 // debug.SetMemoryLimit
 func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
-	maxRatio float64,
+	maxRatio float64, logger logrus.FieldLogger,
 ) *Monitor {
 	m := &Monitor{
 		metricsReader:          metricsReader,
@@ -95,6 +99,7 @@ func NewMonitor(metricsReader metricsReader, limitSetter limitSetter,
 		reservedMappingsBuffer: make([]int64, mappingsEntries), // one entry per second + buffer to handle delays
 		lastReservationsClear:  time.Now(),
 		readBuf:                make([]byte, 32*1024),
+		logger:                 logger,
 	}
 	m.Refresh(true)
 	return m
@@ -182,24 +187,48 @@ func (m *Monitor) obtainCurrentUsage() {
 }
 
 func (m *Monitor) obtainCurrentMappings() {
-	used := getCurrentMappings(m.readBuf)
+	used := getCurrentMappings(m.readBuf, m.logger)
 	monitoring.GetMetrics().MmapProcMaps.Set(float64(used))
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.usedMappings = used
 }
 
-func getCurrentMappings(tmpBuf []byte) int64 {
+func getCurrentMappings(tmpBuf []byte, logger logrus.FieldLogger) int64 {
 	switch runtime.GOOS {
 	case "linux":
-		return currentMappingsLinux(tmpBuf)
+		return currentMappingsLinux(tmpBuf, logger)
 	default:
 		return 0
 	}
 }
 
+type result struct {
+	count int
+	err   error
+}
+
+func readWithTimeout(file *os.File, buf []byte, timeout time.Duration, logger logrus.FieldLogger) (int, error) {
+	ch := make(chan result, 1)
+
+	enterrors.GoWrapper(
+		func() {
+			c, err := file.Read(buf)
+			ch <- result{c, err}
+		},
+		logger,
+	)
+
+	select {
+	case res := <-ch:
+		return res.count, res.err
+	case <-time.After(timeout):
+		return 0, fmt.Errorf("read timeout after %v", timeout)
+	}
+}
+
 // Counts the number of mappings by counting the number of lines within the maps file
-func currentMappingsLinux(tmpBuf []byte) int64 {
+func currentMappingsLinux(tmpBuf []byte, logger logrus.FieldLogger) int64 {
 	filePath := fmt.Sprintf("/proc/%d/maps", os.Getpid())
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -211,7 +240,7 @@ func currentMappingsLinux(tmpBuf []byte) int64 {
 	lineSep := []byte{'\n'}
 
 	for {
-		c, err := file.Read(tmpBuf)
+		c, err := readWithTimeout(file, tmpBuf, time.Second, logger)
 		count += int64(bytes.Count(tmpBuf[:c], lineSep))
 
 		switch {
