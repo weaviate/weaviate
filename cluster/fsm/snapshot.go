@@ -31,6 +31,8 @@ type Snapshot struct {
 	DistributedTasks []byte `json:"distributed_tasks,omitempty"`
 	// ReplicationOps are the currently ongoing operation for replica replication
 	ReplicationOps []byte `json:"replication_ops,omitempty"`
+	// DbUsers is the state of dynamic db users that will be used to restore the FSM
+	DbUsers []byte `json:"dbusers,omitempty"`
 }
 
 // Snapshotter is used to snapshot and restore any (FSM) state

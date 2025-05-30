@@ -117,6 +117,8 @@ type dynamic struct {
 	db                    *bbolt.DB
 	ctx                   context.Context
 	cancel                context.CancelFunc
+	hnswDisableSnapshots  bool
+	hnswSnapshotOnStartup bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -140,6 +142,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		TargetVector:     cfg.TargetVector,
 		Logger:           cfg.Logger,
 		DistanceProvider: cfg.DistanceProvider,
+		MinMMapSize:      cfg.MinMMapSize,
+		MaxWalReuseSize:  cfg.MaxWalReuseSize,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -163,6 +167,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		db:                    cfg.SharedDB,
 		ctx:                   ctx,
 		cancel:                cancel,
+		hnswDisableSnapshots:  cfg.HNSWDisableSnapshots,
+		hnswSnapshotOnStartup: cfg.HNSWSnapshotOnStartup,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
@@ -204,6 +210,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				TempVectorForIDThunk:  index.tempVectorForIDThunk,
 				DistanceProvider:      index.distanceProvider,
 				MakeCommitLoggerThunk: index.makeCommitLoggerThunk,
+				DisableSnapshots:      index.hnswDisableSnapshots,
+				SnapshotOnStartup:     index.hnswSnapshotOnStartup,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
@@ -519,6 +527,8 @@ func (dynamic *dynamic) doUpgrade() error {
 			TempVectorForIDThunk:  dynamic.tempVectorForIDThunk,
 			DistanceProvider:      dynamic.distanceProvider,
 			MakeCommitLoggerThunk: dynamic.makeCommitLoggerThunk,
+			DisableSnapshots:      dynamic.hnswDisableSnapshots,
+			SnapshotOnStartup:     dynamic.hnswSnapshotOnStartup,
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,

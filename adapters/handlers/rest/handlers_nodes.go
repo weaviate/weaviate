@@ -42,7 +42,7 @@ func (n *nodesHandlers) getNodesStatus(params nodes.NodesGetParams, principal *m
 		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	nodeStatuses, err := n.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, "", output)
+	nodeStatuses, err := n.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, "", "", output)
 	if err != nil {
 		return n.handleGetNodesError(err)
 	}
@@ -61,7 +61,12 @@ func (n *nodesHandlers) getNodesStatusByClass(params nodes.NodesGetClassParams, 
 		return nodes.NewNodesGetUnprocessableEntity().WithPayload(errPayloadFromSingleErr(err))
 	}
 
-	nodeStatuses, err := n.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, params.ClassName, output)
+	shardName := ""
+	if params.ShardName != nil {
+		shardName = *params.ShardName
+	}
+
+	nodeStatuses, err := n.manager.GetNodeStatus(params.HTTPRequest.Context(), principal, params.ClassName, shardName, output)
 	if err != nil {
 		return n.handleGetNodesError(err)
 	}

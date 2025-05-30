@@ -106,7 +106,11 @@ func CreateTestFiles(t *testing.T, dirPath string) []string {
 
 func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName string) {
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+		opts := []option.ClientOption{option.WithoutAuthentication()}
+		if emulatorHost := os.Getenv("STORAGE_EMULATOR_HOST"); emulatorHost != "" {
+			opts = append(opts, option.WithEndpoint(emulatorHost))
+		}
+		client, err := storage.NewClient(ctx, opts...)
 		assert.Nil(t, err)
 		defer client.Close()
 
@@ -116,7 +120,11 @@ func CreateGCSBucket(ctx context.Context, t *testing.T, projectID, bucketName st
 
 func DeleteGCSBucket(ctx context.Context, t *testing.T, bucketName string) {
 	assert.EventuallyWithT(t, func(collect *assert.CollectT) {
-		client, err := storage.NewClient(ctx, option.WithoutAuthentication())
+		opts := []option.ClientOption{option.WithoutAuthentication()}
+		if emulatorHost := os.Getenv("STORAGE_EMULATOR_HOST"); emulatorHost != "" {
+			opts = append(opts, option.WithEndpoint(emulatorHost))
+		}
+		client, err := storage.NewClient(ctx, opts...)
 		assert.Nil(t, err)
 		defer client.Close()
 
