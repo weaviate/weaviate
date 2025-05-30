@@ -509,7 +509,7 @@ func TestUserEndpoint(t *testing.T) {
 	})
 }
 
-func TestListAllUsers(t *testing.T) {
+func TestDynamicUsers(t *testing.T) {
 	adminKey := "admin-key"
 	adminUser := "admin-user"
 
@@ -670,6 +670,31 @@ func TestListAllUsers(t *testing.T) {
 
 		filteredUsers := helper.ListAllUsers(t, apiKey)
 		require.Len(t, filteredUsers, length/2)
+	})
+
+	t.Run("import static user and check roles", func(t *testing.T) {
+		// add a role to ensure it is present after import
+		roleName := "testRole"
+		testRole := &models.Role{Name: &roleName, Permissions: []*models.Permission{{Action: &authorization.ReadUsers, Users: &models.PermissionUsers{Users: &roleName}}}}
+		helper.DeleteRole(t, adminKey, roleName)
+		helper.CreateRole(t, adminKey, testRole)
+		defer helper.DeleteRole(t, adminKey, roleName)
+		helper.AssignRoleToUser(t, adminKey, roleName, customUser)
+		roles := helper.GetRolesForUser(t, customUser, adminKey, false)
+		require.Len(t, roles, 1)
+		require.Equal(t, *testRole.Name, *roles[0].Name)
+
+		oldKey := helper.CreateUserWithApiKey(t, customUser, adminKey)
+		require.Equal(t, oldKey, customKey)
+
+		info := helper.GetInfoForOwnUser(t, oldKey)
+		require.Equal(t, customUser, *info.Username)
+
+		rolesAfterImport := helper.GetRolesForUser(t, customUser, adminKey, false)
+		require.Len(t, rolesAfterImport, 1)
+		require.Equal(t, *testRole.Name, *rolesAfterImport[0].Name)
+
+		helper.DeleteUser(t, customUser, adminKey)
 	})
 }
 
