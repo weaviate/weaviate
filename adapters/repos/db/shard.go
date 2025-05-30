@@ -167,8 +167,9 @@ type ShardLike interface {
 
 	// A thread-safe counter that goes up any time there is activity on this
 	// shard. The absolute value has no meaning, it's only purpose is to compare
-	// the previous value to the current value.
-	Activity() int32
+	// the previous value to the current value. First value is for reads, second
+	// for writes.
+	Activity() (int32, int32)
 	// Debug methods
 	DebugResetVectorIndex(ctx context.Context, targetVector string) error
 	RepairIndex(ctx context.Context, targetVector string) error
@@ -241,7 +242,8 @@ type Shard struct {
 	bitmapFactory  *roaringset.BitmapFactory
 	bitmapBufPool  roaringset.BitmapBufPool
 
-	activityTracker atomic.Int32
+	activityTrackerRead  atomic.Int32
+	activityTrackerWrite atomic.Int32
 
 	// shared bolt database for dynamic vector indexes.
 	// nil if there is no configured dynamic vector index
@@ -425,8 +427,9 @@ func bucketKeyPropertyNull(isNull bool) ([]byte, error) {
 	return []byte{uint8(filters.InternalNotNullState)}, nil
 }
 
-func (s *Shard) Activity() int32 {
-	return s.activityTracker.Load()
+// Activity score for read and write
+func (s *Shard) Activity() (int32, int32) {
+	return s.activityTrackerRead.Load(), s.activityTrackerWrite.Load()
 }
 
 func (s *Shard) registerAddToPropertyValueIndex(callback onAddToPropertyValueIndex) {

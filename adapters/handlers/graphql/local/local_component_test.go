@@ -208,7 +208,7 @@ func (tests testCases) AssertNoError(t *testing.T) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			logger, _ := logrus.NewNullLogger()
-			modules := usecaseModules.NewProvider(logger)
+			modules := usecaseModules.NewProvider(logger, config.Config{})
 			localSchema, err := Build(&test.localSchema, nil, config.Config{}, modules, nil)
 			require.Nil(t, err, test.name)
 
@@ -242,7 +242,7 @@ func (tests testCases) AssertErrorLogs(t *testing.T, expectedMsg string) {
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
 			logger, logsHook := logrus.NewNullLogger()
-			modules := usecaseModules.NewProvider(logger)
+			modules := usecaseModules.NewProvider(logger, config.Config{})
 			localSchema, err := Build(&test.localSchema, logger, config.Config{}, modules, nil)
 			require.Nil(t, err, test.name)
 
