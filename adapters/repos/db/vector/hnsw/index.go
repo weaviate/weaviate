@@ -107,6 +107,7 @@ type hnsw struct {
 	multiVectorForID          common.MultiVectorForID
 	trackDimensionsOnce       sync.Once
 	trackMuveraOnce           sync.Once
+	trackRQOnce               sync.Once
 	dims                      int32
 
 	cache               cache.Cache[float32]
@@ -360,26 +361,6 @@ func New(cfg Config, uc ent.UserConfig,
 			index.compressor, err = compressionhelpers.NewBQCompressor(
 				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
 				cfg.AllocChecker)
-		}
-		if err != nil {
-			return nil, err
-		}
-		index.compressed.Store(true)
-		index.cache.Drop()
-		index.cache = nil
-	}
-
-	if uc.RQ.Enabled {
-		var err error
-		if uc.Multivector.Enabled && !uc.Multivector.MuveraConfig.Enabled {
-			/*index.compressor, err = compressionhelpers.NewRQMultiCompressor(
-			index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-			cfg.AllocChecker)*/
-		} else {
-			dim := 128
-			index.compressor, err = compressionhelpers.NewRQCompressor(
-				index.distancerProvider, uc.VectorCacheMaxObjects, cfg.Logger, store,
-				cfg.AllocChecker, int(uc.RQ.DataBits), dim)
 		}
 		if err != nil {
 			return nil, err

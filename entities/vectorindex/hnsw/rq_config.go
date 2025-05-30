@@ -17,8 +17,8 @@ import (
 
 const (
 	DefaultRQEnabled = false
-	DefaultDataBits  = 1
-	DefaultQueryBits = 1
+	DefaultDataBits  = 8
+	DefaultQueryBits = 8
 )
 
 type RQConfig struct {
