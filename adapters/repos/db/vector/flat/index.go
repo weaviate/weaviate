@@ -74,7 +74,7 @@ type flat struct {
 	count                uint64
 	concurrentCacheReads int
 
-	rescoreAgainstObjectStore *configRuntime.FeatureFlag[bool]
+	rescoreAgainstObjectStore *configRuntime.DynamicValue[bool]
 	vectorForIDThunk          common.VectorForID[float32]
 }
 
@@ -478,11 +478,8 @@ func (index *flat) searchByVectorBQ(ctx context.Context, vector []float32, k int
 	// we expect to be mostly IO-bound, so more goroutines than CPUs is fine
 	distancesUncompressedVectors := make([]float32, len(idsSlice.slice))
 
-	// use consistent setting for entire rescore – only get feature flag once
-	rescoreAgainstObjectStore := false
-	if index.rescoreAgainstObjectStore != nil {
-		rescoreAgainstObjectStore = index.rescoreAgainstObjectStore.Get()
-	}
+	// use consistent setting for entire rescore – only get config value once
+	rescoreAgainstObjectStore := index.rescoreAgainstObjectStore.Get()
 
 	eg := enterrors.NewErrorGroupWrapper(index.logger)
 	for workerID := 0; workerID < index.concurrentCacheReads; workerID++ {
@@ -506,8 +503,7 @@ func (index *flat) searchByVectorBQ(ctx context.Context, vector []float32, k int
 					distancesUncompressedVectors[idPos] = distance
 				} else {
 					// this part is experimental, but may end up being better than the
-					// "standard" way, see
-					// usecases/config/runtime/flat_index_rescore_strategy.go for details
+					// "standard" way in scenarios where not everything is always in page cache
 
 					candidate, err := index.vectorForIDThunk(ctx, id)
 					if err != nil {

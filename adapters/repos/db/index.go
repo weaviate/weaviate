@@ -663,7 +663,7 @@ type IndexConfig struct {
 	HNSWWaitForCachePrefill             bool
 	HNSWFlatSearchConcurrency           int
 	HNSWAcornFilterRatio                float64
-	FlatSearchRescoreAgainstObjectStore *configRuntime.FeatureFlag[bool]
+	FlatSearchRescoreAgainstObjectStore *configRuntime.DynamicValue[bool]
 	VisitedListPoolMaxSize              int
 	ReplicationFactor                   int64
 	DeletionStrategy                    string

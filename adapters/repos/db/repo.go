@@ -214,7 +214,7 @@ type Config struct {
 	HNSWWaitForCachePrefill             bool
 	HNSWFlatSearchConcurrency           int
 	HNSWAcornFilterRatio                float64
-	FlatIndexRescoreAgainstObjectStore  *configRuntime.FeatureFlag[bool]
+	FlatIndexRescoreAgainstObjectStore  *configRuntime.DynamicValue[bool]
 	VisitedListPoolMaxSize              int
 	TrackVectorDimensions               bool
 	ServerVersion                       string

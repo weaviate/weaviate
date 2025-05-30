@@ -42,7 +42,7 @@ type Config struct {
 	TombstoneCallbacks    cyclemanager.CycleCallbackGroup
 	SharedDB              *bolt.DB
 
-	FlatIndexRescoreAgainstObjectStore *configRuntime.FeatureFlag[bool]
+	FlatIndexRescoreAgainstObjectStore *configRuntime.DynamicValue[bool]
 }
 
 func (c Config) Validate() error {

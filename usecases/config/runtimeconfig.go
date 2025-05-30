@@ -26,9 +26,10 @@ import (
 // WeaviateRuntimeConfig is the collection all the supported configs that is
 // managed dynamically and can be overridden during runtime.
 type WeaviateRuntimeConfig struct {
-	MaximumAllowedCollectionsCount *runtime.DynamicValue[int]  `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
-	AutoschemaEnabled              *runtime.DynamicValue[bool] `json:"autoschema_enabled" yaml:"autoschema_enabled"`
-	AsyncReplicationDisabled       *runtime.DynamicValue[bool] `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	MaximumAllowedCollectionsCount     *runtime.DynamicValue[int]  `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	AutoschemaEnabled                  *runtime.DynamicValue[bool] `json:"autoschema_enabled" yaml:"autoschema_enabled"`
+	AsyncReplicationDisabled           *runtime.DynamicValue[bool] `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	FlatIndexRescoreAgainstObjectStore *runtime.DynamicValue[bool] `json:"flat_index_rescore_against_object_store" yaml:"flat_index_rescore_against_object_store"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.

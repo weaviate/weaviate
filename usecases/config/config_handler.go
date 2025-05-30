@@ -148,9 +148,20 @@ type Config struct {
 	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
 	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
 	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
-	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
-	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
-	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
+
+	// The Flat index rescores against a dedicated vector store when PQ is used.
+	// This leads to a 2x write amplification of all vectors because they are
+	// already stored in the object store.
+	//
+	// Our hypothesis is that there is no benefit from this dedicated store and we
+	// could save a lot of space if we were to rescore against the object store.
+	// This might even have benefits due to (page) cache locality.
+	//
+	// The point of this temporary flag is to prove our hypothesis right or wrong.
+	FlatIndexRescoreAgainstObjectStore *runtime.DynamicValue[bool] `json:"flat_index_rescore_against_object_store" yaml:"flat_index_rescore_against_object_store"`
+	Sentry                             *entsentry.ConfigOpts       `json:"sentry" yaml:"sentry"`
+	MetadataServer                     MetadataServer              `json:"metadata_server" yaml:"metadata_server"`
+	SchemaHandlerConfig                SchemaHandlerConfig         `json:"schema" yaml:"schema"`
 
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?

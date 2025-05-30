@@ -28,7 +28,7 @@ type Config struct {
 	Logger                    logrus.FieldLogger
 	DistanceProvider          distancer.Provider
 	AllocChecker              memwatch.AllocChecker
-	RescoreAgainstObjectStore *runtime.FeatureFlag[bool]
+	RescoreAgainstObjectStore *runtime.DynamicValue[bool]
 	VectorForIDThunk          common.VectorForID[float32]
 }
 

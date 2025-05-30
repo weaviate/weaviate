@@ -1,3 +1,4 @@
 maximum_allowed_collections_count: 7
 autoschema_enabled: true
 async_replication_disabled: false
+flat_index_rescore_against_object_store: false

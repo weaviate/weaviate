@@ -366,14 +366,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Metrics = promMetrics
 	}
 
-	rescoreFlatIndexConfigFlag := configRuntime.NewFeatureFlag(
-		configRuntime.FlatIndexRescoreAgainstObjectStoreLDKey,
-		bool(configRuntime.RescoreAgainstDedicatedIndex), // same as behavior before this flag was introduced
-		appState.LDIntegration,
-		configRuntime.FlatIndexRescoreAgainstObjectStoreEnvVariable,
-		appState.Logger,
-	)
-
 	// TODO: configure http transport for efficient intra-cluster comm
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
@@ -397,7 +389,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		HNSWWaitForCachePrefill:             appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
 		HNSWFlatSearchConcurrency:           appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
 		HNSWAcornFilterRatio:                appState.ServerConfig.Config.HNSWAcornFilterRatio,
-		FlatIndexRescoreAgainstObjectStore:  rescoreFlatIndexConfigFlag,
+		FlatIndexRescoreAgainstObjectStore:  appState.ServerConfig.Config.FlatIndexRescoreAgainstObjectStore,
 		VisitedListPoolMaxSize:              appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
@@ -1717,6 +1709,7 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
+		registered.FlatIndexRescoreAgainstObjectStore = appState.ServerConfig.Config.FlatIndexRescoreAgainstObjectStore
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,

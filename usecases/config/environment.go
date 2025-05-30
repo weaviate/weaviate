@@ -663,6 +663,9 @@ func FromEnv(config *Config) error {
 		config.RuntimeOverrides.LoadInterval = interval
 	}
 
+	flatIndexRescoreAgainstObjectStore := entcfg.Enabled(os.Getenv("FLAT_INDEX_RESCORE_AGAINST_OBJECT_STORE"))
+	config.FlatIndexRescoreAgainstObjectStore = runtime.NewDynamicValue(flatIndexRescoreAgainstObjectStore)
+
 	return nil
 }
 
