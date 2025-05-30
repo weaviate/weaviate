@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replica_replication
+package replication
 
 import (
 	"context"
@@ -31,40 +31,48 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-type ReplicationTestSuiteEndpoints struct {
+type ReplicationTestSuite struct {
 	suite.Suite
+	compose *docker.DockerCompose
+	down    func()
 }
 
-func (suite *ReplicationTestSuiteEndpoints) SetupTest() {
-	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
-}
-
-func TestReplicationTestSuiteEndpoints(t *testing.T) {
-	suite.Run(t, new(ReplicationTestSuiteEndpoints))
-}
-
-func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateEndpoints() {
+func (suite *ReplicationTestSuite) SetupSuite() {
 	t := suite.T()
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		Start(mainCtx)
 	require.Nil(t, err)
-	defer func() {
+	suite.compose = compose
+	suite.down = func() {
 		if err := compose.Terminate(mainCtx); err != nil {
 			t.Fatalf("failed to terminate test containers: %s", err.Error())
 		}
-	}()
+	}
+}
 
-	helper.SetupClient(compose.GetWeaviate().URI())
+func (suite *ReplicationTestSuite) TearDownSuite() {
+	if suite.down != nil {
+		suite.down()
+	}
+}
 
+func TestReplicationTestSuite(t *testing.T) {
+	suite.Run(t, new(ReplicationTestSuite))
+}
+
+func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
+	t := suite.T()
+
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
-
-	t.Run("create schema", func(t *testing.T) {
-		helper.DeleteClass(t, paragraphClass.Class)
-		helper.CreateClass(t, paragraphClass)
-	})
+	helper.DeleteClass(t, paragraphClass.Class)
+	helper.CreateClass(t, paragraphClass)
 
 	var id strfmt.UUID
 	t.Run("get collection sharding state", func(t *testing.T) {
@@ -139,36 +147,42 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateEndpoints() 
 	t.Run("get replication operation by collection", func(t *testing.T) {
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&paragraphClass.Class), nil)
 		require.Nil(t, err)
-		require.NotNil(t, details)
-		require.NotNil(t, details.Payload)
-		require.Len(t, details.Payload, 1)
-		require.NotNil(t, details.Payload[0])
-		require.NotNil(t, details.Payload[0].ID)
-		require.Equal(t, id, *details.Payload[0].ID)
+		found := false
+		for _, op := range details.Payload {
+			if op.ID != nil && *op.ID == id {
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "replication operation should be found by collection")
 	})
 
 	t.Run("get replication operation by collection and shard", func(t *testing.T) {
 		shard := getRequest(t, paragraphClass.Class).ShardID
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&paragraphClass.Class).WithShard(shard), nil)
 		require.Nil(t, err)
-		require.NotNil(t, details)
-		require.NotNil(t, details.Payload)
-		require.Len(t, details.Payload, 1)
-		require.NotNil(t, details.Payload[0])
-		require.NotNil(t, details.Payload[0].ID)
-		require.Equal(t, id, *details.Payload[0].ID)
+		found := false
+		for _, op := range details.Payload {
+			if op.ID != nil && *op.ID == id {
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "replication operation should be found by collection")
 	})
 
 	t.Run("get replication operation by target node", func(t *testing.T) {
 		nodeID := getRequest(t, paragraphClass.Class).DestinationNodeName
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithNodeID(nodeID), nil)
 		require.Nil(t, err)
-		require.NotNil(t, details)
-		require.NotNil(t, details.Payload)
-		require.Len(t, details.Payload, 1)
-		require.NotNil(t, details.Payload[0])
-		require.NotNil(t, details.Payload[0].ID)
-		require.Equal(t, id, *details.Payload[0].ID)
+		found := false
+		for _, op := range details.Payload {
+			if op.ID != nil && *op.ID == id {
+				found = true
+				break
+			}
+		}
+		require.True(t, found, "replication operation should be found by collection")
 	})
 
 	t.Run("get non-existing replication operation", func(t *testing.T) {
