@@ -871,17 +871,29 @@ func TestStaticUserImport(t *testing.T) {
 
 	keys := map[string]string{readOnlyUser: readOnlyKey, adminUser: adminKey}
 
-	for user, role := range map[string]string{readOnlyUser: "viewer", adminUser: "admin"} {
-		t.Run("import static user and check roles for"+user, func(t *testing.T) {
-			roles := helper.GetRolesForUser(t, user, rootKey, false)
+	for userName, role := range map[string]string{readOnlyUser: "viewer", adminUser: "admin"} {
+		t.Run("import static user and check roles for "+userName, func(t *testing.T) {
+			roles := helper.GetRolesForUser(t, userName, rootKey, false)
 			require.Len(t, roles, 1)
 			require.Equal(t, role, *roles[0].Name)
 
-			oldKey := helper.CreateUserWithApiKey(t, user, rootKey)
-			require.Equal(t, oldKey, keys[user])
+			oldKey := helper.CreateUserWithApiKey(t, userName, rootKey)
+			require.Equal(t, oldKey, keys[userName])
+
+			newKey := helper.RotateKey(t, userName, rootKey)
+			_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(oldKey))
+			require.Error(t, err)
+
+			infoNew := helper.GetInfoForOwnUser(t, newKey)
+			require.Equal(t, userName, *infoNew.Username)
+
+			user := helper.GetUser(t, userName, rootKey)
+			require.Equal(t, user.APIKeyFirstLetters, newKey[:3])
+			require.NotEqual(t, newKey, oldKey)
+			require.NotEqual(t, newKey[:10], oldKey[:10])
 
 			info := helper.GetInfoForOwnUser(t, oldKey)
-			require.Equal(t, user, *info.Username)
+			require.Equal(t, userName, *info.Username)
 			require.Len(t, info.Roles, 1)
 			require.Equal(t, *info.Roles[0].Name, role)
 		})
