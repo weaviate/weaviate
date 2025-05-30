@@ -149,8 +149,8 @@ func (db *DB) init(ctx context.Context) error {
 	return nil
 }
 
-func (db *DB) LocalTenantActivity() tenantactivity.ByCollection {
-	return db.metricsObserver.Usage()
+func (db *DB) LocalTenantActivity(filter tenantactivity.UsageFilter) tenantactivity.ByCollection {
+	return db.metricsObserver.Usage(filter)
 }
 
 func (db *DB) migrateFileStructureIfNecessary() error {

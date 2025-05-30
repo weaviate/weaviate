@@ -484,7 +484,7 @@ func TestRFJourney(t *testing.T) {
 			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
-		prov := modules.NewProvider(logger)
+		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -522,7 +522,7 @@ func TestRFJourney(t *testing.T) {
 			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
-		prov := modules.NewProvider(logger)
+		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -562,7 +562,7 @@ func TestRFJourney(t *testing.T) {
 			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
-		prov := modules.NewProvider(logger)
+		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -604,7 +604,7 @@ func TestRFJourney(t *testing.T) {
 			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
-		prov := modules.NewProvider(logger)
+		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -730,7 +730,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
-		prov := modules.NewProvider(logger)
+		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -761,7 +761,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
-		prov := modules.NewProvider(logger)
+		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -802,7 +802,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 			Properties: search.SelectProperties{search.SelectProperty{Name: "title"}, search.SelectProperty{Name: "description"}},
 		}
 
-		prov := modules.NewProvider(logger)
+		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}
@@ -1025,7 +1025,7 @@ func TestHybridOverSearch(t *testing.T) {
 			},
 		}
 
-		prov := modules.NewProvider(logger)
+		prov := modules.NewProvider(logger, config.Config{})
 		prov.SetClassDefaults(class)
 		prov.SetSchemaGetter(schemaGetter)
 		testerModule := &TesterModule{}

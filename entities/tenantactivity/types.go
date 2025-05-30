@@ -16,3 +16,11 @@ import "time"
 type ByCollection map[string]ByTenant
 
 type ByTenant map[string]time.Time
+
+type UsageFilter int
+
+const (
+	UsageFilterAll UsageFilter = iota
+	UsageFilterOnlyReads
+	UsageFilterOnlyWrites
+)
