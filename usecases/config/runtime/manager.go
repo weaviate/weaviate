@@ -41,7 +41,7 @@ var (
 type Parser[T any] func([]byte) (*T, error)
 
 // Updater try to update `source` config with newly `parsed` config.
-type Updater[T any] func(source, parsed *T) error
+type Updater[T any] func(log logrus.FieldLogger, source, parsed *T) error
 
 // ConfigManager takes care of periodically loading the config from
 // given filepath for every interval period.
@@ -138,7 +138,7 @@ func (cm *ConfigManager[T]) loadConfig() error {
 		return errors.Join(ErrFailedToParseConfig, err)
 	}
 
-	if err := cm.update(cm.currentConfig, cfg); err != nil {
+	if err := cm.update(cm.log, cm.currentConfig, cfg); err != nil {
 		return err
 	}
 
