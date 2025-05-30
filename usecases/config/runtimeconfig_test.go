@@ -110,6 +110,37 @@ maximum_allowed_collections_count: 13`)
 		assert.Equal(t, 13, colCount.Get())
 	})
 
+	t.Run("Reset() of non-exist config values in parsed yaml shouldn't panic", func(t *testing.T) {
+		var (
+			colCount   runtime.DynamicValue[int]
+			autoSchema runtime.DynamicValue[bool]
+			// leaving out `asyncRep` config
+		)
+
+		reg := &WeaviateRuntimeConfig{
+			MaximumAllowedCollectionsCount: &colCount,
+			AutoschemaEnabled:              &autoSchema,
+			// leaving out `asyncRep` config
+		}
+
+		// parsed from yaml configs for example
+		buf := []byte(`autoschema_enabled: true
+maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
+		parsed, err := ParseRuntimeConfig(buf)
+		require.NoError(t, err)
+
+		// before update (zero values)
+		assert.Equal(t, false, autoSchema.Get())
+		assert.Equal(t, 0, colCount.Get())
+
+		require.NotPanics(t, func() { UpdateRuntimeConfig(reg, parsed) })
+
+		// after update (reflect from parsed values)
+		assert.Equal(t, true, autoSchema.Get())
+		assert.Equal(t, 13, colCount.Get())
+
+	})
+
 	t.Run("updating priorities", func(t *testing.T) {
 		// invariants:
 		// 1. If field doesn't exist, should return default value
