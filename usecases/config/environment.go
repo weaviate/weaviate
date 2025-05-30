@@ -733,6 +733,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
+		config.ReplicaMovementEnabled = entcfg.Enabled(v)
+	}
+
 	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {
 		duration, err := time.ParseDuration(v)
 		if err != nil {
