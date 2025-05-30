@@ -29,7 +29,7 @@ import (
 
 // return value map[int]error gives the error for the index as it received it
 func (s *Shard) DeleteObjectBatch(ctx context.Context, uuids []strfmt.UUID, deletionTime time.Time, dryRun bool) objects.BatchSimpleObjects {
-	s.activityTracker.Add(1)
+	s.activityTrackerWrite.Add(1)
 	if err := s.isReadOnly(); err != nil {
 		return objects.BatchSimpleObjects{
 			objects.BatchSimpleObject{Err: err},
