@@ -65,6 +65,10 @@ func (dv *DynamicValue[T]) Get() T {
 
 // Reset removes the old dynamic value.
 func (dv *DynamicValue[T]) Reset() {
+	if dv == nil {
+		return
+	}
+
 	dv.mu.Lock()
 	defer dv.mu.Unlock()
 
