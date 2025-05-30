@@ -53,7 +53,7 @@ type (
 		UpdateTime int64  // sender's current update time
 		DigestRead bool
 	}
-	findOneReply senderReply[objects.Replica]
+	findOneReply senderReply[Replica]
 	existReply   struct {
 		Sender string
 		types.RepairResponse
@@ -121,7 +121,7 @@ func (f *Finder) GetOne(ctx context.Context,
 				x = xs[0]
 			}
 
-			r := objects.Replica{
+			r := Replica{
 				ID:                      id,
 				Deleted:                 x.Deleted,
 				LastUpdateTimeUnixMilli: x.UpdateTime,
