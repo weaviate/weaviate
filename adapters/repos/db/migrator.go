@@ -16,8 +16,6 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -106,19 +104,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	shardingState := m.db.schemaGetter.CopyShardingState(class.Class)
-	indexRouter, err := router.NewBuilder(
-		schema.ClassName(class.Class).String(),
-		shardingState.PartitioningEnabled,
-		m.db.nodeSelector,
-		m.db.schemaGetter,
-		m.db.schemaReader,
-		m.db.replicationFSM,
-	).Build()
-	if err != nil {
-		return fmt.Errorf("error while building index router: %w", err)
-	}
-	idx, err = NewIndex(ctx,
+	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                           schema.ClassName(class.Class),
 			RootPath:                            m.db.config.RootPath,
@@ -158,7 +144,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		indexRouter, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		m.db.router, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor, m.db.reindexer)
 	if err != nil {
