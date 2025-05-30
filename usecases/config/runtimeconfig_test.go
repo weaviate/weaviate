@@ -200,7 +200,6 @@ maximum_allowed_collections_count: 10`)
 
 		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed))
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'MaximumAllowedCollectionsCount' changed from '10' to '7'" action=runtime_overrides_changed field=MaximumAllowedCollectionsCount new_value=7 old_value=10`)
-
 	})
 
 	t.Run("updating priorities", func(t *testing.T) {

@@ -180,7 +180,6 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value) {
 
 		if r.newV != r.oldV {
 			logRecords = append(logRecords, r)
-
 		}
 
 	}
