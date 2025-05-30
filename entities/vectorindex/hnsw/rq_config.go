@@ -19,12 +19,14 @@ const (
 	DefaultRQEnabled = false
 	DefaultDataBits  = 8
 	DefaultQueryBits = 8
+	DefaultRQRescore = false
 )
 
 type RQConfig struct {
 	Enabled   bool  `json:"enabled"`
 	DataBits  int16 `json:"dataBits"`
 	QueryBits int16 `json:"queryBits"`
+	Rescore   bool  `json:"rescore"`
 }
 
 func parseRQMap(in map[string]interface{}, rq *RQConfig) error {

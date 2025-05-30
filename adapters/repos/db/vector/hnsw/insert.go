@@ -104,21 +104,22 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return err
 	}
 
-	h.trackRQOnce.Do(func() {
-		if h.rqConfig.Enabled {
+	if h.rqConfig.Enabled {
+		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.NewRQCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
 				h.allocChecker, int(h.rqConfig.DataBits), int(h.dims))
-		}
-		if err == nil {
-			h.compressed.Store(true)
-			h.cache.Drop()
-			h.cache = nil
-		}
+			if err == nil {
+				h.compressed.Store(true)
+				h.doNotRescore = !h.rqConfig.Rescore
+				h.cache.Drop()
+				h.cache = nil
+			}
 
-	})
-	if err != nil {
-		return err
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	levels := make([]int, len(ids))
