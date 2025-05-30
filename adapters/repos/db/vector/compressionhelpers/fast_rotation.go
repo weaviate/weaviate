@@ -72,21 +72,26 @@ func (r *FastRotation) OutputDimension() int {
 
 // Permute x in place according to p and apply signs according to s.
 func permuteAndApplySigns(x []float64, p []int32, s []int8) {
-	// We set p[i] to -p[i]-1 to indicate that p[i] has been applied.
+	// // We set p[i] to -p[i]-1 to indicate that p[i] has been applied.
+	// for i := range p {
+	// 	from := int32(i)
+	// 	tmp := x[from]
+	// 	for p[from] >= 0 {
+	// 		to := p[from]
+	// 		tmp, x[to] = x[to], float64(s[to])*tmp
+	// 		p[from] = -p[from] - 1
+	// 		from = to
+	// 	}
+	// }
+	// // Reset the permutation.
+	// for i := range p {
+	// 	p[i] = -p[i] - 1
+	// }
+	res := make([]float64, len(x))
 	for i := range p {
-		from := int32(i)
-		tmp := x[from]
-		for p[from] >= 0 {
-			to := p[from]
-			tmp, x[to] = x[to], float64(s[to])*tmp
-			p[from] = -p[from] - 1
-			from = to
-		}
+		res[p[i]] = float64(s[p[i]]) * x[i]
 	}
-	// Reset the permutation.
-	for i := range p {
-		p[i] = -p[i] - 1
-	}
+	copy(x, res)
 }
 
 func (r *FastRotation) Rotate(x []float32) []float32 {
