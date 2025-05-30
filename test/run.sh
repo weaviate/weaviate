@@ -12,7 +12,8 @@ function main() {
   run_acceptance_go_client=false
   run_acceptance_graphql_tests=false
   run_acceptance_replication_tests=false
-  run_acceptance_replica_replication_tests=false
+  run_acceptance_replica_replication_fast_tests=false
+  run_acceptance_replica_replication_slow_tests=false
   run_acceptance_async_replication_tests=false
   only_acceptance=false
   run_module_tests=false
@@ -51,7 +52,8 @@ function main() {
           --acceptance-only-graphql|-aog) run_all_tests=false; run_acceptance_graphql_tests=true ;;
           --acceptance-only-authz|-aoa) run_all_tests=false; run_acceptance_only_authz=true;;
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
-          --acceptance-only-replica-replication|-aorr) run_all_tests=false; run_acceptance_replica_replication_tests=true ;;
+          --acceptance-only-replica-replication-fast|-aorrf) run_all_tests=false; run_acceptance_replica_replication_fast_tests=true ;;
+          --acceptance-only-replica-replication-slow|-aorrs) run_all_tests=false; run_acceptance_replica_replication_slow_tests=true ;;
           --acceptance-only-async-replication|-aoar) run_all_tests=false; run_acceptance_async_replication_tests=true ;;
           --only-acceptance-*|-oa)run_all_tests=false; only_acceptance=true;only_acceptance_value=$1;;
           --only-module-*|-om)run_all_tests=false; only_module=true;only_module_value=$1;;
@@ -76,7 +78,8 @@ function main() {
               "--acceptance-go-client-named-vectors | -agnv"\
               "--acceptance-only-graphql | -aog"\
               "--acceptance-only-replication| -aor"\
-              "--acceptance-only-async-replication| -aoar"\
+              "--acceptance-only-async-replication-fast| -aoarf"\
+              "--acceptance-only-async-replication-slow| -aoars"\
               "--acceptance-module-tests-only | --modules-only | -m"\
               "--acceptance-module-tests-only-backup | --modules-backup-only | -mob"\
               "--acceptance-module-tests-except-backup | --modules-except-backup | -meb"\
@@ -118,7 +121,7 @@ function main() {
     echo_green "Integration tests successful"
   fi
 
-  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_only_authz || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_async_replication_tests || $run_acceptance_replica_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance
+  if $run_acceptance_tests  || $run_acceptance_only_fast || $run_acceptance_only_authz || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_only_python || $run_all_tests || $run_benchmark || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $only_acceptance
   then
     echo "Start docker container needed for acceptance and/or benchmark test"
     echo_green "Stop any running docker-compose containers..."
@@ -146,7 +149,7 @@ function main() {
       ./test/benchmark/run_performance_tracker.sh
     fi
 
-    if $run_acceptance_tests || $run_acceptance_only_fast || $run_acceptance_only_authz || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance 
+    if $run_acceptance_tests || $run_acceptance_only_fast || $run_acceptance_only_authz || $run_acceptance_go_client || $run_acceptance_graphql_tests || $run_acceptance_replication_tests || $run_acceptance_replica_replication_fast_tests || $run_acceptance_replica_replication_slow_tests || $run_acceptance_async_replication_tests || $run_acceptance_go_client_only_fast || $run_acceptance_go_client_named_vectors_single_node || $run_acceptance_go_client_named_vectors_cluster || $run_all_tests || $only_acceptance 
     then
       echo_green "Run acceptance tests..."
       run_acceptance_tests "$@"
@@ -265,9 +268,13 @@ function run_acceptance_tests() {
   echo "running acceptance replication"
     run_acceptance_replication_tests "$@"
   fi
-  if $run_acceptance_replica_replication_tests || $run_acceptance_tests || $run_all_tests; then
-  echo "running acceptance replica replication replication"
-    run_acceptance_replica_replication_tests "$@"
+  if $run_acceptance_replica_replication_fast_tests || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance replica replication replication fast"
+    run_acceptance_replica_replication_fast_tests "$@"
+  fi
+  if $run_acceptance_replica_replication_slow_tests || $run_acceptance_tests || $run_all_tests; then
+  echo "running acceptance replica replication replication slow"
+    run_acceptance_replica_replication_slow_tests "$@"
   fi
   if $run_acceptance_async_replication_tests || $run_acceptance_tests || $run_all_tests; then
   echo "running acceptance async replication"
@@ -373,8 +380,17 @@ function run_acceptance_only_authz() {
   done
 }
 
-function run_acceptance_replica_replication_tests() {
-  for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication'); do
+function run_acceptance_replica_replication_fast_tests() {
+  for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/fast'); do
+    if ! go test -timeout=30m -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
+function run_acceptance_replica_replication_slow_tests() {
+  for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/slow_file_copy'); do
     if ! go test -timeout=30m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1

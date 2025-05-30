@@ -20,6 +20,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -113,11 +114,6 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		return fmt.Errorf("failed to sync files: %w", err)
 	}
 
-	err = diskio.Fsync(c.rootDataPath)
-	if err != nil {
-		return fmt.Errorf("failed to fsync local folder: %w", err)
-	}
-
 	err = c.validateLocalFolder(relativeFilePaths)
 	if err != nil {
 		return fmt.Errorf("failed to validate local folder: %w", err)
@@ -168,12 +164,15 @@ func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
 func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
 	i := 0
 
+	var dirs []string
+
 	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return fmt.Errorf("walking local folder: %w", err)
 		}
 
 		if d.IsDir() {
+			dirs = append(dirs, path)
 			return nil
 		}
 
@@ -192,7 +191,21 @@ func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
 		return nil
 	})
 
+	sort.Slice(dirs, func(i, j int) bool {
+		return depth(dirs[i]) > depth(dirs[j])
+	})
+
+	for _, dir := range dirs {
+		if err := diskio.Fsync(dir); err != nil {
+			return fmt.Errorf("failed to fsync local folder: %s: %w", dir, err)
+		}
+	}
+
 	return nil
+}
+
+func depth(path string) int {
+	return len(filepath.SplitList(path))
 }
 
 func (c *Copier) syncFile(ctx context.Context, sourceNodeHostname, collectionName, shardName, relativeFilePath string) error {

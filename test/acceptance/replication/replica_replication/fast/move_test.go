@@ -9,10 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replica_replication
+package replication
 
 import (
-	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -20,31 +20,28 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateMOVEDeletesSourceReplica() {
+func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceReplica() {
 	t := suite.T()
-	mainCtx := context.Background()
 
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
-
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
 	paragraphClass := articles.ParagraphsClass()
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)
+
+	// Create paragraphs
+	batch := make([]*models.Object, 10000)
+	for i := 0; i < 10000; i++ {
+		batch[i] = articles.NewParagraph().
+			WithContents(fmt.Sprintf("paragraph#%d", i)).
+			Object()
+	}
+	helper.CreateObjectsBatch(t, batch)
 
 	req := getRequest(t, paragraphClass.Class)
 
@@ -60,7 +57,7 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationReplicateMOVEDeletesS
 		status, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 		require.Nil(t, err)
 		require.Equal(ct, "READY", status.Payload.Status.State)
-	}, 60*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
+	}, 180*time.Second, 100*time.Millisecond, "Replication operation should be in READY state")
 
 	t.Run("ensure target and source replicas are there/gone respectively", func(t *testing.T) {
 		verbose := verbosity.OutputVerbose

@@ -149,6 +149,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		DistributedTasksDistributedTasksGetHandler: distributed_tasks.DistributedTasksGetHandlerFunc(func(params distributed_tasks.DistributedTasksGetParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation distributed_tasks.DistributedTasksGet has not yet been implemented")
 		}),
+		ReplicationForceDeleteReplicationsHandler: replication.ForceDeleteReplicationsHandlerFunc(func(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.ForceDeleteReplications has not yet been implemented")
+		}),
 		ReplicationGetCollectionShardingStateHandler: replication.GetCollectionShardingStateHandlerFunc(func(params replication.GetCollectionShardingStateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.GetCollectionShardingState has not yet been implemented")
 		}),
@@ -445,6 +448,8 @@ type WeaviateAPI struct {
 	UsersDeleteUserHandler users.DeleteUserHandler
 	// DistributedTasksDistributedTasksGetHandler sets the operation handler for the distributed tasks get operation
 	DistributedTasksDistributedTasksGetHandler distributed_tasks.DistributedTasksGetHandler
+	// ReplicationForceDeleteReplicationsHandler sets the operation handler for the force delete replications operation
+	ReplicationForceDeleteReplicationsHandler replication.ForceDeleteReplicationsHandler
 	// ReplicationGetCollectionShardingStateHandler sets the operation handler for the get collection sharding state operation
 	ReplicationGetCollectionShardingStateHandler replication.GetCollectionShardingStateHandler
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
@@ -724,6 +729,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.DistributedTasksDistributedTasksGetHandler == nil {
 		unregistered = append(unregistered, "distributed_tasks.DistributedTasksGetHandler")
+	}
+	if o.ReplicationForceDeleteReplicationsHandler == nil {
+		unregistered = append(unregistered, "replication.ForceDeleteReplicationsHandler")
 	}
 	if o.ReplicationGetCollectionShardingStateHandler == nil {
 		unregistered = append(unregistered, "replication.GetCollectionShardingStateHandler")
@@ -1106,6 +1114,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}
 	o.handlers["GET"]["/tasks"] = distributed_tasks.NewDistributedTasksGet(o.context, o.DistributedTasksDistributedTasksGetHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/replication/replicate/force-delete"] = replication.NewForceDeleteReplications(o.context, o.ReplicationForceDeleteReplicationsHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

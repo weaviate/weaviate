@@ -46,8 +46,8 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
-	DefaultReplicationEngineMaxWorkers     = 5
-	DefaultReplicaMovementMinimumAsyncWait = 20 * time.Second
+	DefaultReplicationEngineMaxWorkers     = 10
+	DefaultReplicaMovementMinimumAsyncWait = 60 * time.Second
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 )
@@ -575,6 +575,18 @@ func FromEnv(config *Config) error {
 		config.AutoSchema.DefaultDate = v
 	}
 
+	tenantActivityReadLogLevel := "debug"
+	if v := os.Getenv("TENANT_ACTIVITY_READ_LOG_LEVEL"); v != "" {
+		tenantActivityReadLogLevel = v
+	}
+	config.TenantActivityReadLogLevel = runtime.NewDynamicValue(tenantActivityReadLogLevel)
+
+	tenantActivityWriteLogLevel := "debug"
+	if v := os.Getenv("TENANT_ACTIVITY_WRITE_LOG_LEVEL"); v != "" {
+		tenantActivityWriteLogLevel = v
+	}
+	config.TenantActivityWriteLogLevel = runtime.NewDynamicValue(tenantActivityWriteLogLevel)
+
 	ru, err := parseResourceUsageEnvVars()
 	if err != nil {
 		return err
@@ -733,6 +745,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
+		config.ReplicaMovementEnabled = entcfg.Enabled(v)
+	}
+
 	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {
 		duration, err := time.ParseDuration(v)
 		if err != nil {
@@ -745,6 +761,11 @@ func FromEnv(config *Config) error {
 	} else {
 		config.ReplicaMovementMinimumAsyncWait = runtime.NewDynamicValue(DefaultReplicaMovementMinimumAsyncWait)
 	}
+	revoctorizeCheckDisabled := false
+	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
+		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
+	}
+	config.RevectorizeCheckDisabled = runtime.NewDynamicValue(revoctorizeCheckDisabled)
 
 	return nil
 }
