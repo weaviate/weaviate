@@ -123,6 +123,7 @@ func (bml BitmapLayers) Merge() (BitmapLayer, error) {
 	deletions := left.Deletions.Clone()
 	deletions.AndNotConc(right.Additions, concurrency.SROAR_MERGE)
 	deletions.OrConc(right.Deletions, concurrency.SROAR_MERGE)
+	deletions.AndNotConc(left.Additions, concurrency.SROAR_MERGE) // no need to keep deleting once the addition was found
 
 	out.Additions = additions
 	out.Deletions = deletions
