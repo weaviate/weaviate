@@ -107,6 +107,7 @@ type hnsw struct {
 	multiVectorForID          common.MultiVectorForID
 	trackDimensionsOnce       sync.Once
 	trackMuveraOnce           sync.Once
+	trackRQOnce               sync.Once
 	dims                      int32
 
 	cache               cache.Cache[float32]
@@ -172,6 +173,7 @@ type hnsw struct {
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
+	rqConfig   ent.RQConfig
 	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
 	// rescore sequentially, as that would take very long. This setting allows us
 	// to define the rescoring concurrency.
@@ -333,6 +335,7 @@ func New(cfg Config, uc ent.UserConfig,
 		pqConfig:                  uc.PQ,
 		bqConfig:                  uc.BQ,
 		sqConfig:                  uc.SQ,
+		rqConfig:                  uc.RQ,
 		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
 
