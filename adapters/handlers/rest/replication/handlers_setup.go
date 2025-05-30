@@ -12,9 +12,6 @@
 package replication
 
 import (
-	"net/http"
-
-	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
@@ -59,33 +56,26 @@ func SetupHandlers(enabled bool, api *operations.WeaviateAPI, replicationManager
 	api.ReplicationListReplicationHandler = replication.ListReplicationHandlerFunc(h.listReplication)
 }
 
-type unimplementedResponseWriter struct {
-}
-
-func (w *unimplementedResponseWriter) WriteResponse(rw http.ResponseWriter, p runtime.Producer) {
-	rw.WriteHeader(http.StatusNotImplemented)
-}
-
 func setupUnimplementedHandlers(api *operations.WeaviateAPI) {
 	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(func(replication.ReplicateParams, *models.Principal) middleware.Responder {
-		return &unimplementedResponseWriter{}
+		return replication.NewReplicationDetailsNotImplemented()
 	})
 	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(func(replication.ReplicationDetailsParams, *models.Principal) middleware.Responder {
-		return &unimplementedResponseWriter{}
+		return replication.NewReplicationDetailsNotImplemented()
 	})
 	api.ReplicationCancelReplicationHandler = replication.CancelReplicationHandlerFunc(func(replication.CancelReplicationParams, *models.Principal) middleware.Responder {
-		return &unimplementedResponseWriter{}
+		return replication.NewCancelReplicationNotImplemented()
 	})
 	api.ReplicationDeleteReplicationHandler = replication.DeleteReplicationHandlerFunc(func(replication.DeleteReplicationParams, *models.Principal) middleware.Responder {
-		return &unimplementedResponseWriter{}
+		return replication.NewDeleteReplicationNotImplemented()
 	})
 	api.ReplicationDeleteAllReplicationsHandler = replication.DeleteAllReplicationsHandlerFunc(func(replication.DeleteAllReplicationsParams, *models.Principal) middleware.Responder {
-		return &unimplementedResponseWriter{}
+		return replication.NewDeleteAllReplicationsNotImplemented()
 	})
 	api.ReplicationGetCollectionShardingStateHandler = replication.GetCollectionShardingStateHandlerFunc(func(replication.GetCollectionShardingStateParams, *models.Principal) middleware.Responder {
-		return &unimplementedResponseWriter{}
+		return replication.NewGetCollectionShardingStateNotImplemented()
 	})
 	api.ReplicationListReplicationHandler = replication.ListReplicationHandlerFunc(func(replication.ListReplicationParams, *models.Principal) middleware.Responder {
-		return &unimplementedResponseWriter{}
+		return replication.NewListReplicationNotImplemented()
 	})
 }
