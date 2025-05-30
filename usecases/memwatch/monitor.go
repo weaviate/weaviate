@@ -299,8 +299,8 @@ func NewDummyMonitor() *Monitor {
 		maxMemoryMappings:      10000000,
 		reservedMappingsBuffer: make([]int64, mappingsEntries),
 		lastReservationsClear:  time.Now(),
+		limit:                  10000000,
 	}
-	m.Refresh(true)
 	return m
 }
 
