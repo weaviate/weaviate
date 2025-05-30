@@ -166,20 +166,6 @@ func NewBuilder(
 //   - Router: a concrete router implementation (*multiTenantRouter or *singleTenantRouter) that implements the Router interface.
 //   - error: if any required dependencies are missing or validation fails.
 func (b *RouterBuilder) Build() (Router, error) {
-	// Validate required dependencies
-	if b.className == "" {
-		return nil, fmt.Errorf("className is required")
-	}
-	if b.schemaGetter == nil {
-		return nil, fmt.Errorf("schemaGetter is required")
-	}
-	if b.replicationFSMReader == nil {
-		return nil, fmt.Errorf("replicationFSMReader is required")
-	}
-	if b.clusterStateReader == nil {
-		return nil, fmt.Errorf("clusterStateReader is required")
-	}
-
 	if b.partitioningEnabled {
 		return &multiTenantRouter{
 			className:            b.className,
@@ -187,11 +173,6 @@ func (b *RouterBuilder) Build() (Router, error) {
 			replicationFSMReader: b.replicationFSMReader,
 			clusterStateReader:   b.clusterStateReader,
 		}, nil
-	}
-
-	// Additional validation for single-tenant router
-	if b.metadataReader == nil {
-		return nil, fmt.Errorf("metadataReader is required for single-tenant router")
 	}
 
 	return &singleTenantRouter{
