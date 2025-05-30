@@ -93,11 +93,11 @@ func Test_ValidateConfigUpdate(t *testing.T) {
 		expectedError error
 	}{
 		{
-			name:    "attempting to increase replicas beyond Cluster size",
+			name:    "attempting to increase replicas beyond cluster size",
 			initial: &models.ReplicationConfig{Factor: 3},
 			update:  &models.ReplicationConfig{Factor: 4},
 			expectedError: fmt.Errorf(
-				"cannot scale to 4 replicas, Cluster has only 3 nodes"),
+				"cannot scale to 4 replicas, cluster has only 3 nodes"),
 		},
 	}
 
