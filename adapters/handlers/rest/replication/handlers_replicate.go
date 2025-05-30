@@ -219,46 +219,48 @@ func (h *replicationHandler) forceDeleteReplications(params replication.ForceDel
 	byNode := params.Body != nil && params.Body.Node != ""
 	dryRun := params.Body != nil && params.Body.DryRun != nil && *params.Body.DryRun
 
-	var details []api.ReplicationDetailsResponse
 	var err error
-	if all {
-		details, err = h.replicationManager.GetAllReplicationDetails(params.HTTPRequest.Context())
-	} else if byCollection {
-		if byShard {
-			details, err = h.replicationManager.GetReplicationDetailsByCollectionAndShard(params.HTTPRequest.Context(), params.Body.Collection, params.Body.Shard)
-		} else {
-			details, err = h.replicationManager.GetReplicationDetailsByCollection(params.HTTPRequest.Context(), params.Body.Collection)
-		}
-	} else if byId {
-		detail, innerErr := h.replicationManager.GetReplicationDetailsByReplicationId(params.HTTPRequest.Context(), params.Body.ID)
-		if errors.Is(innerErr, replicationTypes.ErrReplicationOperationNotFound) {
-			return replication.NewForceDeleteReplicationsOK().WithPayload(&models.ReplicationReplicateForceDeleteResponse{
-				Deleted: []strfmt.UUID{params.Body.ID},
-				DryRun:  dryRun,
-			})
-		}
-		details = []api.ReplicationDetailsResponse{detail}
-		err = innerErr
-	} else if byNode {
-		details, err = h.replicationManager.GetReplicationDetailsByTargetNode(params.HTTPRequest.Context(), params.Body.Node)
-	} else {
-		// This can happen if the user provides only a shard id without a collection id
-		return replication.NewForceDeleteReplicationsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("shard id provided without collection id")))
-	}
-	if err != nil {
-		return replication.NewForceDeleteReplicationsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
-	}
-
-	uuids := make([]strfmt.UUID, len(details))
-	for i, detail := range details {
-		uuids[i] = detail.Uuid
-	}
-
 	if dryRun {
+		var details []api.ReplicationDetailsResponse
+
+		if all {
+			details, err = h.replicationManager.GetAllReplicationDetails(params.HTTPRequest.Context())
+		} else if byCollection {
+			if byShard {
+				details, err = h.replicationManager.GetReplicationDetailsByCollectionAndShard(params.HTTPRequest.Context(), params.Body.Collection, params.Body.Shard)
+			} else {
+				details, err = h.replicationManager.GetReplicationDetailsByCollection(params.HTTPRequest.Context(), params.Body.Collection)
+			}
+		} else if byId {
+			detail, innerErr := h.replicationManager.GetReplicationDetailsByReplicationId(params.HTTPRequest.Context(), params.Body.ID)
+			if errors.Is(innerErr, replicationTypes.ErrReplicationOperationNotFound) {
+				return replication.NewForceDeleteReplicationsOK().WithPayload(&models.ReplicationReplicateForceDeleteResponse{
+					Deleted: []strfmt.UUID{params.Body.ID},
+					DryRun:  dryRun,
+				})
+			}
+			details = []api.ReplicationDetailsResponse{detail}
+			err = innerErr
+		} else if byNode {
+			details, err = h.replicationManager.GetReplicationDetailsByTargetNode(params.HTTPRequest.Context(), params.Body.Node)
+		} else {
+			// This can happen if the user provides only a shard id without a collection id
+			return replication.NewForceDeleteReplicationsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("shard id provided without collection id")))
+		}
+		if err != nil {
+			return replication.NewForceDeleteReplicationsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+
+		uuids := make([]strfmt.UUID, len(details))
+		for i, detail := range details {
+			uuids[i] = detail.Uuid
+		}
+
 		h.logger.WithFields(logrus.Fields{
 			"action": "replication",
 			"op":     "force_delete_operations",
 		}).Info("dry run of force delete replication operations")
+
 		return replication.NewForceDeleteReplicationsOK().WithPayload(&models.ReplicationReplicateForceDeleteResponse{
 			Deleted: uuids,
 			DryRun:  true,
@@ -297,10 +299,7 @@ func (h *replicationHandler) forceDeleteReplications(params replication.ForceDel
 		"op":     "force_delete_operations",
 	}).Info("force delete replication operations")
 
-	return replication.NewForceDeleteReplicationsOK().WithPayload(&models.ReplicationReplicateForceDeleteResponse{
-		Deleted: uuids,
-		DryRun:  false,
-	})
+	return replication.NewForceDeleteReplicationsOK().WithPayload(&models.ReplicationReplicateForceDeleteResponse{})
 }
 
 func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
