@@ -138,7 +138,6 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
 		assert.Equal(t, 13, colCount.Get())
-
 	})
 
 	t.Run("updating priorities", func(t *testing.T) {
