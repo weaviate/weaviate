@@ -109,8 +109,6 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 			h.compressor, err = compressionhelpers.NewRQCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
 				h.allocChecker, int(h.rqConfig.DataBits), int(h.dims))
-			fmt.Println("vector dims", h.dims)
-			panic("test")
 		}
 		if err == nil {
 			h.compressed.Store(true)
