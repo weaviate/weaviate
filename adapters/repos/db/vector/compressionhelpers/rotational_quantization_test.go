@@ -9,9 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build integrationTest
-// +build integrationTest
-
 package compressionhelpers_test
 
 import (
@@ -65,19 +62,46 @@ func TestRQDistanceEstimate(t *testing.T) {
 	assert.Less(t, math.Abs(float64(target-estimate)), 1e-4)
 }
 
+func randomUniformVector(d int, rng *rand.Rand) []float32 {
+	x := make([]float32, d)
+	for i := range x {
+		x[i] = 2*rng.Float32() - 1.0
+	}
+	return x
+}
+
 // Consider adding an inverse transform to restore the input vector.
 func TestRQEncodeRestore(t *testing.T) {
-	d := 1536
-	rq := defaultRotationalQuantizer(d, 42)
-	x := make([]float32, d)
-	x[0] = 1.0
-	cx := rq.Encode(x)
-	target := rq.Rotate(x)
-	restored := rq.Restore(cx)
-	for i := range target {
-		assert.Less(t, math.Abs(float64(target[i]-restored[i])), 4e-4)
+	n := 100
+	rng := newRNG(7542)
+	for range n {
+		d := 2 + rng.IntN(1000)
+		rq := defaultRotationalQuantizer(d, rng.Uint64())
+
+		s := 1000 * rng.Float32()
+		x := randomUniformVector(d, rng)
+
+		// Each entry of the scaled uniform vector ranges from [-s, s]
+		// So the euclidean norm is going to be something like sd/3
+		// Once we rotate the absolute magnitude of the entries should not exceed
+		// something like (sd/3)*(6/sqrt(D)) < 2*s*sqrt(d) where D >= d is the output dimension.
+		// So suppose the entries range between [-2*s*sqrt(d), 2*s*sqrt(d)] and we quantize this interval using 256 evenly distributed values.
+		// Then the absolute quantization error in any one entry should not exceed 2*s*sqrt(d)/256
+		errorBoundUpper := float64(s) * math.Sqrt(float64(d)) / 128
+		eps := 0.1 * errorBoundUpper // The actual error is much smaller.
+
+		scale(x, s)
+		cx := rq.Encode(x)
+		target := rq.Rotate(x)
+		restored := rq.Restore(cx)
+
+		for i := range target {
+			assert.Less(t, math.Abs(float64(target[i]-restored[i])), eps)
+		}
 	}
 }
+
+// TODO: Test that the code makes use of the full 8-bit range.
 
 // TODO: Test that RQ obeys the empirical extended RaBitQ bounds (test exists in previous version).
 func TestRQDistancer(t *testing.T) {
@@ -104,17 +128,46 @@ func TestRQDistancer(t *testing.T) {
 	}
 }
 
-func randomUnitVector(d int, rng *rand.Rand) []float32 {
-	x := make([]float32, d)
-	for i := range x {
-		x[i] = float32(rng.NormFloat64())
+// Verify that the estimator behaves according to the concentration bounds
+// specified in the paper. In the paper they use an asymmetric encoding of
+// (float32, B-bits) while we use (queryBits, dataBits), so we cannot expect to
+// satisfy their bounds exactly in all cases. This is especially the case when
+// using few bits, something this quantization scheme is not optimized for.
+func TestRQEstimationConcentrationBounds(t *testing.T) {
+	rng := newRNG(452341)
+	n := 100
+	queryBits := 8
+	for range n {
+		d := 2 + rng.IntN(1000)
+		alpha := -1.0 + 2*rng.Float32()
+		dataBits := 4 + rng.IntN(5)
+
+		// With probability > 0.999 the absolute error should be less than eps.
+		// For d = 256 the error for b bits is 2^(-b) * 0.36, so 0.18, 0.09,
+		// 0.045.. for b = 1, 2, 3,...
+		eps := math.Pow(2.0, -float64(dataBits)) * 5.75 / math.Sqrt(float64(d))
+
+		q, x := correlatedVectors(d, alpha)
+		rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), dataBits, queryBits, distancer.NewDotProductProvider())
+		cx := rq.Encode(x)
+		dist := rq.NewDistancer(q)
+		estimate, _ := dist.Distance(cx)
+		cosineSimilarityEstimate := -estimate // Holds for unit vectors.
+		assert.Less(t, math.Abs(float64(cosineSimilarityEstimate-alpha)), eps)
 	}
-	xNorm := float32(norm(x))
-	for i := range x {
-		x[i] = x[i] / xNorm
-	}
-	return x
 }
+
+// func randomUnitVector(d int, rng *rand.Rand) []float32 {
+// 	x := make([]float32, d)
+// 	for i := range x {
+// 		x[i] = float32(rng.NormFloat64())
+// 	}
+// 	xNorm := float32(norm(x))
+// 	for i := range x {
+// 		x[i] = x[i] / xNorm
+// 	}
+// 	return x
+// }
 
 func scale(x []float32, s float32) {
 	for i := range x {
@@ -122,9 +175,11 @@ func scale(x []float32, s float32) {
 	}
 }
 
+// Verify that the error scales as expected with the norm of the vectors.
+// i.e. we can handle vectors of different norms.
 func TestRQDistancerRandomVectorsWithScaling(t *testing.T) {
+	// We do not test for cosine similarity here since it assumes normalized vectors.
 	metrics := []distancer.Provider{
-		distancer.NewCosineDistanceProvider(),
 		distancer.NewDotProductProvider(),
 		distancer.NewL2SquaredProvider(),
 	}
@@ -132,7 +187,8 @@ func TestRQDistancerRandomVectorsWithScaling(t *testing.T) {
 	n := 100
 	for range n {
 		d := 2 + rng.IntN(1000)
-		q, x := randomUnitVector(d, rng), randomUnitVector(d, rng)
+		alpha := -1.0 + 2*rng.Float32()
+		q, x := correlatedVectors(d, alpha)
 		s1 := 1000 * rng.Float32()
 		s2 := 1000 * rng.Float32()
 		scale(q, s1)
@@ -141,10 +197,15 @@ func TestRQDistancerRandomVectorsWithScaling(t *testing.T) {
 			bits := 8
 			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, bits, m)
 			distancer := rq.NewDistancer(q)
-			expected, _ := m.SingleDist(q, x)
 			cx := rq.Encode(x)
-			estimated, _ := distancer.Distance(cx)
-			assert.Less(t, math.Abs(float64(estimated-expected)), float64(s1*s2*0.004))
+			target, _ := m.SingleDist(q, x)
+			estimate, _ := distancer.Distance(cx)
+
+			// Suppose we are seeing absolute errors of estimation of size eps when working with unit vectors.
+			// Then the error when scaling should scale roughly with the product of the scaling factors for the inner product.
+			// For the Euclidean distance things are slightly more complex.
+			// TODO: Do this rigorously.
+			assert.Less(t, math.Abs(float64(estimate-target)), float64(s1*s2*0.004), "Failure at a dimensionality of %d, metric %s", d, m.Type())
 		}
 	}
 }

@@ -9,9 +9,6 @@
 //  CONTACT: hello@weaviate.io
 //
 
-//go:build integrationTest
-// +build integrationTest
-
 package compressionhelpers_test
 
 import (
@@ -61,7 +58,7 @@ func newRNG(seed uint64) *rand.Rand {
 
 func TestFastRotationPreservesNorm(t *testing.T) {
 	rng := newRNG(42)
-	dimensions := []int{3, 8, 26, 32, 33, 61, 127, 128, 129}
+	dimensions := []int{3, 8, 26, 32, 33, 61, 127, 128, 129, 407}
 	rounds := []int{1, 2, 3}
 	n := 10
 	for _, d := range dimensions {

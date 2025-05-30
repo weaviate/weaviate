@@ -171,6 +171,13 @@ func distance(x RQCode, y RQCode, distancer distancer.Provider) (float32, error)
 
 	switch distancer.Type() {
 	case "cosine-dot":
+		// cosine-dot is cosine similarity turned into a non-negative
+		// distance-like metric. When computing cosine-dot the vectors are
+		// normalized so their inner product is in the range [-1, 1], up to
+		// floating point and quantization errors. Note: we could consider
+		// clamping to avoid negative distances here, but it may come at a cost
+		// of some recall since there will likely be information in values
+		// around zero that can be used to distinguish near-identical vectors.
 		return 1 - dotEstimate, nil
 	case "dot":
 		return -dotEstimate, nil
