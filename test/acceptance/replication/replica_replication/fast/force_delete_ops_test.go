@@ -9,10 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replica_replication
+package replication
 
 import (
-	"context"
 	"fmt"
 	"testing"
 
@@ -21,27 +20,14 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuiteEndpoints) TestReplicationForceDeleteOperations() {
+func (suite *ReplicationTestSuite) TestReplicationForceDeleteOperations() {
 	t := suite.T()
-	mainCtx := context.Background()
 
-	howManyNodes := 3
-	compose, err := docker.New().
-		WithWeaviateCluster(howManyNodes).
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
 
 	paragraphClass := articles.ParagraphsClass()
 	// Create the class
@@ -57,6 +43,7 @@ func (suite *ReplicationTestSuiteEndpoints) TestReplicationForceDeleteOperations
 	}
 	helper.CreateObjectsBatch(t, batch)
 
+	howManyNodes := 3
 	shardsPerNode := make(map[string]string, howManyNodes)
 
 	t.Run("start replication operations", func(t *testing.T) {
