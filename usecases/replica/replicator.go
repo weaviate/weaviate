@@ -116,7 +116,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.one").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		return fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		return fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 
 	}
 	err = r.stream.readErrors(1, level, replyCh)[0]
@@ -148,7 +148,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.merge").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		return fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		return fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 	}
 	err = r.stream.readErrors(1, level, replyCh)[0]
 	if err != nil {
@@ -184,7 +184,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.delete").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		return fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		return fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 	}
 	err = r.stream.readErrors(1, level, replyCh)[0]
 	if err != nil {
@@ -216,7 +216,7 @@ func (r *Replicator) PutObjects(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.many").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		err = fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 		errs := make([]error, len(objs))
 		for i := 0; i < len(objs); i++ {
 			errs[i] = err
@@ -266,7 +266,7 @@ func (r *Replicator) DeleteObjects(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.deletes").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		err = fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 		errs := make([]objects.BatchSimpleObject, len(uuids))
 		for i := 0; i < len(uuids); i++ {
 			errs[i].Err = err
@@ -302,7 +302,7 @@ func (r *Replicator) AddReferences(ctx context.Context,
 	if err != nil {
 		r.log.WithField("op", "push.refs").WithField("class", r.class).
 			WithField("shard", shard).Error(err)
-		err = fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
+		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
 		errs := make([]error, len(refs))
 		for i := 0; i < len(refs); i++ {
 			errs[i] = err
@@ -334,7 +334,7 @@ func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 
 // requestID returns ID as [CoordinatorName-OpCode-TimeStamp-Counter].
 // The coordinator uses it to uniquely identify a transaction.
-// ID makes the request observable in the cluster by specifying its origin
+// ID makes the request observable in the Cluster by specifying its origin
 // and the kind of replication request.
 func (r *Replicator) requestID(op opID) string {
 	return fmt.Sprintf("%s-%.2x-%x-%x",

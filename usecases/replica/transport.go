@@ -34,8 +34,8 @@ const (
 
 // Client is used to read and write objects on replicas
 type Client interface {
-	rClient
-	wClient
+	RClient
+	WClient
 }
 
 // StatusCode is communicate the cause of failure during replication
@@ -79,16 +79,16 @@ func (e *Error) Clone() *Error {
 func (e *Error) Unwrap() error { return e.Err }
 
 func (e *Error) Error() string {
-	return fmt.Sprintf("%s %q: %v", statusText(e.Code), e.Msg, e.Err)
+	return fmt.Sprintf("%s %q: %v", StatusText(e.Code), e.Msg, e.Err)
 }
 
 func (e *Error) IsStatusCode(sc StatusCode) bool {
 	return e.Code == sc
 }
 
-// statusText returns a text for the status code. It returns the empty
+// StatusText returns a text for the status code. It returns the empty
 // string if the code is unknown.
-func statusText(code StatusCode) string {
+func StatusText(code StatusCode) string {
 	switch code {
 	case StatusOK:
 		return "ok"
@@ -173,8 +173,8 @@ type DigestObjectsInRangeResp struct {
 	Digests []types.RepairResponse `json:"digests,omitempty"`
 }
 
-// wClient is the client used to write to replicas
-type wClient interface {
+// WClient is the client used to write to replicas
+type WClient interface {
 	PutObject(ctx context.Context, host, index, shard, requestID string,
 		obj *storobj.Object, schemaVersion uint64) (SimpleResponse, error)
 	DeleteObject(ctx context.Context, host, index, shard, requestID string,
@@ -191,8 +191,8 @@ type wClient interface {
 	Abort(ctx context.Context, host, index, shard, requestID string) (SimpleResponse, error)
 }
 
-// rClient is the client used to read from remote replicas
-type rClient interface {
+// RClient is the client used to read from remote replicas
+type RClient interface {
 	// FetchObject fetches one object
 	FetchObject(_ context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
@@ -225,7 +225,7 @@ type rClient interface {
 
 // finderClient extends RClient with consistency checks
 type finderClient struct {
-	cl rClient
+	cl RClient
 }
 
 // FullRead reads full object
