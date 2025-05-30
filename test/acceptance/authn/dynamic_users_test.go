@@ -36,7 +36,7 @@ func TestCreateUser(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).
 		WithDbUsers().
-		WithRBAC().WithRbacAdmins(adminUser).
+		WithRBAC().WithRbacRoots(adminUser).
 		Start(ctx)
 	require.Nil(t, err)
 	helper.SetupClient(compose.GetWeaviate().URI())
