@@ -24,16 +24,6 @@ type RoutingPlanBuildOptions struct {
 	DirectCandidateReplica string
 }
 
-func (r RoutingPlanBuildOptions) Validate() error {
-	if r.Collection == "" {
-		return fmt.Errorf("no collection specified for routing plan building")
-	}
-	if r.Shard == "" {
-		return fmt.Errorf("no shard specified for routing plan building")
-	}
-	return nil
-}
-
 type RoutingPlan struct {
 	Collection string
 	Shard      string

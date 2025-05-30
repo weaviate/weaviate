@@ -18,6 +18,10 @@ import (
 	"strings"
 	"testing"
 
+	types2 "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -518,7 +522,7 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{},
-		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil, cluster.NewMockNodeSelector(t), types.NewMockSchemaReader(t), types2.NewMockReplicationFSMReader(t))
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))

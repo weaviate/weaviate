@@ -17,6 +17,10 @@ import (
 	"testing"
 	"time"
 
+	types2 "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -228,7 +232,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(), cluster.NewMockNodeSelector(t), types.NewMockSchemaReader(t), types2.NewMockReplicationFSMReader(t))
 	require.Nil(t, err)
 
 	shardState := singleShardState()
