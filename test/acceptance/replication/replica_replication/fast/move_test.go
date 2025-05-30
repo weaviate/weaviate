@@ -12,6 +12,7 @@
 package replication
 
 import (
+	"fmt"
 	"testing"
 	"time"
 
@@ -19,6 +20,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/replication"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
@@ -31,6 +33,15 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceRepl
 	paragraphClass := articles.ParagraphsClass()
 	helper.DeleteClass(t, paragraphClass.Class)
 	helper.CreateClass(t, paragraphClass)
+
+	// Create paragraphs
+	batch := make([]*models.Object, 10000)
+	for i := 0; i < 10000; i++ {
+		batch[i] = articles.NewParagraph().
+			WithContents(fmt.Sprintf("paragraph#%d", i)).
+			Object()
+	}
+	helper.CreateObjectsBatch(t, batch)
 
 	req := getRequest(t, paragraphClass.Class)
 
