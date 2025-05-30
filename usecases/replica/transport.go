@@ -79,16 +79,16 @@ func (e *Error) Clone() *Error {
 func (e *Error) Unwrap() error { return e.Err }
 
 func (e *Error) Error() string {
-	return fmt.Sprintf("%s %q: %v", statusText(e.Code), e.Msg, e.Err)
+	return fmt.Sprintf("%s %q: %v", StatusText(e.Code), e.Msg, e.Err)
 }
 
 func (e *Error) IsStatusCode(sc StatusCode) bool {
 	return e.Code == sc
 }
 
-// statusText returns a text for the status code. It returns the empty
+// StatusText returns a text for the status code. It returns the empty
 // string if the code is unknown.
-func statusText(code StatusCode) string {
+func StatusText(code StatusCode) string {
 	switch code {
 	case StatusOK:
 		return "ok"
