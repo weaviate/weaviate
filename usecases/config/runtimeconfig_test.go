@@ -83,16 +83,22 @@ func assertConfigKey(t *testing.T, key string) {
 func TestUpdateRuntimeConfig(t *testing.T) {
 	t.Run("updating should reflect changes in registered configs", func(t *testing.T) {
 		var (
-			colCount   runtime.DynamicValue[int]
-			autoSchema runtime.DynamicValue[bool]
-			asyncRep   runtime.DynamicValue[bool]
-			minFinWait runtime.DynamicValue[time.Duration]
+			colCount                 runtime.DynamicValue[int]
+			autoSchema               runtime.DynamicValue[bool]
+			asyncRep                 runtime.DynamicValue[bool]
+			readLogLevel             runtime.DynamicValue[string]
+			writeLogLevel            runtime.DynamicValue[string]
+			revectorizeCheckDisabled runtime.DynamicValue[bool]
+			minFinWait               runtime.DynamicValue[time.Duration]
 		)
 
 		reg := &WeaviateRuntimeConfig{
 			MaximumAllowedCollectionsCount:  &colCount,
 			AutoschemaEnabled:               &autoSchema,
 			AsyncReplicationDisabled:        &asyncRep,
+			TenantActivityReadLogLevel:      &readLogLevel,
+			TenantActivityWriteLogLevel:     &writeLogLevel,
+			RevectorizeCheckDisabled:        &revectorizeCheckDisabled,
 			ReplicaMovementMinimumAsyncWait: &minFinWait,
 		}
 
@@ -116,22 +122,58 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, 10*time.Second, minFinWait.Get())
 	})
 
+	t.Run("Reset() of non-exist config values in parsed yaml shouldn't panic", func(t *testing.T) {
+		var (
+			colCount   runtime.DynamicValue[int]
+			autoSchema runtime.DynamicValue[bool]
+			// leaving out `asyncRep` config
+		)
+
+		reg := &WeaviateRuntimeConfig{
+			MaximumAllowedCollectionsCount: &colCount,
+			AutoschemaEnabled:              &autoSchema,
+			// leaving out `asyncRep` config
+		}
+
+		// parsed from yaml configs for example
+		buf := []byte(`autoschema_enabled: true
+maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
+		parsed, err := ParseRuntimeConfig(buf)
+		require.NoError(t, err)
+
+		// before update (zero values)
+		assert.Equal(t, false, autoSchema.Get())
+		assert.Equal(t, 0, colCount.Get())
+
+		require.NotPanics(t, func() { UpdateRuntimeConfig(reg, parsed) })
+
+		// after update (reflect from parsed values)
+		assert.Equal(t, true, autoSchema.Get())
+		assert.Equal(t, 13, colCount.Get())
+	})
+
 	t.Run("updating priorities", func(t *testing.T) {
 		// invariants:
 		// 1. If field doesn't exist, should return default value
 		// 2. If field exist, but removed next time, should return default value not the old value.
 
 		var (
-			colCount   runtime.DynamicValue[int]
-			autoSchema runtime.DynamicValue[bool]
-			asyncRep   runtime.DynamicValue[bool]
-			minFinWait runtime.DynamicValue[time.Duration]
+			colCount                 runtime.DynamicValue[int]
+			autoSchema               runtime.DynamicValue[bool]
+			asyncRep                 runtime.DynamicValue[bool]
+			readLogLevel             runtime.DynamicValue[string]
+			writeLogLevel            runtime.DynamicValue[string]
+			revectorizeCheckDisabled runtime.DynamicValue[bool]
+			minFinWait               runtime.DynamicValue[time.Duration]
 		)
 
 		reg := &WeaviateRuntimeConfig{
 			MaximumAllowedCollectionsCount:  &colCount,
 			AutoschemaEnabled:               &autoSchema,
 			AsyncReplicationDisabled:        &asyncRep,
+			TenantActivityReadLogLevel:      &readLogLevel,
+			TenantActivityWriteLogLevel:     &writeLogLevel,
+			RevectorizeCheckDisabled:        &revectorizeCheckDisabled,
 			ReplicaMovementMinimumAsyncWait: &minFinWait,
 		}
 
