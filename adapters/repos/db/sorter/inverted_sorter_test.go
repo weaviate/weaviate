@@ -4,7 +4,11 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"reflect"
+	"runtime"
+	"slices"
 	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -65,6 +69,63 @@ func TestInvertedSorter(t *testing.T) {
 	propNames := []string{"int", "number", "date"}
 	limits := []int{1, 2, 5, 10, 100, 500, 1000, 2000}
 	order := []string{"asc", "desc"}
+	matchers := []func(t *testing.T, count int) helpers.AllowList{
+		matchAllBitmap,
+		matchEveryOtherBitmap,
+		match10PercentBitmap,
+		matchRandomBitmap,
+		matchSingleBitmap,
+	}
+
+	testFn := func(t *testing.T, propName string, limit int, ord string, matcher func(t *testing.T, count int) helpers.AllowList) {
+		bm := matcher(t, objectCount)
+		actual, err := sorter.SortDocIDs(ctx, 100, []filters.Sort{{Path: []string{propName}, Order: ord}}, bm)
+		require.Nil(t, err)
+
+		// sort props as control, always first by doc id, then by the prop,
+		// this way we have a consistent tie breaker
+		sortedProps := make([]dummyProps, 0, len(props))
+		for _, p := range props {
+			if bm.Contains(p.docID) {
+				sortedProps = append(sortedProps, p)
+			}
+		}
+
+		sort.Slice(sortedProps, func(i, j int) bool {
+			return sortedProps[i].docID < sortedProps[j].docID
+		})
+
+		var sortFn func(i, j int) bool
+		switch propName {
+		case "int":
+			sortFn = func(i, j int) bool {
+				if ord == "desc" {
+					return sortedProps[j].int < sortedProps[i].int
+				}
+				return sortedProps[i].int < sortedProps[j].int
+			}
+		case "number":
+			sortFn = func(i, j int) bool {
+				if ord == "desc" {
+					return sortedProps[i].number > sortedProps[j].number
+				}
+				return sortedProps[i].number < sortedProps[j].number
+			}
+		case "date":
+			sortFn = func(i, j int) bool {
+				if ord == "desc" {
+					return sortedProps[i].date.After(sortedProps[j].date)
+				}
+				return sortedProps[i].date.Before(sortedProps[j].date)
+			}
+		}
+
+		sort.SliceStable(sortedProps, sortFn)
+
+		for i, docID := range actual {
+			assert.Equal(t, int(sortedProps[i].docID), int(docID))
+		}
+	}
 
 	for _, flush := range forceFlush {
 		t.Run(fmt.Sprintf("force flush %t", flush), func(t *testing.T) {
@@ -84,47 +145,13 @@ func TestInvertedSorter(t *testing.T) {
 						t.Run(fmt.Sprintf("limit %d", limit), func(t *testing.T) {
 							for _, ord := range order {
 								t.Run(fmt.Sprintf("order %s", ord), func(t *testing.T) {
-									actual, err := sorter.SortDocIDs(ctx, 100, []filters.Sort{{Path: []string{propName}, Order: ord}}, matchAllBitmap(t, objectCount))
-									require.Nil(t, err)
+									for _, matcher := range matchers {
+										fullFuncName := runtime.FuncForPC(reflect.ValueOf(matcher).Pointer()).Name()
+										parts := strings.Split(fullFuncName, ".")
 
-									// sort props as control, always first by doc id, then by the prop,
-									// this way we have a consistent tie breaker
-									sortedProps := make([]dummyProps, len(props))
-									copy(sortedProps, props)
-
-									sort.Slice(sortedProps, func(i, j int) bool {
-										return sortedProps[i].docID < sortedProps[j].docID
-									})
-
-									var sortFn func(i, j int) bool
-									switch propName {
-									case "int":
-										sortFn = func(i, j int) bool {
-											if ord == "desc" {
-												return sortedProps[j].int < sortedProps[i].int
-											}
-											return sortedProps[i].int < sortedProps[j].int
-										}
-									case "number":
-										sortFn = func(i, j int) bool {
-											if ord == "desc" {
-												return sortedProps[i].number > sortedProps[j].number
-											}
-											return sortedProps[i].number < sortedProps[j].number
-										}
-									case "date":
-										sortFn = func(i, j int) bool {
-											if ord == "desc" {
-												return sortedProps[i].date.After(sortedProps[j].date)
-											}
-											return sortedProps[i].date.Before(sortedProps[j].date)
-										}
-									}
-
-									sort.SliceStable(sortedProps, sortFn)
-
-									for i, docID := range actual {
-										assert.Equal(t, int(sortedProps[i].docID), int(docID))
+										t.Run(fmt.Sprintf("matcher %s", parts[len(parts)-1]), func(t *testing.T) {
+											testFn(t, propName, limit, ord, matcher)
+										})
 									}
 								})
 							}
@@ -217,4 +244,36 @@ func matchAllBitmap(t *testing.T, count int) helpers.AllowList {
 		ids[i] = uint64(i)
 	}
 	return helpers.NewAllowList(ids...)
+}
+
+func matchEveryOtherBitmap(t *testing.T, count int) helpers.AllowList {
+	ids := make([]uint64, count/2)
+	for i := 0; i < count; i += 2 {
+		ids[i/2] = uint64(i)
+	}
+	return helpers.NewAllowList(ids...)
+}
+
+func match10PercentBitmap(t *testing.T, count int) helpers.AllowList {
+	ids := make([]uint64, count/10)
+	for i := 0; i < count; i += 10 {
+		ids[i/10] = uint64(i)
+	}
+	return helpers.NewAllowList(ids...)
+}
+
+func matchRandomBitmap(t *testing.T, count int) helpers.AllowList {
+	ids := make([]uint64, 0, count)
+	for len(ids) < count/2 {
+		id := uint64(rand.Intn(count))
+		if !slices.Contains(ids, id) {
+			ids = append(ids, id)
+		}
+	}
+	return helpers.NewAllowList(ids...)
+}
+
+func matchSingleBitmap(t *testing.T, count int) helpers.AllowList {
+	id := uint64(rand.Intn(count))
+	return helpers.NewAllowList(id)
 }
