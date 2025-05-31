@@ -156,9 +156,6 @@ func (s *queryPlanner) EstimateCosts(ctx context.Context, ids helpers.AllowList,
 //
 //   - The inverted-index strategy is cheaper according to EstimateCosts.
 //
-//   - Only a single sort key is specified; multi-column ORDER-BY is not yet
-//     implemented for the index walk.
-//
 //   - The key’s logical type (date, int, number) preserves the same ordering
 //     at the byte level that the inverted index uses.
 //
