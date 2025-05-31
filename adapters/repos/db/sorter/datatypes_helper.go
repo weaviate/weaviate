@@ -57,3 +57,13 @@ func (h *dataTypesHelper) getType(propName string) schema.DataType {
 	}
 	return ""
 }
+
+func (h *dataTypesHelper) hasFilterableIndex(propName string) bool {
+	for _, property := range h.class.Properties {
+		if property.Name == propName {
+			return property.IndexFilterable != nil && *property.IndexFilterable
+		}
+	}
+
+	return false
+}

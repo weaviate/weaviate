@@ -123,6 +123,26 @@ func (s *lsmSorter) queryPlan(ctx context.Context, ids helpers.AllowList, limit 
 
 	}
 
+	if s.store.Bucket(helpers.BucketFromPropNameLSM(propNames[0])) == nil {
+		// no bucket found could mean that property is not indexed or some
+		// unexpected error
+		if !s.dataTypesHelper.hasFilterableIndex(propNames[0]) {
+			costSavings := float64(costObjectsBucket) / float64(costInvertedBucket)
+			helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+				fmt.Sprintf("property '%s' is not indexed (filterable), the query planner "+
+					"predicts an estimated cost savings of %.2fx, consider indexing this property, "+
+					"falling back to objects bucket strategy", propNames[0], costSavings))
+			return
+		}
+
+		// the prop is indexed, but no bucket found, this is unexpected, but we can
+		// still fall back to the slower strategy
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("unexpected: property '%s' is indexed (filterable), but no bucket found, "+
+				"falling back to objects bucket strategy", propNames[0]))
+		return
+	}
+
 	useInverted = true
 	return
 }

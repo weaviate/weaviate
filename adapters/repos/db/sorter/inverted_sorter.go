@@ -86,7 +86,7 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.Bucket,
 	limit int, sort []filters.Sort, ids helpers.AllowList, propName string,
 ) ([]uint64, error) {
-	qks := is.quantileKeysForDescSort(limit, ids, bucket)
+	qks := is.quantileKeysForDescSort(ctx, limit, ids, bucket)
 	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 		fmt.Sprintf("identified %d quantile keys for descending sort", len(qks)))
 
@@ -123,12 +123,21 @@ func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.
 
 			rowsEvaluated++
 			it := v.NewIterator()
+			idsFoundInRow := make([]uint64, 0, v.GetCardinality())
 			for i := 0; i < v.GetCardinality(); i++ {
 				id := it.Next()
 				if ids.Contains(id) {
-					idsFoundInChunk = append(idsFoundInChunk, id)
+					idsFoundInRow = append(idsFoundInRow, id)
 				}
 			}
+
+			// we need to reverse the ids found in this chunk, because the inverted
+			// index is in ASC order, so we will reverse the full list at the end.
+			// However, for tie-breaker reasons we need to make sure that IDs with
+			// identical values appear in docID-ASC order. If we don't reverse them
+			// right now, they would end up in DESC order in the final list
+			slices.Reverse(idsFoundInRow)
+			idsFoundInChunk = append(idsFoundInChunk, idsFoundInRow...)
 		}
 
 		// chunk is complete, prepend to total ids found
@@ -148,16 +157,30 @@ func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.
 	return foundIDs, nil
 }
 
-func (is *invertedSorter) quantileKeysForDescSort(limit int, ids helpers.AllowList, invertedBucket *lsmkv.Bucket) [][]byte {
+func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int,
+	ids helpers.AllowList, invertedBucket *lsmkv.Bucket,
+) [][]byte {
 	ob := is.store.Bucket(helpers.ObjectsBucketLSM)
 	totalCount := ob.CountAsync()
 	matchRate := float64(ids.Len()) / float64(totalCount)
 	estimatedRowsHit := int(float64(limit) / matchRate * 2) // safety factor of 2
 	if estimatedRowsHit > totalCount {
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("estimated rows hit (%d) is greater than total count (%d), "+
+				"force a full index scan", estimatedRowsHit, totalCount))
 		// full scan, just return zero byte (effectively same as cursor.First())
 		return [][]byte{{0x00}}
 	}
 
 	neededQuantiles := totalCount / estimatedRowsHit
-	return invertedBucket.QuantileKeys(neededQuantiles)
+	quantiles := invertedBucket.QuantileKeys(neededQuantiles)
+	if len(quantiles) == 0 {
+		// no quantiles found, this can happen if there are no disk segments, but
+		// there could still be memtables, force a full scan
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			"no quantiles found, force a full index scan")
+		return [][]byte{{0x00}}
+	}
+
+	return quantiles
 }
