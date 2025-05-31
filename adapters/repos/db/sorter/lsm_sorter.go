@@ -65,8 +65,8 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 }
 
 func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
-	// estimate costs of various strategies
-	useInverted, err := s.queryPlan(ctx, ids, limit, sort)
+	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper)
+	useInverted, err := queryPlanner.Do(ctx, ids, limit, sort)
 	if err != nil {
 		return nil, fmt.Errorf("plan sort query: %w", err)
 	}

@@ -32,9 +32,8 @@ func TestInvertedSorter(t *testing.T) {
 		dirName     = t.TempDir()
 		logger, _   = test.NewNullLogger()
 		objectCount = 1000
+		ctx         = context.Background()
 	)
-
-	ctx := context.Background()
 
 	store, err := lsmkv.New(dirName, dirName, logger, nil,
 		cyclemanager.NewCallbackGroupNoop(),
@@ -79,7 +78,9 @@ func TestInvertedSorter(t *testing.T) {
 
 	testFn := func(t *testing.T, propName string, limit int, ord string, matcher func(t *testing.T, count int) helpers.AllowList) {
 		bm := matcher(t, objectCount)
-		actual, err := sorter.SortDocIDs(ctx, 100, []filters.Sort{{Path: []string{propName}, Order: ord}}, bm)
+		sortParams := []filters.Sort{{Path: []string{propName}, Order: ord}}
+
+		actual, err := sorter.SortDocIDs(ctx, limit, sortParams, bm)
 		require.Nil(t, err)
 
 		// sort props as control, always first by doc id, then by the prop,
@@ -219,20 +220,40 @@ func dummyInvertedIndex(t *testing.T, ctx context.Context, store *lsmkv.Store, p
 }
 
 func dummyClass() *models.Class {
+	f := false
+	t := true
 	return &models.Class{
 		Class: "DummyClass",
 		Properties: []*models.Property{
 			{
-				Name:     "int",
-				DataType: []string{string(schema.DataTypeInt)},
+				Name:          "int",
+				DataType:      []string{string(schema.DataTypeInt)},
+				IndexInverted: &t,
 			},
 			{
-				Name:     "number",
-				DataType: []string{string(schema.DataTypeNumber)},
+				Name:          "number",
+				DataType:      []string{string(schema.DataTypeNumber)},
+				IndexInverted: &t,
 			},
 			{
-				Name:     "date",
-				DataType: []string{string(schema.DataTypeDate)},
+				Name:          "date",
+				DataType:      []string{string(schema.DataTypeDate)},
+				IndexInverted: &t,
+			},
+			{
+				Name:          "int_not_indexed",
+				DataType:      []string{string(schema.DataTypeInt)},
+				IndexInverted: &f,
+			},
+			{
+				Name:          "int_corrupt_index",
+				DataType:      []string{string(schema.DataTypeInt)},
+				IndexInverted: &t,
+			},
+			{
+				Name:          "text",
+				DataType:      []string{string(schema.DataTypeText)},
+				IndexInverted: &t,
 			},
 		},
 	}
