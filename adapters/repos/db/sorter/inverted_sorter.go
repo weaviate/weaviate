@@ -167,8 +167,6 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 		return [][]byte{{0x00}}
 	}
 	matchRate := float64(ids.Len()) / float64(totalCount)
-	fmt.Printf("match rate: %.2f, total count: %d, ids len: %d\n",
-		matchRate, totalCount, ids.Len())
 	estimatedRowsHit := int(float64(limit) / matchRate * 2) // safety factor of 2
 	if estimatedRowsHit > totalCount {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
@@ -177,9 +175,6 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 		// full scan, just return zero byte (effectively same as cursor.First())
 		return [][]byte{{0x00}}
 	}
-
-	fmt.Printf("estimated rows hit: %d, total count: %d, match rate: %.2f\n",
-		estimatedRowsHit, totalCount, matchRate)
 
 	neededQuantiles := totalCount / estimatedRowsHit
 	quantiles := invertedBucket.QuantileKeys(neededQuantiles)
