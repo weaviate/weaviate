@@ -554,11 +554,19 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
 	s.activityTrackerRead.Add(1)
 	if len(sort) > 0 {
+		beforeSort := time.Now()
 		docIDs, err := s.sortedObjectList(ctx, limit, sort, className)
 		if err != nil {
 			return nil, err
 		}
+		helpers.AnnotateSlowQueryLog(ctx, "sort_took", time.Since(beforeSort))
 		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+		beforeObjects := time.Now()
+		defer func() {
+			took := time.Since(beforeObjects)
+			helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
+		}()
 		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
 	}
 
