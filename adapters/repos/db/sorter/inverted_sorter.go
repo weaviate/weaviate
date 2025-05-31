@@ -63,10 +63,14 @@ func NewInvertedSorter(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *in
 // A terse trace of row counts, seek counts and match ratios is appended to the
 // slow-query log embedded in *ctx* for post-mortem tuning.
 func (is *invertedSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
-	if len(sort) != 1 {
+	return is.sortDocIDsWithNesting(ctx, limit, sort, ids, 0)
+}
+
+func (is *invertedSorter) sortDocIDsWithNesting(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList, nesting int) ([]uint64, error) {
+	if len(sort) < 1 {
 		// this should never happen, the query planner should already have chosen
 		// another strategy
-		return nil, fmt.Errorf("inverted sorter only supports single sort criteria, got %d", len(sort))
+		return nil, fmt.Errorf("no sort clause provided, expected at least one sort clause")
 	}
 
 	propNames, orders, err := extractPropNamesAndOrders(sort)
@@ -83,16 +87,16 @@ func (is *invertedSorter) SortDocIDs(ctx context.Context, limit int, sort []filt
 	}
 
 	if orders[0] == "asc" {
-		return is.sortRoaringSetASC(ctx, bucket, limit, sort, ids, propNames[0])
+		return is.sortRoaringSetASC(ctx, bucket, limit, sort, ids, propNames[0], nesting)
 	} else if orders[0] == "desc" {
-		return is.sortRoaringSetDESC(ctx, bucket, limit, sort, ids, propNames[0])
+		return is.sortRoaringSetDESC(ctx, bucket, limit, sort, ids, propNames[0], nesting)
 	} else {
 		return nil, fmt.Errorf("unsupported sort order %s", orders[0])
 	}
 }
 
 func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.Bucket,
-	limit int, sort []filters.Sort, ids helpers.AllowList, propName string,
+	limit int, sort []filters.Sort, ids helpers.AllowList, propName string, nesting int,
 ) ([]uint64, error) {
 	cursor := bucket.CursorRoaringSet()
 	defer cursor.Close()
@@ -101,7 +105,7 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 	rowsEvaluated := 0
 	defer func() {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-			fmt.Sprintf("evaluated %d rows, found %d ids", rowsEvaluated, len(foundIDs)))
+			helpers.SprintfWithNesting(nesting, "evaluated %d rows, found %d ids", rowsEvaluated, len(foundIDs)))
 	}()
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		it := v.NewIterator()
@@ -121,11 +125,11 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 }
 
 func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.Bucket,
-	limit int, sort []filters.Sort, ids helpers.AllowList, propName string,
+	limit int, sort []filters.Sort, ids helpers.AllowList, propName string, nesting int,
 ) ([]uint64, error) {
-	qks := is.quantileKeysForDescSort(ctx, limit, ids, bucket)
+	qks := is.quantileKeysForDescSort(ctx, limit, ids, bucket, nesting)
 	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-		fmt.Sprintf("identified %d quantile keys for descending sort", len(qks)))
+		helpers.SprintfWithNesting(nesting, "identified %d quantile keys for descending sort", len(qks)))
 
 	cursor := bucket.CursorRoaringSet()
 	defer cursor.Close()
@@ -136,7 +140,7 @@ func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.
 	idCountBeforeCutoff := 0
 	defer func() {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-			fmt.Sprintf("evaluated %d rows, found %d ids, actual match ratio is %.2f, seeks required: %d",
+			helpers.SprintfWithNesting(nesting, "evaluated %d rows, found %d ids, actual match ratio is %.2f, seeks required: %d",
 				rowsEvaluated, idCountBeforeCutoff, float64(idCountBeforeCutoff)/float64(rowsEvaluated), seeksRequired))
 	}()
 
@@ -168,6 +172,19 @@ func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.
 				}
 			}
 
+			if len(idsFoundInRow) > 0 && len(sort) > 1 {
+				// we have identical ids and we have more than one sort clause, so we
+				// need to start a sub-query to sort them
+				helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+					helpers.SprintfWithNesting(nesting, "start sub-query for %d ids with identical value", len(idsFoundInRow)))
+
+				var err error
+				idsFoundInRow, err = is.sortDocIDsWithNesting(ctx, limit, sort[1:], helpers.NewAllowList(idsFoundInRow...), nesting+1)
+				if err != nil {
+					return nil, fmt.Errorf("failed to sort ids with identical value: %w", err)
+				}
+			}
+
 			// we need to reverse the ids found in this chunk, because the inverted
 			// index is in ASC order, so we will reverse the full list at the end.
 			// However, for tie-breaker reasons we need to make sure that IDs with
@@ -195,7 +212,7 @@ func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.
 }
 
 func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int,
-	ids helpers.AllowList, invertedBucket *lsmkv.Bucket,
+	ids helpers.AllowList, invertedBucket *lsmkv.Bucket, nesting int,
 ) [][]byte {
 	ob := is.store.Bucket(helpers.ObjectsBucketLSM)
 	totalCount := ob.CountAsync()
@@ -207,7 +224,7 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 	estimatedRowsHit := int(float64(limit) / matchRate * 2) // safety factor of 2
 	if estimatedRowsHit > totalCount {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-			fmt.Sprintf("estimated rows hit (%d) is greater than total count (%d), "+
+			helpers.SprintfWithNesting(nesting, "estimated rows hit (%d) is greater than total count (%d), "+
 				"force a full index scan", estimatedRowsHit, totalCount))
 		// full scan, just return zero byte (effectively same as cursor.First())
 		return [][]byte{{0x00}}

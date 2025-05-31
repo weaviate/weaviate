@@ -164,6 +164,168 @@ func TestInvertedSorter(t *testing.T) {
 	}
 }
 
+func TestInvertedSorterMultiOrder(t *testing.T) {
+	var (
+		dirName     = t.TempDir()
+		logger, _   = test.NewNullLogger()
+		objectCount = 1000
+		ctx         = context.Background()
+	)
+
+	store, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+
+	defer store.Shutdown(ctx)
+
+	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM)
+	require.Nil(t, err)
+
+	objectsB := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := 0; i < objectCount; i++ {
+		objBytes, docID := createDummyObject(t, i)
+		objectsB.Put([]byte(fmt.Sprintf("%08d", docID)), objBytes)
+		require.Nil(t, err)
+	}
+
+	for _, propName := range []string{"int", "number", "date"} {
+		err = store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		require.Nil(t, err)
+	}
+
+	props := generateRandomProps(objectCount)
+	dummyInvertedIndex(t, ctx, store, props)
+
+	sortPlans := [][]filters.Sort{
+		{
+			{
+				Path:  []string{"int"},
+				Order: "desc",
+			},
+			{
+				Path:  []string{"number"},
+				Order: "desc",
+			},
+		},
+	}
+
+	sorter := NewInvertedSorter(store, newDataTypesHelper(dummyClass()))
+
+	// forceFlush := []bool{false, true}
+	// limits := []int{1, 2, 5, 10, 100, 500, 1000, 2000}
+	// matchers := []func(t *testing.T, count int) helpers.AllowList{
+	// 	matchAllBitmap,
+	// 	matchEveryOtherBitmap,
+	// 	match10PercentBitmap,
+	// 	matchRandomBitmap,
+	// 	matchSingleBitmap,
+	// }
+
+	forceFlush := []bool{true}
+	limits := []int{100}
+	matchers := []func(t *testing.T, count int) helpers.AllowList{
+		matchAllBitmap,
+		// matchEveryOtherBitmap,
+		// match10PercentBitmap,
+		// matchRandomBitmap,
+		// matchSingleBitmap,
+	}
+
+	testFn := func(t *testing.T, limit int, sortParams []filters.Sort, matcher func(t *testing.T, count int) helpers.AllowList) {
+		bm := matcher(t, objectCount)
+
+		ctx = helpers.InitSlowQueryDetails(ctx)
+
+		actual, err := sorter.SortDocIDs(ctx, limit, sortParams, bm)
+		require.Nil(t, err)
+
+		// sort props as control, always first by doc id, then by the prop,
+		// this way we have a consistent tie breaker
+		sortedProps := make([]dummyProps, 0, len(props))
+		for _, p := range props {
+			if bm.Contains(p.docID) {
+				sortedProps = append(sortedProps, p)
+			}
+		}
+
+		sort.Slice(sortedProps, func(i, j int) bool {
+			return sortedProps[i].docID < sortedProps[j].docID
+		})
+
+		for sortIndex := len(sortParams) - 1; sortIndex >= 0; sortIndex-- {
+			var sortFn func(i, j int) bool
+			sortParam := sortParams[sortIndex]
+			switch sortParam.Path[0] {
+			case "int":
+				sortFn = func(i, j int) bool {
+					if sortParam.Order == "desc" {
+						return sortedProps[j].int < sortedProps[i].int
+					}
+					return sortedProps[i].int < sortedProps[j].int
+				}
+			case "number":
+				sortFn = func(i, j int) bool {
+					if sortParam.Order == "desc" {
+						return sortedProps[i].number > sortedProps[j].number
+					}
+					return sortedProps[i].number < sortedProps[j].number
+				}
+			case "date":
+				sortFn = func(i, j int) bool {
+					if sortParam.Order == "desc" {
+						return sortedProps[i].date.After(sortedProps[j].date)
+					}
+					return sortedProps[i].date.Before(sortedProps[j].date)
+				}
+			}
+			sort.SliceStable(sortedProps, sortFn)
+		}
+
+		for i, docID := range actual {
+			assert.Equal(t, int(sortedProps[i].docID), int(docID))
+		}
+	}
+
+	for _, flush := range forceFlush {
+		t.Run(fmt.Sprintf("force flush %t", flush), func(t *testing.T) {
+			if flush {
+				err := store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch()
+				require.Nil(t, err)
+
+				for _, propName := range []string{"int", "number", "date"} {
+					err := store.Bucket(helpers.BucketFromPropNameLSM(propName)).FlushAndSwitch()
+					require.Nil(t, err)
+				}
+			}
+
+			for _, sortParam := range sortPlans {
+				sortPlanStrings := make([]string, 0, len(sortParam))
+				for _, sp := range sortParam {
+					sortPlanStrings = append(sortPlanStrings, fmt.Sprintf("%s %s", sp.Path[0], sp.Order))
+				}
+				sortPlanString := strings.Join(sortPlanStrings, " -> ")
+				t.Run(fmt.Sprintf("sort by %s", sortPlanString), func(t *testing.T) {
+					for _, limit := range limits {
+						t.Run(fmt.Sprintf("limit %d", limit), func(t *testing.T) {
+							for _, matcher := range matchers {
+								fullFuncName := runtime.FuncForPC(reflect.ValueOf(matcher).Pointer()).Name()
+								parts := strings.Split(fullFuncName, ".")
+
+								t.Run(fmt.Sprintf("matcher %s", parts[len(parts)-1]), func(t *testing.T) {
+									testFn(t, limit, sortParam, matcher)
+								})
+							}
+						})
+					}
+				})
+			}
+		})
+	}
+}
+
 func createDummyObject(t *testing.T, i int) ([]byte, uint64) {
 	docID := uint64(i)
 	// we will never read those objects, so we don't actually have to store any
