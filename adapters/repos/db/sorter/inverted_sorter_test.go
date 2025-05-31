@@ -65,7 +65,7 @@ func TestInvertedSorter(t *testing.T) {
 	sorter := NewInvertedSorter(store, newDataTypesHelper(dummyClass()))
 
 	forceFlush := []bool{false, true}
-	propNames := []string{"int", "number", "date"}
+	propNames := []string{"int", "int2", "number", "date"}
 	limits := []int{1, 2, 5, 10, 100, 500, 1000, 2000}
 	order := []string{"asc", "desc"}
 	matchers := []func(t *testing.T, count int) helpers.AllowList{
@@ -190,7 +190,7 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	for _, propName := range []string{"int", "number", "date"} {
+	for _, propName := range []string{"int", "int2", "number", "date"} {
 		err = store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
 			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 		require.Nil(t, err)
@@ -200,38 +200,24 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 	dummyInvertedIndex(t, ctx, store, props)
 
 	sortPlans := [][]filters.Sort{
-		{
-			{
-				Path:  []string{"int"},
-				Order: "desc",
-			},
-			{
-				Path:  []string{"number"},
-				Order: "desc",
-			},
-		},
+		{{Path: []string{"int"}, Order: "desc"}, {Path: []string{"number"}, Order: "desc"}},
+		{{Path: []string{"int"}, Order: "desc"}, {Path: []string{"number"}, Order: "asc"}},
+		{{Path: []string{"int"}, Order: "asc"}, {Path: []string{"number"}, Order: "asc"}},
+		{{Path: []string{"int"}, Order: "asc"}, {Path: []string{"number"}, Order: "desc"}},
+		{{Path: []string{"int"}, Order: "asc"}, {Path: []string{"int2"}, Order: "desc"}, {Path: []string{"number"}, Order: "desc"}},
 	}
 
 	sorter := NewInvertedSorter(store, newDataTypesHelper(dummyClass()))
 
-	// forceFlush := []bool{false, true}
-	// limits := []int{1, 2, 5, 10, 100, 500, 1000, 2000}
-	// matchers := []func(t *testing.T, count int) helpers.AllowList{
-	// 	matchAllBitmap,
-	// 	matchEveryOtherBitmap,
-	// 	match10PercentBitmap,
-	// 	matchRandomBitmap,
-	// 	matchSingleBitmap,
-	// }
+	forceFlush := []bool{false, true}
+	limits := []int{1, 2, 5, 10, 100, 500, 1000, 2000}
 
-	forceFlush := []bool{true}
-	limits := []int{100}
 	matchers := []func(t *testing.T, count int) helpers.AllowList{
 		matchAllBitmap,
-		// matchEveryOtherBitmap,
-		// match10PercentBitmap,
-		// matchRandomBitmap,
-		// matchSingleBitmap,
+		matchEveryOtherBitmap,
+		match10PercentBitmap,
+		matchRandomBitmap,
+		matchSingleBitmap,
 	}
 
 	testFn := func(t *testing.T, limit int, sortParams []filters.Sort, matcher func(t *testing.T, count int) helpers.AllowList) {
@@ -266,6 +252,13 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 					}
 					return sortedProps[i].int < sortedProps[j].int
 				}
+			case "int2":
+				sortFn = func(i, j int) bool {
+					if sortParam.Order == "desc" {
+						return sortedProps[j].int2 < sortedProps[i].int2
+					}
+					return sortedProps[i].int2 < sortedProps[j].int2
+				}
 			case "number":
 				sortFn = func(i, j int) bool {
 					if sortParam.Order == "desc" {
@@ -284,8 +277,18 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 			sort.SliceStable(sortedProps, sortFn)
 		}
 
+		t.Logf("limit=%d, sortedProps=%d, actual=%d matches=%d", limit, len(sortedProps), len(actual), bm.Len())
+		expectedLength := min(len(sortedProps), limit)
+		assert.Len(t, actual, expectedLength)
+
 		for i, docID := range actual {
+			t.Logf("\nexpected=%#v\nactual=%#v\n", sortedProps[i], props[docID])
 			assert.Equal(t, int(sortedProps[i].docID), int(docID))
+		}
+		slowLog := helpers.ExtractSlowQueryDetails(ctx)
+		qp := slowLog["sort_query_planner"].([]any)
+		for _, qpItem := range qp {
+			t.Log(qpItem)
 		}
 	}
 
@@ -341,6 +344,7 @@ func createDummyObject(t *testing.T, i int) ([]byte, uint64) {
 type dummyProps struct {
 	docID  uint64
 	int    int64
+	int2   int64
 	number float64
 	date   time.Time
 }
@@ -351,6 +355,7 @@ func generateRandomProps(count int) []dummyProps {
 		props[i] = dummyProps{
 			docID:  uint64(i),
 			int:    rand.Int63n(10),                              // few values, many collisions
+			int2:   rand.Int63n(100),                             // still some collisions, but not as many
 			number: rand.Float64() * 100,                         // many values, few collisions
 			date:   time.Now().Add(time.Duration(i) * time.Hour), // guaranteed to be unique
 		}
@@ -359,7 +364,7 @@ func generateRandomProps(count int) []dummyProps {
 }
 
 func dummyInvertedIndex(t *testing.T, ctx context.Context, store *lsmkv.Store, props []dummyProps) {
-	for _, propName := range []string{"int", "number", "date"} {
+	for _, propName := range []string{"int", "int2", "number", "date"} {
 		bucket := store.Bucket(helpers.BucketFromPropNameLSM(propName))
 		for _, p := range props {
 			var key []byte
@@ -367,6 +372,9 @@ func dummyInvertedIndex(t *testing.T, ctx context.Context, store *lsmkv.Store, p
 			switch propName {
 			case "int":
 				key, err = inverted.LexicographicallySortableInt64(p.int)
+				require.Nil(t, err)
+			case "int2":
+				key, err = inverted.LexicographicallySortableInt64(p.int2)
 				require.Nil(t, err)
 			case "number":
 				key, err = inverted.LexicographicallySortableFloat64(p.number)
@@ -389,6 +397,11 @@ func dummyClass() *models.Class {
 		Properties: []*models.Property{
 			{
 				Name:          "int",
+				DataType:      []string{string(schema.DataTypeInt)},
+				IndexInverted: &t,
+			},
+			{
+				Name:          "int2",
 				DataType:      []string{string(schema.DataTypeInt)},
 				IndexInverted: &t,
 			},

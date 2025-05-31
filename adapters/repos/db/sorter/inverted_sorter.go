@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -98,6 +99,7 @@ func (is *invertedSorter) sortDocIDsWithNesting(ctx context.Context, limit int, 
 func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.Bucket,
 	limit int, sort []filters.Sort, ids helpers.AllowList, propName string, nesting int,
 ) ([]uint64, error) {
+	startTime := time.Now()
 	cursor := bucket.CursorRoaringSet()
 	defer cursor.Close()
 
@@ -105,19 +107,44 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 	rowsEvaluated := 0
 	defer func() {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-			helpers.SprintfWithNesting(nesting, "evaluated %d rows, found %d ids", rowsEvaluated, len(foundIDs)))
+			helpers.SprintfWithNesting(nesting, "evaluated %d rows, found %d ids in %s",
+				rowsEvaluated, len(foundIDs), time.Since(startTime)))
 	}()
+
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		it := v.NewIterator()
+		rowsEvaluated++
+		idsFoundInRow := make([]uint64, 0, v.GetCardinality())
 		for i := 0; i < v.GetCardinality(); i++ {
-			rowsEvaluated++
 			id := it.Next()
 			if ids.Contains(id) {
-				foundIDs = append(foundIDs, id)
-				if len(foundIDs) == limit {
+				idsFoundInRow = append(idsFoundInRow, id)
+				// we can early exit if there is no secondary sort cluase, because the
+				// natural order is already the doc id however, if there is a secondary
+				// clause we need to make sure we have read the full row
+				if len(idsFoundInRow)+len(foundIDs) >= limit && len(sort) == 1 {
+					foundIDs = append(foundIDs, idsFoundInRow...)
 					return foundIDs, nil
 				}
 			}
+		}
+		if len(idsFoundInRow) > 1 && len(sort) > 1 {
+			// we have identical ids and we have more than one sort clause, so we
+			// need to start a sub-query to sort them
+			helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+				helpers.SprintfWithNesting(nesting, "start sub-query for %d ids with identical value", len(idsFoundInRow)))
+
+			var err error
+			idsFoundInRow, err = is.sortDocIDsWithNesting(ctx, len(idsFoundInRow), sort[1:], helpers.NewAllowList(idsFoundInRow...), nesting+1)
+			if err != nil {
+				return nil, fmt.Errorf("failed to sort ids with identical value: %w", err)
+			}
+		}
+
+		foundIDs = append(foundIDs, idsFoundInRow...)
+		if len(foundIDs) >= limit {
+			foundIDs = foundIDs[:limit]
+			break
 		}
 	}
 
@@ -127,6 +154,7 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.Bucket,
 	limit int, sort []filters.Sort, ids helpers.AllowList, propName string, nesting int,
 ) ([]uint64, error) {
+	startTime := time.Now()
 	qks := is.quantileKeysForDescSort(ctx, limit, ids, bucket, nesting)
 	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 		helpers.SprintfWithNesting(nesting, "identified %d quantile keys for descending sort", len(qks)))
@@ -140,8 +168,8 @@ func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.
 	idCountBeforeCutoff := 0
 	defer func() {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-			helpers.SprintfWithNesting(nesting, "evaluated %d rows, found %d ids, actual match ratio is %.2f, seeks required: %d",
-				rowsEvaluated, idCountBeforeCutoff, float64(idCountBeforeCutoff)/float64(rowsEvaluated), seeksRequired))
+			helpers.SprintfWithNesting(nesting, "evaluated %d rows, found %d ids, actual match ratio is %.2f, seeks required: %d (took %s)",
+				rowsEvaluated, idCountBeforeCutoff, float64(idCountBeforeCutoff)/float64(rowsEvaluated), seeksRequired, time.Since(startTime)))
 	}()
 
 	for qkIndex := len(qks) - 1; qkIndex >= 0; qkIndex-- {
@@ -172,14 +200,14 @@ func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.
 				}
 			}
 
-			if len(idsFoundInRow) > 0 && len(sort) > 1 {
+			if len(idsFoundInRow) > 1 && len(sort) > 1 {
 				// we have identical ids and we have more than one sort clause, so we
 				// need to start a sub-query to sort them
 				helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 					helpers.SprintfWithNesting(nesting, "start sub-query for %d ids with identical value", len(idsFoundInRow)))
 
 				var err error
-				idsFoundInRow, err = is.sortDocIDsWithNesting(ctx, limit, sort[1:], helpers.NewAllowList(idsFoundInRow...), nesting+1)
+				idsFoundInRow, err = is.sortDocIDsWithNesting(ctx, len(idsFoundInRow), sort[1:], helpers.NewAllowList(idsFoundInRow...), nesting+1)
 				if err != nil {
 					return nil, fmt.Errorf("failed to sort ids with identical value: %w", err)
 				}
