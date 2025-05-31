@@ -16,8 +16,20 @@ type invertedSorter struct {
 	dataTypesHelper *dataTypesHelper
 }
 
-var ErrInvertedSorterUnsupported = fmt.Errorf("the current scenario is not supported by the inverted sorter")
-
+// NewInvertedSorter constructs the specialised sorter that walks an
+// inverted-index bucket whose *value* layout is a roaring bitmap of docIDs.
+//
+// Compared with the generic objects-bucket sorter this variant can avoid
+// deserialising whole objects and instead streams the docIDs that already
+// appear in the desired (byte-level) order.  It therefore wins whenever:
+//
+//   - The ORDER-BY key is filterable (hence indexed) and of a “byte-order-
+//     preserving” type (date, int, number).
+//   - Only a single sort key is present (multi-column ordering is delegated to
+//     the objects strategy for now).
+//
+// No locks are taken; the sorter assumes the underlying lsmkv.Store obeys its
+// own concurrency guarantees.
 func NewInvertedSorter(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *invertedSorter {
 	return &invertedSorter{
 		store:           store,
@@ -25,6 +37,31 @@ func NewInvertedSorter(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *in
 	}
 }
 
+// SortDocIDs returns up to *limit* document IDs in the order prescribed by the
+// single sort clause embedded in *sort* (ASC or DESC).  All IDs are drawn from
+// *ids*, a pre-filtered candidate set handed over by the query executor.
+//
+// Fast path (ASC):
+//   - Open a roaring-set cursor and walk forward until enough hits are found.
+//   - Because the inverted index is already ordered ascending by (value, docID)
+//     the first *limit* hits are the final answer—no extra sorting needed.
+//
+// Slow path (DESC):
+//   - Descending order would naively require a full reverse scan.  Instead we
+//     approximate the point where the tail *limit* rows begin by probing the
+//     key space at coarse quantiles (see quantileKeysForDescSort).
+//   - Each probe rewinds the cursor only within a narrow key range, collects
+//     matching IDs, and stops once *limit* results are assembled.
+//   - Per-row ID slices are reversed locally so that ties (same value) remain
+//     docID-ASC overall—preserving a stable order without a second pass.
+//
+// If the incoming *sort* slice contains anything other than a single clause
+// with a matching prop type the method immediately bails out; such situations
+// should have been pre-filtered by the query planner and therefore represent a
+// programming error upstream.
+//
+// A terse trace of row counts, seek counts and match ratios is appended to the
+// slow-query log embedded in *ctx* for post-mortem tuning.
 func (is *invertedSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
 	if len(sort) != 1 {
 		// this should never happen, the query planner should already have chosen
