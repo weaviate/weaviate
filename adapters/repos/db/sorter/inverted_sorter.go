@@ -9,7 +9,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
-	"github.com/weaviate/weaviate/entities/schema"
 )
 
 type invertedSorter struct {
@@ -28,6 +27,8 @@ func NewInvertedSorter(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *in
 
 func (is *invertedSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
 	if len(sort) != 1 {
+		// this should never happen, the query planner should already have chosen
+		// another strategy
 		return nil, fmt.Errorf("inverted sorter only supports single sort criteria, got %d", len(sort))
 	}
 
@@ -36,37 +37,34 @@ func (is *invertedSorter) SortDocIDs(ctx context.Context, limit int, sort []filt
 		return nil, err
 	}
 
-	dt := is.dataTypesHelper.getType(propNames[0])
-	switch dt {
-	case schema.DataTypeDate:
-
-	default:
-		return nil, fmt.Errorf("data type %s: %w", dt, ErrInvertedSorterUnsupported)
-
+	bucket := is.store.Bucket(helpers.BucketFromPropNameLSM(propNames[0]))
+	if bucket.Strategy() != lsmkv.StrategyRoaringSet {
+		// this should never happen, the query planner should already have chosen
+		// another strategy
+		return nil, fmt.Errorf("expected roaring set bucket for property %s, got %s",
+			propNames[0], bucket.Strategy())
 	}
 
 	if orders[0] == "asc" {
-		return is.sortRoaringSetASC(ctx, limit, sort, ids, propNames[0])
+		return is.sortRoaringSetASC(ctx, bucket, limit, sort, ids, propNames[0])
 	} else if orders[0] == "desc" {
-		return is.sortRoaringSetDESC(ctx, limit, sort, ids, propNames[0])
+		return is.sortRoaringSetDESC(ctx, bucket, limit, sort, ids, propNames[0])
 	} else {
 		return nil, fmt.Errorf("unsupported sort order %s", orders[0])
 	}
 }
 
-func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, limit int, sort []filters.Sort,
-	ids helpers.AllowList, propName string,
+func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.Bucket,
+	limit int, sort []filters.Sort, ids helpers.AllowList, propName string,
 ) ([]uint64, error) {
-	// can be sure that we now have a roaring set bucket
-
-	bucket := is.store.Bucket(helpers.BucketFromPropNameLSM(propName))
 	cursor := bucket.CursorRoaringSet()
 	defer cursor.Close()
 
 	foundIDs := make([]uint64, 0, limit)
 	rowsEvaluated := 0
 	defer func() {
-		fmt.Printf("Rows evaluated: %d", rowsEvaluated)
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("evaluated %d rows, found %d ids", rowsEvaluated, len(foundIDs)))
 	}()
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		it := v.NewIterator()
@@ -85,15 +83,12 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, limit int, sort
 	return foundIDs, nil
 }
 
-func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, limit int, sort []filters.Sort,
-	ids helpers.AllowList, propName string,
+func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.Bucket,
+	limit int, sort []filters.Sort, ids helpers.AllowList, propName string,
 ) ([]uint64, error) {
-	// can be sure that we now have a roaring set bucket
-
-	bucket := is.store.Bucket(helpers.BucketFromPropNameLSM(propName))
-
 	qks := is.quantileKeysForDescSort(limit, ids, bucket)
-	fmt.Printf("got quantile keys: %d\n", len(qks))
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+		fmt.Sprintf("identified %d quantile keys for descending sort", len(qks)))
 
 	cursor := bucket.CursorRoaringSet()
 	defer cursor.Close()
@@ -101,8 +96,11 @@ func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, limit int, sor
 	foundIDs := make([]uint64, 0, limit)
 	rowsEvaluated := 0
 	seeksRequired := 0
+	idCountBeforeCutoff := 0
 	defer func() {
-		fmt.Printf("Seeks required: %d, Rows evaluated: %d\n", seeksRequired, rowsEvaluated)
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("evaluated %d rows, found %d ids, actual match ratio is %.2f, seeks required: %d",
+				rowsEvaluated, idCountBeforeCutoff, float64(idCountBeforeCutoff)/float64(rowsEvaluated), seeksRequired))
 	}()
 
 	for qkIndex := len(qks) - 1; qkIndex >= 0; qkIndex-- {
@@ -114,14 +112,12 @@ func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, limit int, sor
 		var exitKey []byte
 		if qkIndex < len(qks)-1 {
 			exitKey = qks[qkIndex+1]
-			fmt.Printf("seeking cursor to key %v, exit key %v\n", qk, exitKey)
 		}
 
 		cursorCount := 0
 		for k, v := cursor.Seek(qk); k != nil; k, v = cursor.Next() {
 			cursorCount++
 			if exitKey != nil && bytes.Compare(k, exitKey) >= 0 {
-				fmt.Printf("leaving cursor at key %v, exit key %v after %d iterations\n", k, exitKey, cursorCount)
 				break
 			}
 
@@ -134,7 +130,6 @@ func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, limit int, sor
 				}
 			}
 		}
-		fmt.Printf("read %d rows in chunk %d, found %d ids\n", cursorCount, qkIndex, len(idsFoundInChunk))
 
 		// chunk is complete, prepend to total ids found
 		foundIDs = append(idsFoundInChunk, foundIDs...)
@@ -143,7 +138,10 @@ func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, limit int, sor
 			break
 		}
 	}
+
+	// inverted index is in ASC order, need to reverse for DESC search
 	slices.Reverse(foundIDs)
+	idCountBeforeCutoff = len(foundIDs)
 	if len(foundIDs) > limit {
 		foundIDs = foundIDs[:limit]
 	}
@@ -161,7 +159,5 @@ func (is *invertedSorter) quantileKeysForDescSort(limit int, ids helpers.AllowLi
 	}
 
 	neededQuantiles := totalCount / estimatedRowsHit
-	fmt.Printf("Estimated rows hit: %d, needed quantiles: %d\n", estimatedRowsHit, neededQuantiles)
-
 	return invertedBucket.QuantileKeys(neededQuantiles)
 }
