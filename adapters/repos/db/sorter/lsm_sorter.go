@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -65,10 +66,19 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 
 func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
 	// estimate costs of various strategies
-	costObjectsBucket, costInvertedBucket := s.estimateCosts(ids, limit, sort)
-	fmt.Printf("Estimated costs - Objects Bucket: %f, Inverted Bucket: %f\n", costObjectsBucket, costInvertedBucket)
+	useInverted, err := s.queryPlan(ctx, ids, limit, sort)
+	if err != nil {
+		return nil, fmt.Errorf("plan sort query: %w", err)
+	}
 
-	if costInvertedBucket < costObjectsBucket && len(sort) == 1 {
+	startTime := time.Now()
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner", "START EXECUTING")
+	defer func() {
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("COMPLETED EXECUTING in %s", time.Since(startTime)))
+	}()
+
+	if useInverted {
 		is := NewInvertedSorter(s.store, s.dataTypesHelper)
 		return is.SortDocIDs(ctx, limit, sort, ids)
 	}
