@@ -39,6 +39,7 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
+	entinverted "github.com/weaviate/weaviate/entities/inverted"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/multi"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -417,7 +418,7 @@ func shardPathLSM(indexPath, shardName string) string {
 }
 
 func bucketKeyPropertyLength(length int) ([]byte, error) {
-	return inverted.LexicographicallySortableInt64(int64(length))
+	return entinverted.LexicographicallySortableInt64(int64(length))
 }
 
 func bucketKeyPropertyNull(isNull bool) ([]byte, error) {

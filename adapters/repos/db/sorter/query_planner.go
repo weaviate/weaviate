@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -34,12 +35,30 @@ const (
 	FixedCostInvertedBucketRow = FixedCostRowRead
 )
 
-func (s *lsmSorter) estimateCosts(ctx context.Context, ids helpers.AllowList, limit int,
+type queryPlanner struct {
+	store           *lsmkv.Store
+	dataTypesHelper *dataTypesHelper
+}
+
+func NewQueryPlanner(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *queryPlanner {
+	return &queryPlanner{
+		store:           store,
+		dataTypesHelper: dataTypesHelper,
+	}
+}
+
+func (s *queryPlanner) EstimateCosts(ctx context.Context, ids helpers.AllowList, limit int,
 	sort []filters.Sort,
 ) (float64, float64) {
 	matches := ids.Len()
-	totalObjects := s.bucket.CountAsync()
-	filterMatchRatio := float64(matches) / float64(totalObjects)
+	totalObjects := s.store.Bucket(helpers.ObjectsBucketLSM).CountAsync()
+	var filterMatchRatio float64
+	if totalObjects == 0 {
+		// this can happen when there are no disk segments yet, just assume a 100% match ratio
+		filterMatchRatio = 1.0
+	} else {
+		filterMatchRatio = float64(matches) / float64(totalObjects)
+	}
 
 	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 		fmt.Sprintf("matches=%d, limit=%d, filterMatchRatio=%.2f",
@@ -80,7 +99,7 @@ func (s *lsmSorter) estimateCosts(ctx context.Context, ids helpers.AllowList, li
 	return costObjectsBucket, costInvertedBucket
 }
 
-func (s *lsmSorter) queryPlan(ctx context.Context, ids helpers.AllowList, limit int, sort []filters.Sort) (useInverted bool, err error) {
+func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int, sort []filters.Sort) (useInverted bool, err error) {
 	startTime := time.Now()
 	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner", "START PLANNING")
 	defer func() {
@@ -88,7 +107,7 @@ func (s *lsmSorter) queryPlan(ctx context.Context, ids helpers.AllowList, limit 
 			fmt.Sprintf("COMPLETED PLANNING in %s", time.Since(startTime)))
 	}()
 
-	costObjectsBucket, costInvertedBucket := s.estimateCosts(ctx, ids, limit, sort)
+	costObjectsBucket, costInvertedBucket := s.EstimateCosts(ctx, ids, limit, sort)
 
 	useInverted = false
 	if costInvertedBucket > costObjectsBucket {
