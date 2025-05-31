@@ -33,15 +33,18 @@ type invertedSorter struct {
 //
 // Compared with the generic objects-bucket sorter this variant can avoid
 // deserialising whole objects and instead streams the docIDs that already
-// appear in the desired (byte-level) order.  It therefore wins whenever:
+// appear in the required byte order.  It wins whenever:
 //
-//   - The ORDER-BY key is filterable (hence indexed) and of a “byte-order-
-//     preserving” type (date, int, number).
-//   - Only a single sort key is present (multi-column ordering is delegated to
-//     the objects strategy for now).
+//   - The *first* ORDER-BY key is filterable (hence indexed) **and** uses a
+//     byte-order-preserving encoding (date, int, number).
 //
-// No locks are taken; the sorter assumes the underlying lsmkv.Store obeys its
-// own concurrency guarantees.
+//   - Additional sort keys are optional.  Whenever two objects tie on the
+//     current key, the sorter **recursively** invokes itself on the tied set
+//     with the remaining keys, guaranteeing full lexicographic ordering without
+//     resorting to an in-memory N log N sort.
+//
+// No locks are taken; the sorter assumes the underlying lsmkv.Store provides
+// its usual read-concurrency guarantees.
 func NewInvertedSorter(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *invertedSorter {
 	return &invertedSorter{
 		store:           store,
@@ -49,36 +52,60 @@ func NewInvertedSorter(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *in
 	}
 }
 
-// SortDocIDs returns up to *limit* document IDs in the order prescribed by the
-// single sort clause embedded in *sort* (ASC or DESC).  All IDs are drawn from
-// *ids*, a pre-filtered candidate set handed over by the query executor.
+// SortDocIDs returns at most *limit* document IDs ordered lexicographically by
+// the sequence of sort clauses in *sort*. All candidate IDs come from *ids*,
+// a pre-filtered allow-list.
 //
-// Fast path (ASC):
-//   - Open a roaring-set cursor and walk forward until enough hits are found.
-//   - Because the inverted index is already ordered ascending by (value, docID)
-//     the first *limit* hits are the final answer—no extra sorting needed.
+// ## Fast path vs. Slow path
 //
-// Slow path (DESC):
-//   - Descending order would naively require a full reverse scan.  Instead we
-//     approximate the point where the tail *limit* rows begin by probing the
-//     key space at coarse quantiles (see quantileKeysForDescSort).
-//   - Each probe rewinds the cursor only within a narrow key range, collects
-//     matching IDs, and stops once *limit* results are assembled.
-//   - Per-row ID slices are reversed locally so that ties (same value) remain
-//     docID-ASC overall—preserving a stable order without a second pass.
+//   - **Fast path (ASC)** – a forward cursor walk on the roaring-set bucket of
+//     the first sort key. Because the inverted index is already ordered
+//     `(value, docID)`, the first *limit* matches are immediately correct.
 //
-// If the incoming *sort* slice contains anything other than a single clause
-// with a matching prop type the method immediately bails out; such situations
-// should have been pre-filtered by the query planner and therefore represent a
-// programming error upstream.
+//   - **Slow path (DESC)** – instead of a full reverse scan we probe the key
+//     space at coarse quantiles (see `quantileKeysForDescSort`) and walk only the
+//     tail window that can contain the last *limit* rows. Each chunk is reversed
+//     locally so ties remain docID-ascending; the whole result slice is reversed
+//     once at the end.
 //
-// A terse trace of row counts, seek counts and match ratios is appended to the
-// slow-query log embedded in *ctx* for post-mortem tuning.
-func (is *invertedSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
+// ## Handling multi-column ORDER BY
+//
+// When several rows tie on the current key **and** further sort clauses
+// remain, the sorter
+//
+// 1. Builds an `AllowList` for just the tied IDs.
+// 2. Recursively calls `sortDocIDsWithNesting` with the remaining clauses.
+// 3. Splices the recursively ordered IDs back into the output slice.
+//
+// This yields full lexicographic ordering without an in-memory *N log N* sort
+// and keeps memory usage ≤ *limit*.
+//
+// ## Early exit & complexity
+//
+//   - Each recursion level stops scanning as soon as *limit* IDs are finalised.
+//   - **Best case** (few ties, small limit): *O(rowsHit)*.
+//   - **Worst case** (deep recursion with many ties): *O(rowsHit × depth)*,
+//     where *depth* ≤ `len(sort)`.
+//
+// A concise trace (rows scanned, seeks, recursion depth, elapsed time) is
+// appended to the slow-query log stored in `ctx`, allowing operators to review
+// plan quality under production load.
+func (is *invertedSorter) SortDocIDs(
+	ctx context.Context,
+	limit int,
+	sort []filters.Sort,
+	ids helpers.AllowList,
+) ([]uint64, error) {
 	return is.sortDocIDsWithNesting(ctx, limit, sort, ids, 0)
 }
 
-func (is *invertedSorter) sortDocIDsWithNesting(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList, nesting int) ([]uint64, error) {
+func (is *invertedSorter) sortDocIDsWithNesting(
+	ctx context.Context,
+	limit int,
+	sort []filters.Sort,
+	ids helpers.AllowList,
+	nesting int,
+) ([]uint64, error) {
 	if len(sort) < 1 {
 		// this should never happen, the query planner should already have chosen
 		// another strategy

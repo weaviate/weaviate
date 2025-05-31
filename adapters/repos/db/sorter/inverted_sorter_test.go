@@ -64,7 +64,7 @@ func TestInvertedSorter(t *testing.T) {
 		require.Nil(t, err)
 	}
 
-	for _, propName := range []string{"int", "number", "date"} {
+	for _, propName := range []string{"int", "int2", "number", "date"} {
 		err = store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
 			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
 		require.Nil(t, err)
@@ -115,6 +115,13 @@ func TestInvertedSorter(t *testing.T) {
 					return sortedProps[j].int < sortedProps[i].int
 				}
 				return sortedProps[i].int < sortedProps[j].int
+			}
+		case "int2":
+			sortFn = func(i, j int) bool {
+				if ord == "desc" {
+					return sortedProps[j].int2 < sortedProps[i].int2
+				}
+				return sortedProps[i].int2 < sortedProps[j].int2
 			}
 		case "number":
 			sortFn = func(i, j int) bool {
