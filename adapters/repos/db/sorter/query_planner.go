@@ -40,6 +40,17 @@ type queryPlanner struct {
 	dataTypesHelper *dataTypesHelper
 }
 
+// NewQueryPlanner wires a lightweight cost-based planner around an lsmkv.Store.
+// The planner’s only job is to decide—per user query—whether it is cheaper to
+// satisfy an ORDER-BY clause by
+//
+//  1. streaming rows directly from the objects bucket and sorting in memory, or
+//  2. exploiting the fact that an inverted-index bucket is already ordered
+//     lexicographically on the property being sorted.
+//
+// Both the store and the DataTypesHelper are passed by reference and may be
+// shared across many concurrent planners; the function does not assume
+// ownership or perform any locking.
 func NewQueryPlanner(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *queryPlanner {
 	return &queryPlanner{
 		store:           store,
@@ -47,6 +58,35 @@ func NewQueryPlanner(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *quer
 	}
 }
 
+// EstimateCosts returns two independent cost estimates—(objectsCost,
+// invertedCost)—for producing the first *limit* rows of a sorted result:
+//
+//   - objectsCost   – walk the objects bucket, deserialize the full object,
+//     extract the sort value, keep the top-N in memory.
+//
+//   - invertedCost  – open a cursor on the inverted-index bucket that is
+//     already sorted by the required key and stream until N
+//     matches have been found (with extra work if DESC order
+//     forces a reverse scan).
+//
+// Costs are *dimensionless units* calibrated to roughly match the relative
+// latency of random I/O, sequential I/O and JSON unmarshalling on a modern
+// NVMe or similar system.  The estimate deliberately:
+//
+//   - Discounts the first *limit* object fetches because the query will need
+//     those pages anyway, hence they are almost always in cache.
+//
+//   - Inflates random seeks (≃ FixedCostIndexSeek) so that HDD-backed
+//     deployments or other IOPS-constrained systems (e.g. EBS volumes)
+//     still pick the right plan.
+//
+//   - Ignores filter/sort correlation: the result is slightly pessimistic when
+//     the predicate is negatively correlated with the sort key, optimistic when
+//     positively correlated.  That simplification keeps cost evaluation O(1) and
+//     good-enough in practice.
+//
+// The method appends a human-readable trace of its arithmetic to the slow-query
+// log embedded in *ctx* so that operators can review the decision later.
 func (s *queryPlanner) EstimateCosts(ctx context.Context, ids helpers.AllowList, limit int,
 	sort []filters.Sort,
 ) (float64, float64) {
@@ -99,6 +139,24 @@ func (s *queryPlanner) EstimateCosts(ctx context.Context, ids helpers.AllowList,
 	return costObjectsBucket, costInvertedBucket
 }
 
+// Do is the public entry point that turns a query description into a binary
+// plan choice.  It returns *useInverted == true* when **all** of the following
+// hold:
+//
+//   - The inverted-index strategy is cheaper according to EstimateCosts.
+//
+//   - Only a single sort key is specified; multi-column ORDER-BY is not yet
+//     implemented for the index walk.
+//
+//   - The key’s logical type (date, int, number) preserves the same ordering
+//     at the byte level that the inverted index uses.
+//
+//   - The LSM bucket for that property is present; if not, the method
+//     opportunistically reminds the caller that marking the field as
+//     filterable would unlock the faster plan.
+//
+// When any pre-condition fails, Do silently falls back to the objects-bucket
+// scan and records the reason in the slow-query trace.
 func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int, sort []filters.Sort) (useInverted bool, err error) {
 	startTime := time.Now()
 	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner", "START PLANNING")
