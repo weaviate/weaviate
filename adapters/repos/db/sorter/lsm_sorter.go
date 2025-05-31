@@ -15,6 +15,7 @@ import (
 	"context"
 	"encoding/binary"
 	"fmt"
+	"time"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
@@ -36,6 +37,7 @@ type lsmSorter struct {
 	bucket          *lsmkv.Bucket
 	dataTypesHelper *dataTypesHelper
 	valueExtractor  *comparableValueExtractor
+	store           *lsmkv.Store
 }
 
 func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className schema.ClassName) (LSMSorter, error) {
@@ -43,6 +45,7 @@ func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className s
 	if bucket == nil {
 		return nil, fmt.Errorf("lsm sorter - bucket %s for class %s not found", helpers.ObjectsBucketLSM, className)
 	}
+
 	class := fn(className.String())
 	if class == nil {
 		return nil, fmt.Errorf("lsm sorter - class %s not found", className)
@@ -50,7 +53,7 @@ func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className s
 	dataTypesHelper := newDataTypesHelper(class)
 	comparableValuesExtractor := newComparableValueExtractor(dataTypesHelper)
 
-	return &lsmSorter{bucket, dataTypesHelper, comparableValuesExtractor}, nil
+	return &lsmSorter{bucket, dataTypesHelper, comparableValuesExtractor, store}, nil
 }
 
 func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error) {
@@ -62,6 +65,24 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 }
 
 func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
+	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper)
+	useInverted, err := queryPlanner.Do(ctx, ids, limit, sort)
+	if err != nil {
+		return nil, fmt.Errorf("plan sort query: %w", err)
+	}
+
+	startTime := time.Now()
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner", "START EXECUTING")
+	defer func() {
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("COMPLETED EXECUTING in %s", time.Since(startTime)))
+	}()
+
+	if useInverted {
+		is := NewInvertedSorter(s.store, s.dataTypesHelper)
+		return is.SortDocIDs(ctx, limit, sort, ids)
+	}
+
 	helper, err := s.createHelper(sort, validateLimit(limit, ids.Len()))
 	if err != nil {
 		return nil, err
