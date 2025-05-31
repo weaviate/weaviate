@@ -18,6 +18,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/weaviate/sroar"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -99,6 +100,11 @@ func (is *invertedSorter) SortDocIDs(
 	return is.sortDocIDsWithNesting(ctx, limit, sort, ids, 0)
 }
 
+// sortDocIDsWithNesting is the entrypoint into a (potentially recursive) sort,
+// the nesting indicator is purely used for the query slow log annotation
+//
+// on each entry, we make a new decision on whether to go down the ASC fast
+// path or the DESC windowed walk
 func (is *invertedSorter) sortDocIDsWithNesting(
 	ctx context.Context,
 	limit int,
@@ -134,48 +140,39 @@ func (is *invertedSorter) sortDocIDsWithNesting(
 	}
 }
 
+// sortRoaringSetASC walks the roaring set bucket in ascending order, i.e. the
+// fast path.
+//
+// If only a single clause is provided, it will exist as soon as the limit is
+// reached. If a second clause is provided, it will make sure to finish reading
+// each row, then start a nested tie-breaker sort, to sort the duplicate IDs.
 func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.Bucket,
 	limit int, sort []filters.Sort, ids helpers.AllowList, propName string, nesting int,
 ) ([]uint64, error) {
 	startTime := time.Now()
+	hasMoreNesting := len(sort) > 1
 	cursor := bucket.CursorRoaringSet()
 	defer cursor.Close()
 
 	foundIDs := make([]uint64, 0, limit)
 	rowsEvaluated := 0
-	defer func() {
-		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-			helpers.SprintfWithNesting(nesting, "evaluated %d rows, found %d ids in %s",
-				rowsEvaluated, len(foundIDs), time.Since(startTime)))
-	}()
+	defer is.annotateASC(ctx, nesting, &rowsEvaluated, &foundIDs, startTime)
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
-		it := v.NewIterator()
 		rowsEvaluated++
-		idsFoundInRow := make([]uint64, 0, v.GetCardinality())
-		for i := 0; i < v.GetCardinality(); i++ {
-			id := it.Next()
-			if ids.Contains(id) {
-				idsFoundInRow = append(idsFoundInRow, id)
-				// we can early exit if there is no secondary sort cluase, because the
-				// natural order is already the doc id however, if there is a secondary
-				// clause we need to make sure we have read the full row
-				if len(idsFoundInRow)+len(foundIDs) >= limit && len(sort) == 1 {
-					foundIDs = append(foundIDs, idsFoundInRow...)
-					return foundIDs, nil
-				}
-			}
-		}
-		if len(idsFoundInRow) > 1 && len(sort) > 1 {
-			// we have identical ids and we have more than one sort clause, so we
-			// need to start a sub-query to sort them
-			helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-				helpers.SprintfWithNesting(nesting, "start sub-query for %d ids with identical value", len(idsFoundInRow)))
 
+		forbidEarlyExit := hasMoreNesting
+		idsFoundInRow, earlyExit := is.extractDocIDsFromBitmap(ctx, limit, ids, v, len(foundIDs), forbidEarlyExit)
+		if earlyExit {
+			foundIDs = append(foundIDs, idsFoundInRow...)
+			return foundIDs, nil
+		}
+
+		if len(idsFoundInRow) > 1 && hasMoreNesting {
 			var err error
-			idsFoundInRow, err = is.sortDocIDsWithNesting(ctx, len(idsFoundInRow), sort[1:], helpers.NewAllowList(idsFoundInRow...), nesting+1)
+			idsFoundInRow, err = is.startNestedSort(ctx, idsFoundInRow, sort[1:], nesting)
 			if err != nil {
-				return nil, fmt.Errorf("failed to sort ids with identical value: %w", err)
+				return nil, err
 			}
 		}
 
@@ -189,92 +186,180 @@ func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.B
 	return foundIDs, nil
 }
 
-func (is *invertedSorter) sortRoaringSetDESC(ctx context.Context, bucket *lsmkv.Bucket,
-	limit int, sort []filters.Sort, ids helpers.AllowList, propName string, nesting int,
+// sortRoaringSetDESC uses quantile-keys to estimate a window where the
+// matching IDs are contained. It will start with the last/highest window as
+// the index is in ASC order, but we are interested in DESC values. If it
+// cannot find enough IDs, it will move to the previous window. In the worst
+// case (perfect negative correlation) this will lead to a full scan of the
+// inverted index bucket.
+//
+// A DESC search can never exit a window early, it always needs to read the
+// full window because the best matches will always be at the end of the
+// window. The minimum read is always an entire window. However, it uses
+// quantile keys to estimate good windows and should not use more than 1 or 2
+// windows in most cases.
+//
+// If more than one sort clause is provided, it will start a secondary (nested)
+// sort for all IDs that share the same value.
+func (is *invertedSorter) sortRoaringSetDESC(
+	ctx context.Context,
+	bucket *lsmkv.Bucket,
+	limit int,
+	sort []filters.Sort,
+	ids helpers.AllowList,
+	propName string,
+	nesting int,
 ) ([]uint64, error) {
 	startTime := time.Now()
+	hasMoreNesting := len(sort) > 1
 	qks := is.quantileKeysForDescSort(ctx, limit, ids, bucket, nesting)
-	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-		helpers.SprintfWithNesting(nesting, "identified %d quantile keys for descending sort", len(qks)))
-
-	cursor := bucket.CursorRoaringSet()
-	defer cursor.Close()
 
 	foundIDs := make([]uint64, 0, limit)
-	rowsEvaluated := 0
 	seeksRequired := 0
 	idCountBeforeCutoff := 0
-	defer func() {
-		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-			helpers.SprintfWithNesting(nesting, "evaluated %d rows, found %d ids, actual match ratio is %.2f, seeks required: %d (took %s)",
-				rowsEvaluated, idCountBeforeCutoff, float64(idCountBeforeCutoff)/float64(rowsEvaluated), seeksRequired, time.Since(startTime)))
-	}()
+	rowsEvaluated := 0
+	whenComplete := is.annotateDESC(ctx, nesting, len(qks), startTime, &rowsEvaluated, &idCountBeforeCutoff, &seeksRequired)
+	defer whenComplete()
 
 	for qkIndex := len(qks) - 1; qkIndex >= 0; qkIndex-- {
-		qk := qks[qkIndex]
 		seeksRequired++
+		startKey, endKey := cursorKeysForDESCWindow(qks, qkIndex)
 
-		idsFoundInChunk := make([]uint64, 0, limit)
-
-		var exitKey []byte
-		if qkIndex < len(qks)-1 {
-			exitKey = qks[qkIndex+1]
+		idsInWindow, rowsInWindow, err := is.processDESCWindow(ctx, bucket,
+			startKey, endKey, ids, limit, nesting, hasMoreNesting, sort)
+		if err != nil {
+			return nil, fmt.Errorf("process descending window: %w", err)
 		}
 
-		cursorCount := 0
-		for k, v := cursor.Seek(qk); k != nil; k, v = cursor.Next() {
-			cursorCount++
-			if exitKey != nil && bytes.Compare(k, exitKey) >= 0 {
-				break
-			}
+		rowsEvaluated += rowsInWindow
 
-			rowsEvaluated++
-			it := v.NewIterator()
-			idsFoundInRow := make([]uint64, 0, v.GetCardinality())
-			for i := 0; i < v.GetCardinality(); i++ {
-				id := it.Next()
-				if ids.Contains(id) {
-					idsFoundInRow = append(idsFoundInRow, id)
-				}
-			}
-
-			if len(idsFoundInRow) > 1 && len(sort) > 1 {
-				// we have identical ids and we have more than one sort clause, so we
-				// need to start a sub-query to sort them
-				helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-					helpers.SprintfWithNesting(nesting, "start sub-query for %d ids with identical value", len(idsFoundInRow)))
-
-				var err error
-				idsFoundInRow, err = is.sortDocIDsWithNesting(ctx, len(idsFoundInRow), sort[1:], helpers.NewAllowList(idsFoundInRow...), nesting+1)
-				if err != nil {
-					return nil, fmt.Errorf("failed to sort ids with identical value: %w", err)
-				}
-			}
-
-			// we need to reverse the ids found in this chunk, because the inverted
-			// index is in ASC order, so we will reverse the full list at the end.
-			// However, for tie-breaker reasons we need to make sure that IDs with
-			// identical values appear in docID-ASC order. If we don't reverse them
-			// right now, they would end up in DESC order in the final list
-			slices.Reverse(idsFoundInRow)
-			idsFoundInChunk = append(idsFoundInChunk, idsFoundInRow...)
-		}
-
-		// chunk is complete, prepend to total ids found
-		foundIDs = append(idsFoundInChunk, foundIDs...)
+		// prepend ids from window, the full list will be reversed at the end
+		foundIDs = append(idsInWindow, foundIDs...)
 		if len(foundIDs) >= limit {
 			// we have enough ids, no need to continue
 			break
 		}
 	}
 
-	// inverted index is in ASC order, need to reverse for DESC search
+	// the inverted index is in ASC order meaning our best matches are at the
+	// very end of the slice, we need to reverse it before applying the cut-off
 	slices.Reverse(foundIDs)
 	idCountBeforeCutoff = len(foundIDs)
 	if len(foundIDs) > limit {
 		foundIDs = foundIDs[:limit]
 	}
 	return foundIDs, nil
+}
+
+func cursorKeysForDESCWindow(qks [][]byte, qkIndex int) ([]byte, []byte) {
+	startKey := qks[qkIndex]
+
+	var endKey []byte
+	if qkIndex < len(qks)-1 {
+		endKey = qks[qkIndex+1]
+	}
+
+	return startKey, endKey
+}
+
+// within a single window the logic is almost the same as the ASC case, except
+// that there can never be an early exit (the best matches are at the end of
+// the window)
+func (is *invertedSorter) processDESCWindow(
+	ctx context.Context,
+	bucket *lsmkv.Bucket,
+	startKey []byte,
+	endKey []byte,
+	ids helpers.AllowList,
+	limit int,
+	nesting int,
+	hasMoreNesting bool,
+	sort []filters.Sort,
+) ([]uint64, int, error) {
+	rowsEvaluated := 0
+	idsFoundInWindow := make([]uint64, 0, limit)
+	cursor := bucket.CursorRoaringSet()
+	defer cursor.Close()
+
+	for k, v := cursor.Seek(startKey); k != nil; k, v = cursor.Next() {
+		if endKey != nil && bytes.Compare(k, endKey) >= 0 {
+			break
+		}
+
+		rowsEvaluated++
+
+		forbidEarlyExit := true // early exit is never possible on DESC order
+		idsFoundInRow, _ := is.extractDocIDsFromBitmap(ctx, limit, ids, v, 0, forbidEarlyExit)
+		if len(idsFoundInRow) > 1 && hasMoreNesting {
+			var err error
+			idsFoundInRow, err = is.startNestedSort(ctx, idsFoundInRow, sort[1:], nesting)
+			if err != nil {
+				return nil, rowsEvaluated, err
+			}
+		}
+
+		// we need to reverse the ids found in this chunk, because the inverted
+		// index is in ASC order, so we will reverse the full list at the end.
+		// However, for tie-breaker reasons we need to make sure that IDs with
+		// identical values appear in docID-ASC order. If we don't reverse them
+		// right now, they would end up in DESC order in the final list
+		slices.Reverse(idsFoundInRow)
+		idsFoundInWindow = append(idsFoundInWindow, idsFoundInRow...)
+	}
+
+	return idsFoundInWindow, rowsEvaluated, nil
+}
+
+func (is *invertedSorter) extractDocIDsFromBitmap(
+	ctx context.Context,
+	limit int,
+	ids helpers.AllowList,
+	bm *sroar.Bitmap,
+	totalCountBefore int,
+	forbidEarlyExit bool,
+) (found []uint64, earlyExit bool) {
+	found = make([]uint64, 0, bm.GetCardinality())
+	it := bm.NewIterator()
+	for i := 0; i < bm.GetCardinality(); i++ {
+		id := it.Next()
+		if ids.Contains(id) {
+			found = append(found, id)
+			// we can early exit if the search generally permits it (e.g. ASC) where
+			// the natural order is already doc_id ASC *and* there is no secondary
+			// sort clause. However, if there is a secondary clause we need to make
+			// sure we have read the full row. The same is true on DESC where we can
+			// never perform an early exit
+			//
+			// If an early exit is allowed the exit condition is exceeding the limit
+			// through the ids found in this row as well as the starting offset
+			if !forbidEarlyExit && totalCountBefore+len(found) >= limit {
+				earlyExit = true
+				return
+			}
+		}
+	}
+
+	earlyExit = false
+	return
+}
+
+func (is *invertedSorter) startNestedSort(
+	ctx context.Context,
+	ids []uint64,
+	remainingSort []filters.Sort,
+	nesting int,
+) ([]uint64, error) {
+	// we have identical ids and we have more than one sort clause, so we
+	// need to start a sub-query to sort them
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+		helpers.SprintfWithNesting(nesting, "start sub-query for %d ids with identical value", len(ids)))
+
+	sortedIDs, err := is.sortDocIDsWithNesting(ctx, len(ids), remainingSort, helpers.NewAllowList(ids...), nesting+1)
+	if err != nil {
+		return nil, fmt.Errorf("failed to sort ids with identical value: %w", err)
+	}
+
+	return sortedIDs, nil
 }
 
 func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int,
@@ -307,4 +392,35 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 	}
 
 	return quantiles
+}
+
+func (is *invertedSorter) annotateASC(
+	ctx context.Context,
+	nesting int,
+	rowsEvaluated *int,
+	foundIDs *[]uint64,
+	startTime time.Time,
+) {
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+		helpers.SprintfWithNesting(nesting, "evaluated %d rows, found %d ids in %s",
+			*rowsEvaluated, len(*foundIDs), time.Since(startTime)))
+}
+
+func (is *invertedSorter) annotateDESC(
+	ctx context.Context,
+	nesting int,
+	qksLen int,
+	startTime time.Time,
+	rowsEvaluated, idCountBeforeCutoff, seeksRequired *int,
+) func() {
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+		helpers.SprintfWithNesting(nesting, "identified %d quantile keys for descending sort", qksLen))
+
+	return func() {
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			helpers.SprintfWithNesting(nesting, "evaluated %d rows, found %d ids, "+
+				"actual match ratio is %.2f, seeks required: %d (took %s)",
+				*rowsEvaluated, *idCountBeforeCutoff, float64(*idCountBeforeCutoff)/float64(*rowsEvaluated),
+				*seeksRequired, time.Since(startTime)))
+	}
 }
