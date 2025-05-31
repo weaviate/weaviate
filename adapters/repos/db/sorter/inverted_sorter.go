@@ -131,11 +131,12 @@ func (is *invertedSorter) sortDocIDsWithNesting(
 			propNames[0], bucket.Strategy())
 	}
 
-	if orders[0] == "asc" {
+	switch orders[0] {
+	case "asc":
 		return is.sortRoaringSetASC(ctx, bucket, limit, sort, ids, propNames[0], nesting)
-	} else if orders[0] == "desc" {
+	case "desc":
 		return is.sortRoaringSetDESC(ctx, bucket, limit, sort, ids, propNames[0], nesting)
-	} else {
+	default:
 		return nil, fmt.Errorf("unsupported sort order %s", orders[0])
 	}
 }
