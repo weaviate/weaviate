@@ -25,6 +25,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,7 +47,7 @@ func parseYaml(buf []byte) (*testConfig, error) {
 	return &c, nil
 }
 
-func updater(source, parsed *testConfig) error {
+func updater(_ logrus.FieldLogger, source, parsed *testConfig) error {
 	source.BackupInterval.SetValue(parsed.BackupInterval.Get())
 	return nil
 }
