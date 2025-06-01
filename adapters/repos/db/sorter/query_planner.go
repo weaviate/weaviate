@@ -240,9 +240,9 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 
 	if s.invertedDisabled.Get() {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
-			fmt.Sprintf("property '%s' is not indexed (filterable), the query planner "+
-				"predicts an estimated cost savings of %.2fx, however the inverted sorter "+
-				"is globally disabled using a feature flag", propNames[0], costSavings))
+			fmt.Sprintf("the query planner predicts an estimated cost savings of %.2fx, "+
+				"however the inverted sorter is globally disabled using a feature flag",
+				costSavings))
 		return
 	}
 
