@@ -386,7 +386,7 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 		matchRate = float64(ids.Len()) / float64(totalCount)
 	}
 
-	estimatedRowsHit := int(float64(limit) / matchRate * 2) // safety factor of 2
+	estimatedRowsHit := max(1, int(float64(limit)/matchRate*2)) // safety factor of 20
 	if estimatedRowsHit > totalCount {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 			helpers.SprintfWithNesting(nesting, "estimated rows hit (%d) is greater than total count (%d), "+

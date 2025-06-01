@@ -39,11 +39,14 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-func TestInvertedSorter(t *testing.T) {
+// this test is invoked through inverted_sorter_race_test.go and
+// inverted_sorter_no_race_test.go respectively
+func testInvertedSorter(t *testing.T, race bool) {
 	forceFlush := []bool{false, true}
 	propNames := []string{"int", "int2", "number", "date"}
-	limits := []int{1, 2, 5, 10, 100, 500, 1000, 2000}
+	limits := []int{1, 2, 5, 10, 100, 373, 500, 1000, 2000}
 	order := []string{"asc", "desc"}
+	objectCounts := []int{87, 100, 133, 500, 1000, 10000}
 	matchers := []func(t *testing.T, count int) helpers.AllowList{
 		matchAllBitmap,
 		matchEveryOtherBitmap,
@@ -53,44 +56,58 @@ func TestInvertedSorter(t *testing.T) {
 		nilBitmap,
 	}
 
-	var (
-		dirName     = t.TempDir()
-		logger, _   = test.NewNullLogger()
-		objectCount = 1000
-		ctx         = context.Background()
-	)
+	if race {
+		t.Log("race detector is on, reduce scope of test to avoid timeouts")
+		propNames = []string{"int"}
+		limits = []int{5}
+		order = []string{"asc", "desc"}
+		objectCounts = []int{500}
+		matchers = matchers[:1]
+	} else {
+		t.Log("race detector is off, run full test suite")
+	}
 
-	store := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
-	defer store.Shutdown(ctx)
+	for _, objectCount := range objectCounts {
+		var (
+			dirName   = t.TempDir()
+			logger, _ = test.NewNullLogger()
+			ctx       = context.Background()
+		)
 
-	props := generateRandomProps(objectCount)
-	dummyInvertedIndex(t, ctx, store, props)
+		t.Run(fmt.Sprintf("object count %d", objectCount), func(t *testing.T) {
+			store := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
+			defer store.Shutdown(ctx)
 
-	for _, flush := range forceFlush {
-		t.Run(fmt.Sprintf("force flush %t", flush), func(t *testing.T) {
-			if flush {
-				err := store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch()
-				require.Nil(t, err)
+			props := generateRandomProps(objectCount)
+			dummyInvertedIndex(t, ctx, store, props)
 
-				for _, propName := range propNames {
-					err := store.Bucket(helpers.BucketFromPropNameLSM(propName)).FlushAndSwitch()
-					require.Nil(t, err)
-				}
-			}
+			for _, flush := range forceFlush {
+				t.Run(fmt.Sprintf("force flush %t", flush), func(t *testing.T) {
+					if flush {
+						err := store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch()
+						require.Nil(t, err)
 
-			for _, propName := range propNames {
-				t.Run(fmt.Sprintf("sort by %s", propName), func(t *testing.T) {
-					for _, limit := range limits {
-						t.Run(fmt.Sprintf("limit %d", limit), func(t *testing.T) {
-							for _, ord := range order {
-								t.Run(fmt.Sprintf("order %s", ord), func(t *testing.T) {
-									for _, matcher := range matchers {
-										fullFuncName := runtime.FuncForPC(reflect.ValueOf(matcher).Pointer()).Name()
-										parts := strings.Split(fullFuncName, ".")
+						for _, propName := range propNames {
+							err := store.Bucket(helpers.BucketFromPropNameLSM(propName)).FlushAndSwitch()
+							require.Nil(t, err)
+						}
+					}
 
-										t.Run(fmt.Sprintf("matcher %s", parts[len(parts)-1]), func(t *testing.T) {
-											sortParams := []filters.Sort{{Path: []string{propName}, Order: ord}}
-											assertSorting(t, ctx, store, props, objectCount, limit, sortParams, matcher)
+					for _, propName := range propNames {
+						t.Run(fmt.Sprintf("sort by %s", propName), func(t *testing.T) {
+							for _, limit := range limits {
+								t.Run(fmt.Sprintf("limit %d", limit), func(t *testing.T) {
+									for _, ord := range order {
+										t.Run(fmt.Sprintf("order %s", ord), func(t *testing.T) {
+											for _, matcher := range matchers {
+												fullFuncName := runtime.FuncForPC(reflect.ValueOf(matcher).Pointer()).Name()
+												parts := strings.Split(fullFuncName, ".")
+
+												t.Run(fmt.Sprintf("matcher %s", parts[len(parts)-1]), func(t *testing.T) {
+													sortParams := []filters.Sort{{Path: []string{propName}, Order: ord}}
+													assertSorting(t, ctx, store, props, objectCount, limit, sortParams, matcher)
+												})
+											}
 										})
 									}
 								})
@@ -103,7 +120,9 @@ func TestInvertedSorter(t *testing.T) {
 	}
 }
 
-func TestInvertedSorterMultiOrder(t *testing.T) {
+// this test is invoked through inverted_sorter_race_test.go and
+// inverted_sorter_no_race_test.go respectively
+func testInvertedSorterMultiOrder(t *testing.T, race bool) {
 	sortPlans := [][]filters.Sort{
 		{{Path: []string{"int"}, Order: "desc"}, {Path: []string{"number"}, Order: "desc"}},
 		{{Path: []string{"int"}, Order: "desc"}, {Path: []string{"number"}, Order: "asc"}},
@@ -114,6 +133,7 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 
 	forceFlush := []bool{false, true}
 	limits := []int{1, 2, 5, 10, 100, 500, 1000, 2000}
+	objectCounts := []int{87, 100, 133, 500, 1000, 2000}
 
 	matchers := []func(t *testing.T, count int) helpers.AllowList{
 		matchAllBitmap,
@@ -124,46 +144,58 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 		nilBitmap,
 	}
 
-	var (
-		dirName     = t.TempDir()
-		logger, _   = test.NewNullLogger()
-		objectCount = 1000
-		ctx         = context.Background()
-	)
+	if race {
+		t.Log("race detector is on, reduce scope of test to avoid timeouts")
+		limits = []int{5}
+		objectCounts = []int{500}
+		matchers = matchers[:1]
+	} else {
+		t.Log("race detector is off, run full test suite")
+	}
 
-	store := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
-	defer store.Shutdown(ctx)
+	for _, objectCount := range objectCounts {
+		t.Run(fmt.Sprintf("object count %d", objectCount), func(t *testing.T) {
+			var (
+				dirName   = t.TempDir()
+				logger, _ = test.NewNullLogger()
+				ctx       = context.Background()
+			)
 
-	props := generateRandomProps(objectCount)
-	dummyInvertedIndex(t, ctx, store, props)
+			store := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
+			defer store.Shutdown(ctx)
 
-	for _, flush := range forceFlush {
-		t.Run(fmt.Sprintf("force flush %t", flush), func(t *testing.T) {
-			if flush {
-				err := store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch()
-				require.Nil(t, err)
+			props := generateRandomProps(objectCount)
+			dummyInvertedIndex(t, ctx, store, props)
 
-				for _, propName := range []string{"int", "number", "date"} {
-					err := store.Bucket(helpers.BucketFromPropNameLSM(propName)).FlushAndSwitch()
-					require.Nil(t, err)
-				}
-			}
+			for _, flush := range forceFlush {
+				t.Run(fmt.Sprintf("force flush %t", flush), func(t *testing.T) {
+					if flush {
+						err := store.Bucket(helpers.ObjectsBucketLSM).FlushAndSwitch()
+						require.Nil(t, err)
 
-			for _, sortParam := range sortPlans {
-				sortPlanStrings := make([]string, 0, len(sortParam))
-				for _, sp := range sortParam {
-					sortPlanStrings = append(sortPlanStrings, fmt.Sprintf("%s %s", sp.Path[0], sp.Order))
-				}
-				sortPlanString := strings.Join(sortPlanStrings, " -> ")
-				t.Run(fmt.Sprintf("sort by %s", sortPlanString), func(t *testing.T) {
-					for _, limit := range limits {
-						t.Run(fmt.Sprintf("limit %d", limit), func(t *testing.T) {
-							for _, matcher := range matchers {
-								fullFuncName := runtime.FuncForPC(reflect.ValueOf(matcher).Pointer()).Name()
-								parts := strings.Split(fullFuncName, ".")
+						for _, propName := range []string{"int", "number", "date"} {
+							err := store.Bucket(helpers.BucketFromPropNameLSM(propName)).FlushAndSwitch()
+							require.Nil(t, err)
+						}
+					}
 
-								t.Run(fmt.Sprintf("matcher %s", parts[len(parts)-1]), func(t *testing.T) {
-									assertSorting(t, ctx, store, props, objectCount, limit, sortParam, matcher)
+					for _, sortParam := range sortPlans {
+						sortPlanStrings := make([]string, 0, len(sortParam))
+						for _, sp := range sortParam {
+							sortPlanStrings = append(sortPlanStrings, fmt.Sprintf("%s %s", sp.Path[0], sp.Order))
+						}
+						sortPlanString := strings.Join(sortPlanStrings, " -> ")
+						t.Run(fmt.Sprintf("sort by %s", sortPlanString), func(t *testing.T) {
+							for _, limit := range limits {
+								t.Run(fmt.Sprintf("limit %d", limit), func(t *testing.T) {
+									for _, matcher := range matchers {
+										fullFuncName := runtime.FuncForPC(reflect.ValueOf(matcher).Pointer()).Name()
+										parts := strings.Split(fullFuncName, ".")
+
+										t.Run(fmt.Sprintf("matcher %s", parts[len(parts)-1]), func(t *testing.T) {
+											assertSorting(t, ctx, store, props, objectCount, limit, sortParam, matcher)
+										})
+									}
 								})
 							}
 						})
@@ -222,8 +254,9 @@ func assertSorting(t *testing.T, ctx context.Context, store *lsmkv.Store,
 		assert.Equal(t, int(sortedProps[i].docID), int(docID))
 	}
 
-	sl := helpers.ExtractSlowQueryDetails(ctx)
-	t.Log(sl)
+	// enable below for debugging
+	// sl := helpers.ExtractSlowQueryDetails(ctx)
+	// t.Log(sl)
 }
 
 func createDummyObject(t *testing.T, i int) ([]byte, uint64) {
@@ -397,6 +430,9 @@ func matchAllBitmap(t *testing.T, count int) helpers.AllowList {
 func matchEveryOtherBitmap(t *testing.T, count int) helpers.AllowList {
 	ids := make([]uint64, count/2)
 	for i := 0; i < count; i += 2 {
+		if i/2 >= len(ids)-1 {
+			break
+		}
 		ids[i/2] = uint64(i)
 	}
 	return helpers.NewAllowList(ids...)
@@ -405,6 +441,10 @@ func matchEveryOtherBitmap(t *testing.T, count int) helpers.AllowList {
 func match10PercentBitmap(t *testing.T, count int) helpers.AllowList {
 	ids := make([]uint64, count/10)
 	for i := 0; i < count; i += 10 {
+		if i/10 >= len(ids)-1 {
+			break
+		}
+
 		ids[i/10] = uint64(i)
 	}
 	return helpers.NewAllowList(ids...)
