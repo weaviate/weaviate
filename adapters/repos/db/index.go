@@ -59,6 +59,7 @@ import (
 	esync "github.com/weaviate/weaviate/entities/sync"
 	authzerrors "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 	"github.com/weaviate/weaviate/usecases/config"
+	runtimeConfig "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -672,6 +673,8 @@ type IndexConfig struct {
 	LSMEnableSegmentsChecksumValidation bool
 	TrackVectorDimensions               bool
 	ShardLoadLimiter                    ShardLoadLimiter
+	QuerySlowLogEnabled                 *runtimeConfig.DynamicValue[bool]
+	QuerySlowLogThreshold               *runtimeConfig.DynamicValue[time.Duration]
 }
 
 func indexID(class schema.ClassName) string {

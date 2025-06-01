@@ -111,6 +111,8 @@ func (db *DB) init(ctx context.Context) error {
 				AsyncReplicationEnabled:             class.ReplicationConfig.AsyncEnabled,
 				DeletionStrategy:                    class.ReplicationConfig.DeletionStrategy,
 				ShardLoadLimiter:                    db.shardLoadLimiter,
+				QuerySlowLogEnabled:                 db.config.QuerySlowLogEnabled,
+				QuerySlowLogThreshold:               db.config.QuerySlowLogThreshold,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
