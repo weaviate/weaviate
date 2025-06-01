@@ -37,11 +37,12 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/test/helper"
 )
 
 // this test is invoked through inverted_sorter_race_test.go and
 // inverted_sorter_no_race_test.go respectively
-func testInvertedSorter(t *testing.T, race bool) {
+func TestInvertedSorter(t *testing.T) {
 	forceFlush := []bool{false, true}
 	propNames := []string{"int", "int2", "number", "date"}
 	limits := []int{1, 2, 5, 10, 100, 373, 500, 1000, 2000}
@@ -56,7 +57,7 @@ func testInvertedSorter(t *testing.T, race bool) {
 		nilBitmap,
 	}
 
-	if race {
+	if helper.RaceDetectorEnabled {
 		t.Log("race detector is on, reduce scope of test to avoid timeouts")
 		propNames = []string{"int"}
 		limits = []int{5}
@@ -120,9 +121,7 @@ func testInvertedSorter(t *testing.T, race bool) {
 	}
 }
 
-// this test is invoked through inverted_sorter_race_test.go and
-// inverted_sorter_no_race_test.go respectively
-func testInvertedSorterMultiOrder(t *testing.T, race bool) {
+func TestInvertedSorterMultiOrder(t *testing.T) {
 	sortPlans := [][]filters.Sort{
 		{{Path: []string{"int"}, Order: "desc"}, {Path: []string{"number"}, Order: "desc"}},
 		{{Path: []string{"int"}, Order: "desc"}, {Path: []string{"number"}, Order: "asc"}},
@@ -144,7 +143,7 @@ func testInvertedSorterMultiOrder(t *testing.T, race bool) {
 		nilBitmap,
 	}
 
-	if race {
+	if helper.RaceDetectorEnabled {
 		t.Log("race detector is on, reduce scope of test to avoid timeouts")
 		limits = []int{5}
 		objectCounts = []int{500}
