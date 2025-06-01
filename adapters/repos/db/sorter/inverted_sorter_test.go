@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -39,42 +40,6 @@ import (
 )
 
 func TestInvertedSorter(t *testing.T) {
-	var (
-		dirName     = t.TempDir()
-		logger, _   = test.NewNullLogger()
-		objectCount = 1000
-		ctx         = context.Background()
-	)
-
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.Nil(t, err)
-
-	defer store.Shutdown(ctx)
-
-	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM)
-	require.Nil(t, err)
-
-	objectsB := store.Bucket(helpers.ObjectsBucketLSM)
-	for i := 0; i < objectCount; i++ {
-		objBytes, docID := createDummyObject(t, i)
-		objectsB.Put([]byte(fmt.Sprintf("%08d", docID)), objBytes)
-		require.Nil(t, err)
-	}
-
-	for _, propName := range []string{"int", "int2", "number", "date"} {
-		err = store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
-			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-		require.Nil(t, err)
-	}
-
-	props := generateRandomProps(objectCount)
-	dummyInvertedIndex(t, ctx, store, props)
-
-	sorter := NewInvertedSorter(store, newDataTypesHelper(dummyClass()))
-
 	forceFlush := []bool{false, true}
 	propNames := []string{"int", "int2", "number", "date"}
 	limits := []int{1, 2, 5, 10, 100, 500, 1000, 2000}
@@ -85,66 +50,21 @@ func TestInvertedSorter(t *testing.T) {
 		match10PercentBitmap,
 		matchRandomBitmap,
 		matchSingleBitmap,
+		nilBitmap,
 	}
 
-	testFn := func(t *testing.T, propName string, limit int, ord string, matcher func(t *testing.T, count int) helpers.AllowList) {
-		bm := matcher(t, objectCount)
-		sortParams := []filters.Sort{{Path: []string{propName}, Order: ord}}
+	var (
+		dirName     = t.TempDir()
+		logger, _   = test.NewNullLogger()
+		objectCount = 1000
+		ctx         = context.Background()
+	)
 
-		actual, err := sorter.SortDocIDs(ctx, limit, sortParams, bm)
-		require.Nil(t, err)
+	store := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
+	defer store.Shutdown(ctx)
 
-		// sort props as control, always first by doc id, then by the prop,
-		// this way we have a consistent tie breaker
-		sortedProps := make([]dummyProps, 0, len(props))
-		for _, p := range props {
-			if bm.Contains(p.docID) {
-				sortedProps = append(sortedProps, p)
-			}
-		}
-
-		sort.Slice(sortedProps, func(i, j int) bool {
-			return sortedProps[i].docID < sortedProps[j].docID
-		})
-
-		var sortFn func(i, j int) bool
-		switch propName {
-		case "int":
-			sortFn = func(i, j int) bool {
-				if ord == "desc" {
-					return sortedProps[j].int < sortedProps[i].int
-				}
-				return sortedProps[i].int < sortedProps[j].int
-			}
-		case "int2":
-			sortFn = func(i, j int) bool {
-				if ord == "desc" {
-					return sortedProps[j].int2 < sortedProps[i].int2
-				}
-				return sortedProps[i].int2 < sortedProps[j].int2
-			}
-		case "number":
-			sortFn = func(i, j int) bool {
-				if ord == "desc" {
-					return sortedProps[i].number > sortedProps[j].number
-				}
-				return sortedProps[i].number < sortedProps[j].number
-			}
-		case "date":
-			sortFn = func(i, j int) bool {
-				if ord == "desc" {
-					return sortedProps[i].date.After(sortedProps[j].date)
-				}
-				return sortedProps[i].date.Before(sortedProps[j].date)
-			}
-		}
-
-		sort.SliceStable(sortedProps, sortFn)
-
-		for i, docID := range actual {
-			assert.Equal(t, int(sortedProps[i].docID), int(docID))
-		}
-	}
+	props := generateRandomProps(objectCount)
+	dummyInvertedIndex(t, ctx, store, props)
 
 	for _, flush := range forceFlush {
 		t.Run(fmt.Sprintf("force flush %t", flush), func(t *testing.T) {
@@ -169,7 +89,8 @@ func TestInvertedSorter(t *testing.T) {
 										parts := strings.Split(fullFuncName, ".")
 
 										t.Run(fmt.Sprintf("matcher %s", parts[len(parts)-1]), func(t *testing.T) {
-											testFn(t, propName, limit, ord, matcher)
+											sortParams := []filters.Sort{{Path: []string{propName}, Order: ord}}
+											assertSorting(t, ctx, store, props, objectCount, limit, sortParams, matcher)
 										})
 									}
 								})
@@ -183,40 +104,6 @@ func TestInvertedSorter(t *testing.T) {
 }
 
 func TestInvertedSorterMultiOrder(t *testing.T) {
-	var (
-		dirName     = t.TempDir()
-		logger, _   = test.NewNullLogger()
-		objectCount = 1000
-		ctx         = context.Background()
-	)
-
-	store, err := lsmkv.New(dirName, dirName, logger, nil,
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop(),
-		cyclemanager.NewCallbackGroupNoop())
-	require.Nil(t, err)
-
-	defer store.Shutdown(ctx)
-
-	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM)
-	require.Nil(t, err)
-
-	objectsB := store.Bucket(helpers.ObjectsBucketLSM)
-	for i := 0; i < objectCount; i++ {
-		objBytes, docID := createDummyObject(t, i)
-		objectsB.Put([]byte(fmt.Sprintf("%08d", docID)), objBytes)
-		require.Nil(t, err)
-	}
-
-	for _, propName := range []string{"int", "int2", "number", "date"} {
-		err = store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
-			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
-		require.Nil(t, err)
-	}
-
-	props := generateRandomProps(objectCount)
-	dummyInvertedIndex(t, ctx, store, props)
-
 	sortPlans := [][]filters.Sort{
 		{{Path: []string{"int"}, Order: "desc"}, {Path: []string{"number"}, Order: "desc"}},
 		{{Path: []string{"int"}, Order: "desc"}, {Path: []string{"number"}, Order: "asc"}},
@@ -224,8 +111,6 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 		{{Path: []string{"int"}, Order: "asc"}, {Path: []string{"number"}, Order: "desc"}},
 		{{Path: []string{"int"}, Order: "asc"}, {Path: []string{"int2"}, Order: "desc"}, {Path: []string{"number"}, Order: "desc"}},
 	}
-
-	sorter := NewInvertedSorter(store, newDataTypesHelper(dummyClass()))
 
 	forceFlush := []bool{false, true}
 	limits := []int{1, 2, 5, 10, 100, 500, 1000, 2000}
@@ -236,79 +121,21 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 		match10PercentBitmap,
 		matchRandomBitmap,
 		matchSingleBitmap,
+		nilBitmap,
 	}
 
-	testFn := func(t *testing.T, limit int, sortParams []filters.Sort, matcher func(t *testing.T, count int) helpers.AllowList) {
-		bm := matcher(t, objectCount)
+	var (
+		dirName     = t.TempDir()
+		logger, _   = test.NewNullLogger()
+		objectCount = 1000
+		ctx         = context.Background()
+	)
 
-		ctx = helpers.InitSlowQueryDetails(ctx)
+	store := createStoreAndInitWithObjects(t, ctx, objectCount, dirName, logger)
+	defer store.Shutdown(ctx)
 
-		actual, err := sorter.SortDocIDs(ctx, limit, sortParams, bm)
-		require.Nil(t, err)
-
-		// sort props as control, always first by doc id, then by the prop,
-		// this way we have a consistent tie breaker
-		sortedProps := make([]dummyProps, 0, len(props))
-		for _, p := range props {
-			if bm.Contains(p.docID) {
-				sortedProps = append(sortedProps, p)
-			}
-		}
-
-		sort.Slice(sortedProps, func(i, j int) bool {
-			return sortedProps[i].docID < sortedProps[j].docID
-		})
-
-		for sortIndex := len(sortParams) - 1; sortIndex >= 0; sortIndex-- {
-			var sortFn func(i, j int) bool
-			sortParam := sortParams[sortIndex]
-			switch sortParam.Path[0] {
-			case "int":
-				sortFn = func(i, j int) bool {
-					if sortParam.Order == "desc" {
-						return sortedProps[j].int < sortedProps[i].int
-					}
-					return sortedProps[i].int < sortedProps[j].int
-				}
-			case "int2":
-				sortFn = func(i, j int) bool {
-					if sortParam.Order == "desc" {
-						return sortedProps[j].int2 < sortedProps[i].int2
-					}
-					return sortedProps[i].int2 < sortedProps[j].int2
-				}
-			case "number":
-				sortFn = func(i, j int) bool {
-					if sortParam.Order == "desc" {
-						return sortedProps[i].number > sortedProps[j].number
-					}
-					return sortedProps[i].number < sortedProps[j].number
-				}
-			case "date":
-				sortFn = func(i, j int) bool {
-					if sortParam.Order == "desc" {
-						return sortedProps[i].date.After(sortedProps[j].date)
-					}
-					return sortedProps[i].date.Before(sortedProps[j].date)
-				}
-			}
-			sort.SliceStable(sortedProps, sortFn)
-		}
-
-		t.Logf("limit=%d, sortedProps=%d, actual=%d matches=%d", limit, len(sortedProps), len(actual), bm.Len())
-		expectedLength := min(len(sortedProps), limit)
-		assert.Len(t, actual, expectedLength)
-
-		for i, docID := range actual {
-			t.Logf("\nexpected=%#v\nactual=%#v\n", sortedProps[i], props[docID])
-			assert.Equal(t, int(sortedProps[i].docID), int(docID))
-		}
-		slowLog := helpers.ExtractSlowQueryDetails(ctx)
-		qp := slowLog["sort_query_planner"].([]any)
-		for _, qpItem := range qp {
-			t.Log(qpItem)
-		}
-	}
+	props := generateRandomProps(objectCount)
+	dummyInvertedIndex(t, ctx, store, props)
 
 	for _, flush := range forceFlush {
 		t.Run(fmt.Sprintf("force flush %t", flush), func(t *testing.T) {
@@ -336,7 +163,7 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 								parts := strings.Split(fullFuncName, ".")
 
 								t.Run(fmt.Sprintf("matcher %s", parts[len(parts)-1]), func(t *testing.T) {
-									testFn(t, limit, sortParam, matcher)
+									assertSorting(t, ctx, store, props, objectCount, limit, sortParam, matcher)
 								})
 							}
 						})
@@ -344,6 +171,54 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 				})
 			}
 		})
+	}
+}
+
+func createStoreAndInitWithObjects(t *testing.T, ctx context.Context, objectCount int,
+	dirName string, logger logrus.FieldLogger,
+) *lsmkv.Store {
+	store, err := lsmkv.New(dirName, dirName, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+
+	err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM)
+	require.Nil(t, err)
+
+	objectsB := store.Bucket(helpers.ObjectsBucketLSM)
+	for i := 0; i < objectCount; i++ {
+		objBytes, docID := createDummyObject(t, i)
+		objectsB.Put([]byte(fmt.Sprintf("%08d", docID)), objBytes)
+		require.Nil(t, err)
+	}
+
+	for _, propName := range []string{"int", "int2", "number", "date"} {
+		err = store.CreateOrLoadBucket(ctx, helpers.BucketFromPropNameLSM(propName),
+			lsmkv.WithStrategy(lsmkv.StrategyRoaringSet))
+		require.Nil(t, err)
+	}
+
+	return store
+}
+
+func assertSorting(t *testing.T, ctx context.Context, store *lsmkv.Store,
+	props []dummyProps, objectCount int, limit int, sortParams []filters.Sort,
+	matcher func(t *testing.T, count int) helpers.AllowList,
+) {
+	sorter := NewInvertedSorter(store, newDataTypesHelper(dummyClass()))
+	bm := matcher(t, objectCount)
+
+	actual, err := sorter.SortDocIDs(ctx, limit, sortParams, bm)
+	require.Nil(t, err)
+
+	sortedProps := filterAndSortControl(t, props, bm, sortParams)
+
+	expectedLength := min(len(sortedProps), limit)
+	assert.Len(t, actual, expectedLength)
+
+	for i, docID := range actual {
+		assert.Equal(t, int(sortedProps[i].docID), int(docID))
 	}
 }
 
@@ -452,6 +327,61 @@ func dummyClass() *models.Class {
 	}
 }
 
+func filterAndSortControl(t *testing.T, input []dummyProps, bm helpers.AllowList,
+	sortParams []filters.Sort,
+) []dummyProps {
+	// sort props as control, always first by doc id, then by the prop,
+	// this way we have a consistent tie breaker
+	sortedProps := make([]dummyProps, 0, len(input))
+	for _, p := range input {
+		if bm == nil || bm.Contains(p.docID) {
+			sortedProps = append(sortedProps, p)
+		}
+	}
+
+	sort.Slice(sortedProps, func(i, j int) bool {
+		return sortedProps[i].docID < sortedProps[j].docID
+	})
+
+	for sortIndex := len(sortParams) - 1; sortIndex >= 0; sortIndex-- {
+		var sortFn func(i, j int) bool
+		sortParam := sortParams[sortIndex]
+		switch sortParam.Path[0] {
+		case "int":
+			sortFn = func(i, j int) bool {
+				if sortParam.Order == "desc" {
+					return sortedProps[j].int < sortedProps[i].int
+				}
+				return sortedProps[i].int < sortedProps[j].int
+			}
+		case "int2":
+			sortFn = func(i, j int) bool {
+				if sortParam.Order == "desc" {
+					return sortedProps[j].int2 < sortedProps[i].int2
+				}
+				return sortedProps[i].int2 < sortedProps[j].int2
+			}
+		case "number":
+			sortFn = func(i, j int) bool {
+				if sortParam.Order == "desc" {
+					return sortedProps[i].number > sortedProps[j].number
+				}
+				return sortedProps[i].number < sortedProps[j].number
+			}
+		case "date":
+			sortFn = func(i, j int) bool {
+				if sortParam.Order == "desc" {
+					return sortedProps[i].date.After(sortedProps[j].date)
+				}
+				return sortedProps[i].date.Before(sortedProps[j].date)
+			}
+		}
+		sort.SliceStable(sortedProps, sortFn)
+	}
+
+	return sortedProps
+}
+
 func matchAllBitmap(t *testing.T, count int) helpers.AllowList {
 	ids := make([]uint64, count)
 	for i := 0; i < count; i++ {
@@ -490,4 +420,8 @@ func matchRandomBitmap(t *testing.T, count int) helpers.AllowList {
 func matchSingleBitmap(t *testing.T, count int) helpers.AllowList {
 	id := uint64(rand.Intn(count))
 	return helpers.NewAllowList(id)
+}
+
+func nilBitmap(t *testing.T, count int) helpers.AllowList {
+	return nil
 }

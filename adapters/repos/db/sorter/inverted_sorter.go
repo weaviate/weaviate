@@ -311,6 +311,10 @@ func (is *invertedSorter) processDESCWindow(
 	return idsFoundInWindow, rowsEvaluated, nil
 }
 
+// extractDocIDsFromBitmap extracts all the docIDs from the current row's
+// bitmap that match the specified (pre-filtered) allow-list bitmap. If no
+// allow-list is provided, an unfiltered sort is assumed and every bitmap entry
+// is considered a match.
 func (is *invertedSorter) extractDocIDsFromBitmap(
 	ctx context.Context,
 	limit int,
@@ -323,7 +327,7 @@ func (is *invertedSorter) extractDocIDsFromBitmap(
 	it := bm.NewIterator()
 	for i := 0; i < bm.GetCardinality(); i++ {
 		id := it.Next()
-		if ids.Contains(id) {
+		if ids == nil || ids.Contains(id) {
 			found = append(found, id)
 			// we can early exit if the search generally permits it (e.g. ASC) where
 			// the natural order is already doc_id ASC *and* there is no secondary
@@ -372,7 +376,14 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 		// no objects, likely no disk segments yet, force a full index scan
 		return [][]byte{{0x00}}
 	}
-	matchRate := float64(ids.Len()) / float64(totalCount)
+	var matchRate float64
+	if ids == nil {
+		// no allow-list, so we assume all IDs match
+		matchRate = 1.0
+	} else {
+		matchRate = float64(ids.Len()) / float64(totalCount)
+	}
+
 	estimatedRowsHit := int(float64(limit) / matchRate * 2) // safety factor of 2
 	if estimatedRowsHit > totalCount {
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
