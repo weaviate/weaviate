@@ -206,6 +206,7 @@ func assertSorting(t *testing.T, ctx context.Context, store *lsmkv.Store,
 	props []dummyProps, objectCount int, limit int, sortParams []filters.Sort,
 	matcher func(t *testing.T, count int) helpers.AllowList,
 ) {
+	ctx = helpers.InitSlowQueryDetails(ctx)
 	sorter := NewInvertedSorter(store, newDataTypesHelper(dummyClass()))
 	bm := matcher(t, objectCount)
 
@@ -220,6 +221,9 @@ func assertSorting(t *testing.T, ctx context.Context, store *lsmkv.Store,
 	for i, docID := range actual {
 		assert.Equal(t, int(sortedProps[i].docID), int(docID))
 	}
+
+	sl := helpers.ExtractSlowQueryDetails(ctx)
+	t.Log(sl)
 }
 
 func createDummyObject(t *testing.T, i int) ([]byte, uint64) {

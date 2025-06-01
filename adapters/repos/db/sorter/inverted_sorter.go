@@ -372,9 +372,11 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 ) [][]byte {
 	ob := is.store.Bucket(helpers.ObjectsBucketLSM)
 	totalCount := ob.CountAsync()
+	zeroByte := [][]byte{{0x00}}
+
 	if totalCount == 0 {
 		// no objects, likely no disk segments yet, force a full index scan
-		return [][]byte{{0x00}}
+		return zeroByte
 	}
 	var matchRate float64
 	if ids == nil {
@@ -390,7 +392,7 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 			helpers.SprintfWithNesting(nesting, "estimated rows hit (%d) is greater than total count (%d), "+
 				"force a full index scan", estimatedRowsHit, totalCount))
 		// full scan, just return zero byte (effectively same as cursor.First())
-		return [][]byte{{0x00}}
+		return zeroByte
 	}
 
 	neededQuantiles := totalCount / estimatedRowsHit
@@ -400,10 +402,10 @@ func (is *invertedSorter) quantileKeysForDescSort(ctx context.Context, limit int
 		// there could still be memtables, force a full scan
 		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 			"no quantiles found, force a full index scan")
-		return [][]byte{{0x00}}
+		return zeroByte
 	}
 
-	return quantiles
+	return append(zeroByte, quantiles...)
 }
 
 func (is *invertedSorter) annotateASC(
