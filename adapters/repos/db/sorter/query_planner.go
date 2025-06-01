@@ -101,8 +101,13 @@ func NewQueryPlanner(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *quer
 func (s *queryPlanner) EstimateCosts(ctx context.Context, ids helpers.AllowList, limit int,
 	sort []filters.Sort,
 ) (float64, float64) {
-	matches := ids.Len()
 	totalObjects := s.store.Bucket(helpers.ObjectsBucketLSM).CountAsync()
+	var matches int
+	if ids == nil {
+		matches = totalObjects
+	} else {
+		matches = ids.Len()
+	}
 	var filterMatchRatio float64
 	if totalObjects == 0 {
 		// this can happen when there are no disk segments yet, just assume a 100% match ratio

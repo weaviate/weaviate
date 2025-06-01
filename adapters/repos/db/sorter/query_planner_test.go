@@ -30,6 +30,7 @@ func TestQueryPlanner(t *testing.T) {
 		name                 string
 		objectCount          int
 		matchCount           int
+		nilBitmap            bool
 		limit                int
 		sort                 []filters.Sort
 		shouldChooseInverted bool
@@ -134,6 +135,32 @@ func TestQueryPlanner(t *testing.T) {
 			},
 			shouldChooseInverted: false,
 		},
+		{
+			name:        "nil bitmap, i.e. unfiltered search",
+			objectCount: 1000,
+			nilBitmap:   true,
+			limit:       100,
+			sort: []filters.Sort{
+				{
+					Path:  []string{"int"},
+					Order: "asc",
+				},
+			},
+			shouldChooseInverted: true,
+		},
+		{
+			name:        "nil bitmap, i.e. unfiltered search - unsupported prop",
+			objectCount: 1000,
+			nilBitmap:   true,
+			limit:       100,
+			sort: []filters.Sort{
+				{
+					Path:  []string{"text"},
+					Order: "asc",
+				},
+			},
+			shouldChooseInverted: false,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -168,7 +195,10 @@ func TestQueryPlanner(t *testing.T) {
 
 			require.Nil(t, objectsB.FlushAndSwitch())
 
-			bm := allowlistWithExactMatchCount(t, tc.matchCount)
+			var bm helpers.AllowList
+			if !tc.nilBitmap {
+				bm = allowlistWithExactMatchCount(t, tc.matchCount)
+			}
 			qp := NewQueryPlanner(store, newDataTypesHelper(dummyClass()))
 			shouldUseInverted, err := qp.Do(ctx, bm, tc.limit, tc.sort)
 			require.Nil(t, err)

@@ -57,6 +57,24 @@ func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className s
 }
 
 func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error) {
+	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper)
+	useInverted, err := queryPlanner.Do(ctx, nil, limit, sort)
+	if err != nil {
+		return nil, fmt.Errorf("plan sort query: %w", err)
+	}
+
+	startTime := time.Now()
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner", "START EXECUTING")
+	defer func() {
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("COMPLETED EXECUTING in %s", time.Since(startTime)))
+	}()
+
+	if useInverted {
+		is := NewInvertedSorter(s.store, s.dataTypesHelper)
+		return is.SortDocIDs(ctx, limit, sort, nil)
+	}
+
 	helper, err := s.createHelper(sort, validateLimit(limit, s.bucket.Count()))
 	if err != nil {
 		return nil, err
