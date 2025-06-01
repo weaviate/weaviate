@@ -697,7 +697,7 @@ func FromEnv(config *Config) error {
 
 	invertedSorterDisabled := false
 	if v := os.Getenv("INVERTED_SORTER_DISABLED"); v != "" {
-		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
+		invertedSorterDisabled = !(strings.ToLower(v) == "false")
 	}
 	config.InvertedSorterDisabled = runtime.NewDynamicValue(invertedSorterDisabled)
 
