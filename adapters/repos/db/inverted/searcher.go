@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 type Searcher struct {
@@ -78,6 +79,7 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName, properties []string,
+	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]*storobj.Object, error) {
 	beforeFilters := time.Now()
 	allowList, err := s.docIDs(ctx, filter, additional, className, limit)
@@ -91,7 +93,7 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 	var it docIDsIterator
 	if len(sort) > 0 {
 		beforeSort := time.Now()
-		docIDs, err := s.sort(ctx, limit, sort, allowList, className)
+		docIDs, err := s.sort(ctx, limit, sort, allowList, className, disableInvertedSorter)
 		if err != nil {
 			return nil, fmt.Errorf("sort doc ids: %w", err)
 		}
@@ -110,8 +112,9 @@ func (s *Searcher) Objects(ctx context.Context, limit int,
 
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 	docIDs helpers.AllowList, className schema.ClassName,
+	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]uint64, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.getClass, className)
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.getClass, className, disableInvertedSorter)
 	if err != nil {
 		return nil, err
 	}

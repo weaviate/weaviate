@@ -338,7 +338,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties)
+		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties,
+			s.index.Config.InvertedSorterDisabled)
 	return objs, nil, err
 }
 
@@ -614,8 +615,11 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	return out[:i], nil
 }
 
-func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort, className schema.ClassName) ([]uint64, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass, className)
+func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort,
+	className schema.ClassName,
+) ([]uint64, error) {
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass,
+		className, s.index.Config.InvertedSorterDisabled)
 	if err != nil {
 		return nil, errors.Wrap(err, "sort object list")
 	}
@@ -626,8 +630,11 @@ func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.
 	return docIDs, nil
 }
 
-func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort, className schema.ClassName, docIDs []uint64, dists []float32) ([]uint64, []float32, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass, className)
+func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
+	className schema.ClassName, docIDs []uint64, dists []float32,
+) ([]uint64, []float32, error) {
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass,
+		className, s.index.Config.InvertedSorterDisabled)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "sort objects with distances")
 	}

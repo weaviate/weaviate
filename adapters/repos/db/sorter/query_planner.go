@@ -20,6 +20,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -47,8 +48,9 @@ const (
 )
 
 type queryPlanner struct {
-	store           *lsmkv.Store
-	dataTypesHelper *dataTypesHelper
+	store            *lsmkv.Store
+	dataTypesHelper  *dataTypesHelper
+	invertedDisabled *runtime.DynamicValue[bool]
 }
 
 // NewQueryPlanner wires a lightweight cost-based planner around an lsmkv.Store.
@@ -62,10 +64,13 @@ type queryPlanner struct {
 // Both the store and the DataTypesHelper are passed by reference and may be
 // shared across many concurrent planners; the function does not assume
 // ownership or perform any locking.
-func NewQueryPlanner(store *lsmkv.Store, dataTypesHelper *dataTypesHelper) *queryPlanner {
+func NewQueryPlanner(store *lsmkv.Store, dataTypesHelper *dataTypesHelper,
+	invertedDisabled *runtime.DynamicValue[bool],
+) *queryPlanner {
 	return &queryPlanner{
-		store:           store,
-		dataTypesHelper: dataTypesHelper,
+		store:            store,
+		dataTypesHelper:  dataTypesHelper,
+		invertedDisabled: invertedDisabled,
 	}
 }
 
@@ -212,12 +217,12 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 		return
 
 	}
+	costSavings := float64(costObjectsBucket) / float64(costInvertedBucket)
 
 	if s.store.Bucket(helpers.BucketFromPropNameLSM(propNames[0])) == nil {
 		// no bucket found could mean that property is not indexed or some
 		// unexpected error
 		if !s.dataTypesHelper.hasFilterableIndex(propNames[0]) {
-			costSavings := float64(costObjectsBucket) / float64(costInvertedBucket)
 			helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
 				fmt.Sprintf("property '%s' is not indexed (filterable), the query planner "+
 					"predicts an estimated cost savings of %.2fx, consider indexing this property, "+
@@ -233,6 +238,17 @@ func (s *queryPlanner) Do(ctx context.Context, ids helpers.AllowList, limit int,
 		return
 	}
 
+	if s.invertedDisabled.Get() {
+		helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+			fmt.Sprintf("property '%s' is not indexed (filterable), the query planner "+
+				"predicts an estimated cost savings of %.2fx, however the inverted sorter "+
+				"is globally disabled using a feature flag", propNames[0], costSavings))
+		return
+	}
+
+	helpers.AnnotateSlowQueryLogAppend(ctx, "sort_query_planner",
+		fmt.Sprintf("predicted cost savings of %.2fx for inverted sorter on property '%s'",
+			costSavings, propNames[0]))
 	useInverted = true
 	return
 }

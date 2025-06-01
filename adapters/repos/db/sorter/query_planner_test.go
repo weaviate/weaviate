@@ -23,6 +23,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestQueryPlanner(t *testing.T) {
@@ -34,6 +35,7 @@ func TestQueryPlanner(t *testing.T) {
 		limit                int
 		sort                 []filters.Sort
 		shouldChooseInverted bool
+		disabled             bool
 	}
 
 	testCases := []testCase{
@@ -161,6 +163,20 @@ func TestQueryPlanner(t *testing.T) {
 			},
 			shouldChooseInverted: false,
 		},
+		{
+			name:        "high match ratio, but globally disabled",
+			objectCount: 1000,
+			matchCount:  800,
+			limit:       100,
+			disabled:    true,
+			sort: []filters.Sort{
+				{
+					Path:  []string{"int"},
+					Order: "asc",
+				},
+			},
+			shouldChooseInverted: false,
+		},
 	}
 
 	for _, tc := range testCases {
@@ -199,7 +215,11 @@ func TestQueryPlanner(t *testing.T) {
 			if !tc.nilBitmap {
 				bm = allowlistWithExactMatchCount(t, tc.matchCount)
 			}
-			qp := NewQueryPlanner(store, newDataTypesHelper(dummyClass()))
+			var disabled *runtime.DynamicValue[bool]
+			if tc.disabled {
+				disabled = runtime.NewDynamicValue[bool](true)
+			}
+			qp := NewQueryPlanner(store, newDataTypesHelper(dummyClass()), disabled)
 			shouldUseInverted, err := qp.Do(ctx, bm, tc.limit, tc.sort)
 			require.Nil(t, err)
 			assert.Equal(t, tc.shouldChooseInverted, shouldUseInverted)

@@ -24,6 +24,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 type LSMSorter interface {
@@ -34,13 +35,16 @@ type LSMSorter interface {
 }
 
 type lsmSorter struct {
-	bucket          *lsmkv.Bucket
-	dataTypesHelper *dataTypesHelper
-	valueExtractor  *comparableValueExtractor
-	store           *lsmkv.Store
+	bucket                 *lsmkv.Bucket
+	dataTypesHelper        *dataTypesHelper
+	valueExtractor         *comparableValueExtractor
+	store                  *lsmkv.Store
+	invertedSorterDisabled *runtime.DynamicValue[bool]
 }
 
-func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className schema.ClassName) (LSMSorter, error) {
+func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className schema.ClassName,
+	invertedDisabled *runtime.DynamicValue[bool],
+) (LSMSorter, error) {
 	bucket := store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return nil, fmt.Errorf("lsm sorter - bucket %s for class %s not found", helpers.ObjectsBucketLSM, className)
@@ -53,11 +57,11 @@ func NewLSMSorter(store *lsmkv.Store, fn func(string) *models.Class, className s
 	dataTypesHelper := newDataTypesHelper(class)
 	comparableValuesExtractor := newComparableValueExtractor(dataTypesHelper)
 
-	return &lsmSorter{bucket, dataTypesHelper, comparableValuesExtractor, store}, nil
+	return &lsmSorter{bucket, dataTypesHelper, comparableValuesExtractor, store, invertedDisabled}, nil
 }
 
 func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([]uint64, error) {
-	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper)
+	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper, s.invertedSorterDisabled)
 	useInverted, err := queryPlanner.Do(ctx, nil, limit, sort)
 	if err != nil {
 		return nil, fmt.Errorf("plan sort query: %w", err)
@@ -83,7 +87,7 @@ func (s *lsmSorter) Sort(ctx context.Context, limit int, sort []filters.Sort) ([
 }
 
 func (s *lsmSorter) SortDocIDs(ctx context.Context, limit int, sort []filters.Sort, ids helpers.AllowList) ([]uint64, error) {
-	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper)
+	queryPlanner := NewQueryPlanner(s.store, s.dataTypesHelper, s.invertedSorterDisabled)
 	useInverted, err := queryPlanner.Do(ctx, ids, limit, sort)
 	if err != nil {
 		return nil, fmt.Errorf("plan sort query: %w", err)

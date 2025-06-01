@@ -695,6 +695,12 @@ func FromEnv(config *Config) error {
 	}
 	config.QuerySlowLogThreshold = runtime.NewDynamicValue(querySlowLogThreshold)
 
+	invertedSorterDisabled := false
+	if v := os.Getenv("INVERTED_SORTER_DISABLED"); v != "" {
+		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
+	}
+	config.InvertedSorterDisabled = runtime.NewDynamicValue(invertedSorterDisabled)
+
 	return nil
 }
 

@@ -5,3 +5,4 @@ tenant_activity_read_log_level: info
 tenant_activity_write_log_level: info
 query_slow_log_enabled: true
 query_slow_log_threshold: 100ms
+inverted_sorter_disabled: false
