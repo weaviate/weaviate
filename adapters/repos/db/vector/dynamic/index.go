@@ -114,6 +114,7 @@ type dynamic struct {
 	upgraded              atomic.Bool
 	upgradeOnce           sync.Once
 	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
+	ImplicitShardLoading  bool
 	hnswUC                hnswent.UserConfig
 	db                    *bbolt.DB
 	ctx                   context.Context
@@ -136,13 +137,14 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	}
 
 	flatConfig := flat.Config{
-		ID:               cfg.ID,
-		RootPath:         cfg.RootPath,
-		TargetVector:     cfg.TargetVector,
-		Logger:           cfg.Logger,
-		DistanceProvider: cfg.DistanceProvider,
-		MinMMapSize:      cfg.MinMMapSize,
-		MaxWalReuseSize:  cfg.MaxWalReuseSize,
+		ID:                   cfg.ID,
+		RootPath:             cfg.RootPath,
+		TargetVector:         cfg.TargetVector,
+		Logger:               cfg.Logger,
+		DistanceProvider:     cfg.DistanceProvider,
+		MinMMapSize:          cfg.MinMMapSize,
+		MaxWalReuseSize:      cfg.MaxWalReuseSize,
+		ImplicitShardLoading: cfg.ImplicitShardLoading,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -162,6 +164,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		store:                 store,
 		threshold:             uc.Threshold,
 		tombstoneCallbacks:    cfg.TombstoneCallbacks,
+		ImplicitShardLoading:  cfg.ImplicitShardLoading,
 		hnswUC:                uc.HnswUC,
 		db:                    cfg.SharedDB,
 		ctx:                   ctx,
@@ -207,6 +210,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				TempVectorForIDThunk:  index.tempVectorForIDThunk,
 				DistanceProvider:      index.distanceProvider,
 				MakeCommitLoggerThunk: index.makeCommitLoggerThunk,
+				ImplicitShardLoading:  cfg.ImplicitShardLoading,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
@@ -522,6 +526,7 @@ func (dynamic *dynamic) doUpgrade() error {
 			TempVectorForIDThunk:  dynamic.tempVectorForIDThunk,
 			DistanceProvider:      dynamic.distanceProvider,
 			MakeCommitLoggerThunk: dynamic.makeCommitLoggerThunk,
+			ImplicitShardLoading:  dynamic.ImplicitShardLoading,
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,

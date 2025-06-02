@@ -25,21 +25,21 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 )
 
-func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Class) {
+func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Class, implicitShardLoading bool) {
 	s.propertyIndices = propertyspecific.Indices{}
 	if class == nil {
 		return
 	}
 
-	s.initPropertyBuckets(context.Background(), eg, class.Properties...)
+	s.initPropertyBuckets(context.Background(), eg, implicitShardLoading, class.Properties...)
 
 	eg.Go(func() error {
-		return s.addIDProperty(context.TODO())
+		return s.addIDProperty(context.TODO(), implicitShardLoading)
 	})
 
 	if s.index.invertedIndexConfig.IndexTimestamps {
 		eg.Go(func() error {
-			return s.addTimestampProperties(context.TODO())
+			return s.addTimestampProperties(context.TODO(), implicitShardLoading)
 		})
 	}
 
@@ -50,7 +50,7 @@ func (s *Shard) initProperties(eg *enterrors.ErrorGroupWrapper, class *models.Cl
 	}
 }
 
-func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) {
+func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, implicitShardLoading bool, props ...*models.Property) {
 	for _, prop := range props {
 		if !inverted.HasAnyInvertedIndex(prop) {
 			continue
@@ -59,7 +59,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 		propCopy := *prop // prevent loop variable capture
 
 		eg.Go(func() error {
-			if err := s.createPropertyValueIndex(ctx, &propCopy); err != nil {
+			if err := s.createPropertyValueIndex(ctx, &propCopy, implicitShardLoading); err != nil {
 				return fmt.Errorf("init prop %q: value index: %w", propCopy.Name, err)
 			}
 			return nil
@@ -67,7 +67,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 
 		if s.index.invertedIndexConfig.IndexNullState {
 			eg.Go(func() error {
-				if err := s.createPropertyNullIndex(ctx, &propCopy); err != nil {
+				if err := s.createPropertyNullIndex(ctx, &propCopy, implicitShardLoading); err != nil {
 					return fmt.Errorf("init prop %q: null index: %w", prop.Name, err)
 				}
 				return nil
@@ -76,7 +76,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 
 		if s.index.invertedIndexConfig.IndexPropertyLength {
 			eg.Go(func() error {
-				if err := s.createPropertyLengthIndex(ctx, &propCopy); err != nil {
+				if err := s.createPropertyLengthIndex(ctx, &propCopy, implicitShardLoading); err != nil {
 					return fmt.Errorf("init prop %q: length index: %w", prop.Name, err)
 				}
 				return nil
@@ -85,7 +85,7 @@ func (s *Shard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGrou
 	}
 }
 
-func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property) error {
+func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Property, implicitShardLoading bool) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
@@ -99,7 +99,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
-
+		lsmkv.WithDelayedSegmentLoading(implicitShardLoading),
 		s.segmentCleanupConfig(),
 	}
 
@@ -132,6 +132,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 			lsmkv.WithStrategy(strategy),
 			lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 			lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+			lsmkv.WithDelayedSegmentLoading(implicitShardLoading),
 		)
 		if strategy == lsmkv.StrategyMapCollection && s.versioner.Version() < 2 {
 			searchableBucketOpts = append(searchableBucketOpts, lsmkv.WithLegacyMapSorting())
@@ -162,6 +163,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 				lsmkv.WithBitmapBufPool(s.bitmapBufPool),
 				lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 				lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+				lsmkv.WithDelayedSegmentLoading(implicitShardLoading),
 			)...,
 		); err != nil {
 			return err
@@ -171,7 +173,7 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 	return nil
 }
 
-func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property) error {
+func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Property, implicitShardLoading bool) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
@@ -193,11 +195,12 @@ func (s *Shard) createPropertyLengthIndex(ctx context.Context, prop *models.Prop
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithDelayedSegmentLoading(implicitShardLoading),
 		s.segmentCleanupConfig(),
 	)
 }
 
-func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property) error {
+func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Property, implicitShardLoading bool) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
@@ -211,11 +214,12 @@ func (s *Shard) createPropertyNullIndex(ctx context.Context, prop *models.Proper
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithDelayedSegmentLoading(implicitShardLoading),
 		s.segmentCleanupConfig(),
 	)
 }
 
-func (s *Shard) addIDProperty(ctx context.Context) error {
+func (s *Shard) addIDProperty(ctx context.Context, implicitShardLoading bool) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
@@ -230,6 +234,7 @@ func (s *Shard) addIDProperty(ctx context.Context) error {
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithDelayedSegmentLoading(implicitShardLoading),
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {
@@ -276,23 +281,23 @@ func (s *Shard) addDimensionsProperty(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) addTimestampProperties(ctx context.Context) error {
+func (s *Shard) addTimestampProperties(ctx context.Context, implicitShardLoading bool) error {
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}
 
-	if err := s.addCreationTimeUnixProperty(ctx); err != nil {
+	if err := s.addCreationTimeUnixProperty(ctx, implicitShardLoading); err != nil {
 		return fmt.Errorf("create creation time property: %w", err)
 	}
 
-	if err := s.addLastUpdateTimeUnixProperty(ctx); err != nil {
+	if err := s.addLastUpdateTimeUnixProperty(ctx, implicitShardLoading); err != nil {
 		return fmt.Errorf("create last update time property: %w", err)
 	}
 
 	return nil
 }
 
-func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
+func (s *Shard) addCreationTimeUnixProperty(ctx context.Context, implicitShardLoading bool) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropCreationTimeUnix),
 		s.memtableDirtyConfig(),
@@ -303,11 +308,12 @@ func (s *Shard) addCreationTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithDelayedSegmentLoading(implicitShardLoading),
 		s.segmentCleanupConfig(),
 	)
 }
 
-func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
+func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context, implicitShardLoading bool) error {
 	return s.store.CreateOrLoadBucket(ctx,
 		helpers.BucketFromPropNameLSM(filters.InternalPropLastUpdateTimeUnix),
 		s.memtableDirtyConfig(),
@@ -318,6 +324,7 @@ func (s *Shard) addLastUpdateTimeUnixProperty(ctx context.Context) error {
 		lsmkv.WithSegmentsChecksumValidationEnabled(s.index.Config.LSMEnableSegmentsChecksumValidation),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		lsmkv.WithDelayedSegmentLoading(implicitShardLoading),
 		s.segmentCleanupConfig(),
 	)
 }

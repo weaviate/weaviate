@@ -19,14 +19,15 @@ import (
 )
 
 type Config struct {
-	ID               string
-	RootPath         string
-	TargetVector     string
-	MinMMapSize      int64
-	MaxWalReuseSize  int64
-	Logger           logrus.FieldLogger
-	DistanceProvider distancer.Provider
-	AllocChecker     memwatch.AllocChecker
+	ID                   string
+	RootPath             string
+	TargetVector         string
+	MinMMapSize          int64
+	MaxWalReuseSize      int64
+	Logger               logrus.FieldLogger
+	DistanceProvider     distancer.Provider
+	AllocChecker         memwatch.AllocChecker
+	ImplicitShardLoading bool
 }
 
 func (c Config) Validate() error {

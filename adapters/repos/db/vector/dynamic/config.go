@@ -42,6 +42,7 @@ type Config struct {
 	SharedDB              *bolt.DB
 	MinMMapSize           int64
 	MaxWalReuseSize       int64
+	ImplicitShardLoading  bool
 }
 
 func (c Config) Validate() error {

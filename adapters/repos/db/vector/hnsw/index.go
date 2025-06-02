@@ -337,7 +337,7 @@ func New(cfg Config, uc ent.UserConfig,
 
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
-		err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+		err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithDelayedSegmentLoading(cfg.ImplicitShardLoading))
 		if err != nil {
 			return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
 		}

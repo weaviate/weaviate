@@ -94,7 +94,7 @@ type ShardLike interface {
 	ID() string // Get the shard id
 	drop() error
 	HaltForTransfer(ctx context.Context, offloading bool) error
-	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property)
+	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, implicitShardLoading bool, props ...*models.Property)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
 	SetPropertyLengths(props []inverted.Property) error
@@ -356,7 +356,8 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 				break
 			}
 		} else {
-			if err = s.initTargetVector(ctx, targetVector, targetCfg); err != nil {
+			// if target vec
+			if err = s.initTargetVector(ctx, targetVector, targetCfg, true); err != nil {
 				return fmt.Errorf("creating new vector index: %w", err)
 			}
 		}
