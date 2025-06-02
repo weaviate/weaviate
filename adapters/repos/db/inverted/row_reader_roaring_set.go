@@ -28,7 +28,7 @@ import (
 type RowReaderRoaringSet struct {
 	value         []byte
 	operator      filters.Operator
-	newCursor     func() lsmkv.CursorRoaringSet
+	newCursor     func() (lsmkv.CursorRoaringSet, error)
 	getter        func(key []byte) (*sroar.Bitmap, error)
 	bitmapFactory *roaringset.BitmapFactory
 }
@@ -126,7 +126,10 @@ func (rr *RowReaderRoaringSet) notEqual(ctx context.Context,
 func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 	readFn ReadFn, allowEqual bool,
 ) error {
-	c := rr.newCursor()
+	c, err := rr.newCursor()
+	if err != nil {
+		return err
+	}
 	defer c.Close()
 
 	for k, v := c.Seek(rr.value); k != nil; k, v = c.Next() {
@@ -154,7 +157,10 @@ func (rr *RowReaderRoaringSet) greaterThan(ctx context.Context,
 func (rr *RowReaderRoaringSet) lessThan(ctx context.Context,
 	readFn ReadFn, allowEqual bool,
 ) error {
-	c := rr.newCursor()
+	c, err := rr.newCursor()
+	if err != nil {
+		return err
+	}
 	defer c.Close()
 
 	for k, v := c.First(); k != nil && bytes.Compare(k, rr.value) < 1; k, v = c.Next() {
@@ -184,7 +190,10 @@ func (rr *RowReaderRoaringSet) like(ctx context.Context,
 		return fmt.Errorf("parse like value: %w", err)
 	}
 
-	c := rr.newCursor()
+	c, err := rr.newCursor()
+	if err != nil {
+		return err
+	}
 	defer c.Close()
 
 	var (

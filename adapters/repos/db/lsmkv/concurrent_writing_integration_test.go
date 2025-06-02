@@ -287,7 +287,8 @@ func TestConcurrentWriting_RoaringSet(t *testing.T) {
 			targets[string(keys[i])] = values[i]
 		}
 
-		c := bucket.CursorRoaringSet()
+		c, err := bucket.CursorRoaringSet()
+		require.NoError(t, err)
 		defer c.Close()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			control := targets[string(k)]

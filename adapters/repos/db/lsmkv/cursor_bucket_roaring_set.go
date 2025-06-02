@@ -44,19 +44,19 @@ func (c *cursorRoaringSet) Close() {
 	c.unlock()
 }
 
-func (b *Bucket) CursorRoaringSet() CursorRoaringSet {
+func (b *Bucket) CursorRoaringSet() (CursorRoaringSet, error) {
 	return b.cursorRoaringSet(false)
 }
 
-func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
+func (b *Bucket) CursorRoaringSetKeyOnly() (CursorRoaringSet, error) {
 	return b.cursorRoaringSet(true)
 }
 
-func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
+func (b *Bucket) cursorRoaringSet(keyOnly bool) (CursorRoaringSet, error) {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSet)
 	disk, err := b.getDisk()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	b.flushLock.RLock()
 
@@ -78,5 +78,5 @@ func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 			unlockSegmentGroup()
 			b.flushLock.RUnlock()
 		},
-	}
+	}, nil
 }

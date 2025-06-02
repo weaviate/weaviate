@@ -40,7 +40,10 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 
 	// bool never has a frequency, so it's either a Set or RoaringSet
 	if b.Strategy() == lsmkv.StrategyRoaringSet {
-		c := b.CursorRoaringSet()
+		c, err := b.CursorRoaringSet()
+		if err != nil {
+			return nil, err
+		}
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -164,7 +167,10 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 
 	// flat never has a frequency, so it's either a Set or RoaringSet
 	if b.Strategy() == lsmkv.StrategyRoaringSet {
-		c := b.CursorRoaringSet()
+		c, err := b.CursorRoaringSet()
+		if err != nil {
+			return nil, err
+		}
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -205,7 +211,10 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 
 	// int never has a frequency, so it's either a Set or RoaringSet
 	if b.Strategy() == lsmkv.StrategyRoaringSet {
-		c := b.CursorRoaringSet()
+		c, err := b.CursorRoaringSet()
+		if err != nil {
+			return nil, err
+		}
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -247,7 +256,10 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 
 	// dates don't have frequency, so it's either a Set or RoaringSet
 	if b.Strategy() == lsmkv.StrategyRoaringSet {
-		c := b.CursorRoaringSet()
+		c, err := b.CursorRoaringSet()
+		if err != nil {
+			return nil, err
+		}
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
