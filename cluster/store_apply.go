@@ -109,7 +109,8 @@ func (st *Store) Apply(l *raft.Log) any {
 		// that means we're done doing schema only.
 		// we do this at the beginning to handle situation were schema was catching up
 		// and to make sure no matter is the error status we are going to open the db on startup
-		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
+		appliedToDb := st.lastAppliedIndexToDB.Load()
+		if l.Index != 0 && appliedToDb > 0 && l.Index >= appliedToDb {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
@@ -117,6 +118,8 @@ func (st *Store) Apply(l *raft.Log) any {
 				"last_store_log_applied_index": st.lastAppliedIndexToDB.Load(),
 			}).Info("reloading local DB as RAFT and local DB are now caught up")
 			st.reloadDBFromSchema()
+			// reset the last applied index to 0 to avoid reloading the DB multiple times
+			st.lastAppliedIndexToDB.Store(0)
 		}
 
 		// we update no mater the error status to avoid any edge cases in the DB layer for already released versions,
