@@ -61,18 +61,18 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 		require.Nil(t, err)
 	})
 
-	<-time.After(5 * time.Second)
-
 	t.Run("verify 2 nodes are healthy", func(t *testing.T) {
-		resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
-		require.Nil(t, err)
+		assert.Eventually(t, func() bool {
+			resp, err := helper.Client(t).Nodes.NodesGet(params, nil)
+			assert.Nil(t, err)
 
-		nodeStatusResp := resp.GetPayload()
-		require.NotNil(t, nodeStatusResp)
+			nodeStatusResp := resp.GetPayload()
+			assert.NotNil(t, nodeStatusResp)
 
-		nodes := nodeStatusResp.Nodes
-		require.NotNil(t, nodes)
-		require.Len(t, nodes, 2)
+			nodes := nodeStatusResp.Nodes
+			assert.NotNil(t, nodes)
+			return len(nodes) == 2
+		}, 15*time.Second, 500*time.Millisecond)
 	})
 
 	t.Run("reconnect node 3 to the network", func(t *testing.T) {
