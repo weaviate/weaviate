@@ -237,7 +237,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	}()
 Loop:
 	for {
-		if (os.Getenv("FORCE_BACKUP_FAIL") == "true" && strings.Contains(desc.ID  + u.backupID+u.backend.backupId, "fail") && strings.Contains(desc.ID  + u.backupID+u.backend.backupId, os.Getenv("FORCE_BACKUP_FAIL_NODE"))) {
+		if os.Getenv("FORCE_BACKUP_FAIL") == "true" && strings.Contains(desc.ID+u.backupID+u.backend.backupId, "fail") && strings.Contains(desc.ID+u.backupID+u.backend.backupId, os.Getenv("FORCE_BACKUP_FAIL_NODE")) {
 			fmt.Printf("forced failure %s %s %s\n", desc.ID, u.backupID, u.backend.backupId)
 			return errors.New("forced failure " + desc.ID + u.backupID + u.backend.backupId)
 		}

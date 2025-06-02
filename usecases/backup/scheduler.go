@@ -330,11 +330,11 @@ func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, o
 
 func (s *Scheduler) validateBackupRequest(ctx context.Context, store coordStore, req *BackupRequest) ([]string, error) {
 	/*
-	FIXME undo
-	if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
-		return nil, errLocalBackendDBRO
-	}
-		*/
+		FIXME undo
+		if !store.backend.IsExternal() && s.backupper.nodeResolver.NodeCount() > 1 {
+			return nil, errLocalBackendDBRO
+		}
+	*/
 
 	if err := validateID(req.ID); err != nil {
 		return nil, err
