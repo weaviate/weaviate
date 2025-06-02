@@ -133,9 +133,9 @@ func (is *invertedSorter) sortDocIDsWithNesting(
 
 	switch orders[0] {
 	case "asc":
-		return is.sortRoaringSetASC(ctx, bucket, limit, sort, ids, propNames[0], nesting)
+		return is.sortRoaringSetASC(ctx, bucket, limit, sort, ids, nesting)
 	case "desc":
-		return is.sortRoaringSetDESC(ctx, bucket, limit, sort, ids, propNames[0], nesting)
+		return is.sortRoaringSetDESC(ctx, bucket, limit, sort, ids, nesting)
 	default:
 		return nil, fmt.Errorf("unsupported sort order %s", orders[0])
 	}
@@ -148,7 +148,7 @@ func (is *invertedSorter) sortDocIDsWithNesting(
 // reached. If a second clause is provided, it will make sure to finish reading
 // each row, then start a nested tie-breaker sort, to sort the duplicate IDs.
 func (is *invertedSorter) sortRoaringSetASC(ctx context.Context, bucket *lsmkv.Bucket,
-	limit int, sort []filters.Sort, ids helpers.AllowList, propName string, nesting int,
+	limit int, sort []filters.Sort, ids helpers.AllowList, nesting int,
 ) ([]uint64, error) {
 	startTime := time.Now()
 	hasMoreNesting := len(sort) > 1
@@ -208,7 +208,6 @@ func (is *invertedSorter) sortRoaringSetDESC(
 	limit int,
 	sort []filters.Sort,
 	ids helpers.AllowList,
-	propName string,
 	nesting int,
 ) ([]uint64, error) {
 	startTime := time.Now()

@@ -95,25 +95,20 @@ func TestInvertedSorter(t *testing.T) {
 					}
 
 					for _, propName := range propNames {
-						t.Run(fmt.Sprintf("sort by %s", propName), func(t *testing.T) {
-							for _, limit := range limits {
-								t.Run(fmt.Sprintf("limit %d", limit), func(t *testing.T) {
-									for _, ord := range order {
-										t.Run(fmt.Sprintf("order %s", ord), func(t *testing.T) {
-											for _, matcher := range matchers {
-												fullFuncName := runtime.FuncForPC(reflect.ValueOf(matcher).Pointer()).Name()
-												parts := strings.Split(fullFuncName, ".")
+						for _, limit := range limits {
+							for _, ord := range order {
+								for _, matcher := range matchers {
+									fullFuncName := runtime.FuncForPC(reflect.ValueOf(matcher).Pointer()).Name()
+									parts := strings.Split(fullFuncName, ".")
+									matcherStr := parts[len(parts)-1]
 
-												t.Run(fmt.Sprintf("matcher %s", parts[len(parts)-1]), func(t *testing.T) {
-													sortParams := []filters.Sort{{Path: []string{propName}, Order: ord}}
-													assertSorting(t, ctx, store, props, objectCount, limit, sortParams, matcher)
-												})
-											}
-										})
-									}
-								})
+									t.Run(fmt.Sprintf("prop=%s, order=%s limit=%d matcher %s", propName, ord, limit, matcherStr), func(t *testing.T) {
+										sortParams := []filters.Sort{{Path: []string{propName}, Order: ord}}
+										assertSorting(t, ctx, store, props, objectCount, limit, sortParams, matcher)
+									})
+								}
 							}
-						})
+						}
 					}
 				})
 			}
@@ -184,20 +179,17 @@ func TestInvertedSorterMultiOrder(t *testing.T) {
 							sortPlanStrings = append(sortPlanStrings, fmt.Sprintf("%s %s", sp.Path[0], sp.Order))
 						}
 						sortPlanString := strings.Join(sortPlanStrings, " -> ")
-						t.Run(fmt.Sprintf("sort by %s", sortPlanString), func(t *testing.T) {
-							for _, limit := range limits {
-								t.Run(fmt.Sprintf("limit %d", limit), func(t *testing.T) {
-									for _, matcher := range matchers {
-										fullFuncName := runtime.FuncForPC(reflect.ValueOf(matcher).Pointer()).Name()
-										parts := strings.Split(fullFuncName, ".")
+						for _, limit := range limits {
+							for _, matcher := range matchers {
+								fullFuncName := runtime.FuncForPC(reflect.ValueOf(matcher).Pointer()).Name()
+								parts := strings.Split(fullFuncName, ".")
+								matcherStr := parts[len(parts)-1]
 
-										t.Run(fmt.Sprintf("matcher %s", parts[len(parts)-1]), func(t *testing.T) {
-											assertSorting(t, ctx, store, props, objectCount, limit, sortParam, matcher)
-										})
-									}
+								t.Run(fmt.Sprintf("sort=%s limit=%d matcher=%s", sortPlanString, limit, matcherStr), func(t *testing.T) {
+									assertSorting(t, ctx, store, props, objectCount, limit, sortParam, matcher)
 								})
 							}
-						})
+						}
 					}
 				})
 			}
