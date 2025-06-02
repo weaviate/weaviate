@@ -40,10 +40,10 @@ type cursorStateCollection struct {
 
 // SetCursor holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
-func (b *Bucket) SetCursor() *CursorSet {
+func (b *Bucket) SetCursor() (*CursorSet, error) {
 	disk, err := b.getDisk()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	b.flushLock.RLock()
 
@@ -70,7 +70,7 @@ func (b *Bucket) SetCursor() *CursorSet {
 		// cursor are in order from oldest to newest, with the memtable cursor
 		// being at the very top
 		innerCursors: innerCursors,
-	}
+	}, nil
 }
 
 // SetCursorKeyOnly returns nil for all values. It has no control over the
@@ -79,10 +79,13 @@ func (b *Bucket) SetCursor() *CursorSet {
 // making this considerably more efficient if only keys are required.
 //
 // The same locking rules as for SetCursor apply.
-func (b *Bucket) SetCursorKeyOnly() *CursorSet {
-	c := b.SetCursor()
+func (b *Bucket) SetCursorKeyOnly() (*CursorSet, error) {
+	c, err := b.SetCursor()
+	if err != nil {
+		return nil, err
+	}
 	c.keyOnly = true
-	return c
+	return c, nil
 }
 
 func (c *CursorSet) Seek(key []byte) ([]byte, [][]byte) {

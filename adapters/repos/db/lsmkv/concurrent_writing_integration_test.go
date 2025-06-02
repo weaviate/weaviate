@@ -199,7 +199,8 @@ func TestConcurrentWriting_Set(t *testing.T) {
 			targets[string(keys[i])] = values[i]
 		}
 
-		c := bucket.SetCursor()
+		c, err := bucket.SetCursor()
+		require.NoError(t, err)
 		defer c.Close()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			control := targets[string(k)]

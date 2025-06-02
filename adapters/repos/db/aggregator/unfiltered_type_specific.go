@@ -53,7 +53,10 @@ func (ua unfilteredAggregator) boolProperty(ctx context.Context,
 			}
 		}
 	} else {
-		c := b.SetCursor() // bool never has a frequency, so it's always a Set
+		c, err := b.SetCursor() // bool never has a frequency, so it's always a Set
+		if err != nil {
+			return nil, err
+		}
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -179,7 +182,10 @@ func (ua unfilteredAggregator) floatProperty(ctx context.Context,
 			}
 		}
 	} else {
-		c := b.SetCursor()
+		c, err := b.SetCursor()
+		if err != nil {
+			return nil, err
+		}
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -223,8 +229,10 @@ func (ua unfilteredAggregator) intProperty(ctx context.Context,
 			}
 		}
 	} else {
-
-		c := b.SetCursor()
+		c, err := b.SetCursor()
+		if err != nil {
+			return nil, err
+		}
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -268,7 +276,10 @@ func (ua unfilteredAggregator) dateProperty(ctx context.Context,
 			}
 		}
 	} else {
-		c := b.SetCursor()
+		c, err := b.SetCursor()
+		if err != nil {
+			return nil, err
+		}
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
