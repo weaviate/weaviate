@@ -41,10 +41,10 @@ type innerCursorMap interface {
 	seek([]byte) ([]byte, []MapPair, error)
 }
 
-func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
+func (b *Bucket) MapCursor(cfgs ...MapListOption) (*CursorMap, error) {
 	disk, err := b.getDisk()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	b.flushLock.RLock()
 
@@ -73,13 +73,13 @@ func (b *Bucket) MapCursor(cfgs ...MapListOption) *CursorMap {
 		// being at the very top
 		innerCursors: innerCursors,
 		listCfg:      c,
-	}
+	}, nil
 }
 
-func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) *CursorMap {
-	c := b.MapCursor(cfgs...)
+func (b *Bucket) MapCursorKeyOnly(cfgs ...MapListOption) (*CursorMap, error) {
+	c, err := b.MapCursor(cfgs...)
 	c.keyOnly = true
-	return c
+	return c, err
 }
 
 func (c *CursorMap) Seek(ctx context.Context, key []byte) ([]byte, []MapPair) {

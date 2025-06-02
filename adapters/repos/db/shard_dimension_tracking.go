@@ -57,7 +57,11 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 		return 0, 0
 	}
 
-	c := b.MapCursor()
+	c, err := b.MapCursor()
+	if err != nil {
+		s.index.logger.WithError(err).Error("Error getting cursor for dimension tracking")
+		return 0, 0
+	}
 	defer c.Close()
 
 	var (

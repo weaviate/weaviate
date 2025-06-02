@@ -357,7 +357,10 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 }
 
 func (b *Bucket) IterateMapObjects(ctx context.Context, f func([]byte, []byte, []byte, bool) error) error {
-	cursor := b.MapCursor()
+	cursor, err := b.MapCursor()
+	if err != nil {
+		return err
+	}
 	defer cursor.Close()
 
 	for kList, vList := cursor.First(ctx); kList != nil; kList, vList = cursor.Next(ctx) {
