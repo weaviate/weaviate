@@ -250,7 +250,7 @@ func TestStore_Apply_ReloadDB(t *testing.T) {
 	t.Run("Reload DB when caught up", func(t *testing.T) {
 		ms, log := setupApplyTest(t)
 		// Set lastAppliedIndexToDB to trigger DB reload
-		ms.store.lastAppliedIndexToDB.Store(uint64(100))
+		ms.store.lastAppliedIndexToDB.Store(100)
 		log.Index = 150 // Greater than lastAppliedIndexToDB
 
 		// Setup mocks
@@ -263,7 +263,69 @@ func TestStore_Apply_ReloadDB(t *testing.T) {
 		assert.True(t, ok)
 		assert.NoError(t, resp.Error)
 
-		// Verify lastAppliedIndexToDB was reset
+		// Verify lastAppliedIndexToDB was reset to 0
+		assert.Equal(t, uint64(0), ms.store.lastAppliedIndexToDB.Load())
+
+		// Verify all mock expectations
+		ms.parser.AssertExpectations(t)
+		ms.indexer.AssertExpectations(t)
+	})
+
+	t.Run("No reload on subsequent higher indices", func(t *testing.T) {
+		ms, log := setupApplyTest(t)
+		// Set lastAppliedIndexToDB to trigger initial DB reload
+		ms.store.lastAppliedIndexToDB.Store(100)
+		log.Index = 150 // Greater than lastAppliedIndexToDB
+
+		// Setup mocks for first apply
+		ms.parser.On("ParseClass", mock.Anything).Return(nil)
+		ms.indexer.On("AddClass", mock.Anything).Return(nil)
+		ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+		// First apply should trigger reload
+		result := ms.store.Apply(log)
+		resp, ok := result.(Response)
+		assert.True(t, ok)
+		assert.NoError(t, resp.Error)
+		assert.Equal(t, uint64(0), ms.store.lastAppliedIndexToDB.Load())
+
+		// Reset mocks for second apply
+		ms.parser.ExpectedCalls = nil
+		ms.indexer.ExpectedCalls = nil
+
+		// Create a different class for the second apply
+		cls2 := &models.Class{
+			Class: "TestClass2",
+			MultiTenancyConfig: &models.MultiTenancyConfig{
+				Enabled: true,
+			},
+		}
+
+		// Create sharding state for the second class
+		ss2 := &sharding.State{
+			Physical: map[string]sharding.Physical{
+				"T1": {
+					Name:           "T1",
+					BelongsToNodes: []string{"Node-1"},
+					Status:         "HOT",
+				},
+			},
+		}
+
+		// Setup mocks for second apply
+		ms.parser.On("ParseClass", mock.Anything).Return(nil)
+		ms.indexer.On("AddClass", mock.Anything).Return(nil)
+		ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+
+		// Second apply with higher index should not trigger reload
+		log.Index = 200
+		log.Data = cmdAsBytes("TestClass2", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls2, State: ss2}, nil)
+		result = ms.store.Apply(log)
+		resp, ok = result.(Response)
+		assert.True(t, ok)
+		assert.NoError(t, resp.Error)
+
+		// Verify lastAppliedIndexToDB is still 0
 		assert.Equal(t, uint64(0), ms.store.lastAppliedIndexToDB.Load())
 
 		// Verify all mock expectations
