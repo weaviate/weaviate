@@ -24,6 +24,7 @@ type Config struct {
 	TargetVector     string
 	MinMMapSize      int64
 	ImplicitUpdate   bool
+	MaxWalReuseSize  int64
 	Logger           logrus.FieldLogger
 	DistanceProvider distancer.Provider
 	AllocChecker     memwatch.AllocChecker

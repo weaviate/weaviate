@@ -133,6 +133,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			DistanceProvider: distProv,
 			AllocChecker:     s.index.allocChecker,
 			ImplicitUpdate:   implicitUpdate,
+			MinMMapSize:      s.index.Config.MinMMapSize,
+			MaxWalReuseSize:  s.index.Config.MaxReuseWalSize,
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
@@ -175,6 +177,8 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			},
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
 			SharedDB:           sharedDB,
+			MinMMapSize:        s.index.Config.MinMMapSize,
+			MaxWalReuseSize:    s.index.Config.MaxReuseWalSize,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
