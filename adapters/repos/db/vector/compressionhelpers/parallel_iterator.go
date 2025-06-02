@@ -93,7 +93,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	// S1: Read from beginning to first checkpoint:
 	wg.Add(1)
 	enterrors.GoWrapper(func() {
-		c := cpi.bucket.Cursor()
+		c, _ := cpi.bucket.Cursor()
 		localResults := make([]VecAndID[T], 0, 10_000)
 		defer c.Close()
 		defer wg.Done()
@@ -130,7 +130,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
 			localResults := make([]VecAndID[T], 0, 10_000)
-			c := cpi.bucket.Cursor()
+			c, _ := cpi.bucket.Cursor()
 			defer c.Close()
 
 			// The first call of cpi.fromCompressedBytes will allocate a buffer into localBuf
@@ -158,7 +158,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	// S3: Read from last checkpoint to end:
 	wg.Add(1)
 	enterrors.GoWrapper(func() {
-		c := cpi.bucket.Cursor()
+		c, _ := cpi.bucket.Cursor()
 		defer c.Close()
 		defer wg.Done()
 		localResults := make([]VecAndID[T], 0, 10_000)
@@ -199,7 +199,7 @@ func (cpi *parallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {
 	stopTracking := cpi.startTracking()
 	enterrors.GoWrapper(func() {
 		defer close(out)
-		c := cpi.bucket.Cursor()
+		c, _ := cpi.bucket.Cursor()
 		defer c.Close()
 		defer stopTracking()
 

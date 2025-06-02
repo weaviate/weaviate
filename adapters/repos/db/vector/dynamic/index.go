@@ -539,7 +539,11 @@ func (dynamic *dynamic) doUpgrade() error {
 
 	bucket := dynamic.store.Bucket(dynamic.getBucketName())
 
-	cursor := bucket.Cursor()
+	cursor, err := bucket.Cursor()
+	if err != nil {
+		dynamic.RUnlock()
+		return err
+	}
 
 	for k, v := cursor.First(); k != nil; k, v = cursor.Next() {
 		if dynamic.ctx.Err() != nil {

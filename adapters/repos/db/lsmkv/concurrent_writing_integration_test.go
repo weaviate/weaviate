@@ -104,7 +104,8 @@ func TestConcurrentWriting_Replace(t *testing.T) {
 			targets[string(keys[i])] = values[i]
 		}
 
-		c := bucket.Cursor()
+		c, err := bucket.Cursor()
+		require.NoError(t, err)
 		defer c.Close()
 		for k, v := c.First(); k != nil; k, v = c.Next() {
 			control := targets[string(k)]

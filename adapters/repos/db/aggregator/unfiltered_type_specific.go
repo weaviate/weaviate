@@ -80,7 +80,10 @@ func (ua unfilteredAggregator) boolArrayProperty(ctx context.Context,
 
 	agg := newBoolAggregator()
 
-	c := b.Cursor()
+	c, err := b.Cursor()
+	if err != nil {
+		return nil, err
+	}
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -315,7 +318,10 @@ func (ua unfilteredAggregator) dateArrayProperty(ctx context.Context,
 
 	agg := newDateAggregator()
 
-	c := b.Cursor()
+	c, err := b.Cursor()
+	if err != nil {
+		return nil, err
+	}
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -459,7 +465,10 @@ func (ua unfilteredAggregator) textProperty(ctx context.Context,
 
 	// we're looking at the whole object, so this is neither a Set, nor a Map, but
 	// a Replace strategy
-	c := b.Cursor()
+	c, err := b.Cursor()
+	if err != nil {
+		return nil, err
+	}
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -488,7 +497,10 @@ func (ua unfilteredAggregator) numberArrayProperty(ctx context.Context,
 
 	agg := newNumericalAggregator()
 
-	c := b.Cursor()
+	c, err := b.Cursor()
+	if err != nil {
+		return nil, err
+	}
 	defer c.Close()
 
 	for k, v := c.First(); k != nil; k, v = c.Next() {

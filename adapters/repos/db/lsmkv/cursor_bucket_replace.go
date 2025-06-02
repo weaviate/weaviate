@@ -41,10 +41,10 @@ type cursorStateReplace struct {
 
 // Cursor holds a RLock for the flushing state. It needs to be closed using the
 // .Close() methods or otherwise the lock will never be released
-func (b *Bucket) Cursor() *CursorReplace {
+func (b *Bucket) Cursor() (*CursorReplace, error) {
 	disk, err := b.getDisk()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	b.flushLock.RLock()
@@ -72,7 +72,7 @@ func (b *Bucket) Cursor() *CursorReplace {
 			unlockSegmentGroup()
 			b.flushLock.RUnlock()
 		},
-	}
+	}, nil
 }
 
 // CursorInMemWith returns a cursor which scan over the primary key of entries

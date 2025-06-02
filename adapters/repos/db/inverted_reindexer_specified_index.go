@@ -133,7 +133,10 @@ func (t *ShardInvertedReindexTask_SpecifiedIndex) ObjectsIterator(shard ShardLik
 
 	objectsBucket := shard.Store().Bucket(helpers.ObjectsBucketLSM)
 	return func(ctx context.Context, fn func(object *storobj.Object) error) error {
-		cursor := objectsBucket.Cursor()
+		cursor, err := objectsBucket.Cursor()
+		if err != nil {
+			return err
+		}
 		defer cursor.Close()
 
 		i := 0

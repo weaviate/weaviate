@@ -104,7 +104,10 @@ func newLsmSorterHelper(bucket *lsmkv.Bucket, comparator *comparator,
 }
 
 func (h *lsmSorterHelper) getSorted(ctx context.Context) ([]uint64, error) {
-	cursor := h.bucket.Cursor()
+	cursor, err := h.bucket.Cursor()
+	if err != nil {
+		return nil, err
+	}
 	defer cursor.Close()
 
 	sorter := newInsertSorter(h.comparator, h.limit)

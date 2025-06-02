@@ -175,7 +175,9 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.Cursor()
+		c, err := bucket.Cursor()
+		require.NoError(t, err)
+
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -205,7 +207,9 @@ func compactionReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketO
 	t.Run("verify control after compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.Cursor()
+		c, err := bucket.Cursor()
+		require.NoError(t, err)
+
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -496,7 +500,9 @@ func compactionReplaceStrategy_RemoveUnnecessaryDeletes(ctx context.Context, t *
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.Cursor()
+		c, err := bucket.Cursor()
+		require.NoError(t, err)
+
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -520,7 +526,9 @@ func compactionReplaceStrategy_RemoveUnnecessaryDeletes(ctx context.Context, t *
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.Cursor()
+		c, err := bucket.Cursor()
+		require.NoError(t, err)
+
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -581,7 +589,9 @@ func compactionReplaceStrategy_RemoveUnnecessaryUpdates(ctx context.Context, t *
 	t.Run("verify control before compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.Cursor()
+		c, err := bucket.Cursor()
+		require.NoError(t, err)
+
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {
@@ -605,7 +615,9 @@ func compactionReplaceStrategy_RemoveUnnecessaryUpdates(ctx context.Context, t *
 	t.Run("verify control after compaction", func(t *testing.T) {
 		var retrieved []kv
 
-		c := bucket.Cursor()
+		c, err := bucket.Cursor()
+		require.NoError(t, err)
+
 		defer c.Close()
 
 		for k, v := c.First(); k != nil; k, v = c.Next() {

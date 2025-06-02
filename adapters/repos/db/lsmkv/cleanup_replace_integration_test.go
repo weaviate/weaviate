@@ -363,7 +363,8 @@ func cleanupReplaceStrategy(ctx context.Context, t *testing.T, opts []BucketOpti
 		}
 
 		t.Run("cursor", func(t *testing.T) {
-			c := bucket.Cursor()
+			c, err := bucket.Cursor()
+			require.NoError(t, err)
 			defer c.Close()
 
 			i := 0
@@ -755,7 +756,8 @@ func cleanupReplaceStrategy_WithSecondaryKeys(ctx context.Context, t *testing.T,
 		}
 
 		t.Run("cursor", func(t *testing.T) {
-			c := bucket.Cursor()
+			c, err := bucket.Cursor()
+			require.NoError(t, err)
 			defer c.Close()
 
 			i := 0

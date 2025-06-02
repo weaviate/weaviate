@@ -139,7 +139,10 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	cursor := bucket.Cursor()
+	cursor, err := bucket.Cursor()
+	if err != nil {
+		return nil, err
+	}
 	defer cursor.Close()
 
 	n := 0
@@ -572,7 +575,10 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	additional additional.Properties,
 	className schema.ClassName,
 ) ([]*storobj.Object, error) {
-	cursor := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
+	cursor, err := s.store.Bucket(helpers.ObjectsBucketLSM).Cursor()
+	if err != nil {
+		return nil, err
+	}
 	defer cursor.Close()
 
 	var key, val []byte

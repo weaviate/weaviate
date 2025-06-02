@@ -287,7 +287,10 @@ func (b *Bucket) GetFlushCallbackCtrl() cyclemanager.CycleCallbackCtrl {
 }
 
 func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Object) error) error {
-	cursor := b.Cursor()
+	cursor, err := b.Cursor()
+	if err != nil {
+		return err
+	}
 	defer cursor.Close()
 
 	i := 0
