@@ -106,7 +106,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 			}
 		}
 		h.compressor.PersistCompression(h.commitLog)
-	} else if h.bqConfig.Enabled {
+	} else if cfg.BQ.Enabled {
 		var err error
 		if singleVector {
 			h.compressor, err = compressionhelpers.NewBQCompressor(
@@ -118,12 +118,15 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		if err != nil {
 			return err
 		}
-	} else if h.rqConfig.Enabled {
+	} else if cfg.RQ.Enabled {
 		var err error
 		h.trackRQOnce.Do(func() {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewRQCompressor(
 					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.DataBits), int(h.dims))
+				if err == nil {
+					h.doNotRescore = !cfg.RQ.Rescore
+				}
 			} else {
 				panic("RQ Compressor for multi vector not implemented")
 			}

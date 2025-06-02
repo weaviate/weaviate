@@ -58,5 +58,11 @@ func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
 		return err
 	}
 
+	if err := common.OptionalBoolFromMap(rqConfigMap, "rescore", func(v bool) {
+		rq.Rescore = v
+	}); err != nil {
+		return err
+	}
+
 	return nil
 }

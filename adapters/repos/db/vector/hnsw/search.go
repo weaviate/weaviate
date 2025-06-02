@@ -798,7 +798,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		return nil, nil, errors.Wrapf(err, "knn search: search layer at level %d", 0)
 	}
 
-	/*beforeRescore := time.Now()
+	beforeRescore := time.Now()
 	if h.shouldRescore() && !h.multivector.Load() {
 		if err := h.rescore(ctx, res, k, compressorDistancer); err != nil {
 			helpers.AnnotateSlowQueryLog(ctx, "context_error", "knn_search_rescore")
@@ -808,7 +808,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		}
 		took := time.Since(beforeRescore)
 		helpers.AnnotateSlowQueryLog(ctx, "knn_search_rescore_took", took)
-	}*/
+	}
 
 	if !h.multivector.Load() {
 		for res.Len() > k {
