@@ -211,7 +211,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	}
 
 	if b.disableCompaction {
-		compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
+		b.compactionCallbacks = cyclemanager.NewCallbackGroupNoop()
 	}
 
 	if err := b.mayRecoverFromCommitLogs(ctx, b.delaySegmentLoading); err != nil {
