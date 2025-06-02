@@ -23,6 +23,7 @@ type Config struct {
 	RootPath         string
 	TargetVector     string
 	MinMMapSize      int64
+	ImplicitUpdate   bool
 	MaxWalReuseSize  int64
 	Logger           logrus.FieldLogger
 	DistanceProvider distancer.Provider
