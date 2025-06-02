@@ -257,7 +257,10 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
-			segments, release := bucket.disk.getAndLockSegments()
+			disk, err := bucket.getDisk()
+			require.NoError(t, err)
+
+			segments, release := disk.getAndLockSegments()
 			defer release()
 
 			assert.Equal(t, 0, len(segments))
@@ -306,7 +309,10 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
-			segments, release := bucket.disk.getAndLockSegments()
+			disk, err := bucket.getDisk()
+			require.NoError(t, err)
+
+			segments, release := disk.getAndLockSegments()
 			defer release()
 
 			assert.Equal(t, 0, len(segments))
@@ -355,7 +361,9 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 		})
 
 		t.Run("assert no segments exist initially", func(t *testing.T) {
-			segments, release := bucket.disk.getAndLockSegments()
+			disk, err := bucket.getDisk()
+			require.NoError(t, err)
+			segments, release := disk.getAndLockSegments()
 			defer release()
 
 			assert.Equal(t, 0, len(segments))

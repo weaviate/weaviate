@@ -107,7 +107,9 @@ func (s *Store) UpdateBucketsStatus(targetStatus storagestate.Status) error {
 			continue
 		}
 
-		b.UpdateStatus(targetStatus)
+		if err := b.UpdateStatus(targetStatus); err != nil {
+			return err
+		}
 	}
 
 	if targetStatus == storagestate.StatusReadOnly {
@@ -459,8 +461,13 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 }
 
 func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, string, error) {
-	replacementBucket.disk.maintenanceLock.Lock()
-	defer replacementBucket.disk.maintenanceLock.Unlock()
+	disk, err := replacementBucket.getDisk()
+	if err != nil {
+		return "", "", "", "", nil
+	}
+
+	disk.maintenanceLock.Lock()
+	defer disk.maintenanceLock.Unlock()
 
 	currBucketDir := bucket.dir
 	newBucketDir := bucket.dir + "___del"
@@ -608,7 +615,12 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 		return strings.Replace(src, bucketDir, newBucketDir, 1)
 	}
 
-	segments, release := bucket.disk.getAndLockSegments()
+	disk, err := bucket.getDisk()
+	if err != nil {
+		return
+	}
+
+	segments, release := disk.getAndLockSegments()
 	defer release()
 
 	bucket.disk.dir = newBucketDir

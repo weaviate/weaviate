@@ -37,11 +37,14 @@ func (b *Bucket) QuantileKeys(q int) [][]byte {
 	if q <= 0 {
 		return nil
 	}
-
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil
+	}
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
-	keys := b.disk.quantileKeys(q)
+	keys := disk.quantileKeys(q)
 	return keys
 }
 

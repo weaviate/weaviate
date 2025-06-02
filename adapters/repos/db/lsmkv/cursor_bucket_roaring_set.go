@@ -54,10 +54,13 @@ func (b *Bucket) CursorRoaringSetKeyOnly() CursorRoaringSet {
 
 func (b *Bucket) cursorRoaringSet(keyOnly bool) CursorRoaringSet {
 	MustBeExpectedStrategy(b.strategy, StrategyRoaringSet)
-
+	disk, err := b.getDisk()
+	if err != nil {
+		return nil
+	}
 	b.flushLock.RLock()
 
-	innerCursors, unlockSegmentGroup := b.disk.newRoaringSetCursors()
+	innerCursors, unlockSegmentGroup := disk.newRoaringSetCursors()
 
 	// we have a flush-RLock, so we have the guarantee that the flushing state
 	// will not change for the lifetime of the cursor, thus there can only be two
