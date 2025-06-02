@@ -463,7 +463,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, string, error) {
 	disk, err := replacementBucket.getDisk()
 	if err != nil {
-		return "", "", "", "", nil
+		return "", "", "", "", err
 	}
 
 	disk.maintenanceLock.Lock()
@@ -547,8 +547,12 @@ func (s *Store) ReplaceBuckets(ctx context.Context, bucketName, replacementBucke
 		return fmt.Errorf("switch active memtable: %w", err)
 	}
 
-	s.updateBucketDir(bucket, currBucketDir, newBucketDir)
-	s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir)
+	if err := s.updateBucketDir(bucket, currBucketDir, newBucketDir); err != nil {
+		return err
+	}
+	if err := s.updateBucketDir(replacementBucket, currReplacementBucketDir, newReplacementBucketDir); err != nil {
+		return err
+	}
 
 	if err := os.RemoveAll(newBucketDir); err != nil {
 		return errors.Wrapf(err, "failed removing dir '%s'", newBucketDir)
@@ -610,21 +614,22 @@ func (s *Store) RenameBucket(ctx context.Context, bucketName, newBucketName stri
 	return nil
 }
 
-func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) {
+func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) error {
 	updatePath := func(src string) string {
 		return strings.Replace(src, bucketDir, newBucketDir, 1)
 	}
 
 	disk, err := bucket.getDisk()
 	if err != nil {
-		return
+		return err
 	}
 
 	segments, release := disk.getAndLockSegments()
 	defer release()
 
-	bucket.disk.dir = newBucketDir
+	disk.dir = newBucketDir
 	for _, segment := range segments {
 		segment.path = updatePath(segment.path)
 	}
+	return nil
 }

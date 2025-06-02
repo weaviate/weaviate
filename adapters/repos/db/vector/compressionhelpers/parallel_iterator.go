@@ -55,10 +55,10 @@ func NewParallelIterator[T byte | uint64](bucket *lsmkv.Bucket, parallel int, lo
 	}
 }
 
-func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
+func (cpi *parallelIterator[T]) IterateAll() (chan []VecAndID[T], error) {
 	if cpi.parallel <= 1 {
 		// caller explicitly wants no parallelism, fallback to regular cursor
-		return cpi.iterateAllNoConcurrency()
+		return cpi.iterateAllNoConcurrency(), nil
 	}
 
 	stopTracking := cpi.startTracking()
@@ -68,12 +68,16 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 	// first checkpoint, therefore we will have len(checkpoints) + 1 routines in
 	// total.
 	seedCount := cpi.parallel - 1
-	seeds := cpi.bucket.QuantileKeys(seedCount)
+	seeds, err := cpi.bucket.QuantileKeys(seedCount)
+	if err != nil {
+		stopTracking()
+		return nil, err
+	}
 	if len(seeds) == 0 {
 		// no seeds likely means an empty index. If we exit early, we also need to
 		// stop the progress tracking.
 		stopTracking()
-		return nil
+		return nil, nil
 	}
 
 	wg := sync.WaitGroup{}
@@ -191,7 +195,7 @@ func (cpi *parallelIterator[T]) IterateAll() chan []VecAndID[T] {
 		stopTracking()
 	}, cpi.logger)
 
-	return out
+	return out, nil
 }
 
 func (cpi *parallelIterator[T]) iterateAllNoConcurrency() chan []VecAndID[T] {

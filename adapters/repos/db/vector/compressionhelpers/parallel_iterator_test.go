@@ -138,7 +138,8 @@ func testIterator[T uint64 | byte](t *testing.T, cpi *parallelIterator[T], test 
 ) {
 	require.NotNil(t, cpi)
 
-	ch := cpi.IterateAll()
+	ch, err := cpi.IterateAll()
+	require.NoError(t, err)
 	idsFound := make(map[uint64]struct{})
 	for vecs := range ch {
 		for _, vec := range vecs {

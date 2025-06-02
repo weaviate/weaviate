@@ -58,8 +58,8 @@ type VectorCompressor interface {
 	SetKeys(id uint64, docID uint64, relativeID uint64)
 	Prefetch(id uint64)
 	CountVectors() int64
-	PrefillCache()
-	PrefillMultiCache(docIDVectors map[uint64][]uint64)
+	PrefillCache() error
+	PrefillMultiCache(docIDVectors map[uint64][]uint64) error
 
 	DistanceBetweenCompressedVectorsFromIDs(ctx context.Context, x, y uint64) (float32, error)
 	NewDistancer(vector []float32) (CompressorDistancer, ReturnDistancerFn)
@@ -259,7 +259,7 @@ func (compressor *quantizedVectorsCompressor[T]) initCompressedStore() error {
 	return nil
 }
 
-func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
+func (compressor *quantizedVectorsCompressor[T]) PrefillCache() error {
 	before := time.Now()
 
 	// The idea here is to first read everything from disk in one go, then grow
@@ -277,9 +277,12 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM),
 		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytesWithSubsliceBuffer,
 		compressor.logger)
-	channel := it.IterateAll()
+	channel, err := it.IterateAll()
+	if err != nil {
+		return errors.Wrap(err, "IterateAll")
+	}
 	if channel == nil {
-		return // nothing to do
+		return nil // nothing to do
 	}
 
 	for v := range channel {
@@ -305,9 +308,10 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillCache() {
 		"maxID":  maxID,
 		"took":   took,
 	}).Info("prefilled compressed vector cache")
+	return nil
 }
 
-func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors map[uint64][]uint64) {
+func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors map[uint64][]uint64) error {
 	before := time.Now()
 
 	parallel := 2 * runtime.GOMAXPROCS(0)
@@ -318,9 +322,12 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors 
 		compressor.compressedStore.Bucket(helpers.VectorsCompressedBucketLSM),
 		parallel, compressor.loadId, compressor.quantizer.FromCompressedBytesWithSubsliceBuffer,
 		compressor.logger)
-	channel := it.IterateAll()
+	channel, err := it.IterateAll()
+	if err != nil {
+		return errors.Wrap(err, "IterateAll")
+	}
 	if channel == nil {
-		return // nothing to do
+		return nil // nothing to do
 	}
 
 	for v := range channel {
@@ -357,6 +364,7 @@ func (compressor *quantizedVectorsCompressor[T]) PrefillMultiCache(docIDVectors 
 		"maxID":  maxID,
 		"took":   took,
 	}).Info("prefilled compressed vector cache for multivector")
+	return nil
 }
 
 func (compressor *quantizedVectorsCompressor[T]) PersistCompression(logger CommitLogger) {

@@ -39,7 +39,8 @@ func TestQuantileKeysSingleSegment(t *testing.T) {
 	// segment to be built
 	require.Nil(t, b.FlushAndSwitch())
 
-	quantiles := b.QuantileKeys(10)
+	quantiles, err := b.QuantileKeys(10)
+	require.NoError(t, err)
 
 	asNumbers := make([]uint64, len(quantiles))
 	for i, q := range quantiles {
@@ -87,7 +88,8 @@ func TestQuantileKeysMultipleSegmentsUniqueEntries(t *testing.T) {
 	// segment to be built
 	require.Nil(t, b.FlushAndSwitch())
 
-	quantiles := b.QuantileKeys(10)
+	quantiles, err := b.QuantileKeys(10)
+	require.NoError(t, err)
 
 	asNumbers := make([]uint64, len(quantiles))
 	for i, q := range quantiles {

@@ -363,9 +363,9 @@ func (h *hnsw) prefillCache() {
 		var err error
 		if h.compressed.Load() {
 			if !h.multivector.Load() {
-				h.compressor.PrefillCache()
+				err = h.compressor.PrefillCache()
 			} else {
-				h.compressor.PrefillMultiCache(h.docIDVectors)
+				err = h.compressor.PrefillMultiCache(h.docIDVectors)
 			}
 		} else {
 			err = newVectorCachePrefiller(h.cache, h, h.logger).Prefill(ctx, limit)

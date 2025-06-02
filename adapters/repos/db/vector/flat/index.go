@@ -833,8 +833,8 @@ func (index *flat) PostStartup() {
 	// 2*GOMAXPROCS seems like a good default.
 	it := compressionhelpers.NewParallelIterator[uint64](bucket, 2*runtime.GOMAXPROCS(0),
 		binary.BigEndian.Uint64, index.bq.FromCompressedBytesWithSubsliceBuffer, index.logger)
-	channel := it.IterateAll()
-	if channel == nil {
+	channel, err := it.IterateAll()
+	if channel == nil || err != nil {
 		return // nothing to do
 	}
 	for v := range channel {

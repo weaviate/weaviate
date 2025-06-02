@@ -33,19 +33,19 @@ import (
 //     as part of .Seek() in a cursor.
 //  3. It will never return duplicates, to make sure all parallel cursors
 //     return unique values.
-func (b *Bucket) QuantileKeys(q int) [][]byte {
+func (b *Bucket) QuantileKeys(q int) ([][]byte, error) {
 	if q <= 0 {
-		return nil
+		return nil, nil
 	}
 	disk, err := b.getDisk()
 	if err != nil {
-		return nil
+		return nil, err
 	}
 	b.flushLock.RLock()
 	defer b.flushLock.RUnlock()
 
 	keys := disk.quantileKeys(q)
-	return keys
+	return keys, nil
 }
 
 func (sg *SegmentGroup) quantileKeys(q int) [][]byte {
