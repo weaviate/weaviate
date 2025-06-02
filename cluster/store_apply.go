@@ -110,8 +110,8 @@ func (st *Store) Apply(l *raft.Log) any {
 		// we do this at the beginning to handle situation were schema was catching up
 		// and to make sure no matter is the error status we are going to open the db on startup
 		// we reload the db only if we have a previous state and the db is not loaded
-		shouldReloadDB := st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoaded.Load()
-		if shouldReloadDB && l.Index != 0 && l.Index >= st.lastAppliedIndexToDB.Load() {
+		dbReloadRequired := st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoaded.Load()
+		if dbReloadRequired && l.Index != 0 && l.Index >= st.lastAppliedIndexToDB.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
