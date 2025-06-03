@@ -146,6 +146,7 @@ func TestStore_Apply_CommandTypes(t *testing.T) {
 			setupMocks: func(ms MockStore) {
 				ms.indexer.On("DeleteClass", mock.Anything).Return(nil)
 				ms.indexer.On("TriggerSchemaUpdateCallbacks").Return()
+				ms.replicationFSM.On("DeleteReplicationsByCollection", mock.Anything).Return(nil)
 			},
 			expectError: false,
 			cmdData:     nil,
@@ -461,8 +462,9 @@ func setupApplyTest(t *testing.T) (MockStore, *raft.Log) {
 		Data:  cmdAsBytes("TestClass", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{Class: cls, State: ss}, nil),
 	}
 
-	// Initialize the schema manager to avoid nil pointer dereference
+	// Initialize the schema manager with replication FSM
 	mockStore.store.schemaManager = clusterschema.NewSchemaManager("Node-1", mockStore.indexer, mockStore.parser, prometheus.NewPedanticRegistry(), mockStore.logger)
+	mockStore.store.schemaManager.SetReplicationFSM(mockStore.replicationFSM)
 
 	return mockStore, log
 }
