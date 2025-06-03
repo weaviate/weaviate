@@ -20,6 +20,8 @@ type Config struct {
 	RootUsers        []string `json:"root_users" yaml:"root_users"`
 	RootGroups       []string `json:"root_groups" yaml:"root_groups"`
 	ViewerRootGroups []string `json:"experimental_readonly_root_groups" yaml:"experimental_readonly_root_groups"`
+	ViewerUsers      []string `json:"viewer_users" yaml:"viewer_users"`
+	AdminUsers       []string `json:"admin_users" yaml:"admin_users"`
 }
 
 // Validate admin list config for viability, can be called from the central

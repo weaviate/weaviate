@@ -36,16 +36,18 @@ import (
 
 func TestSuccessGetUser(t *testing.T) {
 	tests := []struct {
-		name        string
-		userId      string
-		isRoot      bool
-		addLastUsed bool
-		userType    models.UserTypeOutput
+		name         string
+		userId       string
+		isRoot       bool
+		addLastUsed  bool
+		importStatic bool
+		userType     models.UserTypeOutput
 	}{
 		{name: "dynamic user - non-root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: false},
 		{name: "dynamic user - root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: true},
 		{name: "dynamic user with last used - root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: true, addLastUsed: true},
 		{name: "static user", userId: "static", userType: models.UserTypeOutputDbEnvUser, isRoot: true},
+		{name: "dynamic user after import - root", userId: "static", userType: models.UserTypeOutputDbUser, isRoot: true, importStatic: true},
 	}
 
 	for _, test := range tests {
@@ -61,6 +63,8 @@ func TestSuccessGetUser(t *testing.T) {
 			schemaGetter := schema.NewMockSchemaGetter(t)
 			if test.userType == models.UserTypeOutputDbUser {
 				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId, ApiKeyFirstLetters: "abc"}}, nil)
+			} else {
+				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{}, nil)
 			}
 			dynUser.On("GetRolesForUser", test.userId, models.UserTypeInputDb).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
