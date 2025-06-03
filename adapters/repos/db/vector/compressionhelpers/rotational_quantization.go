@@ -141,6 +141,7 @@ type RQDistancer struct {
 	distancer distancer.Provider
 	queryCode RQCode
 	rq        *RotationalQuantizer
+	query     []float32
 }
 
 func (rq *RotationalQuantizer) NewDistancer(q []float32) *RQDistancer {
@@ -148,6 +149,7 @@ func (rq *RotationalQuantizer) NewDistancer(q []float32) *RQDistancer {
 		distancer: rq.distancer,
 		queryCode: rq.encodeImpl(q, rq.queryBits),
 		rq:        rq,
+		query:     q,
 	}
 }
 
@@ -193,6 +195,9 @@ func (rqd *RQDistancer) Distance(x []byte) (float32, error) {
 }
 
 func (rqd *RQDistancer) DistanceToFloat(x []float32) (float32, error) {
+	if len(rqd.query) > 0 {
+		return rqd.distancer.SingleDist(rqd.query, x)
+	}
 	bits := 8
 	cx := rqd.rq.encodeImpl(x, bits)
 	return distance(rqd.queryCode, cx, rqd.distancer)
