@@ -25,7 +25,6 @@ import (
 )
 
 func TestNetworkIsolationSplitBrain(t *testing.T) {
-	t.Skip("due to verify_2_nodes_are_healthy test case failing")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
