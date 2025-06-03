@@ -60,8 +60,7 @@ func (s *lazySegment) mustLoad() {
 }
 
 func (s *lazySegment) getPath() string {
-	s.mustLoad()
-	return s.segment.getPath()
+	return s.segment.path
 }
 
 func (s *lazySegment) setPath(path string) {
