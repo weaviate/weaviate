@@ -16,17 +16,19 @@ import (
 )
 
 const (
-	DefaultRQEnabled = false
-	DefaultDataBits  = 8
-	DefaultQueryBits = 8
-	DefaultRQRescore = false
+	DefaultRQEnabled      = false
+	DefaultDataBits       = 8
+	DefaultQueryBits      = 8
+	DefaultRQRescore      = false
+	DefaultRQRescoreLimit = 20
 )
 
 type RQConfig struct {
-	Enabled   bool  `json:"enabled"`
-	DataBits  int16 `json:"dataBits"`
-	QueryBits int16 `json:"queryBits"`
-	Rescore   bool  `json:"rescore"`
+	Enabled      bool  `json:"enabled"`
+	DataBits     int16 `json:"dataBits"`
+	QueryBits    int16 `json:"queryBits"`
+	Rescore      bool  `json:"rescore"`
+	RescoreLimit int   `json:"rescoreLimit"`
 }
 
 func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
@@ -60,6 +62,12 @@ func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
 
 	if err := common.OptionalBoolFromMap(rqConfigMap, "rescore", func(v bool) {
 		rq.Rescore = v
+	}); err != nil {
+		return err
+	}
+
+	if err := common.OptionalIntFromMap(rqConfigMap, "rescoreLimit", func(v int) {
+		rq.RescoreLimit = v
 	}); err != nil {
 		return err
 	}

@@ -978,6 +978,11 @@ func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int
 			res.Pop()
 		}
 	}
+	if h.rqConfig.Enabled && h.rqConfig.RescoreLimit >= k {
+		for res.Len() > h.rqConfig.RescoreLimit {
+			res.Pop()
+		}
+	}
 	ids := make([]uint64, res.Len())
 	i := len(ids) - 1
 	for res.Len() > 0 {
