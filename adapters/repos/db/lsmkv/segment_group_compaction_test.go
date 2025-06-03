@@ -2357,11 +2357,6 @@ func runCompactionCandidatesTestCases(t *testing.T, testCases []testCaseCompacti
 				})
 			}
 		})
-
-		for i, seg := range sg.segments {
-			fmt.Printf("[%d]: path [%s] level [%d] size [%d]\n", i, seg.getPath(), seg.getLevel(), seg.getSize())
-		}
-		fmt.Println()
 	}
 }
 

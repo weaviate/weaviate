@@ -111,6 +111,10 @@ func TestCreateBloomInit(t *testing.T) {
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
 
+	// just to ensure segments are loaded
+	cursor := b2.Cursor()
+	cursor.Close()
+
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
 	_, ok := findFileWithExt(files, ".bloom")
