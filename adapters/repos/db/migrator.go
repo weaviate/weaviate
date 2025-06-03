@@ -161,6 +161,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 
 	m.db.indexLock.Lock()
 	m.db.indices[idx.ID()] = idx
+	m.db.indices[idx.ID()+"_alias"] = idx
 	m.db.indexLock.Unlock()
 
 	return nil

@@ -291,9 +291,12 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 		return ErrClassExists
 	}
 
-	s.classes[cls.Class] = &metaClass{
+	metaClass := &metaClass{
 		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
 	}
+	// set the local name of the shards to this nodeID
+	s.classes[cls.Class] = metaClass
+	s.classes[cls.Class+"_alias"] = metaClass
 
 	s.collectionsCount.Inc()
 
