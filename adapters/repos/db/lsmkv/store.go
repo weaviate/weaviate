@@ -613,6 +613,6 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 
 	bucket.disk.dir = newBucketDir
 	for _, segment := range segments {
-		segment.path = updatePath(segment.path)
+		segment.setPath(updatePath(segment.getPath()))
 	}
 }
