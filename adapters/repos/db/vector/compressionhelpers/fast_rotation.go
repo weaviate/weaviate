@@ -12,15 +12,15 @@
 package compressionhelpers
 
 import (
+	"math"
 	"math/rand/v2"
 )
 
 type FastRotation struct {
-	outputDim    int       // The dimension of the output returned by Rotate().
-	rounds       int       // The number of rounds of random signs, permutations, and blocked transforms that the Rotate() function is going to apply.
-	permutations [][]int32 // For each round the permutation to apply prior to transforming.
-	signs        [][]int8  // For each round the vector of random signs to apply prior to transforming.
-	// tmp          []float64 // Temporary vector used to hold the input while we apply the transform.
+	outputDim int      // The dimension of the output returned by Rotate().
+	rounds    int      // The number of rounds of random signs, swaps, and blocked transforms that the Rotate() function is going to apply.
+	swaps     [][]Swap // Random swaps to apply each round prior to transforming.
+	signs     [][]int8 // Random signs to apply each round prior to transforming.
 }
 
 func randomSignsInt8(dim int, rng *rand.Rand) []int8 {
@@ -35,13 +35,19 @@ func randomSignsInt8(dim int, rng *rand.Rand) []int8 {
 	return signs
 }
 
-func randomPermutationInt32(n int, rng *rand.Rand) []int32 {
+type Swap struct {
+	i, j uint16
+}
+
+// Returns a slice of n/2 random swaps such that every element in a slice of length n gets swapped exactly once.
+// Consider performing the swaps in sorted order to make the access pattern more sequential.
+func randomSwaps(n int, rng *rand.Rand) []Swap {
+	swaps := make([]Swap, n/2)
 	p := rng.Perm(n)
-	p32 := make([]int32, n)
-	for j := range p {
-		p32[j] = int32(p[j])
+	for s := range swaps {
+		swaps[s] = Swap{i: uint16(p[2*s]), j: uint16(p[2*s+1])}
 	}
-	return p32
+	return swaps
 }
 
 func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
@@ -50,19 +56,17 @@ func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
 		outputDim += 64
 	}
 	rng := rand.New(rand.NewPCG(seed, 0x385ab5285169b1ac))
-	// tmp := make([]float64, outputDim)
-	permutations := make([][]int32, rounds)
+	swaps := make([][]Swap, rounds)
 	signs := make([][]int8, rounds)
 	for i := range rounds {
-		permutations[i] = randomPermutationInt32(outputDim, rng)
+		swaps[i] = randomSwaps(outputDim, rng)
 		signs[i] = randomSignsInt8(outputDim, rng)
 	}
 	return &FastRotation{
-		outputDim:    outputDim,
-		rounds:       rounds,
-		permutations: permutations,
-		signs:        signs,
-		// tmp:          tmp,
+		outputDim: outputDim,
+		rounds:    rounds,
+		swaps:     swaps,
+		signs:     signs,
 	}
 }
 
@@ -70,69 +74,56 @@ func (r *FastRotation) OutputDimension() int {
 	return r.outputDim
 }
 
-// Permute x in place according to p and apply signs according to s.
-func permuteAndApplySigns(x []float64, p []int32, s []int8) {
-	// // We set p[i] to -p[i]-1 to indicate that p[i] has been applied.
-	// for i := range p {
-	// 	from := int32(i)
-	// 	tmp := x[from]
-	// 	for p[from] >= 0 {
-	// 		to := p[from]
-	// 		tmp, x[to] = x[to], float64(s[to])*tmp
-	// 		p[from] = -p[from] - 1
-	// 		from = to
-	// 	}
-	// }
-	// // Reset the permutation.
-	// for i := range p {
-	// 	p[i] = -p[i] - 1
-	// }
-	res := make([]float64, len(x))
-	for i := range p {
-		res[p[i]] = float64(s[p[i]]) * x[i]
-	}
-	copy(x, res)
-}
-
-func (r *FastRotation) Rotate(x []float32) []float32 {
-	tmp := make([]float64, r.outputDim)
-	for i := range x {
-		tmp[i] = float64(x[i])
-	}
-	/*for i := range x {
-		r.tmp[i] = float64(x[i])
-	}*/
+func (r *FastRotation) RotateInPlaceFloat64(x []float64) []float64 {
 	for i := range r.rounds {
-		permuteAndApplySigns(tmp, r.permutations[i], r.signs[i])
-		// Greedily apply the largest possible FWHT of length 2^2k >= 64 to the
-		// remaining untransformed portion of the vector. We restrict ourselves
-		// to lengths of the form 2^2k because the normalization factors
-		// 1/SQRT(length) are negative powers of two which should keep floating
-		// point errors to a minimum, but this effect might be negligible.
+		// Apply random swaps and signs.
+		for _, s := range r.swaps[i] {
+			x[s.i], x[s.j] = float64(r.signs[i][s.i])*x[s.j], float64(r.signs[i][s.j])*x[s.i]
+		}
+		// Greedily apply the largest possible FWHT of length 2^k >= 64 to the
+		// remaining untransformed portion of the vector.
 		pos := 0
 		for pos < r.outputDim {
 			length := 64
 			normalize := 0.125
-			for pos+4*length <= r.outputDim {
-				length *= 4
-				normalize *= 0.5
+			for pos+2*length <= r.outputDim {
+				length *= 2
+				normalize *= 1.0 / math.Sqrt2
 			}
-			FastWalshHadamardTransform64(tmp[pos : pos+length])
+			FastWalshHadamardTransform(x[pos : pos+length])
 			for j := range length {
-				tmp[pos+j] *= normalize
+				x[pos+j] *= normalize
 			}
 			pos += length
 		}
 	}
-	y := make([]float32, r.outputDim)
-	for i := range tmp {
-		y[i] = float32(tmp[i])
-		// tmp[i] = 0 // Clear for next Rotation.
-	}
-	return y
+	return x
 }
 
-func FastWalshHadamardTransform64(x []float64) {
+func (r *FastRotation) RotateFloat64(x []float64) []float64 {
+	xCopy := make([]float64, r.outputDim)
+	copy(xCopy, x)
+	return r.RotateInPlaceFloat64(xCopy)
+}
+
+func (r *FastRotation) rotateFloat32UsingFloat64(x []float32) []float32 {
+	xFloat64 := make([]float64, r.outputDim)
+	for i := range x {
+		xFloat64[i] = float64(x[i])
+	}
+	r.RotateInPlaceFloat64(xFloat64)
+	res := make([]float32, r.outputDim)
+	for i := range xFloat64 {
+		res[i] = float32(xFloat64[i])
+	}
+	return res
+}
+
+func (r *FastRotation) Rotate(x []float32) []float32 {
+	return r.rotateFloat32UsingFloat64(x)
+}
+
+func FastWalshHadamardTransform(x []float64) {
 	// Unrolling the recursion at d = 4 gives an almost 2x speedup compared to
 	// no unrolling. Unrolling to d = 8 only gave a further ~1.1x speedup.
 	// Consider an iterative implementation if we want to optimize further.
@@ -163,8 +154,8 @@ func FastWalshHadamardTransform64(x []float64) {
 		return
 	}
 	m := len(x) / 2
-	FastWalshHadamardTransform64(x[:m])
-	FastWalshHadamardTransform64(x[m:])
+	FastWalshHadamardTransform(x[:m])
+	FastWalshHadamardTransform(x[m:])
 	for i := range m {
 		x[i], x[m+i] = x[i]+x[m+i], x[i]-x[m+i]
 	}
