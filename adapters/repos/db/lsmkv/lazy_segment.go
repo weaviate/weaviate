@@ -240,6 +240,13 @@ func (s *lazySegment) initSecondaryBloomFilter(pos int, overwrite bool) error {
 	return s.segment.initSecondaryBloomFilter(pos, overwrite)
 }
 
+func (s *lazySegment) isLoaded() bool {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+
+	return s.segment != nil
+}
+
 func (s *lazySegment) loadBloomFilterFromDisk() error {
 	s.mustLoad()
 	return s.segment.loadBloomFilterFromDisk()
