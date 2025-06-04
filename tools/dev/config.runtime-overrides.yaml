@@ -3,4 +3,3 @@ autoschema_enabled: true
 async_replication_disabled: false
 tenant_activity_read_log_level: info
 tenant_activity_write_log_level: info
-

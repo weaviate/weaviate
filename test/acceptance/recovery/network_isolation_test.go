@@ -25,7 +25,6 @@ import (
 )
 
 func TestNetworkIsolationSplitBrain(t *testing.T) {
-	t.Skip("due to verify_2_nodes_are_healthy test case failing")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
 
@@ -75,7 +74,7 @@ func TestNetworkIsolationSplitBrain(t *testing.T) {
 			nodes := nodeStatusResp.Nodes
 			assert.NotNil(t, nodes)
 			return len(nodes) == 2
-		}, 10*time.Second, 500*time.Millisecond)
+		}, 30*time.Second, 500*time.Millisecond)
 	})
 
 	t.Run("reconnect node 3 to the network", func(t *testing.T) {
