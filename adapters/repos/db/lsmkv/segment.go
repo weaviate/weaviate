@@ -50,7 +50,7 @@ type segment struct {
 	logger              logrus.FieldLogger
 	metrics             *Metrics
 	size                int64
-	mmapContents        bool
+	readFromMemory      bool
 	unMapContents       bool
 
 	useBloomFilter        bool // see bucket for more datails
@@ -149,6 +149,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
+	readFromMemory := cfg.mmapContents
 	if size > cfg.MinMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 		if err != nil {
@@ -163,6 +164,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 			return nil, fmt.Errorf("read file: %w", err)
 		}
 		unMapContents = false
+		readFromMemory = true
 	}
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
@@ -230,7 +232,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		logger:                logger,
 		metrics:               metrics,
 		size:                  size,
-		mmapContents:          cfg.mmapContents,
+		readFromMemory:        readFromMemory,
 		useBloomFilter:        cfg.useBloomFilter,
 		calcCountNetAdditions: cfg.calcCountNetAdditions,
 		invertedHeader:        invertedHeader,
@@ -242,7 +244,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	// Using pread strategy requires file to remain open for segment lifetime
-	if seg.mmapContents {
+	if seg.readFromMemory {
 		defer file.Close()
 	} else {
 		seg.contentFile = file
@@ -434,7 +436,7 @@ func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
 		r   io.Reader
 		err error
 	)
-	if s.mmapContents {
+	if s.readFromMemory {
 		contents := s.contents[offset.start:]
 		if offset.end != 0 {
 			contents = s.contents[offset.start:offset.end]
@@ -450,7 +452,7 @@ func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
 }
 
 func (s *segment) copyNode(b []byte, offset nodeOffset) error {
-	if s.mmapContents {
+	if s.readFromMemory {
 		copy(b, s.contents[offset.start:offset.end])
 		return nil
 	}

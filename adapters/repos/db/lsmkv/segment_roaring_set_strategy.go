@@ -57,7 +57,7 @@ func (s *segment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
 func (s *segment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, bool, error) {
 	var contents []byte
 	copied := false
-	if s.mmapContents {
+	if s.readFromMemory {
 		contents = s.contents[offset.start:offset.end]
 	} else {
 		contents = make([]byte, offset.end-offset.start)
