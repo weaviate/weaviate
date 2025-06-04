@@ -1073,6 +1073,18 @@
             "MOVE"
           ]
         },
+        "uncancelable": {
+          "description": "Whether the replica operation is uncancelable.",
+          "type": "boolean"
+        },
+        "scheduledForCancel": {
+          "description": "Whether the replica operation is scheduled for cancellation.",
+          "type": "boolean"
+        },
+        "scheduledForDelete": {
+          "description": "Whether the replica operation is scheduled for deletion.",
+          "type": "boolean"
+        },
         "status": {
           "description": "An object detailing the current operational state of the replica movement and any errors encountered.",
           "type": "object",

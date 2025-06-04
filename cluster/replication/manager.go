@@ -300,15 +300,18 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 
 func makeReplicationDetailsResponse(op *ShardReplicationOp, status *ShardReplicationOpStatus) cmd.ReplicationDetailsResponse {
 	return cmd.ReplicationDetailsResponse{
-		Uuid:          op.UUID,
-		Id:            op.ID,
-		ShardId:       op.SourceShard.ShardId,
-		Collection:    op.SourceShard.CollectionId,
-		SourceNodeId:  op.SourceShard.NodeId,
-		TargetNodeId:  op.TargetShard.NodeId,
-		TransferType:  op.TransferType.String(),
-		Status:        status.GetCurrent().ToAPIFormat(),
-		StatusHistory: status.GetHistory().ToAPIFormat(),
+		Uuid:               op.UUID,
+		Id:                 op.ID,
+		ShardId:            op.SourceShard.ShardId,
+		Collection:         op.SourceShard.CollectionId,
+		SourceNodeId:       op.SourceShard.NodeId,
+		TargetNodeId:       op.TargetShard.NodeId,
+		TransferType:       op.TransferType.String(),
+		Uncancelable:       status.UnCancellable,
+		ScheduledForCancel: status.ShouldCancel,
+		ScheduledForDelete: status.ShouldDelete,
+		Status:             status.GetCurrent().ToAPIFormat(),
+		StatusHistory:      status.GetHistory().ToAPIFormat(),
 	}
 }
 
