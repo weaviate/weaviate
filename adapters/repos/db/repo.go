@@ -20,6 +20,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication/types"
+
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/cenkalti/backoff/v4"
@@ -27,7 +31,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -43,7 +46,6 @@ import (
 
 type DB struct {
 	logger            logrus.FieldLogger
-	router            *router.Router
 	schemaGetter      schemaUC.SchemaGetter
 	config            Config
 	indices           map[string]*Index
@@ -57,6 +59,9 @@ type DB struct {
 	startupComplete   atomic.Bool
 	resourceScanState *resourceScanState
 	memMonitor        *memwatch.Monitor
+	nodeSelector      cluster.NodeSelector
+	schemaReader      schemaUC.SchemaReader
+	replicationFSM    types.ReplicationFSMReader
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -117,12 +122,20 @@ func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	db.schemaGetter = sg
 }
 
-func (db *DB) SetRouter(r *router.Router) {
-	db.router = r
-}
-
 func (db *DB) GetScheduler() *queue.Scheduler {
 	return db.scheduler
+}
+
+func (db *DB) GetReplicationFSM() types.ReplicationFSMReader {
+	return db.replicationFSM
+}
+
+func (db *DB) GetNodeSelector() cluster.NodeSelector {
+	return db.nodeSelector
+}
+
+func (db *DB) GetSchemaReader() schemaUC.SchemaReader {
+	return db.schemaReader
 }
 
 func (db *DB) WaitForStartup(ctx context.Context) error {
@@ -143,6 +156,8 @@ func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
+	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader,
+	replicationFSM types.ReplicationFSMReader,
 ) (*DB, error) {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -167,6 +182,9 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor:          memMonitor,
 		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
 		reindexer:           NewShardReindexerV3Noop(),
+		nodeSelector:        nodeSelector,
+		schemaReader:        schemaReader,
+		replicationFSM:      replicationFSM,
 	}
 
 	if db.maxNumberGoroutines == 0 {
