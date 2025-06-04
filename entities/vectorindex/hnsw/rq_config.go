@@ -17,8 +17,8 @@ import (
 
 const (
 	DefaultRQEnabled      = false
-	DefaultDataBits       = 8
-	DefaultQueryBits      = 8
+	DefaultRQDataBits     = 8
+	DefaultRQQueryBits    = 8
 	DefaultRQRescore      = false
 	DefaultRQRescoreLimit = 20
 )

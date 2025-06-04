@@ -111,8 +111,8 @@ func (u *UserConfig) SetDefaults() {
 	}
 	u.RQ = RQConfig{
 		Enabled:      DefaultRQEnabled,
-		DataBits:     DefaultDataBits,
-		QueryBits:    DefaultQueryBits,
+		DataBits:     DefaultRQDataBits,
+		QueryBits:    DefaultRQQueryBits,
 		Rescore:      DefaultRQRescore,
 		RescoreLimit: DefaultRQRescoreLimit,
 	}
