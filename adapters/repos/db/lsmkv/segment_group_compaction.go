@@ -588,6 +588,7 @@ type segmentLevelStats struct {
 	indexes  map[uint16]int
 	payloads map[uint16]int
 	count    map[uint16]int
+	unloaded int
 }
 
 func newSegmentLevelStats() segmentLevelStats {
@@ -595,6 +596,7 @@ func newSegmentLevelStats() segmentLevelStats {
 		indexes:  map[uint16]int{},
 		payloads: map[uint16]int{},
 		count:    map[uint16]int{},
+		unloaded: 0,
 	}
 }
 
@@ -605,6 +607,10 @@ func (sg *SegmentGroup) segmentLevelStats() segmentLevelStats {
 	stats := newSegmentLevelStats()
 
 	for _, seg := range sg.segments {
+		if !seg.isLoaded() {
+			stats.unloaded++
+			continue
+		}
 		sgm := seg.getSegment()
 		stats.count[sgm.level]++
 
@@ -678,6 +684,11 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 			"path":     dir,
 		}).Set(float64(count))
 	}
+
+	metrics.SegmentUnloaded.With(prometheus.Labels{
+		"strategy": strategy,
+		"path":     dir,
+	}).Set(float64(s.unloaded))
 }
 
 func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {

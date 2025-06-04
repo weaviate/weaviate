@@ -71,6 +71,7 @@ type Segment interface {
 	initBloomFilters(metrics *Metrics, overwrite bool) error
 	initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool) error
 	initSecondaryBloomFilter(pos int, overwrite bool) error
+	isLoaded() bool
 	loadBloomFilterFromDisk() error
 	loadBloomFilterSecondaryFromDisk(pos int) error
 	loadCountNetFromDisk() error
@@ -525,6 +526,10 @@ func (s *segment) getInvertedData() *segmentInvertedData {
 
 func (s *segment) getSegment() *segment {
 	return s
+}
+
+func (s *segment) isLoaded() bool {
+	return true
 }
 
 // PayloadSize is only the payload of the index, excluding the index
