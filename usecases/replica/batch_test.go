@@ -25,6 +25,49 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
+// createBatch creates IndexedBatch from xs
+func createBatch(xs []*storobj.Object) replica.IndexedBatch {
+	var bi replica.IndexedBatch
+	bi.Data = xs
+	bi.Index = make([]int, len(xs))
+	for i := 0; i < len(xs); i++ {
+		bi.Index[i] = i
+	}
+	return bi
+}
+
+// cluster data object by shard
+func cluster(bi replica.IndexedBatch) []replica.ShardPart {
+	index := bi.Index
+	data := bi.Data
+	sort.Slice(index, func(i, j int) bool {
+		return data[index[i]].BelongsToShard < data[index[j]].BelongsToShard
+	})
+	clusters := make([]replica.ShardPart, 0, 16)
+	// partition
+	cur := data[index[0]]
+	j := 0
+	for i := 1; i < len(index); i++ {
+		if data[index[i]].BelongsToShard == cur.BelongsToShard {
+			continue
+		}
+		clusters = append(clusters, replica.ShardPart{
+			Shard: cur.BelongsToShard,
+			Node:  cur.BelongsToNode, Data: data,
+			Index: index[j:i],
+		})
+		j = i
+		cur = data[index[j]]
+
+	}
+	clusters = append(clusters, replica.ShardPart{
+		Shard: cur.BelongsToShard,
+		Node:  cur.BelongsToNode, Data: data,
+		Index: index[j:],
+	})
+	return clusters
+}
+
 func TestBatchInput(t *testing.T) {
 	var (
 		N    = 9
@@ -36,7 +79,7 @@ func TestBatchInput(t *testing.T) {
 		ids[i] = uuid
 		data[i] = objectEx(uuid, 1, "S1", "N1")
 	}
-	parts := replica.Cluster(replica.CreateBatch(data))
+	parts := cluster(createBatch(data))
 	assert.Len(t, parts, 1)
 	assert.Equal(t, parts[0], replica.ShardPart{
 		Shard: "S1",
@@ -55,7 +98,7 @@ func TestBatchInput(t *testing.T) {
 	data[5].BelongsToShard = "S2"
 	data[5].BelongsToNode = "N2"
 
-	parts = replica.Cluster(replica.CreateBatch(data))
+	parts = cluster(createBatch(data))
 	sort.Slice(parts, func(i, j int) bool { return len(parts[i].Index) < len(parts[j].Index) })
 	assert.Len(t, parts, 2)
 	assert.ElementsMatch(t, parts[0].ObjectIDs(), []strfmt.UUID{ids[0], ids[2], ids[3], ids[5]})

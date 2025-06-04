@@ -18,16 +18,16 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// indexedBatch holds an indexed list of objects
-type indexedBatch struct {
+// IndexedBatch holds an indexed list of objects
+type IndexedBatch struct {
 	Data []*storobj.Object
 	// Index is z-index used to maintain object's order
 	Index []int
 }
 
-// CreateBatch creates indexedBatch from xs
-func CreateBatch(xs []*storobj.Object) indexedBatch {
-	var bi indexedBatch
+// createBatch creates IndexedBatch from xs
+func createBatch(xs []*storobj.Object) IndexedBatch {
+	var bi IndexedBatch
 	bi.Data = xs
 	bi.Index = make([]int, len(xs))
 	for i := 0; i < len(xs); i++ {
@@ -36,8 +36,8 @@ func CreateBatch(xs []*storobj.Object) indexedBatch {
 	return bi
 }
 
-// Cluster data object by shard
-func Cluster(bi indexedBatch) []ShardPart {
+// cluster data object by shard
+func cluster(bi IndexedBatch) []ShardPart {
 	index := bi.Index
 	data := bi.Data
 	sort.Slice(index, func(i, j int) bool {

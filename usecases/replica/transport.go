@@ -223,13 +223,13 @@ type RClient interface {
 		discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
 
-// finderClient extends RClient with consistency checks
-type finderClient struct {
+// FinderClient extends RClient with consistency checks
+type FinderClient struct {
 	cl RClient
 }
 
 // FullRead reads full object
-func (fc finderClient) FullRead(ctx context.Context,
+func (fc FinderClient) FullRead(ctx context.Context,
 	host, index, shard string,
 	id strfmt.UUID,
 	props search.SelectProperties,
@@ -239,14 +239,14 @@ func (fc finderClient) FullRead(ctx context.Context,
 	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional, numRetries)
 }
 
-func (fc finderClient) HashTreeLevel(ctx context.Context,
+func (fc FinderClient) HashTreeLevel(ctx context.Context,
 	host, index, shard string, level int, discriminant *hashtree.Bitset,
 ) (digests []hashtree.Digest, err error) {
 	return fc.cl.HashTreeLevel(ctx, host, index, shard, level, discriminant)
 }
 
 // DigestReads reads digests of all specified objects
-func (fc finderClient) DigestReads(ctx context.Context,
+func (fc FinderClient) DigestReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID, numRetries int,
 ) ([]types.RepairResponse, error) {
@@ -258,7 +258,7 @@ func (fc finderClient) DigestReads(ctx context.Context,
 	return rs, err
 }
 
-func (fc finderClient) DigestObjectsInRange(ctx context.Context,
+func (fc FinderClient) DigestObjectsInRange(ctx context.Context,
 	host, index, shard string,
 	initialUUID, finalUUID strfmt.UUID, limit int,
 ) ([]types.RepairResponse, error) {
@@ -266,7 +266,7 @@ func (fc finderClient) DigestObjectsInRange(ctx context.Context,
 }
 
 // FullReads read full objects
-func (fc finderClient) FullReads(ctx context.Context,
+func (fc FinderClient) FullReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID,
 ) ([]Replica, error) {
@@ -279,14 +279,14 @@ func (fc finderClient) FullReads(ctx context.Context,
 }
 
 // Overwrite specified object with most recent contents
-func (fc finderClient) Overwrite(ctx context.Context,
+func (fc FinderClient) Overwrite(ctx context.Context,
 	host, index, shard string,
 	xs []*objects.VObject,
 ) ([]types.RepairResponse, error) {
 	return fc.cl.OverwriteObjects(ctx, host, index, shard, xs)
 }
 
-func (fc finderClient) FindUUIDs(ctx context.Context,
+func (fc FinderClient) FindUUIDs(ctx context.Context,
 	host, class, shard string, filters *filters.LocalFilter,
 ) ([]strfmt.UUID, error) {
 	return fc.cl.FindUUIDs(ctx, host, class, shard, filters)

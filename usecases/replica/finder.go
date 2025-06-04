@@ -80,7 +80,7 @@ func NewFinder(className string,
 	coordinatorPullBackoffMaxElapsedTime time.Duration,
 	getDeletionStrategy func() string,
 ) *Finder {
-	cl := finderClient{client}
+	cl := FinderClient{client}
 	return &Finder{
 		router:   router,
 		nodeName: nodeName,
@@ -214,7 +214,7 @@ func (f *Finder) CheckConsistency(ctx context.Context,
 	}
 	// check shard consistency concurrently
 	gr, ctx := enterrors.NewErrorGroupWithContextWrapper(f.logger, ctx)
-	for _, part := range Cluster(CreateBatch(xs)) {
+	for _, part := range cluster(createBatch(xs)) {
 		part := part
 		gr.Go(func() error {
 			_, err := f.checkShardConsistency(ctx, l, part)
@@ -282,17 +282,17 @@ func (f *Finder) checkShardConsistency(ctx context.Context,
 	batch ShardPart,
 ) ([]*storobj.Object, error) {
 	var (
-		c = newReadCoordinator[batchReply](f, batch.Shard,
+		c = newReadCoordinator[BatchReply](f, batch.Shard,
 			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 		shard     = batch.Shard
 		data, ids = batch.Extract() // extract from current content
 	)
-	op := func(ctx context.Context, host string, fullRead bool) (batchReply, error) {
+	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
 		if fullRead { // we already have the content
-			return batchReply{Sender: host, IsDigest: false, FullData: data}, nil
+			return BatchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
 			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
-			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
+			return BatchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}
 
