@@ -44,6 +44,7 @@ type Config struct {
 	HNSWSnapshotOnStartup bool
 	MinMMapSize           int64
 	MaxWalReuseSize       int64
+	LazyLoadSegments      bool
 }
 
 func (c Config) Validate() error {

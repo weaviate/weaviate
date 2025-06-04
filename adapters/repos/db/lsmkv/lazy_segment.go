@@ -12,9 +12,9 @@
 package lsmkv
 
 import (
-	"bufio"
 	"bytes"
 	"fmt"
+	"io"
 	"sync"
 
 	"github.com/weaviate/sroar"
@@ -134,9 +134,9 @@ func (s *lazySegment) bloomFilterSecondaryPath(pos int) string {
 	return s.segment.bloomFilterSecondaryPath(pos)
 }
 
-func (s *lazySegment) bufferedReaderAt(offset uint64) (*bufio.Reader, error) {
+func (s *lazySegment) bufferedReaderAt(offset uint64, operation string) (io.Reader, error) {
 	s.mustLoad()
-	return s.segment.bufferedReaderAt(offset)
+	return s.segment.bufferedReaderAt(offset, operation)
 }
 
 func (s *lazySegment) bytesReaderFrom(in []byte) (*bytes.Reader, error) {
@@ -297,9 +297,9 @@ func (s *lazySegment) newMapCursor() *segmentCursorMap {
 	return s.segment.newMapCursor()
 }
 
-func (s *lazySegment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
+func (s *lazySegment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
 	s.mustLoad()
-	return s.segment.newNodeReader(offset)
+	return s.segment.newNodeReader(offset, operation)
 }
 
 func (s *lazySegment) newRoaringSetCursor() *roaringset.SegmentCursor {

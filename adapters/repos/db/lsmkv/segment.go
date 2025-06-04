@@ -51,7 +51,7 @@ type Segment interface {
 	Size() int
 	bloomFilterPath() string
 	bloomFilterSecondaryPath(pos int) string
-	bufferedReaderAt(offset uint64) (*bufio.Reader, error)
+	bufferedReaderAt(offset uint64, operation string) (io.Reader, error)
 	bytesReaderFrom(in []byte) (*bytes.Reader, error)
 	close() error
 	collectionStratParseData(in []byte) ([]value, error)
@@ -82,7 +82,7 @@ type Segment interface {
 	newCursor() *segmentCursorReplace
 	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
 	newMapCursor() *segmentCursorMap
-	newNodeReader(offset nodeOffset) (*nodeReader, error)
+	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
 	newRoaringSetCursor() *roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
 	newRoaringSetRangeReader() *roaringsetrange.SegmentReader

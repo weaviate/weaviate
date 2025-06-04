@@ -49,7 +49,7 @@ type Migrator interface {
 	UpdateIndex(ctx context.Context, class *models.Class, shardingState *sharding.State) error
 
 	NewTenants(ctx context.Context, class *models.Class, creates []*CreateTenantPayload) error
-	UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error
+	UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload, implicitUpdate bool) error
 	DeleteTenants(ctx context.Context, class string, tenants []*models.Tenant) error
 
 	GetShardsStatus(ctx context.Context, className, tenant string) (map[string]string, error)

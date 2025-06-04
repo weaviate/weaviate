@@ -129,7 +129,7 @@ func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName s
 		return fmt.Errorf("index for collection %s not found", collectionName)
 	}
 
-	return idx.LoadLocalShard(ctx, shardName)
+	return idx.LoadLocalShard(ctx, shardName, false)
 }
 
 func (c *Copier) shardPath(collectionName, shardName string) string {
