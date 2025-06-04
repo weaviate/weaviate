@@ -27,6 +27,8 @@ import (
 type NodeSelector interface {
 	// NodeAddress resolves node id into an ip address without the port.
 	NodeAddress(id string) string
+	// NodeGRPCPort returns the gRPC port for a specific node id.
+	NodeGRPCPort(id string) int
 	// StorageCandidates returns list of storage nodes (names)
 	// sorted by the free amount of disk space in descending orders
 	StorageCandidates() []string
@@ -44,7 +46,8 @@ type NodeSelector interface {
 }
 
 type State struct {
-	config Config
+	config   Config
+	grpcPort int
 	// that lock to serialize access to memberlist
 	listLock             sync.RWMutex
 	list                 *memberlist.Memberlist
@@ -93,13 +96,14 @@ func (ba BasicAuth) Enabled() bool {
 	return ba.Username != "" || ba.Password != ""
 }
 
-func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
+func Init(userConfig Config, grpcPort, raftBootstrapExpect int, dataPath string, nonStorageNodes map[string]struct{}, logger logrus.FieldLogger) (_ *State, err error) {
 	userConfig.RaftBootstrapExpect = raftBootstrapExpect
 	cfg := memberlist.DefaultLANConfig()
 	cfg.LogOutput = newLogParser(logger)
 	cfg.Name = userConfig.Hostname
 	state := State{
 		config:          userConfig,
+		grpcPort:        grpcPort,
 		nonStorageNodes: nonStorageNodes,
 		delegate: delegate{
 			Name:     cfg.Name,
@@ -107,6 +111,7 @@ func Init(userConfig Config, raftBootstrapExpect int, dataPath string, nonStorag
 			log:      logger,
 		},
 	}
+
 	if err := state.delegate.init(diskSpace); err != nil {
 		logger.WithField("action", "init_state.delete_init").WithError(err).
 			Error("delegate init failed")
@@ -347,6 +352,11 @@ func (s *State) NodeAddress(id string) string {
 		}
 	}
 	return ""
+}
+
+func (s *State) NodeGRPCPort(nodeID string) int {
+	// TODO: this is a temporary solution to get the gRPC port for a node.
+	return s.grpcPort
 }
 
 func (s *State) SchemaSyncIgnored() bool {
