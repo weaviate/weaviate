@@ -39,6 +39,7 @@ type ReturnDistancerFn func()
 type CommitLogger interface {
 	AddPQCompression(PQData) error
 	AddSQCompression(SQData) error
+	AddRQCompression(RQData) error
 }
 
 type CompressionStats interface {

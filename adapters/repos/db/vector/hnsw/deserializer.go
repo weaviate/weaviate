@@ -40,6 +40,7 @@ type DeserializationResult struct {
 	EntrypointChanged bool
 	CompressionPQData *compressionhelpers.PQData
 	CompressionSQData *compressionhelpers.SQData
+	CompressionRQData *compressionhelpers.RQData
 	MuveraEnabled     bool
 	EncoderMuvera     *multivector.MuveraData
 	Compressed        bool
@@ -154,6 +155,10 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		case AddSQ:
 			err = d.ReadSQ(fd, out)
 			readThisRound = 10
+		case AddRQ:
+			var totalRead int
+			totalRead, err = d.ReadRQ(fd, out)
+			readThisRound = 14 + totalRead
 		case AddMuvera:
 			var totalRead int
 			totalRead, err = d.ReadMuvera(fd, out)
@@ -627,6 +632,83 @@ func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
 	res.Compressed = true
 
 	return nil
+}
+
+/*
+buf.WriteByte(byte(AddRQ))                                       // 1
+binary.Write(&buf, binary.LittleEndian, data.Dimension)          // 4
+binary.Write(&buf, binary.LittleEndian, data.DataBits)           // 1
+binary.Write(&buf, binary.LittleEndian, data.QueryBits)          // 1
+binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4
+binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4
+*/
+func (d *Deserializer) ReadRQ(r io.Reader, res *DeserializationResult) (int, error) {
+	dimension, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	dataBits, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	queryBits, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	outputDim, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	rounds, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+
+	swapSize := 2 * rounds * (outputDim / 2) * 2
+	signSize := rounds * outputDim
+	totalRead := int(swapSize) + int(signSize)
+
+	swaps := make([][]compressionhelpers.Swap, rounds)
+	for i := uint32(0); i < rounds; i++ {
+		swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+		for j := uint32(0); j < outputDim/2; j++ {
+			swaps[i][j].I, err = readUint16(r)
+			if err != nil {
+				return 0, err
+			}
+			swaps[i][j].J, err = readUint16(r)
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	signs := make([][]int8, rounds)
+	for i := uint32(0); i < rounds; i++ {
+		signs[i] = make([]int8, outputDim)
+		for j := uint32(0); j < outputDim; j++ {
+			sign, err := readByte(r)
+			if err != nil {
+				return 0, err
+			}
+			signs[i][j] = int8(sign)
+		}
+	}
+
+	res.CompressionRQData = &compressionhelpers.RQData{
+		Dimension: dimension,
+		DataBits:  dataBits,
+		QueryBits: queryBits,
+		Rotation: compressionhelpers.FastRotation{
+			OutputDim: outputDim,
+			Rounds:    rounds,
+			Swaps:     swaps,
+			Signs:     signs,
+		},
+	}
+	res.Compressed = true
+
+	return totalRead, nil
 }
 
 func (d *Deserializer) ReadMuvera(r io.Reader, res *DeserializationResult) (int, error) {

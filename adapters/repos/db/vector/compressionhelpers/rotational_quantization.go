@@ -21,20 +21,20 @@ import (
 )
 
 type RotationalQuantizer struct {
-	dimension int
+	dimension uint32
 	rotation  *FastRotation
 	distancer distancer.Provider
-	dataBits  int
-	queryBits int
+	dataBits  uint32
+	queryBits uint32
 }
 
 func NewRotationalQuantizer(dim int, seed uint64, dataBits int, queryBits int, distancer distancer.Provider) *RotationalQuantizer {
 	rotationRounds := 5
 	rq := &RotationalQuantizer{
-		dimension: dim,
+		dimension: uint32(dim),
 		rotation:  NewFastRotation(dim, rotationRounds, seed),
-		dataBits:  dataBits,
-		queryBits: queryBits,
+		dataBits:  uint32(dataBits),
+		queryBits: uint32(queryBits),
 		distancer: distancer,
 	}
 	return rq
@@ -119,7 +119,7 @@ func (rq *RotationalQuantizer) encodeImpl(x []float32, bits int) RQCode {
 
 // Interface function for encoding data points.
 func (rq *RotationalQuantizer) Encode(x []float32) []byte {
-	c := rq.encodeImpl(x, rq.dataBits)
+	c := rq.encodeImpl(x, int(rq.dataBits))
 	return c.Bytes()
 }
 
@@ -147,7 +147,7 @@ type RQDistancer struct {
 func (rq *RotationalQuantizer) NewDistancer(q []float32) *RQDistancer {
 	return &RQDistancer{
 		distancer: rq.distancer,
-		queryCode: rq.encodeImpl(q, rq.queryBits),
+		queryCode: rq.encodeImpl(q, int(rq.queryBits)),
 		rq:        rq,
 		query:     q,
 	}
@@ -214,7 +214,8 @@ func (rq *RotationalQuantizer) NewCompressedQuantizerDistancer(a []byte) quantiz
 }
 
 type RQStats struct {
-	Bits int `json:"bits"`
+	DataBits  uint32 `json:"data_bits"`
+	QueryBits uint32 `json:"query_bits"`
 }
 
 func (rq RQStats) CompressionType() string {
@@ -223,7 +224,8 @@ func (rq RQStats) CompressionType() string {
 
 func (rq *RotationalQuantizer) Stats() CompressionStats {
 	return RQStats{
-		Bits: 8,
+		DataBits:  rq.dataBits,
+		QueryBits: rq.queryBits,
 	}
 }
 
@@ -252,10 +254,21 @@ func (rq *RotationalQuantizer) NewQuantizerDistancer(vec []float32) quantizerDis
 	return rq.NewDistancer(vec)
 }
 
-func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
-	// this is used when we want to persist some compression parameters
-	panic("persist compression not implemented")
+func (rq *RotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[byte]) {
 }
 
-func (rq *RotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDistancer[byte]) {
+type RQData struct {
+	Dimension uint32
+	DataBits  uint32
+	QueryBits uint32
+	Rotation  FastRotation
+}
+
+func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
+	logger.AddRQCompression(RQData{
+		Dimension: rq.dimension,
+		DataBits:  rq.dataBits,
+		QueryBits: rq.queryBits,
+		Rotation:  *rq.rotation,
+	})
 }

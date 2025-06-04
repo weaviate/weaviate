@@ -17,10 +17,10 @@ import (
 )
 
 type FastRotation struct {
-	outputDim int      // The dimension of the output returned by Rotate().
-	rounds    int      // The number of rounds of random signs, swaps, and blocked transforms that the Rotate() function is going to apply.
-	swaps     [][]Swap // Random swaps to apply each round prior to transforming.
-	signs     [][]int8 // Random signs to apply each round prior to transforming.
+	OutputDim uint32   // The dimension of the output returned by Rotate().
+	Rounds    uint32   // The number of rounds of random signs, swaps, and blocked transforms that the Rotate() function is going to apply.
+	Swaps     [][]Swap // Random swaps to apply each round prior to transforming.
+	Signs     [][]int8 // Random signs to apply each round prior to transforming.
 }
 
 func randomSignsInt8(dim int, rng *rand.Rand) []int8 {
@@ -36,7 +36,7 @@ func randomSignsInt8(dim int, rng *rand.Rand) []int8 {
 }
 
 type Swap struct {
-	i, j uint16
+	I, J uint16
 }
 
 // Returns a slice of n/2 random swaps such that every element in a slice of length n gets swapped exactly once.
@@ -45,7 +45,7 @@ func randomSwaps(n int, rng *rand.Rand) []Swap {
 	swaps := make([]Swap, n/2)
 	p := rng.Perm(n)
 	for s := range swaps {
-		swaps[s] = Swap{i: uint16(p[2*s]), j: uint16(p[2*s+1])}
+		swaps[s] = Swap{I: uint16(p[2*s]), J: uint16(p[2*s+1])}
 	}
 	return swaps
 }
@@ -63,30 +63,30 @@ func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
 		signs[i] = randomSignsInt8(outputDim, rng)
 	}
 	return &FastRotation{
-		outputDim: outputDim,
-		rounds:    rounds,
-		swaps:     swaps,
-		signs:     signs,
+		OutputDim: uint32(outputDim),
+		Rounds:    uint32(rounds),
+		Swaps:     swaps,
+		Signs:     signs,
 	}
 }
 
-func (r *FastRotation) OutputDimension() int {
-	return r.outputDim
+func (r *FastRotation) OutputDimension() uint32 {
+	return r.OutputDim
 }
 
 func (r *FastRotation) RotateInPlaceFloat64(x []float64) []float64 {
-	for i := range r.rounds {
+	for i := range r.Rounds {
 		// Apply random swaps and signs.
-		for _, s := range r.swaps[i] {
-			x[s.i], x[s.j] = float64(r.signs[i][s.i])*x[s.j], float64(r.signs[i][s.j])*x[s.i]
+		for _, s := range r.Swaps[i] {
+			x[s.I], x[s.J] = float64(r.Signs[i][s.I])*x[s.J], float64(r.Signs[i][s.J])*x[s.I]
 		}
 		// Greedily apply the largest possible FWHT of length 2^k >= 64 to the
 		// remaining untransformed portion of the vector.
 		pos := 0
-		for pos < r.outputDim {
+		for pos < int(r.OutputDim) {
 			length := 64
 			normalize := 0.125
-			for pos+2*length <= r.outputDim {
+			for pos+2*length <= int(r.OutputDim) {
 				length *= 2
 				normalize *= 1.0 / math.Sqrt2
 			}
@@ -101,18 +101,18 @@ func (r *FastRotation) RotateInPlaceFloat64(x []float64) []float64 {
 }
 
 func (r *FastRotation) RotateFloat64(x []float64) []float64 {
-	xCopy := make([]float64, r.outputDim)
+	xCopy := make([]float64, r.OutputDim)
 	copy(xCopy, x)
 	return r.RotateInPlaceFloat64(xCopy)
 }
 
 func (r *FastRotation) rotateFloat32UsingFloat64(x []float32) []float32 {
-	xFloat64 := make([]float64, r.outputDim)
+	xFloat64 := make([]float64, r.OutputDim)
 	for i := range x {
 		xFloat64[i] = float64(x[i])
 	}
 	r.RotateInPlaceFloat64(xFloat64)
-	res := make([]float32, r.outputDim)
+	res := make([]float32, r.OutputDim)
 	for i := range xFloat64 {
 		res[i] = float32(xFloat64[i])
 	}
