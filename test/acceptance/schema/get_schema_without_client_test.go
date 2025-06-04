@@ -70,6 +70,13 @@ func testGetSchemaWithoutClient(t *testing.T) {
 						"trainingLimit": float64(100000),
 						"rescoreLimit":  float64(20),
 					},
+					"rq": map[string]interface{}{
+						"enabled":      false,
+						"dataBits":     float64(8),
+						"queryBits":    float64(8),
+						"rescore":      false,
+						"rescoreLimit": float64(20),
+					},
 					"filterStrategy": "sweeping",
 					"multivector": map[string]interface{}{
 						"enabled":     false,
