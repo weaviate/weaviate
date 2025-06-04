@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -680,6 +681,19 @@ func FromEnv(config *Config) error {
 		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
 	}
 	config.RevectorizeCheckDisabled = runtime.NewDynamicValue(revoctorizeCheckDisabled)
+
+	querySlowLogEnabled := entcfg.Enabled(os.Getenv("QUERY_SLOW_LOG_ENABLED"))
+	config.QuerySlowLogEnabled = runtime.NewDynamicValue(querySlowLogEnabled)
+
+	querySlowLogThreshold := dbhelpers.DefaultSlowLogThreshold
+	if v := os.Getenv("QUERY_SLOW_LOG_THRESHOLD"); v != "" {
+		threshold, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_SLOW_LOG_THRESHOLD as time.Duration: %w", err)
+		}
+		querySlowLogThreshold = threshold
+	}
+	config.QuerySlowLogThreshold = runtime.NewDynamicValue(querySlowLogThreshold)
 
 	return nil
 }

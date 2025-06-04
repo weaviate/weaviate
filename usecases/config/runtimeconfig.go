@@ -27,12 +27,14 @@ import (
 // WeaviateRuntimeConfig is the collection all the supported configs that is
 // managed dynamically and can be overridden during runtime.
 type WeaviateRuntimeConfig struct {
-	MaximumAllowedCollectionsCount *runtime.DynamicValue[int]    `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
-	AutoschemaEnabled              *runtime.DynamicValue[bool]   `json:"autoschema_enabled" yaml:"autoschema_enabled"`
-	AsyncReplicationDisabled       *runtime.DynamicValue[bool]   `json:"async_replication_disabled" yaml:"async_replication_disabled"`
-	TenantActivityReadLogLevel     *runtime.DynamicValue[string] `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
-	TenantActivityWriteLogLevel    *runtime.DynamicValue[string] `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
-	RevectorizeCheckDisabled       *runtime.DynamicValue[bool]   `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
+	MaximumAllowedCollectionsCount *runtime.DynamicValue[int]           `json:"maximum_allowed_collections_count" yaml:"maximum_allowed_collections_count"`
+	AutoschemaEnabled              *runtime.DynamicValue[bool]          `json:"autoschema_enabled" yaml:"autoschema_enabled"`
+	AsyncReplicationDisabled       *runtime.DynamicValue[bool]          `json:"async_replication_disabled" yaml:"async_replication_disabled"`
+	TenantActivityReadLogLevel     *runtime.DynamicValue[string]        `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
+	TenantActivityWriteLogLevel    *runtime.DynamicValue[string]        `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
+	RevectorizeCheckDisabled       *runtime.DynamicValue[bool]          `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
+	QuerySlowLogEnabled            *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
+	QuerySlowLogThreshold          *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
