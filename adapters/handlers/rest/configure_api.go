@@ -509,7 +509,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
-	replicaCopier := copier.New(remoteIndexClient, appState.Cluster, dataPath, appState.DB, appState.Logger)
+
+	grpcConfig := appState.ServerConfig.Config.GRPC
+	basicAuth := appState.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
+
+	replicaCopier := copier.New(grpcConfig, basicAuth, remoteIndexClient, appState.Cluster, dataPath, appState.DB, appState.Logger)
+
 	rConfig := rCluster.Config{
 		WorkDir:                         filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                          nodeName,

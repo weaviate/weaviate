@@ -62,6 +62,10 @@ func (m memberlist) NodeAddress(name string) string {
 	return ""
 }
 
+func (m memberlist) NodeGRPCPort(name string) int {
+	return 0
+}
+
 func NewMockNodeSelector(node ...string) memberlist {
 	return memberlist{nodes: node}
 }

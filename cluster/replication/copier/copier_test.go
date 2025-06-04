@@ -24,6 +24,8 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/replication/copier/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/file"
 	"github.com/weaviate/weaviate/usecases/integrity"
@@ -163,7 +165,7 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 
 		fakeNodeSelector := fakes.NewFakeClusterState("node1")
 		logger, _ := logrusTest.NewNullLogger()
-		copier := copier.New(mockRemoteIndex, fakeNodeSelector, localTmpDir, nil, logger)
+		copier := copier.New(config.GRPC{}, cluster.BasicAuth{}, mockRemoteIndex, fakeNodeSelector, localTmpDir, nil, logger)
 		err = copier.CopyReplicaFiles(t.Context(), "node1", "collection", "shard", 0)
 		require.NoError(t, err)
 
