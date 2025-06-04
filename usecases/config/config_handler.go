@@ -193,6 +193,22 @@ type Config struct {
 	// majority of inserts are new, unique objects, it might be advisable to turn
 	// this feature off using the provided flag.
 	RevectorizeCheckDisabled *runtime.DynamicValue[bool] `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
+
+	QuerySlowLogEnabled   *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
+	QuerySlowLogThreshold *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
+
+	// InvertedSorterDisabled forces the "objects bucket" strategy and doesn't
+	// not consider inverted sorting, even when the query planner thinks this is
+	// the better option.
+	//
+	// Most users should never set this flag, it exists for two reasons:
+	//  - For benchmarking reasons, this flag can be used to evaluate the
+	//		(positive) impact of the inverted sorter.
+	//  - As a safety net to revert to the old behavior in case there is a bug
+	//		in the inverted indexer despite the very extensive testing.
+	//
+	// This flat may be removed in the future.
+	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 }
 
 type MapToBlockamaxConfig struct {
