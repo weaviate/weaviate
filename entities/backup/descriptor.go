@@ -249,19 +249,18 @@ type ClassDescriptor struct {
 	Error         error              `json:"-"`
 }
 
-
 // BackupDescriptor contains everything needed to completely restore a list of classes
 type BackupDescriptor struct {
-	StartedAt      time.Time                   `json:"startedAt"`
-	CompletedAt    time.Time                   `json:"completedAt"`
-	ID             string                      `json:"id"` // User created backup id
-	Classes        []ClassDescriptor           `json:"classes"`
+	StartedAt      time.Time         `json:"startedAt"`
+	CompletedAt    time.Time         `json:"completedAt"`
+	ID             string            `json:"id"` // User created backup id
+	Classes        []ClassDescriptor `json:"classes"`
 	RbacBackups    map[string][]byte `json:"rbacBackups"`
 	DynUserBackups map[string][]byte `json:"dynUserBackups"`
-	Status         string                      `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED|CANCELED"
-	Version        string                      `json:"version"` //
-	ServerVersion  string                      `json:"serverVersion"`
-	Error          string                      `json:"error"`
+	Status         string            `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED|CANCELED"
+	Version        string            `json:"version"` //
+	ServerVersion  string            `json:"serverVersion"`
+	Error          string            `json:"error"`
 }
 
 // List all existing classes in d

@@ -21,7 +21,6 @@ import (
 	"strings"
 	"sync"
 
-
 	ucbackup "github.com/weaviate/weaviate/usecases/backup"
 
 	"github.com/casbin/casbin/v2"
@@ -483,7 +482,6 @@ func NewBackupWrapper(getbytesFunc func() (map[string][]byte, error), restoreFro
 
 func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string][]byte, error) {
 	return b.getBytes()
-
 }
 
 func (b BackupWrapper) WriteDescriptors(_ context.Context, descriptors map[string][]byte) error {
