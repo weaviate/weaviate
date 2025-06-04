@@ -148,7 +148,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 
 		b.logger.WithField("action", "lsm_recover_from_active_wal_success").
 			WithField("path", filepath.Join(b.dir, fname)).
-			Info("successfully recovered from write-ahead-log")
+			Debug("successfully recovered from write-ahead-log")
 	}
 
 	return nil

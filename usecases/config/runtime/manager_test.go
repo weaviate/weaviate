@@ -25,6 +25,7 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -46,7 +47,7 @@ func parseYaml(buf []byte) (*testConfig, error) {
 	return &c, nil
 }
 
-func updater(source, parsed *testConfig) error {
+func updater(_ logrus.FieldLogger, source, parsed *testConfig) error {
 	source.BackupInterval.SetValue(parsed.BackupInterval.Get())
 	return nil
 }
@@ -169,8 +170,9 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		for i := 0; i < n; i++ {
 			// write different config every time
 			buf := []byte(fmt.Sprintf("backup_interval: %ds", i+1))
-			err := os.WriteFile(tmp.Name(), buf, 0o777)
-			require.NoError(t, err)
+
+			// Writing as two step process to avoid any race between writing and manager reading the file.
+			writeFile(t, tmp.Name(), buf)
 
 			// give enough time to config manager to reload the previously written config
 			// assert: new config_last_load_success=1 and config_hash should be changed as well.
@@ -305,9 +307,9 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		n := 3 // number of times we change the config file after initial reload
 		writeDelay := 100 * time.Millisecond
 		for i := 0; i < n; i++ {
-			// write same content
-			err := os.WriteFile(tmp.Name(), buf, 0o777)
-			require.NoError(t, err)
+			// write same content. Writing as two step process to avoid any race between writing and manager reading the file.
+			writeFile(t, tmp.Name(), buf)
+
 			// give enough time to config manager to reload the previously written config
 			time.Sleep(writeDelay)
 			assert.EventuallyWithT(t, func(c *assert.CollectT) {
@@ -418,4 +420,14 @@ func assertConfig(t *testing.T, cm *ConfigManager[testConfig], registered *testC
 
 	close(getConfigWait)
 	wg.Wait()
+}
+
+func writeFile(t *testing.T, path string, buf []byte) {
+	t.Helper()
+
+	tm := fmt.Sprintf("%s.tmp", path)
+	err := os.WriteFile(tm, buf, 0o777)
+	require.NoError(t, err)
+	err = os.Rename(tm, path)
+	require.NoError(t, err)
 }

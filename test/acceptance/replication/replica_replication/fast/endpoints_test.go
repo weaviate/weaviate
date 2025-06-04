@@ -46,6 +46,7 @@ func (suite *ReplicationTestSuite) SetupSuite() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(mainCtx)
 	require.Nil(t, err)
 	suite.compose = compose
@@ -141,6 +142,9 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		require.NotNil(t, details)
 		require.NotNil(t, details.Payload)
 		require.NotNil(t, details.Payload.ID)
+		require.False(t, details.Payload.ScheduledForCancel)
+		require.False(t, details.Payload.ScheduledForDelete)
+		require.False(t, details.Payload.Uncancelable)
 		require.Equal(t, id, *details.Payload.ID)
 	})
 

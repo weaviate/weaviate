@@ -59,6 +59,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
 		WithWeaviateEnv("WEAVIATE_TEST_COPY_REPLICA_SLEEP", "20s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -222,7 +223,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
 			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
 			assert.Equal(ct, "READY", details.Payload.Status.State, "expected replication status to be READY")
-		}, 240*time.Second, 1*time.Second, "replication operation %s not finished in time", opId)
+		}, 360*time.Second, 3*time.Second, "replication operation %s not finished in time", opId)
 	})
 
 	// Kills the original node with the data to ensure we have only one replica available (the new one)

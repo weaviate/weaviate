@@ -61,7 +61,6 @@ type Service struct {
 	closeBootstrapper       chan struct{}
 	closeOnFSMCaughtUp      chan struct{}
 	closeWaitForDB          chan struct{}
-	snapshotRestoreChan     chan struct{}
 }
 
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
@@ -72,8 +71,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	raftAdvertisedAddress := fmt.Sprintf("%s:%d", cfg.Host, cfg.RaftPort)
 	client := rpc.NewClient(resolver.NewRpc(cfg.IsLocalHost, cfg.RPCPort), cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, cfg.Logger)
 
-	snapshotRestoreChan := make(chan struct{})
-	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer, snapshotRestoreChan)
+	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
 	fsmOpProducer := replication.NewFSMOpProducer(
 		cfg.Logger,
@@ -107,21 +105,24 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{
-		Raft:                raft,
-		replicationEngine:   replicationEngine,
-		raftAddr:            raftAdvertisedAddress,
-		config:              &cfg,
-		rpcClient:           client,
-		rpcServer:           svr,
-		logger:              cfg.Logger,
-		closeBootstrapper:   make(chan struct{}),
-		closeOnFSMCaughtUp:  make(chan struct{}),
-		closeWaitForDB:      make(chan struct{}),
-		snapshotRestoreChan: snapshotRestoreChan,
+		Raft:               raft,
+		replicationEngine:  replicationEngine,
+		raftAddr:           raftAdvertisedAddress,
+		config:             &cfg,
+		rpcClient:          client,
+		rpcServer:          svr,
+		logger:             cfg.Logger,
+		closeBootstrapper:  make(chan struct{}),
+		closeOnFSMCaughtUp: make(chan struct{}),
+		closeWaitForDB:     make(chan struct{}),
 	}
 }
 
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
+	if !c.config.ReplicaMovementEnabled {
+		return
+	}
+
 	ticker := time.NewTicker(catchUpInterval)
 	defer ticker.Stop()
 	for {
@@ -162,31 +163,6 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return err
 	}
 	c.log.WithField("hasState", hasState).Info("raft init")
-
-	// Spawn a background goroutine to respond to snapshot restore events that require the replication engine to
-	// restart. This is required so that potentially stale replication operations are cancelled after a snapshot restore.
-	// The goroutine will be closed when the bootstrapper is closed.
-	enterrors.GoWrapper(func() {
-		for {
-			select {
-			case <-ctx.Done():
-				c.logger.Info("replication engine FSM snapshot restore: raft service closed")
-				return
-			case <-c.closeBootstrapper:
-				c.logger.Info("replication engine FSM snapshot restore: bootstrapper closed")
-				return
-			case <-c.snapshotRestoreChan:
-				// The replication FSM has been restored from a snapshot, we need to stop and restart
-				// the replication engine to ensure that it is in sync with the new state.
-				c.replicationEngine.Stop()
-				engineCtx, engineCancel := context.WithCancel(ctx)
-				c.cancelReplicationEngine = engineCancel
-				if err := c.replicationEngine.Start(engineCtx); err != nil {
-					c.logger.WithError(err).Error("replication engine FSM snapshot restore: failed to start")
-				}
-			}
-		}
-	}, c.logger)
 
 	// If we have a state in raft, we only want to re-join the nodes in raft_join list to ensure that we update the
 	// configuration with our current ip.
@@ -241,11 +217,13 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	c.logger.Info("closing replication engine ...")
-	if c.cancelReplicationEngine != nil {
-		c.cancelReplicationEngine()
+	if c.config.ReplicaMovementEnabled {
+		c.logger.Info("closing replication engine ...")
+		if c.cancelReplicationEngine != nil {
+			c.cancelReplicationEngine()
+		}
+		c.replicationEngine.Stop()
 	}
-	c.replicationEngine.Stop()
 
 	c.logger.Info("closing raft FSM store ...")
 	if err := c.Raft.Close(ctx); err != nil {

@@ -412,8 +412,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			MinimumFactor:            1,
 			AsyncReplicationDisabled: appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
 		},
-		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-
+		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
 		HNSWMaxLogSize:                               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
 		HNSWDisableSnapshots:                         appState.ServerConfig.Config.Persistence.HNSWDisableSnapshots,
 		HNSWSnapshotIntervalSeconds:                  appState.ServerConfig.Config.Persistence.HNSWSnapshotIntervalSeconds,
@@ -424,6 +423,11 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		HNSWFlatSearchConcurrency:                    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
 		HNSWAcornFilterRatio:                         appState.ServerConfig.Config.HNSWAcornFilterRatio,
 		VisitedListPoolMaxSize:                       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
+		TenantActivityReadLogLevel:                   appState.ServerConfig.Config.TenantActivityReadLogLevel,
+		TenantActivityWriteLogLevel:                  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
+		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
+		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
+		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -527,6 +531,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		AuthNConfig:                     appState.ServerConfig.Config.Authentication,
 		ReplicationEngineMaxWorkers:     appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
 		DistributedTasks:                appState.ServerConfig.Config.DistributedTasks,
+		ReplicaMovementEnabled:          appState.ServerConfig.Config.ReplicaMovementEnabled,
 		ReplicaMovementMinimumAsyncWait: appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
@@ -824,7 +829,8 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Metrics,
 		appState.Authorizer,
 		appState.Logger)
-	replicationHandlers.SetupHandlers(api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
+
+	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
 
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
@@ -1059,7 +1065,7 @@ func registerModules(appState *state.State) error {
 		WithField("action", "startup").
 		Debug("start registering modules")
 
-	appState.Modules = modules.NewProvider(appState.Logger)
+	appState.Modules = modules.NewProvider(appState.Logger, appState.ServerConfig.Config)
 
 	// Default modules
 	defaultVectorizers := []string{
@@ -1773,6 +1779,12 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
 		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
 		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
+		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
+		registered.TenantActivityWriteLogLevel = appState.ServerConfig.Config.TenantActivityWriteLogLevel
+		registered.RevectorizeCheckDisabled = appState.ServerConfig.Config.RevectorizeCheckDisabled
+		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
+		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
+		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,

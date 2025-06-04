@@ -1073,6 +1073,18 @@
             "MOVE"
           ]
         },
+        "uncancelable": {
+          "description": "Whether the replica operation is uncancelable.",
+          "type": "boolean"
+        },
+        "scheduledForCancel": {
+          "description": "Whether the replica operation is scheduled for cancellation.",
+          "type": "boolean"
+        },
+        "scheduledForDelete": {
+          "description": "Whether the replica operation is scheduled for deletion.",
+          "type": "boolean"
+        },
         "status": {
           "description": "An object detailing the current operational state of the replica movement and any errors encountered.",
           "type": "object",
@@ -1087,6 +1099,52 @@
         }
       },
       "required": ["id", "shardId", "sourceNodeId", "targetNodeId", "collection", "status", "transferType"]
+    },
+    "ReplicationReplicateForceDeleteRequest": {
+      "description": "Specifies the parameters available when force deleting replication operations.",
+      "properties": {
+        "id": {
+          "description": "The unique identifier (ID) of the replication operation to be forcefully deleted.",
+          "format": "uuid",
+          "type": "string"
+        },
+        "collection": {
+          "description": "The name of the collection to which the shard being replicated belongs.",
+          "type": "string"
+        },
+        "shard": {
+          "description": "The identifier of the shard involved in the replication operations.",
+          "type": "string"
+        },
+        "node": {
+          "description": "The name of the target node where the replication operations are registered.",
+          "type": "string"
+        },
+        "dryRun": {
+          "description": "If true, the operation will not actually delete anything but will return the expected outcome of the deletion.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "type": "object"
+    },
+    "ReplicationReplicateForceDeleteResponse": {
+      "description": "Provides the UUIDs that were successfully force deleted as part of the replication operation. If dryRun is true, this will return the expected outcome without actually deleting anything.",
+      "properties": {
+        "deleted": {
+          "description": "The unique identifiers (IDs) of the replication operations that were forcefully deleted.",
+          "type": "array",
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "dryRun": {
+          "description": "Indicates whether the operation was a dry run (true) or an actual deletion (false).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
     },
     "PeerUpdate": {
       "description": "A single peer in the network.",
@@ -2852,7 +2910,7 @@
     },
     "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).",
     "title": "Weaviate",
-    "version": "1.31.0-rc.1"
+    "version": "1.31.0"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -3090,6 +3148,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -3105,6 +3169,69 @@
         "responses": {
           "204": {
             "description": "Replication operation registered successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/replication/replicate/force-delete": {
+      "post": {
+        "summary": "Force delete replication operations",
+        "description": "USE AT OWN RISK! Synchronously force delete operations from the FSM. This will not perform any checks on which state the operation is in so may lead to data corruption or loss. It is recommended to first scale the number of replication engine workers to 0 before calling this endpoint to ensure no operations are in-flight.",
+        "operationId": "forceDeleteReplications",
+        "x-serviceIds": [
+          "weaviate.replication.forceDeleteReplications"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateForceDeleteRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication operations force deleted successfully.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateForceDeleteResponse"
+            }
           },
           "400": {
             "description": "Malformed request.",
@@ -3183,8 +3310,20 @@
           "404": {
             "description": "Shard replica operation not found."
           },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3233,8 +3372,20 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3320,6 +3471,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -3367,8 +3524,20 @@
               "$ref": "#/definitions/ErrorResponse"
             }
           },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3436,6 +3605,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -3462,6 +3637,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

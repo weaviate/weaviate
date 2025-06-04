@@ -175,6 +175,8 @@ type Config struct {
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
 
+	ReplicaMovementEnabled bool
+
 	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
 	// async replication can complete.
 	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration]
@@ -299,9 +301,9 @@ func newStoreMetrics(nodeID string, reg prometheus.Registerer) *storeMetrics {
 	}
 }
 
-func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer, snapshotRestoreChan chan struct{}) Store {
+func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fsm.Snapshotter, reg prometheus.Registerer) Store {
 	schemaManager := schema.NewSchemaManager(cfg.NodeID, cfg.DB, cfg.Parser, reg, cfg.Logger)
-	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), reg, snapshotRestoreChan)
+	replicationManager := replication.NewManager(schemaManager.NewSchemaReader(), reg)
 	schemaManager.SetReplicationFSM(replicationManager.GetReplicationFSM())
 
 	return Store{
@@ -426,7 +428,7 @@ func (st *Store) init() error {
 	}
 
 	// file snapshot store
-	st.snapshotStore, err = raft.NewFileSnapshotStore(st.cfg.WorkDir, nRetainedSnapShots, os.Stdout)
+	st.snapshotStore, err = raft.NewFileSnapshotStore(st.cfg.WorkDir, nRetainedSnapShots, st.log.Out)
 	if err != nil {
 		return fmt.Errorf("file snapshot store: %w", err)
 	}
@@ -818,8 +820,12 @@ type Response struct {
 
 var _ raft.FSM = &Store{}
 
-func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
-	ls, err := ss.List()
+func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
+	if snapshotStore == nil {
+		return 0
+	}
+
+	ls, err := snapshotStore.List()
 	if err != nil || len(ls) == 0 {
 		return 0
 	}
@@ -877,7 +883,7 @@ func (st *Store) recoverSingleNode(force bool) error {
 	recoveryConfig.DB = nil
 	// we don't use actual registry here, because we don't want to register metrics, it's already registered
 	// in actually FSM and this is FSM is temporary for recovery.
-	tempFSM := NewFSM(recoveryConfig, st.authZController, st.snapshotter, prometheus.NewPedanticRegistry(), nil)
+	tempFSM := NewFSM(recoveryConfig, st.authZController, st.snapshotter, prometheus.NewPedanticRegistry())
 	if err := raft.RecoverCluster(st.raftConfig(),
 		&tempFSM,
 		st.logCache,

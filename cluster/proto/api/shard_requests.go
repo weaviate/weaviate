@@ -115,6 +115,10 @@ type ReplicationDetailsResponse struct {
 	SourceNodeId string
 	TargetNodeId string
 
+	Uncancelable       bool
+	ScheduledForCancel bool
+	ScheduledForDelete bool
+
 	Status        ReplicationDetailsState
 	StatusHistory []ReplicationDetailsState
 	TransferType  string
@@ -186,4 +190,23 @@ type ReplicationAddReplicaToShard struct {
 	OpId                     uint64
 	Class, Shard, TargetNode string
 	SchemaVersion            uint64
+}
+
+type ReplicationForceDeleteAllRequest struct{}
+
+type ReplicationForceDeleteByCollectionRequest struct {
+	Collection string
+}
+
+type ReplicationForceDeleteByCollectionAndShardRequest struct {
+	Collection string
+	Shard      string
+}
+
+type ReplicationForceDeleteByTargetNodeRequest struct {
+	Node string
+}
+
+type ReplicationForceDeleteByUuidRequest struct {
+	Uuid strfmt.UUID
 }

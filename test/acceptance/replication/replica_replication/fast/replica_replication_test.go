@@ -68,6 +68,8 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -211,7 +213,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 			assert.NotNil(t, details.Payload, "expected replication details payload to be not nil")
 			assert.NotNil(t, details.Payload.Status, "expected replication status to be not nil")
 			assert.Equal(ct, "READY", details.Payload.Status.State, "expected replication status to be READY")
-		}, 240*time.Second, 1*time.Second, "replication operation %s not finished in time", uuid)
+		}, 360*time.Second, 3*time.Second, "replication operation %s not finished in time", uuid)
 	})
 
 	// Kills the original node with the data to ensure we have only one replica available (the new one)
@@ -252,6 +254,8 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementTenantHappyPath()
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
