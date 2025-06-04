@@ -25,7 +25,7 @@
       {
         "datasource": {
           "type": "prometheus",
-          "uid": "Prometheus"
+          "uid": "prometheus"
         },
         "description": "",
         "fieldConfig": {
@@ -106,7 +106,7 @@
           {
             "datasource": {
               "type": "prometheus",
-              "uid": "Prometheus"
+              "uid": "prometheus"
             },
             "exemplar": true,
             "expr": "vector_index_tombstones{}",
@@ -123,7 +123,7 @@
       {
         "datasource": {
           "type": "prometheus",
-          "uid": "Prometheus"
+          "uid": "prometheus"
         },
         "fieldConfig": {
           "defaults": {
@@ -170,7 +170,7 @@
           {
             "datasource": {
               "type": "prometheus",
-              "uid": "Prometheus"
+              "uid": "prometheus"
             },
             "exemplar": true,
             "expr": "sum(vector_index_operations{operation=\"create\"})",
@@ -181,7 +181,7 @@
           {
             "datasource": {
               "type": "prometheus",
-              "uid": "Prometheus"
+              "uid": "prometheus"
             },
             "exemplar": true,
             "expr": "sum(vector_index_operations{operation=\"delete\"})",
@@ -193,7 +193,7 @@
           {
             "datasource": {
               "type": "prometheus",
-              "uid": "Prometheus"
+              "uid": "prometheus"
             },
             "exemplar": false,
             "expr": "sum(vector_index_operations{operation=\"create\"}) - ignoring(operation) sum(vector_index_operations{operation=\"delete\"})",
@@ -210,7 +210,7 @@
       {
         "datasource": {
           "type": "prometheus",
-          "uid": "Prometheus"
+          "uid": "prometheus"
         },
         "fieldConfig": {
           "defaults": {
@@ -289,7 +289,7 @@
           {
             "datasource": {
               "type": "prometheus",
-              "uid": "Prometheus"
+              "uid": "prometheus"
             },
             "editorMode": "code",
             "expr": "go_goroutines{job=\"weaviate\"}",
@@ -305,7 +305,7 @@
       {
         "datasource": {
           "type": "prometheus",
-          "uid": "Prometheus"
+          "uid": "prometheus"
         },
         "fieldConfig": {
           "defaults": {
@@ -384,7 +384,7 @@
           {
             "datasource": {
               "type": "prometheus",
-              "uid": "Prometheus"
+              "uid": "prometheus"
             },
             "editorMode": "code",
             "expr": "tombstone_reassign_neighbors",
@@ -400,7 +400,7 @@
       {
         "datasource": {
           "type": "prometheus",
-          "uid": "Prometheus"
+          "uid": "prometheus"
         },
         "fieldConfig": {
           "defaults": {
@@ -479,7 +479,7 @@
           {
             "datasource": {
               "type": "prometheus",
-              "uid": "Prometheus"
+              "uid": "prometheus"
             },
             "editorMode": "code",
             "expr": "tombstone_find_global_entrypoint",
@@ -491,7 +491,7 @@
           {
             "datasource": {
               "type": "prometheus",
-              "uid": "Prometheus"
+              "uid": "prometheus"
             },
             "editorMode": "code",
             "expr": "tombstone_find_global_entrypoint",
@@ -508,7 +508,7 @@
       {
         "datasource": {
           "type": "prometheus",
-          "uid": "Prometheus"
+          "uid": "prometheus"
         },
         "fieldConfig": {
           "defaults": {
@@ -587,7 +587,7 @@
           {
             "datasource": {
               "type": "prometheus",
-              "uid": "Prometheus"
+              "uid": "prometheus"
             },
             "editorMode": "code",
             "expr": "tombstone_delete_list_size",

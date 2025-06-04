@@ -30,7 +30,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "description": "Replace is used primarly for object storage.",
       "fieldConfig": {
@@ -78,7 +78,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (level, unit) (lsm_segment_size{strategy=\"replace\"})",
@@ -93,7 +93,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "description": "SetCollections are used in the inverted index for anything that does not have a frequency, e.g. numbers, bools, etc.",
       "fieldConfig": {
@@ -141,7 +141,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (level, unit) (lsm_segment_size{strategy=\"setcollection\"})",
@@ -156,7 +156,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "description": "MapCollections are used in the inverted index for anything that has a frequency, which is mainly text and string props. Those need a frequency for BM25 calculations.",
       "fieldConfig": {
@@ -204,7 +204,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (level, unit) (lsm_segment_size{strategy=\"mapcollection\"})",
@@ -219,7 +219,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -294,7 +294,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "lsm_memtable_size{}",
@@ -309,7 +309,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -383,7 +383,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "rate(lsm_memtable_durations_ms_sum{}[$__interval])/rate(lsm_memtable_durations_ms_count{}[$__interval])",
@@ -398,7 +398,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "description": "The bloom filters are designed to quickly produce true negatives, but sometimes they have false positive which require an actual disk lookup.",
       "fieldConfig": {
@@ -473,7 +473,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "rate(lsm_bloom_filters_duration_ms_sum{strategy=\"replace\"}[$__interval])/rate(lsm_bloom_filters_duration_ms_count{strategy=\"replace\"}[$__interval])",
@@ -488,7 +488,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "description": "Ratio of false-positive to all requests to the bloom filter, i.e. those that required an unnecessary disk lookup.",
       "fieldConfig": {
@@ -538,7 +538,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "expr": "sum(lsm_bloom_filters_duration_ms_count{operation=\"get_false_positive\"})/(sum(lsm_bloom_filters_duration_ms_count{operation=\"get_true_negative\"})+sum(lsm_bloom_filters_duration_ms_count{operation=\"get_true_positive\"})+sum(lsm_bloom_filters_duration_ms_count{operation=\"get_false_positive\"}))",
           "refId": "A"
@@ -550,7 +550,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -599,7 +599,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(lsm_bloom_filters_duration_ms_count{operation=\"get_true_positive\"})",
@@ -610,7 +610,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(lsm_bloom_filters_duration_ms_count{operation=\"get_true_negative\"})",
@@ -622,7 +622,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(lsm_bloom_filters_duration_ms_count{operation=\"get_false_positive\"})",
@@ -638,7 +638,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "Prometheus"
+        "uid": "prometheus"
       },
       "description": "The grouping is done by strategy which means the reported Object storage value may be slightly too high, due to other buckets using replace strategy.",
       "fieldConfig": {
@@ -687,7 +687,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(lsm_segment_size{strategy=\"replace\"})",
@@ -698,7 +698,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "Prometheus"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(lsm_segment_size{strategy=\"mapcollection\"}) + ignoring(strategy) sum(lsm_segment_size{strategy=\"setcollection\"})",
