@@ -83,7 +83,7 @@ func (r *FastRotation) OutputDimension() uint32 {
 	return r.OutputDim
 }
 
-func (r *FastRotation) RotateInPlaceFloat64(x []float64) []float64 {
+func (r *FastRotation) RotateInPlaceFloat64(x []float64) {
 	for i := range r.Rounds {
 		// Apply random swaps and signs.
 		for _, s := range r.Swaps[i] {
@@ -106,13 +106,13 @@ func (r *FastRotation) RotateInPlaceFloat64(x []float64) []float64 {
 			pos += length
 		}
 	}
-	return x
 }
 
 func (r *FastRotation) RotateFloat64(x []float64) []float64 {
 	xCopy := make([]float64, r.OutputDim)
 	copy(xCopy, x)
-	return r.RotateInPlaceFloat64(xCopy)
+	r.RotateInPlaceFloat64(xCopy)
+	return xCopy
 }
 
 func (r *FastRotation) rotateFloat32UsingFloat64(x []float32) []float32 {

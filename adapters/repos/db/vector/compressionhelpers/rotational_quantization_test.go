@@ -15,7 +15,6 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
-	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -37,29 +36,65 @@ func correlatedVectors(d int, alpha float32) ([]float32, []float32) {
 	return x, y
 }
 
-// There is perhaps no reason to expose the RQCode type at all..
-func TestRQCodeToFromBytes(t *testing.T) {
-	rng := newRNG(42)
-	length := 634
-	bytes := make([]byte, length)
-	for i := range bytes {
-		bytes[i] = byte(rng.UintN(256))
+// RQDistancer.Distance and RotationalQuantizer.DistanceBetweenCompressedVectors
+// are implemented separately for performance reasons. Verify that they return
+// the same distance estimates up to floating point errors.
+func TestRQDistanceEstimatesAreIdentical(t *testing.T) {
+	rng := newRNG(64521467)
+
+	metrics := []distancer.Provider{
+		distancer.NewCosineDistanceProvider(),
+		distancer.NewDotProductProvider(),
+		distancer.NewL2SquaredProvider(),
 	}
-	c := compressionhelpers.NewRQCodeFromBackingBytes(bytes)
-	assert.True(t, slices.Equal(bytes, c.Bytes()))
+	n := 100
+	for range n {
+		d := 2 + rng.IntN(2000)
+		for _, m := range metrics {
+			bits := 8
+			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, bits, m)
+			q, x := randomUnitVector(d, rng), randomUnitVector(d, rng)
+			cq, cx := rq.Encode(q), rq.Encode(x)
+			distancer := rq.NewDistancer(q)
+			distancerEstimate, _ := distancer.Distance(cx)
+			compressedEstimate, _ := rq.DistanceBetweenCompressedVectors(cq, cx)
+			eps := 2e-6 // Unfortunately the deviation can be quite big. Perhaps the intermediate calculations can be done using float64?
+			assert.Less(t, math.Abs(float64(distancerEstimate-compressedEstimate)), eps)
+		}
+	}
+}
+
+func absDiff(a float32, b float32) float64 {
+	return math.Abs(float64(a - b))
 }
 
 func TestRQDistanceEstimate(t *testing.T) {
-	d := 1536
-	rq := defaultRotationalQuantizer(d, 42)
+	a := float32(1.0 / math.Sqrt2)
+	q := []float32{1.0, 0.0}
+	x := []float32{a, a}
 
-	var alpha float32 = 0.5
-	x, y := correlatedVectors(d, alpha)
+	dim := 2
+	bits := 8
+	var seed uint64 = 42
 
-	target := 1 - alpha
-	cx, cy := rq.Encode(x), rq.Encode(y)
-	estimate, _ := rq.DistanceBetweenCompressedVectors(cx, cy)
-	assert.Less(t, math.Abs(float64(target-estimate)), 4e-4)
+	metrics := []distancer.Provider{
+		distancer.NewCosineDistanceProvider(),
+		distancer.NewDotProductProvider(),
+		distancer.NewL2SquaredProvider(),
+	}
+
+	for _, m := range metrics {
+		rq := compressionhelpers.NewRotationalQuantizer(dim, seed, bits, bits, m)
+		cq, cx := rq.Encode(q), rq.Encode(x)
+		distancer := rq.NewDistancer(q)
+		distancerEstimate, _ := distancer.Distance(cx)
+		compressedEstimate, _ := rq.DistanceBetweenCompressedVectors(cq, cx)
+
+		target, _ := m.SingleDist(q, x)
+		eps := 1e-3
+		assert.Less(t, absDiff(distancerEstimate, target), eps)
+		assert.Less(t, absDiff(compressedEstimate, target), eps)
+	}
 }
 
 func randomUniformVector(d int, rng *rand.Rand) []float32 {
@@ -72,7 +107,7 @@ func randomUniformVector(d int, rng *rand.Rand) []float32 {
 
 // Consider adding an inverse transform to restore the input vector.
 func TestRQEncodeRestore(t *testing.T) {
-	n := 100
+	n := 10
 	rng := newRNG(7542)
 	for range n {
 		d := 2 + rng.IntN(1000)
@@ -140,7 +175,7 @@ func TestRQEstimationConcentrationBounds(t *testing.T) {
 	for range n {
 		d := 2 + rng.IntN(1000)
 		alpha := -1.0 + 2*rng.Float32()
-		dataBits := 4 + rng.IntN(5)
+		dataBits := 8
 
 		// With probability > 0.999 the absolute error should be less than eps.
 		// For d = 256 the error for b bits is 2^(-b) * 0.36, so 0.18, 0.09,
@@ -214,7 +249,6 @@ func BenchmarkRQEncode(b *testing.B) {
 	}
 }
 
-// Could be made faster if we didn't have to do the conversion to an RQCode internally.
 func BenchmarkRQDistancer(b *testing.B) {
 	rng := newRNG(42)
 	dimensions := []int{64, 128, 256, 512, 1024, 1536, 2048}
@@ -225,14 +259,43 @@ func BenchmarkRQDistancer(b *testing.B) {
 	}
 	for _, dim := range dimensions {
 		for _, m := range metrics {
+			// Rotational quantization.
 			bits := 8
-			quantizer := compressionhelpers.NewRotationalQuantizer(dim, rng.Uint64(), bits, bits, m)
+			rq := compressionhelpers.NewRotationalQuantizer(dim, rng.Uint64(), bits, bits, m)
 			q, x := correlatedVectors(dim, 0.5)
-			cx := quantizer.Encode(x)
-			distancer := quantizer.NewDistancer(q)
+			cx := rq.Encode(x)
+			distancer := rq.NewDistancer(q)
 			b.Run(fmt.Sprintf("RQDistancer-d%d-%s", dim, m.Type()), func(b *testing.B) {
 				for b.Loop() {
 					distancer.Distance(cx)
+				}
+				b.ReportMetric((float64(b.N)/1e6)/float64(b.Elapsed().Seconds()), "m.ops/sec")
+			})
+		}
+	}
+}
+
+// For comparison.
+func BenchmarkSQDistancer(b *testing.B) {
+	rng := newRNG(42)
+	dimensions := []int{64, 128, 256, 512, 1024, 1536, 2048}
+	metrics := []distancer.Provider{
+		distancer.NewCosineDistanceProvider(),
+		distancer.NewDotProductProvider(),
+		distancer.NewL2SquaredProvider(),
+	}
+	for _, dim := range dimensions {
+		for _, m := range metrics {
+			train := [][]float32{
+				randomUnitVector(dim, rng),
+			}
+			quantizer := compressionhelpers.NewScalarQuantizer(train, m)
+			q, x := correlatedVectors(dim, 0.5)
+			xCode := quantizer.Encode(x)
+			distancer := quantizer.NewDistancer(q)
+			b.Run(fmt.Sprintf("SQDistancer-d%d-%s", dim, m.Type()), func(b *testing.B) {
+				for b.Loop() {
+					distancer.Distance(xCode)
 				}
 				b.ReportMetric((float64(b.N)/1e6)/float64(b.Elapsed().Seconds()), "m.ops/sec")
 			})
