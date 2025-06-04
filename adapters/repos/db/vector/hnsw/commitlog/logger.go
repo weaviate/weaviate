@@ -119,8 +119,8 @@ func (l *Logger) AddRQCompression(data compressionhelpers.RQData) error {
 
 	buf.WriteByte(byte(AddRQ))                                       // 1
 	binary.Write(&buf, binary.LittleEndian, data.Dimension)          // 4
-	binary.Write(&buf, binary.LittleEndian, data.DataBits)           // 1
-	binary.Write(&buf, binary.LittleEndian, data.QueryBits)          // 1
+	binary.Write(&buf, binary.LittleEndian, data.DataBits)           // 4
+	binary.Write(&buf, binary.LittleEndian, data.QueryBits)          // 4
 	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4
 	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4
 
@@ -138,9 +138,6 @@ func (l *Logger) AddRQCompression(data compressionhelpers.RQData) error {
 	}
 
 	_, err := l.bufw.Write(buf.Bytes())
-	if err != nil {
-		os.Exit(13)
-	}
 	return err
 }
 

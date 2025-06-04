@@ -45,6 +45,7 @@ const (
 	SnapshotCompressionTypePQ = iota + 1
 	SnapshotCompressionTypeSQ
 	SnapshotEncoderTypeMuvera
+	SnapshotCompressionTypeRQ
 )
 
 func snapshotName(path string) string {
@@ -789,6 +790,62 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 			return 0, err
 		}
 		offset += writeUint32Size
+
+	} else if state.Compressed && state.CompressionRQData != nil { // RQ
+		// first byte is the compression type
+		if err := writeByte(w, byte(SnapshotCompressionTypeRQ)); err != nil {
+			return 0, err
+		}
+		offset += writeByteSize
+
+		if err := writeUint32(w, state.CompressionRQData.Dimension); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.CompressionRQData.DataBits); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.CompressionRQData.QueryBits); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.CompressionRQData.Rotation.OutputDim); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		if err := writeUint32(w, state.CompressionRQData.Rotation.Rounds); err != nil {
+			return 0, err
+		}
+		offset += writeUint32Size
+
+		for _, swap := range state.CompressionRQData.Rotation.Swaps {
+			for _, dim := range swap {
+				if err := writeUint16(w, dim.I); err != nil {
+					return 0, err
+				}
+				offset += writeUint16Size
+
+				if err := writeUint16(w, dim.J); err != nil {
+					return 0, err
+				}
+				offset += writeUint16Size
+			}
+		}
+
+		for _, sign := range state.CompressionRQData.Rotation.Signs {
+			for _, dim := range sign {
+				if err := writeByte(w, byte(dim)); err != nil {
+					return 0, err
+				}
+				offset += writeByteSize
+			}
+		}
+
 	} else if state.MuveraEnabled && state.EncoderMuvera != nil { // Muvera
 		// first byte is the encoder type
 		if err := writeByte(w, byte(SnapshotEncoderTypeMuvera)); err != nil {
@@ -1003,6 +1060,80 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				Dimensions: dims,
 				A:          a,
 				B:          b,
+			}
+		case SnapshotCompressionTypeRQ:
+			res.Compressed = true
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Dimension
+			if err != nil {
+				return nil, errors.Wrapf(err, "read RQData.Dimension")
+			}
+			dimension := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.DataBits
+			if err != nil {
+				return nil, errors.Wrapf(err, "read RQData.DataBits")
+			}
+			dataBits := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.QueryBits
+			if err != nil {
+				return nil, errors.Wrapf(err, "read RQData.QueryBits")
+			}
+			queryBits := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.OutputDim
+			if err != nil {
+				return nil, errors.Wrapf(err, "read RQData.Rotation.OutputDim")
+			}
+			outputDim := binary.LittleEndian.Uint32(b[:4])
+
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.Rounds
+			if err != nil {
+				return nil, errors.Wrapf(err, "read RQData.Rotation.Rounds")
+			}
+			rounds := binary.LittleEndian.Uint32(b[:4])
+
+			swaps := make([][]compressionhelpers.Swap, rounds)
+			for i := uint32(0); i < rounds; i++ {
+				swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+				for j := uint32(0); j < outputDim/2; j++ {
+					_, err = ReadAndHash(r, hasher, b[:2]) // RQData.Rotation.Swaps[i][j].I
+					if err != nil {
+						return nil, errors.Wrapf(err, "read RQData.Rotation.Swaps[i][j].I")
+					}
+					swaps[i][j].I = binary.LittleEndian.Uint16(b[:2])
+
+					_, err = ReadAndHash(r, hasher, b[:2]) // RQData.Rotation.Swaps[i][j].J
+					if err != nil {
+						return nil, errors.Wrapf(err, "read RQData.Rotation.Swaps[i][j].J")
+					}
+					swaps[i][j].J = binary.LittleEndian.Uint16(b[:2])
+				}
+			}
+
+			signs := make([][]int8, rounds)
+
+			for i := uint32(0); i < rounds; i++ {
+				signs[i] = make([]int8, outputDim)
+				for j := uint32(0); j < outputDim; j++ {
+					_, err = ReadAndHash(r, hasher, b[:1]) // RQData.Rotation.Signs[i][j]
+					if err != nil {
+						return nil, errors.Wrapf(err, "read RQData.Rotation.Signs[i][j]")
+					}
+					signs[i][j] = int8(b[0])
+				}
+			}
+
+			res.CompressionRQData = &compressionhelpers.RQData{
+				Dimension: dimension,
+				DataBits:  dataBits,
+				QueryBits: queryBits,
+				Rotation: compressionhelpers.FastRotation{
+					OutputDim: outputDim,
+					Rounds:    rounds,
+					Swaps:     swaps,
+					Signs:     signs,
+				},
 			}
 		case SnapshotEncoderTypeMuvera:
 			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.Dimensions
