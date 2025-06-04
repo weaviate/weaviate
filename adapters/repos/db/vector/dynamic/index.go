@@ -118,6 +118,7 @@ type dynamic struct {
 	db                    *bbolt.DB
 	ctx                   context.Context
 	cancel                context.CancelFunc
+	LazyLoadSegments      bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -143,6 +144,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		DistanceProvider: cfg.DistanceProvider,
 		MinMMapSize:      cfg.MinMMapSize,
 		MaxWalReuseSize:  cfg.MaxWalReuseSize,
+		LazyLoadSegments: cfg.LazyLoadSegments,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -166,6 +168,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		db:                    cfg.SharedDB,
 		ctx:                   ctx,
 		cancel:                cancel,
+		LazyLoadSegments:      cfg.LazyLoadSegments,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bolt.Tx) error {
@@ -207,6 +210,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				TempVectorForIDThunk:  index.tempVectorForIDThunk,
 				DistanceProvider:      index.distanceProvider,
 				MakeCommitLoggerThunk: index.makeCommitLoggerThunk,
+				LazyLoadSegments:      index.LazyLoadSegments,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
