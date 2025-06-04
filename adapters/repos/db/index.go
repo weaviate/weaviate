@@ -2000,7 +2000,11 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 }
 
 func (i *Index) loadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true, implicitShardLoading)
+	mustLoad := true
+	if implicitShardLoading {
+		mustLoad = false
+	}
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading)
 }
 
 func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
