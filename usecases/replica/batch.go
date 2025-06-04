@@ -16,7 +16,6 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 // indexedBatch holds an indexed list of objects
@@ -86,13 +85,13 @@ func (b *shardPart) ObjectIDs() []strfmt.UUID {
 	return xs
 }
 
-func (b *shardPart) Extract() ([]objects.Replica, []strfmt.UUID) {
-	xs := make([]objects.Replica, len(b.Index))
+func (b *shardPart) Extract() ([]Replica, []strfmt.UUID) {
+	xs := make([]Replica, len(b.Index))
 	ys := make([]strfmt.UUID, len(b.Index))
 
 	for i, idx := range b.Index {
 		p := b.Data[idx]
-		xs[i] = objects.Replica{ID: p.ID(), Deleted: false, Object: p}
+		xs[i] = Replica{ID: p.ID(), Deleted: false, Object: p}
 		ys[i] = p.ID()
 	}
 	return xs, ys

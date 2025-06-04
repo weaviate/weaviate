@@ -155,7 +155,7 @@ func (r *DeleteBatchResponse) FirstError() error {
 	return nil
 }
 
-func fromReplicas(xs []objects.Replica) []*storobj.Object {
+func fromReplicas(xs []Replica) []*storobj.Object {
 	rs := make([]*storobj.Object, len(xs))
 	for i := range xs {
 		rs[i] = xs[i].Object
@@ -196,11 +196,11 @@ type rClient interface {
 	// FetchObject fetches one object
 	FetchObject(_ context.Context, host, index, shard string,
 		id strfmt.UUID, props search.SelectProperties,
-		additional additional.Properties, numRetries int) (objects.Replica, error)
+		additional additional.Properties, numRetries int) (Replica, error)
 
 	// FetchObjects fetches objects specified in ids list.
 	FetchObjects(_ context.Context, host, index, shard string,
-		ids []strfmt.UUID) ([]objects.Replica, error)
+		ids []strfmt.UUID) ([]Replica, error)
 
 	// OverwriteObjects conditionally updates existing objects.
 	OverwriteObjects(_ context.Context, host, index, shard string,
@@ -235,7 +235,7 @@ func (fc finderClient) FullRead(ctx context.Context,
 	props search.SelectProperties,
 	additional additional.Properties,
 	numRetries int,
-) (objects.Replica, error) {
+) (Replica, error) {
 	return fc.cl.FetchObject(ctx, host, index, shard, id, props, additional, numRetries)
 }
 
@@ -269,7 +269,7 @@ func (fc finderClient) DigestObjectsInRange(ctx context.Context,
 func (fc finderClient) FullReads(ctx context.Context,
 	host, index, shard string,
 	ids []strfmt.UUID,
-) ([]objects.Replica, error) {
+) ([]Replica, error) {
 	n := len(ids)
 	rs, err := fc.cl.FetchObjects(ctx, host, index, shard, ids)
 	if m := len(rs); err == nil && n != m {
