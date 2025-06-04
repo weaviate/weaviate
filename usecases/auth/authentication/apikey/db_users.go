@@ -514,7 +514,7 @@ func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string][]byte, err
 	if err != nil {
 		return nil, err
 	}
-	return map[string][]byte{"dynamicUsers":  bts}, nil
+	return map[string][]byte{"dynamicUsers": bts}, nil
 }
 
 func (b BackupWrapper) WriteDescriptors(_ context.Context, descriptors map[string][]byte) error {
