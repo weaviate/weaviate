@@ -112,7 +112,6 @@ func (l *Logger) AddSQCompression(data compressionhelpers.SQData) error {
 }
 
 func (l *Logger) AddRQCompression(data compressionhelpers.RQData) error {
-
 	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
 	signSize := data.Rotation.Rounds * data.Rotation.OutputDim
 	var buf bytes.Buffer
