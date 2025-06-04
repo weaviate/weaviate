@@ -18,6 +18,8 @@ import (
 	"path"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router"
+
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -79,6 +81,18 @@ func (db *DB) init(ctx context.Context) error {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
+			shardingState := db.schemaGetter.CopyShardingState(class.Class)
+			indexRouter, err := router.NewBuilder(
+				schema.ClassName(class.Class).String(),
+				shardingState.PartitioningEnabled,
+				db.nodeSelector,
+				db.schemaGetter,
+				db.schemaReader,
+				db.replicationFSM,
+			).Build()
+			if err != nil {
+				return fmt.Errorf("error while building index router: %w", err)
+			}
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                                    schema.ClassName(class.Class),
 				RootPath:                                     db.config.RootPath,
@@ -117,14 +131,11 @@ func (db *DB) init(ctx context.Context) error {
 				HNSWFlatSearchConcurrency:                    db.config.HNSWFlatSearchConcurrency,
 				HNSWAcornFilterRatio:                         db.config.HNSWAcornFilterRatio,
 				VisitedListPoolMaxSize:                       db.config.VisitedListPoolMaxSize,
-				QuerySlowLogEnabled:                          db.config.QuerySlowLogEnabled,
-				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
-				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
-			}, db.schemaGetter.CopyShardingState(class.Class),
+			}, shardingState,
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
-				db.router, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
+				indexRouter, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
 				db.memMonitor, db.reindexer)
 			if err != nil {

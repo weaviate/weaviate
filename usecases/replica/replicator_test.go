@@ -740,7 +740,7 @@ func (f *fakeFactory) AddShard(shard string, nodes []string) {
 	f.Shard2replicas[shard] = nodes
 }
 
-func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
+func (f *fakeFactory) newRouter(thisNode string) clusterRouter.Router {
 	nodes := make([]string, 0, len(f.Nodes))
 	for _, n := range f.Nodes {
 		if n == thisNode {
@@ -785,7 +785,10 @@ func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
 	replicationFsmMock.On("FilterOneShardReplicasWrite", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
 		return shardReplicasLocation, []string{}
 	}).Maybe()
-	router := clusterRouter.New(f.log, clusterState, schemaReaderMock, replicationFsmMock)
+	router, err := clusterRouter.NewBuilder("TestClass", false, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
+	if err != nil {
+		return nil
+	}
 	return router
 }
 

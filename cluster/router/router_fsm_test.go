@@ -12,10 +12,17 @@
 package router_test
 
 import (
+	"math/rand"
+	"strconv"
 	"testing"
 
+	"github.com/weaviate/weaviate/entities/models"
+
+	"github.com/weaviate/weaviate/usecases/schema"
+	"github.com/weaviate/weaviate/usecases/sharding"
+	"github.com/weaviate/weaviate/usecases/sharding/config"
+
 	"github.com/prometheus/client_golang/prometheus"
-	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/proto/api"
@@ -29,6 +36,7 @@ import (
 func TestReadRoutingWithFSM(t *testing.T) {
 	testCases := []struct {
 		name                 string
+		partitioningEnabled  bool
 		allShardNodes        []string
 		opStatus             api.ShardReplicationState
 		preRoutingPlanAction func(fsm *replication.ShardReplicationFSM)
@@ -36,45 +44,52 @@ func TestReadRoutingWithFSM(t *testing.T) {
 		expectedErrorStr     string
 	}{
 		{
-			name:             "registered",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.REGISTERED,
-			expectedReplicas: []string{"node1"},
+			name:                "registered",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.REGISTERED,
+			expectedReplicas:    []string{"node1"},
 		},
 		{
-			name:             "hydrating",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.HYDRATING,
-			expectedReplicas: []string{"node1"},
+			name:                "hydrating",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.HYDRATING,
+			expectedReplicas:    []string{"node1"},
 		},
 		{
-			name:             "finalizing",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.FINALIZING,
-			expectedReplicas: []string{"node1"},
+			name:                "finalizing",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.FINALIZING,
+			expectedReplicas:    []string{"node1"},
 		},
 		{
-			name:             "ready",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.READY,
-			expectedReplicas: []string{"node1", "node2"},
+			name:                "ready",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.READY,
+			expectedReplicas:    []string{"node1", "node2"},
 		},
 		{
-			name:             "dehydrating",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.DEHYDRATING,
-			expectedReplicas: []string{"node2"},
+			name:                "dehydrating",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.DEHYDRATING,
+			expectedReplicas:    []string{"node2"},
 		},
 		{
-			name:             "cancelled",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.CANCELLED,
-			expectedReplicas: []string{"node1"},
+			name:                "cancelled",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.CANCELLED,
+			expectedReplicas:    []string{"node1"},
 		},
 		{
-			name:          "ready deleted",
-			allShardNodes: []string{"node1", "node2"},
-			opStatus:      api.READY,
+			name:                "ready deleted",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.READY,
 			preRoutingPlanAction: func(fsm *replication.ShardReplicationFSM) {
 				fsm.CancelReplication(&api.ReplicationCancelRequest{
 					Version: api.ReplicationCommandVersionV0,
@@ -84,23 +99,55 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			expectedReplicas: []string{"node1", "node2"},
 		},
 		{
-			name:             "registered extra node",
-			allShardNodes:    []string{"node1", "node2", "node3"},
-			opStatus:         api.REGISTERED,
-			expectedReplicas: []string{"node1", "node3"},
+			name:                "registered extra node",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2", "node3"},
+			opStatus:            api.REGISTERED,
+			expectedReplicas:    []string{"node1", "node3"},
 		},
 	}
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
+		t.Run(testCase.name+"_partitioning_enabled_"+strconv.FormatBool(testCase.partitioningEnabled), func(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
 			schemaReaderMock := schemaTypes.NewMockSchemaReader(t)
+			schemaGetterMock := schema.NewMockSchemaGetter(t)
+			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(
+				map[string]string{
+					"shard1": models.TenantActivityStatusHOT,
+				}, nil).Maybe()
+			schemaGetterMock.EXPECT().CopyShardingState("collection1").Return(&sharding.State{
+				IndexID: "index-001",
+				Config: config.Config{
+					VirtualPerPhysical:  0,
+					DesiredCount:        1,
+					ActualCount:         1,
+					DesiredVirtualCount: 0,
+					ActualVirtualCount:  0,
+					Key:                 "",
+					Strategy:            "",
+					Function:            "",
+				},
+				Physical: map[string]sharding.Physical{
+					"shard1": {
+						Name:                                 "shard1",
+						OwnsVirtual:                          []string{},
+						OwnsPercentage:                       100,
+						LegacyBelongsToNodeForBackwardCompat: "",
+						BelongsToNodes:                       testCase.expectedReplicas,
+						Status:                               testCase.opStatus.String(),
+					},
+				},
+				Virtual:             []sharding.Virtual{},
+				PartitioningEnabled: false,
+				ReplicationFactor:   1,
+			}).Maybe()
 			schemaReaderMock.On("ShardReplicas", mock.Anything, mock.Anything).Return(func(class string, shard string) ([]string, error) {
 				return testCase.allShardNodes, nil
 			})
-			myRouter := router.New(logger, clusterState, schemaReaderMock, shardReplicationFSM)
+			myRouter, err := router.NewBuilder("collection1", testCase.partitioningEnabled, clusterState, schemaGetterMock, schemaReaderMock, shardReplicationFSM).Build()
+			require.NoError(t, err)
 
 			// Setup the FSM with the right state
 			shardReplicationFSM.Replicate(1, &api.ReplicationReplicateShardRequest{
@@ -111,7 +158,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				TargetNode:       "node2",
 				Uuid:             "00000000-0000-0000-0000-000000000000",
 			})
-			err := shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+			err = shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
 				Version: api.ReplicationCommandVersionV0,
 				Id:      1,
 				State:   testCase.opStatus,
@@ -140,6 +187,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 func TestWriteRoutingWithFSM(t *testing.T) {
 	testCases := []struct {
 		name                 string
+		partitioningEnabled  bool
 		allShardNodes        []string
 		opStatus             api.ShardReplicationState
 		preRoutingPlanAction func(fsm *replication.ShardReplicationFSM)
@@ -147,45 +195,52 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 		expectedErrorStr     string
 	}{
 		{
-			name:             "registered",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.REGISTERED,
-			expectedReplicas: []string{"node1"},
+			name:                "registered",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.REGISTERED,
+			expectedReplicas:    []string{"node1"},
 		},
 		{
-			name:             "hydrating",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.HYDRATING,
-			expectedReplicas: []string{"node1"},
+			name:                "hydrating",
+			partitioningEnabled: true,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.HYDRATING,
+			expectedReplicas:    []string{"node1"},
 		},
 		{
-			name:             "finalizing",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.FINALIZING,
-			expectedReplicas: []string{"node1"},
+			name:                "finalizing",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.FINALIZING,
+			expectedReplicas:    []string{"node1"},
 		},
 		{
-			name:             "ready",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.READY,
-			expectedReplicas: []string{"node1", "node2"},
+			name:                "ready",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.READY,
+			expectedReplicas:    []string{"node1", "node2"},
 		},
 		{
-			name:             "dehydrating",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.DEHYDRATING,
-			expectedReplicas: []string{"node2"},
+			name:                "dehydrating",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.DEHYDRATING,
+			expectedReplicas:    []string{"node2"},
 		},
 		{
-			name:             "cancelled",
-			allShardNodes:    []string{"node1", "node2"},
-			opStatus:         api.CANCELLED,
-			expectedReplicas: []string{"node1"},
+			name:                "cancelled",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.CANCELLED,
+			expectedReplicas:    []string{"node1"},
 		},
 		{
-			name:          "ready deleted",
-			allShardNodes: []string{"node1", "node2"},
-			opStatus:      api.READY,
+			name:                "ready deleted",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2"},
+			opStatus:            api.READY,
 			preRoutingPlanAction: func(fsm *replication.ShardReplicationFSM) {
 				fsm.CancelReplication(&api.ReplicationCancelRequest{
 					Version: api.ReplicationCommandVersionV0,
@@ -195,23 +250,46 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			expectedReplicas: []string{"node1", "node2"},
 		},
 		{
-			name:             "registered extra node",
-			allShardNodes:    []string{"node1", "node2", "node3"},
-			opStatus:         api.REGISTERED,
-			expectedReplicas: []string{"node1", "node3"},
+			name:                "registered extra node",
+			partitioningEnabled: rand.Uint64()%2 == 0,
+			allShardNodes:       []string{"node1", "node2", "node3"},
+			opStatus:            api.REGISTERED,
+			expectedReplicas:    []string{"node1", "node3"},
 		},
 	}
 	for _, testCase := range testCases {
-		t.Run(testCase.name, func(t *testing.T) {
-			logger, _ := test.NewNullLogger()
+		t.Run(testCase.name+"_partitioning_enabled_"+strconv.FormatBool(testCase.partitioningEnabled), func(t *testing.T) {
 			reg := prometheus.NewRegistry()
 			shardReplicationFSM := replication.NewShardReplicationFSM(reg)
 			clusterState := clusterMocks.NewMockNodeSelector(testCase.allShardNodes...)
 			schemaReaderMock := schemaTypes.NewMockSchemaReader(t)
+			schemaGetterMock := schema.NewMockSchemaGetter(t)
+			schemaGetterMock.EXPECT().OptimisticTenantStatus(mock.Anything, "collection1", "shard1").Return(
+				map[string]string{
+					"shard1": models.TenantActivityStatusHOT,
+				}, nil).Maybe()
+			schemaGetterMock.EXPECT().CopyShardingState("collection1").Return(&sharding.State{
+				IndexID: "index-001",
+				Config:  config.Config{},
+				Physical: map[string]sharding.Physical{
+					"shard1": {
+						Name:                                 "shard1",
+						OwnsVirtual:                          []string{},
+						OwnsPercentage:                       100,
+						LegacyBelongsToNodeForBackwardCompat: "",
+						BelongsToNodes:                       testCase.allShardNodes,
+						Status:                               testCase.opStatus.String(),
+					},
+				},
+				Virtual:             []sharding.Virtual{},
+				PartitioningEnabled: false,
+				ReplicationFactor:   1,
+			}).Maybe()
 			schemaReaderMock.On("ShardReplicas", mock.Anything, mock.Anything).Return(func(class string, shard string) ([]string, error) {
 				return testCase.allShardNodes, nil
 			})
-			myRouter := router.New(logger, clusterState, schemaReaderMock, shardReplicationFSM)
+			myRouter, err := router.NewBuilder("collection1", testCase.partitioningEnabled, clusterState, schemaGetterMock, schemaReaderMock, shardReplicationFSM).Build()
+			require.NoError(t, err)
 
 			// Setup the FSM with the right state
 			shardReplicationFSM.Replicate(1, &api.ReplicationReplicateShardRequest{
@@ -222,7 +300,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				TargetNode:       "node2",
 				Uuid:             "00000000-0000-0000-0000-000000000000",
 			})
-			err := shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+			err = shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
 				Version: api.ReplicationCommandVersionV0,
 				Id:      1,
 				State:   testCase.opStatus,
