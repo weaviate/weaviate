@@ -495,7 +495,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
-	replicaCopier := copier.New(remoteIndexClient, appState.Cluster, dataPath, appState.DB, appState.Logger)
+
+	grpcConfig := appState.ServerConfig.Config.GRPC
+	basicAuth := appState.ServerConfig.Config.Cluster.AuthConfig.BasicAuth
+
+	replicaCopier := copier.New(grpcConfig, basicAuth, remoteIndexClient, appState.Cluster, dataPath, appState.DB, appState.Logger)
+
 	rConfig := rCluster.Config{
 		WorkDir:                         filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                          nodeName,
@@ -1027,7 +1032,10 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	if cfg := serverConfig.Config.Raft; cfg.MetadataOnlyVoters {
 		nonStorageNodes = parseVotersNames(cfg)
 	}
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.BootstrapExpect, dataPath, nonStorageNodes, logger)
+
+	grpcPort := serverConfig.Config.GRPC.Port
+
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, grpcPort, serverConfig.Config.Raft.BootstrapExpect, dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")

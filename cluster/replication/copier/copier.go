@@ -12,16 +12,18 @@
 package copier
 
 import (
+	"bufio"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -31,7 +33,14 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/integrity"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/metadata"
+
+	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
@@ -40,6 +49,10 @@ const concurrency = 10
 
 // Copier for shard replicas, can copy a shard replica from one node to another.
 type Copier struct {
+	// grpcConfig is used to create a gRPC client connection to the remote node
+	grpcConfig config.GRPC
+	// basicAuth is used to authenticate the remote node, in this case, we use a static username and password
+	basicAuth cluster.BasicAuth
 	// nodeSelector converts node IDs to hostnames
 	nodeSelector cluster.NodeSelector
 	// remoteIndex allows you to "call" methods on other nodes, in this case, we'll be "calling"
@@ -56,8 +69,12 @@ type Copier struct {
 }
 
 // New creates a new shard replica Copier.
-func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string, dbWrapper types.DbWrapper, logger logrus.FieldLogger) *Copier {
+func New(grpcConfig config.GRPC, basicAuth cluster.BasicAuth, t types.RemoteIndex, nodeSelector cluster.NodeSelector,
+	rootPath string, dbWrapper types.DbWrapper, logger logrus.FieldLogger,
+) *Copier {
 	return &Copier{
+		grpcConfig:   grpcConfig,
+		basicAuth:    basicAuth,
 		remoteIndex:  t,
 		nodeSelector: nodeSelector,
 		rootDataPath: rootPath,
@@ -68,21 +85,69 @@ func New(t types.RemoteIndex, nodeSelector cluster.NodeSelector, rootPath string
 
 // CopyReplicaFiles copies a shard replica from the source node to this node.
 func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
-	sourceNodeHostname, ok := c.nodeSelector.NodeHostname(srcNodeId)
-	if !ok {
-		return fmt.Errorf("source node address not found in cluster membership for node %s", srcNodeId)
+	var creds credentials.TransportCredentials
+
+	useTLS := len(c.grpcConfig.CertFile) > 0
+
+	if useTLS {
+		creds = credentials.NewClientTLSFromCert(nil, "")
+	} else {
+		creds = insecure.NewCredentials() // use insecure credentials for testing
 	}
 
-	err := c.remoteIndex.PauseFileActivity(ctx, sourceNodeHostname, collectionName, shardName, schemaVersion)
+	sourceNodeAddress := c.nodeSelector.NodeAddress(srcNodeId)
+	sourceNodeGRPCPort := c.nodeSelector.NodeGRPCPort(srcNodeId)
+
+	clientConn, err := grpc.NewClient(
+		fmt.Sprintf("%s:%d", sourceNodeAddress, sourceNodeGRPCPort),
+		grpc.WithTransportCredentials(creds),
+	)
+	if err != nil {
+		return fmt.Errorf("failed to create gRPC client connection: %w", err)
+	}
+	defer clientConn.Close()
+
+	client := pbv1.NewFileReplicationServiceClient(clientConn)
+
+	if c.basicAuth.Enabled() {
+		auth := base64.StdEncoding.EncodeToString([]byte(c.basicAuth.Username + ":" + c.basicAuth.Password))
+		md := metadata.New(map[string]string{
+			"authorization": "Basic " + auth,
+		})
+
+		ctx = metadata.NewOutgoingContext(ctx, md)
+	}
+
+	_, err = client.PauseFileActivity(ctx, &pbv1.PauseFileActivityRequest{
+		IndexName:     collectionName,
+		ShardName:     shardName,
+		SchemaVersion: schemaVersion,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to pause file activity: %w", err)
 	}
-	defer c.remoteIndex.ResumeFileActivity(ctx, sourceNodeHostname, collectionName, shardName)
+	defer client.ResumeFileActivity(ctx, &pbv1.ResumeFileActivityRequest{
+		IndexName: collectionName,
+		ShardName: shardName,
+	})
 
-	relativeFilePaths, err := c.remoteIndex.ListFiles(ctx, sourceNodeHostname, collectionName, shardName)
+	fileListResp, err := client.ListFiles(ctx, &pbv1.ListFilesRequest{
+		IndexName: collectionName,
+		ShardName: shardName,
+	})
 	if err != nil {
 		return fmt.Errorf("failed to list files: %w", err)
 	}
+
+	fileNameChan := make(chan string, 1000)
+
+	enterrors.GoWrapper(func() {
+		defer close(fileNameChan)
+
+		for _, name := range fileListResp.FileNames {
+			fileNameChan <- name
+		}
+	}, c.logger)
 
 	// TODO remove this once we have a passing test that constantly inserts in parallel
 	// during shard replica movement
@@ -96,40 +161,53 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		time.Sleep(sleepTime)
 	}
 
-	err = c.prepareLocalFolder(collectionName, shardName, relativeFilePaths)
+	err = c.prepareLocalFolder(collectionName, shardName, fileListResp.FileNames)
 	if err != nil {
 		return fmt.Errorf("failed to prepare local folder: %w", err)
 	}
 
-	eg, gctx := enterrors.NewErrorGroupWithContextWrapper(c.logger, ctx)
-	eg.SetLimit(concurrency)
-	for _, relativeFilePath := range relativeFilePaths {
-		relativeFilePath := relativeFilePath
-		eg.Go(func() error {
-			return c.syncFile(gctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
-		})
+	metadataChan := make(chan *pbv1.FileMetadata, 1000)
+	var metaWG sync.WaitGroup
+
+	for range concurrency {
+		metaWG.Add(1)
+
+		enterrors.GoWrapper(func() {
+			err := c.metadataWorker(ctx, client, collectionName, shardName, fileNameChan, metadataChan, &metaWG)
+			if err != nil {
+				c.logger.WithError(err).Error("failed to get files metadata")
+				return
+			}
+		}, c.logger)
 	}
 
-	err = eg.Wait()
-	if err != nil {
-		return fmt.Errorf("failed to sync files: %w", err)
+	var dlWG sync.WaitGroup
+
+	for range concurrency {
+		dlWG.Add(1)
+
+		enterrors.GoWrapper(func() {
+			err := c.downloadWorker(ctx, client, metadataChan, &dlWG)
+			if err != nil {
+				c.logger.WithError(err).Error("failed to download files")
+				return
+			}
+		}, c.logger)
 	}
 
-	err = c.validateLocalFolder(collectionName, shardName, relativeFilePaths)
+	// wait for all metadata workers to finish
+	metaWG.Wait()
+	close(metadataChan)
+
+	// wait for all download workers to finish
+	dlWG.Wait()
+
+	err = c.validateLocalFolder(collectionName, shardName, fileListResp.FileNames)
 	if err != nil {
 		return fmt.Errorf("failed to validate local folder: %w", err)
 	}
 
 	return nil
-}
-
-func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName string) error {
-	idx := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
-	if idx == nil {
-		return fmt.Errorf("index for collection %s not found", collectionName)
-	}
-
-	return idx.LoadLocalShard(ctx, shardName)
 }
 
 func (c *Copier) shardPath(collectionName, shardName string) string {
@@ -180,6 +258,7 @@ func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames 
 
 	// sort dirs by depth, so that we delete the deepest directories first
 	sortPathsByDepthDescending(dirs)
+
 	for _, dir := range dirs {
 		isEmpty, err := diskio.IsDirEmpty(dir)
 		if err != nil {
@@ -196,6 +275,154 @@ func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames 
 	}
 
 	return nil
+}
+
+func (c *Copier) metadataWorker(ctx context.Context, client pbv1.FileReplicationServiceClient,
+	collectionName, shardName string, fileNameChan <-chan string, metadataChan chan<- *pbv1.FileMetadata,
+	wg *sync.WaitGroup,
+) error {
+	defer wg.Done()
+
+	stream, err := client.GetFileMetadata(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create GetFileMetadata stream: %w", err)
+	}
+	defer func() {
+		err := stream.CloseSend()
+
+		// drain stream
+		for err == nil {
+			_, err = stream.Recv()
+		}
+	}()
+
+	for fileName := range fileNameChan {
+		err := stream.Send(&pbv1.GetFileMetadataRequest{
+			IndexName: collectionName,
+			ShardName: shardName,
+			FileName:  fileName,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to send GetFileMetadata request for %q: %w", fileName, err)
+		}
+
+		meta, err := stream.Recv()
+		if err != nil {
+			return fmt.Errorf("failed to receive file metadata for %q: %w", meta.FileName, err)
+		}
+
+		metadataChan <- meta
+	}
+
+	return nil
+}
+
+func (c *Copier) downloadWorker(ctx context.Context, client pbv1.FileReplicationServiceClient,
+	metadataChan <-chan *pbv1.FileMetadata, wg *sync.WaitGroup,
+) error {
+	defer wg.Done()
+
+	stream, err := client.GetFile(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to create GetFile stream: %w", err)
+	}
+	defer func() {
+		err := stream.CloseSend()
+
+		// drain stream
+		for err == nil {
+			_, err = stream.Recv()
+		}
+	}()
+
+	for meta := range metadataChan {
+		localFilePath := filepath.Join(c.rootDataPath, meta.FileName)
+
+		_, checksum, err := integrity.CRC32(localFilePath)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+		} else if checksum == meta.Crc32 {
+			// local file matches remote one, no need to download it
+			return nil
+		}
+
+		err = stream.Send(&pbv1.GetFileRequest{
+			IndexName: meta.IndexName,
+			ShardName: meta.ShardName,
+			FileName:  meta.FileName,
+		})
+		if err != nil {
+			return fmt.Errorf("failed to send GetFile request for %s: %w", meta.FileName, err)
+		}
+
+		dir := path.Dir(localFilePath)
+		if err := os.MkdirAll(dir, os.ModePerm); err != nil {
+			return fmt.Errorf("create parent folder for %s: %w", localFilePath, err)
+		}
+
+		f, err := os.Create(localFilePath + ".tmp")
+		if err != nil {
+			return fmt.Errorf("open file %q for writing: %w", localFilePath, err)
+		}
+		defer f.Close()
+
+		wbuf := bufio.NewWriter(f)
+
+		for {
+			chunk, err := stream.Recv()
+			if err != nil {
+				return fmt.Errorf("failed to receive file chunk for %s: %w", meta.FileName, err)
+			}
+
+			if len(chunk.Content) > 0 {
+				_, err = wbuf.Write(chunk.Content)
+				if err != nil {
+					return fmt.Errorf("writing chunk to file %q: %w", localFilePath+".tmp", err)
+				}
+			}
+
+			if chunk.Eof {
+				break
+			}
+		}
+
+		err = wbuf.Flush()
+		if err != nil {
+			return fmt.Errorf("flushing buffer to file %q: %w", localFilePath+".tmp", err)
+		}
+
+		err = f.Sync()
+		if err != nil {
+			return fmt.Errorf("fsyncing file %q for writing: %w", localFilePath+".tmp", err)
+		}
+
+		_, checksum, err = integrity.CRC32(localFilePath + ".tmp")
+		if err != nil {
+			return fmt.Errorf("calculating checksum for file %q: %w", localFilePath+".tmp", err)
+		}
+		if checksum != meta.Crc32 {
+			defer os.Remove(localFilePath + ".tmp")
+			return fmt.Errorf("checksum validation of file %q failed, expected %d, got %d", localFilePath+".tmp", meta.Crc32, checksum)
+		}
+
+		err = os.Rename(localFilePath+".tmp", localFilePath)
+		if err != nil {
+			return fmt.Errorf("renaming temporary file %q to final path %q: %w", localFilePath+".tmp", localFilePath, err)
+		}
+	}
+
+	return nil
+}
+
+func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName string) error {
+	idx := c.dbWrapper.GetIndex(schema.ClassName(collectionName))
+	if idx == nil {
+		return fmt.Errorf("index for collection %s not found", collectionName)
+	}
+
+	return idx.LoadLocalShard(ctx, shardName)
 }
 
 func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames []string) error {
@@ -268,68 +495,6 @@ func sortPathsByDepthDescending(paths []string) {
 
 func depth(path string) int {
 	return strings.Count(filepath.Clean(path), string(filepath.Separator))
-}
-
-func (c *Copier) syncFile(ctx context.Context, sourceNodeHostname, collectionName, shardName, relativeFilePath string) error {
-	md, err := c.remoteIndex.GetFileMetadata(ctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
-	if err != nil {
-		return err
-	}
-
-	finalLocalPath := filepath.Join(c.rootDataPath, relativeFilePath)
-
-	_, checksum, err := integrity.CRC32(finalLocalPath)
-	if err != nil {
-		if !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
-	} else if checksum == md.CRC32 {
-		// local file matches remote one, no need to download it
-		return nil
-	}
-
-	reader, err := c.remoteIndex.GetFile(ctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
-	if err != nil {
-		return err
-	}
-	defer reader.Close()
-
-	dir := path.Dir(finalLocalPath)
-	if err := os.MkdirAll(dir, os.ModePerm); err != nil {
-		return fmt.Errorf("create parent folder for %s: %w", relativeFilePath, err)
-	}
-
-	f, err := os.Create(finalLocalPath + ".tmp")
-	if err != nil {
-		return fmt.Errorf("open file %q for writing: %w", relativeFilePath, err)
-	}
-	defer f.Close()
-
-	_, err = io.Copy(f, reader)
-	if err != nil {
-		return err
-	}
-
-	err = f.Sync()
-	if err != nil {
-		return fmt.Errorf("fsyncing file %q for writing: %w", relativeFilePath, err)
-	}
-
-	_, checksum, err = integrity.CRC32(finalLocalPath + ".tmp")
-	if err != nil {
-		return err
-	}
-
-	if checksum != md.CRC32 {
-		return fmt.Errorf("checksum validation of file %q failed", relativeFilePath)
-	}
-
-	err = os.Rename(finalLocalPath+".tmp", finalLocalPath)
-	if err != nil {
-		return fmt.Errorf("rename file %q to final location: %w", relativeFilePath, err)
-	}
-
-	return nil
 }
 
 // AddAsyncReplicationTargetNode adds a target node override for a shard.
