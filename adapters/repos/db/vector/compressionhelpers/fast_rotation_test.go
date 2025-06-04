@@ -52,6 +52,15 @@ func randomNormalVector(d int, rng *rand.Rand) []float32 {
 	return z
 }
 
+func randomUnitVector(d int, rng *rand.Rand) []float32 {
+	x := randomNormalVector(d, rng)
+	normalize := float32(1.0 / norm(x))
+	for i := range x {
+		x[i] *= normalize
+	}
+	return x
+}
+
 func newRNG(seed uint64) *rand.Rand {
 	return rand.New(rand.NewPCG(seed, 0x385ab5285169b1ac))
 }
