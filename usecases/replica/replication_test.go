@@ -9,11 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package objects
+package replica
 
 import (
 	"testing"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/objects"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -68,7 +70,7 @@ func Test_VObject_MarshalBinary(t *testing.T) {
 			}
 
 			t.Run("when object is present", func(t *testing.T) {
-				expected := VObject{
+				expected := objects.VObject{
 					LatestObject:    &obj,
 					StaleUpdateTime: now.UnixMilli(),
 					Version:         1,
@@ -77,7 +79,7 @@ func Test_VObject_MarshalBinary(t *testing.T) {
 				b, err := expected.MarshalBinary()
 				require.Nil(t, err)
 
-				var received VObject
+				var received objects.VObject
 				err = received.UnmarshalBinary(b)
 				require.Nil(t, err)
 
@@ -85,7 +87,7 @@ func Test_VObject_MarshalBinary(t *testing.T) {
 			})
 
 			t.Run("when object is present", func(t *testing.T) {
-				expected := VObject{
+				expected := objects.VObject{
 					LatestObject:    &obj,
 					StaleUpdateTime: now.UnixMilli(),
 					Version:         1,
@@ -94,7 +96,7 @@ func Test_VObject_MarshalBinary(t *testing.T) {
 				b, err := expected.MarshalBinary()
 				require.Nil(t, err)
 
-				var received VObject
+				var received objects.VObject
 				err = received.UnmarshalBinary(b)
 				require.Nil(t, err)
 
@@ -102,7 +104,7 @@ func Test_VObject_MarshalBinary(t *testing.T) {
 			})
 
 			t.Run("when object is nil", func(t *testing.T) {
-				expected := VObject{
+				expected := objects.VObject{
 					LatestObject:    nil,
 					StaleUpdateTime: now.UnixMilli(),
 					Version:         1,
@@ -111,7 +113,7 @@ func Test_VObject_MarshalBinary(t *testing.T) {
 				b, err := expected.MarshalBinary()
 				require.Nil(t, err)
 
-				var received VObject
+				var received objects.VObject
 				err = received.UnmarshalBinary(b)
 				require.Nil(t, err)
 

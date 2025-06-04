@@ -33,16 +33,16 @@ type fakeRClient struct {
 func (f *fakeRClient) FetchObject(ctx context.Context, host, index, shard string,
 	id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties, numRetries int,
-) (objects.Replica, error) {
+) (Replica, error) {
 	args := f.Called(ctx, host, index, shard, id, props, additional)
-	return args.Get(0).(objects.Replica), args.Error(1)
+	return args.Get(0).(Replica), args.Error(1)
 }
 
 func (f *fakeRClient) FetchObjects(ctx context.Context, host, index,
 	shard string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
+) ([]Replica, error) {
 	args := f.Called(ctx, host, index, shard, ids)
-	return args.Get(0).([]objects.Replica), args.Error(1)
+	return args.Get(0).([]Replica), args.Error(1)
 }
 
 func (f *fakeRClient) OverwriteObjects(ctx context.Context, host, index, shard string,

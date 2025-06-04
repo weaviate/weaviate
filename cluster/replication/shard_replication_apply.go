@@ -141,16 +141,26 @@ func (s *ShardReplicationFSM) StoreSchemaVersion(c *api.ReplicationStoreSchemaVe
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()
 
-	op, ok := s.opsById[c.Id]
+	status, ok := s.statusById[c.Id]
 	if !ok {
-		return fmt.Errorf("could not find op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
-	}
-	status, ok := s.statusById[op.ID]
-	if !ok {
-		return fmt.Errorf("could not find op status for op %d", c.Id)
+		return fmt.Errorf("could not find op status for op %d: %w", c.Id, types.ErrReplicationOperationNotFound)
 	}
 	status.SchemaVersion = c.SchemaVersion
-	s.statusById[op.ID] = status
+	s.statusById[c.Id] = status
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) SetUnCancellable(id uint64) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	status, ok := s.statusById[id]
+	if !ok {
+		return fmt.Errorf("could not find op status for op %d: %w", id, types.ErrReplicationOperationNotFound)
+	}
+	status.UnCancellable = true
+	s.statusById[id] = status
 
 	return nil
 }
@@ -182,6 +192,12 @@ func (s *ShardReplicationFSM) CancelReplication(c *api.ReplicationCancelRequest)
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", id)
 	}
+
+	// Only allow to cancel ops if they are cancellable (before being added to sharding state)
+	if status.UnCancellable {
+		return types.ErrCancellationImpossible
+	}
+
 	status.TriggerCancellation()
 	s.statusById[op.ID] = status
 
@@ -204,6 +220,12 @@ func (s *ShardReplicationFSM) DeleteReplication(c *api.ReplicationDeleteRequest)
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", id)
 	}
+
+	// Only allow to delete ops if they are cancellable (before being added to sharding state) and not READY
+	if status.UnCancellable && status.GetCurrentState() != api.READY {
+		return types.ErrDeletionImpossible
+	}
+
 	status.TriggerDeletion()
 	s.statusById[op.ID] = status
 
@@ -215,6 +237,9 @@ func (s *ShardReplicationFSM) DeleteAllReplications(c *api.ReplicationDeleteAllR
 	defer s.opsLock.Unlock()
 
 	for id, status := range s.statusById {
+		if status.UnCancellable && status.GetCurrentState() != api.READY {
+			continue
+		}
 		status.TriggerDeletion()
 		s.statusById[id] = status
 	}
@@ -258,7 +283,7 @@ func (s *ShardReplicationFSM) DeleteReplicationsByCollection(collection string) 
 	for _, op := range ops {
 		status, ok := s.statusById[op.ID]
 		if !ok {
-			return fmt.Errorf("could not find op status for op %d", op.ID)
+			return fmt.Errorf("could not find op status for op %d: %w", op.ID, types.ErrReplicationOperationNotFound)
 		}
 		status.TriggerDeletion()
 		s.statusById[op.ID] = status
@@ -286,10 +311,102 @@ func (s *ShardReplicationFSM) DeleteReplicationsByTenants(collection string, ten
 	for _, op := range ops {
 		status, ok := s.statusById[op.ID]
 		if !ok {
-			return fmt.Errorf("could not find op status for op %d", op.ID)
+			return fmt.Errorf("could not find op status for op %d: %w", op.ID, types.ErrReplicationOperationNotFound)
 		}
 		status.TriggerDeletion()
 		s.statusById[op.ID] = status
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteAll() error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	for id := range s.opsById {
+		err := s.removeReplicationOp(id)
+		if err != nil {
+			return fmt.Errorf("could not remove op %d: %w", id, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByCollection(collection string) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	ops, ok := s.opsByCollection[collection]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	for _, op := range ops {
+		err := s.removeReplicationOp(op.ID)
+		if err != nil {
+			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByCollectionAndShard(collection, shard string) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	collectionOps, ok := s.opsByCollectionAndShard[collection]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	shardOps, ok := collectionOps[shard]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	for _, op := range shardOps {
+		err := s.removeReplicationOp(op.ID)
+		if err != nil {
+			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByTargetNode(node string) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	ops, ok := s.opsByTarget[node]
+	if !ok {
+		return nil // nothing to do
+	}
+
+	for _, op := range ops {
+		err := s.removeReplicationOp(op.ID)
+		if err != nil {
+			return fmt.Errorf("could not remove op %d: %w", op.ID, err)
+		}
+	}
+
+	return nil
+}
+
+func (s *ShardReplicationFSM) ForceDeleteByUuid(uuid strfmt.UUID) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	id, ok := s.idsByUuid[uuid]
+	if !ok {
+		return fmt.Errorf("could not find op with uuid %s: %w", uuid, types.ErrReplicationOperationNotFound)
+	}
+
+	if err := s.removeReplicationOp(id); err != nil {
+		return fmt.Errorf("could not remove op %d: %w", id, err)
 	}
 
 	return nil

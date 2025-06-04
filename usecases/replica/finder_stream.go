@@ -23,7 +23,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/storobj"
-	"github.com/weaviate/weaviate/usecases/objects"
 )
 
 // pullSteam is used by the finder to pull objects from replicas
@@ -42,7 +41,7 @@ type (
 		err    error
 	}
 
-	objTuple  tuple[objects.Replica]
+	objTuple  tuple[Replica]
 	objResult = _Result[*storobj.Object]
 )
 
@@ -310,7 +309,7 @@ type batchReply struct {
 	// IsDigest is this reply from a digest read?
 	IsDigest bool
 	// FullData returned from a full read request
-	FullData []objects.Replica
+	FullData []Replica
 	// DigestData returned from a digest read request
 	DigestData []types.RepairResponse
 }
