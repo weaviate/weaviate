@@ -18,9 +18,10 @@ import (
 
 // NodeDescriptor contains data related to one participant in DBRO
 type NodeDescriptor struct {
-	Classes []string `json:"classes"`
-	Status  Status   `json:"status"`
-	Error   string   `json:"error"`
+	Classes   []string `json:"classes"`
+	Status    Status   `json:"status"`
+	Error     string   `json:"error"`
+	SizeBytes int64    `json:"sizeBytes"` // Size of this node's backup in bytes
 }
 
 // DistributedBAckupDescriptor contains everything need to completely restore a distributed backup
@@ -35,6 +36,7 @@ type DistributedBackupDescriptor struct {
 	ServerVersion string                     `json:"serverVersion"`
 	Leader        string                     `json:"leader"`
 	Error         string                     `json:"error"`
+	SizeBytes     int64                      `json:"sizeBytes"` // Size of the backup in bytes
 }
 
 // Len returns how many nodes exist in d
@@ -247,6 +249,7 @@ type ClassDescriptor struct {
 	Schema        []byte             `json:"schema"`
 	Chunks        map[int32][]string `json:"chunks,omitempty"`
 	Error         error              `json:"-"`
+	SizeBytes     int64              `json:"sizeBytes"` // Size of this class backup in bytes
 }
 
 // BackupDescriptor contains everything needed to completely restore a list of classes
@@ -259,6 +262,7 @@ type BackupDescriptor struct {
 	Version       string            `json:"version"` //
 	ServerVersion string            `json:"serverVersion"`
 	Error         string            `json:"error"`
+	SizeBytes     int64             `json:"sizeBytes"` // Size of the backup in bytes
 }
 
 // List all existing classes in d

@@ -62,12 +62,12 @@ func NewScheduler(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver),
+			logger, nodeResolver, backends),
 		restorer: newCoordinator(
 			sourcer,
 			client,
 			schema,
-			logger, nodeResolver),
+			logger, nodeResolver, backends),
 	}
 	return m
 }

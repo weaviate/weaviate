@@ -214,6 +214,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
+	var totalSize int64 // Track total bytes written
 	defer func() {
 		//  make sure context is not cancelled when uploading metadata
 		ctx := context.Background()
@@ -246,9 +247,12 @@ Loop:
 				return cdesc.Error
 			}
 			u.log.WithField("class", cdesc.Name).Info("start uploading files")
-			if err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath); err != nil {
+			size, err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath)
+			if err != nil {
 				return err
 			}
+			totalSize += size
+			cdesc.SizeBytes = size // Set size for this class
 			desc.Classes = append(desc.Classes, cdesc)
 			u.log.WithField("class", cdesc.Name).Info("finish uploading files")
 
@@ -264,6 +268,9 @@ Loop:
 	}
 	u.setStatus(backup.Transferred)
 	desc.Status = string(backup.Success)
+
+	// After all classes, set desc.SizeBytes as the sum of all class sizes
+	desc.SizeBytes = totalSize
 	return nil
 }
 
@@ -282,7 +289,8 @@ func (u *uploader) releaseIndexes(classes []string, ID string) {
 }
 
 // class uploads one class
-func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (err error) {
+// Returns the number of bytes written for this class
+func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (int64, error) {
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
@@ -313,7 +321,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 
 	nShards := len(desc.Shards)
 	if nShards == 0 {
-		return nil
+		return 0, nil
 	}
 
 	desc.Chunks = make(map[int32][]string, 1+nShards/2)
@@ -321,6 +329,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		hasJobs   atomic.Bool
 		lastChunk = int32(0)
 		nWorker   = u.GoPoolSize
+		totalSize int64
 	)
 	if nWorker > nShards {
 		nWorker = nShards
@@ -350,10 +359,18 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 	}
 
 	// processor
-	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan chuckShards {
+	processor := func(nWorker int, sender <-chan *backup.ShardDescriptor) <-chan struct {
+		chunk  int32
+		shards []string
+		size   int64
+	} {
 		eg, ctx := enterrors.NewErrorGroupWithContextWrapper(u.log, ctx)
 		eg.SetLimit(nWorker)
-		recvCh := make(chan chuckShards, nWorker)
+		recvCh := make(chan struct {
+			chunk  int32
+			shards []string
+			size   int64
+		}, nWorker)
 		f := func() {
 			defer close(recvCh)
 			for i := 0; i < nWorker; i++ {
@@ -367,12 +384,16 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 							return err
 						}
 						chunk := atomic.AddInt32(&lastChunk, 1)
-						shards, err := u.compress(ctx, desc.Name, chunk, sender, overrideBucket, overridePath)
+						shards, size, err := u.compress(ctx, desc.Name, chunk, sender, overrideBucket, overridePath)
 						if err != nil {
 							return err
 						}
 						if m := int32(len(shards)); m > 0 {
-							recvCh <- chuckShards{chunk, shards}
+							recvCh <- struct {
+								chunk  int32
+								shards []string
+								size   int64
+							}{chunk, shards, size}
 						}
 					}
 					return err
@@ -386,8 +407,9 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 
 	for x := range processor(nWorker, jobs(desc.Shards)) {
 		desc.Chunks[x.chunk] = x.shards
+		totalSize += x.size
 	}
-	return
+	return totalSize, nil
 }
 
 type chuckShards struct {
@@ -400,7 +422,7 @@ func (u *uploader) compress(ctx context.Context,
 	chunk int32, // chunk index
 	ch <-chan *backup.ShardDescriptor, // chan of shards
 	overrideBucket, overridePath string, // bucket name and path
-) ([]string, error) {
+) ([]string, int64, error) {
 	var (
 		chunkKey = chunkKey(class, chunk)
 		shards   = make([]string, 0, 10)
@@ -431,19 +453,22 @@ func (u *uploader) compress(ctx context.Context,
 	}
 
 	// consumer
+	var writtenSize int64
 	eg := enterrors.NewErrorGroupWrapper(u.log)
 	eg.Go(func() error {
-		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader); err != nil {
+		size, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader)
+		if err != nil {
 			return err
 		}
+		writtenSize = size
 		return nil
 	})
 
 	if err := producer(); err != nil {
-		return shards, err
+		return shards, 0, err
 	}
 	// wait for the consumer to finish
-	return shards, eg.Wait()
+	return shards, writtenSize, eg.Wait()
 }
 
 // fileWriter downloads files from object store and writes files to the destination folder destDir

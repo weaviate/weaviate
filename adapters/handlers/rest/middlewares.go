@@ -24,9 +24,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/usage"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -71,7 +73,8 @@ var clusterv1Regexp = regexp.MustCompile("/v1/cluster/*")
 // If the request doesn't match, it will continue to the next handler.
 func addClusterHandlerMiddleware(next http.Handler, appState *state.State) http.Handler {
 	// Instantiate the router outside the returned lambda to avoid re-allocating everytime a new request comes in
-	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler)
+	usage := usage.NewUsage(usage.NewManager(appState.DB, appState.SchemaManager, appState.Modules)) // clusterapi.NewBasicAuthHandler(appState.ServerConfig.Config.Cluster.AuthConfig)
+	raftRouter := raft.ClusterRouter(appState.SchemaManager.Handler, usage.Usage())
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
 		case r.URL.Path == "/v1/cluster/statistics":

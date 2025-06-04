@@ -20,11 +20,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"go.etcd.io/bbolt"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -34,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -77,6 +76,7 @@ type ShardLike interface {
 	Counter() *indexcounter.Counter
 	ObjectCount() int
 	ObjectCountAsync() int
+	ObjectStorageBytes() int64
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
@@ -412,6 +412,17 @@ func (s *Shard) ObjectCountAsync() int {
 	}
 
 	return b.CountAsync()
+}
+
+// ObjectCount returns the exact count at any moment
+func (s *Shard) ObjectStorageBytes() int64 {
+	b := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if b == nil {
+		return 0
+	}
+
+	// TODO: implement this storage bytes
+	return 0
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
