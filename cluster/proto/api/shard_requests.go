@@ -115,6 +115,10 @@ type ReplicationDetailsResponse struct {
 	SourceNodeId string
 	TargetNodeId string
 
+	Uncancelable       bool
+	ScheduledForCancel bool
+	ScheduledForDelete bool
+
 	Status        ReplicationDetailsState
 	StatusHistory []ReplicationDetailsState
 	TransferType  string

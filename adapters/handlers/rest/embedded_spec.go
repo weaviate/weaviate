@@ -7390,6 +7390,14 @@ func init() {
           "type": "string",
           "format": "uuid"
         },
+        "scheduledForCancel": {
+          "description": "Whether the replica operation is scheduled for cancellation.",
+          "type": "boolean"
+        },
+        "scheduledForDelete": {
+          "description": "Whether the replica operation is scheduled for deletion.",
+          "type": "boolean"
+        },
         "shardId": {
           "description": "The identifier of the shard involved in this replication operation.",
           "type": "string"
@@ -7421,6 +7429,10 @@ func init() {
             "COPY",
             "MOVE"
           ]
+        },
+        "uncancelable": {
+          "description": "Whether the replica operation is uncancelable.",
+          "type": "boolean"
         }
       }
     },
@@ -16044,6 +16056,14 @@ func init() {
           "type": "string",
           "format": "uuid"
         },
+        "scheduledForCancel": {
+          "description": "Whether the replica operation is scheduled for cancellation.",
+          "type": "boolean"
+        },
+        "scheduledForDelete": {
+          "description": "Whether the replica operation is scheduled for deletion.",
+          "type": "boolean"
+        },
         "shardId": {
           "description": "The identifier of the shard involved in this replication operation.",
           "type": "string"
@@ -16075,6 +16095,10 @@ func init() {
             "COPY",
             "MOVE"
           ]
+        },
+        "uncancelable": {
+          "description": "Whether the replica operation is uncancelable.",
+          "type": "boolean"
         }
       }
     },
