@@ -70,6 +70,15 @@ func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
 	}
 }
 
+func RestoreFastRotation(outputDim int, rounds int, swaps [][]Swap, signs [][]int8) *FastRotation {
+	return &FastRotation{
+		OutputDim: uint32(outputDim),
+		Rounds:    uint32(rounds),
+		Swaps:     swaps,
+		Signs:     signs,
+	}
+}
+
 func (r *FastRotation) OutputDimension() uint32 {
 	return r.OutputDim
 }

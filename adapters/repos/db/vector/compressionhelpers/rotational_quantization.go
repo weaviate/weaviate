@@ -28,16 +28,28 @@ type RotationalQuantizer struct {
 	queryBits uint32
 }
 
+var DefaultRotationRounds = 5
+
 func NewRotationalQuantizer(dim int, seed uint64, dataBits int, queryBits int, distancer distancer.Provider) *RotationalQuantizer {
-	rotationRounds := 5
 	rq := &RotationalQuantizer{
 		dimension: uint32(dim),
-		rotation:  NewFastRotation(dim, rotationRounds, seed),
+		rotation:  NewFastRotation(dim, DefaultRotationRounds, seed),
 		dataBits:  uint32(dataBits),
 		queryBits: uint32(queryBits),
 		distancer: distancer,
 	}
 	return rq
+}
+
+func RestoreRotationalQuantizer(dim int, seed uint64, dataBits int, queryBits int, outputDim int, rounds int, swaps [][]Swap, signs [][]int8, distancer distancer.Provider) (*RotationalQuantizer, error) {
+	rq := &RotationalQuantizer{
+		dimension: uint32(dim),
+		rotation:  RestoreFastRotation(outputDim, rounds, swaps, signs),
+		dataBits:  uint32(dataBits),
+		queryBits: uint32(queryBits),
+		distancer: distancer,
+	}
+	return rq, nil
 }
 
 // Represents a scalar encoded d-dimensional vector of the form x[i] = lower + step*code[i]

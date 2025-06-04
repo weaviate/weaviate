@@ -374,6 +374,9 @@ func (c *MemoryCondensor) AddRQCompression(data compressionhelpers.RQData) error
 	}
 
 	_, err := c.newLog.Write(buf.Bytes())
+	if err != nil {
+		os.Exit(12)
+	}
 	return err
 }
 

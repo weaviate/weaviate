@@ -638,14 +638,15 @@ func NewRQCompressor(
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
-	bits int,
+	dataBits int,
+	queryBits int,
 	dim int,
 ) (VectorCompressor, error) {
 	seed := uint64(0x535ab5105169b1df)
 
-	quantizer := NewRotationalQuantizer(dim, seed, bits, bits, distance)
+	quantizer := NewRotationalQuantizer(dim, seed, dataBits, queryBits, distance)
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
-	switch bits {
+	switch dataBits {
 	case 8:
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
 			quantizer:       quantizer,
@@ -664,34 +665,47 @@ func NewRQCompressor(
 	return rqVectorsCompressor, nil
 }
 
-/*func RestoreRQCompressor(
+func RestoreRQCompressor(
 	distance distancer.Provider,
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
-	a, b float32,
-	dimensions uint16,
+	dimensions int,
+	dataBits int,
+	queryBits int,
+	outputDim int,
+	rounds int,
+	swaps [][]Swap,
+	signs [][]int8,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
-	quantizer, err := RestoreScalarQuantizer(a, b, dimensions, distance)
+	seed := uint64(0x535ab5105169b1df)
+
+	quantizer, err := RestoreRotationalQuantizer(dimensions, seed, dataBits, queryBits, outputDim, rounds, swaps, signs, distance)
 	if err != nil {
 		return nil, err
 	}
-	sqVectorsCompressor := &quantizedVectorsCompressor[byte]{
-		quantizer:       quantizer,
-		compressedStore: store,
-		storeId:         binary.BigEndian.PutUint64,
-		loadId:          binary.BigEndian.Uint64,
-		logger:          logger,
+	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
+	switch dataBits {
+	case 8:
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:       quantizer,
+			compressedStore: store,
+			storeId:         binary.BigEndian.PutUint64,
+			loadId:          binary.BigEndian.Uint64,
+			logger:          logger,
+		}
+	default:
+		panic("invalid bits value")
 	}
-	sqVectorsCompressor.initCompressedStore()
-	sqVectorsCompressor.cache = cache.NewShardedByteLockCache(
-		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+	rqVectorsCompressor.initCompressedStore()
+	rqVectorsCompressor.cache = cache.NewShardedRQCodeLockCache(
+		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
 		0, allocChecker)
-	return sqVectorsCompressor, nil
+	return rqVectorsCompressor, nil
 }
 
-func NewRQMultiCompressor(
+/*func NewRQMultiCompressor(
 	distance distancer.Provider,
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,

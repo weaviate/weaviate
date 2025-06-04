@@ -123,9 +123,10 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 		h.trackRQOnce.Do(func() {
 			if singleVector {
 				h.compressor, err = compressionhelpers.NewRQCompressor(
-					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.DataBits), int(h.dims))
+					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.DataBits), int(h.rqConfig.QueryBits), int(h.dims))
 				if err == nil {
 					h.doNotRescore = !cfg.RQ.Rescore
+					h.compressor.PersistCompression(h.commitLog)
 				}
 			} else {
 				panic("RQ Compressor for multi vector not implemented")

@@ -139,6 +139,9 @@ func (l *Logger) AddRQCompression(data compressionhelpers.RQData) error {
 	}
 
 	_, err := l.bufw.Write(buf.Bytes())
+	if err != nil {
+		os.Exit(13)
+	}
 	return err
 }
 
