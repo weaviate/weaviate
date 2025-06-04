@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 type Searcher struct {
@@ -78,31 +79,42 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName, properties []string,
+	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]*storobj.Object, error) {
+	beforeFilters := time.Now()
 	allowList, err := s.docIDs(ctx, filter, additional, className, limit)
 	if err != nil {
 		return nil, err
 	}
 	defer allowList.Close()
+	helpers.AnnotateSlowQueryLog(ctx, "build_allow_list_took", time.Since(beforeFilters))
+	helpers.AnnotateSlowQueryLog(ctx, "allow_list_doc_ids_count", allowList.Len())
 
 	var it docIDsIterator
 	if len(sort) > 0 {
-		docIDs, err := s.sort(ctx, limit, sort, allowList, className)
+		beforeSort := time.Now()
+		docIDs, err := s.sort(ctx, limit, sort, allowList, className, disableInvertedSorter)
 		if err != nil {
 			return nil, fmt.Errorf("sort doc ids: %w", err)
 		}
+		helpers.AnnotateSlowQueryLog(ctx, "sort_doc_ids_took", time.Since(beforeSort))
 		it = newSliceDocIDsIterator(docIDs)
 	} else {
 		it = allowList.Iterator()
 	}
 
+	beforeObjects := time.Now()
+	defer func() {
+		helpers.AnnotateSlowQueryLog(ctx, "objects_by_doc_ids_took", time.Since(beforeObjects))
+	}()
 	return s.objectsByDocID(ctx, it, additional, limit, properties)
 }
 
 func (s *Searcher) sort(ctx context.Context, limit int, sort []filters.Sort,
 	docIDs helpers.AllowList, className schema.ClassName,
+	disableInvertedSorter *runtime.DynamicValue[bool],
 ) ([]uint64, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.getClass, className)
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.getClass, className, disableInvertedSorter)
 	if err != nil {
 		return nil, err
 	}
