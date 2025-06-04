@@ -18,8 +18,6 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/sirupsen/logrus"
-
 	database "github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -121,6 +119,8 @@ func (m *usageManagerImpl) GetUsage() (*models.UsageResponse, error) {
 		// Get shard usage
 		index := m.db.GetIndex(schema.ClassName(class.Class))
 		if index != nil {
+			// TODO: this will load all shards into memory, which is not efficient
+			// we shall collect usage for each shard without loading them into memory
 			index.ForEachShard(func(name string, shard database.ShardLike) error {
 				shardUsage := &models.ShardUsage{
 					Name:                name,
@@ -130,14 +130,15 @@ func (m *usageManagerImpl) GetUsage() (*models.UsageResponse, error) {
 				}
 				// Get vector usage for each named vector
 				_ = shard.ForEachVectorIndex(func(vectorName string, vectorIndex database.VectorIndex) error {
-					stats, err := vectorIndex.Stats()
-					if err != nil {
-						logrus.Infof("err: %v", err)
-					}
+					// TODO: this blocks the main thread needs debugging
+					// stats, err := vectorIndex.Stats()
+					// if err != nil {
+					// 	logrus.Infof("err: %v", err)
+					// }
 
 					vectorUsage := &models.VectorUsage{
 						Name:                   vectorName,
-						VectorIndexType:        string(stats.IndexType()),
+						VectorIndexType:        "hnsw",                                 //string(stats.IndexType()),
 						Compression:            "",                                     // TODO get from stats stats.CompressionType()
 						VectorCompressionRatio: 0,                                      // TODO: get from stats stats.CompressionRatio()
 						Dimensionalities:       make([]*models.DimensionalityUsage, 0), // TODO: get from stats stats.Dimensions()
