@@ -163,7 +163,36 @@ type Config struct {
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 
+	ReplicaMovementEnabled          bool                                 `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration] `json:"REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT" yaml:"REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"`
+
+	// TenantActivityReadLogLevel is 'debug' by default as every single READ
+	// interaction with a tenant leads to a log line. However, this may
+	// temporarily be desired, e.g. for analysis or debugging purposes. In this
+	// case the log level can be elevated, e.g. to 'info'. This is overall less
+	// noisy than changing the global log level, but still allows to see all
+	// tenant read activity.
+	TenantActivityReadLogLevel *runtime.DynamicValue[string] `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
+	// TenantActivityWriteLogLevel is 'debug' by default as every single WRITE
+	// interaction with a tenant leads to a log line. However, this may
+	// temporarily be desired, e.g. for analysis or debugging purposes. In this
+	// case the log level can be elevated, e.g. to 'info'. This is overall less
+	// noisy than changing the global log level, but still allows to see all
+	// tenant write activity.
+	TenantActivityWriteLogLevel *runtime.DynamicValue[string] `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
+
+	// RevectorizeCheck is an optimization where Weaviate checks if a vector can
+	// be reused from a previous version of the object, for example because the
+	// only change was an update of a property that is excluded from
+	// vectorization. This check is on by default (backward-compatibility).
+	//
+	// However, this check comes at a cost, it means that every single insert
+	// will turn into a read-before-write pattern, even if the inserted object is
+	// new. That is because the logic first needs to check if the object even
+	// exists. In cases where write throughput matters and the overwhelming
+	// majority of inserts are new, unique objects, it might be advisable to turn
+	// this feature off using the provided flag.
+	RevectorizeCheckDisabled *runtime.DynamicValue[bool] `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
 }
 
 type MapToBlockamaxConfig struct {

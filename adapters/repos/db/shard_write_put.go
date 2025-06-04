@@ -31,7 +31,7 @@ import (
 )
 
 func (s *Shard) PutObject(ctx context.Context, object *storobj.Object) error {
-	s.activityTracker.Add(1)
+	s.activityTrackerWrite.Add(1)
 	if err := s.isReadOnly(); err != nil {
 		return err
 	}

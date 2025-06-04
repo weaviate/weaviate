@@ -276,3 +276,48 @@ func (o *ListReplicationInternalServerError) WriteResponse(rw http.ResponseWrite
 		}
 	}
 }
+
+// ListReplicationNotImplementedCode is the HTTP code returned for type ListReplicationNotImplemented
+const ListReplicationNotImplementedCode int = 501
+
+/*
+ListReplicationNotImplemented Replica movement operations are disabled.
+
+swagger:response listReplicationNotImplemented
+*/
+type ListReplicationNotImplemented struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewListReplicationNotImplemented creates ListReplicationNotImplemented with default headers values
+func NewListReplicationNotImplemented() *ListReplicationNotImplemented {
+
+	return &ListReplicationNotImplemented{}
+}
+
+// WithPayload adds the payload to the list replication not implemented response
+func (o *ListReplicationNotImplemented) WithPayload(payload *models.ErrorResponse) *ListReplicationNotImplemented {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the list replication not implemented response
+func (o *ListReplicationNotImplemented) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ListReplicationNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(501)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
