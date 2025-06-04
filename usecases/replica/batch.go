@@ -18,13 +18,6 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-type replicaRecord struct {
-	ID                      strfmt.UUID
-	Deleted                 bool
-	Object                  *storobj.Object
-	LastUpdateTimeUnixMilli int64
-}
-
 // indexedBatch holds an indexed list of objects
 type indexedBatch struct {
 	Data []*storobj.Object
