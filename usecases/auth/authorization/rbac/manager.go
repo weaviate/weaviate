@@ -21,7 +21,7 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/weaviate/weaviate/entities/backup"
+
 	ucbackup "github.com/weaviate/weaviate/usecases/backup"
 
 	"github.com/casbin/casbin/v2"
@@ -481,20 +481,12 @@ func NewBackupWrapper(getbytesFunc func() (map[string][]byte, error), restoreFro
 	return &BackupWrapper{getBytes: getbytesFunc, restoreFromBytesFunc: restoreFromBytesFunc}
 }
 
-func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string]backup.OtherDescriptors, error) {
-	btsMap, err := b.getBytes()
-	if err != nil {
-		return nil, err
-	}
-	ret := make(map[string]backup.OtherDescriptors, len(btsMap))
-	for key, val := range btsMap {
-		ret[key] = backup.OtherDescriptors{Content: val}
-	}
+func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string][]byte, error) {
+	return b.getBytes()
 
-	return ret, nil
 }
 
-func (b BackupWrapper) WriteDescriptors(_ context.Context, descriptors map[string]backup.OtherDescriptors) error {
+func (b BackupWrapper) WriteDescriptors(_ context.Context, descriptors map[string][]byte) error {
 	policies, ok := descriptors["policies"]
 	if !ok {
 		return errors.New("no policies found")
@@ -505,7 +497,7 @@ func (b BackupWrapper) WriteDescriptors(_ context.Context, descriptors map[strin
 		return errors.New("no groupings found")
 	}
 
-	return b.restoreFromBytesFunc(policies.Content, groupings.Content)
+	return b.restoreFromBytesFunc(policies, groupings)
 }
 
 func prettyPermissionsActions(perm *models.Permission) string {

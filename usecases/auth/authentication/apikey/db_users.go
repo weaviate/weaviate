@@ -26,7 +26,6 @@ import (
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/entities/backup"
 	ucbackup "github.com/weaviate/weaviate/usecases/backup"
 
 	"github.com/alexedwards/argon2id"
@@ -510,19 +509,19 @@ func NewBackupWrapper(getbytesFunc func() ([]byte, error), restoreFromBytesFunc 
 	return &BackupWrapper{getBytes: getbytesFunc, restoreFromBytesFunc: restoreFromBytesFunc}
 }
 
-func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string]backup.OtherDescriptors, error) {
+func (b BackupWrapper) GetDescriptors(_ context.Context) (map[string][]byte, error) {
 	bts, err := b.getBytes()
 	if err != nil {
 		return nil, err
 	}
-	return map[string]backup.OtherDescriptors{"dynamicUsers": {Content: bts}}, nil
+	return map[string][]byte{"dynamicUsers":  bts}, nil
 }
 
-func (b BackupWrapper) WriteDescriptors(_ context.Context, descriptors map[string]backup.OtherDescriptors) error {
+func (b BackupWrapper) WriteDescriptors(_ context.Context, descriptors map[string][]byte) error {
 	descr, ok := descriptors["dynamicUsers"]
 	if !ok {
 		return errors.New("no policies found")
 	}
 
-	return b.restoreFromBytesFunc(descr.Content)
+	return b.restoreFromBytesFunc(descr)
 }
