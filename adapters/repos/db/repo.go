@@ -14,13 +14,14 @@ package db
 import (
 	"context"
 	"fmt"
-	replication2 "github.com/weaviate/weaviate/cluster/replication"
-	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"math"
 	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
+
+	replication2 "github.com/weaviate/weaviate/cluster/replication"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 
 	"github.com/weaviate/weaviate/cluster/replication/types"
 
