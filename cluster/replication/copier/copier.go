@@ -178,10 +178,8 @@ func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames 
 		return fmt.Errorf("preparing local folder: %w", err)
 	}
 
-	sort.Slice(dirs, func(i, j int) bool {
-		return depth(dirs[i]) > depth(dirs[j])
-	})
-
+	// sort dirs by depth, so that we delete the deepest directories first
+	sortPathsByDepthDescending(dirs)
 	for _, dir := range dirs {
 		isEmpty, err := diskio.IsDirEmpty(dir)
 		if err != nil {
@@ -235,9 +233,8 @@ func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames
 		return fmt.Errorf("validating local folder: %w", err)
 	}
 
-	sort.Slice(dirs, func(i, j int) bool {
-		return depth(dirs[i]) > depth(dirs[j])
-	})
+	// sort dirs by depth, so that we fsync the deepest directories first
+	sortPathsByDepthDescending(dirs)
 
 	for _, dir := range dirs {
 		if err := diskio.Fsync(dir); err != nil {
@@ -248,8 +245,29 @@ func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames
 	return nil
 }
 
+// sortPathsByDepthDescending sorts paths by depth in descending order.
+// Paths with the same depth may be sorted in any order.
+// For example:
+//
+//	/a/b
+//	/a/b/c
+//	/a/b/d
+//	/a
+//
+// may be sorted to:
+//
+//	/a/b/d
+//	/a/b/c
+//	/a/b
+//	/a
+func sortPathsByDepthDescending(paths []string) {
+	sort.Slice(paths, func(i, j int) bool {
+		return depth(paths[i]) > depth(paths[j])
+	})
+}
+
 func depth(path string) int {
-	return len(filepath.SplitList(path))
+	return strings.Count(filepath.Clean(path), string(filepath.Separator))
 }
 
 func (c *Copier) syncFile(ctx context.Context, sourceNodeHostname, collectionName, shardName, relativeFilePath string) error {

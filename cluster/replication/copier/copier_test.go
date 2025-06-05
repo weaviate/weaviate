@@ -41,6 +41,7 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 	type filesToCreateBeforeCopy struct {
 		relativeFilePath string
 		fileContent      []byte
+		isDir            bool
 	}
 
 	type fileWithMetadata struct {
@@ -48,6 +49,7 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 		relativeFilePath string
 		fileContent      []byte
 		crc32            uint32
+		isDir            bool
 	}
 
 	createTestFiles := func(t *testing.T, basePath string, files []filesToCreateBeforeCopy) []fileWithMetadata {
@@ -58,14 +60,20 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 			dir := path.Dir(absolutePath)
 			require.NoError(t, os.MkdirAll(dir, os.ModePerm))
 
-			require.NoError(t, os.WriteFile(absolutePath, file.fileContent, 0o644))
-			_, fileCrc32, err := integrity.CRC32(absolutePath)
-			require.NoError(t, err)
+			var fileCrc32 uint32
+			if file.isDir {
+				require.NoError(t, os.Mkdir(absolutePath, 0o755))
+			} else {
+				require.NoError(t, os.WriteFile(absolutePath, file.fileContent, 0o644))
+				_, fileCrc32, err = integrity.CRC32(absolutePath)
+				require.NoError(t, err)
+			}
 			createdFiles = append(createdFiles, fileWithMetadata{
 				absoluteFilePath: absolutePath,
 				relativeFilePath: file.relativeFilePath,
 				fileContent:      file.fileContent,
 				crc32:            fileCrc32,
+				isDir:            file.isDir,
 			})
 		}
 		return createdFiles
@@ -99,6 +107,21 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 			remoteFilesToSync: func() []fileWithMetadata {
 				return createTestFiles(t, remoteTmpDir, []filesToCreateBeforeCopy{
 					{relativeFilePath: "collection/shard/file1", fileContent: []byte("foo")},
+				})
+			},
+		},
+		{
+			name: "ensure nested empty local directories are deleted",
+			localFilesBefore: func() []fileWithMetadata {
+				return createTestFiles(t, localTmpDir, []filesToCreateBeforeCopy{
+					{relativeFilePath: "collection/shard/dir1/file2", fileContent: []byte("bar")},
+					{relativeFilePath: "collection/shard/dir2/", isDir: true},
+					{relativeFilePath: "collection/shard/dir2/dir3/", isDir: true},
+				})
+			},
+			remoteFilesToSync: func() []fileWithMetadata {
+				return createTestFiles(t, remoteTmpDir, []filesToCreateBeforeCopy{
+					{relativeFilePath: "collection/shard/dir1/file1", fileContent: []byte("foo")},
 				})
 			},
 		},
