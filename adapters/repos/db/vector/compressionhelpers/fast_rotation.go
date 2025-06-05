@@ -134,9 +134,9 @@ func (r *FastRotation) Rotate(x []float32) []float32 {
 
 func FastWalshHadamardTransform(x []float64) {
 	// Unrolling the recursion at d = 4 gives an almost 2x speedup compared to
-	// no unrolling. Unrolling to d = 8 only gave a further ~1.1x speedup.
-	// Consider an iterative implementation if we want to optimize further.
-	if len(x) == 8 {
+	// no unrolling. Unrolling to d = 8 and d = 16 gave a further ~1.1x speedup.
+	// The local access pattern of the recursive approach seems important.
+	if len(x) == 16 {
 		// FWHT(x[0:2])
 		x[0], x[1] = x[0]+x[1], x[0]-x[1]
 		// FWHT(x[2:4])
@@ -160,6 +160,42 @@ func FastWalshHadamardTransform(x []float64) {
 		x[1], x[5] = x[1]+x[5], x[1]-x[5]
 		x[2], x[6] = x[2]+x[6], x[2]-x[6]
 		x[3], x[7] = x[3]+x[7], x[3]-x[7]
+
+		// FWHT(x[8:10])
+		x[8], x[9] = x[8]+x[9], x[8]-x[9]
+
+		// FWHT(x[10:12])
+		x[10], x[11] = x[10]+x[11], x[10]-x[11]
+
+		// FWHT(x[8:12]), merging step
+		x[8], x[10] = x[8]+x[10], x[8]-x[10]
+		x[9], x[11] = x[9]+x[11], x[9]-x[11]
+
+		// FWHT(x[12:14])
+		x[12], x[13] = x[12]+x[13], x[12]-x[13]
+
+		// FWHT(x[14:16])
+		x[14], x[15] = x[14]+x[15], x[14]-x[15]
+
+		// FWHT(x[12:16]), merging step
+		x[12], x[14] = x[12]+x[14], x[12]-x[14]
+		x[13], x[15] = x[13]+x[15], x[13]-x[15]
+
+		// FWHT(x[8:16]), merging step
+		x[8], x[12] = x[8]+x[12], x[8]-x[12]
+		x[9], x[13] = x[9]+x[13], x[9]-x[13]
+		x[10], x[14] = x[10]+x[14], x[10]-x[14]
+		x[11], x[15] = x[11]+x[15], x[11]-x[15]
+
+		// FWHT(x[0:16]), merging step
+		x[0], x[8] = x[0]+x[8], x[0]-x[8]
+		x[1], x[9] = x[1]+x[9], x[1]-x[9]
+		x[2], x[10] = x[2]+x[10], x[2]-x[10]
+		x[3], x[11] = x[3]+x[11], x[3]-x[11]
+		x[4], x[12] = x[4]+x[12], x[4]-x[12]
+		x[5], x[13] = x[5]+x[13], x[5]-x[13]
+		x[6], x[14] = x[6]+x[14], x[6]-x[14]
+		x[7], x[15] = x[7]+x[15], x[7]-x[15]
 		return
 	}
 	m := len(x) / 2

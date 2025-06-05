@@ -249,19 +249,43 @@ func TestFastRotatedVectorsAreUniformOnSphere(t *testing.T) {
 	assert.Less(t, count, target+dev)
 }
 
+// For testing that the unrolled recursion gives the same result.
+func slowFastWalshHadamardTransform(x []float64) {
+	if len(x) == 2 {
+		x[0], x[1] = x[0]+x[1], x[0]-x[1]
+		return
+	}
+	m := len(x) / 2
+	slowFastWalshHadamardTransform(x[:m])
+	slowFastWalshHadamardTransform(x[m:])
+	for i := range m {
+		x[i], x[m+i] = x[i]+x[m+i], x[i]-x[m+i]
+	}
+}
+
 func TestFastWalshHadamardTransform(t *testing.T) {
-	x := []float64{-1, -1, 1, 1, 1, -1, 1, 1}
-	compressionhelpers.FastWalshHadamardTransform(x)
-	xExpected := []float64{2, 2, -6, 2, -2, -2, -2, -2}
-	for i := range x {
-		assert.Equal(t, xExpected[i], x[i])
+	rng := newRNG(7234)
+	dimensions := []int{16, 32, 64, 128, 256, 512, 1024, 2048, 4096}
+	for _, d := range dimensions {
+		x := make([]float64, d)
+		for i := range x {
+			x[i] = 1
+			if rng.Float64() < 0.5 {
+				x[i] = -1
+			}
+		}
+		target := make([]float64, d)
+		copy(target, x)
+		slowFastWalshHadamardTransform(target)
+		compressionhelpers.FastWalshHadamardTransform(x)
+		assert.True(t, slices.Equal(x, target))
 	}
 }
 
 func BenchmarkFastRotation(b *testing.B) {
 	rng := newRNG(42)
 	dimensions := []int{128, 256, 512, 1024, 1536}
-	rounds := []int{4, 5}
+	rounds := []int{1, 3, 5}
 	for _, dim := range dimensions {
 		x32 := make([]float32, dim)
 		x32[0] = 1.0
@@ -275,6 +299,28 @@ func BenchmarkFastRotation(b *testing.B) {
 				}
 			})
 		}
+	}
+}
+
+func BenchmarkFastWalshHadamardTransform(b *testing.B) {
+	rng := newRNG(42)
+	dimensions := []int{128, 256, 512, 1024, 2048}
+	for _, dim := range dimensions {
+		z := randomNormalVector(dim, rng)
+		x := make([]float64, dim)
+		for i := range x {
+			x[i] = float64(z[i])
+		}
+		b.Run(fmt.Sprintf("Unrolled-d%d", dim), func(b *testing.B) {
+			for b.Loop() {
+				compressionhelpers.FastWalshHadamardTransform(x)
+			}
+		})
+		b.Run(fmt.Sprintf("Recursive-d%d", dim), func(b *testing.B) {
+			for b.Loop() {
+				slowFastWalshHadamardTransform(x)
+			}
+		})
 	}
 }
 
