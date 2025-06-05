@@ -46,6 +46,6 @@ type Sourcer interface { // implemented by the index
 
 // SourcerNonClass represents the source of artifacts used in the backup that are not classes and their data
 type SourcerNonClass interface { // implemented by the index
-	GetDescriptors(context.Context) (map[string][]byte, error)
-	WriteDescriptors(_ context.Context, backupData map[string][]byte) error
+	GetBackupItems(context.Context) (map[string][]byte, error)  //Backup items that are not classes, such as roles, permissions, and users
+	WriteBackupItems(_ context.Context, backupData map[string][]byte) error  // WriteBackupItems writes the backup items somewhere.  Where?
 }

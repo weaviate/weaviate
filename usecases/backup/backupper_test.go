@@ -696,10 +696,10 @@ func createManager(sourcer Sourcer, schema schemaManger, backend modulecapabilit
 
 type fakeRbacBackupWrapper struct{}
 
-func (r fakeRbacBackupWrapper) GetDescriptors(context.Context) (map[string][]byte, error) {
+func (r fakeRbacBackupWrapper) GetBackupItems(context.Context) (map[string][]byte, error) {
 	return nil, nil
 }
 
-func (r fakeRbacBackupWrapper) WriteDescriptors(context.Context, map[string][]byte) error {
+func (r fakeRbacBackupWrapper) WriteBackupItems(context.Context, map[string][]byte) error {
 	return nil
 }
