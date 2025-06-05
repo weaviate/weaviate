@@ -129,18 +129,6 @@ func (db *DB) GetScheduler() *queue.Scheduler {
 	return db.scheduler
 }
 
-func (db *DB) GetReplicationFSM() types.ReplicationFSMReader {
-	return db.replicationFSM
-}
-
-func (db *DB) GetNodeSelector() cluster.NodeSelector {
-	return db.nodeSelector
-}
-
-func (db *DB) GetSchemaReader() schemaUC.SchemaReader {
-	return db.schemaReader
-}
-
 func (db *DB) WaitForStartup(ctx context.Context) error {
 	err := db.init(ctx)
 	if err != nil {
