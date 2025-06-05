@@ -20,6 +20,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/fsm"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -36,8 +37,8 @@ type restorer struct {
 	node           string // node name
 	logger         logrus.FieldLogger
 	sourcer        Sourcer
-	rbacSourcer    SourcerNonClass
-	dynUserSourcer SourcerNonClass
+	rbacSourcer    fsm.Snapshotter
+	dynUserSourcer fsm.Snapshotter
 	backends       BackupBackendProvider
 	shardSyncChan
 
@@ -49,7 +50,7 @@ type restorer struct {
 }
 
 func newRestorer(node string, logger logrus.FieldLogger,
-	sourcer Sourcer, rbacSourcer SourcerNonClass, dynUserSourcer SourcerNonClass,
+	sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter,
 	backends BackupBackendProvider,
 ) *restorer {
 	return &restorer{
@@ -139,13 +140,13 @@ func (r *restorer) restoreAll(ctx context.Context,
 	r.lastOp.set(backup.Transferring)
 
 	if r.dynUserSourcer != nil && len(desc.DynUserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
-		if err := r.dynUserSourcer.WriteBackupItems(ctx, desc.DynUserBackups); err != nil {
+		if err := r.dynUserSourcer.Restore( desc.DynUserBackups); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
 		}
 	}
 
 	if r.rbacSourcer != nil && len(desc.RbacBackups) > 0 && rbacRestoreOption != models.RestoreConfigRolesOptionsNoRestore {
-		if err := r.rbacSourcer.WriteBackupItems(ctx, desc.RbacBackups); err != nil {
+		if err := r.rbacSourcer.Restore(desc.RbacBackups); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
 		}
 	}

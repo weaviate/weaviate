@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -83,8 +84,8 @@ func NewHandler(
 	schema schemaManger,
 	sourcer Sourcer,
 	backends BackupBackendProvider,
-	rbacSourcer SourcerNonClass,
-	dynUserSourcer SourcerNonClass,
+	rbacSourcer fsm.Snapshotter,
+	dynUserSourcer fsm.Snapshotter,
 ) *Handler {
 	node := schema.NodeName()
 	m := &Handler{

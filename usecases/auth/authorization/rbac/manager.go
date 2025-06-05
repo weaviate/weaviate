@@ -13,15 +13,12 @@ package rbac
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
 	"strings"
 	"sync"
-
-	ucbackup "github.com/weaviate/weaviate/usecases/backup"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
@@ -394,38 +391,6 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb)
 }
 
-func (m *Manager) getBytes() (map[string][]byte, error) {
-	m.backupLock.Lock()
-	defer m.backupLock.Unlock()
-
-	policies, err := m.casbin.GetPolicy()
-	if err != nil {
-		return nil, err
-	}
-
-	policiesB, err := json.Marshal(policies)
-	if err != nil {
-		return nil, err
-	}
-
-	groupings, err := m.casbin.GetGroupingPolicy()
-	if err != nil {
-		return nil, err
-	}
-
-	groupingsB, err := json.Marshal(groupings)
-	if err != nil {
-		return nil, err
-	}
-
-	bytes := map[string][]byte{
-		"policies":  policiesB,
-		"groupings": groupingsB,
-	}
-
-	return bytes, nil
-}
-
 func (m *Manager) restoreFromBytes(policiesB []byte, groupingsB []byte) error {
 	m.backupLock.Lock()
 	defer m.backupLock.Unlock()
@@ -463,40 +428,8 @@ func (m *Manager) restoreFromBytes(policiesB []byte, groupingsB []byte) error {
 	return nil
 }
 
-func (m *Manager) BackupLocations() ucbackup.SourcerNonClass {
-	if m == nil {
-		// RBAC is not enabled, there's nothing to backup
-		return nil
-	}
-	return NewBackupWrapper(m.getBytes, m.restoreFromBytes)
-}
 
-type BackupWrapper struct {
-	getBytes             func() (map[string][]byte, error)
-	restoreFromBytesFunc func([]byte, []byte) error
-}
 
-func NewBackupWrapper(getbytesFunc func() (map[string][]byte, error), restoreFromBytesFunc func([]byte, []byte) error) *BackupWrapper {
-	return &BackupWrapper{getBytes: getbytesFunc, restoreFromBytesFunc: restoreFromBytesFunc}
-}
-
-func (b BackupWrapper) GetBackupItems(_ context.Context) (map[string][]byte, error) {
-	return b.getBytes()
-}
-
-func (b BackupWrapper) WriteBackupItems(_ context.Context, descriptors map[string][]byte) error {
-	policies, ok := descriptors["policies"]
-	if !ok {
-		return errors.New("no policies found")
-	}
-
-	groupings, ok := descriptors["groupings"]
-	if !ok {
-		return errors.New("no groupings found")
-	}
-
-	return b.restoreFromBytesFunc(policies, groupings)
-}
 
 func prettyPermissionsActions(perm *models.Permission) string {
 	if perm == nil || perm.Action == nil {

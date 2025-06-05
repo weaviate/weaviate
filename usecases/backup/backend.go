@@ -27,6 +27,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -181,8 +182,8 @@ func (s *coordStore) Meta(ctx context.Context, filename, overrideBucket, overrid
 // uploader uploads backup artifacts. This includes db files and metadata
 type uploader struct {
 	sourcer        Sourcer
-	rbacSourcer    SourcerNonClass
-	dynUserSourcer SourcerNonClass
+	rbacSourcer    fsm.Snapshotter
+	dynUserSourcer fsm.Snapshotter
 	backend        nodeStore
 	backupID       string
 	zipConfig
@@ -190,7 +191,7 @@ type uploader struct {
 	log       logrus.FieldLogger
 }
 
-func newUploader(sourcer Sourcer, rbacSourcer SourcerNonClass, dynUserSourcer SourcerNonClass, backend nodeStore,
+func newUploader(sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backend nodeStore,
 	backupID string, setstatus func(st backup.Status), l logrus.FieldLogger,
 ) *uploader {
 	return &uploader{
@@ -273,7 +274,8 @@ Loop:
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
 	} else if u.rbacSourcer != nil {
-		descrp, err := u.rbacSourcer.GetBackupItems(ctx)
+		u.log.Info("start uploading RBAC backups")
+		descrp, err := u.rbacSourcer.Snapshot()
 		if err != nil {
 			return err
 		}
@@ -283,7 +285,8 @@ Loop:
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
 	} else if u.dynUserSourcer != nil {
-		descrp, err := u.dynUserSourcer.GetBackupItems(ctx)
+		u.log.Info("start uploading dynamic user backups")
+		descrp, err := u.dynUserSourcer.Snapshot()
 		if err != nil {
 			return err
 		}
