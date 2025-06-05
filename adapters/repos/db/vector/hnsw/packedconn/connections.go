@@ -15,7 +15,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
-	"sort"
+	"slices"
 )
 
 // Data order
@@ -122,7 +122,7 @@ func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
 	// buffer would be suitable to use pooling.
 	buf := make([]byte, len(conns)*binary.MaxVarintLen64)
 
-	sort.Slice(conns, func(a, b int) bool { return conns[a] < conns[b] })
+	slices.Sort(conns)
 	last := uint64(0)
 	offset := 0
 	for _, raw := range conns {
@@ -137,8 +137,8 @@ func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
 }
 
 func (c Connections) LenAtLayer(layer uint8) int {
-	if layer >= c.Layers() {
-		panic(fmt.Sprintf("only has %d layers", c.Layers()))
+	if layer > c.Layers() {
+		panic(fmt.Sprintf("only has %d layers, needs %d", c.Layers(), layer))
 	}
 
 	return int(c.layerLength(layer))
@@ -180,6 +180,23 @@ func (c Connections) CopyLayer(conns []uint64, layer uint8) []uint64 {
 
 func (c Connections) GetLayer(layer uint8) []uint64 {
 	return c.CopyLayer(nil, layer)
+}
+
+// GetLayerData return the raw data of the layer as a byte slice.
+// The returned slice is a view into the underlying data buffer, so do not modify
+// its contents. If the layer does not exist, it returns nil.
+func (c *Connections) GetLayerData(layer uint8) []byte {
+	if layer >= c.Layers() {
+		return nil
+	}
+
+	offset := c.layerOffset(layer)
+	end := c.layerEndOffset(layer)
+	if end <= offset {
+		return nil
+	}
+
+	return c.data[offset:end]
 }
 
 func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {

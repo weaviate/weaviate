@@ -159,6 +159,8 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 			var totalRead int
 			totalRead, err = d.ReadMuvera(fd, out)
 			readThisRound = 20 + totalRead
+		case PackedConnsReplaceLinks:
+			readThisRound, err = d.ReadPackedConnsReplaceLinks(fd, out, keepLinkReplaceInformation)
 		default:
 			err = errors.Errorf("unrecognized commit type %d", ct)
 		}
@@ -743,6 +745,55 @@ func (d *Deserializer) ReadMuvera(r io.Reader, res *DeserializationResult) (int,
 	res.EncoderMuvera = &muveraData
 	res.MuveraEnabled = true
 	return totalRead, nil
+}
+
+func (d *Deserializer) ReadPackedConnsReplaceLinks(r io.Reader, res *DeserializationResult,
+	keepReplaceInfo bool,
+) (int, error) {
+	d.resetResusableBuffer(10)
+	_, err := io.ReadFull(r, d.reusableBuffer)
+	if err != nil {
+		return 0, err
+	}
+
+	source := binary.LittleEndian.Uint64(d.reusableBuffer[0:8])
+	length := binary.LittleEndian.Uint16(d.reusableBuffer[8:10])
+
+	data := make([]byte, length)
+	_, err = io.ReadFull(r, data)
+	if err != nil {
+		return 0, errors.Wrap(err, "failed to read uint64 slice")
+	}
+
+	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
+	if err != nil {
+		return 0, err
+	}
+
+	if changed {
+		res.Nodes = newNodes
+	}
+
+	if res.Nodes[int(source)] == nil {
+		res.Nodes[int(source)] = &vertex{id: source}
+	}
+
+	res.Nodes[source].connections = packedconn.NewWithData(data)
+
+	if keepReplaceInfo {
+		// mark the replace flag for this node and all levels, so that new commit logs
+		// generated on this result (condensing) do not lose information
+
+		if _, ok := res.LinksReplaced[source]; !ok {
+			res.LinksReplaced[source] = map[uint16]struct{}{}
+		}
+
+		for level := uint16(0); level < uint16(res.Nodes[source].connections.Layers()); level++ {
+			res.LinksReplaced[source][level] = struct{}{}
+		}
+	}
+
+	return 10 + int(length), nil
 }
 
 func (d *Deserializer) readUint64(r io.Reader) (uint64, error) {

@@ -23,6 +23,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 )
@@ -93,19 +94,54 @@ func (c *MemoryCondensor) Do(fileName string) error {
 			}
 		}
 
-		iter := node.connections.Iterator()
-		for iter.Next() {
-			level, links := iter.Current()
-			if res.ReplaceLinks(node.id, uint16(level)) {
-				if err := c.SetLinksAtLevel(node.id, int(level), links); err != nil {
-					return errors.Wrapf(err,
-						"write links for node %d at level %d to commit log", node.id, level)
+		// iter := node.connections.Iterator()
+		// for iter.Next() {
+		// 	level, links := iter.Current()
+		// 	if res.ReplaceLinks(node.id, uint16(level)) {
+		// 		if err := c.SetLinksAtLevel(node.id, int(level), links); err != nil {
+		// 			return errors.Wrapf(err,
+		// 				"write links for node %d at level %d to commit log", node.id, level)
+		// 		}
+		// 	} else {
+		// 		if err := c.AddLinksAtLevel(node.id, uint16(level), links); err != nil {
+		// 			return errors.Wrapf(err,
+		// 				"write links for node %d at level %d to commit log", node.id, level)
+		// 		}
+		// 	}
+		// }
+
+		// determine if we need to add at at least one level
+		needsAdd := false
+		for i := 0; i < int(node.connections.Layers()); i++ {
+			if !res.ReplaceLinks(node.id, uint16(i)) {
+				needsAdd = true
+				break
+			}
+		}
+
+		// slow path: if we need to add at at least one level, we write all levels
+		if needsAdd {
+			iter := node.connections.Iterator()
+			for iter.Next() {
+				level, links := iter.Current()
+				if res.ReplaceLinks(node.id, uint16(level)) {
+					if err := c.SetLinksAtLevel(node.id, int(level), links); err != nil {
+						return errors.Wrapf(err,
+							"write links for node %d at level %d to commit log", node.id, level)
+					}
+				} else {
+					if err := c.AddLinksAtLevel(node.id, uint16(level), links); err != nil {
+						return errors.Wrapf(err,
+							"write links for node %d at level %d to commit log", node.id, level)
+					}
 				}
-			} else {
-				if err := c.AddLinksAtLevel(node.id, uint16(level), links); err != nil {
-					return errors.Wrapf(err,
-						"write links for node %d at level %d to commit log", node.id, level)
-				}
+			}
+		} else if node.connections != nil {
+			// fast path: we can just dump all levels as they are
+			err = c.PackedConnReplaceLinks(node.id, node.connections)
+			if err != nil {
+				return errors.Wrapf(err,
+					"write packed connections for node %d to commit log", node.id)
 			}
 		}
 	}
@@ -380,6 +416,31 @@ func (c *MemoryCondensor) AddMuvera(data multivector.MuveraData) error {
 
 	_, err := c.newLog.Write(buf.Bytes())
 	return err
+}
+
+func (c *MemoryCondensor) PackedConnReplaceLinks(nodeid uint64, conns *packedconn.Connections) error {
+	ec := errorcompounder.New()
+	ec.Add(writeCommitType(c.newLog, PackedConnsReplaceLinks))
+	ec.Add(writeUint64(c.newLog, nodeid))
+	data := conns.Data()
+	ec.Add(writeUint16(c.newLog, uint16(len(data))))
+	_, err := c.newLog.Write(data)
+	ec.Add(err)
+
+	return ec.ToError()
+}
+
+func (c *MemoryCondensor) PackedConnReplaceLinksAtLevel(nodeid uint64, level int, conns *packedconn.Connections) error {
+	ec := errorcompounder.New()
+	ec.Add(writeCommitType(c.newLog, PackedConnsReplaceLinksAtLevel))
+	ec.Add(writeUint64(c.newLog, nodeid))
+	ec.Add(writeUint16(c.newLog, uint16(level)))
+	layerData := conns.GetLayerData(uint8(level))
+	ec.Add(writeUint16(c.newLog, uint16(len(layerData))))
+	_, err := c.newLog.Write(layerData)
+	ec.Add(err)
+
+	return ec.ToError()
 }
 
 func NewMemoryCondensor(logger logrus.FieldLogger) *MemoryCondensor {
