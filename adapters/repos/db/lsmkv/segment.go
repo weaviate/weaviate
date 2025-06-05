@@ -158,7 +158,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		contents = contents2
 		unMapContents = true
 	} else { // read the file into memory if it's small enough and we have enough memory
-		meteredF := diskio.NewMeteredReader(bufio.NewReader(file), diskio.MeteredReaderCallback(metrics.ReadObserver("readSegmentFile")))
+		meteredF := diskio.NewMeteredReader(file, diskio.MeteredReaderCallback(metrics.ReadObserver("readSegmentFile")))
+		bufio.NewReader(meteredF)
 		contents, err = io.ReadAll(meteredF)
 		if err != nil {
 			return nil, fmt.Errorf("read file: %w", err)
@@ -476,9 +477,8 @@ func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, 
 		return nil, fmt.Errorf("nil contentFile for segment at %s", s.path)
 	}
 
-	r := io.NewSectionReader(s.contentFile, int64(offset), s.size)
+	meteredF := diskio.NewMeteredReader(s.contentFile, diskio.MeteredReaderCallback(s.metrics.ReadObserver(operation)))
+	r := io.NewSectionReader(meteredF, int64(offset), s.size)
 
-	meteredF := diskio.NewMeteredReader(bufio.NewReader(r), diskio.MeteredReaderCallback(s.metrics.ReadObserver(operation)))
-
-	return meteredF, nil
+	return r, nil
 }
