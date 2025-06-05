@@ -426,7 +426,8 @@ func (_c *MockRemoteIndex_ResumeFileActivity_Call) RunAndReturn(run func(context
 func NewMockRemoteIndex(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockRemoteIndex {
+},
+) *MockRemoteIndex {
 	mock := &MockRemoteIndex{}
 	mock.Mock.Test(t)
 

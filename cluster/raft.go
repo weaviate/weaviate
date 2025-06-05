@@ -13,6 +13,7 @@ package cluster
 
 import (
 	"context"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -81,4 +82,12 @@ func (s *Raft) WaitUntilDBRestored(ctx context.Context, period time.Duration, cl
 
 func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return s.store.WaitForAppliedIndex(ctx, time.Millisecond*50, schemaVersion)
+}
+
+func (s *Raft) NodeSelector() cluster.NodeSelector {
+	return s.nodeSelector
+}
+
+func (s *Raft) ReplicationFsm() *replication.ShardReplicationFSM {
+	return s.store.replicationManager.GetReplicationFSM()
 }

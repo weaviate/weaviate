@@ -439,8 +439,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
 		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
 		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
-	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch,
-		appState.DB.GetNodeSelector(), appState.DB.GetSchemaReader(), appState.DB.GetReplicationFSM()) // TODO client
+	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
@@ -588,6 +587,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("could not initialize schema manager")
 		os.Exit(1)
 	}
+
+	repo.SetNodeSelector(appState.ClusterService.Raft.NodeSelector())
+	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
+	repo.SetReplicationFSM(appState.ClusterService.Raft.ReplicationFsm())
 
 	appState.SchemaManager = schemaManager
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)

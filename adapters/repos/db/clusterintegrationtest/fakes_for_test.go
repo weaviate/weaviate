@@ -85,7 +85,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor(), nil, nil, nil)
+	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor())
 	if err != nil {
 		panic(err)
 	}
