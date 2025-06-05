@@ -9,20 +9,21 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package packedconn_test
+package packedconn
 
 import (
 	"math/rand"
+	"slices"
 	"sort"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 )
 
 func TestEncodeDecode(t *testing.T) {
 	testValues := [][]uint64{
+		{4477, 83, 6777, 13118, 12903},
 		{1, 2, 3, 4, 5},
 		{127, 128, 129, 255, 256},
 		{65535, 65536, 16777215, 16777216},
@@ -31,10 +32,10 @@ func TestEncodeDecode(t *testing.T) {
 
 	buffer := make([]uint64, 2)
 	for _, values := range testValues {
-		encoder := packedconn.NewPrefixEncoder()
+		encoder := NewPrefixEncoder()
 		buffer = encoder.Decode(buffer)
 		assert.Equal(t, 0, len(buffer))
-		encoder.AddRange(values)
+		encoder.Init(values)
 		buffer = encoder.Decode(buffer)
 		assert.ElementsMatch(t, values, buffer)
 	}
@@ -44,11 +45,45 @@ func TestEncodeGrowsSuccessfullyDecode(t *testing.T) {
 	testValues := []uint64{1, 2, 3, 4, 5, 127, 128, 129, 255, 256, 65535, 65536, 16777215, 16777216, 0, 1, 127, 128, 255, 256, 65535, 65536}
 
 	buffer := make([]uint64, 2)
-	encoder := packedconn.NewPrefixEncoder()
+	encoder := NewPrefixEncoder()
 	buffer = encoder.Decode(buffer)
 	assert.Equal(t, 0, len(buffer))
-	encoder.AddRange(testValues)
+	encoder.Init(testValues)
 	buffer = encoder.Decode(buffer)
+	assert.ElementsMatch(t, testValues, buffer)
+}
+
+func TestInsertBefore(t *testing.T) {
+	testValues := []uint64{
+		2, 500,
+	}
+
+	buffer := make([]uint64, 2)
+	encoder := NewPrefixEncoder()
+	for _, item := range testValues {
+		encoder.Add(item)
+	}
+	encoder.Add(1)
+	testValues = append(testValues, 1)
+	buffer = encoder.Decode(buffer)
+	slices.Sort(testValues)
+	assert.ElementsMatch(t, testValues, buffer)
+}
+
+func TestInsertBeforeMedium(t *testing.T) {
+	testValues := []uint64{
+		4477, 83, 6777, 13118,
+	}
+
+	buffer := make([]uint64, 2)
+	encoder := NewPrefixEncoder()
+	for _, item := range testValues {
+		encoder.Add(item)
+	}
+	encoder.Add(12903)
+	testValues = append(testValues, 12903)
+	buffer = encoder.Decode(buffer)
+	slices.Sort(testValues)
 	assert.ElementsMatch(t, testValues, buffer)
 }
 
@@ -66,9 +101,9 @@ func TestAdd(t *testing.T) {
 			vs := NewValueSelector()
 			initialValues := generateTestValuesFromGenerator(startSize, 1_000_000, vs)
 
-			encoder := packedconn.NewPrefixEncoder()
+			encoder := NewPrefixEncoder()
 			if startSize > 0 {
-				encoder.AddRange(initialValues)
+				encoder.Init(initialValues)
 			}
 
 			for j := 0; j < elementsToAdd; j++ {
@@ -174,4 +209,26 @@ func generateTestValuesFromGenerator(count int, maxValue uint64, vs *ValueSelect
 	}
 
 	return values
+}
+
+func TestBits(t *testing.T) {
+	data := []byte{0b11011000, 0b11000100}
+	control := []byte{0b01001000, 0b00010011}
+	shiftBitsRightIterative(data, 4)
+	assert.Equal(t, control, data)
+
+	data = []byte{0b11011000, 0b11000100}
+	control = []byte{0b11011000, 0b00010000}
+	shiftBitsRightIterative(data, 8)
+	assert.Equal(t, control, data)
+
+	data = []byte{0b11011000, 0b11000100}
+	control = []byte{0b00011000, 0b00010011}
+	shiftBitsRightIterative(data, 6)
+	assert.Equal(t, control, data)
+
+	data = []byte{0b11011000, 0b11000100, 0b10101010}
+	control = []byte{0b01001000, 0b00010011, 0b10101011}
+	shiftBitsRightIterative(data, 4)
+	assert.Equal(t, control, data)
 }

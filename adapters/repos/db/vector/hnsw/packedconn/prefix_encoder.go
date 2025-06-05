@@ -16,7 +16,7 @@ import (
 )
 
 type PrefixEncoder struct {
-	elementCount int
+	elementCount uint8
 	lastValue    uint64
 	buffer       []byte
 }
@@ -29,18 +29,15 @@ func NewPrefixEncoder() *PrefixEncoder {
 	}
 }
 
-func (encoder *PrefixEncoder) grow(to int) {
-	if cap(encoder.buffer) < to {
-		buffer := encoder.buffer
-		encoder.buffer = make([]byte, to)
-		copy(encoder.buffer, buffer)
-	} else {
-		encoder.buffer = encoder.buffer[:to]
-	}
+func (encoder *PrefixEncoder) Len() int {
+	return int(encoder.elementCount)
 }
 
-func (encoder *PrefixEncoder) AddRange(values []uint64) {
+func (encoder *PrefixEncoder) Init(values []uint64) {
 	if len(values) == 0 {
+		encoder.buffer = make([]byte, 0, 16)
+		encoder.elementCount = 0
+		encoder.lastValue = 0
 		return
 	}
 
@@ -106,7 +103,7 @@ func (encoder *PrefixEncoder) AddRange(values []uint64) {
 	}
 
 	encoder.lastValue = lastValue
-	encoder.elementCount = count
+	encoder.elementCount = uint8(count)
 }
 
 func (encoder *PrefixEncoder) Decode(values []uint64) []uint64 {
@@ -115,12 +112,12 @@ func (encoder *PrefixEncoder) Decode(values []uint64) []uint64 {
 		return values
 	}
 
-	prefixBytes := (encoder.elementCount*2 + 7) / 8
+	prefixBytes := int((encoder.elementCount)*2+7) / 8
 	if len(encoder.buffer) < prefixBytes {
 		return nil
 	}
 
-	if cap(values) < encoder.elementCount {
+	if cap(values) < int(encoder.elementCount) {
 		values = make([]uint64, encoder.elementCount)
 	} else {
 		values = values[:encoder.elementCount]
@@ -129,7 +126,7 @@ func (encoder *PrefixEncoder) Decode(values []uint64) []uint64 {
 	pos := prefixBytes
 	var currentValue uint64 = 0
 
-	for i := 0; i < encoder.elementCount && pos < len(encoder.buffer); i++ {
+	for i := 0; i < int(encoder.elementCount) && pos < len(encoder.buffer); i++ {
 		prefixByteIdx := i / 4
 		bitOffset := (i % 4) * 2
 		lengthCode := (encoder.buffer[prefixByteIdx] >> bitOffset) & 0x03
@@ -186,8 +183,8 @@ func (encoder *PrefixEncoder) addAtEnd(element uint64) {
 		newElementLength = 4
 	}
 
-	newElementCount := encoder.elementCount + 1
-	oldPrefixBytes := (encoder.elementCount*2 + 7) / 8
+	newElementCount := int(encoder.elementCount) + 1
+	oldPrefixBytes := (int(encoder.elementCount)*2 + 7) / 8
 	newPrefixBytes := (newElementCount*2 + 7) / 8
 
 	oldDataSize := len(encoder.buffer) - oldPrefixBytes
@@ -239,8 +236,8 @@ func (encoder *PrefixEncoder) addAtEnd(element uint64) {
 		newBuffer[dataInsertPos+3] = byte(delta >> 24)
 	}
 
-	newElemPrefixByteIdx := encoder.elementCount / 4
-	newElemBitOffset := (encoder.elementCount % 4) * 2
+	newElemPrefixByteIdx := int(encoder.elementCount) / 4
+	newElemBitOffset := (int(encoder.elementCount) % 4) * 2
 	newElemLengthCode := byte(newElementLength - 1)
 
 	if newElemPrefixByteIdx < newPrefixBytes {
@@ -258,8 +255,8 @@ func (encoder *PrefixEncoder) addInMiddle(element uint64) {
 		return
 	}
 
-	oldPrefixBytes := (encoder.elementCount*2 + 7) / 8
-	newElementCount := encoder.elementCount + 1
+	oldPrefixBytes := (int(encoder.elementCount)*2 + 7) / 8
+	newElementCount := int(encoder.elementCount) + 1
 	newPrefixBytes := (newElementCount*2 + 7) / 8
 
 	pos := oldPrefixBytes
@@ -271,7 +268,7 @@ func (encoder *PrefixEncoder) addInMiddle(element uint64) {
 	var nextElementBytePos int
 	var nextElementLength int
 
-	for elementIndex < encoder.elementCount && pos < len(encoder.buffer) {
+	for elementIndex < int(encoder.elementCount) && pos < len(encoder.buffer) {
 		prefixByteIdx := elementIndex / 4
 		bitOffset := (elementIndex % 4) * 2
 		lengthCode := (encoder.buffer[prefixByteIdx] >> bitOffset) & 0x03
@@ -433,10 +430,8 @@ func (encoder *PrefixEncoder) addInMiddle(element uint64) {
 	newElemBitOffset := (nextElementIndex % 4) * 2
 	newElemLengthCode := byte(newElementLength - 1)
 
-	if newElemPrefixByteIdx < newPrefixBytes {
-		newBuffer[newElemPrefixByteIdx] &= ^(0x03 << newElemBitOffset)
-		newBuffer[newElemPrefixByteIdx] |= newElemLengthCode << newElemBitOffset
-	}
+	shiftBitsRightIterative(newBuffer[:newPrefixBytes], newElemPrefixByteIdx*8+newElemBitOffset)
+	newBuffer[newElemPrefixByteIdx] |= newElemLengthCode << newElemBitOffset
 
 	adjustedNextPrefixByteIdx := (nextElementIndex + 1) / 4
 	adjustedNextBitOffset := ((nextElementIndex + 1) % 4) * 2
@@ -447,20 +442,68 @@ func (encoder *PrefixEncoder) addInMiddle(element uint64) {
 		newBuffer[adjustedNextPrefixByteIdx] |= adjustedNextLengthCode << adjustedNextBitOffset
 	}
 
-	for i := nextElementIndex + 2; i < newElementCount; i++ {
-		oldIdx := i - 1
-		oldPrefixByteIdx := oldIdx / 4
-		oldBitOffset := (oldIdx % 4) * 2
+	encoder.buffer = newBuffer
+}
 
-		newPrefixByteIdx := i / 4
-		newBitOffset := (i % 4) * 2
+func (encoder *PrefixEncoder) grow(to int) {
+	if cap(encoder.buffer) < to {
+		buffer := encoder.buffer
+		encoder.buffer = make([]byte, to)
+		copy(encoder.buffer, buffer)
+	} else {
+		encoder.buffer = encoder.buffer[:to]
+	}
+}
 
-		if oldPrefixByteIdx < oldPrefixBytes && newPrefixByteIdx < newPrefixBytes {
-			lengthCode := (encoder.buffer[oldPrefixByteIdx] >> oldBitOffset) & 0x03
-			newBuffer[newPrefixByteIdx] &= ^(0x03 << newBitOffset)
-			newBuffer[newPrefixByteIdx] |= lengthCode << newBitOffset
-		}
+func shiftBitsRightIterative(data []byte, startBit int) {
+	if len(data) == 0 {
+		return
 	}
 
-	encoder.buffer = newBuffer
+	totalBits := len(data) * 8
+	if startBit >= totalBits {
+		return
+	}
+
+	mask := byte(192)
+
+	startByteIndex := startBit / 8
+
+	for byteIndex := len(data) - 1; byteIndex >= startByteIndex; byteIndex-- {
+		currentByte := data[byteIndex]
+
+		if byteIndex == startByteIndex {
+			bitsToPreserve := startBit % 8
+
+			if bitsToPreserve > 0 {
+				preserveMask := byte(0xFF >> (8 - bitsToPreserve))
+				preservedBits := currentByte & preserveMask
+
+				bitsToShift := currentByte & (0xFF << bitsToPreserve)
+				tailBits := bitsToShift & mask
+				shiftedBits := bitsToShift << 2
+
+				data[byteIndex] = preservedBits | shiftedBits
+
+				if byteIndex+1 < len(data) {
+					data[byteIndex+1] = (data[byteIndex+1] | (tailBits >> 6))
+				}
+			} else {
+				tailBits := currentByte & mask
+				data[byteIndex] = currentByte << 2
+
+				if byteIndex+1 < len(data) {
+					data[byteIndex+1] = data[byteIndex+1] | (tailBits >> 6)
+				}
+			}
+		} else {
+			tailBits := currentByte & mask
+
+			data[byteIndex] = currentByte << 2
+
+			if byteIndex+1 < len(data) {
+				data[byteIndex+1] = data[byteIndex+1] | (tailBits >> 6)
+			}
+		}
+	}
 }

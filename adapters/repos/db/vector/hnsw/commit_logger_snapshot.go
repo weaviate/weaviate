@@ -1210,7 +1210,8 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 						}
 						read += n
 
-						node.connections = packedconn.NewWithData(connData)
+						// ToDo: fix this
+						// node.connections = packedconn.NewWithData(connData)
 					}
 				}
 
