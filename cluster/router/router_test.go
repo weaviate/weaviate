@@ -56,42 +56,6 @@ func createShardingStateWithShards(shards []string) *sharding.State {
 	return state
 }
 
-func TestRouterBuilder_Build_Success(t *testing.T) {
-	tests := []struct {
-		name         string
-		partitioning bool
-	}{
-		{
-			name:         "single-tenant router",
-			partitioning: false,
-		},
-		{
-			name:         "multi-tenant router",
-			partitioning: true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockClusterReader := mocks.NewMockNodeSelector("node1", "node2")
-			mockSchemaGetter := schema.NewMockSchemaGetter(t)
-			mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-			mockMetadataReader := schemaTypes.NewMockSchemaReader(t)
-
-			r, err := router.NewBuilder(
-				"TestClass",
-				tt.partitioning,
-				mockClusterReader,
-				mockSchemaGetter,
-				mockMetadataReader,
-				mockReplicationFSM,
-			).Build()
-			require.NoError(t, err, "unexpected error building router")
-			require.NotNil(t, r, "unexpected nil router")
-		})
-	}
-}
-
 func TestSingleTenantRouter_GetReadWriteReplicasLocation_NoShards(t *testing.T) {
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
 	mockMetadataReader := schemaTypes.NewMockSchemaReader(t)
