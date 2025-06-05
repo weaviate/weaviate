@@ -452,6 +452,11 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
+func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (int, int) {
+	l.mustLoad()
+	return l.shard.DimensionsUsage(ctx, targetVector)
+}
+
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) int {
 	l.mustLoad()
 	return l.shard.Dimensions(ctx, targetVector)

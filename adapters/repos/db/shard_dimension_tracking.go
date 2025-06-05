@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -35,6 +35,24 @@ const (
 	DimensionCategoryPQ
 	DimensionCategoryBQ
 )
+
+func (c DimensionCategory) String() string {
+	switch c {
+	case DimensionCategoryPQ:
+		return "pq"
+	case DimensionCategoryBQ:
+		return "bq"
+	default:
+		return "standard"
+	}
+}
+
+// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (int, int) {
+	return s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+		return dimLength, len(v)
+	})
+}
 
 func (s *Shard) Dimensions(ctx context.Context, targetVector string) int {
 	sum, _ := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
@@ -153,7 +171,7 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 }
 
 func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) (dims int, segs int) {
-	switch category, segments := getDimensionCategory(vecCfg); category {
+	switch category, segments := GetDimensionCategory(vecCfg); category {
 	case DimensionCategoryPQ:
 		count := s.QuantizedDimensions(ctx, vecName, segments)
 		return 0, count
@@ -205,7 +223,7 @@ func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
 	}
 }
 
-func getDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
 	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok {

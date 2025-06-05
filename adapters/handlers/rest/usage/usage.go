@@ -21,6 +21,7 @@ import (
 	database "github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	usecaseSchema "github.com/weaviate/weaviate/usecases/schema"
 )
@@ -30,7 +31,7 @@ var (
 )
 
 type usageManager interface {
-	GetUsage() (*models.UsageResponse, error)
+	GetUsage(ctx context.Context) (*models.UsageResponse, error)
 }
 
 type usage struct {
@@ -56,7 +57,7 @@ func (m *usage) usageHandler() http.HandlerFunc {
 				http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
 				return
 			}
-			usage, err := m.manager.GetUsage()
+			usage, err := m.manager.GetUsage(r.Context())
 			if err != nil {
 				http.Error(w, "get usage: "+err.Error(), http.StatusInternalServerError)
 				return
@@ -98,7 +99,7 @@ func NewManager(db *database.DB, schemaManager *usecaseSchema.Manager, modules *
 	}
 }
 
-func (m *usageManagerImpl) GetUsage() (*models.UsageResponse, error) {
+func (m *usageManagerImpl) GetUsage(ctx context.Context) (*models.UsageResponse, error) {
 	// Get all collections
 	collections := m.schemaManager.GetSchemaSkipAuth().Objects.Classes
 	usage := &models.UsageResponse{
@@ -108,16 +109,18 @@ func (m *usageManagerImpl) GetUsage() (*models.UsageResponse, error) {
 	}
 
 	// Collect usage for each collection
-	for _, class := range collections {
-		shardingState := m.schemaManager.CopyShardingState(class.Class)
+	for _, collection := range collections {
+		vectorIndexConfig := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
+		// vectorIndexConfig := collection.VectorConfig.
+		shardingState := m.schemaManager.CopyShardingState(collection.Class)
 		collectionUsage := &models.CollectionUsage{
-			Name:              class.Class,
-			ReplicationFactor: class.ReplicationConfig.Factor,
+			Name:              collection.Class,
+			ReplicationFactor: collection.ReplicationConfig.Factor,
 			UniqueShardCount:  int64(len(shardingState.Physical)),
 			Shards:            make([]*models.ShardUsage, 0),
 		}
 		// Get shard usage
-		index := m.db.GetIndex(schema.ClassName(class.Class))
+		index := m.db.GetIndex(schema.ClassName(collection.Class))
 		if index != nil {
 			// TODO: this will load all shards into memory, which is not efficient
 			// we shall collect usage for each shard without loading them into memory
@@ -129,28 +132,19 @@ func (m *usageManagerImpl) GetUsage() (*models.UsageResponse, error) {
 					NamedVectors:        make([]*models.VectorUsage, 0),
 				}
 				// Get vector usage for each named vector
-				_ = shard.ForEachVectorIndex(func(vectorName string, vectorIndex database.VectorIndex) error {
-					// TODO: this blocks the main thread needs debugging
-					// stats, err := vectorIndex.Stats()
-					// if err != nil {
-					// 	logrus.Infof("err: %v", err)
-					// }
-
+				_ = shard.ForEachVectorIndex(func(targetVector string, vectorIndex database.VectorIndex) error {
+					category, _ := database.GetDimensionCategory(vectorIndexConfig)
 					vectorUsage := &models.VectorUsage{
-						Name:                   vectorName,
-						VectorIndexType:        "hnsw",                                 //string(stats.IndexType()),
-						Compression:            "",                                     // TODO get from stats stats.CompressionType()
-						VectorCompressionRatio: 0,                                      // TODO: get from stats stats.CompressionRatio()
-						Dimensionalities:       make([]*models.DimensionalityUsage, 0), // TODO: get from stats stats.Dimensions()
+						Name:                   targetVector,
+						VectorIndexType:        vectorIndexConfig.IndexType(),
+						Compression:            category.String(),
+						VectorCompressionRatio: 0, // TODO: get from stats stats.CompressionRatio()
 					}
-
-					// Get dimensionality usage
-					// if dims := stats.Dimensions(); dims > 0 {
-					// 	vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &models.DimensionalityUsage{
-					// 		Dimensionality: int64(dims),
-					// 		Count:          int64(shard.ObjectCountAsync()),
-					// 	})
-					// }
+					dimensions, objects := shard.DimensionsUsage(ctx, targetVector)
+					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &models.DimensionalityUsage{
+						Dimensionality: int64(dimensions),
+						Count:          int64(objects),
+					})
 
 					shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
 					return nil
