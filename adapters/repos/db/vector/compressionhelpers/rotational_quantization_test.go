@@ -169,8 +169,8 @@ func TestRQDistancer(t *testing.T) {
 // satisfy their bounds exactly in all cases. This is especially the case when
 // using few bits, something this quantization scheme is not optimized for.
 func TestRQEstimationConcentrationBounds(t *testing.T) {
-	rng := newRNG(45123)
-	n := 100
+	rng := newRNG(1234)
+	n := 1000
 	queryBits := 8
 	for range n {
 		d := 2 + rng.IntN(1000)
@@ -181,6 +181,16 @@ func TestRQEstimationConcentrationBounds(t *testing.T) {
 		// For d = 256 the error for b bits is 2^(-b) * 0.36, so 0.18, 0.09,
 		// 0.045.. for b = 1, 2, 3,...
 		eps := math.Pow(2.0, -float64(dataBits)) * 5.75 / math.Sqrt(float64(d))
+
+		// With the optimizations we are adding, such as reducing the number of
+		// rotation rounds and removing randomized rounding from the encoding we
+		// are seeing a loss. We keep track of this loss as a factor that we
+		// have to increase eps by in order to pass this test. For the initial
+		// implementation this factor was 1.0. Note that a factor of 2
+		// corresponds to a loss of 1 bit compared to extended RabitQ. A factor
+		// of 4 corresponds to 2 bits and so on...
+		additionalErrorFactor := 1.25
+		eps *= additionalErrorFactor
 
 		q, x := correlatedVectors(d, alpha)
 		rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), dataBits, queryBits, distancer.NewDotProductProvider())

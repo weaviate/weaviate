@@ -54,7 +54,7 @@ func NewRotationalQuantizer(inputDim int, seed uint64, dataBits int, queryBits i
 		l2 = 1.0
 	}
 
-	rotationRounds := 5
+	rotationRounds := 3
 	rotation := NewFastRotation(inputDim, rotationRounds, seed)
 	rq := &RotationalQuantizer{
 		inputDim:  uint32(inputDim),
