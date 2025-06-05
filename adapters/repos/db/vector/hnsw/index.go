@@ -818,6 +818,14 @@ func (h *hnsw) normalizeVec(vec []float32) []float32 {
 	return vec
 }
 
+func (h *hnsw) normalizeVecInPlace(vec []float32) {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		// cosine-dot requires normalized vectors, as the dot product and cosine
+		// similarity are only identical if the vector is normalized
+		distancer.NormalizeInPlace(vec)
+	}
+}
+
 func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {
 	if h.distancerProvider.Type() == "cosine-dot" {
 		normalized := make([][]float32, len(vecs))
@@ -827,6 +835,14 @@ func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {
 		return normalized
 	}
 	return vecs
+}
+
+func (h *hnsw) normalizeVecsInPlace(vecs [][]float32) {
+	if h.distancerProvider.Type() == "cosine-dot" {
+		for _, vec := range vecs {
+			distancer.NormalizeInPlace(vec)
+		}
+	}
 }
 
 func IsHNSWIndex(index any) bool {

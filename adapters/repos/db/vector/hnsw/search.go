@@ -81,7 +81,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
-	vector = h.normalizeVec(vector)
+	h.normalizeVecInPlace(vector)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
@@ -99,7 +99,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
-	vectors = h.normalizeVecs(vectors)
+	h.normalizeVecsInPlace(vectors)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
@@ -607,7 +607,7 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 		// not a typed error, we can recover from, return with err
 		return 0, errors.Wrapf(err, "get vector of docID %d", nodeID)
 	}
-	vec = h.normalizeVec(vec)
+	h.normalizeVecInPlace(vec)
 	return concreteDistancer.DistanceToFloat(vec)
 }
 

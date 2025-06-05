@@ -30,3 +30,22 @@ func Normalize(v []float32) []float32 {
 
 	return out
 }
+
+func NormalizeInPlace(v []float32) {
+	var norm float32
+	for i := range v {
+		norm += v[i] * v[i]
+	}
+	if norm == 0 {
+		// Zero out the slice in place
+		for i := range v {
+			v[i] = 0
+		}
+		return
+	}
+
+	norm = float32(math.Sqrt(float64(norm)))
+	for i := range v {
+		v[i] = v[i] / norm
+	}
+}
