@@ -23,10 +23,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -147,6 +147,11 @@ func Test_Authorization(t *testing.T) {
 				modcapabilities.On("PutObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
 				modcapabilities.On("Initialize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
+
+				// AllBackups mock expectation for List method
+				if test.methodName == "List" {
+					modcapabilities.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{&dd}, nil)
+				}
 
 				nodeResolver.On("NodeCount").Return(1).Maybe()
 				nodeResolver.On("LeaderID").Return("node-0").Maybe()

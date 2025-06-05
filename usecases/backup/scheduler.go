@@ -313,8 +313,27 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
 	}(time.Now())
 
-	// TODO : wire it with newly implemented list backups
-	return nil, fmt.Errorf("not implemented")
+	backupBackend, err := s.backends.BackupBackend(backend)
+	if err != nil {
+		return nil, err
+	}
+
+	backups, err := backupBackend.AllBackups(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	response := make(models.BackupListResponse, len(backups))
+	for i, b := range backups {
+		status := string(b.Status)
+		response[i] = &models.BackupListResponseItems0{
+			ID:      b.ID,
+			Status:  status,
+			Classes: b.Classes(),
+		}
+	}
+
+	return &response, nil
 }
 
 func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, overridePath string) (coordStore, error) {
