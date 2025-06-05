@@ -473,6 +473,8 @@ func (r *multiTenantRouter) tenantExistsAndIsActive(tenantStatus map[string]stri
 	return true, nil
 }
 
+// deduplicate returns a new slice containing the unique elements of the input.
+// The order of elements is not preserved.
 func deduplicate(values []string) []string {
 	if len(values) <= 1 {
 		return values
