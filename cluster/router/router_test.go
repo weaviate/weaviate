@@ -1398,12 +1398,10 @@ func TestMultiTenantRouter_RoutingPlanConstruction_DirectCandidate(t *testing.T)
 			mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", testCase.tenant, testCase.replicas).
 				Return(testCase.replicas[:1], testCase.replicas[1:])
 
-			// Setup hostname resolution for all replicas
 			for _, replica := range testCase.replicas {
 				mockClusterReader.EXPECT().NodeHostname(replica).Return(replica+".example.com", true)
 			}
 
-			// Setup LocalName expectation if no direct candidate
 			if testCase.directCandidate == "" {
 				mockClusterReader.EXPECT().LocalName().Return("node1")
 			}
