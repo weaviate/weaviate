@@ -487,7 +487,7 @@ func (c *DBUser) restoreFromBytes(data []byte) error {
 	}
 
 	c.data = dynamicUsers
-	clear(c.memoryOnyData.WeakKeyStorageById)
+	clear(c.memoryOnlyData.WeakKeyStorageById)
 
 	return nil
 }
