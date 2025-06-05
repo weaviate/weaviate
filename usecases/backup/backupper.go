@@ -19,6 +19,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 
+	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/entities/backup"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -29,14 +30,14 @@ type backupper struct {
 	node           string
 	logger         logrus.FieldLogger
 	sourcer        Sourcer
-	rbacSourcer    SourcerNonClass
-	dynUserSourcer SourcerNonClass
+	rbacSourcer    fsm.Snapshotter
+	dynUserSourcer fsm.Snapshotter
 	backends       BackupBackendProvider
 	// shardCoordinationChan is sync and coordinate operations
 	shardSyncChan
 }
 
-func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, rbacSourcer SourcerNonClass, dynUserSourcer SourcerNonClass, backends BackupBackendProvider,
+func newBackupper(node string, logger logrus.FieldLogger, sourcer Sourcer, rbacSourcer fsm.Snapshotter, dynUserSourcer fsm.Snapshotter, backends BackupBackendProvider,
 ) *backupper {
 	return &backupper{
 		node:           node,

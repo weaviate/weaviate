@@ -141,6 +141,13 @@ func (r fakeRbacBackupWrapper) WriteBackupItems(context.Context, map[string][]by
 	return nil
 }
 
+func (r fakeRbacBackupWrapper) Snapshot()([]byte, error) {
+	return nil, nil
+}
+func (r fakeRbacBackupWrapper) Restore( []byte) error {
+	return nil
+}
+
 type fakeSchemaManager struct {
 	schema       schema.Schema
 	shardState   *sharding.State
