@@ -14,6 +14,8 @@ package db
 import (
 	"context"
 	"fmt"
+	replication2 "github.com/weaviate/weaviate/cluster/replication"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"math"
 	"runtime"
 	"sync"
@@ -156,8 +158,6 @@ func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
-	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader,
-	replicationFSM types.ReplicationFSMReader,
 ) (*DB, error) {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -182,9 +182,6 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor:          memMonitor,
 		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
 		reindexer:           NewShardReindexerV3Noop(),
-		nodeSelector:        nodeSelector,
-		schemaReader:        schemaReader,
-		replicationFSM:      replicationFSM,
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -418,4 +415,16 @@ func (db *DB) batchWorker(first bool) {
 func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB {
 	db.reindexer = reindexer
 	return db
+}
+
+func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
+	db.nodeSelector = nodeSelector
+}
+
+func (db *DB) SetSchemaReader(schemaReader clusterSchema.SchemaReader) {
+	db.schemaReader = schemaReader
+}
+
+func (db *DB) SetReplicationFSM(replicationFsm *replication2.ShardReplicationFSM) {
+	db.replicationFSM = replicationFsm
 }

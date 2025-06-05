@@ -18,10 +18,6 @@ import (
 	"testing"
 	"time"
 
-	types2 "github.com/weaviate/weaviate/cluster/replication/types"
-	"github.com/weaviate/weaviate/cluster/schema/types"
-	"github.com/weaviate/weaviate/usecases/cluster"
-
 	"github.com/weaviate/weaviate/entities/search"
 
 	"github.com/sirupsen/logrus"
@@ -48,7 +44,7 @@ func TestDeleteJourney(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(), cluster.NewMockNodeSelector(t), types.NewMockSchemaReader(t), types2.NewMockReplicationFSMReader(t))
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
