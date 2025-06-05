@@ -106,7 +106,7 @@ func (f *finderStream) readOne(ctx context.Context,
 			return
 		}
 
-		resultCh <- ObjResult{nil, errors.Wrap(err, ErrRead.Error())}
+		resultCh <- ObjResult{nil, errors.Wrap(err, ErrRepair.Error())}
 		var sb strings.Builder
 		for i, c := range votes {
 			if i != 0 {
