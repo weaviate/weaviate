@@ -81,7 +81,7 @@ func (h *hnsw) SearchByVector(ctx context.Context, vector []float32,
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
-	h.normalizeVecInPlace(vector)
+	vector = h.normalizeVec(vector)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)
@@ -99,7 +99,7 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
-	h.normalizeVecsInPlace(vectors)
+	vectors = h.normalizeVecs(vectors)
 	flatSearchCutoff := int(atomic.LoadInt64(&h.flatSearchCutoff))
 	if allowList != nil && !h.forbidFlat && allowList.Len() < flatSearchCutoff {
 		helpers.AnnotateSlowQueryLog(ctx, "hnsw_flat_search", true)

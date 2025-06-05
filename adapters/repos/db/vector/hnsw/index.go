@@ -837,14 +837,6 @@ func (h *hnsw) normalizeVecs(vecs [][]float32) [][]float32 {
 	return vecs
 }
 
-func (h *hnsw) normalizeVecsInPlace(vecs [][]float32) {
-	if h.distancerProvider.Type() == "cosine-dot" {
-		for _, vec := range vecs {
-			distancer.NormalizeInPlace(vec)
-		}
-	}
-}
-
 func IsHNSWIndex(index any) bool {
 	_, ok := index.(*hnsw)
 	return ok
