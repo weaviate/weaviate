@@ -425,6 +425,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		VisitedListPoolMaxSize:                       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		TenantActivityReadLogLevel:                   appState.ServerConfig.Config.TenantActivityReadLogLevel,
 		TenantActivityWriteLogLevel:                  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
+		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
+		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
+		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -1779,6 +1782,9 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
 		registered.TenantActivityWriteLogLevel = appState.ServerConfig.Config.TenantActivityWriteLogLevel
 		registered.RevectorizeCheckDisabled = appState.ServerConfig.Config.RevectorizeCheckDisabled
+		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
+		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
+		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,

@@ -142,6 +142,9 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		require.NotNil(t, details)
 		require.NotNil(t, details.Payload)
 		require.NotNil(t, details.Payload.ID)
+		require.False(t, details.Payload.ScheduledForCancel)
+		require.False(t, details.Payload.ScheduledForDelete)
+		require.False(t, details.Payload.Uncancelable)
 		require.Equal(t, id, *details.Payload.ID)
 	})
 
