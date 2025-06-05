@@ -273,7 +273,7 @@ Loop:
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
 	} else if u.rbacSourcer != nil {
-		descrp, err := u.rbacSourcer.GetDescriptors(ctx)
+		descrp, err := u.rbacSourcer.GetBackupItems(ctx)
 		if err != nil {
 			return err
 		}
@@ -283,7 +283,7 @@ Loop:
 	if err := ctx.Err(); err != nil {
 		return contextChecker(ctx)
 	} else if u.dynUserSourcer != nil {
-		descrp, err := u.dynUserSourcer.GetDescriptors(ctx)
+		descrp, err := u.dynUserSourcer.GetBackupItems(ctx)
 		if err != nil {
 			return err
 		}

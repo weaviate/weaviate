@@ -971,7 +971,14 @@ case $CONFIG in
         --write-timeout=600s
     ;;
   local-bigram)
-      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+ AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=false \
+      AUTHENTICATION_ANONYMOUS_ACCESS=false \
+      AUTHORIZATION_RBAC_ROOT_USERS=root,root-user,admin,admin-user,another-admin-user \
+      AUTHORIZATION_RBAC_ENABLED=true \
+      AUTHENTICATION_DB_USERS_ENABLED=true \
+      AUTHENTICATION_APIKEY_ENABLED=true \
+      AUTHENTICATION_APIKEY_ALLOWED_KEYS=root-user-key \
+      AUTHENTICATION_APIKEY_USERS=root-user \
       DEFAULT_VECTORIZER_MODULE=text2vec-bigram \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
       ENABLE_MODULES="text2vec-bigram,backup-filesystem" \
