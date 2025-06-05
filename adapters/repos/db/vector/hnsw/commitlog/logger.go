@@ -46,6 +46,9 @@ const (
 	AddPQ
 	AddSQ
 	AddMuvera
+	// Packed Connections
+	PackedConnsSetLinks
+	PackedConnsSetLinksAtLevel
 )
 
 func NewLogger(fileName string) *Logger {

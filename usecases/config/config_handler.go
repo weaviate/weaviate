@@ -346,13 +346,13 @@ const DefaultPersistenceLSMSegmentsCleanupIntervalSeconds = 0
 // are started for cyclemanager (factor * NUMCPU)
 const DefaultPersistenceLSMCycleManagerRoutinesFactor = 2
 
-const DefaultPersistenceHNSWMaxLogSize = 500 * 1024 * 1024 // 500MB for backward compatibility
+const DefaultPersistenceHNSWMaxLogSize = 100 * 1024 * 1024 // 500MB for backward compatibility
 
 const (
 	// minimal interval for new hnws snapshot to be created after last one
 	DefaultHNSWSnapshotIntervalSeconds                  = 6 * 3600 // 6h
 	DefaultHNSWSnapshotDisabled                         = true
-	DefaultHNSWSnapshotOnStartup                        = true
+	DefaultHNSWSnapshotOnStartup                        = false
 	DefaultHNSWSnapshotMinDeltaCommitlogsNumber         = 1
 	DefaultHNSWSnapshotMinDeltaCommitlogsSizePercentage = 5 // 5%
 )
