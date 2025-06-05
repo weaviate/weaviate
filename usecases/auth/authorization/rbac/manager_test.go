@@ -27,18 +27,18 @@ import (
 func TestSnapshotAndRestore(t *testing.T) {
 	tests := []struct {
 		name          string
-		setupPolicies func(*manager) error
+		setupPolicies func(*Manager) error
 		wantErr       bool
 	}{
 		{
 			name: "empty policies",
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				return nil
 			},
 		},
 		{
 			name: "with role and policy",
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				// Add a role and policy
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.SchemaDomain)
 				if err != nil {
@@ -50,7 +50,7 @@ func TestSnapshotAndRestore(t *testing.T) {
 		},
 		{
 			name: "multiple roles and policies",
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				// Add multiple roles and policies
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.READ, authorization.SchemaDomain)
 				if err != nil {
@@ -164,7 +164,7 @@ func equalPolicies(a, b []string) bool {
 
 func TestSnapshotNilCasbin(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	m := &manager{
+	m := &Manager{
 		casbin: nil,
 		logger: logger,
 	}
@@ -176,7 +176,7 @@ func TestSnapshotNilCasbin(t *testing.T) {
 
 func TestRestoreNilCasbin(t *testing.T) {
 	logger, _ := test.NewNullLogger()
-	m := &manager{
+	m := &Manager{
 		casbin: nil,
 		logger: logger,
 	}
