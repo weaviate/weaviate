@@ -61,6 +61,13 @@ func WithWalThreshold(threshold uint64) BucketOption {
 	}
 }
 
+func WithLazySegmentLoading(lazyLoading bool) BucketOption {
+	return func(b *Bucket) error {
+		b.lazySegmentLoading = lazyLoading
+		return nil
+	}
+}
+
 func WithDirtyThreshold(threshold time.Duration) BucketOption {
 	return func(b *Bucket) error {
 		b.flushDirtyAfter = threshold

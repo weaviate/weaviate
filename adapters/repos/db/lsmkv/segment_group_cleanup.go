@@ -204,13 +204,13 @@ func (c *segmentCleanerCommon) getSegmentIdsAndSizes() ([]int64, []int64, error)
 		sizes = make([]int64, count)
 
 		for i, seg := range segments {
-			idStr := segmentID(seg.path)
+			idStr := segmentID(seg.getPath())
 			id, err := strconv.ParseInt(idStr, 10, 64)
 			if err != nil {
 				return nil, nil, fmt.Errorf("parse segment id %q: %w", idStr, err)
 			}
 			ids[i] = id
-			sizes[i] = seg.size
+			sizes[i] = seg.getSize()
 		}
 	}
 
@@ -554,7 +554,7 @@ func (sg *SegmentGroup) makeKeyExistsOnUpperSegments(startIdx, lastIdx int) keyE
 			if i >= startIdx && i <= lastIdx {
 				j := i
 				updateI()
-				return segments[j]
+				return segments[j].getSegment()
 			}
 			return nil
 		}
