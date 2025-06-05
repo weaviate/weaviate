@@ -76,11 +76,7 @@ func TestRouterBuilder_Build_Success(t *testing.T) {
 			mockClusterReader := mocks.NewMockNodeSelector("node1", "node2")
 			mockSchemaGetter := schema.NewMockSchemaGetter(t)
 			mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-
-			var mockMetadataReader schemaTypes.SchemaReader
-			if !tt.partitioning {
-				mockMetadataReader = schemaTypes.NewMockSchemaReader(t)
-			}
+			mockMetadataReader := schemaTypes.NewMockSchemaReader(t)
 
 			builder := router.NewBuilder(
 				"TestClass",
