@@ -15,6 +15,7 @@ import (
 	"math"
 	"slices"
 	"sync"
+	"sync/atomic"
 
 	"github.com/weaviate/sroar"
 )
@@ -28,8 +29,7 @@ type BitmapBufPool interface {
 
 func cloneToBuf(pool BitmapBufPool, bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
 	buf, put := pool.Get(bm.LenInBytes())
-	cloned = bm.CloneToBuf(buf)
-	return cloned, put
+	return bm.CloneToBuf(buf), put
 }
 
 // -----------------------------------------------------------------------------
@@ -50,12 +50,12 @@ func (p *bitmapBufPoolNoop) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, 
 
 // -----------------------------------------------------------------------------
 
-type bitmapBufPoolBasic struct {
+type bitmapBufPoolVar struct {
 	pool *sync.Pool
 }
 
-func NewBitmapBufPoolBasic() *bitmapBufPoolBasic {
-	return &bitmapBufPoolBasic{
+func NewBitmapBufPoolVar() *bitmapBufPoolVar {
+	return &bitmapBufPoolVar{
 		pool: &sync.Pool{
 			New: func() any {
 				dummyBuf := make([]byte, 0)
@@ -65,7 +65,7 @@ func NewBitmapBufPoolBasic() *bitmapBufPoolBasic {
 	}
 }
 
-func (p *bitmapBufPoolBasic) Get(minCap int) (buf []byte, put func()) {
+func (p *bitmapBufPoolVar) Get(minCap int) (buf []byte, put func()) {
 	ptr := p.pool.Get().(*[]byte)
 	buf = *ptr
 	if cap(buf) < minCap {
@@ -78,15 +78,46 @@ func (p *bitmapBufPoolBasic) Get(minCap int) (buf []byte, put func()) {
 	return buf, func() { p.pool.Put(ptr) }
 }
 
-func (p *bitmapBufPoolBasic) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+func (p *bitmapBufPoolVar) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
 	return cloneToBuf(p, bm)
 }
 
 // -----------------------------------------------------------------------------
 
+type bitmapBufPoolFixed struct {
+	pool *sync.Pool
+}
+
+func NewBitmapBufPoolFixed(cap int) *bitmapBufPoolFixed {
+	return &bitmapBufPoolFixed{
+		pool: &sync.Pool{
+			New: func() any {
+				buf := make([]byte, 0, cap)
+				return &buf
+			},
+		},
+	}
+}
+
+func (p *bitmapBufPoolFixed) Get() (buf []byte, put func()) {
+	ptr := p.pool.Get().(*[]byte)
+	return *ptr, func() { p.pool.Put(ptr) }
+}
+
+func (p *bitmapBufPoolFixed) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	buf, put := p.Get()
+	if cap(buf) < bm.LenInBytes() {
+		panic("buffer too small to fit bitmap")
+	}
+	return bm.CloneToBuf(buf), put
+}
+
+// -----------------------------------------------------------------------------
+
 type bitmapBufPoolRanged struct {
-	ranges []int
-	pools  []*bitmapBufPoolBasic
+	ranges     []int
+	poolsFixed []*bitmapBufPoolFixed
+	poolVar    *bitmapBufPoolVar
 }
 
 // Creates multiple pools, one for specified range of sizes (given in bytes).
@@ -96,15 +127,15 @@ type bitmapBufPoolRanged struct {
 // Ranges <=0 or duplicated will be ignored.
 func NewBitmapBufPoolRanged(ranges ...int) *bitmapBufPoolRanged {
 	if ln := len(ranges); ln > 0 {
-		// cleanup ranges
-		m := map[int]struct{}{}
+		// cleanup ranges, keep unique and > 0
+		unique_gt0 := map[int]struct{}{}
 		for i := 0; i < ln; i++ {
 			if r := ranges[i]; r > 0 {
-				m[ranges[i]] = struct{}{}
+				unique_gt0[ranges[i]] = struct{}{}
 			}
 		}
 		i := 0
-		for r := range m {
+		for r := range unique_gt0 {
 			ranges[i] = r
 			i++
 		}
@@ -112,27 +143,26 @@ func NewBitmapBufPoolRanged(ranges ...int) *bitmapBufPoolRanged {
 		slices.Sort(ranges)
 	}
 
-	ln := len(ranges)
-	pools := make([]*bitmapBufPoolBasic, ln+1)
-	for i := 0; i < ln+1; i++ {
-		pools[i] = NewBitmapBufPoolBasic()
+	poolsFixed := make([]*bitmapBufPoolFixed, len(ranges))
+	for i := range poolsFixed {
+		poolsFixed[i] = NewBitmapBufPoolFixed(ranges[i])
 	}
+	poolVar := NewBitmapBufPoolVar()
 
 	return &bitmapBufPoolRanged{
-		ranges: ranges,
-		pools:  pools,
+		ranges:     ranges,
+		poolsFixed: poolsFixed,
+		poolVar:    poolVar,
 	}
 }
 
 func (p *bitmapBufPoolRanged) Get(minCap int) (buf []byte, put func()) {
-	i := 0
-	for ; i < len(p.ranges); i++ {
-		if minCap <= p.ranges[i] {
-			break
+	for i, rng := range p.ranges {
+		if minCap <= rng {
+			return p.poolsFixed[i].Get()
 		}
 	}
-	pool := p.pools[i]
-	return pool.Get(minCap)
+	return p.poolVar.Get(minCap)
 }
 
 func (p *bitmapBufPoolRanged) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
@@ -158,11 +188,38 @@ func (p *bitmapBufPoolFactorWrapper) Get(minCap int) (buf []byte, put func()) {
 
 func (p *bitmapBufPoolFactorWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
 	return cloneToBuf(p, bm)
+} // -----------------------------------------------------------------------------
+
+type BitmapBufPoolInUseCountingWrapper struct {
+	pool         BitmapBufPool
+	inUseCounter atomic.Int32
+}
+
+func NewBitmapBufPoolInUseCountingWrapper(pool BitmapBufPool) *BitmapBufPoolInUseCountingWrapper {
+	return &BitmapBufPoolInUseCountingWrapper{pool: pool}
+}
+
+func (p *BitmapBufPoolInUseCountingWrapper) Get(minCap int) (buf []byte, put func()) {
+	p.inUseCounter.Add(1)
+	bbuf, pput := p.pool.Get(minCap)
+	return bbuf, func() {
+		pput()
+		p.inUseCounter.Add(-1)
+	}
+}
+
+func (p *BitmapBufPoolInUseCountingWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap, put func()) {
+	return cloneToBuf(p, bm)
+}
+
+func (p *BitmapBufPoolInUseCountingWrapper) Counter() int32 {
+	return p.inUseCounter.Load()
 }
 
 // -----------------------------------------------------------------------------
 
 func NewBitmapBufPoolDefault() BitmapBufPool {
-	pool := NewBitmapBufPoolRanged(1_000, 10_000, 100_000, 1_000_000, 10_000_000)
-	return NewBitmapBufPoolFactorWrapper(pool, 1.1)
+	k := 1_000
+	M := k * k
+	return NewBitmapBufPoolRanged(1*k, 10*k, 100*k, 500*k, 1*M, 5*M, 10*M, 25*M, 50*M, 75*M, 100*M)
 }
