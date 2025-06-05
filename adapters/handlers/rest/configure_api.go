@@ -574,9 +574,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		os.Exit(1)
 	}
 
-	repo.SetNodeSelector(appState.ClusterService.Raft.NodeSelector())
+	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
-	repo.SetReplicationFSM(appState.ClusterService.Raft.ReplicationFsm())
+	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 
 	appState.SchemaManager = schemaManager
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)

@@ -13,8 +13,9 @@ package cluster
 
 import (
 	"context"
-	"github.com/weaviate/weaviate/cluster/replication"
 	"time"
+
+	"github.com/weaviate/weaviate/cluster/replication"
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
