@@ -79,7 +79,7 @@ const (
 
 // 500ms . 806ms .. 1.42s .... 2.65s ........ 5.1s ................10s
 func HnswCommitLoggerCycleIntervals() CycleIntervals {
-	return NewExpIntervals(hnswCommitLoggerMinInterval, hnswCommitLoggerMaxInterval,
+	return NewExpIntervals(hnswCommitLoggerMinInterval, hnswCommitLoggerMinInterval,
 		hnswCommitLoggerBase, hnswCommitLoggerSteps)
 }
 
