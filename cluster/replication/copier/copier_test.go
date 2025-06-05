@@ -15,6 +15,7 @@ import (
 	"bytes"
 	"io"
 	"os"
+	"path"
 	"path/filepath"
 	"testing"
 
@@ -53,6 +54,10 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 		createdFiles := []fileWithMetadata{}
 		for _, file := range files {
 			absolutePath := filepath.Join(basePath, file.relativeFilePath)
+
+			dir := path.Dir(absolutePath)
+			require.NoError(t, os.MkdirAll(dir, os.ModePerm))
+
 			require.NoError(t, os.WriteFile(absolutePath, file.fileContent, 0o644))
 			_, fileCrc32, err := integrity.CRC32(absolutePath)
 			require.NoError(t, err)
@@ -67,34 +72,45 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 	}
 	type testCase struct {
 		name              string
-		localFilesBefore  []fileWithMetadata
-		remoteFilesToSync []fileWithMetadata
+		localFilesBefore  func() []fileWithMetadata
+		remoteFilesToSync func() []fileWithMetadata
 	}
 	for _, tc := range []testCase{
 		{
 			name: "ensure unexpected local files are deleted",
-			localFilesBefore: createTestFiles(t, localTmpDir, []filesToCreateBeforeCopy{
-				{relativeFilePath: "file2", fileContent: []byte("bar")},
-			}),
-			remoteFilesToSync: createTestFiles(t, remoteTmpDir, []filesToCreateBeforeCopy{
-				{relativeFilePath: "file1", fileContent: []byte("foo")},
-			}),
+			localFilesBefore: func() []fileWithMetadata {
+				return createTestFiles(t, localTmpDir, []filesToCreateBeforeCopy{
+					{relativeFilePath: "collection/shard/file2", fileContent: []byte("bar")},
+				})
+			},
+			remoteFilesToSync: func() []fileWithMetadata {
+				return createTestFiles(t, remoteTmpDir, []filesToCreateBeforeCopy{
+					{relativeFilePath: "collection/shard/file1", fileContent: []byte("foo")},
+				})
+			},
 		},
 		{
 			name: "an existing local file with the same path as a remote file is overwritten",
-			localFilesBefore: createTestFiles(t, localTmpDir, []filesToCreateBeforeCopy{
-				{relativeFilePath: "file1", fileContent: []byte("bar")},
-			}),
-			remoteFilesToSync: createTestFiles(t, remoteTmpDir, []filesToCreateBeforeCopy{
-				{relativeFilePath: "file1", fileContent: []byte("foo")},
-			}),
+			localFilesBefore: func() []fileWithMetadata {
+				return createTestFiles(t, localTmpDir, []filesToCreateBeforeCopy{
+					{relativeFilePath: "collection/shard/file1", fileContent: []byte("bar")},
+				})
+			},
+			remoteFilesToSync: func() []fileWithMetadata {
+				return createTestFiles(t, remoteTmpDir, []filesToCreateBeforeCopy{
+					{relativeFilePath: "collection/shard/file1", fileContent: []byte("foo")},
+				})
+			},
 		},
 	} {
+		localFilesBefore := tc.localFilesBefore()
+		remoteFilesToSync := tc.remoteFilesToSync()
+
 		mockRemoteIndex := types.NewMockRemoteIndex(t)
 		mockRemoteIndex.EXPECT().PauseFileActivity(mock.Anything, "node1", "collection", "shard", uint64(0)).Return(nil)
 		mockRemoteIndex.EXPECT().ResumeFileActivity(mock.Anything, "node1", "collection", "shard").Return(nil)
 		remoteFileRelativePaths := []string{}
-		for _, remoteFilePath := range tc.remoteFilesToSync {
+		for _, remoteFilePath := range remoteFilesToSync {
 			fi, err := os.Stat(remoteFilePath.absoluteFilePath)
 			require.NoError(t, err)
 			_, fileCrc32, err := integrity.CRC32(remoteFilePath.absoluteFilePath)
@@ -129,7 +145,7 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 		require.NoError(t, err)
 
 		remoteFilesRelativePathLookup := map[string]struct{}{}
-		for _, remoteFile := range tc.remoteFilesToSync {
+		for _, remoteFile := range remoteFilesToSync {
 			newLocalFilePath := filepath.Join(localTmpDir, remoteFile.relativeFilePath)
 			_, err := os.Stat(newLocalFilePath)
 			require.NoError(t, err)
@@ -143,7 +159,7 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 		}
 
 		// verify that the unexpected local files from before were deleted
-		for _, localFile := range tc.localFilesBefore {
+		for _, localFile := range localFilesBefore {
 			// if the file exists on the remote, it should not be deleted
 			if _, ok := remoteFilesRelativePathLookup[localFile.relativeFilePath]; ok {
 				continue

@@ -21,6 +21,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -95,7 +96,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		time.Sleep(sleepTime)
 	}
 
-	err = c.prepareLocalFolder(relativeFilePaths)
+	err = c.prepareLocalFolder(collectionName, shardName, relativeFilePaths)
 	if err != nil {
 		return fmt.Errorf("failed to prepare local folder: %w", err)
 	}
@@ -114,7 +115,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		return fmt.Errorf("failed to sync files: %w", err)
 	}
 
-	err = c.validateLocalFolder(relativeFilePaths)
+	err = c.validateLocalFolder(collectionName, shardName, relativeFilePaths)
 	if err != nil {
 		return fmt.Errorf("failed to validate local folder: %w", err)
 	}
@@ -131,44 +132,27 @@ func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName s
 	return idx.LoadLocalShard(ctx, shardName)
 }
 
-func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
-	relativeFilePathsMap := make(map[string]struct{}, len(relativeFilePaths))
-	for _, path := range relativeFilePaths {
-		relativeFilePathsMap[path] = struct{}{}
-	}
-
-	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return fmt.Errorf("walking local folder: %w", err)
-		}
-
-		if d.IsDir() {
-			return nil
-		}
-
-		relativeFilePath := filepath.Join(c.rootDataPath, d.Name())
-
-		if _, ok := relativeFilePathsMap[relativeFilePath]; !ok {
-			err := os.Remove(relativeFilePath)
-			if err != nil {
-				return fmt.Errorf("removing local file %q not present in source node: %w", d.Name(), err)
-			}
-		}
-
-		return nil
-	})
-
-	return nil
+func (c *Copier) shardPath(collectionName, shardName string) string {
+	return path.Join(c.rootDataPath, strings.ToLower(collectionName), shardName)
 }
 
-func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
-	i := 0
+func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames []string) error {
+	fileNamesMap := make(map[string]struct{}, len(fileNames))
+	for _, fileName := range fileNames {
+		fileNamesMap[fileName] = struct{}{}
+	}
 
 	var dirs []string
 
-	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
+	// remove files that are not in the source node
+	basePath := c.shardPath(collectionName, shardName)
+
+	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return fmt.Errorf("walking local folder: %w", err)
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return fmt.Errorf("preparing local folder: %w", err)
 		}
 
 		if d.IsDir() {
@@ -176,20 +160,80 @@ func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
 			return nil
 		}
 
-		localRelFilePath := filepath.Join(c.rootDataPath, d.Name())
-
-		if relativeFilePaths[i] != localRelFilePath {
-			return fmt.Errorf("unexpected: local folder contains unexpected content")
+		localRelFilePath, err := filepath.Rel(c.rootDataPath, path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path: %w", err)
 		}
 
-		i++
-		// exit WalkDir early if we have more files in the local folder than expected
-		if len(relativeFilePaths) < i {
-			return fmt.Errorf("unexpected: local folder has more files than source node")
+		if _, ok := fileNamesMap[localRelFilePath]; !ok {
+			err := os.Remove(path)
+			if err != nil {
+				return fmt.Errorf("removing local file %q not present in source node: %w", path, err)
+			}
 		}
 
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("preparing local folder: %w", err)
+	}
+
+	sort.Slice(dirs, func(i, j int) bool {
+		return depth(dirs[i]) > depth(dirs[j])
+	})
+
+	for _, dir := range dirs {
+		isEmpty, err := diskio.IsDirEmpty(dir)
+		if err != nil {
+			return fmt.Errorf("checking if local folder is empty: %s: %w", dir, err)
+		}
+		if !isEmpty {
+			continue
+		}
+
+		err = os.Remove(dir)
+		if err != nil {
+			return fmt.Errorf("failed to remove empty local folder: %s: %w", dir, err)
+		}
+	}
+
+	return nil
+}
+
+func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames []string) error {
+	fileNamesMap := make(map[string]struct{}, len(fileNames))
+	for _, fileName := range fileNames {
+		fileNamesMap[fileName] = struct{}{}
+	}
+
+	var dirs []string
+
+	basePath := c.shardPath(collectionName, shardName)
+
+	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return fmt.Errorf("validating local folder: %w", err)
+		}
+
+		if d.IsDir() {
+			dirs = append(dirs, path)
+			return nil
+		}
+
+		localRelFilePath, err := filepath.Rel(c.rootDataPath, path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path: %w", err)
+		}
+
+		if _, ok := fileNamesMap[localRelFilePath]; !ok {
+			return fmt.Errorf("file %q not found in source node, but exists locally", localRelFilePath)
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("validating local folder: %w", err)
+	}
 
 	sort.Slice(dirs, func(i, j int) bool {
 		return depth(dirs[i]) > depth(dirs[j])
@@ -237,7 +281,7 @@ func (c *Copier) syncFile(ctx context.Context, sourceNodeHostname, collectionNam
 		return fmt.Errorf("create parent folder for %s: %w", relativeFilePath, err)
 	}
 
-	f, err := os.Create(finalLocalPath)
+	f, err := os.Create(finalLocalPath + ".tmp")
 	if err != nil {
 		return fmt.Errorf("open file %q for writing: %w", relativeFilePath, err)
 	}
@@ -253,13 +297,18 @@ func (c *Copier) syncFile(ctx context.Context, sourceNodeHostname, collectionNam
 		return fmt.Errorf("fsyncing file %q for writing: %w", relativeFilePath, err)
 	}
 
-	_, checksum, err = integrity.CRC32(finalLocalPath)
+	_, checksum, err = integrity.CRC32(finalLocalPath + ".tmp")
 	if err != nil {
 		return err
 	}
 
 	if checksum != md.CRC32 {
 		return fmt.Errorf("checksum validation of file %q failed", relativeFilePath)
+	}
+
+	err = os.Rename(finalLocalPath+".tmp", finalLocalPath)
+	if err != nil {
+		return fmt.Errorf("rename file %q to final location: %w", relativeFilePath, err)
 	}
 
 	return nil
