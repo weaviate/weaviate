@@ -41,17 +41,32 @@ func (s *segment) countNetPath() string {
 }
 
 func countNetPathFromSegmentPath(segPath string) string {
+	isTmpFile := false
+	if filepath.Ext(segPath) == ".tmp" {
+		isTmpFile = true
+	}
+
 	extless := strings.TrimSuffix(segPath, filepath.Ext(segPath))
-	return fmt.Sprintf("%s.cna", extless)
+	if isTmpFile { // remove second extension
+		extless = strings.TrimSuffix(extless, filepath.Ext(extless))
+	}
+
+	cnaPath := fmt.Sprintf("%s.cna", extless)
+	if isTmpFile {
+		cnaPath = fmt.Sprintf("%s.tmp", cnaPath)
+	}
+
+	return cnaPath
 }
 
-func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool) error {
+func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNA bool, precomputedCNAValue int) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
 		return nil
 	}
 
 	path := s.countNetPath()
+	s.metaPaths = append(s.metaPaths, path)
 
 	ok, err := fileExists(path)
 	if err != nil {
@@ -79,32 +94,36 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 		}
 	}
 
-	var lastErr error
-	countNet := 0
-	cb := func(key []byte, tombstone bool) {
-		existedOnPrior, err := exists(key)
-		if err != nil {
-			lastErr = err
+	if precomputedCNA {
+		s.countNetAdditions = precomputedCNAValue
+	} else {
+		var lastErr error
+		countNet := 0
+		cb := func(key []byte, tombstone bool) {
+			existedOnPrior, err := exists(key)
+			if err != nil {
+				lastErr = err
+			}
+
+			if tombstone && existedOnPrior {
+				countNet--
+			}
+
+			if !tombstone && !existedOnPrior {
+				countNet++
+			}
 		}
 
-		if tombstone && existedOnPrior {
-			countNet--
+		extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
+			s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
+
+		extr.do()
+
+		s.countNetAdditions = countNet
+
+		if lastErr != nil {
+			return lastErr
 		}
-
-		if !tombstone && !existedOnPrior {
-			countNet++
-		}
-	}
-
-	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
-		s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
-
-	extr.do()
-
-	s.countNetAdditions = countNet
-
-	if lastErr != nil {
-		return lastErr
 	}
 
 	if err := s.storeCountNetOnDisk(); err != nil {
