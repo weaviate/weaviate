@@ -72,6 +72,12 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 		}, 60*time.Second, 100*time.Millisecond, "replica should be present in the destination node")
 	})
 
+	t.Run("verify uncancelable state when getting details", func(t *testing.T) {
+		details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
+		require.Nil(t, err)
+		require.True(t, details.Payload.Uncancelable)
+	})
+
 	t.Run("fail to cancel replication operation due to operation being uncancellable", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.CancelReplication(replication.NewCancelReplicationParams().WithID(id), nil)
 		require.NotNil(t, err)
