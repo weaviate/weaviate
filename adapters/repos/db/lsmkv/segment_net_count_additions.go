@@ -59,7 +59,7 @@ func countNetPathFromSegmentPath(segPath string) string {
 	return cnaPath
 }
 
-func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNA int) error {
+func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNA bool, precomputedCNAValue int) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
 		return nil
@@ -94,8 +94,8 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 		}
 	}
 
-	if precomputedCNA > 0 {
-		s.countNetAdditions = precomputedCNA
+	if precomputedCNA {
+		s.countNetAdditions = precomputedCNAValue
 	} else {
 		var lastErr error
 		countNet := 0

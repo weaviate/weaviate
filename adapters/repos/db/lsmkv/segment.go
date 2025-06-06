@@ -97,6 +97,7 @@ type segmentConfig struct {
 	enableChecksumValidation     bool
 	MinMMapSize                  int64
 	allocChecker                 memwatch.AllocChecker
+	netCountAdditionsPrecomputed bool
 	precomputedCountNetAdditions int
 }
 
@@ -272,7 +273,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputedCountNetAdditions); err != nil {
+		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.netCountAdditionsPrecomputed, cfg.precomputedCountNetAdditions); err != nil {
 			return nil, err
 		}
 	}

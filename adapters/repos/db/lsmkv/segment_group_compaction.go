@@ -393,6 +393,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 			MinMMapSize:                  sg.MinMMapSize,
 			allocChecker:                 sg.allocChecker,
 			precomputedCountNetAdditions: updatedCountNetAdditions,
+			netCountAdditionsPrecomputed: true,
 		})
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
