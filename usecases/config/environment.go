@@ -172,6 +172,10 @@ func FromEnv(config *Config) error {
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
 			config.Authentication.OIDC.GroupsClaim = v
 		}
+
+		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
+			config.Authentication.OIDC.Certificate = v
+		}
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
