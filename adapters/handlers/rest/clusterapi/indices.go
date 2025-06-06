@@ -124,8 +124,8 @@ const (
 		`\/shards\/(` + sh + `)\/background:resume`
 	urlPatternListFiles = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/background:list`
-	urlPatternSetAsyncReplicationTargetNode = `\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/set-async-replication-target-node`
+	urlPatternAsyncReplicationTargetNode = `\/indices\/(` + cl + `)` +
+		`\/shards\/(` + sh + `)\/async-replication-target-node`
 )
 
 type shards interface {
@@ -224,7 +224,7 @@ func NewIndices(shards shards, db db, auth auth, maintenanceModeEnabled func() b
 		regexpPauseFileActivity:          regexp.MustCompile(urlPatternPauseFileActivity),
 		regexpResumeFileActivity:         regexp.MustCompile(urlPatternResumeFileActivity),
 		regexpListFiles:                  regexp.MustCompile(urlPatternListFiles),
-		regexpAsyncReplicationTargetNode: regexp.MustCompile(urlPatternSetAsyncReplicationTargetNode),
+		regexpAsyncReplicationTargetNode: regexp.MustCompile(urlPatternAsyncReplicationTargetNode),
 		shards:                           shards,
 		db:                               db,
 		auth:                             auth,
@@ -414,7 +414,7 @@ func (i *indices) indicesHandler() http.HandlerFunc {
 			return
 		case i.regexpAsyncReplicationTargetNode.MatchString(path):
 			if r.Method == http.MethodPost {
-				i.postSetAsyncReplicationTargetNode().ServeHTTP(w, r)
+				i.postAddAsyncReplicationTargetNode().ServeHTTP(w, r)
 				return
 			}
 			if r.Method == http.MethodDelete {
@@ -1617,7 +1617,7 @@ func (i *indices) postListFiles() http.Handler {
 	})
 }
 
-func (i *indices) postSetAsyncReplicationTargetNode() http.Handler {
+func (i *indices) postAddAsyncReplicationTargetNode() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		args := i.regexpAsyncReplicationTargetNode.FindStringSubmatch(r.URL.Path)
 		if len(args) != 3 {
