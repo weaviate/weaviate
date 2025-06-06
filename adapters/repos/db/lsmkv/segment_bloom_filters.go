@@ -56,6 +56,7 @@ func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
 
 func (s *segment) initBloomFilter(overwrite bool) error {
 	path := s.bloomFilterPath()
+	s.metaPaths = append(s.metaPaths, path)
 
 	ok, err := fileExists(path)
 	if err != nil {
@@ -200,6 +201,7 @@ func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool) error {
 	before := time.Now()
 
 	path := s.bloomFilterSecondaryPath(pos)
+	s.metaPaths = append(s.metaPaths, path)
 
 	ok, err := fileExists(path)
 	if err != nil {

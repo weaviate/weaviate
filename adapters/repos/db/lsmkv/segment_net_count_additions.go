@@ -52,6 +52,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 	}
 
 	path := s.countNetPath()
+	s.metaPaths = append(s.metaPaths, path)
 
 	ok, err := fileExists(path)
 	if err != nil {
