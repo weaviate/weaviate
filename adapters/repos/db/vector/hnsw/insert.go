@@ -104,6 +104,25 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return err
 	}
 
+	if h.rqConfig.Enabled {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.NewRQCompressor(
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.allocChecker, int(h.rqConfig.DataBits), int(h.rqConfig.QueryBits), int(h.dims))
+
+			if err == nil {
+				h.compressed.Store(true)
+				h.doNotRescore = !h.rqConfig.Rescore
+				h.cache.Drop()
+				h.cache = nil
+				h.compressor.PersistCompression(h.commitLog)
+			}
+		})
+		if err != nil {
+			return err
+		}
+	}
+
 	levels := make([]int, len(ids))
 	maxId := uint64(0)
 	for i, id := range ids {
@@ -212,6 +231,27 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		}
 	})
 
+	if err != nil {
+		return err
+	}
+	if h.rqConfig.Enabled {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.allocChecker, int(h.rqConfig.DataBits), int(h.rqConfig.QueryBits), int(h.dims))
+
+			if err == nil {
+				h.compressed.Store(true)
+				h.doNotRescore = !h.rqConfig.Rescore
+				h.cache.Drop()
+				h.cache = nil
+				h.compressor.PersistCompression(h.commitLog)
+			}
+		})
+		if err != nil {
+			return err
+		}
+	}
 	if err != nil {
 		return err
 	}
