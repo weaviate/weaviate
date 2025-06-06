@@ -42,7 +42,7 @@ import (
 )
 
 const (
-	asyncReplicationTargetNodeEndpointPattern = "/indices/%s/shards/%s/set-async-replication-target-node"
+	asyncReplicationTargetNodeEndpointPattern = "/indices/%s/shards/%s/async-replication-target-node"
 )
 
 func AsyncReplicationTargetNodeEndpoint(indexName, shardName string) string {
