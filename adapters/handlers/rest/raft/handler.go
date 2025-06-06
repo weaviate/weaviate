@@ -156,7 +156,7 @@ func (h RaftHandler) StoreSchemaV1(w http.ResponseWriter, r *http.Request) {
 
 // ClusterRouter returns a *mux.Router that will requests starting with "/v1/cluster".
 // The schemaHandler is kept in memory internally to forward request to once parsed.
-func ClusterRouter(schemaHandler schema.Handler) *http.ServeMux {
+func ClusterRouter(schemaHandler schema.Handler, usageHandler http.Handler) *http.ServeMux {
 	raftHandler := RaftHandler{schemaHandler: schemaHandler}
 	r := http.NewServeMux()
 
@@ -164,6 +164,7 @@ func ClusterRouter(schemaHandler schema.Handler) *http.ServeMux {
 	r.HandleFunc(root+"/join", raftHandler.JoinNode)
 	r.HandleFunc(root+"/remove", raftHandler.RemoveNode)
 	r.HandleFunc(root+"/schema-v1", raftHandler.StoreSchemaV1)
+	r.Handle(root+"/usage", usageHandler)
 
 	return r
 }
