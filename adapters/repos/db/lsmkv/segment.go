@@ -149,6 +149,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
+	useBloomFilter := cfg.useBloomFilter
 	readFromMemory := cfg.mmapContents
 	if size > cfg.MinMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
@@ -166,6 +167,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 		unMapContents = false
 		readFromMemory = true
+		useBloomFilter = false
 	}
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
@@ -234,7 +236,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		metrics:               metrics,
 		size:                  size,
 		readFromMemory:        readFromMemory,
-		useBloomFilter:        cfg.useBloomFilter,
+		useBloomFilter:        useBloomFilter,
 		calcCountNetAdditions: cfg.calcCountNetAdditions,
 		invertedHeader:        invertedHeader,
 		invertedData: &segmentInvertedData{
