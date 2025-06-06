@@ -55,7 +55,6 @@ require (
 	github.com/launchdarkly/go-server-sdk/v7 v7.8.0
 	github.com/minio/minio-go/v7 v7.0.91
 	github.com/nyaruka/phonenumbers v1.0.54
-	github.com/oauth2-proxy/mockoidc v0.0.0-20240214162133-caebfff84d25
 	github.com/pbnjay/memory v0.0.0-20210728143218-7b4eea64cf58
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.20.5
@@ -71,6 +70,7 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/weaviate/contextionary v1.2.1
 	github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa
+	github.com/weaviate/mockoidc v0.0.0-20250611114324-56bff60d94c2
 	github.com/weaviate/s5cmd/v2 v2.0.1
 	github.com/weaviate/sroar v0.0.9
 	github.com/weaviate/tiktoken-go v0.0.2
@@ -141,7 +141,7 @@ require (
 	github.com/envoyproxy/protoc-gen-validate v1.2.1 // indirect
 	github.com/fatih/color v1.17.0 // indirect
 	github.com/go-ini/ini v1.67.0 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.1 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
 	github.com/go-logr/logr v1.4.2 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
 	github.com/go-ole/go-ole v1.3.0 // indirect
