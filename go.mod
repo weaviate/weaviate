@@ -79,7 +79,7 @@ require (
 	github.com/vmihailenco/msgpack/v5 v5.4.1
 	github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa
 	github.com/weaviate/s5cmd/v2 v2.0.1
-	github.com/weaviate/sroar v0.0.9
+	github.com/weaviate/sroar v0.0.10-0.20250606122007-5037f645dabe
 	github.com/weaviate/tiktoken-go v0.0.2
 	golang.org/x/exp v0.0.0-20240808152545-0cdaa3abc0fa
 	golang.org/x/text v0.24.0
