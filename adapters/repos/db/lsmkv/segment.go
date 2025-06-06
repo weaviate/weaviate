@@ -90,14 +90,14 @@ type diskIndex interface {
 }
 
 type segmentConfig struct {
-	mmapContents                bool
-	useBloomFilter              bool
-	calcCountNetAdditions       bool
-	overwriteDerived            bool
-	enableChecksumValidation    bool
-	MinMMapSize                 int64
-	allocChecker                memwatch.AllocChecker
-	precomputeCountNetAdditions int
+	mmapContents                 bool
+	useBloomFilter               bool
+	calcCountNetAdditions        bool
+	overwriteDerived             bool
+	enableChecksumValidation     bool
+	MinMMapSize                  int64
+	allocChecker                 memwatch.AllocChecker
+	precomputedCountNetAdditions int
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -272,7 +272,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputeCountNetAdditions); err != nil {
+		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputedCountNetAdditions); err != nil {
 			return nil, err
 		}
 	}

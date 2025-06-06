@@ -29,13 +29,39 @@ import (
 )
 
 func (s *segment) bloomFilterPath() string {
+	isTmpFile := false
+	if filepath.Ext(s.path) == ".tmp" {
+		isTmpFile = true
+	}
+
 	extless := strings.TrimSuffix(s.path, filepath.Ext(s.path))
-	return fmt.Sprintf("%s.bloom", extless)
+	if isTmpFile { // remove second extension
+		extless = strings.TrimSuffix(extless, filepath.Ext(extless))
+	}
+
+	bloomPath := fmt.Sprintf("%s.bloom", extless)
+	if isTmpFile {
+		bloomPath = fmt.Sprintf("%s.tmp", bloomPath)
+	}
+	return bloomPath
 }
 
 func (s *segment) bloomFilterSecondaryPath(pos int) string {
+	isTmpFile := false
+	if filepath.Ext(s.path) == ".tmp" {
+		isTmpFile = true
+	}
+
 	extless := strings.TrimSuffix(s.path, filepath.Ext(s.path))
-	return fmt.Sprintf("%s.secondary.%d.bloom", extless, pos)
+	if isTmpFile { // remove second extension
+		extless = strings.TrimSuffix(extless, filepath.Ext(extless))
+	}
+
+	bloomPath := fmt.Sprintf("%s.secondary.%d.bloom", extless, pos)
+	if isTmpFile {
+		bloomPath = fmt.Sprintf("%s.tmp", bloomPath)
+	}
+	return bloomPath
 }
 
 func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {

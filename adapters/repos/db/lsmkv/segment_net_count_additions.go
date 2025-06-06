@@ -41,8 +41,22 @@ func (s *segment) countNetPath() string {
 }
 
 func countNetPathFromSegmentPath(segPath string) string {
+	isTmpFile := false
+	if filepath.Ext(segPath) == ".tmp" {
+		isTmpFile = true
+	}
+
 	extless := strings.TrimSuffix(segPath, filepath.Ext(segPath))
-	return fmt.Sprintf("%s.cna", extless)
+	if isTmpFile { // remove second extension
+		extless = strings.TrimSuffix(extless, filepath.Ext(extless))
+	}
+
+	cnaPath := fmt.Sprintf("%s.cna", extless)
+	if isTmpFile {
+		cnaPath = fmt.Sprintf("%s.tmp", cnaPath)
+	}
+
+	return cnaPath
 }
 
 func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNA int) error {

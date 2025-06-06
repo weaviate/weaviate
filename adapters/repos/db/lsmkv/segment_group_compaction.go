@@ -385,14 +385,14 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 
 	seg, err := newSegment(newPathTmp, sg.logger, sg.metrics, nil,
 		segmentConfig{
-			mmapContents:                sg.mmapContents,
-			useBloomFilter:              sg.useBloomFilter,
-			calcCountNetAdditions:       sg.calcCountNetAdditions,
-			overwriteDerived:            true,
-			enableChecksumValidation:    sg.enableChecksumValidation,
-			MinMMapSize:                 sg.MinMMapSize,
-			allocChecker:                sg.allocChecker,
-			precomputeCountNetAdditions: updatedCountNetAdditions,
+			mmapContents:                 sg.mmapContents,
+			useBloomFilter:               sg.useBloomFilter,
+			calcCountNetAdditions:        sg.calcCountNetAdditions,
+			overwriteDerived:             true,
+			enableChecksumValidation:     sg.enableChecksumValidation,
+			MinMMapSize:                  sg.MinMMapSize,
+			allocChecker:                 sg.allocChecker,
+			precomputedCountNetAdditions: updatedCountNetAdditions,
 		})
 	if err != nil {
 		return errors.Wrap(err, "create new segment")
