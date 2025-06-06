@@ -129,28 +129,6 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 	return vc
 }
 
-func NewShardedRQCodeLockCache(vecForID common.VectorForID[byte], maxSize int, pageSize uint64,
-	logger logrus.FieldLogger, deletionInterval time.Duration,
-	allocChecker memwatch.AllocChecker,
-) Cache[byte] {
-	vc := &shardedLockCache[byte]{
-		vectorForID:      vecForID,
-		cache:            make([][]byte, InitialSize),
-		normalizeOnRead:  false,
-		count:            0,
-		maxSize:          int64(maxSize),
-		cancel:           make(chan bool),
-		logger:           logger,
-		shardedLocks:     common.NewShardedRWLocksWithPageSize(pageSize),
-		maintenanceLock:  sync.RWMutex{},
-		deletionInterval: deletionInterval,
-		allocChecker:     allocChecker,
-	}
-
-	vc.watchForDeletion()
-	return vc
-}
-
 func (s *shardedLockCache[T]) All() [][]T {
 	return s.cache
 }

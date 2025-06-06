@@ -109,6 +109,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 			h.compressor, err = compressionhelpers.NewRQCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
 				h.allocChecker, int(h.rqConfig.DataBits), int(h.rqConfig.QueryBits), int(h.dims))
+
 			if err == nil {
 				h.compressed.Store(true)
 				h.doNotRescore = !h.rqConfig.Rescore
@@ -233,12 +234,24 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	if err != nil {
 		return err
 	}
+	if h.rqConfig.Enabled {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.allocChecker, int(h.rqConfig.DataBits), int(h.rqConfig.QueryBits), int(h.dims))
 
-	h.trackRQOnce.Do(func() {
-		if h.rqConfig.Enabled {
-			panic("RQ Compressor for multi vector not implemented")
+			if err == nil {
+				h.compressed.Store(true)
+				h.doNotRescore = !h.rqConfig.Rescore
+				h.cache.Drop()
+				h.cache = nil
+				h.compressor.PersistCompression(h.commitLog)
+			}
+		})
+		if err != nil {
+			return err
 		}
-	})
+	}
 	if err != nil {
 		return err
 	}
