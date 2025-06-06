@@ -39,9 +39,9 @@ func New() *BigramModule {
 type BigramModule struct {
 	vectors                      map[string][]float32
 	storageProvider              moduletools.StorageProvider
-	graphqlProvider              modulecapabilities.GraphQLArguments
+	GraphqlProvider              modulecapabilities.GraphQLArguments
 	Searcher                     modulecapabilities.Searcher[[]float32]
-	nearTextTransformer          modulecapabilities.TextTransform
+	NearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	AdditionalPropertiesProvider modulecapabilities.AdditionalProperties
 	activeVectoriser             string
@@ -62,7 +62,6 @@ func (m *BigramModule) Type() modulecapabilities.ModuleType {
 func (m *BigramModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	m.storageProvider = params.GetStorageProvider()
 	m.logger = params.GetLogger()
-	m.graphqlProvider = nearText.New(m.nearTextTransformer)
 
 	switch strings.ToLower(os.Getenv("BIGRAM")) {
 	case "alphabet":
