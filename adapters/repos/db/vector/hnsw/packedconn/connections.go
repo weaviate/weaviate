@@ -62,6 +62,14 @@ func (c *Connections) GrowLayersTo(newLayers uint8) {
 	c.maxLayer = newLayers
 }
 
+func (c *Connections) ReplaceLayerWithBuffer(layer uint8, conns []uint64, buff []byte) {
+	if layer == 0 {
+		c.layerZero.InitWithBuff(conns, buff)
+	} else {
+		c.topLayers[layer-1] = conns
+	}
+}
+
 func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
 	if layer == 0 {
 		c.layerZero.Init(conns)

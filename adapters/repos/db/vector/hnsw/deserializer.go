@@ -29,6 +29,7 @@ type Deserializer struct {
 	logger                   logrus.FieldLogger
 	reusableBuffer           []byte
 	reusableConnectionsSlice []uint64
+	connectionsBuff          []byte
 }
 
 type DeserializationResult struct {
@@ -66,7 +67,10 @@ func (dr DeserializationResult) ReplaceLinks(node uint64, level uint16) bool {
 }
 
 func NewDeserializer(logger logrus.FieldLogger) *Deserializer {
-	return &Deserializer{logger: logger}
+	return &Deserializer{
+		logger:          logger,
+		connectionsBuff: make([]byte, 0, 1024),
+	}
 }
 
 func (d *Deserializer) resetResusableBuffer(size int) {
@@ -319,7 +323,7 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	} else {
 		res.Nodes[source].connections.GrowLayersTo(uint8(level))
 	}
-	res.Nodes[source].connections.ReplaceLayer(uint8(level), targets)
+	res.Nodes[source].connections.ReplaceLayerWithBuffer(uint8(level), targets, d.connectionsBuff)
 
 	if keepReplaceInfo {
 		// mark the replace flag for this node and level, so that new commit logs

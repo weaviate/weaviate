@@ -33,6 +33,14 @@ func (encoder *PrefixEncoder) Len() int {
 	return int(encoder.elementCount)
 }
 
+func (encoder *PrefixEncoder) InitWithBuff(values []uint64, buff []byte) {
+	encoder.buffer = buff[:0]
+	encoder.Init(values)
+	temp := encoder.buffer
+	encoder.buffer = make([]byte, len(temp))
+	copy(encoder.buffer, temp)
+}
+
 func (encoder *PrefixEncoder) Init(values []uint64) {
 	if len(values) == 0 {
 		encoder.buffer = make([]byte, 0, 16)
