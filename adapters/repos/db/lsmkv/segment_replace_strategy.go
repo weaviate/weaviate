@@ -22,6 +22,9 @@ import (
 )
 
 func (s *segment) get(key []byte) ([]byte, error) {
+	if s == nil {
+		return nil, errors.New("nil pointer")
+	}
 	if s.strategy != segmentindex.StrategyReplace {
 		return nil, fmt.Errorf("get only possible for strategy %q", StrategyReplace)
 	}
