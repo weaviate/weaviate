@@ -2711,6 +2711,7 @@
             "Or",
             "Equal",
             "Like",
+            "NotLike",
             "NotEqual",
             "GreaterThan",
             "GreaterThanEqual",
