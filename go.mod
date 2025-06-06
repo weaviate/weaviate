@@ -67,7 +67,7 @@ require (
 	github.com/weaviate/fgprof v0.0.0-20241024091527-0000bf3ee8aa
 	github.com/weaviate/mockoidc v0.0.0-20250611114324-56bff60d94c2
 	github.com/weaviate/s5cmd/v2 v2.0.1
-	github.com/weaviate/sroar v0.0.9
+	github.com/weaviate/sroar v0.0.11-0.20250704113108-401fcb84b76f
 	github.com/weaviate/tiktoken-go v0.0.2
 	go.etcd.io/bbolt v1.3.11
 	golang.org/x/net v0.39.0
