@@ -47,6 +47,10 @@ type BigramModule struct {
 	activeVectoriser             string
 }
 
+func (m *BigramModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+	return map[string]modulecapabilities.GraphQLArgument{}
+}
+
 func (m *BigramModule) Name() string {
 	return Name
 }
@@ -242,6 +246,13 @@ func (m *BigramModule) VectorFromParams(ctx context.Context, params interface{},
 	}
 }
 
+func (m *BigramModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
+
+	vectorSearches["nearText"] = &vectorForParams{m.VectorFromParams}
+	return vectorSearches
+}
+
 func (m *BigramModule) Texts(ctx context.Context, inputs []string, cfg moduletools.ClassConfig) ([]float32, error) {
 	var vectors [][]float32
 	for _, input := range inputs {
@@ -277,7 +288,6 @@ var (
 	_ = modulecapabilities.Vectorizer[[]float32](New())
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher[[]float32](New())
-	_ = modulecapabilities.GraphQLArguments(New())
 )
 
 func (m *BigramModule) ClassConfigDefaults() map[string]interface{} {

@@ -85,6 +85,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		if err != nil {
 			return nil, fmt.Errorf("read file: %w", err)
 		}
+		useBloomFilter = false // we don't read bloom filters if we are below the MMAP threshold so there is no point in precomputing them
 	}
 
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
