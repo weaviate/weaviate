@@ -110,11 +110,14 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 	}
 
 	return &models.ReplicationReplicateDetailsReplicaResponse{
-		Collection:   &response.Collection,
-		ID:           &response.Uuid,
-		ShardID:      &response.ShardId,
-		SourceNodeID: &response.SourceNodeId,
-		TargetNodeID: &response.TargetNodeId,
+		Collection:         &response.Collection,
+		ID:                 &response.Uuid,
+		ShardID:            &response.ShardId,
+		SourceNodeID:       &response.SourceNodeId,
+		TargetNodeID:       &response.TargetNodeId,
+		Uncancelable:       response.Uncancelable,
+		ScheduledForCancel: response.ScheduledForCancel,
+		ScheduledForDelete: response.ScheduledForDelete,
 		Status: &models.ReplicationReplicateDetailsReplicaStatus{
 			State:  response.Status.State,
 			Errors: response.Status.Errors,
