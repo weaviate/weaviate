@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer
+package vectorizer_test
 
 import (
 	"context"
