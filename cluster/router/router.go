@@ -124,7 +124,7 @@ type Router interface {
 // either a multi-tenant router or a single tenant router. The multi-tenant router will use the tenant name as the
 // partitioning key to identify a specific tenant's partitioning.
 type RouterBuilder struct {
-	className            string
+	collection           string
 	partitioningEnabled  bool
 	clusterStateReader   cluster.NodeSelector
 	schemaGetter         schema.SchemaGetter
@@ -135,7 +135,7 @@ type RouterBuilder struct {
 // NewBuilder creates a new RouterBuilder with the provided configuration.
 //
 // Parameters:
-//   - className: the name of the collection/class that this router will handle.
+//   - collection: the name of the collection that this router will handle.
 //   - partitioningEnabled: true for multi-tenant mode, false for single-tenant mode.
 //   - clusterStateReader: provides cluster node state information and hostnames.
 //   - schemaGetter: provides collection schemas, sharding states, and tenant information.
@@ -145,7 +145,7 @@ type RouterBuilder struct {
 // Returns:
 //   - *RouterBuilder: a new builder instance ready to build the appropriate router.
 func NewBuilder(
-	className string,
+	collection string,
 	partitioningEnabled bool,
 	clusterStateReader cluster.NodeSelector,
 	schemaGetter schema.SchemaGetter,
@@ -153,7 +153,7 @@ func NewBuilder(
 	replicationFSMReader replicationTypes.ReplicationFSMReader,
 ) *RouterBuilder {
 	return &RouterBuilder{
-		className:            className,
+		collection:           collection,
 		partitioningEnabled:  partitioningEnabled,
 		clusterStateReader:   clusterStateReader,
 		schemaGetter:         schemaGetter,
@@ -170,7 +170,7 @@ func NewBuilder(
 func (b *RouterBuilder) Build() (Router, error) {
 	if b.partitioningEnabled {
 		return &multiTenantRouter{
-			className:            b.className,
+			collection:           b.collection,
 			schemaGetter:         b.schemaGetter,
 			metadataReader:       b.metadataReader,
 			replicationFSMReader: b.replicationFSMReader,
@@ -179,7 +179,7 @@ func (b *RouterBuilder) Build() (Router, error) {
 	}
 
 	return &singleTenantRouter{
-		className:            b.className,
+		collection:           b.collection,
 		schemaGetter:         b.schemaGetter,
 		metadataReader:       b.metadataReader,
 		replicationFSMReader: b.replicationFSMReader,
@@ -192,7 +192,7 @@ func (b *RouterBuilder) Build() (Router, error) {
 // the tenant name as the partitioning key. Each tenant effectively becomes its own shard.
 // Exported to allow direct instantiation and type assertions when concrete type access is needed.
 type multiTenantRouter struct {
-	className            string
+	collection           string
 	schemaGetter         schema.SchemaGetter
 	metadataReader       schemaTypes.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
@@ -204,7 +204,7 @@ type multiTenantRouter struct {
 // tenant-based partitioning. All data belongs to a single logical tenant.
 // Exported to allow direct instantiation and type assertions when concrete type access is needed.
 type singleTenantRouter struct {
-	className            string
+	collection           string
 	schemaGetter         schema.SchemaGetter
 	metadataReader       schemaTypes.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
