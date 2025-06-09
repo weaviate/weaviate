@@ -125,7 +125,7 @@ const (
 	urlPatternListFiles = `\/indices\/(` + cl + `)` +
 		`\/shards\/(` + sh + `)\/background:list`
 	urlPatternSetAsyncReplicationTargetNode = `\/indices\/(` + cl + `)` +
-		`\/shards\/(` + sh + `)\/set-async-replication-target-node`
+		`\/shards\/(` + sh + `)\/async-replication-target-node`
 )
 
 type shards interface {
