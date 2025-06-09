@@ -241,11 +241,23 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 				h.allocChecker, int(h.rqConfig.DataBits), int(h.rqConfig.QueryBits), int(h.dims))
 
 			if err == nil {
+				h.Lock()
+				data := h.cache.All()
+				h.compressor.GrowCache(h.vecIDcounter)
+				compressionhelpers.Concurrently(h.logger, uint64(len(data)),
+					func(index uint64) {
+						if len(data[index]) == 0 {
+							return
+						}
+						docID, relativeID := h.cache.GetKeys(index)
+						h.compressor.PreloadPassage(index, docID, relativeID, data[index])
+					})
 				h.compressed.Store(true)
 				h.doNotRescore = !h.rqConfig.Rescore
 				h.cache.Drop()
 				h.cache = nil
 				h.compressor.PersistCompression(h.commitLog)
+				h.Unlock()
 			}
 		})
 		if err != nil {
