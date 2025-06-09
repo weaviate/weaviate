@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math/rand"
 	"slices"
 	"strings"
 	"time"
@@ -68,6 +69,8 @@ type Finder struct {
 	// control the op backoffs in the coordinator's Pull
 	coordinatorPullBackoffInitialInterval time.Duration
 	coordinatorPullBackoffMaxElapsedTime  time.Duration
+
+	rand *rand.Rand // random number generator for shufflings
 }
 
 // NewFinder constructs a new finder instance
@@ -95,6 +98,7 @@ func NewFinder(className string,
 		},
 		coordinatorPullBackoffInitialInterval: coordinatorPullBackoffInitialInterval,
 		coordinatorPullBackoffMaxElapsedTime:  coordinatorPullBackoffMaxElapsedTime,
+		rand:                                  rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -398,7 +402,16 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 			replicasHostAddrs = append(replicasHostAddrs, replicaHostAddr)
 		}
 	}
+
+	// shuffle the replicas to randomize the order in which we look for differences
+	if len(replicasHostAddrs) > 1 {
+		f.rand.Shuffle(len(replicasHostAddrs), func(i, j int) {
+			replicasHostAddrs[i], replicasHostAddrs[j] = replicasHostAddrs[j], replicasHostAddrs[i]
+		})
+	}
+
 	localHostAddr, _ := f.router.NodeHostname(localNodeName)
+
 	for i, targetNodeAddress := range replicasHostAddrs {
 		targetNodeName := replicaNodeNames[i]
 		if targetNodeAddress == localHostAddr {
