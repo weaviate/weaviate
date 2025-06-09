@@ -643,7 +643,7 @@ binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4
 binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4
 */
 func (d *Deserializer) ReadRQ(r io.Reader, res *DeserializationResult) (int, error) {
-	dimension, err := readUint32(r)
+	inputDim, err := readUint32(r)
 	if err != nil {
 		return 0, err
 	}
@@ -696,7 +696,7 @@ func (d *Deserializer) ReadRQ(r io.Reader, res *DeserializationResult) (int, err
 	}
 
 	res.CompressionRQData = &compressionhelpers.RQData{
-		Dimension: dimension,
+		InputDim:  inputDim,
 		DataBits:  dataBits,
 		QueryBits: queryBits,
 		Rotation: compressionhelpers.FastRotation{

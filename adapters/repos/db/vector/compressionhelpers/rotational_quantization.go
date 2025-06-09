@@ -23,17 +23,15 @@ import (
 
 type RotationalQuantizer struct {
 	inputDim  uint32
-	outputDim uint32
 	rotation  *FastRotation
 	distancer distancer.Provider
 	dataBits  uint32 // The number of bits per entry used by Encode() to encode data vectors.
 	queryBits uint32 // The number of bits per entry used by NewDistancer() to encode the query vector.
 
 	// Precomputed for faster distance computations.
-	err              error   // Precomputed error returned by DistanceBetweenCompressedVectors.
-	cos              float32 // Indicator for the cosine-dot distancer.
-	l2               float32 // Indicator for the l2-squared distancer.
-	outputDimFloat32 float32 // Output dimension.
+	err error   // Precomputed error returned by DistanceBetweenCompressedVectors.
+	cos float32 // Indicator for the cosine-dot distancer.
+	l2  float32 // Indicator for the l2-squared distancer.
 }
 
 var DefaultRotationRounds = 5
@@ -58,16 +56,14 @@ func NewRotationalQuantizer(inputDim int, seed uint64, dataBits int, queryBits i
 	rotation := NewFastRotation(inputDim, rotationRounds, seed)
 	rq := &RotationalQuantizer{
 		inputDim:  uint32(inputDim),
-		outputDim: rotation.OutputDimension(),
 		rotation:  rotation,
 		dataBits:  uint32(dataBits),
 		queryBits: uint32(queryBits),
 		distancer: distancer,
 		// Precomputed values for faster distance computation.
-		err:              err,
-		cos:              cos,
-		l2:               l2,
-		outputDimFloat32: float32(rotation.OutputDimension()),
+		err: err,
+		cos: cos,
+		l2:  l2,
 	}
 	return rq
 }
@@ -305,7 +301,7 @@ func (d *RQDistancer) DistanceToFloat(x []float32) (float32, error) {
 // Alternatively we could instantiate an RQDistancer from a compressed vector instead.
 func (rq RotationalQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (float32, error) {
 	cx, cy := RQCode(x), RQCode(y)
-	a := rq.outputDimFloat32 * cx.Lower() * cy.Lower()
+	a := float32(rq.rotation.OutputDim) * cx.Lower() * cy.Lower()
 	b := cx.Lower() * cy.CodeSum()
 	c := cy.Lower() * cx.CodeSum()
 	d := cx.Step() * cy.Step() * float32(dotByteImpl(cx.Bytes(), cy.Bytes()))
@@ -362,7 +358,7 @@ func (rq *RotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDista
 }
 
 type RQData struct {
-	Dimension uint32
+	InputDim  uint32
 	DataBits  uint32
 	QueryBits uint32
 	Rotation  FastRotation
@@ -370,7 +366,7 @@ type RQData struct {
 
 func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
 	logger.AddRQCompression(RQData{
-		Dimension: rq.inputDim,
+		InputDim:  rq.inputDim,
 		DataBits:  rq.dataBits,
 		QueryBits: rq.queryBits,
 		Rotation:  *rq.rotation,

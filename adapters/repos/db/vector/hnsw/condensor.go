@@ -354,11 +354,11 @@ func (c *MemoryCondensor) AddRQCompression(data compressionhelpers.RQData) error
 	buf.Grow(15 + int(swapSize) + int(signSize))
 
 	buf.WriteByte(byte(AddRQ))                                       // 1
-	binary.Write(&buf, binary.LittleEndian, data.Dimension)          // 4
-	binary.Write(&buf, binary.LittleEndian, data.DataBits)           // 4
-	binary.Write(&buf, binary.LittleEndian, data.QueryBits)          // 4
-	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4
-	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4
+	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim
+	binary.Write(&buf, binary.LittleEndian, data.DataBits)           // 4 data bits
+	binary.Write(&buf, binary.LittleEndian, data.QueryBits)          // 4 query bits
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4 rotation - output dim
+	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4 rotation - rounds
 
 	for _, swap := range data.Rotation.Swaps {
 		for _, dim := range swap {

@@ -211,7 +211,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					h.distancerProvider,
 					1e12,
 					h.logger,
-					int(data.Dimension),
+					int(data.InputDim),
 					int(data.DataBits),
 					int(data.QueryBits),
 					int(data.Rotation.OutputDim),

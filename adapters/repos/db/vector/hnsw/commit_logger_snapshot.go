@@ -798,7 +798,7 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 		}
 		offset += writeByteSize
 
-		if err := writeUint32(w, state.CompressionRQData.Dimension); err != nil {
+		if err := writeUint32(w, state.CompressionRQData.InputDim); err != nil {
 			return 0, err
 		}
 		offset += writeUint32Size
@@ -1125,7 +1125,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 			}
 
 			res.CompressionRQData = &compressionhelpers.RQData{
-				Dimension: dimension,
+				InputDim:  dimension,
 				DataBits:  dataBits,
 				QueryBits: queryBits,
 				Rotation: compressionhelpers.FastRotation{

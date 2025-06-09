@@ -622,7 +622,7 @@ func TestDeserializerTotalReadRQ(t *testing.T) {
 	}
 	t.Run("add rotational quantization data to the first log", func(t *testing.T) {
 		rqData := compressionhelpers.RQData{
-			Dimension: uint32(dimension),
+			InputDim:  uint32(dimension),
 			DataBits:  uint32(dataBits),
 			QueryBits: uint32(queryBits),
 			Rotation:  rotation,
