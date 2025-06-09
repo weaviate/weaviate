@@ -258,7 +258,7 @@ func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentRepla
 }
 
 func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byte) error {
-	if s.segment.mmapContents {
+	if s.segment.readFromMemory {
 		return s.parse(buf)
 	}
 
