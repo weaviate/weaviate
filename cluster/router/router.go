@@ -166,8 +166,7 @@ func NewBuilder(
 //
 // Returns:
 //   - Router: a concrete router implementation (*multiTenantRouter or *singleTenantRouter) that implements the Router interface.
-//   - error: if tenant validation fails.
-func (b *RouterBuilder) Build() (Router, error) {
+func (b *RouterBuilder) Build() Router {
 	if b.partitioningEnabled {
 		return &multiTenantRouter{
 			collection:           b.collection,
@@ -175,7 +174,7 @@ func (b *RouterBuilder) Build() (Router, error) {
 			metadataReader:       b.metadataReader,
 			replicationFSMReader: b.replicationFSMReader,
 			clusterStateReader:   b.clusterStateReader,
-		}, nil
+		}
 	}
 
 	return &singleTenantRouter{
@@ -184,7 +183,7 @@ func (b *RouterBuilder) Build() (Router, error) {
 		metadataReader:       b.metadataReader,
 		replicationFSMReader: b.replicationFSMReader,
 		clusterStateReader:   b.clusterStateReader,
-	}, nil
+	}
 }
 
 // multiTenantRouter is the implementation of Router for multi-tenant collections.

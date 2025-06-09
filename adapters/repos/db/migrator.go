@@ -108,7 +108,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	}
 
 	shardingState := m.db.schemaGetter.CopyShardingState(class.Class)
-	indexRouter, err := router.NewBuilder(
+	indexRouter := router.NewBuilder(
 		schema.ClassName(class.Class).String(),
 		shardingState.PartitioningEnabled,
 		m.db.nodeSelector,
@@ -116,10 +116,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		m.db.schemaReader,
 		m.db.replicationFSM,
 	).Build()
-	if err != nil {
-		return fmt.Errorf("error while building index router: %w", err)
-	}
-	idx, err = NewIndex(ctx,
+	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                                    schema.ClassName(class.Class),
 			RootPath:                                     m.db.config.RootPath,
