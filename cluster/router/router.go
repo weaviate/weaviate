@@ -176,7 +176,6 @@ func (b *RouterBuilder) Build() Router {
 			clusterStateReader:   b.clusterStateReader,
 		}
 	}
-
 	return &singleTenantRouter{
 		collection:           b.collection,
 		schemaGetter:         b.schemaGetter,
@@ -227,10 +226,6 @@ var (
 //   - additionalWriteReplicas: a list of node names serving as additional write replicas across all shards.
 //   - error: if an error occurs while retrieving shard information or replica states.
 func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string) ([]string, []string, []string, error) {
-	err := r.validateTenant(tenant)
-	if err != nil {
-		return nil, nil, nil, err
-	}
 	return r.getReadWriteReplicasLocation(collection, tenant)
 }
 
@@ -246,10 +241,6 @@ func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, ten
 //   - additionalWriteReplicas: a list of node names serving as additional write replicas (not yet part of sharding state).
 //   - error: if an error occurs while retrieving shard information or replica states.
 func (r *singleTenantRouter) GetWriteReplicasLocation(collection string, tenant string) ([]string, []string, error) {
-	err := r.validateTenant(tenant)
-	if err != nil {
-		return nil, nil, err
-	}
 	_, writeReplicas, additionalWriteReplicas, err := r.getReadWriteReplicasLocation(collection, tenant)
 	if err != nil {
 		return nil, nil, err
@@ -268,10 +259,6 @@ func (r *singleTenantRouter) GetWriteReplicasLocation(collection string, tenant 
 //   - readReplicas: a list of node names serving as read replicas across all shards.
 //   - error: if an error occurs while retrieving shard information or replica states.
 func (r *singleTenantRouter) GetReadReplicasLocation(collection string, tenant string) ([]string, error) {
-	err := r.validateTenant(tenant)
-	if err != nil {
-		return nil, err
-	}
 	readReplicas, _, _, err := r.getReadWriteReplicasLocation(collection, tenant)
 	if err != nil {
 		return nil, err
@@ -404,10 +391,6 @@ func (r *singleTenantRouter) validateTenant(tenant string) error {
 //   - additionalWriteReplicas: a list of node names serving as additional write replicas (not yet part of sharding state) for the tenant
 //   - error: if the tenant is not found, not active (HOT status), or other errors occur.
 func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string) ([]string, []string, []string, error) {
-	err := r.validateTenant(tenant)
-	if err != nil {
-		return nil, nil, nil, err
-	}
 	return r.getReadWriteReplicasLocation(collection, tenant)
 }
 
@@ -485,10 +468,6 @@ func deduplicate(values []string) []string {
 //   - writeReplicas: a list of node names serving as write replicas for the tenant.
 //   - error: if the tenant is not found, not active (HOT status), or other errors occur.
 func (r *multiTenantRouter) GetWriteReplicasLocation(collection string, tenant string) ([]string, []string, error) {
-	err := r.validateTenant(tenant)
-	if err != nil {
-		return nil, nil, err
-	}
 	_, writeReplicas, additionalWriteReplicas, err := r.getReadWriteReplicasLocation(collection, tenant)
 	return writeReplicas, additionalWriteReplicas, err
 }
@@ -504,10 +483,6 @@ func (r *multiTenantRouter) GetWriteReplicasLocation(collection string, tenant s
 //   - readReplicas: a list of node names serving as read replicas for the tenant.
 //   - error: if the tenant is not found, not active (HOT status), or other errors occur.
 func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant string) ([]string, error) {
-	err := r.validateTenant(tenant)
-	if err != nil {
-		return nil, err
-	}
 	readReplicas, _, _, err := r.getReadWriteReplicasLocation(collection, tenant)
 	return readReplicas, err
 }
