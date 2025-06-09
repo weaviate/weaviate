@@ -166,7 +166,7 @@ func NewBuilder(
 //
 // Returns:
 //   - Router: a concrete router implementation (*multiTenantRouter or *singleTenantRouter) that implements the Router interface.
-//   - error: if any required dependencies are missing or validation fails.
+//   - error: if tenant validation fails.
 func (b *RouterBuilder) Build() (Router, error) {
 	if b.partitioningEnabled {
 		return &multiTenantRouter{
@@ -190,7 +190,6 @@ func (b *RouterBuilder) Build() (Router, error) {
 // multiTenantRouter is the implementation of Router for multi-tenant collections.
 // In multi-tenant mode, tenant isolation is achieved through partitioning using
 // the tenant name as the partitioning key. Each tenant effectively becomes its own shard.
-// Exported to allow direct instantiation and type assertions when concrete type access is needed.
 type multiTenantRouter struct {
 	collection           string
 	schemaGetter         schema.SchemaGetter
@@ -202,7 +201,6 @@ type multiTenantRouter struct {
 // singleTenantRouter is the implementation of Router for single-tenant collections.
 // In single-tenant mode, data is distributed across multiple physical shards without
 // tenant-based partitioning. All data belongs to a single logical tenant.
-// Exported to allow direct instantiation and type assertions when concrete type access is needed.
 type singleTenantRouter struct {
 	collection           string
 	schemaGetter         schema.SchemaGetter
@@ -354,53 +352,38 @@ func (r *singleTenantRouter) AllHostnames() []string {
 }
 
 func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	shards := r.schemaGetter.CopyShardingState(params.Collection).AllPhysicalShards()
-	allReadReplicas := make([]string, 0)
-
-	for _, shard := range shards {
-		replicas, err := r.metadataReader.ShardReplicas(params.Collection, shard)
-		if err != nil {
-			return types.RoutingPlan{}, fmt.Errorf("could not get replicas for shard %q: %w", shard, err)
-		}
-
-		readReplicas := r.replicationFSMReader.FilterOneShardReplicasRead(params.Collection, shard, replicas)
-		allReadReplicas = append(allReadReplicas, readReplicas...)
+	replicas, err := r.GetReadReplicasLocation(params.Collection, params.Tenant)
+	if err != nil {
+		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas: %w", err)
 	}
 
 	return buildRoutingPlan(
 		params.Collection,
-		params.Shard,
+		params.Tenant,
 		params.DirectCandidateReplica,
-		deduplicate(allReadReplicas),
+		replicas,
 		params.ConsistencyLevel,
 		r.clusterStateReader,
 	)
 }
 
 func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	shards := r.schemaGetter.CopyShardingState(params.Collection).AllPhysicalShards()
-	allWriteReplicas := make([]string, 0)
-
-	for _, shard := range shards {
-		replicas, err := r.metadataReader.ShardReplicas(params.Collection, shard)
-		if err != nil {
-			return types.RoutingPlan{}, fmt.Errorf("could not get replicas for shard %q: %w", shard, err)
-		}
-		// NOTE: ignoring additional write replicas as normally they should not be part of the routing plan.
-		writeReplicas, _ := r.replicationFSMReader.FilterOneShardReplicasWrite(params.Collection, shard, replicas)
-		allWriteReplicas = append(allWriteReplicas, writeReplicas...)
+	replicas, _, err := r.GetWriteReplicasLocation(params.Collection, params.Tenant)
+	if err != nil {
+		return types.RoutingPlan{}, fmt.Errorf("could not get write replicas: %w", err)
 	}
 
 	return buildRoutingPlan(
 		params.Collection,
-		params.Shard,
+		params.Tenant,
 		params.DirectCandidateReplica,
-		deduplicate(allWriteReplicas),
+		replicas,
 		params.ConsistencyLevel,
 		r.clusterStateReader,
 	)
 }
 
+// validateTenant for a single-tenant router checks the tenant is empty and returns an error if it is not.
 func (r *singleTenantRouter) validateTenant(tenant string) error {
 	if tenant != "" {
 		return fmt.Errorf("tenant must be empty for single-tenant collections, got: %q", tenant)
@@ -445,7 +428,7 @@ func (r *multiTenantRouter) getReadWriteReplicasLocation(collection string, tena
 
 	// NOTE: In multi-tenant collections, each tenant maps to exactly one shard where the tenant name
 	// serves as the partitioning key and shard identifier. Since we've verified the tenant exists
-	// and is active, we can directly query replicas using the tenant name as the shard ID. Also note that
+	// and is active, we can directly query replicas using the tenant name as the shard. Also note that
 	// in a multi-tenant collection each tenant has one and only one shard, potentially with multiple replicas
 	// distributed across nodes in the cluster.
 	replicas, err := r.metadataReader.ShardReplicas(collection, tenant)
@@ -580,14 +563,14 @@ func (r *multiTenantRouter) AllHostnames() []string {
 }
 
 func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	replicas, err := r.GetReadReplicasLocation(params.Collection, params.Shard)
+	replicas, err := r.GetReadReplicasLocation(params.Collection, params.Tenant)
 	if err != nil {
-		return types.RoutingPlan{}, err
+		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas for shard %q: %w", params.Tenant, err)
 	}
 
 	return buildRoutingPlan(
 		params.Collection,
-		params.Shard,
+		params.Tenant,
 		params.DirectCandidateReplica,
 		replicas,
 		params.ConsistencyLevel,
@@ -596,14 +579,14 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 }
 
 func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	replicas, _, err := r.GetWriteReplicasLocation(params.Collection, params.Shard)
+	replicas, _, err := r.GetWriteReplicasLocation(params.Collection, params.Tenant)
 	if err != nil {
-		return types.RoutingPlan{}, err
+		return types.RoutingPlan{}, fmt.Errorf("could not get write replicas for shard %q: %w", params.Tenant, err)
 	}
 
 	return buildRoutingPlan(
 		params.Collection,
-		params.Shard,
+		params.Tenant,
 		params.DirectCandidateReplica,
 		replicas,
 		params.ConsistencyLevel,
@@ -611,6 +594,7 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 	)
 }
 
+// validateTenant for a multi-tenant router checks the tenant is not empty and returns an error if it is.
 func (r *multiTenantRouter) validateTenant(tenant string) error {
 	if tenant == "" {
 		return fmt.Errorf("tenant is required for multi-tenant collections")
@@ -619,7 +603,7 @@ func (r *multiTenantRouter) validateTenant(tenant string) error {
 }
 
 // buildRoutingPlan constructs a routing plan using the given replicas and consistency level.
-// Returns an error if the consistency level is invalid or no suitable replicas are found.
+// Returns an error if the consistency level is invalid or no suitable replica is available.
 func buildRoutingPlan(
 	collection string,
 	tenant string,
@@ -630,7 +614,7 @@ func buildRoutingPlan(
 ) (types.RoutingPlan, error) {
 	plan := types.RoutingPlan{
 		Collection:        collection,
-		Shard:             tenant,
+		Tenant:            tenant,
 		Replicas:          make([]string, 0, len(replicas)),
 		ConsistencyLevel:  consistencyLevel,
 		ReplicasHostAddrs: make([]string, 0, len(replicas)),
