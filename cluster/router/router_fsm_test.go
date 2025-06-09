@@ -174,8 +174,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 
 			// Build the routing plan
 			routingPlan, err := myRouter.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
-				Collection: "collection1",
-				Tenant:     tenant,
+				Tenant: tenant,
 			})
 			if testCase.expectedErrorStr != "" {
 				require.Error(t, err)
@@ -319,8 +318,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			}
 			// Build the routing plan
 			routingPlan, err := myRouter.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
-				Collection: "collection1",
-				Tenant:     tenant,
+				Tenant: tenant,
 			})
 			if testCase.expectedErrorStr != "" {
 				require.Error(t, err)

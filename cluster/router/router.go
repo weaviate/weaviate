@@ -351,13 +351,13 @@ func (r *singleTenantRouter) AllHostnames() []string {
 }
 
 func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	replicas, err := r.GetReadReplicasLocation(params.Collection, params.Tenant)
+	replicas, err := r.GetReadReplicasLocation(r.collection, params.Tenant)
 	if err != nil {
 		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas: %w", err)
 	}
 
 	return buildRoutingPlan(
-		params.Collection,
+		r.collection,
 		params.Tenant,
 		params.DirectCandidateReplica,
 		replicas,
@@ -367,13 +367,13 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 }
 
 func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	replicas, _, err := r.GetWriteReplicasLocation(params.Collection, params.Tenant)
+	replicas, _, err := r.GetWriteReplicasLocation(r.collection, params.Tenant)
 	if err != nil {
 		return types.RoutingPlan{}, fmt.Errorf("could not get write replicas: %w", err)
 	}
 
 	return buildRoutingPlan(
-		params.Collection,
+		r.collection,
 		params.Tenant,
 		params.DirectCandidateReplica,
 		replicas,
@@ -561,13 +561,13 @@ func (r *multiTenantRouter) AllHostnames() []string {
 }
 
 func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	replicas, err := r.GetReadReplicasLocation(params.Collection, params.Tenant)
+	replicas, err := r.GetReadReplicasLocation(r.collection, params.Tenant)
 	if err != nil {
 		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas for shard %q: %w", params.Tenant, err)
 	}
 
 	return buildRoutingPlan(
-		params.Collection,
+		r.collection,
 		params.Tenant,
 		params.DirectCandidateReplica,
 		replicas,
@@ -577,13 +577,13 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 }
 
 func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	replicas, _, err := r.GetWriteReplicasLocation(params.Collection, params.Tenant)
+	replicas, _, err := r.GetWriteReplicasLocation(r.collection, params.Tenant)
 	if err != nil {
 		return types.RoutingPlan{}, fmt.Errorf("could not get write replicas for shard %q: %w", params.Tenant, err)
 	}
 
 	return buildRoutingPlan(
-		params.Collection,
+		r.collection,
 		params.Tenant,
 		params.DirectCandidateReplica,
 		replicas,
@@ -611,7 +611,6 @@ func buildRoutingPlan(
 	clusterStateReader cluster.NodeSelector,
 ) (types.RoutingPlan, error) {
 	plan := types.RoutingPlan{
-		Collection:        collection,
 		Tenant:            tenant,
 		Replicas:          make([]string, 0, len(replicas)),
 		ConsistencyLevel:  consistencyLevel,

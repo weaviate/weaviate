@@ -18,23 +18,14 @@ import (
 )
 
 type RoutingPlanBuildOptions struct {
-	Collection             string
 	Tenant                 string
 	ConsistencyLevel       ConsistencyLevel
 	DirectCandidateReplica string
 }
 
-func (r RoutingPlanBuildOptions) Validate() error {
-	if r.Collection == "" {
-		return fmt.Errorf("no collection specified for routing plan building")
-	}
-	return nil
-}
-
 type RoutingPlan struct {
-	Collection string
-	Tenant     string
-	Replicas   []string
+	Tenant   string
+	Replicas []string
 
 	ConsistencyLevel    ConsistencyLevel
 	IntConsistencyLevel int
@@ -44,7 +35,6 @@ type RoutingPlan struct {
 
 func (r RoutingPlan) LogFields() logrus.Fields {
 	return logrus.Fields{
-		"collection":            r.Collection,
 		"tenant":                r.Tenant,
 		"replicas":              r.Replicas,
 		"consistency_level":     r.ConsistencyLevel,
