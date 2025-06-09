@@ -785,11 +785,7 @@ func (f *fakeFactory) newRouter(thisNode string) clusterRouter.Router {
 	replicationFsmMock.On("FilterOneShardReplicasWrite", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
 		return shardReplicasLocation, []string{}
 	}).Maybe()
-	router, err := clusterRouter.NewBuilder("TestClass", false, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
-	if err != nil {
-		return nil
-	}
-	return router
+	return clusterRouter.NewBuilder("TestClass", false, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
 }
 
 func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Replicator {

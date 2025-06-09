@@ -146,8 +146,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			schemaReaderMock.On("ShardReplicas", mock.Anything, mock.Anything).Return(func(class string, shard string) ([]string, error) {
 				return testCase.allShardNodes, nil
 			})
-			myRouter, err := router.NewBuilder("collection1", testCase.partitioningEnabled, clusterState, schemaGetterMock, schemaReaderMock, shardReplicationFSM).Build()
-			require.NoError(t, err)
+			myRouter := router.NewBuilder("collection1", testCase.partitioningEnabled, clusterState, schemaGetterMock, schemaReaderMock, shardReplicationFSM).Build()
 
 			// Setup the FSM with the right state
 			shardReplicationFSM.Replicate(1, &api.ReplicationReplicateShardRequest{
@@ -158,7 +157,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				TargetNode:       "node2",
 				Uuid:             "00000000-0000-0000-0000-000000000000",
 			})
-			err = shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+			err := shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
 				Version: api.ReplicationCommandVersionV0,
 				Id:      1,
 				State:   testCase.opStatus,
@@ -293,8 +292,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			schemaReaderMock.On("ShardReplicas", mock.Anything, mock.Anything).Return(func(class string, shard string) ([]string, error) {
 				return testCase.allShardNodes, nil
 			})
-			myRouter, err := router.NewBuilder("collection1", testCase.partitioningEnabled, clusterState, schemaGetterMock, schemaReaderMock, shardReplicationFSM).Build()
-			require.NoError(t, err)
+			myRouter := router.NewBuilder("collection1", testCase.partitioningEnabled, clusterState, schemaGetterMock, schemaReaderMock, shardReplicationFSM).Build()
 
 			// Setup the FSM with the right state
 			shardReplicationFSM.Replicate(1, &api.ReplicationReplicateShardRequest{
@@ -305,7 +303,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				TargetNode:       "node2",
 				Uuid:             "00000000-0000-0000-0000-000000000000",
 			})
-			err = shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
+			err := shardReplicationFSM.UpdateReplicationOpStatus(&api.ReplicationUpdateOpStateRequest{
 				Version: api.ReplicationCommandVersionV0,
 				Id:      1,
 				State:   testCase.opStatus,

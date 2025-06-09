@@ -82,7 +82,7 @@ func (db *DB) init(ctx context.Context) error {
 			}
 
 			shardingState := db.schemaGetter.CopyShardingState(class.Class)
-			indexRouter, err := router.NewBuilder(
+			indexRouter := router.NewBuilder(
 				schema.ClassName(class.Class).String(),
 				shardingState.PartitioningEnabled,
 				db.nodeSelector,
@@ -90,9 +90,6 @@ func (db *DB) init(ctx context.Context) error {
 				db.schemaReader,
 				db.replicationFSM,
 			).Build()
-			if err != nil {
-				return fmt.Errorf("error while building index router: %w", err)
-			}
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                                    schema.ClassName(class.Class),
 				RootPath:                                     db.config.RootPath,
