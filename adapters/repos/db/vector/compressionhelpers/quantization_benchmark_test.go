@@ -17,10 +17,13 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/kmeans"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"gonum.org/v1/hdf5"
 )
@@ -119,6 +122,18 @@ func (pq *SimplePriorityQueue) Neighbors() []int {
 		neighbors[i] = pq.knn[i].index
 	}
 	return neighbors
+}
+
+func (pq *SimplePriorityQueue) KNN() []IdxDist {
+	return pq.knn
+}
+
+func (pq *SimplePriorityQueue) String() string {
+	var sb strings.Builder
+	for i, x := range pq.knn {
+		sb.WriteString(fmt.Sprintf("%d: %v\n", i+1, x))
+	}
+	return sb.String()
 }
 
 // Product quantization
@@ -369,7 +384,7 @@ func neighborProviderFactory(data [][]float32, distance distancer.Provider, sett
 	}
 }
 
-func nearestNeighbors(data [][]float32, query []float32, distancer distancer.Provider, k int) []int {
+func bruteForceKNN(data [][]float32, query []float32, distancer distancer.Provider, k int) []int {
 	queue := NewSimplePriorityQueue(k)
 	for i, x := range data {
 		dist, _ := distancer.SingleDist(query, x)
@@ -395,9 +410,9 @@ func overlap(a []int, b []int) int {
 func BenchmarkQuantizationRecall(b *testing.B) {
 	dataDir := "/Users/tobiaschristiani/code/datasets"
 	datasets := []ANNBenchDataDescriptor{
-		{Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
-		{Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
-		{Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
+		//{Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		//{Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
+		//{Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
 		{Name: "sift-128-euclidean", Distance: distancer.NewL2SquaredProvider()},
 		{Name: "gist-960-euclidean", Distance: distancer.NewL2SquaredProvider()},
 		{Name: "glove-200-angular", Distance: distancer.NewCosineDistanceProvider()},
@@ -413,10 +428,10 @@ func BenchmarkQuantizationRecall(b *testing.B) {
 		// {Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
 
 		// // Bigger datasets
-		// {Name: "dbpedia-500k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "dbpedia-500k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
 		// {Name: "dbpedia-openai-1000k-angular", Distance: distancer.NewCosineDistanceProvider()},
-		// {Name: "sphere-1M-meta-dpr", Distance: distancer.NewDotProductProvider()},
-		// {Name: "snowflake-msmarco-arctic-embed-m-v1.5-angular", Distance: distancer.NewCosineDistanceProvider()},
+		{Name: "sphere-1M-meta-dpr", Distance: distancer.NewDotProductProvider()},
+		{Name: "snowflake-msmarco-arctic-embed-m-v1.5-angular", Distance: distancer.NewCosineDistanceProvider()},
 	}
 
 	algorithms := []QuantizationSettings{
@@ -425,7 +440,7 @@ func BenchmarkQuantizationRecall(b *testing.B) {
 	}
 
 	maxVectors := 100_000
-	maxQueries := 250
+	maxQueries := 1
 
 	for _, descriptor := range datasets {
 		data := NewANNBenchData(dataDir, descriptor.Name, descriptor.Distance)
@@ -437,7 +452,7 @@ func BenchmarkQuantizationRecall(b *testing.B) {
 
 		kNN := make([][]int, m)
 		for i, q := range test {
-			kNN[i] = nearestNeighbors(train, q, descriptor.Distance, k)
+			kNN[i] = bruteForceKNN(train, q, descriptor.Distance, k)
 		}
 
 		for _, algorithm := range algorithms {
@@ -469,5 +484,219 @@ func BenchmarkQuantizationRecall(b *testing.B) {
 			})
 		}
 
+	}
+}
+
+func BenchmarkNorms(b *testing.B) {
+	dataDir := "/Users/tobiaschristiani/code/datasets"
+	datasets := []ANNBenchDataDescriptor{
+		// // Smaller OpenAI datasets
+		// {Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		// {Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
+		// {Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
+
+		// Classic datasets
+		{Name: "sift-128-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "gist-960-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "glove-200-angular", Distance: distancer.NewCosineDistanceProvider()},
+
+		// // // Bigger datasets
+		// {Name: "dbpedia-500k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		// {Name: "dbpedia-openai-1000k-angular", Distance: distancer.NewCosineDistanceProvider()},
+		// {Name: "sphere-1M-meta-dpr", Distance: distancer.NewDotProductProvider()},
+		//{Name: "snowflake-msmarco-arctic-embed-m-v1.5-angular", Distance: distancer.NewCosineDistanceProvider()},
+	}
+
+	// numCenters := []int{16, 64, 256} // The number of centers used for centering data points.
+	// algorithms := []string{"kmeans", "kmeans++", "sampling"}
+	numCenters := []int{1, 256} // The number of centers used for centering data points.
+	algorithms := []string{"sampling", "kmeans"}
+	c := slices.Max(numCenters)
+	m := 1000   // Number of data points where we will measure the norm before and after centering.
+	t := 50_000 // Training size.
+	var seed uint64 = 42
+
+	for _, descriptor := range datasets {
+		data := NewANNBenchData(dataDir, descriptor.Name, descriptor.Distance)
+		sampleSize := t + m + c
+		sample := copyRandomSubset(data.Train, sampleSize, seed)
+		train, vectors, allCenters := sample[:t], sample[t:(t+m)], sample[(t+m):]
+		d := len(train[0])
+		for _, alg := range algorithms {
+			for _, k := range numCenters {
+				var centers [][]float32
+				switch alg {
+				case "kmeans", "kmeans++":
+					km := kmeans.New(k, d, 0)
+					if alg == "kmeans++" {
+						km.Initialization = kmeans.PlusPlusInitialization
+					}
+					km.Fit(train)
+					centers = km.Centers
+				case "sampling":
+					centers = allCenters[:k]
+				}
+				// Make sure that origo is in the list of unit centers. This is
+				// important for sampling when the data is on the unit sphere as
+				// otherwise we might see larger norms when centering because
+				// data points are further from each other than they are from
+				// origo.
+				origo := make([]float32, len(centers[0]))
+				centers = append(centers, origo)
+
+				// Compute norms with and without centering.
+				norms := make([]float64, len(vectors))
+				centeredNorms := make([]float64, len(vectors))
+				normRatios := make([]float64, len(vectors))
+				for i, v := range vectors {
+					centerIdx := bruteForceKNN(centers, v, distancer.NewL2SquaredProvider(), 1)[0]
+					center := centers[centerIdx]
+					cv := make([]float32, len(v))
+					for j := range cv {
+						cv[j] = v[j] - center[j]
+					}
+					norms[i] = norm(v)
+					centeredNorms[i] = norm(cv)
+					normRatios[i] = centeredNorms[i] / norms[i]
+				}
+
+				b.Run(fmt.Sprintf("%s-%s-%d", data.Name, alg, k), func(b *testing.B) {
+					var something float64
+					for b.Loop() {
+						something += math.Pi
+					}
+					// reportSliceMetrics("norms", norms, b)
+					// reportSliceMetrics("centered", centeredNorms, b)
+					// reportSliceMetrics("ratios", normRatios, b)
+					reportSliceMetrics("bits", ratiosToBitSavings(normRatios), b)
+				})
+			}
+		}
+	}
+}
+
+func ratiosToBitSavings(ratios []float64) []float64 {
+	// The dot product estimation error from quantization is proportional to eps ~ ||x|| ||y|| / 2^B
+	// ratios gives us the reduction in the norm of x, but we don't know the reduction in the norm of y.
+	// We assume 75% because the distance computatons matter the most when q is close to x.
+	queryReductionFactor := 1.0
+	bitSavings := make([]float64, len(ratios))
+	for i, r := range ratios {
+		bitSavings[i] = (1 + queryReductionFactor) * math.Log2(1/r)
+	}
+	return bitSavings
+}
+
+type metrics struct {
+	Min               float64
+	Max               float64
+	Average           float64
+	StandardDeviation float64
+}
+
+func sliceMetrics(x []float64) metrics {
+	min := math.MaxFloat64
+	max := -math.MaxFloat64
+	var avg float64
+	for _, v := range x {
+		if v < min {
+			min = v
+		}
+		if v > max {
+			max = v
+		}
+		avg += v
+	}
+	d := float64(len(x))
+	avg = avg / d
+
+	var dev2 float64
+	for _, v := range x {
+		dev2 = (v - avg) * (v - avg)
+	}
+	sd := math.Sqrt(dev2 / d)
+	return metrics{Min: min, Max: max, Average: avg, StandardDeviation: sd}
+}
+
+func toFloat64(x []float32) []float64 {
+	y := make([]float64, len(x))
+	for i := range x {
+		y[i] = float64(x[i])
+	}
+	return y
+}
+
+// min, max, average, standard deviation.
+func reportSliceMetrics(name string, x []float64, b *testing.B) {
+	m := sliceMetrics(x)
+
+	b.ReportMetric(m.Min, name+"(a_min)")
+	b.ReportMetric(m.Average, name+"(b_avg)")
+	b.ReportMetric(m.Max, name+"(c_max)")
+	b.ReportMetric(m.StandardDeviation, name+"(d_std)")
+}
+
+// The range max - min of the slice if we exlude the k largest and smallest entries.
+func sliceRange(x []float64, k int) float64 {
+	slices.Sort(x)
+	return x[len(x)-k-1] - x[k]
+}
+
+// Try a number of rotations and pick the one with the smaller range of entries in order to reduce the quantization interval.
+// We can get an idea about this by collecting information on the range for different independent rotations.
+func BenchmarkRanges(b *testing.B) {
+	dataDir := "/Users/tobiaschristiani/code/datasets"
+	datasets := []ANNBenchDataDescriptor{
+		// Classic datasets
+		{Name: "sift-128-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "gist-960-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "glove-200-angular", Distance: distancer.NewCosineDistanceProvider()},
+
+		// Smaller OpenAI datasets
+		{Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
+		{Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
+
+		// Bigger datasets
+		// {Name: "dbpedia-500k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		// {Name: "dbpedia-openai-1000k-angular", Distance: distancer.NewCosineDistanceProvider()},
+		{Name: "sphere-1M-meta-dpr", Distance: distancer.NewDotProductProvider()},
+		// {Name: "snowflake-msmarco-arctic-embed-m-v1.5-angular", Distance: distancer.NewCosineDistanceProvider()},
+	}
+
+	numSamples := 1
+	numRotations := 128
+	rounds := []int{1}
+	cutoff := []int{0, 1, 5} // remove smallest and largest entries from the rotated vector.
+	rng := newRNG(1243)
+	segmentLength := -1
+
+	for _, descriptor := range datasets {
+		data := NewANNBenchData(dataDir, descriptor.Name, descriptor.Distance)
+		sample := copyRandomSubset(data.Train, numSamples, rng.Uint64())
+		x := sample[0]
+		d := len(x)
+		if segmentLength > 0 {
+			d = segmentLength
+		}
+
+		for _, r := range rounds {
+			for _, k := range cutoff {
+				ranges := make([]float64, numRotations)
+				for i := range numRotations {
+					rotation := compressionhelpers.NewFastRotation(d, r, rng.Uint64())
+					rx := toFloat64(rotation.Rotate(x[:d]))
+					ranges[i] = sliceRange(rx, k)
+				}
+
+				b.Run(fmt.Sprintf("%s-rounds-%d-cutoff-%d", data.Name, r, k), func(b *testing.B) {
+					var something float64
+					for b.Loop() {
+						something += math.Pi
+					}
+					reportSliceMetrics("range", ranges, b)
+				})
+			}
+		}
 	}
 }
