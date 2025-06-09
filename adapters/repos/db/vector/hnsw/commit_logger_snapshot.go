@@ -1063,11 +1063,11 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 			}
 		case SnapshotCompressionTypeRQ:
 			res.Compressed = true
-			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Dimension
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.InputDim
 			if err != nil {
 				return nil, errors.Wrapf(err, "read RQData.Dimension")
 			}
-			dimension := binary.LittleEndian.Uint32(b[:4])
+			inputDim := binary.LittleEndian.Uint32(b[:4])
 
 			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.DataBits
 			if err != nil {
@@ -1125,7 +1125,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 			}
 
 			res.CompressionRQData = &compressionhelpers.RQData{
-				InputDim:  dimension,
+				InputDim:  inputDim,
 				DataBits:  dataBits,
 				QueryBits: queryBits,
 				Rotation: compressionhelpers.FastRotation{
