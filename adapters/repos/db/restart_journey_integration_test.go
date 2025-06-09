@@ -17,6 +17,13 @@ import (
 	"context"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+
+	"github.com/weaviate/weaviate/cluster/schema/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/weaviate/weaviate/entities/search"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -51,12 +58,22 @@ func TestRestartJourney(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -118,7 +135,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, nil, additional.Properties{}, "")
+				}, nil, additional.Properties{}, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "")
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -139,7 +156,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, nil, additional.Properties{}, "")
+				}, nil, additional.Properties{}, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "")
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -149,7 +166,8 @@ func TestRestartJourney(t *testing.T) {
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := repo.VectorSearch(context.Background(),
 				dto.GetParams{
-					ClassName: "Class",
+					ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)},
+					ClassName:             "Class",
 					Pagination: &filters.Pagination{
 						Limit: 1,
 					},
@@ -172,7 +190,8 @@ func TestRestartJourney(t *testing.T) {
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
-		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 		require.Nil(t, err)
 		newRepo.SetSchemaGetter(schemaGetter)
 		require.Nil(t, newRepo.WaitForStartup(testCtx()))
@@ -201,7 +220,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "id",
 						},
 					},
-				}, nil, additional.Properties{}, "")
+				}, nil, additional.Properties{}, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "")
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "the band is just fantastic that is really what I think",
@@ -222,7 +241,7 @@ func TestRestartJourney(t *testing.T) {
 							Property: "description",
 						},
 					},
-				}, nil, additional.Properties{}, "")
+				}, nil, additional.Properties{}, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "")
 			require.Nil(t, err)
 			require.Len(t, res, 1)
 			assert.Equal(t, "oh by the way, which one's pink?",
@@ -232,7 +251,8 @@ func TestRestartJourney(t *testing.T) {
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := newRepo.VectorSearch(context.Background(),
 				dto.GetParams{
-					ClassName: "Class",
+					ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)},
+					ClassName:             "Class",
 					Pagination: &filters.Pagination{
 						Limit: 1,
 					},

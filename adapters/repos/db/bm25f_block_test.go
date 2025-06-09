@@ -19,6 +19,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+
+	"github.com/weaviate/weaviate/cluster/schema/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -36,16 +43,27 @@ func TestBM25FJourneyBlock(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
@@ -63,7 +81,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		t.Run("bm25f journey "+location, func(t *testing.T) {
 			addit = additional.Properties{Vector: true}
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "journey"}
-			res, scores, err := idx.objectSearch(context.Background(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.Background(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			// Print results
@@ -93,7 +111,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		t.Run("bm25f textField non-alpha "+location, func(t *testing.T) {
 			kwrTextField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description", "textField"}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
 			addit = additional.Properties{}
-			resTextField, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil, "", 0, props)
+			resTextField, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			// Print results
@@ -110,7 +128,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		t.Run("bm25f textField caps "+location, func(t *testing.T) {
 			kwrTextField := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"textField"}, Query: "YELLING IS FUN"}
 			addit := additional.Properties{}
-			resTextField, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, nil, "", 0, props)
+			resTextField, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwrTextField, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			// Print results
@@ -126,7 +144,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		// Check basic text search WITH CAPS
 		t.Run("bm25f text with caps "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "JOURNEY"}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			// Print results
 			t.Log("--- Start results for search with caps ---")
 			for i, r := range res {
@@ -146,7 +164,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 		t.Run("bm25f journey boosted "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^3", "description"}, Query: "journey"}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 
 			require.Nil(t, err)
 			// Print results
@@ -167,7 +185,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 		t.Run("Check search with two terms "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "journey somewhere"}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 			require.Equal(t, len(scores), len(res))
 			// Check results in correct order
@@ -181,7 +199,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		t.Run("bm25f journey somewhere no properties "+location, func(t *testing.T) {
 			// Check search with no properties (should include all properties)
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "journey somewhere"}
-			res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			// Check results in correct order
@@ -194,14 +212,14 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		t.Run("bm25f non alphanums "+location, func(t *testing.T) {
 			// Check search with no properties (should include all properties)
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{}, Query: "*&^$@#$%^&*()(Offtopic!!!!"}
-			res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 			require.Equal(t, uint64(7), res[0].DocID)
 		})
 
 		t.Run("First result has high score "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "about BM25F"}
-			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			require.Equal(t, uint64(0), res[0].DocID)
@@ -210,7 +228,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 		t.Run("More results than limit "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
-			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			require.Equal(t, uint64(4), res[0].DocID)
@@ -223,7 +241,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 		t.Run("Results from three properties "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "none"}
-			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			require.Equal(t, uint64(9), res[0].DocID)
@@ -234,7 +252,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 		t.Run("Include additional explanations "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey", AdditionalExplanations: true}
-			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			// With additionalExplanations explainScore entry should be present
@@ -244,7 +262,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 		t.Run("Array fields text "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiTitles"}, Query: "dinner"}
-			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			require.Len(t, res, 2)
@@ -254,7 +272,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 		t.Run("Array fields string "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"multiTextWhitespace"}, Query: "MuuultiYell!"}
-			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 5, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			require.Len(t, res, 2)
@@ -264,10 +282,10 @@ func TestBM25FJourneyBlock(t *testing.T) {
 
 		t.Run("With autocut "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "journey", Properties: []string{"description"}}
-			resNoAutoCut, noautocutscores, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			resNoAutoCut, noautocutscores, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
-			resAutoCut, autocutscores, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 1, props)
+			resAutoCut, autocutscores, err := idx.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 1, props)
 			require.Nil(t, err)
 
 			require.Less(t, len(resAutoCut), len(resNoAutoCut))
@@ -299,16 +317,27 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -324,7 +353,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 			// Check boosted
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 			addit := additional.Properties{}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			t.Log("--- Start results for singleprop search ---")
 			for i, r := range res {
 				t.Logf("Result id: %v, score: %v, title: %v, description: %v, additional %+v\n", r.DocID, scores[i], r.Object.Properties.(map[string]interface{})["title"], r.Object.Properties.(map[string]interface{})["description"], r.Object.Additional)
@@ -354,16 +383,27 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -427,7 +467,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 		t.Run("bm25f with filter "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 			addit := additional.Properties{}
-			res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 
 			require.Nil(t, err)
 			require.True(t, len(res) == 1)
@@ -437,7 +477,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 		t.Run("bm25f with filter matching no docs "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 			addit := additional.Properties{}
-			res, _, err := idx.objectSearch(context.TODO(), 1000, filterEmpty, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 1000, filterEmpty, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 
 			require.Nil(t, err)
 			require.True(t, len(res) == 0)
@@ -458,16 +498,27 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -501,9 +552,9 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 	for _, location := range []string{"memory", "disk"} {
 		t.Run("bm25f with and without filter "+location, func(t *testing.T) {
 			addit := additional.Properties{}
-			filtered, filteredScores, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, nil, "", 0, props)
+			filtered, filteredScores, err := idx.objectSearch(context.TODO(), 1000, filter, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
-			unfiltered, unfilteredScores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			unfiltered, unfilteredScores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			require.Len(t, filtered, 1)   // should match exactly one element
@@ -530,16 +581,27 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -555,7 +617,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 			// Check boosted
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title^2", "description"}, Query: "journey"}
 			addit := additional.Properties{}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 
 			// Print results
 			t.Log("--- Start results for boosted search ---")
@@ -596,16 +658,21 @@ func TestBM25FCompareBlock(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -682,22 +749,32 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{},
 		},
 	}
-
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -713,7 +790,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 
 		t.Run("single term "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "considered a"}
-			res, scores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			// Print results
@@ -736,7 +813,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 
 		t.Run("Results without stopwords "+location, func(t *testing.T) {
 			kwrNoStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "example losing business"}
-			resNoStopwords, resNoScores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit, nil, "", 0, props)
+			resNoStopwords, resNoScores, err := idxNone.objectSearch(context.TODO(), 10, nil, kwrNoStopwords, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			classEn, properties := SetupClassDocuments(t, repo, schemaGetter, logger, 0.5, 0.75, "en")
@@ -744,7 +821,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 			require.NotNil(t, idxEn)
 
 			kwrStopwords := &searchparams.KeywordRanking{Type: "bm25", Query: "an example on losing the business"}
-			resStopwords, resScores, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, nil, addit, nil, "", 0, properties)
+			resStopwords, resScores, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwords, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, properties)
 			require.Nil(t, err)
 
 			require.Equal(t, len(resNoStopwords), len(resStopwords))
@@ -755,7 +832,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 			}
 
 			kwrStopwordsDuplicate := &searchparams.KeywordRanking{Type: "bm25", Query: "on an example on losing the business on"}
-			resStopwordsDuplicate, duplicateScores, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwordsDuplicate, nil, nil, addit, nil, "", 0, properties)
+			resStopwordsDuplicate, duplicateScores, err := idxEn.objectSearch(context.TODO(), 10, nil, kwrStopwordsDuplicate, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, properties)
 			require.Nil(t, err)
 			require.Equal(t, len(resNoStopwords), len(resStopwordsDuplicate))
 			for i, resNo := range resNoStopwords {
@@ -780,21 +857,32 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
 	schemaGetter.schema = schema.Schema{
 		Objects: &models.Schema{
 			Classes: []*models.Class{},
 		},
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -810,7 +898,7 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 
 		t.Run("single term "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana"}
-			res, scores, err := idx.objectSearch(context.TODO(), 2, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 2, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			// Print results
@@ -826,7 +914,7 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 
 		t.Run("two docs to test additional explanations "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Query: "pepper banana", AdditionalExplanations: true}
-			res, _, err := idx.objectSearch(context.TODO(), 2, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 2, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			require.Nil(t, err)
 
 			// Print results

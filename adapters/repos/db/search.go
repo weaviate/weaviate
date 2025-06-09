@@ -18,6 +18,8 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
+
 	"github.com/weaviate/weaviate/entities/models"
 
 	"github.com/pkg/errors"
@@ -77,6 +79,10 @@ func (db *DB) SparseObjectSearch(ctx context.Context, params dto.GetParams) ([]*
 	tenant := params.Tenant
 	if !idx.partitioningEnabled && params.IsRefOrigin {
 		tenant = ""
+	}
+
+	if params.ReplicationProperties == nil {
+		params.ReplicationProperties = &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)}
 	}
 
 	res, scores, err := idx.objectSearch(ctx, totalLimit,
@@ -159,7 +165,7 @@ func extractDistanceFromParams(params dto.GetParams) float32 {
 }
 
 func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, targetVector string, offset, limit int,
-	filters *filters.LocalFilter,
+	filters *filters.LocalFilter, replProps *additional.ReplicationProperties,
 ) ([]search.Result, error) {
 	var found search.Results
 
@@ -177,7 +183,7 @@ func (db *DB) CrossClassVectorSearch(ctx context.Context, vector models.Vector, 
 
 			objs, dist, err := index.objectVectorSearch(ctx, []models.Vector{vector}, []string{targetVector},
 				0, totalLimit, filters, nil, nil,
-				additional.Properties{}, nil, "", nil, nil)
+				additional.Properties{}, &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)}, "", nil, nil)
 			if err != nil {
 				mutex.Lock()
 				searchErrors = append(searchErrors, errors.Wrapf(err, "search index %s", index.ID()))
@@ -236,7 +242,7 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 		}
 	}
 	res, _, err := idx.objectSearch(ctx, totalLimit, q.Filters,
-		nil, q.Sort, q.Cursor, q.Additional, nil, q.Tenant, 0, nil)
+		nil, q.Sort, q.Cursor, q.Additional, &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)}, q.Tenant, 0, nil)
 	if err != nil {
 		switch {
 		case errors.As(err, &objects.ErrMultiTenancy{}):
@@ -252,14 +258,14 @@ func (db *DB) Query(ctx context.Context, q *objects.QueryInput) (search.Results,
 // Deprecated by Query which searches a specific index
 func (db *DB) ObjectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
-	additional additional.Properties, tenant string,
+	additional additional.Properties, replProps *additional.ReplicationProperties, tenant string,
 ) (search.Results, error) {
-	return db.objectSearch(ctx, offset, limit, filters, sort, additional, tenant)
+	return db.objectSearch(ctx, offset, limit, filters, sort, additional, replProps, tenant)
 }
 
 func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 	filters *filters.LocalFilter, sort []filters.Sort,
-	additional additional.Properties, tenant string,
+	additional additional.Properties, replProps *additional.ReplicationProperties, tenant string,
 ) (search.Results, error) {
 	var found []*storobj.Object
 
@@ -285,7 +291,7 @@ func (db *DB) objectSearch(ctx context.Context, offset, limit int,
 			}
 
 			res, _, err := index.objectSearch(ctx, totalLimit,
-				filters, nil, sort, nil, additional, nil, tenant, 0, propsNames)
+				filters, nil, sort, nil, additional, replProps, tenant, 0, propsNames)
 			if err != nil {
 				// Multi tenancy specific errors
 				if errors.As(err, &objects.ErrMultiTenancy{}) {

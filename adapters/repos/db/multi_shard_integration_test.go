@@ -23,6 +23,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+
+	"github.com/weaviate/weaviate/cluster/schema/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -47,12 +54,12 @@ import (
 
 func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 	r := getRandomSeed()
-	repo, logger := setupMultiShardTest(t)
+	repo, logger, mockSchemaReader := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
 	}()
 
-	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
+	t.Run("prepare", makeTestMultiShardSchema(repo, logger, mockSchemaReader, false, testClassesForImporting()...))
 
 	data := multiShardTestData(r)
 	queryVec := exampleQueryVec(r)
@@ -85,12 +92,12 @@ func Test_MultiShardJourneys_IndividualImports(t *testing.T) {
 
 func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 	r := getRandomSeed()
-	repo, logger := setupMultiShardTest(t)
+	repo, logger, mockSchemaReader := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
 	}()
 
-	t.Run("prepare", makeTestMultiShardSchema(repo, logger, false, testClassesForImporting()...))
+	t.Run("prepare", makeTestMultiShardSchema(repo, logger, mockSchemaReader, false, testClassesForImporting()...))
 
 	data := multiShardTestData(r)
 	queryVec := exampleQueryVec(r)
@@ -155,7 +162,7 @@ func Test_MultiShardJourneys_BatchedImports(t *testing.T) {
 }
 
 func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
-	repo, logger := setupMultiShardTest(t)
+	repo, logger, mockSchemaReader := setupMultiShardTest(t)
 	defer func() {
 		repo.Shutdown(context.Background())
 	}()
@@ -188,7 +195,7 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 			},
 		}
 
-		t.Run("prepare", makeTestMultiShardSchema(repo, logger, true, class))
+		t.Run("prepare", makeTestMultiShardSchema(repo, logger, mockSchemaReader, true, class))
 	})
 
 	t.Run("insert search data", func(t *testing.T) {
@@ -275,10 +282,18 @@ func Test_MultiShardJourneys_BM25_Search(t *testing.T) {
 	})
 }
 
-func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
+func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger, *types.MockSchemaReader) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",
@@ -286,12 +301,13 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
-	return repo, logger
+	return repo, logger, mockSchemaReader
 }
 
-func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardState bool, classes ...*models.Class) func(t *testing.T) {
+func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, mockSchemaReader *types.MockSchemaReader, fixedShardState bool, classes ...*models.Class) func(t *testing.T) {
 	return func(t *testing.T) {
 		var shardState *sharding.State
 		if fixedShardState {
@@ -299,6 +315,7 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardSta
 		} else {
 			shardState = multiShardState()
 		}
+		mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
 		schemaGetter := &fakeSchemaGetter{
 			schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 			shardState: shardState,
@@ -354,7 +371,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 					},
 				}
 				res, err := repo.ObjectSearch(context.Background(), 0, limit, filters, nil,
-					additional.Properties{}, "")
+					additional.Properties{}, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "")
 				assert.Nil(t, err)
 
 				assert.Len(t, res, expected)
@@ -414,6 +431,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 		t.Run("retrieve through class-level vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
 				res, err := repo.VectorSearch(context.Background(), dto.GetParams{
+					ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)},
 					Pagination: &filters.Pagination{
 						Limit: limit,
 					},
@@ -437,7 +455,7 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 
 		t.Run("retrieve through inter-class vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
-				res, err := repo.CrossClassVectorSearch(context.Background(), queryVec, "", 0, limit, nil)
+				res, err := repo.CrossClassVectorSearch(context.Background(), queryVec, "", 0, limit, nil, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)})
 				assert.Nil(t, err)
 				assert.Len(t, res, expected)
 				for i, obj := range res {
@@ -610,7 +628,7 @@ func makeTestSortingClass(repo *DB) func(t *testing.T) {
 			for _, test := range tests {
 				t.Run(test.name, func(t *testing.T) {
 					res, err := repo.ObjectSearch(context.Background(), 0, 1000, nil, test.sort,
-						additional.Properties{}, "")
+						additional.Properties{}, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "")
 					if len(test.constainsErrorMsgs) > 0 {
 						require.NotNil(t, err)
 						for _, errorMsg := range test.constainsErrorMsgs {

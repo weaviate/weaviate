@@ -80,7 +80,7 @@ type fakeVectorSearcher struct {
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
-	vector models.Vector, targetVector string, offset, limit int, filters *filters.LocalFilter,
+	vector models.Vector, targetVector string, offset, limit int, filters *filters.LocalFilter, replProps *additional.ReplicationProperties,
 ) ([]search.Result, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit

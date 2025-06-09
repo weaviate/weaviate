@@ -18,6 +18,11 @@ import (
 	"fmt"
 	"testing"
 
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+
+	"github.com/weaviate/weaviate/cluster/schema/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus/hooks/test"
@@ -143,6 +148,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 	},
 		&fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{},
 		&fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		cluster.NewMockNodeSelector(t), types.NewMockSchemaReader(t), replicationTypes.NewMockReplicationFSMReader(t),
 	)
 	require.NoError(t, err)
 

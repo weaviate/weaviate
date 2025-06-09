@@ -17,14 +17,19 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"os"
 	"testing"
+
+	"github.com/stretchr/testify/mock"
+	types2 "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -36,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
 	enthnsw "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -118,7 +124,8 @@ func TestHybrid(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil,
+		cluster.NewMockNodeSelector(t), types.NewMockSchemaReader(t), replicationTypes.NewMockReplicationFSMReader(t))
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -157,7 +164,8 @@ func TestBIER(t *testing.T) {
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil,
+		cluster.NewMockNodeSelector(t), types.NewMockSchemaReader(t), replicationTypes.NewMockReplicationFSMReader(t))
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -251,16 +259,27 @@ func TestRFJourney(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		QueryLimit:                20,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -415,7 +434,8 @@ func TestRFJourney(t *testing.T) {
 		results_set_1, err := repo.VectorSearch(
 			context.TODO(),
 			dto.GetParams{
-				ClassName: "MyClass",
+				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
+				ClassName:             "MyClass",
 				Pagination: &filters.Pagination{
 					Offset: 0,
 					Limit:  6,
@@ -430,7 +450,8 @@ func TestRFJourney(t *testing.T) {
 		results_set_2, err := repo.VectorSearch(
 			context.TODO(),
 			dto.GetParams{
-				ClassName: "MyClass",
+				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
+				ClassName:             "MyClass",
 				Pagination: &filters.Pagination{
 					Offset: 0,
 					Limit:  6,
@@ -470,7 +491,8 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Hybrid", func(t *testing.T) {
 		params := dto.GetParams{
-			ClassName: "MyClass",
+			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
+			ClassName:             "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
@@ -508,7 +530,8 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Hybrid with negative limit", func(t *testing.T) {
 		params := dto.GetParams{
-			ClassName: "MyClass",
+			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
+			ClassName:             "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "Elephant Parade",
 				Vector: elephantVector(),
@@ -548,7 +571,8 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Hybrid with offset 1", func(t *testing.T) {
 		params := dto.GetParams{
-			ClassName: "MyClass",
+			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
+			ClassName:             "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "Elephant Parade",
 				Vector: elephantVector(),
@@ -590,7 +614,8 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Hybrid with offset 2", func(t *testing.T) {
 		params := dto.GetParams{
-			ClassName: "MyClass",
+			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
+			ClassName:             "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "Elephant Parade",
 				Vector: elephantVector(),
@@ -634,16 +659,27 @@ func TestRFJourneyWithFilters(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		QueryLimit:                20,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -715,7 +751,8 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 	t.Run("Hybrid with filter - no results expected", func(t *testing.T) {
 		params := dto.GetParams{
-			ClassName: "MyClass",
+			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
+			ClassName:             "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
@@ -747,7 +784,8 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 	t.Run("Hybrid", func(t *testing.T) {
 		params := dto.GetParams{
-			ClassName: "MyClass",
+			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
+			ClassName:             "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
@@ -787,7 +825,8 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 	t.Run("Hybrid with filter", func(t *testing.T) {
 		params := dto.GetParams{
-			ClassName: "MyClass",
+			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
+			ClassName:             "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
@@ -831,16 +870,21 @@ func TestStability(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		QueryLimit:                20,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
@@ -930,7 +974,7 @@ func (f *fakeObjectSearcher) VectorSearch(context.Context, dto.GetParams, []stri
 	return nil, nil
 }
 
-func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, models.Vector, string, int, int, *filters.LocalFilter) ([]search.Result, error) {
+func (f *fakeObjectSearcher) CrossClassVectorSearch(context.Context, models.Vector, string, int, int, *filters.LocalFilter, *additional.ReplicationProperties) ([]search.Result, error) {
 	return nil, nil
 }
 
@@ -989,16 +1033,21 @@ func TestHybridOverSearch(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		QueryLimit:                20,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.TODO()))
