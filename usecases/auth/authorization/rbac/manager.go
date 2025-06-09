@@ -391,43 +391,6 @@ func (m *Manager) checkPermissions(principal *models.Principal, resource, verb s
 	return m.casbin.Enforce(conv.UserNameWithTypeFromPrincipal(principal), resource, verb)
 }
 
-func (m *Manager) restoreFromBytes(policiesB []byte, groupingsB []byte) error {
-	m.backupLock.Lock()
-	defer m.backupLock.Unlock()
-
-	var policies [][]string
-
-	err := json.Unmarshal(policiesB, &policies)
-	if err != nil {
-		return err
-	}
-
-	m.casbin.ClearPolicy()
-	_, err = m.casbin.AddPolicies(policies)
-	if err != nil {
-		return err
-	}
-
-	var groupings [][]string
-	if err := json.Unmarshal(groupingsB, &groupings); err != nil {
-		return err
-	}
-
-	for _, grouping := range groupings {
-		if _, err := m.casbin.AddRoleForUser(grouping[0], grouping[1]); err != nil {
-			return fmt.Errorf("AddRoleForUser: %w", err)
-		}
-	}
-
-	if err := m.casbin.SavePolicy(); err != nil {
-		return err
-	}
-	if err := m.casbin.InvalidateCache(); err != nil {
-		return err
-	}
-	return nil
-}
-
 func prettyPermissionsActions(perm *models.Permission) string {
 	if perm == nil || perm.Action == nil {
 		return ""
