@@ -29,7 +29,7 @@ import (
 var ErrBadRequest = errors.New("bad request")
 
 type Manager struct {
-	authZ  *rbac.Manager
+	authZ       *rbac.Manager
 	authNconfig config.Authentication
 	snapshotter fsm.Snapshotter
 	logger      logrus.FieldLogger

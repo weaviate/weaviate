@@ -140,7 +140,7 @@ func (r *restorer) restoreAll(ctx context.Context,
 	r.lastOp.set(backup.Transferring)
 
 	if r.dynUserSourcer != nil && len(desc.DynUserBackups) > 0 && usersRestoreOption != models.RestoreConfigUsersOptionsNoRestore {
-		if err := r.dynUserSourcer.Restore( desc.DynUserBackups); err != nil {
+		if err := r.dynUserSourcer.Restore(desc.DynUserBackups); err != nil {
 			return fmt.Errorf("restore rbac: %w", err)
 		}
 	}

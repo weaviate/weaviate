@@ -141,10 +141,11 @@ func (r fakeRbacBackupWrapper) WriteBackupItems(context.Context, map[string][]by
 	return nil
 }
 
-func (r fakeRbacBackupWrapper) Snapshot()([]byte, error) {
+func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
 	return nil, nil
 }
-func (r fakeRbacBackupWrapper) Restore( []byte) error {
+
+func (r fakeRbacBackupWrapper) Restore([]byte) error {
 	return nil
 }
 

@@ -57,7 +57,7 @@ type State struct {
 	Authorizer       authorization.Authorizer
 	AuthzController  authorization.Controller
 	AuthzSnapshotter fsm.Snapshotter
-	RBAC            *rbac.Manager
+	RBAC             *rbac.Manager
 
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration

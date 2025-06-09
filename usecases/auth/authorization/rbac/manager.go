@@ -37,9 +37,9 @@ const (
 
 type Manager struct {
 	backupLock *sync.RWMutex
-	casbin    *casbin.SyncedCachedEnforcer
-	logger    logrus.FieldLogger
-	authNconf config.Authentication
+	casbin     *casbin.SyncedCachedEnforcer
+	logger     logrus.FieldLogger
+	authNconf  config.Authentication
 }
 
 func New(rbacStoragePath string, rbac rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*Manager, error) {
@@ -48,7 +48,7 @@ func New(rbacStoragePath string, rbac rbacconf.Config, authNconf config.Authenti
 		return nil, err
 	}
 
-	return &Manager{&sync.RWMutex{},csbin, logger, authNconf}, nil
+	return &Manager{&sync.RWMutex{}, csbin, logger, authNconf}, nil
 }
 
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
@@ -427,9 +427,6 @@ func (m *Manager) restoreFromBytes(policiesB []byte, groupingsB []byte) error {
 	}
 	return nil
 }
-
-
-
 
 func prettyPermissionsActions(perm *models.Permission) string {
 	if perm == nil || perm.Action == nil {

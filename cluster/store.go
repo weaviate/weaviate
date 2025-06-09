@@ -162,9 +162,9 @@ type Config struct {
 	ForceOneNodeRecovery bool
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
-	AuthzController       authorization.Controller
-	AuthNConfig           config.Authentication
-	RBAC *rbac.Manager
+	AuthzController authorization.Controller
+	AuthNConfig     config.Authentication
+	RBAC            *rbac.Manager
 
 	DynamicUserController *apikey.DBUser
 }
