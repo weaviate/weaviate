@@ -456,22 +456,21 @@ func (r *multiTenantRouter) tenantExistsAndIsActive(tenantStatus map[string]stri
 }
 
 // deduplicate returns a new slice containing the unique elements of the input.
-// The order of elements is not preserved.
+// The order of elements in the input slice is preserved.
 func deduplicate(values []string) []string {
 	if len(values) <= 1 {
 		return values
 	}
 
-	set := make(map[string]bool)
-	for _, value := range values {
-		set[value] = true
-	}
+	seen := make(map[string]struct{}, len(values))
+	result := make([]string, 0, len(values))
 
-	result := make([]string, 0, len(set))
-	for value := range set {
-		result = append(result, value)
+	for _, v := range values {
+		if _, exists := seen[v]; !exists {
+			seen[v] = struct{}{}
+			result = append(result, v)
+		}
 	}
-
 	return result
 }
 
