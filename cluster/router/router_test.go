@@ -33,7 +33,7 @@ import (
 func createRoutingPlanBuildOptions(collection, tenant string) types.RoutingPlanBuildOptions {
 	return types.RoutingPlanBuildOptions{
 		Collection:             collection,
-		Shard:                  tenant,
+		Tenant:                 tenant,
 		ConsistencyLevel:       types.ConsistencyLevelOne,
 		DirectCandidateReplica: "",
 	}
@@ -614,7 +614,7 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_Success(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, "TestClass", plan.Collection)
-	require.Equal(t, "luke", plan.Shard)
+	require.Equal(t, "luke", plan.Tenant)
 	require.Equal(t, []string{"node1"}, plan.Replicas)
 	require.Equal(t, []string{"node1"}, plan.ReplicasHostAddrs)
 }
@@ -660,6 +660,8 @@ func TestSingleTenantRouter_BuildRoutingPlan_WithDirectCandidate(t *testing.T) {
 	mockMetadataReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", directCandidateNode, "node3"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", directCandidateNode, "node3"}).
 		Return([]string{"node1", directCandidateNode, "node3"})
+	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "shard1", []string{"node1", directCandidateNode, "node3"}).
+		Return([]string{"node1", directCandidateNode, "node3"}, []string{})
 
 	// node2 should be first due to direct candidate expected to be the first node
 	mockClusterReader.EXPECT().NodeHostname(directCandidateNode).Return("host2.example.com", true)
@@ -678,7 +680,7 @@ func TestSingleTenantRouter_BuildRoutingPlan_WithDirectCandidate(t *testing.T) {
 
 	params := types.RoutingPlanBuildOptions{
 		Collection:             "TestClass",
-		Shard:                  "",
+		Tenant:                 "",
 		ConsistencyLevel:       types.ConsistencyLevelOne,
 		DirectCandidateReplica: directCandidateNode,
 	}
@@ -994,7 +996,7 @@ func TestMultiTenantRouter_RoutingPlanConstruction_DirectCandidate(t *testing.T)
 
 			params := types.RoutingPlanBuildOptions{
 				Collection:             "TestClass",
-				Shard:                  testCase.tenant,
+				Tenant:                 testCase.tenant,
 				ConsistencyLevel:       types.ConsistencyLevelOne,
 				DirectCandidateReplica: testCase.directCandidate,
 			}
@@ -1003,7 +1005,7 @@ func TestMultiTenantRouter_RoutingPlanConstruction_DirectCandidate(t *testing.T)
 
 			require.NoError(t, err, "unexpected error for %s", testCase.description)
 			require.Equal(t, "TestClass", plan.Collection)
-			require.Equal(t, testCase.tenant, plan.Shard)
+			require.Equal(t, testCase.tenant, plan.Tenant)
 			require.Len(t, plan.Replicas, testCase.expectedTotal, "replica count mismatch for %s", testCase.description)
 			require.Len(t, plan.ReplicasHostAddrs, testCase.expectedTotal, "host address count mismatch for %s", testCase.description)
 			require.Equal(t, testCase.expectedFirst, plan.Replicas[0], "first replica mismatch for %s", testCase.description)

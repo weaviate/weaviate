@@ -19,7 +19,7 @@ import (
 
 type RoutingPlanBuildOptions struct {
 	Collection             string
-	Shard                  string
+	Tenant                 string
 	ConsistencyLevel       ConsistencyLevel
 	DirectCandidateReplica string
 }
@@ -33,7 +33,7 @@ func (r RoutingPlanBuildOptions) Validate() error {
 
 type RoutingPlan struct {
 	Collection string
-	Shard      string
+	Tenant     string
 	Replicas   []string
 
 	ConsistencyLevel    ConsistencyLevel
@@ -45,7 +45,7 @@ type RoutingPlan struct {
 func (r RoutingPlan) LogFields() logrus.Fields {
 	return logrus.Fields{
 		"collection":            r.Collection,
-		"shard":                 r.Shard,
+		"tenant":                r.Tenant,
 		"replicas":              r.Replicas,
 		"consistency_level":     r.ConsistencyLevel,
 		"replicas_host_addrs":   r.ReplicasHostAddrs,

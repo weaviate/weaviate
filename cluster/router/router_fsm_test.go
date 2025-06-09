@@ -168,10 +168,15 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				testCase.preRoutingPlanAction(shardReplicationFSM)
 			}
 
+			tenant := "shard1"
+			if !testCase.partitioningEnabled {
+				tenant = ""
+			}
+
 			// Build the routing plan
 			routingPlan, err := myRouter.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 				Collection: "collection1",
-				Shard:      "shard1",
+				Tenant:     tenant,
 			})
 			if testCase.expectedErrorStr != "" {
 				require.Error(t, err)
@@ -310,10 +315,14 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				testCase.preRoutingPlanAction(shardReplicationFSM)
 			}
 
+			tenant := "shard1"
+			if !testCase.partitioningEnabled {
+				tenant = ""
+			}
 			// Build the routing plan
 			routingPlan, err := myRouter.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
 				Collection: "collection1",
-				Shard:      "shard1",
+				Tenant:     tenant,
 			})
 			if testCase.expectedErrorStr != "" {
 				require.Error(t, err)

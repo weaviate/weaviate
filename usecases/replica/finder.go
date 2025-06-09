@@ -325,7 +325,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 ) (diffReader *ShardDifferenceReader, err error) {
 	routingPlan, err := f.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:       f.class,
-		Shard:            shardName,
+		Tenant:           shardName,
 		ConsistencyLevel: types.ConsistencyLevelOne,
 	})
 	if err != nil {

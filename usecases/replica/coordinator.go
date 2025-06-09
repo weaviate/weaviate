@@ -183,7 +183,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 ) (<-chan _Result[T], int, error) {
 	routingPlan, err := c.Router.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:       c.Class,
-		Shard:            c.Shard,
+		Tenant:           c.Shard,
 		ConsistencyLevel: cl,
 	})
 	if err != nil {
@@ -228,7 +228,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 ) (<-chan _Result[T], int, error) {
 	routingPlan, err := c.Router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Collection:             c.Class,
-		Shard:                  c.Shard,
+		Tenant:                 c.Shard,
 		ConsistencyLevel:       cl,
 		DirectCandidateReplica: directCandidate,
 	})
