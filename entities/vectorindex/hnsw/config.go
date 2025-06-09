@@ -113,7 +113,6 @@ func (u *UserConfig) SetDefaults() {
 		Enabled:      DefaultRQEnabled,
 		DataBits:     DefaultRQDataBits,
 		QueryBits:    DefaultRQQueryBits,
-		Rescore:      DefaultRQRescore,
 		RescoreLimit: DefaultRQRescoreLimit,
 	}
 	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategyAcorn {

@@ -158,6 +158,11 @@ func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float
 }
 
 func (h *hnsw) shouldRescore() bool {
+	if h.compressed.Load() {
+		if (h.sqConfig.Enabled && h.sqConfig.RescoreLimit == 0) || (h.rqConfig.Enabled && h.rqConfig.RescoreLimit == 0) {
+			return false
+		}
+	}
 	return h.compressed.Load() && !h.doNotRescore
 }
 

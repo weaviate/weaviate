@@ -129,7 +129,7 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 					h.distancerProvider, 1e12, h.logger, h.store, h.allocChecker, int(h.rqConfig.DataBits), int(h.rqConfig.QueryBits), int(h.dims))
 			}
 			if err == nil {
-				h.doNotRescore = !cfg.RQ.Rescore
+				h.rqConfig.RescoreLimit = cfg.RQ.RescoreLimit
 				h.compressor.PersistCompression(h.commitLog)
 			}
 		})
