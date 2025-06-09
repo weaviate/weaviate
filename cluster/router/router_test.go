@@ -32,7 +32,6 @@ import (
 
 func createRoutingPlanBuildOptions(collection, tenant string) types.RoutingPlanBuildOptions {
 	return types.RoutingPlanBuildOptions{
-		Collection:             collection,
 		Tenant:                 tenant,
 		ConsistencyLevel:       types.ConsistencyLevelOne,
 		DirectCandidateReplica: "",
@@ -597,7 +596,6 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_Success(t *testing.T) {
 	plan, err := r.BuildReadRoutingPlan(params)
 
 	require.NoError(t, err)
-	require.Equal(t, "TestClass", plan.Collection)
 	require.Equal(t, "luke", plan.Tenant)
 	require.Equal(t, []string{"node1"}, plan.Replicas)
 	require.Equal(t, []string{"node1"}, plan.ReplicasHostAddrs)
@@ -661,7 +659,6 @@ func TestSingleTenantRouter_BuildRoutingPlan_WithDirectCandidate(t *testing.T) {
 	).Build()
 
 	params := types.RoutingPlanBuildOptions{
-		Collection:             "TestClass",
 		Tenant:                 "",
 		ConsistencyLevel:       types.ConsistencyLevelOne,
 		DirectCandidateReplica: directCandidateNode,
@@ -971,7 +968,6 @@ func TestMultiTenantRouter_RoutingPlanConstruction_DirectCandidate(t *testing.T)
 				mockSchemaGetter, mockMetadataReader, mockReplicationFSM).Build()
 
 			params := types.RoutingPlanBuildOptions{
-				Collection:             "TestClass",
 				Tenant:                 testCase.tenant,
 				ConsistencyLevel:       types.ConsistencyLevelOne,
 				DirectCandidateReplica: testCase.directCandidate,
@@ -980,7 +976,6 @@ func TestMultiTenantRouter_RoutingPlanConstruction_DirectCandidate(t *testing.T)
 			plan, err := r.BuildReadRoutingPlan(params)
 
 			require.NoError(t, err, "unexpected error for %s", testCase.description)
-			require.Equal(t, "TestClass", plan.Collection)
 			require.Equal(t, testCase.tenant, plan.Tenant)
 			require.Len(t, plan.Replicas, testCase.expectedTotal, "replica count mismatch for %s", testCase.description)
 			require.Len(t, plan.ReplicasHostAddrs, testCase.expectedTotal, "host address count mismatch for %s", testCase.description)
