@@ -12,7 +12,6 @@
 package apikey
 
 import (
-	"context"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
@@ -25,8 +24,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-
-	ucbackup "github.com/weaviate/weaviate/usecases/backup"
 
 	"github.com/alexedwards/argon2id"
 
@@ -492,14 +489,6 @@ func (c *DBUser) restoreFromBytes(data []byte) error {
 	return nil
 }
 
-func (c *DBUser) BackupLocations() ucbackup.SourcerNonClass {
-	if c == nil {
-		// Dynamic User Management is not enabled, there's nothing to backup
-		return nil
-	}
-	return NewBackupWrapper(c.getBytes, c.restoreFromBytes)
-}
-
 type BackupWrapper struct {
 	getBytes             func() ([]byte, error)
 	restoreFromBytesFunc func([]byte) error
@@ -507,21 +496,4 @@ type BackupWrapper struct {
 
 func NewBackupWrapper(getbytesFunc func() ([]byte, error), restoreFromBytesFunc func([]byte) error) *BackupWrapper {
 	return &BackupWrapper{getBytes: getbytesFunc, restoreFromBytesFunc: restoreFromBytesFunc}
-}
-
-func (b BackupWrapper) GetBackupItems(_ context.Context) (map[string][]byte, error) {
-	bts, err := b.getBytes()
-	if err != nil {
-		return nil, err
-	}
-	return map[string][]byte{"dynamicUsers": bts}, nil
-}
-
-func (b BackupWrapper) WriteBackupItems(_ context.Context, descriptors map[string][]byte) error {
-	descr, ok := descriptors["dynamicUsers"]
-	if !ok {
-		return errors.New("no policies found")
-	}
-
-	return b.restoreFromBytesFunc(descr)
 }

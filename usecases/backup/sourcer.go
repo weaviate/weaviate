@@ -43,9 +43,3 @@ type Sourcer interface { // implemented by the index
 	// A class cannot be backed up either if it doesn't exist or if it has more than one physical shard.
 	ListBackupable() []string
 }
-
-// SourcerNonClass represents the source of artifacts used in the backup that are not classes and their data
-type SourcerNonClass interface { // implemented by the index
-	GetBackupItems(context.Context) (map[string][]byte, error)              // Backup items that are not classes, such as roles, permissions, and users
-	WriteBackupItems(_ context.Context, backupData map[string][]byte) error // WriteBackupItems writes the backup items somewhere.  Where?
-}
