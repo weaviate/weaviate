@@ -38,7 +38,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		New().
 		WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "custom-key").
-		WithRBAC().WithRbacAdmins(adminUser).
+		WithRBAC().WithRbacAdmins(adminUser).WithDbUsers().
 		WithBackendFilesystem().
 		Start(ctx)
 	require.Nil(t, err)
