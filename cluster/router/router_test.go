@@ -62,7 +62,7 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_NoShards(t *testing.T) 
 	mockClusterReader := mocks.NewMockNodeSelector("node1", "node2")
 
 	emptyState := createShardingStateWithShards([]string{})
-	mockSchemaGetter.EXPECT().CopyShardingState("TestClass").Return(emptyState)
+	mockMetadataReader.EXPECT().CopyShardingState("TestClass").Return(emptyState)
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -89,7 +89,7 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_MultipleShards(t *testi
 
 	shards := []string{"shard1", "shard2", "shard3"}
 	state := createShardingStateWithShards(shards)
-	mockSchemaGetter.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockMetadataReader.EXPECT().CopyShardingState("TestClass").Return(state)
 
 	mockMetadataReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 	mockMetadataReader.EXPECT().ShardReplicas("TestClass", "shard2").Return([]string{"node2", "node3"}, nil)
@@ -156,7 +156,7 @@ func TestSingleTenantRouter_GetWriteReplicasLocation(t *testing.T) {
 	mockClusterReader := mocks.NewMockNodeSelector("node1", "node2")
 
 	state := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaGetter.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockMetadataReader.EXPECT().CopyShardingState("TestClass").Return(state)
 
 	mockMetadataReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2"}).
@@ -186,7 +186,7 @@ func TestSingleTenantRouter_GetReadReplicasLocation(t *testing.T) {
 	mockClusterReader := mocks.NewMockNodeSelector("node1", "node2")
 
 	state := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaGetter.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockMetadataReader.EXPECT().CopyShardingState("TestClass").Return(state)
 
 	mockMetadataReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", "node2"}, nil)
 	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "shard1", []string{"node1", "node2"}).
@@ -215,7 +215,7 @@ func TestSingleTenantRouter_ErrorInMiddleOfShardProcessing(t *testing.T) {
 	mockClusterReader := mocks.NewMockNodeSelector("node1")
 
 	state := createShardingStateWithShards([]string{"shard1", "shard2", "shard3"})
-	mockSchemaGetter.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockMetadataReader.EXPECT().CopyShardingState("TestClass").Return(state)
 
 	// First shard success
 	mockMetadataReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1"}, nil)
@@ -546,7 +546,7 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 	mockClusterReader := mocks.NewMockNodeSelector("node1")
 
 	emptyState := createShardingStateWithShards([]string{})
-	mockSchemaGetter.EXPECT().CopyShardingState("TestClass").Return(emptyState)
+	mockMetadataReader.EXPECT().CopyShardingState("TestClass").Return(emptyState)
 
 	r := router.NewBuilder(
 		"TestClass",
@@ -669,7 +669,7 @@ func TestSingleTenantRouter_BuildRoutingPlan_WithDirectCandidate(t *testing.T) {
 	mockClusterReader := cluster.NewMockNodeSelector(t)
 
 	state := createShardingStateWithShards([]string{"shard1"})
-	mockSchemaGetter.EXPECT().CopyShardingState("TestClass").Return(state)
+	mockMetadataReader.EXPECT().CopyShardingState("TestClass").Return(state)
 
 	directCandidateNode := "node2"
 	mockMetadataReader.EXPECT().ShardReplicas("TestClass", "shard1").Return([]string{"node1", directCandidateNode, "node3"}, nil)
