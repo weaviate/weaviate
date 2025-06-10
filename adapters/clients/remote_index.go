@@ -23,15 +23,15 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -44,19 +44,25 @@ type RemoteIndex struct {
 	retryClient
 }
 
-func NewRemoteIndex(httpClient *http.Client) *RemoteIndex {
+func NewRemoteIndex(httpClient *http.Client, nodeResolver nodeResolver) *RemoteIndex {
 	return &RemoteIndex{retryClient: retryClient{
-		client:  httpClient,
-		retryer: newRetryer(),
+		client:       httpClient,
+		nodeResolver: nodeResolver,
+		retryer:      newRetryer(),
 	}}
 }
 
-func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
+func (c *RemoteIndex) PutObject(ctx context.Context, owner, index,
 	shard string, obj *storobj.Object, schemaVersion uint64,
 ) error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", index, shard)
 	method := http.MethodPost
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
+
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return fmt.Errorf("resolve node name %q to host", owner)
+	}
 	url := url.URL{
 		Scheme:   "http",
 		Host:     host,
@@ -75,7 +81,7 @@ func (c *RemoteIndex) PutObject(ctx context.Context, host, index,
 	}
 
 	clusterapi.IndicesPayloads.SingleObject.SetContentTypeHeaderReq(req)
-	_, err = c.do(c.timeoutUnit*60, req, body, nil, successCode)
+	_, err = c.do(c.timeoutUnit*60, req, body, nil, 9, successCode, owner)
 	return err
 }
 
@@ -87,10 +93,15 @@ func duplicateErr(in error, count int) []error {
 	return out
 }
 
-func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
+func (c *RemoteIndex) BatchPutObjects(ctx context.Context, owner, index,
 	shard string, objs []*storobj.Object, _ *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return duplicateErr(fmt.Errorf("resolve node name %q to host",
+			owner), len(objs))
+	}
 	url := url.URL{
 		Scheme:   "http",
 		Host:     host,
@@ -115,22 +126,27 @@ func (c *RemoteIndex) BatchPutObjects(ctx context.Context, host, index,
 		return nil
 	}
 
-	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode, 9); err != nil {
+	if err = c.doWithCustomMarshaller(c.timeoutUnit*60, req, body, decode, successCode, 9, owner); err != nil {
 		return duplicateErr(err, len(objs))
 	}
 
 	return resp
 }
 
-func (c *RemoteIndex) BatchAddReferences(ctx context.Context, hostName, indexName,
+func (c *RemoteIndex) BatchAddReferences(ctx context.Context, owner, indexName,
 	shardName string, refs objects.BatchReferences, schemaVersion uint64,
 ) []error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/references", indexName, shardName)
 	method := http.MethodPost
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return duplicateErr(fmt.Errorf("resolve node name %q to host",
+			owner), len(refs))
+	}
 	url := url.URL{
 		Scheme:   "http",
-		Host:     hostName,
+		Host:     host,
 		Path:     path,
 		RawQuery: url.Values{replica.SchemaVersionKey: value}.Encode(),
 	}
@@ -174,10 +190,9 @@ func (c *RemoteIndex) BatchAddReferences(ctx context.Context, hostName, indexNam
 	return clusterapi.IndicesPayloads.ErrorList.Unmarshal(resBytes)
 }
 
-func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
+func (c *RemoteIndex) GetObject(ctx context.Context, owner, indexName,
 	shardName string, id strfmt.UUID, selectProps search.SelectProperties,
-	additional additional.Properties,
-) (*storobj.Object, error) {
+	additional additional.Properties) (*storobj.Object, error) {
 	selectPropsBytes, err := json.Marshal(selectProps)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal selectProps props")
@@ -193,7 +208,11 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s", indexName, shardName, id)
 	method := http.MethodGet
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return nil, fmt.Errorf("resolve node name %q to host", owner)
+	}
+	url := url.URL{Scheme: "http", Host: host, Path: path}
 	q := url.Query()
 	q.Set("additional", additionalEncoded)
 	q.Set("selectProperties", selectPropsEncoded)
@@ -240,12 +259,16 @@ func (c *RemoteIndex) GetObject(ctx context.Context, hostName, indexName,
 	return obj, nil
 }
 
-func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID,
-) (bool, error) {
+func (c *RemoteIndex) Exists(ctx context.Context, owner, indexName,
+	shardName string, id strfmt.UUID) (bool, error) {
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return false, fmt.Errorf("resolve node name %q to host", owner)
+	}
+
 	rURL := url.URL{
 		Scheme:   "http",
-		Host:     hostName,
+		Host:     host,
 		Path:     fmt.Sprintf("/indices/%s/shards/%s/objects/%s", indexName, shardName, id),
 		RawQuery: url.Values{"check_exists": []string{"true"}}.Encode(),
 	}
@@ -254,20 +277,23 @@ func (c *RemoteIndex) Exists(ctx context.Context, hostName, indexName,
 	if err != nil {
 		return false, fmt.Errorf("create http request: %w", err)
 	}
-	ok := func(code int) bool { return code == http.StatusNotFound || code == http.StatusNoContent }
-	code, err := c.do(c.timeoutUnit*20, req, nil, nil, ok)
+	okStatus := func(code int) bool { return code == http.StatusNotFound || code == http.StatusNoContent }
+	code, err := c.do(c.timeoutUnit*20, req, nil, nil, 9, okStatus, owner)
 	return code != http.StatusNotFound, err
 }
 
-func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,
-	shardName string, id strfmt.UUID, deletionTime time.Time, schemaVersion uint64,
-) error {
+func (c *RemoteIndex) DeleteObject(ctx context.Context, owner, indexName,
+	shardName string, id strfmt.UUID, deletionTime time.Time, schemaVersion uint64) error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s/%d", indexName, shardName, id, deletionTime.UnixMilli())
 	method := http.MethodDelete
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return fmt.Errorf("resolve node name %q to host", owner)
+	}
 	url := url.URL{
 		Scheme:   "http",
-		Host:     hostName,
+		Host:     host,
 		Path:     path,
 		RawQuery: url.Values{replica.SchemaVersionKey: value}.Encode(),
 	}
@@ -298,16 +324,19 @@ func (c *RemoteIndex) DeleteObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
-func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
-	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64,
-) error {
+func (c *RemoteIndex) MergeObject(ctx context.Context, owner, indexName,
+	shardName string, mergeDoc objects.MergeDocument, schemaVersion uint64) error {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects/%s", indexName, shardName,
 		mergeDoc.ID)
 	method := http.MethodPatch
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return fmt.Errorf("resolve node name %q to host", owner)
+	}
 	url := url.URL{
 		Scheme:   "http",
-		Host:     hostName,
+		Host:     host,
 		Path:     path,
 		RawQuery: url.Values{replica.SchemaVersionKey: value}.Encode(),
 	}
@@ -339,9 +368,8 @@ func (c *RemoteIndex) MergeObject(ctx context.Context, hostName, indexName,
 	return nil
 }
 
-func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
-	shardName string, ids []strfmt.UUID,
-) ([]*storobj.Object, error) {
+func (c *RemoteIndex) MultiGetObjects(ctx context.Context, owner, indexName,
+	shardName string, ids []strfmt.UUID) ([]*storobj.Object, error) {
 	idsBytes, err := json.Marshal(ids)
 	if err != nil {
 		return nil, errors.Wrap(err, "marshal selectProps props")
@@ -351,7 +379,11 @@ func (c *RemoteIndex) MultiGetObjects(ctx context.Context, hostName, indexName,
 
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodGet
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return nil, fmt.Errorf("resolve node name %q to host", owner)
+	}
+	url := url.URL{Scheme: "http", Host: host, Path: path}
 	q := url.Query()
 	q.Set("ids", idsEncoded)
 	url.RawQuery = q.Encode()
@@ -430,7 +462,7 @@ func (c *RemoteIndex) SearchShard(ctx context.Context, host, index, shard string
 
 	// send request
 	resp := &searchShardResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9, "")
 	return resp.Objects, resp.Distributions, err
 }
 
@@ -475,11 +507,11 @@ func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
 
 	// send request
 	resp := &aggregateResp{}
-	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9)
+	err = c.doWithCustomMarshaller(c.timeoutUnit*20, req, body, resp.decode, successCode, 9, "")
 	return resp.Result, err
 }
 
-func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
+func (c *RemoteIndex) FindUUIDs(ctx context.Context, owner, indexName,
 	shardName string, filters *filters.LocalFilter,
 ) ([]strfmt.UUID, error) {
 	paramsBytes, err := clusterapi.IndicesPayloads.FindUUIDsParams.Marshal(filters)
@@ -489,7 +521,11 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects/_find", indexName, shardName)
 	method := http.MethodPost
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return nil, fmt.Errorf("resolve node name %q to host", owner)
+	}
+	url := url.URL{Scheme: "http", Host: host, Path: path}
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(),
 		bytes.NewReader(paramsBytes))
@@ -527,15 +563,19 @@ func (c *RemoteIndex) FindUUIDs(ctx context.Context, hostName, indexName,
 	return uuids, nil
 }
 
-func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
-	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64,
-) objects.BatchSimpleObjects {
+func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, owner, indexName, shardName string,
+	uuids []strfmt.UUID, deletionTime time.Time, dryRun bool, schemaVersion uint64) objects.BatchSimpleObjects {
 	path := fmt.Sprintf("/indices/%s/shards/%s/objects", indexName, shardName)
 	method := http.MethodDelete
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		err := fmt.Errorf("resolve node name %q to host", owner)
+		return objects.BatchSimpleObjects{objects.BatchSimpleObject{Err: err}}
+	}
 	url := url.URL{
 		Scheme:   "http",
-		Host:     hostName,
+		Host:     host,
 		Path:     path,
 		RawQuery: url.Values{replica.SchemaVersionKey: value}.Encode(),
 	}
@@ -590,11 +630,14 @@ func (c *RemoteIndex) DeleteObjectBatch(ctx context.Context, hostName, indexName
 }
 
 func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
-	hostName, indexName, shardName string,
-) (int64, error) {
+	owner, indexName, shardName string) (int64, error) {
 	path := fmt.Sprintf("/indices/%s/shards/%s/queuesize", indexName, shardName)
 	method := http.MethodGet
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return 0, fmt.Errorf("resolve node name %q to host", owner)
+	}
+	url := url.URL{Scheme: "http", Host: host, Path: path}
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
 	if err != nil {
@@ -605,7 +648,7 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -633,11 +676,16 @@ func (c *RemoteIndex) GetShardQueueSize(ctx context.Context,
 }
 
 func (c *RemoteIndex) GetShardStatus(ctx context.Context,
-	hostName, indexName, shardName string,
-) (string, error) {
+	owner, indexName, shardName string) (string, error) {
 	path := fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName)
 	method := http.MethodGet
-	url := url.URL{Scheme: "http", Host: hostName, Path: path}
+
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return "", fmt.Errorf("resolve node name %q to host", owner)
+	}
+
+	url := url.URL{Scheme: "http", Host: host, Path: path}
 
 	req, err := http.NewRequestWithContext(ctx, method, url.String(), nil)
 	if err != nil {
@@ -648,7 +696,7 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -675,9 +723,8 @@ func (c *RemoteIndex) GetShardStatus(ctx context.Context,
 	return status, c.retry(ctx, 9, try)
 }
 
-func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName, shardName,
-	targetStatus string, schemaVersion uint64,
-) error {
+func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, owner, indexName, shardName,
+	targetStatus string, schemaVersion uint64) error {
 	paramsBytes, err := clusterapi.IndicesPayloads.UpdateShardStatusParams.Marshal(targetStatus)
 	if err != nil {
 		return errors.Wrap(err, "marshal request payload")
@@ -685,9 +732,13 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	path := fmt.Sprintf("/indices/%s/shards/%s/status", indexName, shardName)
 	method := http.MethodPost
+	host, ok := c.nodeResolver.NodeHostname(owner)
+	if !ok {
+		return fmt.Errorf("resolve node name %q to host", owner)
+	}
 	url := url.URL{
 		Scheme:   "http",
-		Host:     hostName,
+		Host:     host,
 		Path:     path,
 		RawQuery: url.Values{replica.SchemaVersionKey: value}.Encode(),
 	}
@@ -702,7 +753,7 @@ func (c *RemoteIndex) UpdateShardStatus(ctx context.Context, hostName, indexName
 
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -734,7 +785,7 @@ func (c *RemoteIndex) PutFile(ctx context.Context, hostName, indexName,
 		clusterapi.IndicesPayloads.ShardFiles.SetContentTypeHeaderReq(req)
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -768,7 +819,7 @@ func (c *RemoteIndex) CreateShard(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -797,7 +848,7 @@ func (c *RemoteIndex) ReInitShard(ctx context.Context,
 	try := func(ctx context.Context) (bool, error) {
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
@@ -832,7 +883,7 @@ func (c *RemoteIndex) IncreaseReplicationFactor(ctx context.Context,
 
 		res, err := c.client.Do(req)
 		if err != nil {
-			return ctx.Err() == nil, fmt.Errorf("connect: %w", err)
+			return false, fmt.Errorf("connect: %w", err)
 		}
 		defer res.Body.Close()
 
