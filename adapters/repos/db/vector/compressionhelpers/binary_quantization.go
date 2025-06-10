@@ -26,16 +26,37 @@ func NewBinaryQuantizer(distancer distancer.Provider) BinaryQuantizer {
 }
 
 func (bq BinaryQuantizer) Encode(vec []float32) []uint64 {
-	total := len(vec) / 64
-	if len(vec)%64 != 0 {
-		total++
-	}
+	len := len(vec)
+	total := (len + 63) >> 6
+	fullBlocks := len >> 6
 	code := make([]uint64, total)
-	for j := 0; j < len(vec); j++ {
-		if vec[j] < 0 {
-			segment := j / 64
-			code[segment] |= uint64(1) << (j % 64)
+	i := 0
+	// Process vec in blocks of 64 elements
+	for block := 0; block < fullBlocks; block++ {
+		var bits uint64
+		var bit uint64 = 1
+		for bit != 0 {
+			if vec[i] < 0 {
+				bits |= bit
+			}
+			i++
+			bit <<= 1
 		}
+		code[block] = bits
+	}
+	// Process the tail block (fewer than 64 elements)
+	if tail := len & 63; tail != 0 {
+		var bits uint64
+		var bit uint64 = 1
+		for tail != 0 {
+			if vec[i] < 0 {
+				bits |= bit
+			}
+			bit <<= 1
+			i++
+			tail--
+		}
+		code[fullBlocks] = bits
 	}
 	return code
 }
