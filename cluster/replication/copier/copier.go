@@ -106,7 +106,12 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	for _, relativeFilePath := range relativeFilePaths {
 		relativeFilePath := relativeFilePath
 		// skip cna files, as they will be regenerated on the target node
-		if strings.HasSuffix(relativeFilePath, ".cna") {
+		if os.Getenv("WEAVIATE_DEBUG_SKIP_CNA_FILES") == "true" && strings.HasSuffix(relativeFilePath, ".cna") {
+			c.logger.WithFields(logrus.Fields{
+				"collectionName":   collectionName,
+				"shardName":        shardName,
+				"relativeFilePath": relativeFilePath,
+			}).Info("skipping cna file in debug mode")
 			continue
 		}
 		eg.Go(func() error {

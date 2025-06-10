@@ -17,6 +17,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"slices"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -365,6 +366,14 @@ func (s *SchemaManager) DeleteReplicaFromShard(cmd *command.ApplyRequest, schema
 			},
 			updateStore: func() error {
 				if req.TargetNode == s.schema.nodeID {
+					if os.Getenv("WEAVIATE_DEBUG_PRESERVE_SHARD_DIR") == "true" {
+						s.log.WithFields(logrus.Fields{
+							"class":      cmd.Class,
+							"shard":      req.Shard,
+							"targetNode": req.TargetNode,
+						}).Info("skipping shard deletion in debug mode")
+						return nil
+					}
 					return s.db.DeleteReplicaFromShard(req.Class, req.Shard, req.TargetNode)
 				}
 				return nil
