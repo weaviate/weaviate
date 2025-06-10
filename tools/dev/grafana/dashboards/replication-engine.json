@@ -25,7 +25,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "dejuz2d5dpptsa"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -133,7 +133,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dejuz2d5dpptsa"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum (weaviate_replication_ongoing_operations)",
@@ -147,7 +147,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dejuz2d5dpptsa"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum (increase(weaviate_replication_complete_operations[$__range]))",
@@ -161,7 +161,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dejuz2d5dpptsa"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum (increase(weaviate_replication_failed_operations[$__range]))",
@@ -178,7 +178,7 @@
     },
     {
       "datasource": {
-        "uid": "dejuz2d5dpptsa"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -239,7 +239,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dejuz2d5dpptsa"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum(weaviate_replication_engine_running_status)",
@@ -288,7 +288,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "dejuz2d5dpptsa"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -420,7 +420,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "dejuz2d5dpptsa"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -552,7 +552,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "dejuz2d5dpptsa"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
@@ -626,7 +626,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dejuz2d5dpptsa"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "exemplar": false,
@@ -639,7 +639,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dejuz2d5dpptsa"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (node) (weaviate_replication_ongoing_operations)",
@@ -652,7 +652,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dejuz2d5dpptsa"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (node) (increase(weaviate_replication_complete_operations[$__range]))",
@@ -665,7 +665,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dejuz2d5dpptsa"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (node) (increase(weaviate_replication_failed_operations[$__range]))",
@@ -681,7 +681,7 @@
     },
     {
       "datasource": {
-        "uid": "dejuz2d5dpptsa"
+        "uid": "prometheus"
       },
       "description": "Replication engine running status (0: not running, 1: running)",
       "fieldConfig": {
@@ -752,7 +752,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dejuz2d5dpptsa"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (node) (weaviate_replication_engine_producer_running_status)",
@@ -765,7 +765,7 @@
         {
           "datasource": {
             "type": "prometheus",
-            "uid": "dejuz2d5dpptsa"
+            "uid": "prometheus"
           },
           "editorMode": "code",
           "expr": "sum by (node) (weaviate_replication_engine_consumer_running_status)",
@@ -782,7 +782,7 @@
     {
       "datasource": {
         "type": "prometheus",
-        "uid": "dejuz2d5dpptsa"
+        "uid": "prometheus"
       },
       "fieldConfig": {
         "defaults": {
