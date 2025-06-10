@@ -347,14 +347,14 @@ func (r *singleTenantRouter) AllHostnames() []string {
 }
 
 func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	replicas, err := r.GetReadReplicasLocation(r.collection, params.Tenant)
+	replicas, _, _, err := r.getReadWriteReplicasLocation(r.collection, params.Shard)
 	if err != nil {
 		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas: %w", err)
 	}
 
 	return buildRoutingPlan(
 		r.collection,
-		params.Tenant,
+		params.Shard,
 		params.DirectCandidateReplica,
 		replicas,
 		params.ConsistencyLevel,
@@ -363,14 +363,14 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 }
 
 func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	replicas, _, err := r.GetWriteReplicasLocation(r.collection, params.Tenant)
+	_, replicas, _, err := r.getReadWriteReplicasLocation(r.collection, params.Shard)
 	if err != nil {
 		return types.RoutingPlan{}, fmt.Errorf("could not get write replicas: %w", err)
 	}
 
 	return buildRoutingPlan(
 		r.collection,
-		params.Tenant,
+		params.Shard,
 		params.DirectCandidateReplica,
 		replicas,
 		params.ConsistencyLevel,
@@ -554,14 +554,14 @@ func (r *multiTenantRouter) AllHostnames() []string {
 }
 
 func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	replicas, err := r.GetReadReplicasLocation(r.collection, params.Tenant)
+	replicas, _, _, err := r.getReadWriteReplicasLocation(r.collection, params.Shard)
 	if err != nil {
-		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas for shard %q: %w", params.Tenant, err)
+		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas for shard %q: %w", params.Shard, err)
 	}
 
 	return buildRoutingPlan(
 		r.collection,
-		params.Tenant,
+		params.Shard,
 		params.DirectCandidateReplica,
 		replicas,
 		params.ConsistencyLevel,
@@ -570,14 +570,14 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 }
 
 func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
-	replicas, _, err := r.GetWriteReplicasLocation(r.collection, params.Tenant)
+	_, replicas, _, err := r.getReadWriteReplicasLocation(r.collection, params.Shard)
 	if err != nil {
-		return types.RoutingPlan{}, fmt.Errorf("could not get write replicas for shard %q: %w", params.Tenant, err)
+		return types.RoutingPlan{}, fmt.Errorf("could not get write replicas for shard %q: %w", params.Shard, err)
 	}
 
 	return buildRoutingPlan(
 		r.collection,
-		params.Tenant,
+		params.Shard,
 		params.DirectCandidateReplica,
 		replicas,
 		params.ConsistencyLevel,
@@ -604,7 +604,7 @@ func buildRoutingPlan(
 	clusterStateReader cluster.NodeSelector,
 ) (types.RoutingPlan, error) {
 	plan := types.RoutingPlan{
-		Tenant:            tenant,
+		Shard:             tenant,
 		Replicas:          make([]string, 0, len(replicas)),
 		ConsistencyLevel:  consistencyLevel,
 		ReplicasHostAddrs: make([]string, 0, len(replicas)),

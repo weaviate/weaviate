@@ -18,13 +18,13 @@ import (
 )
 
 type RoutingPlanBuildOptions struct {
-	Tenant                 string
+	Shard                  string
 	ConsistencyLevel       ConsistencyLevel
 	DirectCandidateReplica string
 }
 
 type RoutingPlan struct {
-	Tenant   string
+	Shard    string
 	Replicas []string
 
 	ConsistencyLevel    ConsistencyLevel
@@ -35,7 +35,7 @@ type RoutingPlan struct {
 
 func (r RoutingPlan) LogFields() logrus.Fields {
 	return logrus.Fields{
-		"tenant":                r.Tenant,
+		"shard":                 r.Shard,
 		"replicas":              r.Replicas,
 		"consistency_level":     r.ConsistencyLevel,
 		"replicas_host_addrs":   r.ReplicasHostAddrs,
