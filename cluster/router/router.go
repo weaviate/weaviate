@@ -131,10 +131,12 @@ func (r *Router) routingPlanFromReplicas(
 				routingPlan.Replicas = append(routingPlan.Replicas, replica)
 				routingPlan.ReplicasHostAddrs = append(routingPlan.ReplicasHostAddrs, replicaAddr)
 			}
+		} else {
+			r.logger.Warnf("no hostname found for replica %s", replica)
 		}
 	}
 	if len(routingPlan.Replicas) == 0 {
-		return routingPlan, fmt.Errorf("no replicas found for class %s shard %s", routingPlan.Collection, routingPlan.Shard)
+		return routingPlan, fmt.Errorf("no usable replica found for class %s shard %s in replicas %v", routingPlan.Collection, routingPlan.Shard, replicas)
 	}
 	cl, err := routingPlan.ValidateConsistencyLevel()
 	if err != nil {
