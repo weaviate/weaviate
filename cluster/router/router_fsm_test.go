@@ -117,7 +117,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				map[string]string{
 					"shard1": models.TenantActivityStatusHOT,
 				}, nil).Maybe()
-			schemaGetterMock.EXPECT().CopyShardingState("collection1").Return(&sharding.State{
+			schemaReaderMock.EXPECT().CopyShardingState("collection1").Return(&sharding.State{
 				IndexID: "index-001",
 				Config: config.Config{
 					VirtualPerPhysical:  0,
@@ -266,7 +266,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				map[string]string{
 					"shard1": models.TenantActivityStatusHOT,
 				}, nil).Maybe()
-			schemaGetterMock.EXPECT().CopyShardingState("collection1").Return(&sharding.State{
+			schemaReaderMock.EXPECT().CopyShardingState("collection1").Return(&sharding.State{
 				IndexID: "index-001",
 				Config:  config.Config{},
 				Physical: map[string]sharding.Physical{

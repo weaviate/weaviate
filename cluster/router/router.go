@@ -178,7 +178,6 @@ func (b *RouterBuilder) Build() Router {
 	}
 	return &singleTenantRouter{
 		collection:           b.collection,
-		schemaGetter:         b.schemaGetter,
 		metadataReader:       b.metadataReader,
 		replicationFSMReader: b.replicationFSMReader,
 		clusterStateReader:   b.clusterStateReader,
@@ -201,7 +200,6 @@ type multiTenantRouter struct {
 // tenant-based partitioning. All data belongs to a single logical tenant.
 type singleTenantRouter struct {
 	collection           string
-	schemaGetter         schema.SchemaGetter
 	metadataReader       schemaTypes.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	clusterStateReader   cluster.NodeSelector
@@ -276,7 +274,7 @@ func (r *singleTenantRouter) GetReadReplicasLocation(collection string, tenant s
 }
 
 func (r *singleTenantRouter) getReadWriteReplicasLocation(collection string, _ string) ([]string, []string, []string, error) {
-	shards := r.schemaGetter.CopyShardingState(collection).AllPhysicalShards()
+	shards := r.metadataReader.CopyShardingState(collection).AllPhysicalShards()
 	allReadReplicas := make([]string, 0)
 	allWriteReplicas := make([]string, 0)
 	allAdditionalWriteReplicas := make([]string, 0)
