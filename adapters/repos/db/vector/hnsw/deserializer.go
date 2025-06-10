@@ -779,6 +779,7 @@ func (d *Deserializer) ReadPackedConnsReplaceLinks(r io.Reader, res *Deserializa
 	}
 
 	res.Nodes[source].connections = packedconn.NewWithData(data)
+	res.Nodes[int(source)].level = int(res.Nodes[source].connections.Layers()) - 1
 
 	if keepReplaceInfo {
 		// mark the replace flag for this node and all levels, so that new commit logs
