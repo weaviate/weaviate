@@ -84,7 +84,7 @@ func (r *Router) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (ty
 
 	writeReplicas, additionalWriteReplicas, err := r.GetWriteReplicasLocation(params.Collection, params.Shard)
 	if err != nil {
-		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas location from sharding state: %w", err)
+		return types.RoutingPlan{}, fmt.Errorf("could not get write replicas location from sharding state: %w", err)
 	}
 
 	routingPlan, err := r.routingPlanFromReplicas(params, writeReplicas)
