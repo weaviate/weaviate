@@ -13,7 +13,6 @@ package modvoyageai
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -127,11 +126,6 @@ func (m *VoyageAIModule) initVectorizer(ctx context.Context, timeout time.Durati
 
 func (m *VoyageAIModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
-	return nil
-}
-
-func (m *VoyageAIModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

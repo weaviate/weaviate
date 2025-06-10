@@ -13,7 +13,6 @@ package modspellcheck
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -83,11 +82,6 @@ func (m *SpellCheckModule) initTextTransformers() {
 func (m *SpellCheckModule) initAdditional() {
 	spellCheckProvider := spellcheckadditionalspellcheck.New(m.spellCheck)
 	m.additionalPropertiesProvider = spellcheckadditional.New(spellCheckProvider)
-}
-
-func (m *SpellCheckModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
-	return nil
 }
 
 func (m *SpellCheckModule) MetaInfo() (map[string]interface{}, error) {

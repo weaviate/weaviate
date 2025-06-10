@@ -14,13 +14,13 @@ package traverser
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/stretchr/testify/mock"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -369,10 +369,6 @@ func (m *fakeText2vecContextionaryModule) Init(params moduletools.ModuleInitPara
 	return nil
 }
 
-func (m *fakeText2vecContextionaryModule) RootHandler() http.Handler {
-	return nil
-}
-
 func (m *fakeText2vecContextionaryModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
 	return newNearCustomTextModule(m.getExtender(), m.getProjector(), m.getPathBuilder(), m.getInterpretation()).Arguments()
 }
@@ -480,10 +476,6 @@ func (m *nearCustomTextModule) Name() string {
 }
 
 func (m *nearCustomTextModule) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *nearCustomTextModule) RootHandler() http.Handler {
 	return nil
 }
 

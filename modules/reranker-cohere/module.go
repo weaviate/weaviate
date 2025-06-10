@@ -13,12 +13,12 @@ package modrerankercohere
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/reranker-cohere/clients"
@@ -72,11 +72,6 @@ func (m *ReRankerCohereModule) initAdditional(ctx context.Context, timeout time.
 
 func (m *ReRankerCohereModule) MetaInfo() (map[string]interface{}, error) {
 	return m.reranker.MetaInfo()
-}
-
-func (m *ReRankerCohereModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
-	return nil
 }
 
 func (m *ReRankerCohereModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {

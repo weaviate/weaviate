@@ -13,7 +13,6 @@ package modgenerativeaws
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -85,11 +84,6 @@ func (m *GenerativeAWSModule) getAWSSecretAccessKey() string {
 		return os.Getenv("AWS_SECRET_ACCESS_KEY")
 	}
 	return os.Getenv("AWS_SECRET_KEY")
-}
-
-func (m *GenerativeAWSModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
-	return nil
 }
 
 func (m *GenerativeAWSModule) MetaInfo() (map[string]interface{}, error) {

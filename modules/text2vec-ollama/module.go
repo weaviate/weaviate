@@ -13,21 +13,19 @@ package modollama
 
 import (
 	"context"
-	"net/http"
 	"time"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-ollama/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-ollama/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 )
 
 const Name = "text2vec-ollama"
@@ -113,11 +111,6 @@ func (m *OllamaModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 func (m *OllamaModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
-	return nil
-}
-
-func (m *OllamaModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

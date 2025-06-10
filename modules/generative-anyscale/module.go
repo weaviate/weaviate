@@ -13,7 +13,6 @@ package modgenerativeanyscale
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -68,11 +67,6 @@ func (m *GenerativeAnyscaleModule) initAdditional(ctx context.Context, timeout t
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(client)
 
-	return nil
-}
-
-func (m *GenerativeAnyscaleModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

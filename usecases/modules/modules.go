@@ -22,6 +22,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -91,6 +92,17 @@ func (p *Provider) GetAll() []modulecapabilities.Module {
 	for _, mod := range p.registered {
 		out[i] = mod
 		i++
+	}
+
+	return out
+}
+
+func (p *Provider) GetAllWithHTTPHandlers() []modulecapabilities.ModuleWithHTTPHandlers {
+	out := make([]modulecapabilities.ModuleWithHTTPHandlers, 0)
+	for _, mod := range p.registered {
+		if modWithHTTPHandlers, ok := mod.(modulecapabilities.ModuleWithHTTPHandlers); ok {
+			out = append(out, modWithHTTPHandlers)
+		}
 	}
 
 	return out

@@ -15,7 +15,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -114,11 +113,6 @@ func (m *Module) AllBackups(context.Context) ([]*backup.DistributedBackupDescrip
 		}
 	}
 	return meta, nil
-}
-
-func (m *Module) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
-	return nil
 }
 
 func (m *Module) MetaInfo() (map[string]interface{}, error) {

@@ -13,12 +13,12 @@ package modrerankernvidia
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	client "github.com/weaviate/weaviate/modules/reranker-nvidia/clients"
@@ -72,11 +72,6 @@ func (m *RerankerModule) initAdditional(ctx context.Context, timeout time.Durati
 
 func (m *RerankerModule) MetaInfo() (map[string]interface{}, error) {
 	return m.reranker.MetaInfo()
-}
-
-func (m *RerankerModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
-	return nil
 }
 
 func (m *RerankerModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {

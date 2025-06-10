@@ -13,7 +13,6 @@ package modnvidia
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -116,11 +115,6 @@ func (m *NvidiaModule) initVectorizer(ctx context.Context, timeout time.Duration
 
 func (m *NvidiaModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
-	return nil
-}
-
-func (m *NvidiaModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

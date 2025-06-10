@@ -41,8 +41,13 @@ const (
 type Module interface {
 	Name() string
 	Init(ctx context.Context, params moduletools.ModuleInitParams) error
-	RootHandler() http.Handler // TODO: remove from overall module, this is a capability
 	Type() ModuleType
+}
+
+// ModuleWithHTTPHandlers is an optional capability interface for modules that provide HTTP endpoints
+type ModuleWithHTTPHandlers interface {
+	Module
+	RootHandler() http.Handler
 }
 
 type ModuleExtension interface {
