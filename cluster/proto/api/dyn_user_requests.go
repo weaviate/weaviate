@@ -12,6 +12,7 @@
 package api
 
 import (
+	"crypto/sha256"
 	"time"
 
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -27,6 +28,14 @@ type CreateUsersRequest struct {
 	SecureHash         string
 	UserIdentifier     string
 	ApiKeyFirstLetters string
+	CreatedAt          time.Time
+	Version            int
+}
+
+type CreateUserWithKeyRequest struct {
+	UserId             string
+	ApiKeyFirstLetters string
+	WeakHash           [sha256.Size]byte
 	CreatedAt          time.Time
 	Version            int
 }

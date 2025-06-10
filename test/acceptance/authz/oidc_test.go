@@ -45,14 +45,14 @@ func TestRbacWithOIDC(t *testing.T) {
 		{
 			name: "RBAC with OIDC",
 			image: docker.New().
-				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
+				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
 			nameCollision: false,
 			onlyOIDC:      true,
 		},
 		{
 			name: "RBAC with OIDC and API key",
 			image: docker.New().
-				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").
+				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key"),
 			nameCollision: false,
 		},
@@ -60,7 +60,7 @@ func TestRbacWithOIDC(t *testing.T) {
 			name: "RBAC with OIDC and API key overlapping user names",
 			image: docker.New().
 				WithWeaviate().WithMockOIDC().
-				WithRBAC().WithRbacAdmins("admin-user").
+				WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key").
 				WithApiKey().WithUserApiKey("custom-user", customKey),
 			nameCollision: true,
@@ -198,7 +198,7 @@ func TestRbacWithOIDCGroups(t *testing.T) {
 	var err error
 	ctx := context.Background()
 
-	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user").Start(ctx)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
@@ -252,7 +252,7 @@ func TestRbacWithOIDCRootGroups(t *testing.T) {
 	var err error
 	ctx := context.Background()
 
-	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").WithRbacRootGroups("custom-group").Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user").WithRbacRootGroups("custom-group").Start(ctx)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
@@ -309,7 +309,7 @@ func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
 	var err error
 	ctx := context.Background()
 
-	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").Start(ctx)
+	compose, err := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user").Start(ctx)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, compose.Terminate(ctx))
