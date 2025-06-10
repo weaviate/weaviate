@@ -33,8 +33,11 @@ func TestCreateUser(t *testing.T) {
 	otherUser := "custom-user"
 	otherKey := "custom-key"
 
+	otherUser2 := "custom-user2"
+	otherKey2 := "custom-key2"
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).
+	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithUserApiKey(otherUser2, otherKey2).
 		WithDbUsers().
 		WithRBAC().WithRbacRoots(adminUser).
 		Start(ctx)
@@ -112,8 +115,12 @@ func TestCreateUser(t *testing.T) {
 		}
 		require.True(t, found)
 
-		oldKey := helper.CreateUserWithApiKey(t, otherUser, adminKey)
+		timeBeforeImport := time.Now()
+		time.Sleep(time.Millisecond * 2) // make sure that times are actually less, as we lose ns precision during serialization
+		oldKey := helper.CreateUserWithApiKey(t, otherUser, adminKey, nil)
 		require.Equal(t, oldKey, otherKey)
+		time.Sleep(time.Millisecond * 2)
+		timeAfterImport := time.Now()
 
 		info := helper.GetInfoForOwnUser(t, oldKey)
 		require.Equal(t, otherUser, *info.Username)
@@ -133,8 +140,18 @@ func TestCreateUser(t *testing.T) {
 		require.Equal(t, user.APIKeyFirstLetters, newKey[:3])
 		require.NotEqual(t, newKey, oldKey)
 		require.NotEqual(t, newKey[:10], oldKey[:10])
+		require.Less(t, timeBeforeImport.UTC(), time.Time(user.CreatedAt).UTC())
+		require.Less(t, time.Time(user.CreatedAt).UTC(), timeAfterImport.UTC())
 
 		helper.DeleteUser(t, otherUser, adminKey)
+	})
+
+	t.Run("import static user with time", func(t *testing.T) {
+		createTime := time.Now().Add(-time.Hour)
+		helper.CreateUserWithApiKey(t, otherUser2, adminKey, &createTime)
+
+		user := helper.GetUser(t, otherUser2, adminKey)
+		require.Equal(t, time.Time(user.CreatedAt).UTC().Truncate(time.Millisecond), createTime.UTC().Truncate(time.Millisecond))
 	})
 }
 

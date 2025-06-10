@@ -370,6 +370,23 @@ func TestImportingStaticKeys(t *testing.T) {
 	}
 }
 
+func TestImportingStaticKeysWithTime(t *testing.T) {
+	dynUsers, err := NewDBUser(t.TempDir(), true, log)
+	require.NoError(t, err)
+	createdAt := time.Now().Add(-time.Hour)
+
+	importedApiKey := "importedApiKey"
+	userId := "user"
+	require.NoError(t, dynUsers.CreateUserWithKey(userId, importedApiKey[:3], sha256.Sum256([]byte(importedApiKey)), createdAt))
+
+	users, err := dynUsers.GetUsers(userId)
+	require.NoError(t, err)
+	require.Len(t, users, 1)
+	user, ok := users[userId]
+	require.True(t, ok)
+	require.Equal(t, user.CreatedAt, createdAt)
+}
+
 func TestSnapshotRestoreEmpty(t *testing.T) {
 	dynUsers, err := NewDBUser(t.TempDir(), true, log)
 	require.NoError(t, err)

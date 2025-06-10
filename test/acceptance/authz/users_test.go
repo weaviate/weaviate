@@ -684,7 +684,7 @@ func TestDynamicUsers(t *testing.T) {
 		require.Len(t, roles, 1)
 		require.Equal(t, *testRole.Name, *roles[0].Name)
 
-		oldKey := helper.CreateUserWithApiKey(t, customUser, adminKey)
+		oldKey := helper.CreateUserWithApiKey(t, customUser, adminKey, nil)
 		require.Equal(t, oldKey, customKey)
 
 		info := helper.GetInfoForOwnUser(t, oldKey)
@@ -877,7 +877,7 @@ func TestStaticUserImport(t *testing.T) {
 			require.Len(t, roles, 1)
 			require.Equal(t, role, *roles[0].Name)
 
-			oldKey := helper.CreateUserWithApiKey(t, userName, rootKey)
+			oldKey := helper.CreateUserWithApiKey(t, userName, rootKey, nil)
 			require.Equal(t, oldKey, keys[userName])
 
 			newKey := helper.RotateKey(t, userName, rootKey)

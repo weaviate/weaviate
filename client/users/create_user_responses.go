@@ -21,9 +21,11 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -627,12 +629,37 @@ swagger:model CreateUserBody
 */
 type CreateUserBody struct {
 
+	// EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time
+	// Format: date-time
+	CreateTime strfmt.DateTime `json:"createTime,omitempty"`
+
 	// EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user
 	Import *bool `json:"import,omitempty"`
 }
 
 // Validate validates this create user body
 func (o *CreateUserBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateCreateTime(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+func (o *CreateUserBody) validateCreateTime(formats strfmt.Registry) error {
+	if swag.IsZero(o.CreateTime) { // not required
+		return nil
+	}
+
+	if err := validate.FormatOf("body"+"."+"createTime", "body", "date-time", o.CreateTime.String(), formats); err != nil {
+		return err
+	}
+
 	return nil
 }
 

@@ -4360,6 +4360,11 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "createTime": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time",
+                  "type": "string",
+                  "format": "date-time"
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",
@@ -11772,6 +11777,11 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "createTime": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time",
+                  "type": "string",
+                  "format": "date-time"
+                },
                 "import": {
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "type": "boolean",

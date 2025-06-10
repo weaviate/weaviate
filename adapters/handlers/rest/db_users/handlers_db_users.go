@@ -333,7 +333,12 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 			}
 		}
 
-		if err := h.dbUsers.CreateUserWithKey(params.UserID, apiKey[:3], sha256.Sum256([]byte(apiKey)), time.Now()); err != nil {
+		createdAt := time.Now()
+		if !time.Time(params.Body.CreateTime).IsZero() {
+			createdAt = time.Time(params.Body.CreateTime).UTC()
+		}
+
+		if err := h.dbUsers.CreateUserWithKey(params.UserID, apiKey[:3], sha256.Sum256([]byte(apiKey)), createdAt); err != nil {
 			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
 		}
 

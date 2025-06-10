@@ -2882,6 +2882,11 @@
                   "type":"boolean",
                   "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
                   "default": false
+                },
+                "createTime": {
+                  "type":"string",
+                  "format": "date-time",
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time"
                 }
               }
             }

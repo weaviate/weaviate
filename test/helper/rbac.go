@@ -14,6 +14,9 @@ package helper
 import (
 	"errors"
 	"testing"
+	"time"
+
+	"github.com/go-openapi/strfmt"
 
 	"github.com/stretchr/testify/require"
 
@@ -128,10 +131,14 @@ func CreateUser(t *testing.T, userId, key string) string {
 	return *resp.Payload.Apikey
 }
 
-func CreateUserWithApiKey(t *testing.T, userId, key string) string {
+func CreateUserWithApiKey(t *testing.T, userId, key string, createdAt *time.Time) string {
 	t.Helper()
 	tp := true
-	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{Import: &tp}), CreateAuth(key))
+	if createdAt == nil {
+		createdAt = &time.Time{}
+	}
+
+	resp, err := Client(t).Users.CreateUser(users.NewCreateUserParams().WithUserID(userId).WithBody(users.CreateUserBody{Import: &tp, CreateTime: strfmt.DateTime(*createdAt)}), CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
 	require.Nil(t, err)
 	require.NotNil(t, resp)
