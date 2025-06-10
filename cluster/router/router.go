@@ -62,7 +62,7 @@ type Router interface {
 	// Returns:
 	//   - writeReplicas: a list of node names serving as primary write replicas.
 	//   - additionalWriteReplicas: a list of node names serving as additional write replicas.
-	//   - error: if an error occurs while retrieving replicas or if the tenant is not found/active.
+	//   - error: if an error occurs while retrieving replicas or if the tenant is not found/active (multi-tenant).
 	GetWriteReplicasLocation(collection string, tenant string) ([]string, []string, error)
 
 	// GetReadReplicasLocation returns the read replicas for a given collection and tenant.
@@ -484,6 +484,7 @@ func deduplicate(values []string) []string {
 //
 // Returns:
 //   - writeReplicas: a list of node names serving as write replicas for the tenant.
+//   - additionalWriteReplicas: a list of node names serving as additional write replicas (not yet part of sharding state).
 //   - error: if the tenant is not found, not active (HOT status), or other errors occur.
 func (r *multiTenantRouter) GetWriteReplicasLocation(collection string, tenant string) ([]string, []string, error) {
 	if err := r.validateTenant(tenant); err != nil {
