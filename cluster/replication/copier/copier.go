@@ -105,6 +105,10 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	eg.SetLimit(concurrency)
 	for _, relativeFilePath := range relativeFilePaths {
 		relativeFilePath := relativeFilePath
+		// skip cna files, as they will be regenerated on the target node
+		if strings.HasSuffix(relativeFilePath, ".cna") {
+			continue
+		}
 		eg.Go(func() error {
 			return c.syncFile(gctx, sourceNodeHostname, collectionName, shardName, relativeFilePath)
 		})
