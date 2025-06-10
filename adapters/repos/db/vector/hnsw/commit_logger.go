@@ -32,7 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
-const defaultCommitLogSize = 500 * 1024 * 1024
+const defaultCommitLogSize = 50 * 1024 * 1024
 
 type hnswCommitLogger struct {
 	// protect against concurrent attempts to write in the underlying file or
@@ -372,6 +372,9 @@ const (
 	AddPQ
 	AddSQ
 	AddMuvera
+	// Packed Connections
+	PackedConnsReplaceLinks
+	PackedConnsReplaceLinksAtLevel
 )
 
 func (t HnswCommitType) String() string {
