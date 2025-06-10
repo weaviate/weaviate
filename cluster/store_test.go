@@ -31,6 +31,7 @@ import (
 	gproto "google.golang.org/protobuf/proto"
 	"google.golang.org/protobuf/reflect/protoreflect"
 
+	"github.com/weaviate/weaviate/cluster/fsm"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -709,7 +710,7 @@ func NewMockStore(t *testing.T, nodeID string, raftPort int) MockStore {
 			ConsistencyWaitTimeout: time.Millisecond * 50,
 		},
 	}
-	s := NewFSM(ms.cfg, nil, nil, prometheus.NewPedanticRegistry())
+	s := NewFSM(ms.cfg, nil, , prometheus.NewPedanticRegistry())
 	ms.store = &s
 	return ms
 }

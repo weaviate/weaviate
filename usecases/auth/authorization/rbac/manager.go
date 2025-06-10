@@ -298,6 +298,10 @@ type snapshot struct {
 }
 
 func (m *Manager) Snapshot() ([]byte, error) {
+	// snapshot isn't always initialized, e.g. when RBAC is disabled
+	if m == nil {
+		return []byte{}, nil
+	}
 	if m.casbin == nil {
 		return nil, nil
 	}
@@ -320,6 +324,10 @@ func (m *Manager) Snapshot() ([]byte, error) {
 }
 
 func (m *Manager) Restore(b []byte) error {
+	// restore is only needed when RBAC was enabled during backup
+	if m == nil || b == nil || len(b) == 0 {
+		return nil
+	}
 	if m.casbin == nil {
 		return nil
 	}

@@ -59,6 +59,7 @@ func backupJourneyStart(t *testing.T, ctx context.Context, override bool, contai
 		t.Setenv(envAzureContainer, azureBackupJourneyContainerName)
 		t.Logf("BACKUP_AZURE_CONTAINER old test is set to %s", os.Getenv("BACKUP_AZURE_CONTAINER"))
 
+
 		compose, err := docker.New().
 			WithBackendAzure(azureBackupJourneyContainerName).
 			WithText2VecContextionary().
