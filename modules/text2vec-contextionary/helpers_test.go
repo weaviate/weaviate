@@ -14,7 +14,6 @@ package modcontextionary
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/tailor-inc/graphql"
@@ -135,10 +134,6 @@ func (m *mockText2vecContextionaryModule) Name() string {
 }
 
 func (m *mockText2vecContextionaryModule) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *mockText2vecContextionaryModule) RootHandler() http.Handler {
 	return nil
 }
 

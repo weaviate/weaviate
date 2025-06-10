@@ -13,7 +13,6 @@ package modrerankertransformers
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -89,11 +88,6 @@ func (m *ReRankerModule) initAdditional(ctx context.Context, timeout time.Durati
 
 func (m *ReRankerModule) MetaInfo() (map[string]interface{}, error) {
 	return m.reranker.MetaInfo()
-}
-
-func (m *ReRankerModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
-	return nil
 }
 
 func (m *ReRankerModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {

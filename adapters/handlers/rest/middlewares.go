@@ -24,6 +24,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/rs/cors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/handlers/rest/raft"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/swagger_middleware"
@@ -88,7 +89,7 @@ func makeAddModuleHandlers(modules *modules.Provider) func(http.Handler) http.Ha
 	return func(next http.Handler) http.Handler {
 		mux := http.NewServeMux()
 
-		for _, mod := range modules.GetAll() {
+		for _, mod := range modules.GetAllWithHTTPHandlers() {
 			prefix := fmt.Sprintf("/v1/modules/%s", mod.Name())
 			mux.Handle(fmt.Sprintf("%s/", prefix),
 				http.StripPrefix(prefix, mod.RootHandler()))

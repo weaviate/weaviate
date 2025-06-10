@@ -13,7 +13,6 @@ package modgenerativeollama
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/pkg/errors"
@@ -64,11 +63,6 @@ func (m *GenerativeOllamaModule) initAdditional(ctx context.Context, timeout tim
 	client := ollama.New(timeout, logger)
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
-	return nil
-}
-
-func (m *GenerativeOllamaModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

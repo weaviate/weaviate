@@ -13,7 +13,6 @@ package modqnaopenai
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -144,11 +143,6 @@ func (m *QnAModule) initAdditional(ctx context.Context, timeout time.Duration,
 	answerProvider := qnaadditionalanswer.New(m.qna, qnaask.NewParamsHelper())
 	m.additionalPropertiesProvider = qnaadditional.New(answerProvider)
 
-	return nil
-}
-
-func (m *QnAModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

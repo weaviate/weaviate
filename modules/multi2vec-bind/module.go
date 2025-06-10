@@ -13,7 +13,6 @@ package modbind
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -155,11 +154,6 @@ func (m *BindModule) initVectorizer(ctx context.Context, timeout time.Duration,
 	m.textVectorizer = vectorizer.New(client)
 	m.metaClient = client
 
-	return nil
-}
-
-func (m *BindModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

@@ -13,7 +13,6 @@ package modgenerativeoctoai
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -68,11 +67,6 @@ func (m *GenerativeOctoAIModule) initAdditional(ctx context.Context, timeout tim
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
 
-	return nil
-}
-
-func (m *GenerativeOctoAIModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

@@ -13,12 +13,12 @@ package modrerankerjinaai
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/reranker-jinaai/clients"
@@ -72,11 +72,6 @@ func (m *ReRankerJinaaiModule) initAdditional(_ context.Context, timeout time.Du
 
 func (m *ReRankerJinaaiModule) MetaInfo() (map[string]interface{}, error) {
 	return m.reranker.MetaInfo()
-}
-
-func (m *ReRankerJinaaiModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
-	return nil
 }
 
 func (m *ReRankerJinaaiModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {

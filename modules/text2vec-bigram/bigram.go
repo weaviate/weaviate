@@ -14,7 +14,6 @@ package t2vbigram
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -87,10 +86,6 @@ func (m *BigramModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool
 }
 
 func (m *BigramModule) InitAdditionalPropertiesProvider() error {
-	return nil
-}
-
-func (m *BigramModule) RootHandler() http.Handler {
 	return nil
 }
 

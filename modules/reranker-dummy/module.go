@@ -13,11 +13,11 @@ package modrerankerdummy
 
 import (
 	"context"
-	"net/http"
 	"time"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/reranker-dummy/clients"
@@ -70,11 +70,6 @@ func (m *ReRankerDummyModule) initAdditional(ctx context.Context, timeout time.D
 
 func (m *ReRankerDummyModule) MetaInfo() (map[string]interface{}, error) {
 	return m.reranker.MetaInfo()
-}
-
-func (m *ReRankerDummyModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
-	return nil
 }
 
 func (m *ReRankerDummyModule) AdditionalProperties() map[string]modulecapabilities.AdditionalProperty {
