@@ -18,11 +18,11 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -162,7 +162,7 @@ func (s *Shard) initDimensionTracking() {
 	}
 }
 
-func (s *Shard) publishDimensionMetrics(ctx context.Context) {
+func (s *Shard) publishDimensionMetrics(ctx context.Context) error {
 	if s.promMetrics != nil {
 		className := s.index.Config.ClassName.String()
 
@@ -181,7 +181,7 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 				count := s.Dimensions(ctx)
 				sendVectorDimensionsMetric(s.promMetrics, className, s.name, count)
 			}
-			return
+			return nil
 		}
 
 		sumSegments := 0
@@ -211,6 +211,7 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 		sendVectorSegmentsMetric(s.promMetrics, className, s.name, sumSegments)
 		sendVectorDimensionsMetric(s.promMetrics, className, s.name, sumDimensions)
 	}
+	return nil
 }
 
 func (s *Shard) clearDimensionMetrics() {
