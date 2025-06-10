@@ -18,11 +18,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/schema"
+
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
-
-	"github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -751,7 +751,8 @@ func (f *fakeFactory) newRouter(thisNode string) clusterRouter.Router {
 	}
 	clusterState := clusterMocks.NewMockNodeSelector(nodes...)
 	schemaGetterMock := schema.NewMockSchemaGetter(f.t)
-	schemaGetterMock.On("CopyShardingState", mock.Anything).Return(func(class string) *sharding.State {
+	schemaReaderMock := schemaTypes.NewMockSchemaReader(f.t)
+	schemaReaderMock.On("CopyShardingState", mock.Anything).Return(func(class string) *sharding.State {
 		state := &sharding.State{
 			IndexID:             "idx-123",
 			Config:              config.Config{},
@@ -770,7 +771,6 @@ func (f *fakeFactory) newRouter(thisNode string) clusterRouter.Router {
 
 		return state
 	}).Maybe()
-	schemaReaderMock := schemaTypes.NewMockSchemaReader(f.t)
 	schemaReaderMock.On("ShardReplicas", mock.Anything, mock.Anything).Return(func(class string, shard string) ([]string, error) {
 		v, ok := f.Shard2replicas[shard]
 		if !ok {
