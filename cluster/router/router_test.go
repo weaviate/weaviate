@@ -30,9 +30,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func createRoutingPlanBuildOptions(collection, tenant string) types.RoutingPlanBuildOptions {
+func createRoutingPlanBuildOptions(tenant string) types.RoutingPlanBuildOptions {
 	return types.RoutingPlanBuildOptions{
-		Tenant:                 tenant,
+		Shard:                  tenant,
 		ConsistencyLevel:       types.ConsistencyLevelOne,
 		DirectCandidateReplica: "",
 	}
@@ -557,7 +557,7 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 		mockReplicationFSM,
 	).Build()
 
-	params := createRoutingPlanBuildOptions("TestClass", "")
+	params := createRoutingPlanBuildOptions("")
 	plan, err := r.BuildReadRoutingPlan(params)
 
 	require.Error(t, err)
@@ -592,11 +592,11 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_Success(t *testing.T) {
 		mockReplicationFSM,
 	).Build()
 
-	params := createRoutingPlanBuildOptions("TestClass", "luke")
+	params := createRoutingPlanBuildOptions("luke")
 	plan, err := r.BuildReadRoutingPlan(params)
 
 	require.NoError(t, err)
-	require.Equal(t, "luke", plan.Tenant)
+	require.Equal(t, "luke", plan.Shard)
 	require.Equal(t, []string{"node1"}, plan.Replicas)
 	require.Equal(t, []string{"node1"}, plan.ReplicasHostAddrs)
 }
@@ -620,7 +620,7 @@ func TestMultiTenantRouter_BuildRoutingPlan_TenantNotFoundDuringBuild(t *testing
 		mockReplicationFSM,
 	).Build()
 
-	params := createRoutingPlanBuildOptions("TestClass", "nonexistent")
+	params := createRoutingPlanBuildOptions("nonexistent")
 	plan, err := r.BuildReadRoutingPlan(params)
 
 	require.Error(t, err)
@@ -659,7 +659,6 @@ func TestSingleTenantRouter_BuildRoutingPlan_WithDirectCandidate(t *testing.T) {
 	).Build()
 
 	params := types.RoutingPlanBuildOptions{
-		Tenant:                 "",
 		ConsistencyLevel:       types.ConsistencyLevelOne,
 		DirectCandidateReplica: directCandidateNode,
 	}
@@ -968,7 +967,7 @@ func TestMultiTenantRouter_RoutingPlanConstruction_DirectCandidate(t *testing.T)
 				mockSchemaGetter, mockMetadataReader, mockReplicationFSM).Build()
 
 			params := types.RoutingPlanBuildOptions{
-				Tenant:                 testCase.tenant,
+				Shard:                  testCase.tenant,
 				ConsistencyLevel:       types.ConsistencyLevelOne,
 				DirectCandidateReplica: testCase.directCandidate,
 			}
@@ -976,7 +975,7 @@ func TestMultiTenantRouter_RoutingPlanConstruction_DirectCandidate(t *testing.T)
 			plan, err := r.BuildReadRoutingPlan(params)
 
 			require.NoError(t, err, "unexpected error for %s", testCase.description)
-			require.Equal(t, testCase.tenant, plan.Tenant)
+			require.Equal(t, testCase.tenant, plan.Shard)
 			require.Len(t, plan.Replicas, testCase.expectedTotal, "replica count mismatch for %s", testCase.description)
 			require.Len(t, plan.ReplicasHostAddrs, testCase.expectedTotal, "host address count mismatch for %s", testCase.description)
 			require.Equal(t, testCase.expectedFirst, plan.Replicas[0], "first replica mismatch for %s", testCase.description)

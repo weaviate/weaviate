@@ -320,7 +320,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
 	routingPlan, err := f.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
-		Tenant:           shardName,
+		Shard:            shardName,
 		ConsistencyLevel: types.ConsistencyLevelOne,
 	})
 	if err != nil {
