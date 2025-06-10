@@ -146,7 +146,7 @@ func backupAndRestoreJourneyTest(t *testing.T, weaviateEndpoint, backend string,
 		})
 	})
 
-	t.Run("veerify that backup process is completed", func(t *testing.T) {
+	t.Run("verify that backup process is completed", func(t *testing.T) {
 		params := backups.NewBackupsCreateStatusParams().
 			WithBackend(backend).
 			WithID(backupID).
