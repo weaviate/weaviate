@@ -309,6 +309,9 @@ func (r *singleTenantRouter) getReadWriteReplicasLocation(collection string, _ s
 //   - RoutingPlan: the constructed read routing plan with replicas ordered by preference.
 //   - error: if no replicas are found or consistency level validation fails.
 func (r *singleTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
+	if err := params.Validate(); err != nil {
+		return types.RoutingPlan{}, err
+	}
 	return r.buildReadRoutingPlan(params)
 }
 
@@ -323,6 +326,9 @@ func (r *singleTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildO
 //   - RoutingPlan: the constructed write routing plan with replicas ordered by preference.
 //   - error: if no replicas are found or consistency level validation fails.
 func (r *singleTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
+	if err := params.Validate(); err != nil {
+		return types.RoutingPlan{}, err
+	}
 	return r.buildWriteRoutingPlan(params)
 }
 
@@ -516,6 +522,9 @@ func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant st
 //   - RoutingPlan: the constructed read routing plan with tenant-specific replicas ordered by preference.
 //   - error: if the tenant is not found/active, no replicas are available, or consistency level validation fails.
 func (r *multiTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
+	if err := params.Validate(); err != nil {
+		return types.RoutingPlan{}, err
+	}
 	return r.buildReadRoutingPlan(params)
 }
 
@@ -530,6 +539,9 @@ func (r *multiTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOp
 //   - RoutingPlan: the constructed write routing plan with tenant-specific replicas ordered by preference.
 //   - error: if the tenant is not found/active, no replicas are available, or consistency level validation fails.
 func (r *multiTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error) {
+	if err := params.Validate(); err != nil {
+		return types.RoutingPlan{}, err
+	}
 	return r.buildWriteRoutingPlan(params)
 }
 

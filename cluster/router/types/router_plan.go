@@ -23,6 +23,13 @@ type RoutingPlanBuildOptions struct {
 	DirectCandidateReplica string
 }
 
+func (r RoutingPlanBuildOptions) Validate() error {
+	if r.Shard == "" {
+		return fmt.Errorf("no shard specified for routing plan building")
+	}
+	return nil
+}
+
 type RoutingPlan struct {
 	Shard    string
 	Replicas []string

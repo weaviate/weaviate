@@ -30,9 +30,9 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func createRoutingPlanBuildOptions(tenant string) types.RoutingPlanBuildOptions {
+func createRoutingPlanBuildOptions(shard string) types.RoutingPlanBuildOptions {
 	return types.RoutingPlanBuildOptions{
-		Shard:                  tenant,
+		Shard:                  shard,
 		ConsistencyLevel:       types.ConsistencyLevelOne,
 		DirectCandidateReplica: "",
 	}
@@ -557,7 +557,41 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 		mockReplicationFSM,
 	).Build()
 
-	params := createRoutingPlanBuildOptions("")
+	params := createRoutingPlanBuildOptions("shard1")
+	plan, err := r.BuildReadRoutingPlan(params)
+
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no replicas found")
+	require.Empty(t, plan.Replicas)
+}
+
+func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
+	mockSchemaGetter := schema.NewMockSchemaGetter(t)
+	mockMetadataReader := schemaTypes.NewMockSchemaReader(t)
+	mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	mockClusterReader := mocks.NewMockNodeSelector("node1")
+
+	mockMetadataReader.EXPECT().ShardReplicas("TestClass", "luke").Return([]string{}, nil)
+	tenantStatus := map[string]string{
+		"luke": models.TenantActivityStatusHOT,
+	}
+	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "luke").
+		Return(tenantStatus, nil)
+	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "luke", []string{}).
+		Return([]string{})
+	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "luke", []string{}).
+		Return([]string{}, []string{})
+
+	r := router.NewBuilder(
+		"TestClass",
+		true,
+		mockClusterReader,
+		mockSchemaGetter,
+		mockMetadataReader,
+		mockReplicationFSM,
+	).Build()
+
+	params := createRoutingPlanBuildOptions("luke")
 	plan, err := r.BuildReadRoutingPlan(params)
 
 	require.Error(t, err)
@@ -659,6 +693,7 @@ func TestSingleTenantRouter_BuildRoutingPlan_WithDirectCandidate(t *testing.T) {
 	).Build()
 
 	params := types.RoutingPlanBuildOptions{
+		Shard:                  "shard1",
 		ConsistencyLevel:       types.ConsistencyLevelOne,
 		DirectCandidateReplica: directCandidateNode,
 	}
