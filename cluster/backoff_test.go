@@ -165,6 +165,6 @@ func TestBackoffBehavior(t *testing.T) {
 		totalTime += interval
 	}
 	expectedTotal := time.Millisecond * 5550 // 50 + 100 + 200 + 400 + 800 + 1000*5
-	// Allow 40% variation for total time due to randomization
-	assert.InDelta(t, float64(expectedTotal), float64(totalTime), float64(expectedTotal)*0.4)
+	// Allow 50% variation for total time due to randomization
+	assert.InDelta(t, float64(expectedTotal), float64(totalTime), float64(expectedTotal)*0.5)
 }

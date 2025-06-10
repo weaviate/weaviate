@@ -9,18 +9,9 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package tenantactivity
+//go:build !race
+// +build !race
 
-import "time"
+package helper
 
-type ByCollection map[string]ByTenant
-
-type ByTenant map[string]time.Time
-
-type UsageFilter int
-
-const (
-	UsageFilterAll UsageFilter = iota
-	UsageFilterOnlyReads
-	UsageFilterOnlyWrites
-)
+var RaceDetectorEnabled = false

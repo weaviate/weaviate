@@ -388,7 +388,7 @@ func (st *Store) init() error {
 	}
 
 	// file snapshot store
-	st.snapshotStore, err = raft.NewFileSnapshotStore(st.cfg.WorkDir, nRetainedSnapShots, os.Stdout)
+	st.snapshotStore, err = raft.NewFileSnapshotStore(st.cfg.WorkDir, nRetainedSnapShots, st.log.Out)
 	if err != nil {
 		return fmt.Errorf("file snapshot store: %w", err)
 	}
@@ -776,8 +776,12 @@ type Response struct {
 
 var _ raft.FSM = &Store{}
 
-func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
-	ls, err := ss.List()
+func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
+	if snapshotStore == nil {
+		return 0
+	}
+
+	ls, err := snapshotStore.List()
 	if err != nil || len(ls) == 0 {
 		return 0
 	}

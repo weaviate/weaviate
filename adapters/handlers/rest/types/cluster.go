@@ -9,18 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package tenantactivity
+package types
 
-import "time"
+import "context"
 
-type ByCollection map[string]ByTenant
-
-type ByTenant map[string]time.Time
-
-type UsageFilter int
-
-const (
-	UsageFilterAll UsageFilter = iota
-	UsageFilterOnlyReads
-	UsageFilterOnlyWrites
-)
+// ClusterServer defines the interface for cluster API server operations
+type ClusterServer interface {
+	Serve() error
+	Close(ctx context.Context) error
+}
