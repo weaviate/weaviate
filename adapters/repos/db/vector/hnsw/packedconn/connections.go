@@ -17,9 +17,10 @@ const (
 )
 
 type LayerData struct {
-	data   []byte
-	scheme uint8
-	count  uint32 // number of elements
+	data []byte
+	// Packed scheme (4 bits) and count (12 bits)
+	// scheme is in lower 4 bits, count in upper 12 bits
+	packed uint16
 }
 
 type Connections struct {
@@ -93,8 +94,7 @@ func NewWithData(data []byte) *Connections {
 
 		c.layers[i] = LayerData{
 			data:   layerData,
-			scheme: scheme,
-			count:  count,
+			packed: packSchemeAndCount(scheme, count),
 		}
 	}
 
@@ -251,6 +251,22 @@ func decodeValues(data []byte, scheme uint8, count uint32) []uint64 {
 	return result
 }
 
+// Helper functions for packed scheme and count
+func packSchemeAndCount(scheme uint8, count uint32) uint16 {
+	if count > 4095 { // 2^12 - 1
+		count = 4095
+	}
+	return uint16(scheme) | uint16(count)<<4
+}
+
+func unpackScheme(packed uint16) uint8 {
+	return uint8(packed & 0xF)
+}
+
+func unpackCount(packed uint16) uint32 {
+	return uint32(packed >> 4)
+}
+
 func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
 	if layer >= c.layerCount {
 		c.GrowLayersTo(layer)
@@ -266,8 +282,7 @@ func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
 
 	c.layers[layer] = LayerData{
 		data:   data,
-		scheme: scheme,
-		count:  uint32(len(conns)),
+		packed: packSchemeAndCount(scheme, uint32(len(conns))),
 	}
 }
 
@@ -280,23 +295,22 @@ func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
 	layerData := &c.layers[layer]
 
 	// If layer is empty, start with optimal scheme for this value
-	if layerData.count == 0 {
+	if layerData.packed == 0 {
 		scheme := determineOptimalScheme([]uint64{conn})
-		layerData.scheme = scheme
+		layerData.packed = packSchemeAndCount(scheme, 1)
 		layerData.data = encodeValues([]uint64{conn}, scheme)
-		layerData.count = 1
 		return
 	}
 
 	// Check if current scheme can handle the new value
 	requiredScheme := determineOptimalScheme([]uint64{conn})
-	if requiredScheme > layerData.scheme {
+	currentScheme := unpackScheme(layerData.packed)
+	if requiredScheme > currentScheme {
 		// Need to upgrade scheme - decode, append, re-encode
-		values := decodeValues(layerData.data, layerData.scheme, layerData.count)
+		values := decodeValues(layerData.data, currentScheme, unpackCount(layerData.packed))
 		values = append(values, conn)
-		layerData.scheme = requiredScheme
+		layerData.packed = packSchemeAndCount(requiredScheme, uint32(len(values)))
 		layerData.data = encodeValues(values, requiredScheme)
-		layerData.count++
 		return
 	}
 
@@ -307,9 +321,11 @@ func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
 // appendToLayer appends a single value using the current scheme
 func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 	layerData := &c.layers[layer]
+	scheme := unpackScheme(layerData.packed)
+	count := unpackCount(layerData.packed)
 
 	var bytesNeeded int
-	switch layerData.scheme {
+	switch scheme {
 	case SCHEME_1BYTE:
 		bytesNeeded = 1
 	case SCHEME_2BYTE:
@@ -362,7 +378,7 @@ func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 		layerData.data = newData
 	}
 
-	switch layerData.scheme {
+	switch scheme {
 	case SCHEME_1BYTE:
 		layerData.data = append(layerData.data, byte(conn))
 
@@ -390,7 +406,7 @@ func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 		}
 	}
 
-	layerData.count++
+	layerData.packed = packSchemeAndCount(scheme, count+1)
 }
 
 func (c *Connections) BulkInsertAtLayer(conns []uint64, layer uint8) {
@@ -404,23 +420,22 @@ func (c *Connections) BulkInsertAtLayer(conns []uint64, layer uint8) {
 
 	layerData := &c.layers[layer]
 
-	if layerData.count == 0 {
+	if layerData.packed == 0 {
 		// Empty layer - just encode all values
 		scheme := determineOptimalScheme(conns)
-		layerData.scheme = scheme
+		layerData.packed = packSchemeAndCount(scheme, uint32(len(conns)))
 		layerData.data = encodeValues(conns, scheme)
-		layerData.count = uint32(len(conns))
 		return
 	}
 
 	// Need to merge with existing data
-	existing := decodeValues(layerData.data, layerData.scheme, layerData.count)
+	currentScheme := unpackScheme(layerData.packed)
+	existing := decodeValues(layerData.data, currentScheme, unpackCount(layerData.packed))
 	all := append(existing, conns...)
 
 	scheme := determineOptimalScheme(all)
-	layerData.scheme = scheme
+	layerData.packed = packSchemeAndCount(scheme, uint32(len(all)))
 	layerData.data = encodeValues(all, scheme)
-	layerData.count = uint32(len(all))
 }
 
 func (c *Connections) Data() []byte {
@@ -431,8 +446,7 @@ func (c *Connections) Data() []byte {
 	// Calculate total size
 	totalSize := 1 // layer count
 	for i := uint8(0); i < c.layerCount; i++ {
-		totalSize += 1                     // scheme
-		totalSize += 4                     // count
+		totalSize += 2                     // packed scheme and count
 		totalSize += 4                     // data length
 		totalSize += len(c.layers[i].data) // data
 	}
@@ -446,16 +460,10 @@ func (c *Connections) Data() []byte {
 	for i := uint8(0); i < c.layerCount; i++ {
 		layer := &c.layers[i]
 
-		// Write scheme
-		data[offset] = layer.scheme
-		offset++
-
-		// Write count (4 bytes, little endian)
-		data[offset] = byte(layer.count)
-		data[offset+1] = byte(layer.count >> 8)
-		data[offset+2] = byte(layer.count >> 16)
-		data[offset+3] = byte(layer.count >> 24)
-		offset += 4
+		// Write packed scheme and count (2 bytes, little endian)
+		data[offset] = byte(layer.packed)
+		data[offset+1] = byte(layer.packed >> 8)
+		offset += 2
 
 		// Write data length (4 bytes, little endian)
 		dataLen := uint32(len(layer.data))
@@ -477,25 +485,25 @@ func (c *Connections) LenAtLayer(layer uint8) int {
 	if layer >= c.layerCount {
 		return 0
 	}
-	return int(c.layers[layer].count)
+	return int(unpackCount(c.layers[layer].packed))
 }
 
 func (c *Connections) GetLayer(layer uint8) []uint64 {
-	if layer >= c.layerCount || c.layers[layer].count == 0 {
+	if layer >= c.layerCount || c.layers[layer].packed == 0 {
 		return nil
 	}
 
 	layerData := &c.layers[layer]
-	return decodeValues(layerData.data, layerData.scheme, layerData.count)
+	return decodeValues(layerData.data, unpackScheme(layerData.packed), unpackCount(layerData.packed))
 }
 
 func (c *Connections) CopyLayer(conns []uint64, layer uint8) []uint64 {
-	if layer >= c.layerCount || c.layers[layer].count == 0 {
+	if layer >= c.layerCount || c.layers[layer].packed == 0 {
 		return conns[:0]
 	}
 
 	layerData := &c.layers[layer]
-	count := int(layerData.count)
+	count := int(unpackCount(layerData.packed))
 
 	if cap(conns) < count {
 		conns = make([]uint64, count)
@@ -503,7 +511,7 @@ func (c *Connections) CopyLayer(conns []uint64, layer uint8) []uint64 {
 		conns = conns[:count]
 	}
 
-	decodeInto(layerData.data, layerData.scheme, layerData.count, conns)
+	decodeInto(layerData.data, unpackScheme(layerData.packed), uint32(count), conns)
 	return conns
 }
 
@@ -574,11 +582,11 @@ func (c *Connections) ElementIterator(layer uint8) *LayerElementIterator {
 	maxIndex := 0
 	var values []uint64
 
-	if layer < c.layerCount && c.layers[layer].count > 0 {
-		maxIndex = int(c.layers[layer].count)
+	if layer < c.layerCount && c.layers[layer].packed != 0 {
+		maxIndex = int(unpackCount(c.layers[layer].packed))
 		// Decode values once for the iterator's lifetime
 		layerData := &c.layers[layer]
-		values = decodeValues(layerData.data, layerData.scheme, layerData.count)
+		values = decodeValues(layerData.data, unpackScheme(layerData.packed), uint32(maxIndex))
 	}
 
 	return &LayerElementIterator{
