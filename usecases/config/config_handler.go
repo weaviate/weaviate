@@ -209,6 +209,19 @@ type Config struct {
 	//
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+	// Usage configuration for the usage module
+	// example:
+	// usage:
+	//   gcp_use_auth: true
+	//   gcp_bucket: "my-bucket"
+	//   gcs_prefix: "my-prefix"
+	//   scrape_interval: 1m
+	Usage struct {
+		GCSAuth        *runtime.DynamicValue[bool]          `json:"gcs_use_auth" yaml:"gcs_use_auth"`
+		GCSBucket      *runtime.DynamicValue[string]        `json:"gcs_bucket" yaml:"gcs_bucket"`
+		GCSPrefix      *runtime.DynamicValue[string]        `json:"gcs_prefix" yaml:"gcs_prefix"`
+		ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"scrape_interval" yaml:"scrape_interval"`
+	} `json:"usage" yaml:"usage"`
 }
 
 type MapToBlockamaxConfig struct {

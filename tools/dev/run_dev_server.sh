@@ -892,6 +892,40 @@ case $CONFIG in
         --read-timeout=600s \
         --write-timeout=600s
       ;;
+create-gcs-bucket)
+      echo "make sure that you ran docker-compose up backup-gcs"
+      curl -X POST "http://localhost:9090/storage/v1/b" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "weaviate-usage"}'
+      ;;
+
+local-usage-gcs)
+      CONTEXTIONARY_URL=localhost:9999 \
+      LOG_LEVEL=debug \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      STORAGE_EMULATOR_HOST=localhost:9090 \
+      BACKUP_GCS_ENDPOINT=localhost:9090 \
+      BACKUP_GCS_BUCKET=weaviate-backups \
+      USAGE_GCS_BUCKET=weaviate-usage \
+      USAGE_GCS_PREFIX=billing-usage \
+      USAGE_GCS_USE_AUTH=false \
+      USAGE_SCRAPE_INTERVAL=3s \
+      ENABLE_MODULES="text2vec-contextionary,backup-gcs,usage-gcs" \
+      CLUSTER_IN_LOCALHOST=true \
+      CLUSTER_GOSSIP_BIND_PORT="7100" \
+      CLUSTER_DATA_BIND_PORT="7101" \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+      ;;
+
 
   local-cohere)
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
