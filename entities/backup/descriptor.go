@@ -393,13 +393,14 @@ func (d *BackupDescriptor) ToDistributed() *DistributedBackupDescriptor {
 		}
 	}
 	result := &DistributedBackupDescriptor{
-		StartedAt:     d.StartedAt,
-		CompletedAt:   d.CompletedAt,
-		ID:            d.ID,
-		Status:        Status(d.Status),
-		Version:       d.Version,
-		ServerVersion: d.ServerVersion,
-		Error:         d.Error,
+		StartedAt:               d.StartedAt,
+		CompletedAt:             d.CompletedAt,
+		ID:                      d.ID,
+		Status:                  Status(d.Status),
+		Version:                 d.Version,
+		ServerVersion:           d.ServerVersion,
+		Error:                   d.Error,
+		PreCompressionSizeBytes: d.PreCompressionSizeBytes, // Copy pre-compression size
 	}
 	if node != "" && len(cs) > 0 {
 		result.Nodes = map[string]*NodeDescriptor{node: {Classes: cs}}

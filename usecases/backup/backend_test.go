@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -56,7 +57,7 @@ func TestCalculateShardPreCompressionSize(t *testing.T) {
 
 	// Create a mock backend with expectations
 	mockBackend := modulecapabilities.NewMockBackupBackend(t)
-	mockBackend.EXPECT().SourceDataPath().Return(tempDir).Maybe()
+	mockBackend.EXPECT().SourceDataPath().Return(tempDir)
 
 	// Create a mock uploader with the temp directory as source path
 	uploader := &uploader{
@@ -65,6 +66,7 @@ func TestCalculateShardPreCompressionSize(t *testing.T) {
 				backend: mockBackend,
 			},
 		},
+		log: logrus.New(),
 	}
 
 	// Calculate pre-compression size

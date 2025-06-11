@@ -95,6 +95,7 @@ type coordinator struct {
 	schema       schemaManger
 	log          logrus.FieldLogger
 	nodeResolver NodeResolver
+	backends     BackupBackendProvider
 
 	// state
 	Participants map[string]participantStatus
@@ -115,6 +116,7 @@ func newCoordinator(
 	schema schemaManger,
 	log logrus.FieldLogger,
 	nodeResolver NodeResolver,
+	backends BackupBackendProvider,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
@@ -122,6 +124,7 @@ func newCoordinator(
 		schema:             schema,
 		log:                log,
 		nodeResolver:       nodeResolver,
+		backends:           backends,
 		Participants:       make(map[string]participantStatus, 16),
 		timeoutNodeDown:    _TimeoutNodeDown,
 		timeoutQueryStatus: _TimeoutQueryStatus,
@@ -458,6 +461,9 @@ func (c *coordinator) commit(ctx context.Context,
 	status := backup.Success
 	reason := ""
 	groups := c.descriptor.Nodes
+	var totalPreCompressionSize int64
+
+	// Read backup descriptors from each node to aggregate pre-compression sizes
 	for node, p := range c.Participants {
 		st := groups[c.descriptor.ToOriginalNodeName(node)]
 		st.Status, st.Error = p.Status, p.Reason
@@ -469,11 +475,47 @@ func (c *coordinator) commit(ctx context.Context,
 				status = backup.Cancelled
 				st.Status = backup.Cancelled
 			}
+		} else {
+			// Try to read the node's backup descriptor to get pre-compression size
+			// for the whole cluster (not just the node)
+			if backend, err := c.backends.BackupBackend(req.Backend); err == nil {
+				// Create a nodeStore for this specific node
+				nodeBackupID := fmt.Sprintf("%s/%s", req.ID, node)
+				nodeStore := nodeStore{
+					objectStore: objectStore{
+						backend:  backend,
+						backupId: nodeBackupID,
+						bucket:   req.Bucket,
+						path:     req.Path,
+					},
+				}
+
+				if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path, false); err == nil {
+					st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
+					totalPreCompressionSize += meta.PreCompressionSizeBytes
+					c.log.WithFields(logrus.Fields{
+						"node":                    node,
+						"preCompressionSizeBytes": meta.PreCompressionSizeBytes,
+						"totalPreCompressionSize": totalPreCompressionSize,
+					}).Debug("read node backup descriptor pre-compression size")
+				} else {
+					c.log.WithFields(logrus.Fields{
+						"node":  node,
+						"error": err,
+					}).Warn("could not read node backup descriptor for pre-compression size")
+				}
+			}
 		}
 		groups[node] = st
 	}
 	c.descriptor.Status = status
 	c.descriptor.Error = reason
+	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
+
+	c.log.WithFields(logrus.Fields{
+		"totalPreCompressionSize": totalPreCompressionSize,
+		"status":                  status,
+	}).Info("coordinator aggregated pre-compression sizes from all nodes")
 }
 
 // queryAll queries all participant and store their statuses internally

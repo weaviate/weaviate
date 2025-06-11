@@ -214,7 +214,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
-	var totalSize int64 // Track total bytes written
+	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
 		//  make sure context is not cancelled when uploading metadata
 		ctx := context.Background()
@@ -247,12 +247,12 @@ Loop:
 				return cdesc.Error
 			}
 			u.log.WithField("class", cdesc.Name).Info("start uploading files")
-			size, err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath)
+			preCompressionSize, err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath)
 			if err != nil {
 				return err
 			}
-			totalSize += size
-			cdesc.PreCompressionSizeBytes = size // Set pre-compression size for this class
+			totalPreCompressionSize += preCompressionSize
+			cdesc.PreCompressionSizeBytes = preCompressionSize // Set pre-compression size for this class
 			desc.Classes = append(desc.Classes, cdesc)
 			u.log.WithField("class", cdesc.Name).Info("finish uploading files")
 
@@ -269,7 +269,7 @@ Loop:
 	u.setStatus(backup.Transferred)
 	desc.Status = string(backup.Success)
 	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
-	desc.PreCompressionSizeBytes = totalSize
+	desc.PreCompressionSizeBytes = totalPreCompressionSize
 	return nil
 }
 
@@ -477,15 +477,25 @@ func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescripto
 	}
 
 	// Add size of metadata files that are read from disk
+	metadataSize := int64(0)
 	if len(shard.DocIDCounter) > 0 {
-		totalSize += int64(len(shard.DocIDCounter))
+		metadataSize += int64(len(shard.DocIDCounter))
 	}
 	if len(shard.PropLengthTracker) > 0 {
-		totalSize += int64(len(shard.PropLengthTracker))
+		metadataSize += int64(len(shard.PropLengthTracker))
 	}
 	if len(shard.Version) > 0 {
-		totalSize += int64(len(shard.Version))
+		metadataSize += int64(len(shard.Version))
 	}
+	totalSize += metadataSize
+
+	u.log.WithFields(logrus.Fields{
+		"shard":          shard.Name,
+		"filesCount":     len(shard.Files),
+		"metadataSize":   metadataSize,
+		"totalSize":      totalSize,
+		"sourceDataPath": u.backend.SourceDataPath(),
+	}).Debug("calculated pre-compression size for shard")
 
 	return totalSize
 }
