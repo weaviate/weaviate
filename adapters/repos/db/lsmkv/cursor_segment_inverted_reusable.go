@@ -20,7 +20,6 @@ import (
 
 type segmentCursorInvertedReusableWithCache struct {
 	segment           *segment
-	nextOffset        uint64
 	readCache         []byte
 	positionInSegment uint64
 	positionInCache   uint64
@@ -33,17 +32,21 @@ func (s *segment) newInvertedCursorReusableWithCache() *segmentCursorInvertedReu
 	}
 	return &segmentCursorInvertedReusableWithCache{
 		segment:           s,
-		readCache:         make([]byte, cacheSize),
+		readCache:         make([]byte, 0, cacheSize),
 		positionInSegment: s.dataStartPos,
-		positionInCache:   0,
+		positionInCache:   cacheSize, // will be reset on first read
 	}
 }
 
 func (s *segmentCursorInvertedReusableWithCache) loadDataIntoCache() error {
-	at, err := s.segment.bufferedReaderAt(s.positionInSegment, "ReadFromSegmentInvertedReusableWithCache")
+	at, err := s.segment.newNodeReader(nodeOffset{start: s.positionInSegment}, "ReadFromSegmentInvertedReusableWithCache")
 	if err != nil {
 		return err
 	}
+
+	// Restore the original buffer capacity before reading
+	s.readCache = s.readCache[:cap(s.readCache)]
+
 	read, err := at.Read(s.readCache)
 	if err != nil {
 		return err
@@ -59,16 +62,18 @@ func (s *segmentCursorInvertedReusableWithCache) getDataFromCache(length uint64,
 			return nil, err
 		}
 	}
+
+	ret := s.readCache[s.positionInCache : s.positionInCache+length]
 	if movePointers {
 		s.positionInSegment += length
 		s.positionInCache += length
 	}
 
-	return s.readCache[s.positionInCache : s.positionInCache+length], nil
+	return ret, nil
 }
 
 func (s *segmentCursorInvertedReusableWithCache) next() ([]byte, []MapPair, error) {
-	if s.nextOffset >= s.segment.dataEndPos {
+	if s.positionInSegment >= s.segment.dataEndPos {
 		return nil, nil, lsmkv.NotFound
 	}
 
@@ -76,9 +81,9 @@ func (s *segmentCursorInvertedReusableWithCache) next() ([]byte, []MapPair, erro
 }
 
 func (s *segmentCursorInvertedReusableWithCache) first() ([]byte, []MapPair, error) {
-	s.nextOffset = s.segment.dataStartPos
+	s.positionInSegment = s.segment.dataStartPos
 
-	if s.nextOffset >= s.segment.dataEndPos {
+	if s.positionInSegment >= s.segment.dataEndPos {
 		return nil, nil, lsmkv.NotFound
 	}
 
@@ -96,14 +101,14 @@ func (s *segmentCursorInvertedReusableWithCache) parseInvertedNodeInto() ([]byte
 		end = binary.LittleEndian.Uint64(buffer[8:16]) + 16
 	}
 	readLength := end + 4
-	buffer, err = s.getDataFromCache(readLength, true)
+	allBytes, err := s.getDataFromCache(readLength, true)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	nodes, _ := decodeAndConvertFromBlocks(buffer)
+	nodes, _ := decodeAndConvertFromBlocks(allBytes)
 
-	keyLen := binary.LittleEndian.Uint32(buffer[len(buffer)-4:])
+	keyLen := binary.LittleEndian.Uint32(allBytes[len(allBytes)-4:])
 	key, err := s.getDataFromCache(uint64(keyLen), true)
 	if err != nil {
 		return nil, nil, err
