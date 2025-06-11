@@ -31,6 +31,39 @@ import (
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
 
+	http.HandleFunc("/debug/sync-shard", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		collectionName := r.URL.Query().Get("collection")
+		if collectionName == "" {
+			http.Error(w, "collection is required", http.StatusBadRequest)
+			return
+		}
+		shardName := r.URL.Query().Get("shard")
+		if shardName == "" {
+			http.Error(w, "shard is required", http.StatusBadRequest)
+			return
+		}
+		node := r.URL.Query().Get("node")
+		if node == "" {
+			http.Error(w, "node is required", http.StatusBadRequest)
+			return
+		}
+		v, err := appState.ClusterService.SyncShard(context.Background(), collectionName, shardName, node)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		type versionResponse struct {
+			Version uint64 `json:"version"`
+		}
+		jsonBytes, err := json.Marshal(versionResponse{Version: v})
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+		w.Write(jsonBytes)
+	}))
+
 	http.HandleFunc(
 		"/debug/async-replication/remove-target-overrides",
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
