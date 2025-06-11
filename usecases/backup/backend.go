@@ -290,7 +290,7 @@ Loop:
 		if err != nil {
 			return err
 		}
-		desc.DynUserBackups = descrp
+		desc.UserBackups = descrp
 	}
 
 	u.setStatus(backup.Transferred)

@@ -324,19 +324,16 @@ func (m *Manager) Snapshot() ([]byte, error) {
 }
 
 func (m *Manager) Restore(b []byte) error {
-	// restore is only needed when RBAC was enabled during backup
-	if m == nil || b == nil || len(b) == 0 {
+	// don't overwrite with empty snapshot to avoid overwriting recovery from file
+	// with a non-existent RBAC snapshot when coming from old versions
+	if m == nil || len(b) == 0 {
 		return nil
 	}
 	if m.casbin == nil {
 		return nil
 	}
 
-	// don't overwrite with empty snapshot to avoid overwriting recovery from file
-	// with a non-existent RBAC snapshot when coming from old versions
-	if len(b) == 0 {
-		return nil
-	}
+
 
 	snapshot := snapshot{}
 	if err := json.Unmarshal(b, &snapshot); err != nil {
