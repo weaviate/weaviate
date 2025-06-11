@@ -425,6 +425,54 @@ func (rq *CRQNeighborProvider) NearestNeighbors(q []float32, k int) []int {
 
 // End of centered rotational quantization
 
+// Truncated rotational quantization
+
+type TRQSettings struct {
+	Order int
+}
+
+func (s *TRQSettings) BitsPerDimension() float64 {
+	return float64(8)
+}
+
+func (s *TRQSettings) Description() string {
+	return fmt.Sprintf("TRQ(%d)", s.Order)
+}
+
+type TRQNeighborProvider struct {
+	quantizer     *compressionhelpers.TruncatedRotationalQuantizer
+	quantizedData [][]byte
+	distance      distancer.Provider
+}
+
+func NewTRQNeighborProvider(data [][]float32, settings TRQSettings, distance distancer.Provider) *TRQNeighborProvider {
+	d := len(data[0])
+	quantizer := compressionhelpers.NewTruncatedRotationalQuantizer(d, 42, distance, settings.Order)
+
+	quantizedData := make([][]byte, len(data))
+	for i, v := range data {
+		quantizedData[i] = quantizer.Encode(v)
+	}
+	trq := &TRQNeighborProvider{
+		quantizer:     quantizer,
+		quantizedData: quantizedData,
+		distance:      distance,
+	}
+	return trq
+}
+
+func (rq *TRQNeighborProvider) NearestNeighbors(q []float32, k int) []int {
+	queue := NewSimplePriorityQueue(k)
+	distancer := rq.quantizer.NewDistancer(q)
+	for i, c := range rq.quantizedData {
+		dist, _ := distancer.Distance(c)
+		queue.Insert(i, dist)
+	}
+	return queue.Neighbors()
+}
+
+// End of truncated rotational quantization
+
 type NeighborProvider interface {
 	NearestNeighbors(query []float32, k int) []int
 }
@@ -446,6 +494,8 @@ func neighborProviderFactory(data [][]float32, distance distancer.Provider, sett
 		return NewRQNeighborProvider(data, *s, distance)
 	case *CRQSettings:
 		return NewCRQNeighborProvider(data, *s, distance)
+	case *TRQSettings:
+		return NewTRQNeighborProvider(data, *s, distance)
 	default:
 		return nil
 	}
@@ -477,37 +527,42 @@ func overlap(a []int, b []int) int {
 func BenchmarkQuantizationRecall(b *testing.B) {
 	dataDir := "/Users/tobiaschristiani/code/datasets"
 	datasets := []ANNBenchDataDescriptor{
-		{Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
-		{Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
-		{Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
-		{Name: "sift-128-euclidean", Distance: distancer.NewL2SquaredProvider()},
-		{Name: "gist-960-euclidean", Distance: distancer.NewL2SquaredProvider()},
-		{Name: "glove-200-angular", Distance: distancer.NewCosineDistanceProvider()},
-
-		// Classic datasets
+		// {Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		// {Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
+		// {Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
 		// {Name: "sift-128-euclidean", Distance: distancer.NewL2SquaredProvider()},
 		// {Name: "gist-960-euclidean", Distance: distancer.NewL2SquaredProvider()},
 		// {Name: "glove-200-angular", Distance: distancer.NewCosineDistanceProvider()},
 
-		// // Smaller OpenAI datasets
+		// Classic datasets
+		{Name: "sift-128-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "gist-960-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "glove-200-angular", Distance: distancer.NewCosineDistanceProvider()},
+
+		// Smaller OpenAI datasets
 		// {Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
 		// {Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
 		// {Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
 
-		// // Bigger datasets
-		// {Name: "dbpedia-500k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
-		// {Name: "dbpedia-openai-1000k-angular", Distance: distancer.NewCosineDistanceProvider()},
-		// {Name: "sphere-1M-meta-dpr", Distance: distancer.NewDotProductProvider()},
-		//{Name: "snowflake-msmarco-arctic-embed-m-v1.5-angular", Distance: distancer.NewCosineDistanceProvider()},
+		// Bigger datasets
+		{Name: "dbpedia-500k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "dbpedia-openai-1000k-angular", Distance: distancer.NewCosineDistanceProvider()},
+		{Name: "sphere-1M-meta-dpr", Distance: distancer.NewDotProductProvider()},
+		// {Name: "snowflake-msmarco-arctic-embed-m-v1.5-angular", Distance: distancer.NewCosineDistanceProvider()},
 	}
 
 	algorithms := []QuantizationSettings{
 		&SQSettings{TrainingSize: 100_000},
 		&RQSettings{DataBits: 8, QueryBits: 8},
+		// &TRQSettings{Order: 1},
+		// &TRQSettings{Order: 4},
+		// &TRQSettings{Order: 8},
 		&CRQSettings{TrainingSize: 100_000, Centers: 1},
+		&CRQSettings{TrainingSize: 100_000, Centers: 16},
+		&CRQSettings{TrainingSize: 100_000, Centers: 64},
 	}
 
-	maxVectors := 100_000
+	maxVectors := 1_000_000
 	maxQueries := 250
 
 	for _, descriptor := range datasets {
