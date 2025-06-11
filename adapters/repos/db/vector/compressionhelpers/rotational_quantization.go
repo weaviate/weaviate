@@ -69,12 +69,29 @@ func NewRotationalQuantizer(inputDim int, seed uint64, dataBits int, queryBits i
 }
 
 func RestoreRotationalQuantizer(inputDim int, seed uint64, dataBits int, queryBits int, outputDim int, rounds int, swaps [][]Swap, signs [][]int8, distancer distancer.Provider) (*RotationalQuantizer, error) {
+	var err error = nil
+	if !supportsDistancer(distancer) {
+		err = errors.Errorf("Distance not supported yet %s", distancer)
+	}
+	var cos float32
+	if distancer.Type() == "cosine-dot" {
+		cos = 1.0
+	}
+
+	var l2 float32
+	if distancer.Type() == "l2-squared" {
+		l2 = 1.0
+	}
+
 	rq := &RotationalQuantizer{
 		inputDim:  uint32(inputDim),
 		rotation:  RestoreFastRotation(outputDim, rounds, swaps, signs),
 		dataBits:  uint32(dataBits),
 		queryBits: uint32(queryBits),
 		distancer: distancer,
+		err:       err,
+		cos:       cos,
+		l2:        l2,
 	}
 	return rq, nil
 }
