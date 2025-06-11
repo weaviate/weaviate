@@ -131,7 +131,7 @@ func (e *executor) LoadShard(class string, shard string) {
 			"action": "load_shard",
 			"class":  class,
 			"shard":  shard,
-		}).WithError(err).Error("migrator")
+		}).WithError(err).Warn("migrator")
 	}
 }
 
@@ -142,7 +142,7 @@ func (e *executor) ShutdownShard(class string, shard string) {
 			"action": "shutdown_shard",
 			"class":  class,
 			"shard":  shard,
-		}).WithError(err).Error("migrator")
+		}).WithError(err).Warn("migrator")
 	}
 }
 
@@ -153,7 +153,7 @@ func (e *executor) DropShard(class string, shard string) {
 			"action": "drop_shard",
 			"class":  class,
 			"shard":  shard,
-		}).WithError(err).Error("migrator")
+		}).WithError(err).Warn("migrator")
 	}
 }
 
