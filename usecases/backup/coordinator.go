@@ -95,6 +95,7 @@ type coordinator struct {
 	schema       schemaManger
 	log          logrus.FieldLogger
 	nodeResolver NodeResolver
+	backends     BackupBackendProvider
 
 	// state
 	Participants map[string]participantStatus
@@ -115,6 +116,7 @@ func newCoordinator(
 	schema schemaManger,
 	log logrus.FieldLogger,
 	nodeResolver NodeResolver,
+	backends BackupBackendProvider,
 ) *coordinator {
 	return &coordinator{
 		selector:           selector,
@@ -122,6 +124,7 @@ func newCoordinator(
 		schema:             schema,
 		log:                log,
 		nodeResolver:       nodeResolver,
+		backends:           backends,
 		Participants:       make(map[string]participantStatus, 16),
 		timeoutNodeDown:    _TimeoutNodeDown,
 		timeoutQueryStatus: _TimeoutQueryStatus,
@@ -474,6 +477,26 @@ func (c *coordinator) commit(ctx context.Context,
 	}
 	c.descriptor.Status = status
 	c.descriptor.Error = reason
+
+	// Read each node's backup.json and set NodeDescriptor.SizeBytes
+	// this the whole cluster backup size
+	for nodeName, nodeDesc := range c.descriptor.Nodes {
+		ns, err := nodeBackend(nodeName, c.backends, req.Backend, c.descriptor.ID, req.Bucket, req.Path)
+		if err != nil {
+			continue
+		}
+		backupDesc, err := ns.Meta(ctx, c.descriptor.ID, req.Bucket, req.Path, false)
+		if err == nil {
+			nodeDesc.SizeBytes = backupDesc.SizeBytes
+		}
+	}
+
+	// Aggregate SizeBytes from all nodes
+	var totalSize int64
+	for _, nodeDesc := range c.descriptor.Nodes {
+		totalSize += nodeDesc.SizeBytes
+	}
+	c.descriptor.SizeBytes = totalSize
 }
 
 // queryAll queries all participant and store their statuses internally
