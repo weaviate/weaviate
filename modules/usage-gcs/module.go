@@ -36,6 +36,7 @@ const (
 	Name                      = "usage-gcs"
 	DefaultCollectionInterval = 1 * time.Hour
 	DefaultJitterInterval     = 30 * time.Second
+	DefaultVersion            = "2025-06-01" // TODO: update this to the actual version
 )
 
 // module handles collecting and uploading usage metrics
@@ -49,6 +50,7 @@ type module struct {
 	stopChan      chan struct{}
 	nodeID        string
 	metrics       *metrics
+	policyVersion string
 }
 
 func New() *module {
@@ -74,6 +76,11 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 
 	if m.config.Usage.GCSBucket == nil || m.config.Usage.GCSBucket.Get() == "" {
 		return fmt.Errorf("GCP bucket name not configured")
+	}
+
+	m.policyVersion = DefaultVersion
+	if m.config.Usage.PolicyVersion != nil && m.config.Usage.PolicyVersion.Get() != "" {
+		m.policyVersion = m.config.Usage.PolicyVersion.Get()
 	}
 
 	m.logger = params.GetLogger()
@@ -201,6 +208,9 @@ func (m *module) collectAndUploadPeriodically(ctx context.Context) {
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 
+	loadTicker := time.NewTicker(m.config.RuntimeOverrides.LoadInterval)
+	defer loadTicker.Stop()
+
 	m.logger.WithFields(logrus.Fields{
 		"interval":       m.interval,
 		"ticker_created": time.Now(),
@@ -220,35 +230,13 @@ func (m *module) collectAndUploadPeriodically(ctx context.Context) {
 			} else {
 				m.metrics.OperationTotal.WithLabelValues("collect_and_upload", "success").Inc()
 			}
+			// ticker is used to reset the interval
+			m.reloadConfig(ticker)
 
-			// Check for interval updates
-			if interval := m.config.Usage.ScrapeInterval.Get(); interval > 0 && m.interval != interval {
-				m.logger.WithFields(logrus.Fields{
-					"old_interval": m.interval,
-					"new_interval": interval,
-				}).Info("collection interval updated")
-				m.interval = interval
-				// Reset ticker with new interval
-				ticker.Reset(m.interval)
-			}
-
-			// Check for bucket name changes
-			if bucketName := m.config.Usage.GCSBucket.Get(); bucketName != "" && m.bucketName != bucketName {
-				m.logger.WithFields(logrus.Fields{
-					"old_bucket": m.bucketName,
-					"new_bucket": bucketName,
-				}).Warn("bucket name changed - this may require re-authentication")
-				m.bucketName = bucketName
-			}
-
-			// Check for prefix changes
-			if prefix := m.config.Usage.GCSPrefix.Get(); m.prefix != "" && m.prefix != prefix {
-				m.logger.WithFields(logrus.Fields{
-					"old_prefix": m.prefix,
-					"new_prefix": prefix,
-				}).Info("upload prefix updated")
-				m.prefix = prefix
-			}
+		case <-loadTicker.C:
+			m.logger.Debug("runtime overrides reloaded")
+			// ticker is used to reset the interval
+			m.reloadConfig(ticker)
 
 		case <-ctx.Done():
 			m.logger.WithFields(logrus.Fields{"error": ctx.Err()}).Info("context cancelled - stopping periodic collection")
@@ -320,7 +308,7 @@ func (m *module) uploadUsageData(ctx context.Context, usage *UsageResponse) erro
 	writer.ContentType = "application/json"
 	writer.Metadata = map[string]string{
 		"timestamp": timestamp,
-		"version":   "2025-06-01",
+		"version":   m.policyVersion,
 	}
 
 	if _, err := writer.Write(data); err != nil {
@@ -346,10 +334,42 @@ func (m *module) Close() error {
 	return nil
 }
 
+func (m *module) reloadConfig(ticker *time.Ticker) {
+	// Check for interval updates
+	if interval := m.config.Usage.ScrapeInterval.Get(); interval > 0 && m.interval != interval {
+		m.logger.WithFields(logrus.Fields{
+			"old_interval": m.interval,
+			"new_interval": interval,
+		}).Info("collection interval updated")
+		m.interval = interval
+		// Reset ticker with new interval
+		ticker.Reset(m.interval)
+	}
+
+	// Check for bucket name changes
+	if bucketName := m.config.Usage.GCSBucket.Get(); bucketName != "" && m.bucketName != bucketName {
+		m.logger.WithFields(logrus.Fields{
+			"old_bucket": m.bucketName,
+			"new_bucket": bucketName,
+		}).Warn("bucket name changed - this may require re-authentication")
+		m.bucketName = bucketName
+	}
+
+	// Check for prefix changes
+	if prefix := m.config.Usage.GCSPrefix.Get(); m.prefix != "" && m.prefix != prefix {
+		m.logger.WithFields(logrus.Fields{
+			"old_prefix": m.prefix,
+			"new_prefix": prefix,
+		}).Info("upload prefix updated")
+		m.prefix = prefix
+	}
+}
+
 func (m *module) usage(ctx context.Context) (*UsageResponse, error) {
 	// TODO: Implement usage collection
 	return &UsageResponse{
-		Node: m.nodeID,
+		Version: m.policyVersion,
+		Node:    m.nodeID,
 		SingleTenantCollections: []*CollectionUsage{
 			{
 				Name:             "test-collection",

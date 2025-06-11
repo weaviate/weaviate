@@ -1805,6 +1805,7 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.UsageGCSPrefix = appState.ServerConfig.Config.Usage.GCSPrefix
 		registered.UsageGCSAuth = appState.ServerConfig.Config.Usage.GCSAuth
 		registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
+		registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,

@@ -101,6 +101,15 @@ type RuntimeOverrides struct {
 	LoadInterval time.Duration `json:"load_interval" yaml:"load_interval"`
 }
 
+// UsageConfig holds configuration for usage data collection and upload
+type UsageConfig struct {
+	GCSAuth        *runtime.DynamicValue[bool]          `json:"gcs_use_auth" yaml:"gcs_use_auth"`
+	GCSBucket      *runtime.DynamicValue[string]        `json:"gcs_bucket" yaml:"gcs_bucket"`
+	GCSPrefix      *runtime.DynamicValue[string]        `json:"gcs_prefix" yaml:"gcs_prefix"`
+	ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"scrape_interval" yaml:"scrape_interval"`
+	PolicyVersion  *runtime.DynamicValue[string]        `json:"policy_version" yaml:"policy_version"`
+}
+
 // Config outline of the config file
 type Config struct {
 	Name                                string                   `json:"name" yaml:"name"`
@@ -209,6 +218,7 @@ type Config struct {
 	//
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+
 	// Usage configuration for the usage module
 	// example:
 	// usage:
@@ -216,12 +226,8 @@ type Config struct {
 	//   gcp_bucket: "my-bucket"
 	//   gcs_prefix: "my-prefix"
 	//   scrape_interval: 1m
-	Usage struct {
-		GCSAuth        *runtime.DynamicValue[bool]          `json:"gcs_use_auth" yaml:"gcs_use_auth"`
-		GCSBucket      *runtime.DynamicValue[string]        `json:"gcs_bucket" yaml:"gcs_bucket"`
-		GCSPrefix      *runtime.DynamicValue[string]        `json:"gcs_prefix" yaml:"gcs_prefix"`
-		ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"scrape_interval" yaml:"scrape_interval"`
-	} `json:"usage" yaml:"usage"`
+	//   policy_version: "2025-06-01"
+	Usage UsageConfig `json:"usage" yaml:"usage"`
 }
 
 type MapToBlockamaxConfig struct {

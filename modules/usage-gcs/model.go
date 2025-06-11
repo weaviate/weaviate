@@ -13,6 +13,10 @@ package usage
 
 // UsageResponse represents the response from the metrics endpoint
 type UsageResponse struct {
+	// The version of usage policy, date based versioning
+	// e.g. 2025-06-01
+	Version string `json:"version"`
+
 	// The name of the node
 	Node string `json:"node"`
 

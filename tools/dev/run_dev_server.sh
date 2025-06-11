@@ -910,7 +910,9 @@ local-usage-gcs)
       USAGE_GCS_BUCKET=weaviate-usage \
       USAGE_GCS_PREFIX=billing-usage \
       USAGE_GCS_USE_AUTH=false \
-      USAGE_SCRAPE_INTERVAL=3s \
+      USAGE_SCRAPE_INTERVAL=1s \
+      USAGE_POLICY_VERSION=2025-06-01 \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=3s \
       ENABLE_MODULES="text2vec-contextionary,backup-gcs,usage-gcs" \
       CLUSTER_IN_LOCALHOST=true \
       CLUSTER_GOSSIP_BIND_PORT="7100" \

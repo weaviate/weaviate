@@ -69,15 +69,12 @@ func TestModule_Init_Success(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: struct {
-			GCSAuth        *runtime.DynamicValue[bool]          `json:"gcs_use_auth" yaml:"gcs_use_auth"`
-			GCSBucket      *runtime.DynamicValue[string]        `json:"gcs_bucket" yaml:"gcs_bucket"`
-			GCSPrefix      *runtime.DynamicValue[string]        `json:"gcs_prefix" yaml:"gcs_prefix"`
-			ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"scrape_interval" yaml:"scrape_interval"`
-		}{
-			GCSAuth:   runtime.NewDynamicValue(false),
-			GCSBucket: runtime.NewDynamicValue("test-bucket"),
-			GCSPrefix: runtime.NewDynamicValue("test-prefix"),
+		Usage: config.UsageConfig{
+			GCSAuth:        runtime.NewDynamicValue(false),
+			GCSBucket:      runtime.NewDynamicValue("test-bucket"),
+			GCSPrefix:      runtime.NewDynamicValue("test-prefix"),
+			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
+			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
 	}
 
@@ -119,12 +116,7 @@ func TestModule_Init_MissingBucket(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: struct {
-			GCSAuth        *runtime.DynamicValue[bool]          `json:"gcs_use_auth" yaml:"gcs_use_auth"`
-			GCSBucket      *runtime.DynamicValue[string]        `json:"gcs_bucket" yaml:"gcs_bucket"`
-			GCSPrefix      *runtime.DynamicValue[string]        `json:"gcs_prefix" yaml:"gcs_prefix"`
-			ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"scrape_interval" yaml:"scrape_interval"`
-		}{
+		Usage: config.UsageConfig{
 			GCSAuth:   runtime.NewDynamicValue(false),
 			GCSBucket: runtime.NewDynamicValue(""), // Missing bucket
 		},
@@ -150,16 +142,10 @@ func TestModule_ConfigBasedIntervalUpdate(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: struct {
-			GCSAuth        *runtime.DynamicValue[bool]          `json:"gcs_use_auth" yaml:"gcs_use_auth"`
-			GCSBucket      *runtime.DynamicValue[string]        `json:"gcs_bucket" yaml:"gcs_bucket"`
-			GCSPrefix      *runtime.DynamicValue[string]        `json:"gcs_prefix" yaml:"gcs_prefix"`
-			ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"scrape_interval" yaml:"scrape_interval"`
-		}{
-			GCSAuth:        runtime.NewDynamicValue(false),
-			GCSBucket:      runtime.NewDynamicValue("test-bucket"),
-			GCSPrefix:      runtime.NewDynamicValue("test-prefix"),
-			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour), // New interval
+		Usage: config.UsageConfig{
+			GCSAuth:   runtime.NewDynamicValue(false),
+			GCSBucket: runtime.NewDynamicValue("test-bucket"),
+			GCSPrefix: runtime.NewDynamicValue("test-prefix"),
 		},
 	}
 	mod.config = testConfig
@@ -395,16 +381,12 @@ func TestModule_ConfigurationChanges(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: struct {
-			GCSAuth        *runtime.DynamicValue[bool]          `json:"gcs_use_auth" yaml:"gcs_use_auth"`
-			GCSBucket      *runtime.DynamicValue[string]        `json:"gcs_bucket" yaml:"gcs_bucket"`
-			GCSPrefix      *runtime.DynamicValue[string]        `json:"gcs_prefix" yaml:"gcs_prefix"`
-			ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"scrape_interval" yaml:"scrape_interval"`
-		}{
+		Usage: config.UsageConfig{
 			GCSAuth:        runtime.NewDynamicValue(false),
 			GCSBucket:      runtime.NewDynamicValue("new-bucket"),
 			GCSPrefix:      runtime.NewDynamicValue("new-prefix"),
 			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
+			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
 	}
 	mod.config = testConfig
@@ -526,16 +508,12 @@ func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: struct {
-			GCSAuth        *runtime.DynamicValue[bool]          `json:"gcs_use_auth" yaml:"gcs_use_auth"`
-			GCSBucket      *runtime.DynamicValue[string]        `json:"gcs_bucket" yaml:"gcs_bucket"`
-			GCSPrefix      *runtime.DynamicValue[string]        `json:"gcs_prefix" yaml:"gcs_prefix"`
-			ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"scrape_interval" yaml:"scrape_interval"`
-		}{
+		Usage: config.UsageConfig{
 			GCSAuth:        runtime.NewDynamicValue(false),
 			GCSBucket:      runtime.NewDynamicValue("bucket1"),
 			GCSPrefix:      runtime.NewDynamicValue("prefix1"),
 			ScrapeInterval: runtime.NewDynamicValue(10 * time.Millisecond),
+			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
 	}
 	mod.config = testConfig
