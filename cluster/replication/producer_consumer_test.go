@@ -435,6 +435,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			}()
 			select {
 			case <-time.After(30 * time.Second):
+				cancel()
 				t.Fatal("Test timed out waiting for operation completion")
 			case <-waitChan:
 				cancel()
