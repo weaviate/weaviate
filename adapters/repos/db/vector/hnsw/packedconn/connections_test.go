@@ -1080,7 +1080,7 @@ func BenchmarkInsertBatchAtLayerLarge(b *testing.B) {
 	}
 
 	newNumbers := randomArray(32)
-	buff := make([]byte, 320)
+	buff := make([]byte, 500)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for l := uint8(0); l <= layers; l++ {

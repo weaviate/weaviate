@@ -63,6 +63,10 @@ func (v *vertex) appendConnectionAtLevelNoLock(level int, connection uint64, max
 	v.connections.InsertAtLayer(connection, uint8(level))
 }
 
+func (v *vertex) appendConnectionsAtLevelNoLock(level int, connections []uint64, maxConns int) {
+	v.connections.InsertBatchAtLayerWithBuffer(connections, uint8(level))
+}
+
 func (v *vertex) resetConnectionsAtLevelNoLock(level int) {
 	v.connections.ReplaceLayer(uint8(level), []uint64{})
 }
