@@ -929,11 +929,16 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]
 
 			deletionStrategy := s.index.DeletionStrategy()
 
+			// if the remote object is not deleted or the deletion strategy is set to no automated resolution,
+			// then the local object is not deleted
 			if !r.Deleted ||
 				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
 				continue
 			}
 
+			// if the remote object is deleted and the deletion strategy is set to delete on conflict,
+			// or the deletion strategy is set to time-based resolution and the local object is older than the remote one,
+			// then the local object is deleted
 			if deletionStrategy == models.ReplicationConfigDeletionStrategyDeleteOnConflict ||
 				(deletionStrategy == models.ReplicationConfigDeletionStrategyTimeBasedResolution &&
 					r.UpdateTime > localUpdateTimeByUUID[strfmt.UUID(r.ID)]) {
