@@ -570,36 +570,36 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	}
 
 	// ensure async replication is started on local (target) node
-	if err := c.replicaCopier.InitAsyncReplicationLocally(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
-		logger.WithError(err).Error("failure while initializing async replication on local node while finalizing")
-		return api.ShardReplicationState(""), err
-	}
+	// if err := c.replicaCopier.InitAsyncReplicationLocally(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
+	// 	logger.WithError(err).Error("failure while initializing async replication on local node while finalizing")
+	// 	return api.ShardReplicationState(""), err
+	// }
 
 	// this time will be used to make sure async replication has propagated any writes which
 	// were received during the hydrating phase
-	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(time.Second * 5).UnixMilli()
+	// asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(time.Second * 5).UnixMilli()
 
 	// start async replication from source node to target node
-	targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
-		CollectionID:   op.Op.SourceShard.CollectionId,
-		ShardID:        op.Op.TargetShard.ShardId,
-		TargetNode:     op.Op.TargetShard.NodeId,
-		SourceNode:     op.Op.SourceShard.NodeId,
-		UpperTimeBound: asyncReplicationUpperTimeBoundUnixMillis,
-	}
-	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, targetNodeOverride, op.Status.SchemaVersion); err != nil {
-		return api.ShardReplicationState(""), err
-	}
+	// targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
+	// 	CollectionID:   op.Op.SourceShard.CollectionId,
+	// 	ShardID:        op.Op.TargetShard.ShardId,
+	// 	TargetNode:     op.Op.TargetShard.NodeId,
+	// 	SourceNode:     op.Op.SourceShard.NodeId,
+	// 	UpperTimeBound: asyncReplicationUpperTimeBoundUnixMillis,
+	// }
+	// if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, targetNodeOverride, op.Status.SchemaVersion); err != nil {
+	// 	return api.ShardReplicationState(""), err
+	// }
 
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger); err != nil {
-		logger.WithError(err).Error("failure while waiting for async replication to complete while finalizing")
-		return api.ShardReplicationState(""), err
-	}
+	// if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger); err != nil {
+	// 	logger.WithError(err).Error("failure while waiting for async replication to complete while finalizing")
+	// 	return api.ShardReplicationState(""), err
+	// }
 
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
@@ -621,7 +621,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	switch op.Op.TransferType {
 	case api.COPY:
-		c.stopAsyncReplication(ctx, op, targetNodeOverride, logger)
+		// c.stopAsyncReplication(ctx, op, targetNodeOverride, logger)
 		// sync the replica shard to ensure that the schema and store are consistent on each node
 		// In a COPY this happens now, in a MOVE this happens in the DEHYDRATING state
 		if err := c.sync(ctx, op); err != nil {
