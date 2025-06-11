@@ -31,27 +31,33 @@ func (s *segment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPo
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
 		return out, noopRelease, lsmkv.NotFound
 	}
-
 	node, err := s.index.Get(key)
 	if err != nil {
 		return out, noopRelease, err
 	}
 
-	sn, release, err := s.segmentNodeFromBuffer(nodeOffset{node.Start, node.End}, bitmapBufPool)
-	if err != nil {
-		return out, noopRelease, err
-	}
-	defer release()
-
 	var releaseAdd, releaseDel func()
-	out.Additions, releaseAdd = bitmapBufPool.CloneToBuf(sn.Additions())
-	out.Deletions, releaseDel = bitmapBufPool.CloneToBuf(sn.Deletions())
-	release = func() {
-		releaseAdd()
-		releaseDel()
+	offset := nodeOffset{node.Start, node.End}
+	if s.readFromMemory {
+		sn, err := s.segmentNodeFromBufferMmap(offset)
+		if err != nil {
+			return out, noopRelease, err
+		}
+		out.Deletions, releaseDel = bitmapBufPool.CloneToBuf(sn.Deletions())
+		out.Additions, releaseAdd = bitmapBufPool.CloneToBuf(sn.Additions())
+	} else {
+		sn, release, err := s.segmentNodeFromBufferPread(offset, bitmapBufPool)
+		if err != nil {
+			return out, noopRelease, err
+		}
+		out.Deletions, releaseDel = bitmapBufPool.CloneToBuf(sn.Deletions())
+		// reuse buffer of entire segment node.
+		// node's data might get overwritten by changes of underlying additions bitmap.
+		// overwrites should be safe, as other data is not used later on
+		out.Additions, releaseAdd = sn.AdditionsUnlimited(), release
 	}
 
-	return out, release, nil
+	return out, func() { releaseAdd(); releaseDel() }, nil
 }
 
 func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool,
@@ -63,7 +69,6 @@ func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, 
 	if s.useBloomFilter && !s.bloomFilter.Test(key) {
 		return nil
 	}
-
 	node, err := s.index.Get(key)
 	if err != nil {
 		if errors.Is(err, lsmkv.NotFound) {
@@ -72,46 +77,46 @@ func (s *segment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, 
 		return err
 	}
 
-	sn, release, err := s.segmentNodeFromBuffer(nodeOffset{node.Start, node.End}, bitmapBufPool)
+	var sn *roaringset.SegmentNode
+	offset := nodeOffset{node.Start, node.End}
+	if s.readFromMemory {
+		sn, err = s.segmentNodeFromBufferMmap(offset)
+	} else {
+		var release func()
+		sn, release, err = s.segmentNodeFromBufferPread(offset, bitmapBufPool)
+		defer release()
+	}
 	if err != nil {
 		return err
 	}
-	defer release()
 
 	input.Additions.
 		AndNotConc(sn.Deletions(), concurrency.SROAR_MERGE).
 		OrConc(sn.Additions(), concurrency.SROAR_MERGE)
-
 	return nil
 }
 
-func (s *segment) segmentNodeFromBuffer(offset nodeOffset, bitmapBufPool roaringset.BitmapBufPool,
+func (s *segment) segmentNodeFromBufferMmap(offset nodeOffset,
+) (sn *roaringset.SegmentNode, err error) {
+	return roaringset.NewSegmentNodeFromBuffer(s.contents[offset.start:offset.end]), nil
+}
+
+func (s *segment) segmentNodeFromBufferPread(offset nodeOffset, bitmapBufPool roaringset.BitmapBufPool,
 ) (sn *roaringset.SegmentNode, release func(), err error) {
-	var contents []byte
-	if s.readFromMemory {
-		contents = s.contents[offset.start:offset.end]
-		release = noopRelease
-	} else {
-		r, err := s.bufferedReaderAt(offset.start, "roaringSetRead")
-		if err != nil {
-			return nil, noopRelease, err
-		}
-
-		ln := int(offset.end - offset.start)
-		contents, release = bitmapBufPool.Get(ln)
-		contents = contents[:ln] // buffer's len is 0, it has to be adjusted
-		defer func() {
-			if err != nil {
-				release()
-			}
-		}()
-
-		_, err = r.Read(contents)
-		if err != nil {
-			return nil, noopRelease, err
-		}
+	reader, err := s.bufferedReaderAt(offset.start, "roaringSetRead")
+	if err != nil {
+		return nil, noopRelease, err
 	}
 
+	ln := int(offset.end - offset.start)
+	contents, release := bitmapBufPool.Get(ln)
+	contents = contents[:ln]
+
+	_, err = reader.Read(contents)
+	if err != nil {
+		release()
+		return nil, noopRelease, err
+	}
 	return roaringset.NewSegmentNodeFromBuffer(contents), release, nil
 }
 
