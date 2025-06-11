@@ -29,6 +29,7 @@ type Deserializer struct {
 	logger                   logrus.FieldLogger
 	reusableBuffer           []byte
 	reusableConnectionsSlice []uint64
+	buffer                   []byte
 }
 
 type DeserializationResult struct {
@@ -66,7 +67,7 @@ func (dr DeserializationResult) ReplaceLinks(node uint64, level uint16) bool {
 }
 
 func NewDeserializer(logger logrus.FieldLogger) *Deserializer {
-	return &Deserializer{logger: logger}
+	return &Deserializer{logger: logger, buffer: make([]byte, 1024)}
 }
 
 func (d *Deserializer) resetResusableBuffer(size int) {
@@ -319,7 +320,7 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	} else {
 		res.Nodes[source].connections.GrowLayersTo(uint8(level))
 	}
-	res.Nodes[source].connections.ReplaceLayer(uint8(level), targets)
+	res.Nodes[source].connections.ReplaceLayerWithReusableBuffer(uint8(level), targets, d.buffer)
 
 	if keepReplaceInfo {
 		// mark the replace flag for this node and level, so that new commit logs
@@ -375,9 +376,7 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 		res.Nodes[source].connections.GrowLayersTo(uint8(level))
 	}
 
-	for _, target := range targets {
-		res.Nodes[source].connections.InsertAtLayer(target, uint8(level))
-	}
+	res.Nodes[source].connections.InsertBatchAtLayer(targets, uint8(level), d.buffer)
 
 	return 12 + int(length)*8, nil
 }
@@ -499,7 +498,7 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		res.Nodes[id].connections = conns
 	} else {
 		res.Nodes[id].connections.GrowLayersTo(uint8(level))
-		res.Nodes[id].connections.ReplaceLayer(uint8(level), []uint64{})
+		res.Nodes[id].connections.ReplaceLayerWithReusableBuffer(uint8(level), []uint64{}, d.buffer)
 	}
 
 	if keepReplaceInfo {

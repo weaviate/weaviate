@@ -178,6 +178,35 @@ func TestConnections_InsertLayers(t *testing.T) {
 	assert.ElementsMatch(t, connsSlice3, c.GetLayer(2))
 }
 
+func TestConnections_InsertBatchedLayers(t *testing.T) {
+	c, err := NewWithMaxLayer(2)
+	require.Nil(t, err)
+
+	assert.Equal(t, 0, c.LenAtLayer(0))
+	assert.Len(t, c.GetLayer(0), 0)
+	assert.Equal(t, 0, c.LenAtLayer(1))
+	assert.Len(t, c.GetLayer(1), 0)
+	assert.Equal(t, 0, c.LenAtLayer(2))
+	assert.Len(t, c.GetLayer(2), 0)
+
+	c.ReplaceLayer(0, connsSlice1)
+	c.ReplaceLayer(1, connsSlice2)
+	c.ReplaceLayer(2, connsSlice3)
+
+	c.ReplaceLayer(1, []uint64{})
+	shuffled := make([]uint64, len(connsSlice2))
+	copy(shuffled, connsSlice2)
+	shuffled = append(shuffled, 10000)
+	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+
+	c.InsertBatchAtLayerWithBuffer(shuffled, 1)
+
+	conns2 := c.GetLayer(1)
+	assert.ElementsMatch(t, connsSlice1, c.GetLayer(0))
+	assert.ElementsMatch(t, shuffled, conns2)
+	assert.ElementsMatch(t, connsSlice3, c.GetLayer(2))
+}
+
 func TestConnections_InsertLayersAtEnd(t *testing.T) {
 	c, err := NewWithMaxLayer(2)
 	require.Nil(t, err)
@@ -201,6 +230,34 @@ func TestConnections_InsertLayersAtEnd(t *testing.T) {
 	for _, item := range shuffled {
 		c.InsertAtLayer(item, 0)
 	}
+
+	conns1 := c.GetLayer(0)
+	assert.ElementsMatch(t, shuffled, conns1)
+	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
+	assert.ElementsMatch(t, connsSlice3, c.GetLayer(2))
+}
+
+func TestConnections_InsertBatchedLayersAtEnd(t *testing.T) {
+	c, err := NewWithMaxLayer(2)
+	require.Nil(t, err)
+
+	assert.Equal(t, 0, c.LenAtLayer(0))
+	assert.Len(t, c.GetLayer(0), 0)
+	assert.Equal(t, 0, c.LenAtLayer(1))
+	assert.Len(t, c.GetLayer(1), 0)
+	assert.Equal(t, 0, c.LenAtLayer(2))
+	assert.Len(t, c.GetLayer(2), 0)
+
+	c.ReplaceLayer(0, connsSlice1)
+	c.ReplaceLayer(1, connsSlice2)
+	c.ReplaceLayer(2, connsSlice3)
+
+	c.ReplaceLayer(0, []uint64{})
+	shuffled := make([]uint64, len(connsSlice1))
+	copy(shuffled, connsSlice1)
+	shuffled = append(shuffled, 10000)
+	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	c.InsertBatchAtLayerWithBuffer(shuffled, 0)
 
 	conns1 := c.GetLayer(0)
 	assert.ElementsMatch(t, shuffled, conns1)
@@ -240,6 +297,40 @@ func TestConnections_InsertLayerAfterAddingLayer(t *testing.T) {
 	for _, item := range shuffled {
 		c.InsertAtLayer(item, 2)
 	}
+
+	assert.ElementsMatch(t, connsSlice1, c.GetLayer(0))
+	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
+	assert.ElementsMatch(t, connsSlice3, c.GetLayer(2))
+}
+
+func TestConnections_InsertBatchedLayerAfterAddingLayer(t *testing.T) {
+	c, err := NewWithMaxLayer(1)
+	require.Nil(t, err)
+
+	assert.Equal(t, 0, c.LenAtLayer(0))
+	assert.Len(t, c.GetLayer(0), 0)
+	assert.Equal(t, 0, c.LenAtLayer(1))
+	assert.Len(t, c.GetLayer(1), 0)
+
+	c.ReplaceLayer(0, connsSlice1)
+	c.ReplaceLayer(1, connsSlice2)
+
+	assert.ElementsMatch(t, connsSlice1, c.GetLayer(0))
+	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
+
+	c.AddLayer()
+
+	c.ReplaceLayer(0, []uint64{})
+	shuffled := make([]uint64, len(connsSlice1))
+	copy(shuffled, connsSlice1)
+	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	c.InsertBatchAtLayerWithBuffer(shuffled, 0)
+
+	c.ReplaceLayer(2, []uint64{})
+	shuffled = make([]uint64, len(connsSlice3))
+	copy(shuffled, connsSlice3)
+	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	c.InsertBatchAtLayerWithBuffer(shuffled, 2)
 
 	assert.ElementsMatch(t, connsSlice1, c.GetLayer(0))
 	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
@@ -295,6 +386,42 @@ func TestConnections_InsertLayersByNumber(t *testing.T) {
 	for _, item := range shuffled {
 		c.InsertAtLayer(item, 2)
 	}
+
+	assert.ElementsMatch(t, connsSlice1, c.GetLayer(0))
+	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
+	assert.ElementsMatch(t, connsSlice3, c.GetLayer(2))
+	assert.ElementsMatch(t, []uint64{}, c.GetLayer(3))
+	assert.ElementsMatch(t, []uint64{}, c.GetLayer(4))
+}
+
+func TestConnections_InsertBatchedLayersByNumber(t *testing.T) {
+	c, err := NewWithMaxLayer(1)
+	require.Nil(t, err)
+
+	assert.Equal(t, 0, c.LenAtLayer(0))
+	assert.Len(t, c.GetLayer(0), 0)
+	assert.Equal(t, 0, c.LenAtLayer(1))
+	assert.Len(t, c.GetLayer(1), 0)
+
+	c.ReplaceLayer(0, connsSlice1)
+	c.ReplaceLayer(1, connsSlice2)
+
+	assert.ElementsMatch(t, connsSlice1, c.GetLayer(0))
+	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
+
+	c.GrowLayersTo(4)
+
+	c.ReplaceLayer(0, []uint64{})
+	shuffled := make([]uint64, len(connsSlice1))
+	copy(shuffled, connsSlice1)
+	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	c.InsertBatchAtLayerWithBuffer(shuffled, 0)
+
+	c.ReplaceLayer(2, []uint64{})
+	shuffled = make([]uint64, len(connsSlice3))
+	copy(shuffled, connsSlice3)
+	rand.Shuffle(len(shuffled), func(i, j int) { shuffled[i], shuffled[j] = shuffled[j], shuffled[i] })
+	c.InsertBatchAtLayerWithBuffer(shuffled, 2)
 
 	assert.ElementsMatch(t, connsSlice1, c.GetLayer(0))
 	assert.ElementsMatch(t, connsSlice2, c.GetLayer(1))
@@ -925,13 +1052,39 @@ func BenchmarkInsertAtLayerLarge(b *testing.B) {
 		c.ReplaceLayer(i, randomArray(32))
 	}
 
-	newNumbers := randomArray(1000)
+	newNumbers := randomArray(32)
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		for l := uint8(0); l <= layers; l++ {
 			for j := range newNumbers {
 				c.InsertAtLayer(newNumbers[j], l)
 			}
+		}
+
+		b.StopTimer()
+		for i := uint8(0); i <= layers; i++ {
+			c.ReplaceLayer(i, randomArray(32))
+		}
+		b.StartTimer()
+	}
+}
+
+func BenchmarkInsertBatchAtLayerLarge(b *testing.B) {
+	layers := uint8(5)
+
+	c, err := NewWithMaxLayer(layers)
+	require.Nil(b, err)
+
+	for i := uint8(0); i <= layers; i++ {
+		c.ReplaceLayer(i, randomArray(32))
+	}
+
+	newNumbers := randomArray(32)
+	buff := make([]byte, 320)
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		for l := uint8(0); l <= layers; l++ {
+			c.InsertBatchAtLayer(newNumbers, l, buff)
 		}
 
 		b.StopTimer()

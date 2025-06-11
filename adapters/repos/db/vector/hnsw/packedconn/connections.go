@@ -115,25 +115,28 @@ func (c *Connections) GrowLayersTo(newLayers uint8) {
 	}
 }
 
-func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
-	// create a temporary buffer that is guaranteed to fit everything. The
-	// over-allocation does not matter, this buffer won't stick around, so the
-	// only real downside is the overhead on GC. If this because noticeable this
-	// buffer would be suitable to use pooling.
-	buf := make([]byte, len(conns)*binary.MaxVarintLen64)
-
+func (c *Connections) ReplaceLayerWithReusableBuffer(layer uint8, conns []uint64, reusableBuffer []byte) {
 	sort.Slice(conns, func(a, b int) bool { return conns[a] < conns[b] })
 	last := uint64(0)
 	offset := 0
 	for _, raw := range conns {
 		delta := raw - last
 		last = raw
-		offset += binary.PutUvarint(buf[offset:], delta)
+		offset += binary.PutUvarint(reusableBuffer[offset:], delta)
 	}
 
-	buf = buf[:offset]
+	reusableBuffer = reusableBuffer[:offset]
 
-	c.replaceLayer(layer, buf, uint8(len(conns)))
+	c.replaceLayer(layer, reusableBuffer, uint8(len(conns)))
+}
+
+func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
+	// create a temporary buffer that is guaranteed to fit everything. The
+	// over-allocation does not matter, this buffer won't stick around, so the
+	// only real downside is the overhead on GC. If this because noticeable this
+	// buffer would be suitable to use pooling.
+	buf := make([]byte, len(conns)*binary.MaxVarintLen64)
+	c.ReplaceLayerWithReusableBuffer(layer, conns, buf)
 }
 
 func (c Connections) LenAtLayer(layer uint8) int {
@@ -487,4 +490,125 @@ func (iter *LayerElementIterator) HasElements() bool {
 
 func (iter *LayerElementIterator) Count() int {
 	return iter.connections.LenAtLayer(iter.layer)
+}
+
+func (c *Connections) InsertBatchAtLayer(newConns []uint64, layer uint8, tempBuffer []byte) {
+	if len(newConns) == 0 {
+		return
+	}
+
+	sort.Slice(newConns, func(i, j int) bool { return newConns[i] < newConns[j] })
+
+	originalOffset := c.layerOffset(layer)
+	originalEnd := c.layerEndOffset(layer)
+
+	// If layer is empty, just replace with new connections
+	if originalOffset == originalEnd {
+		c.ReplaceLayerWithReusableBuffer(layer, newConns, tempBuffer)
+		return
+	}
+
+	// Ensure temp buffer is large enough
+	maxNeededSize := int(originalEnd-originalOffset) + len(newConns)*binary.MaxVarintLen64
+	if len(tempBuffer) < maxNeededSize {
+		tempBuffer = make([]byte, maxNeededSize)
+	}
+
+	// Initialize state variables
+	currentOffset := originalOffset
+	tempOffset := 0
+	newConnIndex := 0
+	elementsAdded := 0
+	currentAbsoluteValue := uint64(0) // Valor absoluto acumulado para posicionamiento
+
+	for newConnIndex < len(newConns) {
+		targetConn := newConns[newConnIndex]
+
+		// Buscar la posición de inserción
+		searchOffset := currentOffset
+		searchAbsoluteValue := currentAbsoluteValue
+
+		for searchOffset < originalEnd {
+			val, n := binary.Uvarint(c.data[searchOffset:])
+			nextAbsoluteValue := searchAbsoluteValue + val
+
+			if nextAbsoluteValue >= targetConn {
+				// Encontramos el punto de inserción
+				break
+			}
+
+			// Este elemento va antes, lo copiamos
+			copy(tempBuffer[tempOffset:], c.data[searchOffset:searchOffset+uint16(n)])
+			tempOffset += n
+
+			searchOffset += uint16(n)
+			searchAbsoluteValue = nextAbsoluteValue
+		}
+
+		// Insertar el nuevo elemento
+		deltaToInsert := targetConn - searchAbsoluteValue
+		deltaBytes := binary.PutUvarint(tempBuffer[tempOffset:], deltaToInsert)
+		tempOffset += deltaBytes
+		elementsAdded++
+
+		// Actualizar estado para la siguiente iteración
+		currentOffset = searchOffset
+		currentAbsoluteValue = targetConn
+
+		// Si hay un elemento en la posición actual que necesita ajuste
+		if searchOffset < originalEnd {
+			val, n := binary.Uvarint(c.data[searchOffset:])
+			nextAbsoluteValue := searchAbsoluteValue + val
+
+			if nextAbsoluteValue > targetConn {
+				// Ajustar el delta del siguiente elemento
+				adjustedDelta := nextAbsoluteValue - targetConn
+				adjustedBytes := binary.PutUvarint(tempBuffer[tempOffset:], adjustedDelta)
+				tempOffset += adjustedBytes
+
+				// Saltar el elemento original ya que lo hemos reescrito
+				currentOffset += uint16(n)
+				currentAbsoluteValue = nextAbsoluteValue
+			} else if nextAbsoluteValue == targetConn {
+				// Elemento duplicado, saltarlo
+				currentOffset += uint16(n)
+				// currentAbsoluteValue ya es correcto
+			}
+		}
+
+		newConnIndex++
+	}
+
+	// Copiar los elementos restantes
+	if currentOffset < originalEnd {
+		remainingSize := originalEnd - currentOffset
+		// VERIFICACIÓN CRÍTICA: Asegurarse de que no excedemos los límites
+		if currentOffset+remainingSize <= uint16(len(c.data)) {
+			copy(tempBuffer[tempOffset:], c.data[currentOffset:currentOffset+remainingSize])
+			tempOffset += int(remainingSize)
+		} else {
+			// Log error o panic con información útil
+			panic(fmt.Sprintf("Buffer overflow: trying to copy from %d to %d, but data length is %d",
+				currentOffset, currentOffset+remainingSize, len(c.data)))
+		}
+	}
+
+	// Reemplazar el layer con los nuevos datos
+	newLayerData := tempBuffer[:tempOffset]
+	newLayerLength := c.layerLength(layer) + uint8(elementsAdded)
+	c.replaceLayer(layer, newLayerData, newLayerLength)
+}
+
+// InsertBatchAtLayerWithBuffer is a convenience method that creates its own temporary buffer
+func (c *Connections) InsertBatchAtLayerWithBuffer(newConns []uint64, layer uint8) {
+	if len(newConns) == 0 {
+		return
+	}
+
+	// Calculate buffer size: existing layer + worst case for new elements
+	layerSize := c.layerEndOffset(layer) - c.layerOffset(layer)
+	tempBufferSize := int(layerSize) + len(newConns)*binary.MaxVarintLen64
+	tempBuffer := make([]byte, tempBufferSize)
+
+	c.InsertBatchAtLayer(newConns, layer, tempBuffer)
 }
