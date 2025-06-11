@@ -6,7 +6,7 @@ import (
 )
 
 const (
-	DefaultMaxCapacity = 64
+	InitalCapacityBytes = 64
 	// Simple encoding schemes - trade some compression for speed
 	SCHEME_1BYTE  = 0 // 1 byte per value (0-255)
 	SCHEME_2BYTE  = 1 // 2 bytes per value (0-65535)
@@ -23,9 +23,8 @@ type LayerData struct {
 }
 
 type Connections struct {
-	layers      []LayerData
-	maxCapacity int
-	layerCount  uint8
+	layers     []LayerData
+	layerCount uint8
 }
 
 func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
@@ -34,19 +33,21 @@ func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
 	}
 
 	layerCount := maxLayer + 1
-	return &Connections{
-		layers:      make([]LayerData, layerCount),
-		maxCapacity: DefaultMaxCapacity,
-		layerCount:  layerCount,
-	}, nil
+	c := &Connections{
+		layers:     make([]LayerData, layerCount),
+		layerCount: layerCount,
+	}
+	for i := uint8(0); i < layerCount; i++ {
+		c.layers[i].data = make([]byte, 0, InitalCapacityBytes)
+	}
+	return c, nil
 }
 
 func NewWithData(data []byte) *Connections {
 	if len(data) == 0 {
 		return &Connections{
-			layers:      make([]LayerData, 0),
-			maxCapacity: DefaultMaxCapacity,
-			layerCount:  0,
+			layers:     make([]LayerData, 0),
+			layerCount: 0,
 		}
 	}
 
@@ -55,9 +56,8 @@ func NewWithData(data []byte) *Connections {
 	offset++
 
 	c := &Connections{
-		layers:      make([]LayerData, layerCount),
-		maxCapacity: DefaultMaxCapacity,
-		layerCount:  layerCount,
+		layers:     make([]LayerData, layerCount),
+		layerCount: layerCount,
 	}
 
 	for i := uint8(0); i < layerCount; i++ {
@@ -111,14 +111,6 @@ func NewWithElements(elements [][]uint64) (*Connections, error) {
 		c.ReplaceLayer(uint8(index), conns)
 	}
 	return c, nil
-}
-
-func (c *Connections) SetMaxCapacity(capacity int) {
-	c.maxCapacity = capacity
-}
-
-func (c *Connections) GetMaxCapacity() int {
-	return c.maxCapacity
 }
 
 func (c *Connections) AddLayer() {
@@ -310,6 +302,34 @@ func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
 // appendToLayer appends a single value using the current scheme
 func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 	layerData := &c.layers[layer]
+
+	var bytesNeeded int
+	switch layerData.scheme {
+	case SCHEME_1BYTE:
+		bytesNeeded = 1
+	case SCHEME_2BYTE:
+		bytesNeeded = 2
+	case SCHEME_3BYTE:
+		bytesNeeded = 3
+	case SCHEME_4BYTE:
+		bytesNeeded = 4
+	case SCHEME_8BYTE:
+		bytesNeeded = 8
+	default:
+		bytesNeeded = 8 // Safe fallback
+	}
+
+	// Ensure we have enough capacity - grow more conservatively than Go's default doubling
+	if cap(layerData.data) < len(layerData.data)+bytesNeeded {
+		currentLen := len(layerData.data)
+		// Grow by max(needed bytes, 64 bytes, 25% of current size)
+		growthSize := max(bytesNeeded, 64, currentLen/4)
+		newCap := currentLen + growthSize
+
+		newData := make([]byte, currentLen, newCap)
+		copy(newData, layerData.data)
+		layerData.data = newData
+	}
 
 	switch layerData.scheme {
 	case SCHEME_1BYTE:
