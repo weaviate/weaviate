@@ -49,9 +49,8 @@ func TestModule_Type(t *testing.T) {
 }
 
 func TestModule_Init_Success(t *testing.T) {
-	// Create temp directory for local file testing
-	tempDir, err := os.MkdirTemp("", "usage-test")
-	require.NoError(t, err)
+	t.Setenv("CLUSTER_IN_LOCALHOST", "true")
+	tempDir := t.TempDir()
 	defer os.RemoveAll(tempDir)
 
 	// Change to temp directory

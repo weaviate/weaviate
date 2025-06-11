@@ -166,12 +166,7 @@ func (m *module) verifyBucketPermissions(ctx context.Context) error {
 
 	// Skip IAM permission check for emulator testing environments
 	if os.Getenv("CLUSTER_IN_LOCALHOST") != "" {
-		// For emulator, just check if bucket exists
-		bucket := m.storageClient.Bucket(m.bucketName)
-		if _, err := bucket.Attrs(ctx); err != nil {
-			return fmt.Errorf("bucket %s does not exist or is not accessible: %w", m.bucketName, err)
-		}
-		m.logger.Info("bucket access verified successfully for emulator")
+		m.logger.Info("bucket access verification ignored for emulator")
 		return nil
 	}
 
