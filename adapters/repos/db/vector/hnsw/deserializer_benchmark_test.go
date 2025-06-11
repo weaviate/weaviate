@@ -43,6 +43,8 @@ func BenchmarkDeserializerPerf(b *testing.B) {
 	r := rand.New(rand.NewSource(42))
 	const M = 32
 	commitLogs := 5000000
+	connections := make([]int, maxNodeID)
+	skipped := 0
 
 	// Generate realistic level using HNSW probability (most at level 0)
 	generateLevel := func() uint16 {
@@ -69,7 +71,6 @@ func BenchmarkDeserializerPerf(b *testing.B) {
 
 	for i := 0; i < commitLogs; i++ {
 		commit := sampleCommitType(r)
-		writer.WriteByte(byte(commit))
 
 		switch commit {
 		case ReplaceLinksAtLevel:
@@ -77,6 +78,14 @@ func BenchmarkDeserializerPerf(b *testing.B) {
 			level := generateLevel()
 			connCount := generateConnectionCount(level)
 
+			if connections[sourceID] > 2*M {
+				skipped += 1
+				continue
+			} else {
+				connections[sourceID] += int(connCount)
+			}
+
+			writer.WriteByte(byte(commit))
 			binary.Write(writer, binary.LittleEndian, sourceID)
 			binary.Write(writer, binary.LittleEndian, level)
 			binary.Write(writer, binary.LittleEndian, connCount)
@@ -87,21 +96,33 @@ func BenchmarkDeserializerPerf(b *testing.B) {
 		case AddNode:
 			nodeID := uint64(r.Int63n(int64(maxNodeID)))
 			level := generateLevel()
+			writer.WriteByte(byte(commit))
 			binary.Write(writer, binary.LittleEndian, nodeID)
 			binary.Write(writer, binary.LittleEndian, level)
 
 		case AddLinkAtLevel:
 			sourceID := uint64(r.Int63n(int64(maxNodeID)))
+
+			if connections[sourceID] > 2*M {
+				skipped += 1
+				continue
+			} else {
+				connections[sourceID] += 1
+			}
+
 			level := generateLevel()
 			target := uint64(r.Int63n(int64(maxNodeID)))
 
+			writer.WriteByte(byte(commit))
 			binary.Write(writer, binary.LittleEndian, sourceID)
 			binary.Write(writer, binary.LittleEndian, level)
 			binary.Write(writer, binary.LittleEndian, target)
 
 		case ClearLinksAtLevel:
 			nodeID := uint64(r.Int63n(int64(maxNodeID)))
+			connections[nodeID] = 0
 			level := generateLevel()
+			writer.WriteByte(byte(commit))
 			binary.Write(writer, binary.LittleEndian, nodeID)
 			binary.Write(writer, binary.LittleEndian, level)
 		}
@@ -123,6 +144,7 @@ func BenchmarkDeserializerPerf(b *testing.B) {
 	}
 
 	b.ReportMetric(float64(commitLogs), "commits/op")
+	b.ReportMetric(float64(skipped), "skipped")
 	nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
 	commitsPerSecond := float64(commitLogs) * float64(time.Second.Nanoseconds()) / nsPerOp
 	b.ReportMetric(commitsPerSecond, "commits/sec")
