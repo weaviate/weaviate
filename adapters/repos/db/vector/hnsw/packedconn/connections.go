@@ -320,13 +320,39 @@ func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 	}
 
 	// Ensure we have enough capacity - grow more conservatively than Go's default doubling
-	if cap(layerData.data) < len(layerData.data)+bytesNeeded {
+	if len(layerData.data)+bytesNeeded > cap(layerData.data) {
 		currentLen := len(layerData.data)
-		// Grow by max(needed bytes, 64 bytes, 25% of current size)
-		growthSize := max(bytesNeeded, 64, currentLen/4)
-		newCap := currentLen + growthSize
 
-		newData := make([]byte, currentLen, newCap)
+		// Calculate max possible capacity based on 64 connections limit
+		// Each connection uses bytesNeeded bytes
+		maxCapacity := 64 * bytesNeeded
+
+		// Use smart growth strategy similar to the reference code
+		ratio := float64(currentLen) / float64(maxCapacity)
+		var target int
+
+		switch {
+		case ratio < 0.25:
+			target = int(0.25 * float64(maxCapacity))
+		case ratio < 0.50:
+			target = int(0.50 * float64(maxCapacity))
+		case ratio < 0.75:
+			target = int(0.75 * float64(maxCapacity))
+		default:
+			target = maxCapacity
+		}
+
+		// Handle rounding errors and ensure we have at least the needed capacity
+		if target < currentLen+bytesNeeded {
+			target = currentLen + bytesNeeded
+		}
+
+		// Cap at maximum capacity
+		if target > maxCapacity {
+			target = maxCapacity
+		}
+
+		newData := make([]byte, currentLen, target)
 		copy(newData, layerData.data)
 		layerData.data = newData
 	}
