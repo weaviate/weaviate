@@ -604,7 +604,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {
 						idx.logger.
-							WithField("action", "shutdown_shard").
+							WithField("action", "shard_shutdown").
 							WithField("shard", shard.ID()).
 							Error(err)
 						ec.Add(err)
