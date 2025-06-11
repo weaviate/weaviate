@@ -205,10 +205,10 @@ func encodeValues(values []uint64, scheme uint8) []byte {
 	}
 }
 
-// decodeValues decodes values using the specified scheme
-func decodeValues(data []byte, scheme uint8, count uint32) []uint64 {
-	result := make([]uint64, count)
-
+// decodeInto decodes values directly into the provided slice using the specified scheme
+//
+//go:inline
+func decodeInto(data []byte, scheme uint8, count uint32, result []uint64) {
 	switch scheme {
 	case SCHEME_1BYTE:
 		for i := uint32(0); i < count; i++ {
@@ -242,7 +242,12 @@ func decodeValues(data []byte, scheme uint8, count uint32) []uint64 {
 			result[i] = val
 		}
 	}
+}
 
+// decodeValues decodes values using the specified scheme
+func decodeValues(data []byte, scheme uint8, count uint32) []uint64 {
+	result := make([]uint64, count)
+	decodeInto(data, scheme, count, result)
 	return result
 }
 
@@ -490,15 +495,15 @@ func (c *Connections) CopyLayer(conns []uint64, layer uint8) []uint64 {
 	}
 
 	layerData := &c.layers[layer]
-	values := decodeValues(layerData.data, layerData.scheme, layerData.count)
+	count := int(layerData.count)
 
-	if cap(conns) < len(values) {
-		conns = make([]uint64, len(values))
+	if cap(conns) < count {
+		conns = make([]uint64, count)
 	} else {
-		conns = conns[:len(values)]
+		conns = conns[:count]
 	}
 
-	copy(conns, values)
+	decodeInto(layerData.data, layerData.scheme, layerData.count, conns)
 	return conns
 }
 
