@@ -1,58 +1,103 @@
-//                           _       _
-// __      _____  __ ___   ___  __ _| |_ ___
-// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
-//
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
-//
-//  CONTACT: hello@weaviate.io
-//
-
 package packedconn
 
 import (
-	"encoding/binary"
 	"fmt"
 	"math"
-	"sort"
 )
-
-// Data order
-// | Start | Len        | Description |
-// | ----- | ---------- | ------------|
-// | 0     | 1          | uint8 indicating count of layers of object |
-// | 1     | 3 * layers | uint8 len indicator, followed by uint16 offset indicator |
-// | dyn.  | dyn        | all layers, starting with highest layer first
-
-type Connections struct {
-	data []byte
-	buff []byte
-}
 
 const (
-	layerPos    = 0
-	initialSize = 16
+	DefaultMaxCapacity = 64
+	// Simple encoding schemes - trade some compression for speed
+	SCHEME_1BYTE  = 0 // 1 byte per value (0-255)
+	SCHEME_2BYTE  = 1 // 2 bytes per value (0-65535)
+	SCHEME_4BYTE  = 2 // 4 bytes per value (0-4294967295)
+	SCHEME_8BYTE  = 3 // 8 bytes per value (full uint64)
+	SCHEME_VARINT = 4 // Variable length encoding for mixed sizes
 )
+
+type LayerData struct {
+	data   []byte
+	scheme uint8
+	count  uint32 // number of elements
+}
+
+type Connections struct {
+	layers      []LayerData
+	maxCapacity int
+	layerCount  uint8
+}
 
 func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
 	if int(maxLayer)+1 > math.MaxUint8 {
-		return nil, fmt.Errorf("max supported layer is %d",
-			math.MaxUint8-1)
+		return nil, fmt.Errorf("max supported layer is %d", math.MaxUint8-1)
 	}
-	// TODO: low initial size and grow dynamically
-	c := NewWithData(make([]byte, initialSize+1+(maxLayer+1)*3))
 
-	c.initLayers(maxLayer)
-
-	return c, nil
+	layerCount := maxLayer + 1
+	return &Connections{
+		layers:      make([]LayerData, layerCount),
+		maxCapacity: DefaultMaxCapacity,
+		layerCount:  layerCount,
+	}, nil
 }
 
 func NewWithData(data []byte) *Connections {
-	return &Connections{
-		data: data,
-		buff: make([]byte, 16),
+	if len(data) == 0 {
+		return &Connections{
+			layers:      make([]LayerData, 0),
+			maxCapacity: DefaultMaxCapacity,
+			layerCount:  0,
+		}
 	}
+
+	offset := 0
+	layerCount := data[offset]
+	offset++
+
+	c := &Connections{
+		layers:      make([]LayerData, layerCount),
+		maxCapacity: DefaultMaxCapacity,
+		layerCount:  layerCount,
+	}
+
+	for i := uint8(0); i < layerCount; i++ {
+		if offset+9 > len(data) {
+			break // Malformed data
+		}
+
+		// Read scheme (1 byte)
+		scheme := data[offset]
+		offset++
+
+		// Read count (4 bytes, little endian)
+		count := uint32(data[offset]) |
+			uint32(data[offset+1])<<8 |
+			uint32(data[offset+2])<<16 |
+			uint32(data[offset+3])<<24
+		offset += 4
+
+		// Read data length (4 bytes, little endian)
+		dataLen := uint32(data[offset]) |
+			uint32(data[offset+1])<<8 |
+			uint32(data[offset+2])<<16 |
+			uint32(data[offset+3])<<24
+		offset += 4
+
+		if offset+int(dataLen) > len(data) {
+			break // Malformed data
+		}
+
+		layerData := make([]byte, dataLen)
+		copy(layerData, data[offset:offset+int(dataLen)])
+		offset += int(dataLen)
+
+		c.layers[i] = LayerData{
+			data:   layerData,
+			scheme: scheme,
+			count:  count,
+		}
+	}
+
+	return c
 }
 
 func NewWithElements(elements [][]uint64) (*Connections, error) {
@@ -67,324 +112,347 @@ func NewWithElements(elements [][]uint64) (*Connections, error) {
 	return c, nil
 }
 
-func (c *Connections) ClearBuff() {
-	c.buff = make([]byte, 16)
+func (c *Connections) SetMaxCapacity(capacity int) {
+	c.maxCapacity = capacity
+}
+
+func (c *Connections) GetMaxCapacity() int {
+	return c.maxCapacity
 }
 
 func (c *Connections) AddLayer() {
-	layers := c.Layers()
-	c.expandDataIfRequired(3)
-	c.shiftRightBy(1+uint16(layers)*3, 3)
-	c.data[layerPos] = layers + 1
-	c.setLayerLength(layers, 0)
-	c.setLayerOffset(layers, 1+uint16(layers+1)*3)
-	layer := layers - 1
-	for {
-		c.setLayerOffset(layer, c.layerOffset(layer)+3)
-
-		if layer == 0 {
-			break
-		}
-		layer--
-	}
+	c.layerCount++
+	c.layers = append(c.layers, LayerData{})
 }
 
 func (c *Connections) GrowLayersTo(newLayers uint8) {
-	layers := c.Layers()
-	if newLayers < layers {
+	targetCount := newLayers + 1
+	if targetCount <= c.layerCount {
 		return
 	}
-	delta := newLayers - layers + 1
 
-	c.expandDataIfRequired(3 * uint16(delta))
-	c.shiftRightBy(1+uint16(layers)*3, 3*uint16(delta))
-	c.data[layerPos] = newLayers + 1
-	layer := newLayers
-	for layer >= layers {
-		c.setLayerLength(layer, 0)
-		c.setLayerOffset(layer, 1+uint16(newLayers+1)*3)
-		layer--
+	for c.layerCount < targetCount {
+		c.AddLayer()
 	}
-	for {
-		c.setLayerOffset(layer, c.layerOffset(layer)+3*uint16(delta))
+}
 
-		if layer == 0 {
-			break
+// determineOptimalScheme analyzes values to pick the most efficient encoding
+func determineOptimalScheme(values []uint64) uint8 {
+	if len(values) == 0 {
+		return SCHEME_1BYTE
+	}
+
+	maxVal := uint64(0)
+	for _, val := range values {
+		if val > maxVal {
+			maxVal = val
 		}
-		layer--
 	}
+
+	if maxVal <= 255 {
+		return SCHEME_1BYTE
+	} else if maxVal <= 65535 {
+		return SCHEME_2BYTE
+	} else if maxVal <= 4294967295 {
+		return SCHEME_4BYTE
+	}
+	return SCHEME_8BYTE
+}
+
+// encodeValues encodes values using the specified scheme
+func encodeValues(values []uint64, scheme uint8) []byte {
+	switch scheme {
+	case SCHEME_1BYTE:
+		data := make([]byte, len(values))
+		for i, val := range values {
+			data[i] = byte(val)
+		}
+		return data
+
+	case SCHEME_2BYTE:
+		data := make([]byte, len(values)*2)
+		for i, val := range values {
+			data[i*2] = byte(val)
+			data[i*2+1] = byte(val >> 8)
+		}
+		return data
+
+	case SCHEME_4BYTE:
+		data := make([]byte, len(values)*4)
+		for i, val := range values {
+			data[i*4] = byte(val)
+			data[i*4+1] = byte(val >> 8)
+			data[i*4+2] = byte(val >> 16)
+			data[i*4+3] = byte(val >> 24)
+		}
+		return data
+
+	case SCHEME_8BYTE:
+		data := make([]byte, len(values)*8)
+		for i, val := range values {
+			for j := 0; j < 8; j++ {
+				data[i*8+j] = byte(val >> (j * 8))
+			}
+		}
+		return data
+
+	default:
+		return encodeValues(values, SCHEME_8BYTE)
+	}
+}
+
+// decodeValues decodes values using the specified scheme
+func decodeValues(data []byte, scheme uint8, count uint32) []uint64 {
+	result := make([]uint64, count)
+
+	switch scheme {
+	case SCHEME_1BYTE:
+		for i := uint32(0); i < count; i++ {
+			result[i] = uint64(data[i])
+		}
+
+	case SCHEME_2BYTE:
+		for i := uint32(0); i < count; i++ {
+			result[i] = uint64(data[i*2]) | uint64(data[i*2+1])<<8
+		}
+
+	case SCHEME_4BYTE:
+		for i := uint32(0); i < count; i++ {
+			result[i] = uint64(data[i*4]) |
+				uint64(data[i*4+1])<<8 |
+				uint64(data[i*4+2])<<16 |
+				uint64(data[i*4+3])<<24
+		}
+
+	case SCHEME_8BYTE:
+		for i := uint32(0); i < count; i++ {
+			val := uint64(0)
+			for j := uint32(0); j < 8; j++ {
+				val |= uint64(data[i*8+j]) << (j * 8)
+			}
+			result[i] = val
+		}
+	}
+
+	return result
 }
 
 func (c *Connections) ReplaceLayer(layer uint8, conns []uint64) {
-	// create a temporary buffer that is guaranteed to fit everything. The
-	// over-allocation does not matter, this buffer won't stick around, so the
-	// only real downside is the overhead on GC. If this because noticeable this
-	// buffer would be suitable to use pooling.
-	buf := make([]byte, len(conns)*binary.MaxVarintLen64)
-
-	sort.Slice(conns, func(a, b int) bool { return conns[a] < conns[b] })
-	last := uint64(0)
-	offset := 0
-	for _, raw := range conns {
-		delta := raw - last
-		last = raw
-		offset += binary.PutUvarint(buf[offset:], delta)
+	if layer >= c.layerCount {
+		c.GrowLayersTo(layer)
 	}
 
-	buf = buf[:offset]
-
-	c.replaceLayer(layer, buf, uint8(len(conns)))
-}
-
-func (c Connections) LenAtLayer(layer uint8) int {
-	if layer >= c.Layers() {
-		panic(fmt.Sprintf("only has %d layers", c.Layers()))
+	if len(conns) == 0 {
+		c.layers[layer] = LayerData{}
+		return
 	}
 
-	return int(c.layerLength(layer))
+	scheme := determineOptimalScheme(conns)
+	data := encodeValues(conns, scheme)
+
+	c.layers[layer] = LayerData{
+		data:   data,
+		scheme: scheme,
+		count:  uint32(len(conns)),
+	}
 }
 
-// Returns the underlying data buffer. Do not modify the contents
-// of the buffer or call this method concurrently.
+// Fast insertion optimized for append-only operations
+func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
+	if layer >= c.layerCount {
+		c.GrowLayersTo(layer)
+	}
+
+	layerData := &c.layers[layer]
+
+	// If layer is empty, start with optimal scheme for this value
+	if layerData.count == 0 {
+		scheme := determineOptimalScheme([]uint64{conn})
+		layerData.scheme = scheme
+		layerData.data = encodeValues([]uint64{conn}, scheme)
+		layerData.count = 1
+		return
+	}
+
+	// Check if current scheme can handle the new value
+	requiredScheme := determineOptimalScheme([]uint64{conn})
+	if requiredScheme > layerData.scheme {
+		// Need to upgrade scheme - decode, append, re-encode
+		values := decodeValues(layerData.data, layerData.scheme, layerData.count)
+		values = append(values, conn)
+		layerData.scheme = requiredScheme
+		layerData.data = encodeValues(values, requiredScheme)
+		layerData.count++
+		return
+	}
+
+	// Can use current scheme - just append encoded bytes
+	c.appendToLayer(conn, layer)
+}
+
+// appendToLayer appends a single value using the current scheme
+func (c *Connections) appendToLayer(conn uint64, layer uint8) {
+	layerData := &c.layers[layer]
+
+	switch layerData.scheme {
+	case SCHEME_1BYTE:
+		layerData.data = append(layerData.data, byte(conn))
+
+	case SCHEME_2BYTE:
+		layerData.data = append(layerData.data,
+			byte(conn),
+			byte(conn>>8))
+
+	case SCHEME_4BYTE:
+		layerData.data = append(layerData.data,
+			byte(conn),
+			byte(conn>>8),
+			byte(conn>>16),
+			byte(conn>>24))
+
+	case SCHEME_8BYTE:
+		for j := 0; j < 8; j++ {
+			layerData.data = append(layerData.data, byte(conn>>(j*8)))
+		}
+	}
+
+	layerData.count++
+}
+
+func (c *Connections) BulkInsertAtLayer(conns []uint64, layer uint8) {
+	if layer >= c.layerCount {
+		c.GrowLayersTo(layer)
+	}
+
+	if len(conns) == 0 {
+		return
+	}
+
+	layerData := &c.layers[layer]
+
+	if layerData.count == 0 {
+		// Empty layer - just encode all values
+		scheme := determineOptimalScheme(conns)
+		layerData.scheme = scheme
+		layerData.data = encodeValues(conns, scheme)
+		layerData.count = uint32(len(conns))
+		return
+	}
+
+	// Need to merge with existing data
+	existing := decodeValues(layerData.data, layerData.scheme, layerData.count)
+	all := append(existing, conns...)
+
+	scheme := determineOptimalScheme(all)
+	layerData.scheme = scheme
+	layerData.data = encodeValues(all, scheme)
+	layerData.count = uint32(len(all))
+}
+
 func (c *Connections) Data() []byte {
-	return c.data
+	if c.layerCount == 0 {
+		return []byte{0}
+	}
+
+	// Calculate total size
+	totalSize := 1 // layer count
+	for i := uint8(0); i < c.layerCount; i++ {
+		totalSize += 1                     // scheme
+		totalSize += 4                     // count
+		totalSize += 4                     // data length
+		totalSize += len(c.layers[i].data) // data
+	}
+
+	data := make([]byte, totalSize)
+	offset := 0
+
+	data[offset] = c.layerCount
+	offset++
+
+	for i := uint8(0); i < c.layerCount; i++ {
+		layer := &c.layers[i]
+
+		// Write scheme
+		data[offset] = layer.scheme
+		offset++
+
+		// Write count (4 bytes, little endian)
+		data[offset] = byte(layer.count)
+		data[offset+1] = byte(layer.count >> 8)
+		data[offset+2] = byte(layer.count >> 16)
+		data[offset+3] = byte(layer.count >> 24)
+		offset += 4
+
+		// Write data length (4 bytes, little endian)
+		dataLen := uint32(len(layer.data))
+		data[offset] = byte(dataLen)
+		data[offset+1] = byte(dataLen >> 8)
+		data[offset+2] = byte(dataLen >> 16)
+		data[offset+3] = byte(dataLen >> 24)
+		offset += 4
+
+		// Write data
+		copy(data[offset:], layer.data)
+		offset += len(layer.data)
+	}
+
+	return data
 }
 
-func (c Connections) CopyLayer(conns []uint64, layer uint8) []uint64 {
-	if layer >= c.Layers() {
+func (c *Connections) LenAtLayer(layer uint8) int {
+	if layer >= c.layerCount {
+		return 0
+	}
+	return int(c.layers[layer].count)
+}
+
+func (c *Connections) GetLayer(layer uint8) []uint64 {
+	if layer >= c.layerCount || c.layers[layer].count == 0 {
 		return nil
 	}
 
-	if cap(conns) < int(c.layerLength(layer)) {
-		conns = make([]uint64, c.layerLength(layer))
+	layerData := &c.layers[layer]
+	return decodeValues(layerData.data, layerData.scheme, layerData.count)
+}
+
+func (c *Connections) CopyLayer(conns []uint64, layer uint8) []uint64 {
+	if layer >= c.layerCount || c.layers[layer].count == 0 {
+		return conns[:0]
+	}
+
+	layerData := &c.layers[layer]
+	values := decodeValues(layerData.data, layerData.scheme, layerData.count)
+
+	if cap(conns) < len(values) {
+		conns = make([]uint64, len(values))
 	} else {
-		conns = conns[:c.layerLength(layer)]
+		conns = conns[:len(values)]
 	}
 
-	offset := c.layerOffset(layer)
-	end := c.layerEndOffset(layer)
-	last := uint64(0)
-	i := 0
-	for offset < end {
-		val, n := binary.Uvarint(c.data[offset:])
-		offset += uint16(n)
-
-		// TODO: allocate exact size, don't rely on dynamic growing
-		conns[i] = last + val
-		last += val
-		i++
-	}
-
+	copy(conns, values)
 	return conns
 }
 
-func (c Connections) GetLayer(layer uint8) []uint64 {
-	return c.CopyLayer(nil, layer)
-}
-
-func (c *Connections) InsertAtLayer(conn uint64, layer uint8) {
-	offset := c.layerOffset(layer)
-	end := c.layerEndOffset(layer)
-	val := uint64(0)
-	var n int
-	val, n = binary.Uvarint(c.data[offset:])
-	offset += uint16(n)
-	for end > offset-uint16(n) && val < conn {
-		conn -= val
-		val, n = binary.Uvarint(c.data[offset:])
-		offset += uint16(n)
-	}
-
-	offset = offset - uint16(n)
-	len := c.replaceElement(layer, offset, 0, conn)
-	offset += len
-	c.setLayerLength(layer, c.layerLength(layer)+1)
-	if end+len > offset {
-		val, n = binary.Uvarint(c.data[offset:])
-		c.replaceElement(layer, offset, n, val-conn)
-	}
-}
-
-// number of layers, e.g. if the maxLayer is 7, the number of layers is 8, as 0
-// is a valid layer
 func (c *Connections) Layers() uint8 {
-	return c.data[layerPos]
+	return c.layerCount
 }
 
 func (c *Connections) IterateOnLayers(f func(layer uint8, conns []uint64)) {
-	for layer := uint8(0); layer < c.Layers(); layer++ {
+	for layer := uint8(0); layer < c.layerCount; layer++ {
 		conns := c.GetLayer(layer)
 		f(layer, conns)
 	}
 }
 
 func (c *Connections) GetAllLayers() [][]uint64 {
-	layers := c.Layers()
-	result := make([][]uint64, layers)
-
-	for i := uint8(0); i < layers; i++ {
+	result := make([][]uint64, c.layerCount)
+	for i := uint8(0); i < c.layerCount; i++ {
 		result[i] = c.GetLayer(i)
 	}
-
 	return result
 }
 
-func (c *Connections) replaceElement(layer uint8, pos uint16, formerLen int, value uint64) uint16 {
-	len := binary.PutUvarint(c.buff, value)
-	if len > formerLen {
-		c.shiftRightByAndAdaptOffsets(pos, uint16(len-formerLen), layer)
-	} else if formerLen > len {
-		c.shiftLeftByAndAdaptOffsets(pos, uint16(formerLen-len), layer)
-	}
-	copy(c.data[pos:], c.buff[:len])
-	return uint16(len)
-}
-
-func (c *Connections) initLayers(maxLayer uint8) {
-	layers := maxLayer + 1
-	c.data[layerPos] = layers
-
-	// TODO: ensure correct minimum capacity
-	c.data = c.data[:c.initialLayerOffset()]
-
-	layer := maxLayer
-	for {
-		c.setLayerLength(layer, 0)
-		c.setLayerOffset(layer, c.initialLayerOffset())
-
-		if layer == 0 {
-			break
-		}
-		layer--
-	}
-}
-
-func (c *Connections) layerLengthPos(layer uint8) int {
-	return 1 + int(layer*3)
-}
-
-func (c *Connections) layerLength(layer uint8) uint8 {
-	return c.data[c.layerLengthPos(layer)]
-}
-
-func (c *Connections) setLayerLength(layer, length uint8) {
-	c.data[c.layerLengthPos(layer)] = length
-}
-
-func (c *Connections) layerOffsetPos(layer uint8) int {
-	return c.layerLengthPos(layer) + 1
-}
-
-func (c *Connections) layerOffset(layer uint8) uint16 {
-	return binary.LittleEndian.Uint16(c.data[c.layerOffsetPos(layer):])
-}
-
-func (c *Connections) layerEndOffset(layer uint8) uint16 {
-	if layer == 0 {
-		return uint16(len(c.data))
-	}
-
-	return c.layerOffset(layer - 1)
-}
-
-func (c *Connections) layerSize(layer uint8) uint16 {
-	return c.layerEndOffset(layer) - c.layerOffset(layer)
-}
-
-func (c *Connections) setLayerOffset(layer uint8, offset uint16) {
-	binary.LittleEndian.PutUint16(c.data[c.layerOffsetPos(layer):], offset)
-}
-
-func (c *Connections) initialLayerOffset() uint16 {
-	// 1 byte for the uint8 indicating len
-	return uint16(1 + c.Layers()*3)
-}
-
-func (c *Connections) expandDataIfRequired(delta uint16) {
-	newSize := len(c.data) + int(delta)
-	if cap(c.data) <= newSize {
-		temp := c.data
-		c.data = make([]byte, newSize, newSize+newSize/10)
-		copy(c.data, temp)
-	} else {
-		c.data = c.data[:newSize]
-	}
-}
-
-func (c *Connections) growLayerBy(layer uint8, delta uint16) {
-	c.expandDataIfRequired(delta)
-
-	if layer > 0 {
-		// the backing array has the correct size now, next up we need to adapt the
-		// offsets. Since layers are in reverse order, higher layers are not
-		// affected, but any lower layer needs to be shifted right by the delta
-		c.shiftRightBy(c.layerOffset(layer-1), delta)
-	}
-
-	for l := uint8(0); l < layer; l++ {
-		c.setLayerOffset(l, c.layerOffset(l)+delta)
-	}
-}
-
-func (c *Connections) shrinkLayerBy(layer uint8, delta uint16) {
-	// TODO: check cap and shrink backing array if required
-
-	// shrinking needs to happen in the reverse order of growing, we need to
-	// first fix the offsets, otherwise our start position (the copy target) is
-	// too high. We would only copy into the where the next layer previously
-	// began instead of where it will begin in the future
-	for l := uint8(0); l < layer; l++ {
-		c.setLayerOffset(l, c.layerOffset(l)-delta)
-	}
-
-	if layer > 0 {
-		// the backing array has the correct size now, next up we need to adapt the
-		// offsets. Since layers are in reverse order, higher layers are not
-		// affected, but any lower layer needs to be shifted left by the delta
-		c.shiftLeftBy(c.layerOffset(layer-1), delta)
-	}
-	c.data = c.data[:len(c.data)-int(delta)]
-}
-
-func (c *Connections) shiftRightByAndAdaptOffsets(startPos, delta uint16, layer uint8) {
-	c.growLayerBy(layer, delta)
-	if c.layerEndOffset(layer) >= startPos+delta {
-		copy(c.data[startPos+delta:], c.data[startPos:c.layerEndOffset(layer)-delta])
-	}
-}
-
-func (c *Connections) shiftLeftByAndAdaptOffsets(startPos, delta uint16, layer uint8) {
-	offsetEnd := c.layerEndOffset(layer)
-	if offsetEnd >= startPos+delta {
-		copy(c.data[startPos:], c.data[startPos+delta:c.layerEndOffset(layer)])
-	}
-	c.shrinkLayerBy(layer, delta)
-}
-
-func (c *Connections) shiftRightBy(startPos, delta uint16) {
-	copy(c.data[startPos+delta:], c.data[startPos:])
-}
-
-func (c *Connections) shiftLeftBy(startPos, delta uint16) {
-	copy(c.data[startPos:], c.data[startPos+delta:])
-}
-
-func (c *Connections) replaceLayer(layer uint8, contents []byte,
-	length uint8,
-) {
-	// resize
-	oldLayerSize := c.layerSize(layer)
-	newLayerSize := uint16(len(contents))
-
-	if oldLayerSize > newLayerSize {
-		c.shrinkLayerBy(layer, oldLayerSize-newLayerSize)
-	} else if newLayerSize > oldLayerSize {
-		c.growLayerBy(layer, newLayerSize-oldLayerSize)
-	}
-	copy(c.data[c.layerOffset(layer):], contents)
-	c.setLayerLength(layer, length)
-}
-
+// Iterator implementations remain similar but work with the new structure
 type LayerIterator struct {
 	connections  *Connections
 	currentLayer uint8
@@ -395,7 +463,7 @@ func (c *Connections) Iterator() *LayerIterator {
 	return &LayerIterator{
 		connections:  c,
 		currentLayer: 0,
-		maxLayers:    c.Layers(),
+		maxLayers:    c.layerCount,
 	}
 }
 
@@ -419,56 +487,57 @@ func (iter *LayerIterator) Reset() {
 	iter.currentLayer = 0
 }
 
+// Element iterator for a specific layer
 type LayerElementIterator struct {
 	connections *Connections
 	layer       uint8
-	offset      uint16
-	endOffset   uint16
-	current     uint64
 	index       int
+	maxIndex    int
+	values      []uint64 // cached decoded values for performance
 }
 
 func (c *Connections) ElementIterator(layer uint8) *LayerElementIterator {
-	if layer >= c.Layers() {
-		return &LayerElementIterator{
-			connections: c,
-			layer:       layer,
-			offset:      0,
-			endOffset:   0,
-			current:     0,
-			index:       0,
-		}
+	maxIndex := 0
+	var values []uint64
+
+	if layer < c.layerCount && c.layers[layer].count > 0 {
+		maxIndex = int(c.layers[layer].count)
+		// Decode values once for the iterator's lifetime
+		layerData := &c.layers[layer]
+		values = decodeValues(layerData.data, layerData.scheme, layerData.count)
 	}
 
 	return &LayerElementIterator{
 		connections: c,
 		layer:       layer,
-		offset:      c.layerOffset(layer),
-		endOffset:   c.layerEndOffset(layer),
-		current:     0,
 		index:       0,
+		maxIndex:    maxIndex,
+		values:      values,
 	}
 }
 
 func (iter *LayerElementIterator) Next() bool {
-	if iter.offset >= iter.endOffset {
+	if iter.index >= iter.maxIndex {
 		return false
 	}
-
-	val, n := binary.Uvarint(iter.connections.data[iter.offset:])
-	iter.offset += uint16(n)
-	iter.current += val
 	iter.index++
-
 	return true
 }
 
 func (iter *LayerElementIterator) Current() (index int, value uint64) {
-	return iter.index - 1, iter.current
+	if iter.index <= 0 || iter.index > iter.maxIndex {
+		return -1, 0
+	}
+
+	currentIndex := iter.index - 1
+	value = iter.values[currentIndex]
+
+	return currentIndex, value
 }
 
 func (iter *LayerElementIterator) Value() uint64 {
-	return iter.current
+	_, value := iter.Current()
+	return value
 }
 
 func (iter *LayerElementIterator) Index() int {
@@ -476,15 +545,13 @@ func (iter *LayerElementIterator) Index() int {
 }
 
 func (iter *LayerElementIterator) Reset() {
-	iter.offset = iter.connections.layerOffset(iter.layer)
-	iter.current = 0
 	iter.index = 0
 }
 
 func (iter *LayerElementIterator) HasElements() bool {
-	return iter.connections.LenAtLayer(iter.layer) > 0
+	return iter.maxIndex > 0
 }
 
 func (iter *LayerElementIterator) Count() int {
-	return iter.connections.LenAtLayer(iter.layer)
+	return iter.maxIndex
 }

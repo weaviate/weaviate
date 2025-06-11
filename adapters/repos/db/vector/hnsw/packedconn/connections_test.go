@@ -586,10 +586,6 @@ func TestConnections_ElementRange(t *testing.T) {
 	c.ReplaceLayer(2, connsSlice3)
 
 	elementCount = 0
-	expectedElements := make([]uint64, len(connsSlice1))
-	copy(expectedElements, connsSlice1)
-	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
-
 	actualElements := make([]uint64, 0)
 	iter = c.ElementIterator(0)
 	for iter.Next() {
@@ -599,13 +595,9 @@ func TestConnections_ElementRange(t *testing.T) {
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice1), elementCount)
-	assert.Equal(t, expectedElements, actualElements)
+	assert.ElementsMatch(t, connsSlice1, actualElements) // Use ElementsMatch instead of Equal
 
 	elementCount = 0
-	expectedElements = make([]uint64, len(connsSlice2))
-	copy(expectedElements, connsSlice2)
-	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
-
 	actualElements = make([]uint64, 0)
 	iter = c.ElementIterator(1)
 	for iter.Next() {
@@ -615,13 +607,9 @@ func TestConnections_ElementRange(t *testing.T) {
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice2), elementCount)
-	assert.Equal(t, expectedElements, actualElements)
+	assert.ElementsMatch(t, connsSlice2, actualElements) // Use ElementsMatch instead of Equal
 
 	elementCount = 0
-	expectedElements = make([]uint64, len(connsSlice3))
-	copy(expectedElements, connsSlice3)
-	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
-
 	actualElements = make([]uint64, 0)
 	iter = c.ElementIterator(2)
 	for iter.Next() {
@@ -631,7 +619,7 @@ func TestConnections_ElementRange(t *testing.T) {
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice3), elementCount)
-	assert.Equal(t, expectedElements, actualElements)
+	assert.ElementsMatch(t, connsSlice3, actualElements) // Use ElementsMatch instead of Equal
 }
 
 func TestConnections_ElementRangeWithSingleLayer(t *testing.T) {
@@ -641,10 +629,6 @@ func TestConnections_ElementRangeWithSingleLayer(t *testing.T) {
 	c.ReplaceLayer(0, connsSlice1)
 
 	elementCount := 0
-	expectedElements := make([]uint64, len(connsSlice1))
-	copy(expectedElements, connsSlice1)
-	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
-
 	actualElements := make([]uint64, 0)
 	iter := c.ElementIterator(0)
 	for iter.Next() {
@@ -654,7 +638,7 @@ func TestConnections_ElementRangeWithSingleLayer(t *testing.T) {
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice1), elementCount)
-	assert.Equal(t, expectedElements, actualElements)
+	assert.ElementsMatch(t, connsSlice1, actualElements) // Use ElementsMatch instead of Equal
 }
 
 func TestConnections_ElementRangeAfterAddingLayers(t *testing.T) {
@@ -669,10 +653,6 @@ func TestConnections_ElementRangeAfterAddingLayers(t *testing.T) {
 
 	// Test the newly added layer
 	elementCount := 0
-	expectedElements := make([]uint64, len(connsSlice3))
-	copy(expectedElements, connsSlice3)
-	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
-
 	actualElements := make([]uint64, 0)
 	iter := c.ElementIterator(2)
 	for iter.Next() {
@@ -682,7 +662,7 @@ func TestConnections_ElementRangeAfterAddingLayers(t *testing.T) {
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice3), elementCount)
-	assert.Equal(t, expectedElements, actualElements)
+	assert.ElementsMatch(t, connsSlice3, actualElements) // Use ElementsMatch instead of Equal
 }
 
 func TestConnections_ElementRangeAfterGrowingLayers(t *testing.T) {
@@ -696,10 +676,6 @@ func TestConnections_ElementRangeAfterGrowingLayers(t *testing.T) {
 	c.ReplaceLayer(2, connsSlice3)
 
 	elementCount := 0
-	expectedElements := make([]uint64, len(connsSlice3))
-	copy(expectedElements, connsSlice3)
-	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
-
 	actualElements := make([]uint64, 0)
 	iter := c.ElementIterator(2)
 	for iter.Next() {
@@ -709,7 +685,7 @@ func TestConnections_ElementRangeAfterGrowingLayers(t *testing.T) {
 		elementCount++
 	}
 	assert.Equal(t, len(connsSlice3), elementCount)
-	assert.Equal(t, expectedElements, actualElements)
+	assert.ElementsMatch(t, connsSlice3, actualElements) // Use ElementsMatch instead of Equal
 
 	elementCount = 0
 	iter = c.ElementIterator(3)
@@ -793,10 +769,8 @@ func TestConnections_ElementRangeCompareWithElementIterator(t *testing.T) {
 		}
 
 		assert.Equal(t, len(iteratorResults), len(rangeResults))
-		for i, rangeResult := range rangeResults {
-			assert.Equal(t, iteratorResults[i].Index, rangeResult.Index)
-			assert.Equal(t, iteratorResults[i].Value, rangeResult.Value)
-		}
+		// Compare the actual results - they should be identical since we're using the same iterator
+		assert.Equal(t, iteratorResults, rangeResults)
 	}
 }
 
@@ -813,10 +787,6 @@ func TestConnections_ElementRangeStress(t *testing.T) {
 
 	for layer := uint8(0); layer <= layers; layer++ {
 		elementCount := 0
-		expectedElements := make([]uint64, len(testSlices[layer]))
-		copy(expectedElements, testSlices[layer])
-		sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
-
 		actualElements := make([]uint64, 0)
 		iter := c.ElementIterator(layer)
 		for iter.Next() {
@@ -827,8 +797,50 @@ func TestConnections_ElementRangeStress(t *testing.T) {
 		}
 
 		assert.Equal(t, len(testSlices[layer]), elementCount)
-		assert.Equal(t, expectedElements, actualElements)
+		assert.ElementsMatch(t, testSlices[layer], actualElements) // Use ElementsMatch instead of Equal
 	}
+}
+
+// Additional test to verify order preservation (insertion order should be maintained)
+func TestConnections_ElementOrderPreservation(t *testing.T) {
+	c, err := NewWithMaxLayer(0)
+	require.Nil(t, err)
+
+	// Test with a specific sequence to verify insertion order is preserved
+	testSequence := []uint64{100, 1, 50, 200, 25}
+	c.ReplaceLayer(0, testSequence)
+
+	actualElements := make([]uint64, 0)
+	iter := c.ElementIterator(0)
+	for iter.Next() {
+		_, value := iter.Current()
+		actualElements = append(actualElements, value)
+	}
+
+	// Should preserve the exact order from ReplaceLayer
+	assert.Equal(t, testSequence, actualElements)
+}
+
+// Test to verify that individual insertions maintain order
+func TestConnections_InsertionOrderPreservation(t *testing.T) {
+	c, err := NewWithMaxLayer(0)
+	require.Nil(t, err)
+
+	// Insert values one by one
+	values := []uint64{100, 1, 50, 200, 25}
+	for _, val := range values {
+		c.InsertAtLayer(val, 0)
+	}
+
+	actualElements := make([]uint64, 0)
+	iter := c.ElementIterator(0)
+	for iter.Next() {
+		_, value := iter.Current()
+		actualElements = append(actualElements, value)
+	}
+
+	// Should preserve the insertion order
+	assert.Equal(t, values, actualElements)
 }
 
 func TestConnections_ElementRangeEmptyConnections(t *testing.T) {
@@ -856,10 +868,6 @@ func TestConnections_ElementRangeWithInsertions(t *testing.T) {
 		c.InsertAtLayer(elem, 0)
 	}
 
-	expectedElements := make([]uint64, len(testElements))
-	copy(expectedElements, testElements)
-	sort.Slice(expectedElements, func(i, j int) bool { return expectedElements[i] < expectedElements[j] })
-
 	elementCount := 0
 	actualElements := make([]uint64, 0)
 	iter := c.ElementIterator(0)
@@ -871,7 +879,9 @@ func TestConnections_ElementRangeWithInsertions(t *testing.T) {
 	}
 
 	assert.Equal(t, len(testElements), elementCount)
-	assert.Equal(t, expectedElements, actualElements)
+	// Use ElementsMatch to check that all elements are present regardless of order
+	assert.ElementsMatch(t, testElements, actualElements)
+
 }
 
 func TestConnections_ElementRangeConsistentIndexing(t *testing.T) {
