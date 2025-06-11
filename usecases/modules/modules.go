@@ -118,6 +118,18 @@ func (p *Provider) GetAllExclude(module string) []modulecapabilities.Module {
 	return filtered
 }
 
+func (p *Provider) Close() error {
+	for _, mod := range p.registered {
+		if m, ok := mod.(modulecapabilities.ModuleWithClose); ok {
+			if err := m.Close(); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
 func (p *Provider) SetSchemaGetter(sg schemaGetter) {
 	p.schemaGetter = sg
 }

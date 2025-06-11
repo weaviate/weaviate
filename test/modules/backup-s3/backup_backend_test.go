@@ -20,10 +20,12 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	mod "github.com/weaviate/weaviate/modules/backup-s3"
@@ -271,6 +273,10 @@ func (f *fakeModuleParams) GetLogger() logrus.FieldLogger {
 
 func (f *fakeModuleParams) GetConfig() config.Config {
 	return f.config
+}
+
+func (f *fakeModuleParams) GetMetricsRegisterer() prometheus.Registerer {
+	return prometheus.NewPedanticRegistry()
 }
 
 type fakeStorageProvider struct {

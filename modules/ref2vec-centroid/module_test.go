@@ -19,6 +19,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
@@ -38,7 +39,7 @@ func TestRef2VecCentroid(t *testing.T) {
 	defer cancel()
 	sp := newFakeStorageProvider(t)
 	logger, _ := test.NewNullLogger()
-	params := moduletools.NewInitParams(sp, nil, config.Config{}, logger)
+	params := moduletools.NewInitParams(sp, nil, config.Config{}, logger, prometheus.NewPedanticRegistry())
 
 	mod := New()
 	classConfig := fakeClassConfig(mod.ClassConfigDefaults())
