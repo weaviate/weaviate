@@ -130,8 +130,8 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction    bool
-	disableCompaction1 bool
+	forceCompaction   bool
+	disableCompaction bool
 
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
