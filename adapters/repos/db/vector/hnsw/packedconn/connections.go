@@ -10,9 +10,10 @@ const (
 	// Simple encoding schemes - trade some compression for speed
 	SCHEME_1BYTE  = 0 // 1 byte per value (0-255)
 	SCHEME_2BYTE  = 1 // 2 bytes per value (0-65535)
-	SCHEME_4BYTE  = 2 // 4 bytes per value (0-4294967295)
-	SCHEME_8BYTE  = 3 // 8 bytes per value (full uint64)
-	SCHEME_VARINT = 4 // Variable length encoding for mixed sizes
+	SCHEME_3BYTE  = 2 // 3 bytes per value (0-16777215)
+	SCHEME_4BYTE  = 3 // 4 bytes per value (0-4294967295)
+	SCHEME_8BYTE  = 4 // 8 bytes per value (full uint64)
+	SCHEME_VARINT = 5 // Variable length encoding for mixed sizes
 )
 
 type LayerData struct {
@@ -153,6 +154,8 @@ func determineOptimalScheme(values []uint64) uint8 {
 		return SCHEME_1BYTE
 	} else if maxVal <= 65535 {
 		return SCHEME_2BYTE
+	} else if maxVal <= 16777215 {
+		return SCHEME_3BYTE
 	} else if maxVal <= 4294967295 {
 		return SCHEME_4BYTE
 	}
@@ -174,6 +177,15 @@ func encodeValues(values []uint64, scheme uint8) []byte {
 		for i, val := range values {
 			data[i*2] = byte(val)
 			data[i*2+1] = byte(val >> 8)
+		}
+		return data
+
+	case SCHEME_3BYTE:
+		data := make([]byte, len(values)*3)
+		for i, val := range values {
+			data[i*3] = byte(val)
+			data[i*3+1] = byte(val >> 8)
+			data[i*3+2] = byte(val >> 16)
 		}
 		return data
 
@@ -214,6 +226,11 @@ func decodeValues(data []byte, scheme uint8, count uint32) []uint64 {
 	case SCHEME_2BYTE:
 		for i := uint32(0); i < count; i++ {
 			result[i] = uint64(data[i*2]) | uint64(data[i*2+1])<<8
+		}
+
+	case SCHEME_3BYTE:
+		for i := uint32(0); i < count; i++ {
+			result[i] = uint64(data[i*3]) | uint64(data[i*3+1])<<8 | uint64(data[i*3+2])<<16
 		}
 
 	case SCHEME_4BYTE:
@@ -302,6 +319,12 @@ func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 		layerData.data = append(layerData.data,
 			byte(conn),
 			byte(conn>>8))
+
+	case SCHEME_3BYTE:
+		layerData.data = append(layerData.data,
+			byte(conn),
+			byte(conn>>8),
+			byte(conn>>16))
 
 	case SCHEME_4BYTE:
 		layerData.data = append(layerData.data,
