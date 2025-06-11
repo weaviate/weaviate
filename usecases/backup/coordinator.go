@@ -478,31 +478,34 @@ func (c *coordinator) commit(ctx context.Context,
 		} else {
 			// Try to read the node's backup descriptor to get pre-compression size
 			// for the whole cluster (not just the node)
-			if backend, err := c.backends.BackupBackend(req.Backend); err == nil {
-				// Create a nodeStore for this specific node
-				nodeBackupID := fmt.Sprintf("%s/%s", req.ID, node)
-				nodeStore := nodeStore{
-					objectStore: objectStore{
-						backend:  backend,
-						backupId: nodeBackupID,
-						bucket:   req.Bucket,
-						path:     req.Path,
-					},
-				}
+			// Skip this for restore operations
+			if req.Method != OpRestore {
+				if backend, err := c.backends.BackupBackend(req.Backend); err == nil {
+					// Create a nodeStore for this specific node
+					nodeBackupID := fmt.Sprintf("%s/%s", req.ID, node)
+					nodeStore := nodeStore{
+						objectStore: objectStore{
+							backend:  backend,
+							backupId: nodeBackupID,
+							bucket:   req.Bucket,
+							path:     req.Path,
+						},
+					}
 
-				if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path, false); err == nil {
-					st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
-					totalPreCompressionSize += meta.PreCompressionSizeBytes
-					c.log.WithFields(logrus.Fields{
-						"node":                    node,
-						"preCompressionSizeBytes": meta.PreCompressionSizeBytes,
-						"totalPreCompressionSize": totalPreCompressionSize,
-					}).Debug("read node backup descriptor pre-compression size")
-				} else {
-					c.log.WithFields(logrus.Fields{
-						"node":  node,
-						"error": err,
-					}).Warn("could not read node backup descriptor for pre-compression size")
+					if meta, err := nodeStore.Meta(ctx, req.ID, req.Bucket, req.Path, false); err == nil {
+						st.PreCompressionSizeBytes = meta.PreCompressionSizeBytes
+						totalPreCompressionSize += meta.PreCompressionSizeBytes
+						c.log.WithFields(logrus.Fields{
+							"node":                    node,
+							"preCompressionSizeBytes": meta.PreCompressionSizeBytes,
+							"totalPreCompressionSize": totalPreCompressionSize,
+						}).Debug("read node backup descriptor pre-compression size")
+					} else {
+						c.log.WithFields(logrus.Fields{
+							"node":  node,
+							"error": err,
+						}).Warn("could not read node backup descriptor for pre-compression size")
+					}
 				}
 			}
 		}
@@ -511,11 +514,6 @@ func (c *coordinator) commit(ctx context.Context,
 	c.descriptor.Status = status
 	c.descriptor.Error = reason
 	c.descriptor.PreCompressionSizeBytes = totalPreCompressionSize
-
-	c.log.WithFields(logrus.Fields{
-		"totalPreCompressionSize": totalPreCompressionSize,
-		"status":                  status,
-	}).Info("coordinator aggregated pre-compression sizes from all nodes")
 }
 
 // queryAll queries all participant and store their statuses internally

@@ -84,6 +84,12 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
 		coordinator := *fc.coordinator()
+		mockBackendProvider := NewMockBackupBackendProvider(t)
+		coordinator.backends = mockBackendProvider
+		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
+		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
+
 		req := newReq(classes, backendName, backupID)
 		store := coordStore{objectStore{fc.backend, req.ID, "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
@@ -157,6 +163,12 @@ func Test_CoordinatedBackup(t *testing.T) {
 		fc.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
 
 		coordinator := *fc.coordinator()
+		mockBackendProvider := NewMockBackupBackendProvider(t)
+		coordinator.backends = mockBackendProvider
+		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
+		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil).Twice()
+
 		req := newReq(classes, backendName, backupID)
 		store := coordStore{objectStore{fc.backend, req.ID, "", ""}}
 		err := coordinator.Backup(ctx, store, &req)
@@ -217,6 +229,11 @@ func Test_CoordinatedBackup(t *testing.T) {
 			store       = coordStore{objectStore{fc.backend, req.ID, "", ""}}
 		)
 		coordinator.timeoutNodeDown = 0
+		mockBackendProvider := NewMockBackupBackendProvider(t)
+		coordinator.backends = mockBackendProvider
+		mockBackendProvider.EXPECT().BackupBackend(backendName).Return(fc.backend, nil)
+		fc.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{}).Twice()
+
 		fc.selector.On("Shards", ctx, classes[0]).Return(nodes, nil)
 		fc.selector.On("Shards", ctx, classes[1]).Return(nodes, nil)
 

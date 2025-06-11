@@ -391,13 +391,11 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		return recvCh
 	}
 
-	var totalPreCompressionSize int64
 	for x := range processor(nWorker, jobs(desc.Shards)) {
 		desc.Chunks[x.chunk] = x.shards
-		totalPreCompressionSize += x.preCompressionSize
+		desc.PreCompressionSizeBytes += x.preCompressionSize
 	}
-	desc.PreCompressionSizeBytes = totalPreCompressionSize
-	return totalPreCompressionSize, nil
+	return desc.PreCompressionSizeBytes, nil
 }
 
 type chuckShards struct {
