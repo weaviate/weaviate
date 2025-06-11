@@ -40,7 +40,7 @@ func TestCalculateShardPreCompressionSize(t *testing.T) {
 	for i, filename := range testFiles {
 		content := make([]byte, 100*(i+1)) // 100, 200, 300 bytes
 		filePath := filepath.Join(tempDir, filename)
-		err := os.WriteFile(filePath, content, 0644)
+		err := os.WriteFile(filePath, content, 0o644)
 		require.NoError(t, err)
 		fileSizes[filename] = int64(len(content))
 	}

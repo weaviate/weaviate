@@ -713,7 +713,7 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  local-offload-s3)
+  first-s3)
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./${PERSISTENCE_DATA_PATH}-weaviate-0" \
@@ -740,7 +740,7 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  second-offload-s3)
+  second-s3)
       GRPC_PORT=50052 \
       CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
@@ -774,7 +774,7 @@ case $CONFIG in
         --write-timeout=600s
     ;;
 
-  third-offload-s3)
+  third-s3)
         GRPC_PORT=50053 \
         CONTEXTIONARY_URL=localhost:9999 \
         AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
