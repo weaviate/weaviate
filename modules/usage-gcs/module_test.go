@@ -143,9 +143,10 @@ func TestModule_ConfigBasedIntervalUpdate(t *testing.T) {
 			Hostname: "test-node",
 		},
 		Usage: config.UsageConfig{
-			GCSAuth:   runtime.NewDynamicValue(false),
-			GCSBucket: runtime.NewDynamicValue("test-bucket"),
-			GCSPrefix: runtime.NewDynamicValue("test-prefix"),
+			GCSAuth:        runtime.NewDynamicValue(false),
+			GCSBucket:      runtime.NewDynamicValue("test-bucket"),
+			GCSPrefix:      runtime.NewDynamicValue("test-prefix"),
+			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
 		},
 	}
 	mod.config = testConfig
@@ -166,6 +167,13 @@ func TestModule_CollectAndUploadPeriodically_ContextCancellation(t *testing.T) {
 	logger.SetOutput(os.Stdout)
 	mod.logger = logger
 	mod.interval = 100 * time.Millisecond // Short interval for testing
+
+	// Set up config with proper RuntimeOverrides to prevent panic
+	mod.config = config.Config{
+		RuntimeOverrides: config.RuntimeOverrides{
+			LoadInterval: 2 * time.Minute, // Use default value
+		},
+	}
 
 	// Create context with cancellation
 	ctx, cancel := context.WithCancel(context.Background())
@@ -196,6 +204,13 @@ func TestModule_CollectAndUploadPeriodically_StopSignal(t *testing.T) {
 	logger.SetOutput(os.Stdout)
 	mod.logger = logger
 	mod.interval = 100 * time.Millisecond // Short interval for testing
+
+	// Set up config with proper RuntimeOverrides to prevent panic
+	mod.config = config.Config{
+		RuntimeOverrides: config.RuntimeOverrides{
+			LoadInterval: 2 * time.Minute, // Use default value
+		},
+	}
 
 	// Start the periodic collection in a goroutine
 	done := make(chan struct{})
@@ -515,6 +530,9 @@ func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
 			ScrapeInterval: runtime.NewDynamicValue(10 * time.Millisecond),
 			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
+		RuntimeOverrides: config.RuntimeOverrides{
+			LoadInterval: 2 * time.Minute, // Use default value
+		},
 	}
 	mod.config = testConfig
 	mod.bucketName = "bucket1"
@@ -555,4 +573,46 @@ func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
 	assert.Equal(t, "bucket2", mod.bucketName)
 	assert.Equal(t, "prefix2", mod.prefix)
 	assert.Equal(t, 20*time.Millisecond, mod.interval)
+}
+
+// TestModule_ZeroIntervalProtection tests that the module handles zero intervals gracefully
+func TestModule_ZeroIntervalProtection(t *testing.T) {
+	mod := New()
+	logger := logrus.New()
+	logger.SetOutput(os.Stdout)
+	mod.logger = logger
+	mod.interval = 0 // Set invalid interval
+
+	// Set up config with zero runtime overrides interval
+	mod.config = config.Config{
+		RuntimeOverrides: config.RuntimeOverrides{
+			LoadInterval: 0, // Invalid interval
+		},
+	}
+
+	// This should not panic and should use default values
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start the periodic collection in a goroutine
+	done := make(chan struct{})
+	go func() {
+		mod.collectAndUploadPeriodically(ctx)
+		close(done)
+	}()
+
+	// Cancel context after a short delay
+	time.Sleep(50 * time.Millisecond)
+	cancel()
+
+	// Wait for goroutine to finish
+	select {
+	case <-done:
+		// Success - goroutine exited without panic
+	case <-time.After(1 * time.Second):
+		t.Fatal("Goroutine did not exit within timeout")
+	}
+
+	// Verify that the interval was set to a valid value
+	assert.Greater(t, mod.interval, time.Duration(0))
 }

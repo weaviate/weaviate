@@ -33,10 +33,11 @@ import (
 )
 
 const (
-	Name                      = "usage-gcs"
-	DefaultCollectionInterval = 1 * time.Hour
-	DefaultJitterInterval     = 30 * time.Second
-	DefaultVersion            = "2025-06-01" // TODO: update this to the actual version
+	Name                       = "usage-gcs"
+	DefaultCollectionInterval  = 1 * time.Hour
+	DefaultJitterInterval      = 30 * time.Second
+	DefaultVersion             = "2025-06-01" // TODO: update this to the actual version
+	DefaultRuntimeLoadInterval = 2 * time.Minute
 )
 
 // module handles collecting and uploading usage metrics
@@ -199,8 +200,21 @@ func (m *module) verifyBucketPermissions(ctx context.Context) error {
 }
 
 func (m *module) collectAndUploadPeriodically(ctx context.Context) {
+	// Validate intervals before creating tickers
+	if m.interval <= 0 {
+		m.logger.Warn("Invalid collection interval (<= 0), using default of 1 hour")
+		m.interval = DefaultCollectionInterval
+	}
+
+	loadInterval := m.config.RuntimeOverrides.LoadInterval
+	if loadInterval <= 0 {
+		m.logger.Warn("Invalid runtime overrides load interval (<= 0), using default of 2 minutes")
+		loadInterval = DefaultRuntimeLoadInterval
+	}
+
 	m.logger.WithFields(logrus.Fields{
 		"base_interval":  m.interval,
+		"load_interval":  loadInterval,
 		"default_jitter": DefaultJitterInterval,
 	}).Debug("starting periodic collection with ticker")
 
@@ -208,7 +222,7 @@ func (m *module) collectAndUploadPeriodically(ctx context.Context) {
 	ticker := time.NewTicker(m.interval)
 	defer ticker.Stop()
 
-	loadTicker := time.NewTicker(m.config.RuntimeOverrides.LoadInterval)
+	loadTicker := time.NewTicker(loadInterval)
 	defer loadTicker.Stop()
 
 	m.logger.WithFields(logrus.Fields{
@@ -343,6 +357,11 @@ func (m *module) reloadConfig(ticker *time.Ticker) {
 		}).Info("collection interval updated")
 		m.interval = interval
 		// Reset ticker with new interval
+		ticker.Reset(m.interval)
+	} else if interval <= 0 && m.interval <= 0 {
+		// If both old and new intervals are invalid, set a default
+		m.logger.Warn("Invalid interval detected during reload, using default of 1 hour")
+		m.interval = DefaultCollectionInterval
 		ticker.Reset(m.interval)
 	}
 
