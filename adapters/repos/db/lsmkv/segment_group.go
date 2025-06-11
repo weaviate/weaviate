@@ -676,16 +676,15 @@ func (sg *SegmentGroup) roaringSetGet(key []byte) (out roaringset.BitmapLayers, 
 	i := 0
 	for ; i < ln; i++ {
 		layer, layerRelease, err := segments[i].roaringSetGet(key, bitmapBufPool)
-		if err != nil {
-			if errors.Is(err, lsmkv.NotFound) {
-				continue
-			}
+		if err == nil {
+			out = append(out, layer)
+			release = layerRelease
+			i++
+			break
+		}
+		if !errors.Is(err, lsmkv.NotFound) {
 			return nil, noopRelease, err
 		}
-		out = append(out, layer)
-		release = layerRelease
-		i++
-		break
 	}
 	defer func() {
 		if err != nil {
