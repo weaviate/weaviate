@@ -59,8 +59,11 @@ type Bucket struct {
 	rootDir  string
 	active   *Memtable
 	flushing *Memtable
-	disk     *SegmentGroup
-	logger   logrus.FieldLogger
+
+	flushAndSwitchLock sync.Mutex
+
+	disk   *SegmentGroup
+	logger logrus.FieldLogger
 
 	// Lock() means a move from active to flushing is happening, RLock() is
 	// normal operation
@@ -1396,6 +1399,9 @@ func (b *Bucket) isReadOnly() bool {
 // calling, but there are some situations where this might be intended, such as
 // in test scenarios or when a force flush is desired.
 func (b *Bucket) FlushAndSwitch() error {
+	b.flushAndSwitchLock.Lock()
+	defer b.flushAndSwitchLock.Unlock()
+
 	before := time.Now()
 	var err error
 
