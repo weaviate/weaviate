@@ -29,6 +29,7 @@ import (
 type backupHandlers struct {
 	manager             *ubak.Scheduler
 	metricRequestsTotal restApiRequestsTotal
+	logger 			logrus.FieldLogger
 }
 
 // compressionFromBCfg transforms model backup config to a backup compression config
@@ -201,6 +202,10 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
+		s.logger.WithError(err).WithField("id", params.ID).
+			WithField("backend", params.Backend).
+			WithField("bucket", bucket).WithField("path", path).
+			Warn("failed to restore backup")
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
@@ -322,7 +327,7 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 func setupBackupHandlers(api *operations.WeaviateAPI,
 	scheduler *ubak.Scheduler, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
-	h := &backupHandlers{scheduler, newBackupRequestsTotal(metrics, logger)}
+	h := &backupHandlers{scheduler, newBackupRequestsTotal(metrics, logger), logger}
 	api.BackupsBackupsCreateHandler = backups.
 		BackupsCreateHandlerFunc(h.createBackup)
 	api.BackupsBackupsCreateStatusHandler = backups.

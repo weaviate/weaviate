@@ -19,6 +19,7 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/authz"
+	"github.com/weaviate/weaviate/client/backups"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -129,6 +130,8 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		require.Equal(t, *roles[0].Name, testRoleName)
 	})
 
+	time.Sleep(2 * time.Second) // wait for the backup to be fully processed
+
 	t.Run("Backup and restore without roles", func(t *testing.T) {
 		backupID := "backup-2"
 
@@ -156,6 +159,11 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		restoreConf := helper.DefaultRestoreConfig()
 		restoreConf.RolesOptions = &noRestore
 		respR, err := helper.RestoreBackupWithAuthz(t, restoreConf, par.Class, backend, backupID, map[string]string{}, helper.CreateAuth(adminKey))
+		if err != nil {
+			n := err.(interface{})
+			e := n.(*backups.BackupsRestoreUnprocessableEntity)
+			fmt.Printf("Full error restoring backup:  %+v | %+v | %+v \n", e.GetPayload().Error, e.GetPayload().Error, e.Payload)
+		}
 		require.Nil(t, err)
 		require.NotNil(t, respR.Payload)
 		require.Equal(t, "", respR.Payload.Error)
