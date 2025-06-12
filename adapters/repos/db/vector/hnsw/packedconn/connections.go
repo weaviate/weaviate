@@ -6,14 +6,14 @@ import (
 )
 
 const (
-	InitialCapacity = 16
+	InitialCapacity    = 16
+	DefaultMaxCapacity = 64
 	// Simple encoding schemes - trade some compression for speed
-	SCHEME_1BYTE = 0 // 1 byte per value (0-255)
-	SCHEME_2BYTE = 1 // 2 bytes per value (0-65535)
-	SCHEME_3BYTE = 2 // 3 bytes per value (0-16777215)
-	SCHEME_4BYTE = 3 // 4 bytes per value (0-4294967295)
-	SCHEME_5BYTE = 4 // 5 bytes per value (0-1099511627775)
-	SCHEME_8BYTE = 5 // 8 bytes per value (full uint64)
+	SCHEME_2BYTE = 0 // 2 bytes per value (0-65535)
+	SCHEME_3BYTE = 1 // 3 bytes per value (0-16777215)
+	SCHEME_4BYTE = 2 // 4 bytes per value (0-4294967295)
+	SCHEME_5BYTE = 3 // 5 bytes per value (0-1099511627775)
+	SCHEME_8BYTE = 4 // 8 bytes per value (full uint64)
 )
 
 type LayerData struct {
@@ -132,7 +132,7 @@ func (c *Connections) GrowLayersTo(newLayers uint8) {
 // determineOptimalScheme analyzes values to pick the most efficient encoding
 func determineOptimalScheme(values []uint64) uint8 {
 	if len(values) == 0 {
-		return SCHEME_1BYTE
+		return SCHEME_2BYTE
 	}
 
 	maxVal := uint64(0)
@@ -142,9 +142,7 @@ func determineOptimalScheme(values []uint64) uint8 {
 		}
 	}
 
-	if maxVal <= 255 {
-		return SCHEME_1BYTE
-	} else if maxVal <= 65535 {
+	if maxVal <= 65535 {
 		return SCHEME_2BYTE
 	} else if maxVal <= 16777215 {
 		return SCHEME_3BYTE
@@ -159,13 +157,6 @@ func determineOptimalScheme(values []uint64) uint8 {
 // encodeValues encodes values using the specified scheme
 func encodeValues(values []uint64, scheme uint8) []byte {
 	switch scheme {
-	case SCHEME_1BYTE:
-		data := make([]byte, len(values))
-		for i, val := range values {
-			data[i] = byte(val)
-		}
-		return data
-
 	case SCHEME_2BYTE:
 		data := make([]byte, len(values)*2)
 		for i, val := range values {
@@ -223,11 +214,6 @@ func encodeValues(values []uint64, scheme uint8) []byte {
 //go:inline
 func decodeInto(data []byte, scheme uint8, count uint32, result []uint64) {
 	switch scheme {
-	case SCHEME_1BYTE:
-		for i := uint32(0); i < count; i++ {
-			result[i] = uint64(data[i])
-		}
-
 	case SCHEME_2BYTE:
 		for i := uint32(0); i < count; i++ {
 			result[i] = uint64(data[i*2]) | uint64(data[i*2+1])<<8
@@ -348,8 +334,6 @@ func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 
 	var bytesNeeded int
 	switch scheme {
-	case SCHEME_1BYTE:
-		bytesNeeded = 1
 	case SCHEME_2BYTE:
 		bytesNeeded = 2
 	case SCHEME_3BYTE:
@@ -364,31 +348,29 @@ func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 		bytesNeeded = 8 // Safe fallback
 	}
 
-	// Ensure we have enough capacity - grow more conservatively than Go's default doubling
-	if len(layerData.data)+bytesNeeded > cap(layerData.data) {
+	// Smart capacity management in limits - grow more conservatively than Go's default doubling
+	if len(layerData.data)+bytesNeeded > cap(layerData.data) && len(layerData.data)+bytesNeeded <= DefaultMaxCapacity*bytesNeeded {
+
 		currentLen := len(layerData.data)
+		// We can assume this due to previous check
+		maxCapacity := DefaultMaxCapacity * bytesNeeded
 
-		// Calculate max possible capacity based on 64 connections limit
-		// Each connection uses bytesNeeded bytes
-		maxCapacity := 64 * bytesNeeded
-
-		// Use growth strategy based on quantile data
+		// Use growth strategy based on quantile data from real world data
 		// p25=0.39, p50=0.52, p75=0.69, p90=0.84, p95=0.92, p99=0.98
 		ratio := float64(currentLen) / float64(maxCapacity)
 		var target int
 
 		switch {
-		case ratio < 0.25: // Start with smaller step
+		case ratio < 0.25:
 			target = int(0.25 * float64(maxCapacity))
-		case ratio < 0.52: // p50
+		case ratio < 0.52:
 			target = int(0.52 * float64(maxCapacity))
-		case ratio < 0.84: // p90
+		case ratio < 0.84:
 			target = int(0.84 * float64(maxCapacity))
 		default:
 			target = maxCapacity
 		}
 
-		// Handle rounding errors and ensure we have at least the needed capacity
 		if target < currentLen+bytesNeeded {
 			target = currentLen + bytesNeeded
 		}
@@ -404,9 +386,6 @@ func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 	}
 
 	switch scheme {
-	case SCHEME_1BYTE:
-		layerData.data = append(layerData.data, byte(conn))
-
 	case SCHEME_2BYTE:
 		layerData.data = append(layerData.data,
 			byte(conn),
