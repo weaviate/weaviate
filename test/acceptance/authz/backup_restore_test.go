@@ -13,6 +13,7 @@ package authz
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -23,6 +24,23 @@ import (
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+)
+
+const (
+	envMinioEndpoint = "MINIO_ENDPOINT"
+	envAwsRegion     = "AWS_REGION"
+	envS3AccessKey   = "AWS_ACCESS_KEY_ID"
+	envS3SecretKey   = "AWS_SECRET_KEY"
+	envS3Bucket      = "BACKUP_S3_BUCKET"
+	envS3Endpoint    = "BACKUP_S3_ENDPOINT"
+	envS3UseSSL      = "BACKUP_S3_USE_SSL"
+
+	s3BackupJourneyClassName          = "S3Backup"
+	s3BackupJourneyBackupIDSingleNode = "s3-backup-single-node"
+	s3BackupJourneyBackupIDCluster    = "s3-backup-cluster"
+	s3BackupJourneyRegion             = "eu-west-1"
+	s3BackupJourneyAccessKey          = "aws_access_key"
+	s3BackupJourneySecretKey          = "aws_secret_key"
 )
 
 func TestBackupAndRestoreRBAC(t *testing.T) {
@@ -39,7 +57,8 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "custom-key").
 		WithRBAC().WithRbacAdmins(adminUser).WithDbUsers().
-		WithBackendFilesystem().
+		WithBackendS3("bucket", s3BackupJourneyRegion).
+		WithWeaviateCluster(3).
 		Start(ctx)
 	require.Nil(t, err)
 	defer func() {
@@ -51,7 +70,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 	helper.SetupClient(compose.GetWeaviate().URI())
 	defer helper.ResetClient()
 
-	backend := "filesystem"
+	backend := "s3"
 	testRoleName := "testRole"
 	testCollectionName := "TestCollection"
 

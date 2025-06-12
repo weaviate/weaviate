@@ -333,8 +333,6 @@ func (m *Manager) Restore(b []byte) error {
 		return nil
 	}
 
-
-
 	snapshot := snapshot{}
 	if err := json.Unmarshal(b, &snapshot); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
