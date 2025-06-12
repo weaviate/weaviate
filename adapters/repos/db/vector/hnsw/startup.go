@@ -207,20 +207,22 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 		} else if state.CompressionRQData != nil {
 			data := state.CompressionRQData
 			if !h.multivector.Load() || h.muvera.Load() {
-				h.compressor, err = compressionhelpers.RestoreRQCompressor(
-					h.distancerProvider,
-					1e12,
-					h.logger,
-					int(data.InputDim),
-					int(data.DataBits),
-					int(data.QueryBits),
-					int(data.Rotation.OutputDim),
-					int(data.Rotation.Rounds),
-					data.Rotation.Swaps,
-					data.Rotation.Signs,
-					h.store,
-					h.allocChecker,
-				)
+				h.trackRQOnce.Do(func() {
+					h.compressor, err = compressionhelpers.RestoreRQCompressor(
+						h.distancerProvider,
+						1e12,
+						h.logger,
+						int(data.InputDim),
+						int(data.DataBits),
+						int(data.QueryBits),
+						int(data.Rotation.OutputDim),
+						int(data.Rotation.Rounds),
+						data.Rotation.Swaps,
+						data.Rotation.Signs,
+						h.store,
+						h.allocChecker,
+					)
+				})
 			} else {
 				panic("Restore RQ Compressor for multi vector not implemented")
 			}
