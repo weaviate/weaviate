@@ -290,6 +290,7 @@ func (u *uploader) releaseIndexes(classes []string, ID string) {
 // class uploads one class
 // Returns the number of bytes written for this class
 func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (int64, error) {
+	var err error
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
@@ -395,7 +396,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 		desc.Chunks[x.chunk] = x.shards
 		desc.PreCompressionSizeBytes += x.preCompressionSize
 	}
-	return desc.PreCompressionSizeBytes, nil
+	return desc.PreCompressionSizeBytes, err
 }
 
 type chuckShards struct {
@@ -465,10 +466,10 @@ func (u *uploader) compress(ctx context.Context,
 // the size of files on disk, not in-memory data.
 func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescriptor) int64 {
 	var totalSize int64
-
+	sourceDataPath := u.backend.SourceDataPath()
 	// Add size of files on disk (in-memory data is flushed to disk during backup preparation)
 	for _, filePath := range shard.Files {
-		fullPath := filepath.Join(u.backend.SourceDataPath(), filePath)
+		fullPath := filepath.Join(sourceDataPath, filePath)
 		if info, err := os.Stat(fullPath); err == nil {
 			totalSize += info.Size()
 		}
@@ -492,7 +493,7 @@ func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescripto
 		"filesCount":     len(shard.Files),
 		"metadataSize":   metadataSize,
 		"totalSize":      totalSize,
-		"sourceDataPath": u.backend.SourceDataPath(),
+		"sourceDataPath": sourceDataPath,
 	}).Debug("calculated pre-compression size for shard")
 
 	return totalSize
