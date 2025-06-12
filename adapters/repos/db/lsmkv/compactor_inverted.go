@@ -32,8 +32,8 @@ import (
 type compactorInverted struct {
 	// c1 is always the older segment, so when there is a conflict c2 wins
 	// (because of the replace strategy)
-	c1 *segmentCursorInvertedReusable
-	c2 *segmentCursorInvertedReusable
+	c1 *segmentCursorInvertedReusableWithCache
+	c2 *segmentCursorInvertedReusableWithCache
 
 	// the level matching those of the cursors
 	currentLevel        uint16
@@ -65,7 +65,7 @@ type compactorInverted struct {
 }
 
 func newCompactorInverted(w io.WriteSeeker,
-	c1, c2 *segmentCursorInvertedReusable, level, secondaryIndexCount uint16,
+	c1, c2 *segmentCursorInvertedReusableWithCache, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
 	k1, b, avgPropLen float64,
 ) *compactorInverted {

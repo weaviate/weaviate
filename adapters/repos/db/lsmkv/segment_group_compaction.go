@@ -332,8 +332,8 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		}
 
 		c := newCompactorInverted(f,
-			leftSegment.newInvertedCursorReusable(),
-			rightSegment.newInvertedCursorReusable(),
+			leftSegment.newInvertedCursorReusableWithCache(),
+			rightSegment.newInvertedCursorReusableWithCache(),
 			level, secondaryIndices, scratchSpacePath, cleanupTombstones, k1, b, avgPropLen)
 
 		if sg.metrics != nil {
