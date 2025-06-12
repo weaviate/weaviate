@@ -18,6 +18,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/sirupsen/logrus"
@@ -34,31 +35,38 @@ const (
 	SnapshotVersionLatest
 )
 
-type manager struct {
-	casbin    *casbin.SyncedCachedEnforcer
-	logger    logrus.FieldLogger
-	authNconf config.Authentication
+type Manager struct {
+	backupLock *sync.RWMutex
+	casbin     *casbin.SyncedCachedEnforcer
+	logger     logrus.FieldLogger
+	authNconf  config.Authentication
 }
 
-func New(rbacStoragePath string, rbac rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*manager, error) {
+func New(rbacStoragePath string, rbac rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*Manager, error) {
 	csbin, err := Init(rbac, rbacStoragePath, authNconf)
 	if err != nil {
 		return nil, err
 	}
 
-	return &manager{csbin, logger, authNconf}, nil
+	return &Manager{&sync.RWMutex{}, csbin, logger, authNconf}, nil
 }
 
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
-func (m *manager) UpdateRolesPermissions(roles map[string][]authorization.Policy) error {
+func (m *Manager) UpdateRolesPermissions(roles map[string][]authorization.Policy) error {
+	m.backupLock.RLock()
+	defer m.backupLock.RUnlock()
+
 	return m.upsertRolesPermissions(roles)
 }
 
-func (m *manager) CreateRolesPermissions(roles map[string][]authorization.Policy) error {
+func (m *Manager) CreateRolesPermissions(roles map[string][]authorization.Policy) error {
+	m.backupLock.RLock()
+	defer m.backupLock.RUnlock()
+
 	return m.upsertRolesPermissions(roles)
 }
 
-func (m *manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
+func (m *Manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
 		// e.g. : g, user:wv_internal_empty, role:roleName
@@ -80,7 +88,10 @@ func (m *manager) upsertRolesPermissions(roles map[string][]authorization.Policy
 	return nil
 }
 
-func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
+func (m *Manager) GetRoles(names ...string) (map[string][]authorization.Policy, error) {
+	m.backupLock.RLock()
+	defer m.backupLock.RUnlock()
+
 	var (
 		casbinStoragePolicies    [][][]string
 		casbinStoragePoliciesMap = make(map[string]struct{})
@@ -131,7 +142,10 @@ func (m *manager) GetRoles(names ...string) (map[string][]authorization.Policy, 
 	return policies, nil
 }
 
-func (m *manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
+func (m *Manager) RemovePermissions(roleName string, permissions []*authorization.Policy) error {
+	m.backupLock.RLock()
+	defer m.backupLock.RUnlock()
+
 	for _, permission := range permissions {
 		ok, err := m.casbin.RemoveNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
 		if err != nil {
@@ -150,7 +164,10 @@ func (m *manager) RemovePermissions(roleName string, permissions []*authorizatio
 	return nil
 }
 
-func (m *manager) HasPermission(roleName string, permission *authorization.Policy) (bool, error) {
+func (m *Manager) HasPermission(roleName string, permission *authorization.Policy) (bool, error) {
+	m.backupLock.RLock()
+	defer m.backupLock.RUnlock()
+
 	policy, err := m.casbin.HasNamedPolicy("p", conv.PrefixRoleName(roleName), permission.Resource, permission.Verb, permission.Domain)
 	if err != nil {
 		return false, fmt.Errorf("HasNamedPolicy: %w", err)
@@ -158,7 +175,10 @@ func (m *manager) HasPermission(roleName string, permission *authorization.Polic
 	return policy, nil
 }
 
-func (m *manager) DeleteRoles(roles ...string) error {
+func (m *Manager) DeleteRoles(roles ...string) error {
+	m.backupLock.RLock()
+	defer m.backupLock.RUnlock()
+
 	for _, roleName := range roles {
 		// remove role
 		roleRemoved, err := m.casbin.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(roleName))
@@ -186,7 +206,10 @@ func (m *manager) DeleteRoles(roles ...string) error {
 
 // AddRolesFroUser NOTE: user has to be prefixed by user:, group:, key: etc.
 // see func PrefixUserName(user) it will prefix username and nop-op if already prefixed
-func (m *manager) AddRolesForUser(user string, roles []string) error {
+func (m *Manager) AddRolesForUser(user string, roles []string) error {
+	m.backupLock.RLock()
+	defer m.backupLock.RUnlock()
+
 	if !conv.NameHasPrefix(user) {
 		return errors.New("user does not contain a prefix")
 	}
@@ -205,7 +228,10 @@ func (m *manager) AddRolesForUser(user string, roles []string) error {
 	return nil
 }
 
-func (m *manager) GetRolesForUser(userName string, userType models.UserTypeInput) (map[string][]authorization.Policy, error) {
+func (m *Manager) GetRolesForUser(userName string, userType models.UserTypeInput) (map[string][]authorization.Policy, error) {
+	m.backupLock.RLock()
+	defer m.backupLock.RUnlock()
+
 	rolesNames, err := m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
 	if err != nil {
 		return nil, fmt.Errorf("GetRolesForUser: %w", err)
@@ -220,7 +246,10 @@ func (m *manager) GetRolesForUser(userName string, userType models.UserTypeInput
 	return roles, err
 }
 
-func (m *manager) GetUsersForRole(roleName string, userType models.UserTypeInput) ([]string, error) {
+func (m *Manager) GetUsersForRole(roleName string, userType models.UserTypeInput) ([]string, error) {
+	m.backupLock.RLock()
+	defer m.backupLock.RUnlock()
+
 	pusers, err := m.casbin.GetUsersForRole(conv.PrefixRoleName(roleName))
 	if err != nil {
 		return nil, fmt.Errorf("GetUsersForRole: %w", err)
@@ -239,7 +268,10 @@ func (m *manager) GetUsersForRole(roleName string, userType models.UserTypeInput
 	return users, nil
 }
 
-func (m *manager) RevokeRolesForUser(userName string, roles ...string) error {
+func (m *Manager) RevokeRolesForUser(userName string, roles ...string) error {
+	m.backupLock.RLock()
+	defer m.backupLock.RUnlock()
+
 	if !conv.NameHasPrefix(userName) {
 		return errors.New("user does not contain a prefix")
 	}
@@ -265,7 +297,11 @@ type snapshot struct {
 	Version        int        `json:"version"`
 }
 
-func (m *manager) Snapshot() ([]byte, error) {
+func (m *Manager) Snapshot() ([]byte, error) {
+	// snapshot isn't always initialized, e.g. when RBAC is disabled
+	if m == nil {
+		return []byte{}, nil
+	}
 	if m.casbin == nil {
 		return nil, nil
 	}
@@ -287,14 +323,13 @@ func (m *manager) Snapshot() ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-func (m *manager) Restore(b []byte) error {
-	if m.casbin == nil {
-		return nil
-	}
-
+func (m *Manager) Restore(b []byte) error {
 	// don't overwrite with empty snapshot to avoid overwriting recovery from file
 	// with a non-existent RBAC snapshot when coming from old versions
-	if len(b) == 0 {
+	if m == nil || len(b) == 0 {
+		return nil
+	}
+	if m.casbin == nil {
 		return nil
 	}
 
@@ -343,7 +378,7 @@ func (m *manager) Restore(b []byte) error {
 // w.r.t.
 // source code https://github.com/casbin/casbin/blob/master/enforcer.go#L872
 // issue https://github.com/casbin/casbin/issues/710
-func (m *manager) checkPermissions(principal *models.Principal, resource, verb string) (bool, error) {
+func (m *Manager) checkPermissions(principal *models.Principal, resource, verb string) (bool, error) {
 	// first check group permissions
 	for _, group := range principal.Groups {
 		allowed, err := m.casbin.Enforce(conv.PrefixGroupName(group), resource, verb)
