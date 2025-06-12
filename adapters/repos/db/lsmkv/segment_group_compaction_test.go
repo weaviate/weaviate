@@ -2358,10 +2358,6 @@ func runCompactionCandidatesTestCases(t *testing.T, testCases []testCaseCompacti
 			}
 		})
 
-		for i, seg := range sg.segments {
-			fmt.Printf("[%d]: path [%s] level [%d] size [%d]\n", i, seg.path, seg.level, seg.size)
-		}
-		fmt.Println()
 	}
 }
 
