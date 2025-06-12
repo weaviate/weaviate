@@ -828,20 +828,11 @@ func TestCondensorWithMUVERAInformation(t *testing.T) {
 	})
 }
 
-func (h *hnsw) ClearConnectionBuff() {
-	for _, v := range h.nodes {
-		v.connections.ClearBuff()
-	}
-}
-
 func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,
 	fileNames []string,
 ) {
 	control := readFromCommitLogs(t, fileNameControl)
 	actual := readFromCommitLogs(t, fileNames...)
-
-	control.ClearConnectionBuff()
-	actual.ClearConnectionBuff()
 
 	assert.Equal(t, control, actual)
 }
