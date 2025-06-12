@@ -226,8 +226,7 @@ func (_c *MockNodeResolver_NodeHostname_Call) RunAndReturn(run func(string) (str
 func NewMockNodeResolver(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockNodeResolver {
+}) *MockNodeResolver {
 	mock := &MockNodeResolver{}
 	mock.Mock.Test(t)
 
