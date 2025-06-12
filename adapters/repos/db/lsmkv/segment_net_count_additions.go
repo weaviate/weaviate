@@ -127,7 +127,7 @@ func storeCountNetOnDisk(path string, value int, observeWrite diskio.MeteredWrit
 }
 
 func (s *segment) loadCountNetFromDisk() error {
-	data, err := loadWithChecksum(s.countNetPath(), 12)
+	data, err := loadWithChecksum(s.countNetPath(), 12, s.metrics.ReadObserver("netAdditions"))
 	if err != nil {
 		return err
 	}
