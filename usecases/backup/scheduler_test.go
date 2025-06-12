@@ -329,6 +329,7 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs.client.On("Commit", any, node, sReq).Return(nil)
 		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
 		fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
+		fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil, backup.ErrNotFound{})
 		m := fs.scheduler()
 		resp1, err := m.Backup(ctx, nil, &req1)
 		assert.Nil(t, err)
@@ -400,6 +401,9 @@ func TestSchedulerCreateBackup(t *testing.T) {
 		fs.client.On("Commit", any, node, sReq).Return(nil)
 		fs.client.On("Status", any, node, sReq).Return(sresp, nil)
 		fs.backend.On("PutObject", any, backupID, GlobalBackupFile, any).Return(nil).Twice()
+		bytes := marshalMeta(backup.BackupDescriptor{Status: string(backup.Success)})
+		fs.backend.On("GetObject", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(bytes, nil)
+
 		s := fs.scheduler()
 		resp, err := s.Backup(ctx, nil, &req)
 		assert.Nil(t, err)
@@ -419,8 +423,8 @@ func TestSchedulerCreateBackup(t *testing.T) {
 				break
 			}
 		}
-		assert.Equal(t, fs.backend.glMeta.Status, backup.Success)
-		assert.Equal(t, fs.backend.glMeta.Error, "")
+		assert.Equal(t, backup.Success, fs.backend.glMeta.Status)
+		assert.Equal(t, "", fs.backend.glMeta.Error)
 	})
 }
 
