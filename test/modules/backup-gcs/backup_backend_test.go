@@ -20,7 +20,6 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -284,10 +283,6 @@ func (f *fakeModuleParams) GetLogger() logrus.FieldLogger {
 
 func (f *fakeModuleParams) GetConfig() config.Config {
 	return f.config
-}
-
-func (f *fakeModuleParams) GetMetricsRegisterer() prometheus.Registerer {
-	return prometheus.NewPedanticRegistry()
 }
 
 type fakeStorageProvider struct {

@@ -13,12 +13,14 @@ package modtransformers
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -26,7 +28,6 @@ import (
 	"github.com/weaviate/weaviate/modules/text2vec-transformers/clients"
 	"github.com/weaviate/weaviate/modules/text2vec-transformers/vectorizer"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 )
 
 const Name = "text2vec-transformers"
@@ -133,6 +134,11 @@ func (m *TransformersModule) initVectorizer(ctx context.Context, timeout time.Du
 
 func (m *TransformersModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
+	return nil
+}
+
+func (m *TransformersModule) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
 	return nil
 }
 

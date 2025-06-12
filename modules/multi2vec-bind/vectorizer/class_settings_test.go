@@ -9,13 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer_test
+package vectorizer
 
 import (
 	"encoding/json"
 	"testing"
-
-	"github.com/weaviate/weaviate/modules/multi2vec-bind/vectorizer"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
@@ -217,7 +215,7 @@ func Test_classSettings_Validate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ic := vectorizer.NewClassSettings(tt.fields.cfg)
+			ic := NewClassSettings(tt.fields.cfg)
 			if err := ic.Validate(); (err != nil) != tt.wantErr {
 				t.Errorf("classSettings.Validate() error = %v, wantErr %v", err, tt.wantErr)
 			}

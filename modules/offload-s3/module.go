@@ -14,6 +14,7 @@ package modsloads3
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -212,6 +213,10 @@ func (m *Module) Init(ctx context.Context,
 		s3Bucket:                m.Bucket,
 		"PERSISTENCE_DATA_PATH": m.DataPath,
 	}).Info("offload module loaded")
+	return nil
+}
+
+func (m *Module) RootHandler() http.Handler {
 	return nil
 }
 

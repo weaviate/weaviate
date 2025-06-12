@@ -13,6 +13,7 @@ package modgenerativexai
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 
@@ -67,6 +68,11 @@ func (m *GenerativeXaiModule) initAdditional(ctx context.Context, timeout time.D
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
 
+	return nil
+}
+
+func (m *GenerativeXaiModule) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
 	return nil
 }
 

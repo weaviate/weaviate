@@ -15,7 +15,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"math/rand"
 	"slices"
 	"strings"
 	"time"
@@ -35,12 +34,12 @@ import (
 )
 
 var (
-	// MsgCLevel consistency level cannot be achieved
-	MsgCLevel = "cannot achieve consistency level"
+	// msgCLevel consistency level cannot be achieved
+	msgCLevel = "cannot achieve consistency level"
 
-	ErrReplicas = errors.New("cannot reach enough replicas")
-	ErrRepair   = errors.New("read repair error")
-	ErrRead     = errors.New("read error")
+	errReplicas = errors.New("cannot reach enough replicas")
+	errRepair   = errors.New("read repair error")
+	errRead     = errors.New("read error")
 
 	ErrNoDiffFound = errors.New("no diff found")
 )
@@ -69,21 +68,19 @@ type Finder struct {
 	// control the op backoffs in the coordinator's Pull
 	coordinatorPullBackoffInitialInterval time.Duration
 	coordinatorPullBackoffMaxElapsedTime  time.Duration
-
-	rand *rand.Rand // random number generator for shufflings
 }
 
 // NewFinder constructs a new finder instance
 func NewFinder(className string,
 	router router,
 	nodeName string,
-	client RClient,
+	client rClient,
 	l logrus.FieldLogger,
 	coordinatorPullBackoffInitialInterval time.Duration,
 	coordinatorPullBackoffMaxElapsedTime time.Duration,
 	getDeletionStrategy func() string,
 ) *Finder {
-	cl := FinderClient{client}
+	cl := finderClient{client}
 	return &Finder{
 		router:   router,
 		nodeName: nodeName,
@@ -98,7 +95,6 @@ func NewFinder(className string,
 		},
 		coordinatorPullBackoffInitialInterval: coordinatorPullBackoffInitialInterval,
 		coordinatorPullBackoffMaxElapsedTime:  coordinatorPullBackoffMaxElapsedTime,
-		rand:                                  rand.New(rand.NewSource(time.Now().UnixNano())),
 	}
 }
 
@@ -137,12 +133,12 @@ func (f *Finder) GetOne(ctx context.Context,
 	replyCh, level, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
 	result := <-f.readOne(ctx, shard, id, replyCh, level)
 	if err = result.Err; err != nil {
-		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
-		if strings.Contains(err.Error(), ErrConflictExistOrDeleted.Error()) {
+		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		if strings.Contains(err.Error(), errConflictExistOrDeleted.Error()) {
 			err = objects.NewErrDirtyReadOfDeletedObject(err)
 		}
 	}
@@ -162,7 +158,7 @@ func (f *Finder) FindUUIDs(ctx context.Context,
 	replyCh, _, err := c.Pull(ctx, l, op, "", 30*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.one").Error(err)
-		return nil, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return nil, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
 
 	res := make(map[strfmt.UUID]struct{})
@@ -251,12 +247,12 @@ func (f *Finder) Exists(ctx context.Context,
 	replyCh, state, err := c.Pull(ctx, l, op, "", 20*time.Second)
 	if err != nil {
 		f.log.WithField("op", "pull.exist").Error(err)
-		return false, fmt.Errorf("%s %q: %w", MsgCLevel, l, ErrReplicas)
+		return false, fmt.Errorf("%s %q: %w", msgCLevel, l, errReplicas)
 	}
 	result := <-f.readExistence(ctx, shard, id, replyCh, state)
 	if err = result.Err; err != nil {
-		err = fmt.Errorf("%s %q: %w", MsgCLevel, l, err)
-		if strings.Contains(err.Error(), ErrConflictExistOrDeleted.Error()) {
+		err = fmt.Errorf("%s %q: %w", msgCLevel, l, err)
+		if strings.Contains(err.Error(), errConflictExistOrDeleted.Error()) {
 			err = objects.NewErrDirtyReadOfDeletedObject(err)
 		}
 	}
@@ -283,26 +279,26 @@ func (f *Finder) NodeObject(ctx context.Context,
 // It returns the most recent objects or and error
 func (f *Finder) checkShardConsistency(ctx context.Context,
 	l types.ConsistencyLevel,
-	batch ShardPart,
+	batch shardPart,
 ) ([]*storobj.Object, error) {
 	var (
-		c = newReadCoordinator[BatchReply](f, batch.Shard,
+		c = newReadCoordinator[batchReply](f, batch.Shard,
 			f.coordinatorPullBackoffInitialInterval, f.coordinatorPullBackoffMaxElapsedTime, f.getDeletionStrategy())
 		shard     = batch.Shard
 		data, ids = batch.Extract() // extract from current content
 	)
-	op := func(ctx context.Context, host string, fullRead bool) (BatchReply, error) {
+	op := func(ctx context.Context, host string, fullRead bool) (batchReply, error) {
 		if fullRead { // we already have the content
-			return BatchReply{Sender: host, IsDigest: false, FullData: data}, nil
+			return batchReply{Sender: host, IsDigest: false, FullData: data}, nil
 		} else {
 			xs, err := f.client.DigestReads(ctx, host, f.class, shard, ids, 0)
-			return BatchReply{Sender: host, IsDigest: true, DigestData: xs}, err
+			return batchReply{Sender: host, IsDigest: true, DigestData: xs}, err
 		}
 	}
 
 	replyCh, state, err := c.Pull(ctx, l, op, batch.Node, 20*time.Second)
 	if err != nil {
-		return nil, fmt.Errorf("pull shard: %w", ErrReplicas)
+		return nil, fmt.Errorf("pull shard: %w", errReplicas)
 	}
 	result := <-f.readBatchPart(ctx, batch, ids, replyCh, state)
 	return result.Value, result.Err
@@ -402,16 +398,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 			replicasHostAddrs = append(replicasHostAddrs, replicaHostAddr)
 		}
 	}
-
-	// shuffle the replicas to randomize the order in which we look for differences
-	if len(replicasHostAddrs) > 1 {
-		f.rand.Shuffle(len(replicasHostAddrs), func(i, j int) {
-			replicasHostAddrs[i], replicasHostAddrs[j] = replicasHostAddrs[j], replicasHostAddrs[i]
-		})
-	}
-
 	localHostAddr, _ := f.router.NodeHostname(localNodeName)
-
 	for i, targetNodeAddress := range replicasHostAddrs {
 		targetNodeName := replicaNodeNames[i]
 		if targetNodeAddress == localHostAddr {
@@ -434,7 +421,14 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		return nil, err
 	}
 
-	return &ShardDifferenceReader{}, ErrNoDiffFound
+	var targetNodeName string
+	// TODO how to get rid of len == 1 check?
+	if len(targetNodeOverrides) == 1 {
+		targetNodeName = targetNodeOverrides[0].TargetNode
+	}
+	return &ShardDifferenceReader{
+		TargetNodeName: targetNodeName,
+	}, ErrNoDiffFound
 }
 
 func (f *Finder) DigestObjectsInRange(ctx context.Context,

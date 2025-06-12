@@ -18,7 +18,6 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -272,7 +271,7 @@ func (m *ContextionaryModule) MetaInfo() (map[string]interface{}, error) {
 
 // verify we implement the modules.Module interface
 var (
-	_ = modulecapabilities.ModuleWithHTTPHandlers(New())
+	_ = modulecapabilities.Module(New())
 	_ = modulecapabilities.Vectorizer[[]float32](New())
 	_ = modulecapabilities.InputVectorizer[[]float32](New())
 )

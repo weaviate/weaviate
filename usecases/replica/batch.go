@@ -18,16 +18,16 @@ import (
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
-// IndexedBatch holds an indexed list of objects
-type IndexedBatch struct {
+// indexedBatch holds an indexed list of objects
+type indexedBatch struct {
 	Data []*storobj.Object
 	// Index is z-index used to maintain object's order
 	Index []int
 }
 
-// createBatch creates IndexedBatch from xs
-func createBatch(xs []*storobj.Object) IndexedBatch {
-	var bi IndexedBatch
+// createBatch creates indexedBatch from xs
+func createBatch(xs []*storobj.Object) indexedBatch {
+	var bi indexedBatch
 	bi.Data = xs
 	bi.Index = make([]int, len(xs))
 	for i := 0; i < len(xs); i++ {
@@ -37,13 +37,13 @@ func createBatch(xs []*storobj.Object) IndexedBatch {
 }
 
 // cluster data object by shard
-func cluster(bi IndexedBatch) []ShardPart {
+func cluster(bi indexedBatch) []shardPart {
 	index := bi.Index
 	data := bi.Data
 	sort.Slice(index, func(i, j int) bool {
 		return data[index[i]].BelongsToShard < data[index[j]].BelongsToShard
 	})
-	clusters := make([]ShardPart, 0, 16)
+	clusters := make([]shardPart, 0, 16)
 	// partition
 	cur := data[index[0]]
 	j := 0
@@ -51,7 +51,7 @@ func cluster(bi IndexedBatch) []ShardPart {
 		if data[index[i]].BelongsToShard == cur.BelongsToShard {
 			continue
 		}
-		clusters = append(clusters, ShardPart{
+		clusters = append(clusters, shardPart{
 			Shard: cur.BelongsToShard,
 			Node:  cur.BelongsToNode, Data: data,
 			Index: index[j:i],
@@ -60,7 +60,7 @@ func cluster(bi IndexedBatch) []ShardPart {
 		cur = data[index[j]]
 
 	}
-	clusters = append(clusters, ShardPart{
+	clusters = append(clusters, shardPart{
 		Shard: cur.BelongsToShard,
 		Node:  cur.BelongsToNode, Data: data,
 		Index: index[j:],
@@ -68,8 +68,8 @@ func cluster(bi IndexedBatch) []ShardPart {
 	return clusters
 }
 
-// ShardPart represents a data partition belonging to a physical shard
-type ShardPart struct {
+// shardPart represents a data partition belonging to a physical shard
+type shardPart struct {
 	Shard string // one-to-one mapping between Shard and Node
 	Node  string
 
@@ -77,7 +77,7 @@ type ShardPart struct {
 	Index []int // index for data
 }
 
-func (b *ShardPart) ObjectIDs() []strfmt.UUID {
+func (b *shardPart) ObjectIDs() []strfmt.UUID {
 	xs := make([]strfmt.UUID, len(b.Index))
 	for i, idx := range b.Index {
 		xs[i] = b.Data[idx].ID()
@@ -85,7 +85,7 @@ func (b *ShardPart) ObjectIDs() []strfmt.UUID {
 	return xs
 }
 
-func (b *ShardPart) Extract() ([]Replica, []strfmt.UUID) {
+func (b *shardPart) Extract() ([]Replica, []strfmt.UUID) {
 	xs := make([]Replica, len(b.Index))
 	ys := make([]strfmt.UUID, len(b.Index))
 

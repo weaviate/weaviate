@@ -34,15 +34,15 @@ type finderStream struct {
 type (
 	// tuple is a container for the data received from a replica
 	tuple[T any] struct {
-		Sender string
+		sender string
 		UTime  int64
-		O      T
+		o      T
 		ack    int
 		err    error
 	}
 
-	ObjTuple  tuple[Replica]
-	ObjResult = _Result[*storobj.Object]
+	objTuple  tuple[Replica]
+	objResult = _Result[*storobj.Object]
 )
 
 // readOne reads one replicated object
@@ -51,13 +51,13 @@ func (f *finderStream) readOne(ctx context.Context,
 	id strfmt.UUID,
 	ch <-chan _Result[findOneReply],
 	level int,
-) <-chan ObjResult {
+) <-chan objResult {
 	// counters tracks the number of votes for each participant
-	resultCh := make(chan ObjResult, 1)
+	resultCh := make(chan objResult, 1)
 	g := func() {
 		defer close(resultCh)
 		var (
-			votes      = make([]ObjTuple, 0, level)
+			votes      = make([]objTuple, 0, level)
 			contentIdx = -1
 		)
 
@@ -67,34 +67,34 @@ func (f *finderStream) readOne(ctx context.Context,
 				f.log.WithField("op", "get").WithField("replica", resp.sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
-				resultCh <- ObjResult{nil, ErrRead}
+				resultCh <- objResult{nil, errRead}
 				return
 			}
 			if !resp.DigestRead {
 				contentIdx = len(votes)
 			}
-			votes = append(votes, ObjTuple{resp.sender, resp.UpdateTime, resp.Data, 0, nil})
+			votes = append(votes, objTuple{resp.sender, resp.UpdateTime, resp.Data, 0, nil})
 
 			for i := range votes {
 				if votes[i].UTime != resp.UpdateTime {
-					// incomming response does not match current Vote
+					// incomming response does not match current vote
 					continue
 				}
 
 				votes[i].ack++
 
 				if votes[i].ack < level {
-					// current Vote does not have enough acks
+					// current vote does not have enough acks
 					continue
 				}
 
-				if votes[i].O.Deleted {
-					resultCh <- ObjResult{nil, nil}
+				if votes[i].o.Deleted {
+					resultCh <- objResult{nil, nil}
 					return
 				}
 				if i == contentIdx {
-					// prefetched payload matches agreed Vote
-					resultCh <- ObjResult{votes[contentIdx].O.Object, nil}
+					// prefetched payload matches agreed vote
+					resultCh <- objResult{votes[contentIdx].o.Object, nil}
 					return
 				}
 			}
@@ -102,17 +102,17 @@ func (f *finderStream) readOne(ctx context.Context,
 
 		obj, err := f.repairOne(ctx, shard, id, votes, contentIdx)
 		if err == nil {
-			resultCh <- ObjResult{obj, nil}
+			resultCh <- objResult{obj, nil}
 			return
 		}
 
-		resultCh <- ObjResult{nil, errors.Wrap(err, ErrRepair.Error())}
+		resultCh <- objResult{nil, errors.Wrap(err, errRepair.Error())}
 		var sb strings.Builder
 		for i, c := range votes {
 			if i != 0 {
 				sb.WriteByte(' ')
 			}
-			fmt.Fprintf(&sb, "%s:%d", c.Sender, c.UTime)
+			fmt.Fprintf(&sb, "%s:%d", c.sender, c.UTime)
 		}
 		f.log.WithField("op", "repair_one").WithField("class", f.class).
 			WithField("shard", shard).WithField("uuid", id).
@@ -125,15 +125,15 @@ func (f *finderStream) readOne(ctx context.Context,
 type (
 	batchResult _Result[[]*storobj.Object]
 
-	// Vote represents objects received from a specific replica and the number of votes per object.
-	Vote struct {
-		BatchReply       // reply from a replica
+	// vote represents objects received from a specific replica and the number of votes per object.
+	vote struct {
+		batchReply       // reply from a replica
 		Count      []int // number of votes per object
 		Err        error
 	}
 )
 
-type BoolTuple tuple[types.RepairResponse]
+type boolTuple tuple[types.RepairResponse]
 
 // readExistence checks if replicated object exists
 func (f *finderStream) readExistence(ctx context.Context,
@@ -145,7 +145,7 @@ func (f *finderStream) readExistence(ctx context.Context,
 	resultCh := make(chan _Result[bool], 1)
 	g := func() {
 		defer close(resultCh)
-		votes := make([]BoolTuple, 0, level) // number of votes per replica
+		votes := make([]boolTuple, 0, level) // number of votes per replica
 
 		for r := range ch { // len(ch) == st.Level
 			resp := r.Value
@@ -153,26 +153,26 @@ func (f *finderStream) readExistence(ctx context.Context,
 				f.log.WithField("op", "exists").WithField("replica", resp.Sender).
 					WithField("class", f.class).WithField("shard", shard).
 					WithField("uuid", id).Error(r.Err)
-				resultCh <- _Result[bool]{false, ErrRead}
+				resultCh <- _Result[bool]{false, errRead}
 				return
 			}
 
-			votes = append(votes, BoolTuple{resp.Sender, resp.UpdateTime, resp.RepairResponse, 0, nil})
+			votes = append(votes, boolTuple{resp.Sender, resp.UpdateTime, resp.RepairResponse, 0, nil})
 
 			for i := range votes { // count number of votes
 				if votes[i].UTime != resp.UpdateTime {
-					// incomming response does not match current Vote
+					// incomming response does not match current vote
 					continue
 				}
 
 				votes[i].ack++
 
 				if votes[i].ack < level {
-					// current Vote does not have enough acks
+					// current vote does not have enough acks
 					continue
 				}
 
-				exists := !votes[i].O.Deleted && votes[i].O.UpdateTime != 0
+				exists := !votes[i].o.Deleted && votes[i].o.UpdateTime != 0
 				resultCh <- _Result[bool]{exists, nil}
 				return
 			}
@@ -183,14 +183,14 @@ func (f *finderStream) readExistence(ctx context.Context,
 			resultCh <- _Result[bool]{obj, nil}
 			return
 		}
-		resultCh <- _Result[bool]{false, errors.Wrap(err, ErrRepair.Error())}
+		resultCh <- _Result[bool]{false, errors.Wrap(err, errRepair.Error())}
 
 		var sb strings.Builder
 		for i, c := range votes {
 			if i != 0 {
 				sb.WriteByte(' ')
 			}
-			fmt.Fprintf(&sb, "%s:%d", c.Sender, c.UTime)
+			fmt.Fprintf(&sb, "%s:%d", c.sender, c.UTime)
 		}
 		f.log.WithField("op", "repair_exist").WithField("class", f.class).
 			WithField("shard", shard).WithField("uuid", id).
@@ -203,9 +203,9 @@ func (f *finderStream) readExistence(ctx context.Context,
 // readBatchPart reads in replicated objects specified by their ids
 // It checks each object x for consistency and sets x.IsConsistent
 func (f *finderStream) readBatchPart(ctx context.Context,
-	batch ShardPart,
+	batch shardPart,
 	ids []strfmt.UUID,
-	ch <-chan _Result[BatchReply],
+	ch <-chan _Result[batchReply],
 	level int,
 ) <-chan batchResult {
 	resultCh := make(chan batchResult, 1)
@@ -215,7 +215,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		var (
 			N = len(ids) // number of requested objects
 			// votes counts number of votes per object for each node
-			votes      = make([]Vote, 0, level)
+			votes      = make([]vote, 0, level)
 			contentIdx = -1 // index of full read reply
 		)
 
@@ -224,14 +224,14 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 			if r.Err != nil { // at least one node is not responding
 				f.log.WithField("op", "read_batch.get").WithField("replica", r.Value.Sender).
 					WithField("class", f.class).WithField("shard", batch.Shard).Error(r.Err)
-				resultCh <- batchResult{nil, ErrRead}
+				resultCh <- batchResult{nil, errRead}
 				return
 			}
 			if !resp.IsDigest {
 				contentIdx = len(votes)
 			}
 
-			votes = append(votes, Vote{resp, make([]int, N), nil})
+			votes = append(votes, vote{resp, make([]int, N), nil})
 			M := 0
 			for i := 0; i < N; i++ {
 				max := 0
@@ -262,7 +262,7 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 		}
 		res, err := f.repairBatchPart(ctx, batch.Shard, ids, votes, contentIdx)
 		if err != nil {
-			resultCh <- batchResult{nil, ErrRepair}
+			resultCh <- batchResult{nil, errRepair}
 			f.log.WithField("op", "repair_batch").WithField("class", f.class).
 				WithField("shard", batch.Shard).WithField("uuids", ids).Error(err)
 			return
@@ -301,10 +301,10 @@ func (f *finderStream) readBatchPart(ctx context.Context,
 	return resultCh
 }
 
-// BatchReply is a container of the batch received from a replica
+// batchReply is a container of the batch received from a replica
 // The returned data may result from a full or digest read request
-type BatchReply struct {
-	// Sender hostname of the Sender
+type batchReply struct {
+	// Sender hostname of the sender
 	Sender string
 	// IsDigest is this reply from a digest read?
 	IsDigest bool
@@ -315,7 +315,7 @@ type BatchReply struct {
 }
 
 // UpdateTimeAt gets update time from reply
-func (r BatchReply) UpdateTimeAt(idx int) int64 {
+func (r batchReply) UpdateTimeAt(idx int) int64 {
 	if len(r.DigestData) != 0 {
 		return r.DigestData[idx].UpdateTime
 	}

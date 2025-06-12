@@ -17,6 +17,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"testing"
 
@@ -1062,6 +1063,11 @@ func (m *TesterModule) Init(ctx context.Context,
 }
 
 func (m *TesterModule) InitExtension(modules []modulecapabilities.Module) error {
+	return nil
+}
+
+func (m *TesterModule) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
 	return nil
 }
 

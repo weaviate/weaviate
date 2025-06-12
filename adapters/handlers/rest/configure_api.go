@@ -41,6 +41,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"google.golang.org/grpc"
 
 	"github.com/weaviate/fgprof"
@@ -58,7 +59,6 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -125,7 +125,6 @@ import (
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
-	modusagegcs "github.com/weaviate/weaviate/modules/usage-gcs"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -929,13 +928,6 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 				WithField("action", "shutdown db users").
 				Errorf("failed to gracefully shutdown")
 		}
-
-		if err := appState.Modules.Close(); err != nil {
-			appState.Logger.
-				WithError(err).
-				WithField("action", "shutdown modules").
-				Errorf("failed to gracefully shutdown")
-		}
 	}
 
 	startGrpcServer(grpcServer, appState)
@@ -1606,14 +1598,6 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modusagegcs.Name]; ok {
-		appState.Modules.Register(modusagegcs.New())
-		appState.Logger.
-			WithField("action", "startup").
-			WithField("module", modusagegcs.Name).
-			Debug("enabled module")
-	}
-
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("completed registering modules")
@@ -1631,7 +1615,7 @@ func initModules(ctx context.Context, appState *state.State) error {
 	// TODO: gh-1481 don't pass entire appState in, but only what's needed. Probably only
 	// config?
 	moduleParams := moduletools.NewInitParams(storageProvider, appState,
-		appState.ServerConfig.Config, appState.Logger, prometheus.DefaultRegisterer)
+		appState.ServerConfig.Config, appState.Logger)
 
 	appState.Logger.
 		WithField("action", "startup").
@@ -1801,11 +1785,6 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
-		registered.UsageGCSBucket = appState.ServerConfig.Config.Usage.GCSBucket
-		registered.UsageGCSPrefix = appState.ServerConfig.Config.Usage.GCSPrefix
-		registered.UsageGCSAuth = appState.ServerConfig.Config.Usage.GCSAuth
-		registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
-		registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
