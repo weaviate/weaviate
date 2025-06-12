@@ -19,19 +19,19 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
@@ -203,6 +203,11 @@ func (l *LazyLoadShard) ObjectCountAsync() int {
 	}
 	l.mutex.Unlock()
 	return l.shard.ObjectCountAsync()
+}
+
+func (s *LazyLoadShard) ObjectStorageBytes() int64 {
+	// TODO: implement this storage bytes
+	return 0
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
@@ -445,6 +450,11 @@ func (l *LazyLoadShard) SetPropertyLengths(props []inverted.Property) error {
 func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Property, []inverted.NilProperty, error) {
 	l.mustLoad()
 	return l.shard.AnalyzeObject(object)
+}
+
+func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (int, int) {
+	l.mustLoad()
+	return l.shard.DimensionsUsage(ctx, targetVector)
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) int {
