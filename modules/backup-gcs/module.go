@@ -13,7 +13,6 @@ package modstggcs
 
 import (
 	"context"
-	"net/http"
 	"os"
 
 	"github.com/pkg/errors"
@@ -91,11 +90,6 @@ func (m *Module) Init(ctx context.Context,
 		return errors.Wrap(err, "init gcs client")
 	}
 	m.gcsClient = client
-	return nil
-}
-
-func (m *Module) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

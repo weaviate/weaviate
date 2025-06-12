@@ -13,7 +13,6 @@ package modgenerativedatabricks
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -67,11 +66,6 @@ func (m *GenerativeDatabricksModule) initAdditional(ctx context.Context, timeout
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
 
-	return nil
-}
-
-func (m *GenerativeDatabricksModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

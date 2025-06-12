@@ -126,3 +126,6 @@ exp/query/testdata/lsmroot/lsm/meta.db
 
 # weaviate backup-filesystem tests
 test/modules/backup-filesystem/bucketPath
+
+# go test coverage output files
+*.out

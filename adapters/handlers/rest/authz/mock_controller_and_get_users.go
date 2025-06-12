@@ -663,8 +663,7 @@ func (_c *MockControllerAndGetUsers_UpdateRolesPermissions_Call) RunAndReturn(ru
 func NewMockControllerAndGetUsers(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockControllerAndGetUsers {
+}) *MockControllerAndGetUsers {
 	mock := &MockControllerAndGetUsers{}
 	mock.Mock.Test(t)
 

@@ -13,7 +13,6 @@ package modgenerativegoogle
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -77,11 +76,6 @@ func (m *GenerativeGoogleModule) initAdditional(ctx context.Context, timeout tim
 	client := clients.New(apiKey, useGoogleAuth, timeout, logger)
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
-	return nil
-}
-
-func (m *GenerativeGoogleModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

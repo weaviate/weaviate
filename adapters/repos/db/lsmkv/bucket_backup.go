@@ -55,8 +55,12 @@ func (b *Bucket) ListFiles(ctx context.Context, basePath string) ([]string, erro
 			continue
 		}
 
-		// ignore .wal files because they are not immutable
-		if filepath.Ext(entry.Name()) == ".wal" {
+		ext := filepath.Ext(entry.Name())
+
+		// ignore .wal files because they are not immutable,
+		// ignore .tmp files because they are temporary files created during compaction or flushing
+		// and are not part of the stable state of the bucket
+		if ext == ".wal" || ext == ".tmp" {
 			continue
 		}
 

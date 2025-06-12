@@ -13,7 +13,6 @@ package modstgs3
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"strings"
 
@@ -86,11 +85,6 @@ func (m *Module) Init(ctx context.Context,
 		return errors.Wrap(err, "initialize S3 backup module")
 	}
 	m.s3Client = client
-	return nil
-}
-
-func (m *Module) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

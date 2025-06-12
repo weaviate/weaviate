@@ -9,11 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replica
+package replica_test
 
 import (
 	"testing"
 	"time"
+
+	"github.com/weaviate/weaviate/usecases/replica"
 
 	"github.com/weaviate/weaviate/usecases/objects"
 
@@ -177,7 +179,7 @@ func Test_Replica_MarshalBinary(t *testing.T) {
 			}
 
 			t.Run("when object is present", func(t *testing.T) {
-				expected := Replica{
+				expected := replica.Replica{
 					Object: &obj,
 					ID:     obj.ID(),
 				}
@@ -185,7 +187,7 @@ func Test_Replica_MarshalBinary(t *testing.T) {
 				b, err := expected.MarshalBinary()
 				require.Nil(t, err)
 
-				var received Replica
+				var received replica.Replica
 				err = received.UnmarshalBinary(b)
 				require.Nil(t, err)
 
@@ -195,7 +197,7 @@ func Test_Replica_MarshalBinary(t *testing.T) {
 			})
 
 			t.Run("when object is nil", func(t *testing.T) {
-				expected := Replica{
+				expected := replica.Replica{
 					Object: nil,
 					ID:     obj.ID(),
 				}
@@ -203,7 +205,7 @@ func Test_Replica_MarshalBinary(t *testing.T) {
 				b, err := expected.MarshalBinary()
 				require.Nil(t, err)
 
-				var received Replica
+				var received replica.Replica
 				err = received.UnmarshalBinary(b)
 				require.Nil(t, err)
 
@@ -307,7 +309,7 @@ func Test_Replicas_MarshalBinary(t *testing.T) {
 			}
 
 			t.Run("when objects are present", func(t *testing.T) {
-				expected := Replicas{
+				expected := replica.Replicas{
 					{
 						Object: &obj1,
 						ID:     obj1.ID(),
@@ -321,7 +323,7 @@ func Test_Replicas_MarshalBinary(t *testing.T) {
 				b, err := expected.MarshalBinary()
 				require.Nil(t, err)
 
-				var received Replicas
+				var received replica.Replicas
 				err = received.UnmarshalBinary(b)
 				require.Nil(t, err)
 
@@ -335,7 +337,7 @@ func Test_Replicas_MarshalBinary(t *testing.T) {
 			})
 
 			t.Run("when there is a nil object", func(t *testing.T) {
-				expected := Replicas{
+				expected := replica.Replicas{
 					{
 						Object: &obj1,
 						ID:     obj1.ID(),
@@ -349,7 +351,7 @@ func Test_Replicas_MarshalBinary(t *testing.T) {
 				b, err := expected.MarshalBinary()
 				require.Nil(t, err)
 
-				var received Replicas
+				var received replica.Replicas
 				err = received.UnmarshalBinary(b)
 				require.Nil(t, err)
 

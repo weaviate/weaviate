@@ -13,7 +13,6 @@ package modgenerativemistral
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -68,11 +67,6 @@ func (m *GenerativeMistralModule) initAdditional(ctx context.Context, timeout ti
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
 
-	return nil
-}
-
-func (m *GenerativeMistralModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

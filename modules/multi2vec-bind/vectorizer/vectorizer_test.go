@@ -9,11 +9,13 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer
+package vectorizer_test
 
 import (
 	"context"
 	"testing"
+
+	"github.com/weaviate/weaviate/modules/multi2vec-bind/vectorizer"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
 
@@ -28,7 +30,7 @@ func TestVectorizer(t *testing.T) {
 	t.Run("should vectorize image", func(t *testing.T) {
 		// given
 		client := &fakeClient{}
-		vectorizer := &Vectorizer{client}
+		vectorizer := vectorizer.New(client)
 		config := newConfigBuilder().addSetting("imageFields", []interface{}{"image"}).build()
 
 		props := map[string]interface{}{
@@ -49,7 +51,7 @@ func TestVectorizer(t *testing.T) {
 	t.Run("should vectorize 2 image fields", func(t *testing.T) {
 		// given
 		client := &fakeClient{}
-		vectorizer := &Vectorizer{client}
+		vectorizer := vectorizer.New(client)
 		config := newConfigBuilder().addSetting("imageFields", []interface{}{"image1", "image2"}).build()
 
 		props := map[string]interface{}{

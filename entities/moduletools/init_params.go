@@ -12,7 +12,9 @@
 package moduletools
 
 import (
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
@@ -21,6 +23,7 @@ type ModuleInitParams interface {
 	GetAppState() interface{}
 	GetLogger() logrus.FieldLogger
 	GetConfig() config.Config
+	GetMetricsRegisterer() prometheus.Registerer
 }
 
 type InitParams struct {
@@ -28,12 +31,13 @@ type InitParams struct {
 	appState        interface{}
 	config          config.Config
 	logger          logrus.FieldLogger
+	registerer      prometheus.Registerer
 }
 
 func NewInitParams(storageProvider StorageProvider, appState interface{},
-	config config.Config, logger logrus.FieldLogger,
+	config config.Config, logger logrus.FieldLogger, registerer prometheus.Registerer,
 ) ModuleInitParams {
-	return &InitParams{storageProvider, appState, config, logger}
+	return &InitParams{storageProvider, appState, config, logger, registerer}
 }
 
 func (p *InitParams) GetStorageProvider() StorageProvider {
@@ -50,4 +54,8 @@ func (p *InitParams) GetLogger() logrus.FieldLogger {
 
 func (p *InitParams) GetConfig() config.Config {
 	return p.config
+}
+
+func (p *InitParams) GetMetricsRegisterer() prometheus.Registerer {
+	return p.registerer
 }

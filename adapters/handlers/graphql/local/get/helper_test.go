@@ -14,7 +14,6 @@ package get
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"sort"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -203,10 +202,6 @@ func (m *nearCustomTextModule) Name() string {
 }
 
 func (m *nearCustomTextModule) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *nearCustomTextModule) RootHandler() http.Handler {
 	return nil
 }
 

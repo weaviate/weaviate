@@ -13,7 +13,6 @@ package modgenerativenvidia
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -68,11 +67,6 @@ func (m *GenerativeNvidiaModule) initAdditional(ctx context.Context, timeout tim
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
 
-	return nil
-}
-
-func (m *GenerativeNvidiaModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

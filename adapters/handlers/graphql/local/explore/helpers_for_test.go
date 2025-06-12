@@ -14,7 +14,6 @@ package explore
 import (
 	"context"
 	"fmt"
-	"net/http"
 
 	"github.com/tailor-inc/graphql"
 
@@ -167,10 +166,6 @@ func (m *nearCustomTextModule) Name() string {
 }
 
 func (m *nearCustomTextModule) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *nearCustomTextModule) RootHandler() http.Handler {
 	return nil
 }
 

@@ -787,6 +787,34 @@ func FromEnv(config *Config) error {
 	}
 	config.InvertedSorterDisabled = runtime.NewDynamicValue(invertedSorterDisabled)
 
+	// Usage module configuration
+	if err := parseUsageConfig(config); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func parseUsageConfig(config *Config) error {
+	if v := os.Getenv("USAGE_GCS_USE_AUTH"); v != "" {
+		config.Usage.GCSAuth = runtime.NewDynamicValue(entcfg.Enabled(v))
+	}
+	if v := os.Getenv("USAGE_GCS_BUCKET"); v != "" {
+		config.Usage.GCSBucket = runtime.NewDynamicValue(v)
+	}
+	if v := os.Getenv("USAGE_GCS_PREFIX"); v != "" {
+		config.Usage.GCSPrefix = runtime.NewDynamicValue(v)
+	}
+	if v := os.Getenv("USAGE_SCRAPE_INTERVAL"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid %s: %w", "USAGE_SCRAPE_INTERVAL", err)
+		}
+		config.Usage.ScrapeInterval = runtime.NewDynamicValue(duration)
+	}
+	if v := os.Getenv("USAGE_POLICY_VERSION"); v != "" {
+		config.Usage.PolicyVersion = runtime.NewDynamicValue(v)
+	}
 	return nil
 }
 

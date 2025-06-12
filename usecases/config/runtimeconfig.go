@@ -20,8 +20,9 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"gopkg.in/yaml.v3"
+
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 // WeaviateRuntimeConfig is the collection all the supported configs that is
@@ -37,6 +38,11 @@ type WeaviateRuntimeConfig struct {
 	QuerySlowLogEnabled             *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
 	QuerySlowLogThreshold           *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 	InvertedSorterDisabled          *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+	UsageGCSBucket                  *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
+	UsageGCSPrefix                  *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
+	UsageGCSAuth                    *runtime.DynamicValue[bool]          `json:"usage_gcs_auth" yaml:"usage_gcs_auth"`
+	UsageScrapeInterval             *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
+	UsagePolicyVersion              *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
