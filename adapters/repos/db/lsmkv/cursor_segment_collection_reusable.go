@@ -12,6 +12,9 @@
 package lsmkv
 
 import (
+	"errors"
+	"io"
+
 	"github.com/weaviate/weaviate/entities/lsmkv"
 )
 
@@ -85,8 +88,11 @@ func (c *cacheReader) Reset() {
 
 func (c *cacheReader) Read(p []byte) (n int, err error) {
 	length := uint64(len(p))
+	if c.positionInSegment+length > c.segment.dataEndPos {
+		return 0, lsmkv.NotFound
+	}
 	if c.positionInCache+length > uint64(len(c.readCache)) {
-		if err := c.loadDataIntoCache(); err != nil {
+		if err := c.loadDataIntoCache(len(p)); err != nil {
 			return 0, err
 		}
 	}
@@ -98,7 +104,7 @@ func (c *cacheReader) Read(p []byte) (n int, err error) {
 	return len(p), nil
 }
 
-func (c *cacheReader) loadDataIntoCache() error {
+func (c *cacheReader) loadDataIntoCache(readLength int) error {
 	at, err := c.segment.newNodeReader(nodeOffset{start: c.positionInSegment}, "ReadFromSegmentInvertedReusableWithCache")
 	if err != nil {
 		return err
@@ -108,9 +114,13 @@ func (c *cacheReader) loadDataIntoCache() error {
 	c.readCache = c.readCache[:cap(c.readCache)]
 
 	read, err := at.Read(c.readCache)
-	if err != nil {
+	if err != nil && (!errors.Is(err, io.EOF) || read == 0) {
 		return err
 	}
+	if read < readLength {
+		return lsmkv.NotFound
+	}
+
 	c.readCache = c.readCache[:read]
 	c.positionInCache = 0
 	return nil
