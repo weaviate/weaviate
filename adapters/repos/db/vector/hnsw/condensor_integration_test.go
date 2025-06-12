@@ -925,9 +925,6 @@ func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,
 	control := readFromCommitLogs(t, fileNameControl)
 	actual := readFromCommitLogs(t, fileNames...)
 
-	control.ClearConnectionBuff()
-	actual.ClearConnectionBuff()
-
 	assert.Equal(t, control, actual)
 }
 
