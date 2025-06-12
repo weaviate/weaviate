@@ -482,5 +482,5 @@ func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, 
 	meteredF := diskio.NewMeteredReader(s.contentFile, diskio.MeteredReaderCallback(s.metrics.ReadObserver(operation)))
 	r := io.NewSectionReader(meteredF, int64(offset), s.size)
 
-	return r, nil
+	return bufio.NewReader(r), nil
 }
