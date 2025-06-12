@@ -6,14 +6,14 @@ import (
 )
 
 const (
-	InitalCapacityBytes = 64
+	InitialCapacity = 16
 	// Simple encoding schemes - trade some compression for speed
-	SCHEME_1BYTE  = 0 // 1 byte per value (0-255)
-	SCHEME_2BYTE  = 1 // 2 bytes per value (0-65535)
-	SCHEME_3BYTE  = 2 // 3 bytes per value (0-16777215)
-	SCHEME_4BYTE  = 3 // 4 bytes per value (0-4294967295)
-	SCHEME_8BYTE  = 4 // 8 bytes per value (full uint64)
-	SCHEME_VARINT = 5 // Variable length encoding for mixed sizes
+	SCHEME_1BYTE = 0 // 1 byte per value (0-255)
+	SCHEME_2BYTE = 1 // 2 bytes per value (0-65535)
+	SCHEME_3BYTE = 2 // 3 bytes per value (0-16777215)
+	SCHEME_4BYTE = 3 // 4 bytes per value (0-4294967295)
+	SCHEME_5BYTE = 4 // 5 bytes per value (0-1099511627775)
+	SCHEME_8BYTE = 5 // 8 bytes per value (full uint64)
 )
 
 type LayerData struct {
@@ -39,7 +39,7 @@ func NewWithMaxLayer(maxLayer uint8) (*Connections, error) {
 		layerCount: layerCount,
 	}
 	for i := uint8(0); i < layerCount; i++ {
-		c.layers[i].data = make([]byte, 0, InitalCapacityBytes)
+		c.layers[i].data = make([]byte, 0, InitialCapacity)
 	}
 	return c, nil
 }
@@ -150,6 +150,8 @@ func determineOptimalScheme(values []uint64) uint8 {
 		return SCHEME_3BYTE
 	} else if maxVal <= 4294967295 {
 		return SCHEME_4BYTE
+	} else if maxVal <= 1099511627775 {
+		return SCHEME_5BYTE
 	}
 	return SCHEME_8BYTE
 }
@@ -188,6 +190,17 @@ func encodeValues(values []uint64, scheme uint8) []byte {
 			data[i*4+1] = byte(val >> 8)
 			data[i*4+2] = byte(val >> 16)
 			data[i*4+3] = byte(val >> 24)
+		}
+		return data
+
+	case SCHEME_5BYTE:
+		data := make([]byte, len(values)*5)
+		for i, val := range values {
+			data[i*5] = byte(val)
+			data[i*5+1] = byte(val >> 8)
+			data[i*5+2] = byte(val >> 16)
+			data[i*5+3] = byte(val >> 24)
+			data[i*5+4] = byte(val >> 32)
 		}
 		return data
 
@@ -231,6 +244,15 @@ func decodeInto(data []byte, scheme uint8, count uint32, result []uint64) {
 				uint64(data[i*4+1])<<8 |
 				uint64(data[i*4+2])<<16 |
 				uint64(data[i*4+3])<<24
+		}
+
+	case SCHEME_5BYTE:
+		for i := uint32(0); i < count; i++ {
+			result[i] = uint64(data[i*5]) |
+				uint64(data[i*5+1])<<8 |
+				uint64(data[i*5+2])<<16 |
+				uint64(data[i*5+3])<<24 |
+				uint64(data[i*5+4])<<32
 		}
 
 	case SCHEME_8BYTE:
@@ -334,6 +356,8 @@ func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 		bytesNeeded = 3
 	case SCHEME_4BYTE:
 		bytesNeeded = 4
+	case SCHEME_5BYTE:
+		bytesNeeded = 5
 	case SCHEME_8BYTE:
 		bytesNeeded = 8
 	default:
@@ -348,17 +372,18 @@ func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 		// Each connection uses bytesNeeded bytes
 		maxCapacity := 64 * bytesNeeded
 
-		// Use smart growth strategy similar to the reference code
+		// Use growth strategy based on quantile data
+		// p25=0.39, p50=0.52, p75=0.69, p90=0.84, p95=0.92, p99=0.98
 		ratio := float64(currentLen) / float64(maxCapacity)
 		var target int
 
 		switch {
-		case ratio < 0.25:
+		case ratio < 0.25: // Start with smaller step
 			target = int(0.25 * float64(maxCapacity))
-		case ratio < 0.50:
-			target = int(0.50 * float64(maxCapacity))
-		case ratio < 0.75:
-			target = int(0.75 * float64(maxCapacity))
+		case ratio < 0.52: // p50
+			target = int(0.52 * float64(maxCapacity))
+		case ratio < 0.84: // p90
+			target = int(0.84 * float64(maxCapacity))
 		default:
 			target = maxCapacity
 		}
@@ -399,6 +424,14 @@ func (c *Connections) appendToLayer(conn uint64, layer uint8) {
 			byte(conn>>8),
 			byte(conn>>16),
 			byte(conn>>24))
+
+	case SCHEME_5BYTE:
+		layerData.data = append(layerData.data,
+			byte(conn),
+			byte(conn>>8),
+			byte(conn>>16),
+			byte(conn>>24),
+			byte(conn>>32))
 
 	case SCHEME_8BYTE:
 		for j := 0; j < 8; j++ {
