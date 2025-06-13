@@ -16,7 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"math/rand"
-	"slices"
 	"strings"
 	"time"
 
@@ -382,7 +381,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	// If the caller provided a list of target node overrides, filter the replicas to only include
 	// the relevant overrides so that we only "push" updates to the specified nodes.
 	localNodeName := f.LocalNodeName()
-	targetNodesToUse := slices.Clone(routingPlan.Replicas)
+	targetNodesToUse := routingPlan.HostNames()
 	if len(targetNodeOverrides) > 0 {
 		targetNodesToUse = make([]string, 0, len(targetNodeOverrides))
 		for _, override := range targetNodeOverrides {
@@ -392,8 +391,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}
 	}
 
-	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas))
-	replicasHostAddrs := make([]string, 0, len(routingPlan.ReplicasHostAddrs))
+	replicaNodeNames := make([]string, 0, len(routingPlan.ReplicaSet.Replicas))
+	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
 	for _, replica := range targetNodesToUse {
 		replicaNodeNames = append(replicaNodeNames, replica)
 		replicaHostAddr, ok := f.router.NodeHostname(replica)

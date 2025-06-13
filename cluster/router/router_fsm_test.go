@@ -40,7 +40,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 		allShardNodes        []string
 		opStatus             api.ShardReplicationState
 		preRoutingPlanAction func(fsm *replication.ShardReplicationFSM)
-		expectedReplicas     []string
+		expectedReplicas     types.ReplicaSet
 		expectedErrorStr     string
 	}{
 		{
@@ -48,42 +48,42 @@ func TestReadRoutingWithFSM(t *testing.T) {
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.REGISTERED,
-			expectedReplicas:    []string{"node1"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
 		},
 		{
 			name:                "hydrating",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.HYDRATING,
-			expectedReplicas:    []string{"node1"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
 		},
 		{
 			name:                "finalizing",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.FINALIZING,
-			expectedReplicas:    []string{"node1"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
 		},
 		{
 			name:                "ready",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.READY,
-			expectedReplicas:    []string{"node1", "node2"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
 		},
 		{
 			name:                "dehydrating",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.DEHYDRATING,
-			expectedReplicas:    []string{"node2"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
 		},
 		{
 			name:                "cancelled",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.CANCELLED,
-			expectedReplicas:    []string{"node1"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
 		},
 		{
 			name:                "ready deleted",
@@ -96,14 +96,14 @@ func TestReadRoutingWithFSM(t *testing.T) {
 					Uuid:    "00000000-0000-0000-0000-000000000000",
 				})
 			},
-			expectedReplicas: []string{"node1", "node2"},
+			expectedReplicas: types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
 		},
 		{
 			name:                "registered extra node",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2", "node3"},
 			opStatus:            api.REGISTERED,
-			expectedReplicas:    []string{"node1", "node3"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node3", ShardName: "shard1", HostAddr: "node3"}}},
 		},
 	}
 	for _, testCase := range testCases {
@@ -135,7 +135,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 						OwnsVirtual:                          []string{},
 						OwnsPercentage:                       100,
 						LegacyBelongsToNodeForBackwardCompat: "",
-						BelongsToNodes:                       testCase.expectedReplicas,
+						BelongsToNodes:                       testCase.expectedReplicas.NodeNames(),
 						Status:                               testCase.opStatus.String(),
 					},
 				},
@@ -176,7 +176,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				require.Contains(t, err.Error(), testCase.expectedErrorStr)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, testCase.expectedReplicas, routingPlan.Replicas, "test case: %s", testCase.name)
+				require.Equal(t, testCase.expectedReplicas, routingPlan.ReplicaSet, "test case: %s", testCase.name)
 			}
 		})
 	}
@@ -189,7 +189,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 		allShardNodes        []string
 		opStatus             api.ShardReplicationState
 		preRoutingPlanAction func(fsm *replication.ShardReplicationFSM)
-		expectedReplicas     []string
+		expectedReplicas     types.ReplicaSet
 		expectedErrorStr     string
 	}{
 		{
@@ -197,42 +197,42 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.REGISTERED,
-			expectedReplicas:    []string{"node1"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
 		},
 		{
 			name:                "hydrating",
 			partitioningEnabled: true,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.HYDRATING,
-			expectedReplicas:    []string{"node1"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
 		},
 		{
 			name:                "finalizing",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.FINALIZING,
-			expectedReplicas:    []string{"node1"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
 		},
 		{
 			name:                "ready",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.READY,
-			expectedReplicas:    []string{"node1", "node2"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
 		},
 		{
 			name:                "dehydrating",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.DEHYDRATING,
-			expectedReplicas:    []string{"node2"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
 		},
 		{
 			name:                "cancelled",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.CANCELLED,
-			expectedReplicas:    []string{"node1"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
 		},
 		{
 			name:                "ready deleted",
@@ -245,14 +245,14 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 					Uuid:    "00000000-0000-0000-0000-000000000000",
 				})
 			},
-			expectedReplicas: []string{"node1", "node2"},
+			expectedReplicas: types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
 		},
 		{
 			name:                "registered extra node",
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2", "node3"},
 			opStatus:            api.REGISTERED,
-			expectedReplicas:    []string{"node1", "node3"},
+			expectedReplicas:    types.ReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node3", ShardName: "shard1", HostAddr: "node3"}}},
 		},
 	}
 	for _, testCase := range testCases {
@@ -316,7 +316,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				require.Contains(t, err.Error(), testCase.expectedErrorStr)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, testCase.expectedReplicas, routingPlan.Replicas, "test case: %s", testCase.name)
+				require.Equal(t, testCase.expectedReplicas, routingPlan.ReplicaSet, "test case: %s", testCase.name)
 			}
 		})
 	}
