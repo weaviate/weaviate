@@ -205,7 +205,7 @@ func (l *LazyLoadShard) ObjectCountAsync() int {
 	return l.shard.ObjectCountAsync()
 }
 
-func (s *LazyLoadShard) ObjectStorageBytes() int64 {
+func (s *LazyLoadShard) ObjectStorageSize() int64 {
 	// TODO-usage: implement this storage bytes
 	return 0
 }

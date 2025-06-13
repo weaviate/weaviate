@@ -1050,7 +1050,7 @@ func (index *flat) Stats() (common.IndexStats, error) {
 	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
 }
 
-func (index *flat) VectorStorageBytes() int64 {
+func (index *flat) VectorStorageSize() int64 {
 	// TODO-usage: Implement this
 	return 0
 }
