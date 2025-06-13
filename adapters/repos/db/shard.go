@@ -418,7 +418,7 @@ func (s *Shard) ObjectCountAsync() int {
 }
 
 func (s *Shard) ObjectStorageBytes() int64 {
-	// TODO: implement this storage bytes
+	// TODO-usage: implement this storage bytes
 	return 0
 }
 func (s *Shard) isFallbackToSearchable() bool {
