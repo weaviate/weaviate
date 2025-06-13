@@ -22,8 +22,9 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"gopkg.in/yaml.v3"
+
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestParseRuntimeConfig(t *testing.T) {
@@ -158,6 +159,61 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		assert.Equal(t, 13, colCount.Get())
 	})
 
+	t.Run("SetValue on nil receiver should not panic", func(t *testing.T) {
+		var (
+			nilInt    *runtime.DynamicValue[int]
+			nilFloat  *runtime.DynamicValue[float64]
+			nilBool   *runtime.DynamicValue[bool]
+			nilDur    *runtime.DynamicValue[time.Duration]
+			nilString *runtime.DynamicValue[string]
+		)
+
+		// These should not panic
+		require.NotPanics(t, func() {
+			nilInt.SetValue(42)
+		})
+		require.NotPanics(t, func() {
+			nilFloat.SetValue(3.14)
+		})
+		require.NotPanics(t, func() {
+			nilBool.SetValue(true)
+		})
+		require.NotPanics(t, func() {
+			nilDur.SetValue(5 * time.Second)
+		})
+		require.NotPanics(t, func() {
+			nilString.SetValue("test")
+		})
+
+		// Values should remain unchanged (still return zero values)
+		assert.Equal(t, 0, nilInt.Get())
+		assert.Equal(t, float64(0), nilFloat.Get())
+		assert.Equal(t, false, nilBool.Get())
+		assert.Equal(t, time.Duration(0), nilDur.Get())
+		assert.Equal(t, "", nilString.Get())
+	})
+
+	t.Run("SetValue on initialized receiver should work normally", func(t *testing.T) {
+		dInt := runtime.NewDynamicValue(10)
+		dFloat := runtime.NewDynamicValue(2.5)
+		dBool := runtime.NewDynamicValue(false)
+		dDur := runtime.NewDynamicValue(1 * time.Second)
+		dString := runtime.NewDynamicValue("initial")
+
+		// Set new values
+		dInt.SetValue(20)
+		dFloat.SetValue(3.14)
+		dBool.SetValue(true)
+		dDur.SetValue(2 * time.Second)
+		dString.SetValue("updated")
+
+		// Values should be updated
+		assert.Equal(t, 20, dInt.Get())
+		assert.Equal(t, 3.14, dFloat.Get())
+		assert.Equal(t, true, dBool.Get())
+		assert.Equal(t, 2*time.Second, dDur.Get())
+		assert.Equal(t, "updated", dString.Get())
+	})
 	t.Run("updating config should split out corresponding log lines", func(t *testing.T) {
 		log := logrus.New()
 		logs := bytes.Buffer{}
