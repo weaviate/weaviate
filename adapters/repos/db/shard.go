@@ -421,6 +421,7 @@ func (s *Shard) ObjectStorageSize() int64 {
 	// TODO-usage: implement this storage bytes
 	return 0
 }
+
 func (s *Shard) isFallbackToSearchable() bool {
 	return s.fallbackToSearchable
 }
