@@ -173,7 +173,6 @@ func (b *Builder) Build() Router {
 			schemaReader:         b.schemaReader,
 			replicationFSMReader: b.replicationFSMReader,
 			clusterStateReader:   b.clusterStateReader,
-			localNodeName:        b.clusterStateReader.LocalName(),
 		}
 	}
 	return &singleTenantRouter{
@@ -181,7 +180,6 @@ func (b *Builder) Build() Router {
 		schemaReader:         b.schemaReader,
 		replicationFSMReader: b.replicationFSMReader,
 		clusterStateReader:   b.clusterStateReader,
-		localNodeName:        b.clusterStateReader.LocalName(),
 	}
 }
 
@@ -194,7 +192,6 @@ type multiTenantRouter struct {
 	schemaReader         schemaTypes.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	clusterStateReader   cluster.NodeSelector
-	localNodeName        string
 }
 
 // singleTenantRouter is the implementation of Router for single-tenant collections.
@@ -206,7 +203,6 @@ type singleTenantRouter struct {
 	schemaReader         schemaTypes.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
 	clusterStateReader   cluster.NodeSelector
-	localNodeName        string
 }
 
 // Interface compliance check at compile time.
@@ -352,7 +348,7 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 		return types.ReadRoutingPlan{}, fmt.Errorf("no read replicas found for collection %s", r.collection)
 	}
 
-	orderedReplicas := sort(readReplicas.Replicas, params.DirectCandidateNode, r.localNodeName)
+	orderedReplicas := sort(readReplicas.Replicas, params.DirectCandidateNode, r.clusterStateReader.LocalName())
 
 	plan := types.ReadRoutingPlan{
 		Shard: params.Shard,
@@ -381,7 +377,7 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 	}
 
 	// Order replicas with direct candidate first
-	sortedWriteReplicas := sort(writeReplicas.Replicas, params.DirectCandidateNode, r.localNodeName)
+	sortedWriteReplicas := sort(writeReplicas.Replicas, params.DirectCandidateNode, r.clusterStateReader.LocalName())
 
 	plan := types.WriteRoutingPlan{
 		Shard: params.Shard,
@@ -513,7 +509,7 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 	}
 
 	// Order replicas with direct candidate first
-	orderedReplicas := sort(readReplicas.Replicas, params.DirectCandidateNode, r.localNodeName)
+	orderedReplicas := sort(readReplicas.Replicas, params.DirectCandidateNode, r.clusterStateReader.LocalName())
 
 	plan := types.ReadRoutingPlan{
 		Shard: params.Shard,
@@ -542,7 +538,7 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 	}
 
 	// Order replicas with direct candidate first
-	orderedReplicas := sort(writeReplicas.Replicas, params.DirectCandidateNode, r.localNodeName)
+	orderedReplicas := sort(writeReplicas.Replicas, params.DirectCandidateNode, r.clusterStateReader.LocalName())
 
 	plan := types.WriteRoutingPlan{
 		Shard: params.Shard,
