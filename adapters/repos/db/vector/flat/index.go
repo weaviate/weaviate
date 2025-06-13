@@ -1055,6 +1055,11 @@ func (index *flat) VectorStorageSize() int64 {
 	return 0
 }
 
+func (index *flat) CompressionStats() (compressionhelpers.CompressionStats, error) {
+	// Flat index doesn't have detailed compression stats, return uncompressed stats
+	return compressionhelpers.UncompressedStats{}, nil
+}
+
 type FlatStats struct{}
 
 func (s *FlatStats) IndexType() common.IndexType {
