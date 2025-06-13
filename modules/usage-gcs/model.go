@@ -71,6 +71,9 @@ type VectorUsage struct {
 	// The compression ratio achieved
 	VectorCompressionRatio float64 `json:"vectorCompressionRatio"`
 
+	// The actual memory storage bytes used by vectors
+	VectorStorageBytes int64 `json:"vectorStorageBytes"`
+
 	// List of dimensionalities and their metrics
 	Dimensionalities []*DimensionalityUsage `json:"dimensionalities"`
 }

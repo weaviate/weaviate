@@ -597,7 +597,22 @@ func (dynamic *dynamic) Iterate(fn func(id uint64) bool) {
 }
 
 func (dynamic *dynamic) Stats() (common.IndexStats, error) {
-	return &DynamicStats{}, errors.New("Stats() is not implemented for dynamic index")
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Stats()
+}
+
+func (dynamic *dynamic) VectorStorageBytes() int64 {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+
+	// Delegate to the underlying index (flat or hnsw)
+	if vectorIndex, ok := dynamic.index.(interface{ VectorStorageBytes() int64 }); ok {
+		return vectorIndex.VectorStorageBytes()
+	}
+
+	// Fallback: return 0 if the underlying index doesn't support VectorStorageBytes
+	return 0
 }
 
 type DynamicStats struct{}
