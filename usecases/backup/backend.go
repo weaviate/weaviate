@@ -214,6 +214,7 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 	u.setStatus(backup.Transferring)
 	desc.Status = string(backup.Transferring)
 	ch := u.sourcer.BackupDescriptors(ctx, desc.ID, classes)
+	var totalPreCompressionSize int64 // Track total pre-compression bytes
 	defer func() {
 		//  make sure context is not cancelled when uploading metadata
 		ctx := context.Background()
@@ -246,9 +247,12 @@ Loop:
 				return cdesc.Error
 			}
 			u.log.WithField("class", cdesc.Name).Info("start uploading files")
-			if err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath); err != nil {
+			preCompressionSize, err := u.class(ctx, desc.ID, &cdesc, overrideBucket, overridePath)
+			if err != nil {
 				return err
 			}
+			totalPreCompressionSize += preCompressionSize
+			cdesc.PreCompressionSizeBytes = preCompressionSize // Set pre-compression size for this class
 			desc.Classes = append(desc.Classes, cdesc)
 			u.log.WithField("class", cdesc.Name).Info("finish uploading files")
 
@@ -264,6 +268,8 @@ Loop:
 	}
 	u.setStatus(backup.Transferred)
 	desc.Status = string(backup.Success)
+	// After all classes, set desc.PreCompressionSizeBytes as the sum of all class sizes
+	desc.PreCompressionSizeBytes = totalPreCompressionSize
 	return nil
 }
 
@@ -282,7 +288,9 @@ func (u *uploader) releaseIndexes(classes []string, ID string) {
 }
 
 // class uploads one class
-func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (err error) {
+// Returns the number of bytes written for this class
+func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescriptor, overrideBucket, overridePath string) (int64, error) {
+	var err error
 	classLabel := desc.Name
 	if monitoring.GetMetrics().Group {
 		classLabel = "n/a"
@@ -313,7 +321,7 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 
 	nShards := len(desc.Shards)
 	if nShards == 0 {
-		return nil
+		return 0, nil
 	}
 
 	desc.Chunks = make(map[int32][]string, 1+nShards/2)
@@ -367,12 +375,12 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 							return err
 						}
 						chunk := atomic.AddInt32(&lastChunk, 1)
-						shards, err := u.compress(ctx, desc.Name, chunk, sender, overrideBucket, overridePath)
+						shards, preCompressionSize, err := u.compress(ctx, desc.Name, chunk, sender, overrideBucket, overridePath)
 						if err != nil {
 							return err
 						}
 						if m := int32(len(shards)); m > 0 {
-							recvCh <- chuckShards{chunk, shards}
+							recvCh <- chuckShards{chunk, shards, preCompressionSize}
 						}
 					}
 					return err
@@ -386,13 +394,15 @@ func (u *uploader) class(ctx context.Context, id string, desc *backup.ClassDescr
 
 	for x := range processor(nWorker, jobs(desc.Shards)) {
 		desc.Chunks[x.chunk] = x.shards
+		desc.PreCompressionSizeBytes += x.preCompressionSize
 	}
-	return
+	return desc.PreCompressionSizeBytes, err
 }
 
 type chuckShards struct {
-	chunk  int32
-	shards []string
+	chunk              int32
+	shards             []string
+	preCompressionSize int64
 }
 
 func (u *uploader) compress(ctx context.Context,
@@ -400,12 +410,13 @@ func (u *uploader) compress(ctx context.Context,
 	chunk int32, // chunk index
 	ch <-chan *backup.ShardDescriptor, // chan of shards
 	overrideBucket, overridePath string, // bucket name and path
-) ([]string, error) {
+) ([]string, int64, error) {
 	var (
 		chunkKey = chunkKey(class, chunk)
 		shards   = make([]string, 0, 10)
 		// add tolerance to enable better optimization of the chunk size
-		maxSize = int64(u.ChunkSize + u.ChunkSize/20) // size + 5%
+		maxSize            = int64(u.ChunkSize + u.ChunkSize/20) // size + 5%
+		preCompressionSize int64
 	)
 	zip, reader := NewZip(u.backend.SourceDataPath(), u.Level)
 	producer := func() error {
@@ -415,6 +426,10 @@ func (u *uploader) compress(ctx context.Context,
 			if err := ctx.Err(); err != nil {
 				return err
 			}
+			// Calculate pre-compression size for this shard
+			shardPreSize := u.calculateShardPreCompressionSize(shard)
+			preCompressionSize += shardPreSize
+
 			if _, err := zip.WriteShard(ctx, shard); err != nil {
 				return err
 			}
@@ -440,10 +455,48 @@ func (u *uploader) compress(ctx context.Context,
 	})
 
 	if err := producer(); err != nil {
-		return shards, err
+		return shards, preCompressionSize, err
 	}
 	// wait for the consumer to finish
-	return shards, eg.Wait()
+	return shards, preCompressionSize, eg.Wait()
+}
+
+// calculateShardPreCompressionSize calculates the total size of a shard before compression
+// Since shards are paused and memtables are flushed during backup, we only need to calculate
+// the size of files on disk, not in-memory data.
+func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescriptor) int64 {
+	var totalSize int64
+	sourceDataPath := u.backend.SourceDataPath()
+	// Add size of files on disk (in-memory data is flushed to disk during backup preparation)
+	for _, filePath := range shard.Files {
+		fullPath := filepath.Join(sourceDataPath, filePath)
+		if info, err := os.Stat(fullPath); err == nil {
+			totalSize += info.Size()
+		}
+	}
+
+	// Add size of metadata files that are read from disk
+	metadataSize := int64(0)
+	if len(shard.DocIDCounter) > 0 {
+		metadataSize += int64(len(shard.DocIDCounter))
+	}
+	if len(shard.PropLengthTracker) > 0 {
+		metadataSize += int64(len(shard.PropLengthTracker))
+	}
+	if len(shard.Version) > 0 {
+		metadataSize += int64(len(shard.Version))
+	}
+	totalSize += metadataSize
+
+	u.log.WithFields(logrus.Fields{
+		"shard":          shard.Name,
+		"filesCount":     len(shard.Files),
+		"metadataSize":   metadataSize,
+		"totalSize":      totalSize,
+		"sourceDataPath": sourceDataPath,
+	}).Debug("calculated pre-compression size for shard")
+
+	return totalSize
 }
 
 // fileWriter downloads files from object store and writes files to the destination folder destDir
