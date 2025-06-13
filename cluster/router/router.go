@@ -125,7 +125,7 @@ type Router interface {
 type Builder struct {
 	collection           string
 	partitioningEnabled  bool
-	clusterStateReader   cluster.NodeSelector
+	nodeSelector         cluster.NodeSelector
 	schemaGetter         schema.SchemaGetter
 	schemaReader         schemaTypes.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
@@ -136,7 +136,7 @@ type Builder struct {
 // Parameters:
 //   - collection: the name of the collection that this router will handle.
 //   - partitioningEnabled: true for multi-tenant mode, false for single-tenant mode.
-//   - clusterStateReader: provides cluster node state information and hostnames.
+//   - nodeSelector: provides cluster node state information and hostnames.
 //   - schemaGetter: provides collection schemas, sharding states, and tenant information.
 //   - schemaReader: provides shard replica (or node names) metadata.
 //   - replicationFSMReader: provides replica state information for replication consistency.
@@ -146,7 +146,7 @@ type Builder struct {
 func NewBuilder(
 	collection string,
 	partitioningEnabled bool,
-	clusterStateReader cluster.NodeSelector,
+	nodeSelector cluster.NodeSelector,
 	schemaGetter schema.SchemaGetter,
 	schemaReader schemaTypes.SchemaReader,
 	replicationFSMReader replicationTypes.ReplicationFSMReader,
@@ -154,7 +154,7 @@ func NewBuilder(
 	return &Builder{
 		collection:           collection,
 		partitioningEnabled:  partitioningEnabled,
-		clusterStateReader:   clusterStateReader,
+		nodeSelector:         nodeSelector,
 		schemaGetter:         schemaGetter,
 		schemaReader:         schemaReader,
 		replicationFSMReader: replicationFSMReader,
@@ -172,14 +172,14 @@ func (b *Builder) Build() Router {
 			schemaGetter:         b.schemaGetter,
 			schemaReader:         b.schemaReader,
 			replicationFSMReader: b.replicationFSMReader,
-			clusterStateReader:   b.clusterStateReader,
+			nodeSelector:         b.nodeSelector,
 		}
 	}
 	return &singleTenantRouter{
 		collection:           b.collection,
 		schemaReader:         b.schemaReader,
 		replicationFSMReader: b.replicationFSMReader,
-		clusterStateReader:   b.clusterStateReader,
+		nodeSelector:         b.nodeSelector,
 	}
 }
 
@@ -191,7 +191,7 @@ type multiTenantRouter struct {
 	schemaGetter         schema.SchemaGetter
 	schemaReader         schemaTypes.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
-	clusterStateReader   cluster.NodeSelector
+	nodeSelector         cluster.NodeSelector
 }
 
 // singleTenantRouter is the implementation of Router for single-tenant collections.
@@ -202,7 +202,7 @@ type singleTenantRouter struct {
 	collection           string
 	schemaReader         schemaTypes.SchemaReader
 	replicationFSMReader replicationTypes.ReplicationFSMReader
-	clusterStateReader   cluster.NodeSelector
+	nodeSelector         cluster.NodeSelector
 }
 
 // Interface compliance check at compile time.
@@ -307,7 +307,7 @@ func (r *singleTenantRouter) replicasForShard(collection, shard string) (
 func (r *singleTenantRouter) resolveNodeNamesToReplicas(nodeNames []string, shard string) []types.Replica {
 	var replicas []types.Replica
 	for _, nodeName := range nodeNames {
-		if hostAddr, ok := r.clusterStateReader.NodeHostname(nodeName); ok {
+		if hostAddr, ok := r.nodeSelector.NodeHostname(nodeName); ok {
 			replicas = append(replicas, types.Replica{
 				NodeName:  nodeName,
 				ShardName: shard,
@@ -330,12 +330,12 @@ func (r *singleTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuild
 
 // NodeHostname returns the hostname for the given node name in single-tenant collections.
 func (r *singleTenantRouter) NodeHostname(nodeName string) (string, bool) {
-	return r.clusterStateReader.NodeHostname(nodeName)
+	return r.nodeSelector.NodeHostname(nodeName)
 }
 
 // AllHostnames returns all known hostnames in the cluster for single-tenant collections.
 func (r *singleTenantRouter) AllHostnames() []string {
-	return r.clusterStateReader.AllHostnames()
+	return r.nodeSelector.AllHostnames()
 }
 
 func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
@@ -348,7 +348,7 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 		return types.ReadRoutingPlan{}, fmt.Errorf("no read replicas found for collection %s", r.collection)
 	}
 
-	orderedReplicas := sort(readReplicas.Replicas, params.DirectCandidateNode, r.clusterStateReader.LocalName())
+	orderedReplicas := sort(readReplicas.Replicas, params.DirectCandidateNode, r.nodeSelector.LocalName())
 
 	plan := types.ReadRoutingPlan{
 		Shard: params.Shard,
@@ -377,7 +377,7 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 	}
 
 	// Order replicas with direct candidate first
-	sortedWriteReplicas := sort(writeReplicas.Replicas, params.DirectCandidateNode, r.clusterStateReader.LocalName())
+	sortedWriteReplicas := sort(writeReplicas.Replicas, params.DirectCandidateNode, r.nodeSelector.LocalName())
 
 	plan := types.WriteRoutingPlan{
 		Shard: params.Shard,
@@ -423,11 +423,11 @@ func (r *multiTenantRouter) getReadWriteReplicasLocation(collection string, shar
 	}
 
 	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
-	readReplicas := buildReplicas(readNodeNames, shard, r.clusterStateReader.NodeHostname)
+	readReplicas := buildReplicas(readNodeNames, shard, r.nodeSelector.NodeHostname)
 
 	writeNodeNames, additionalWriteNodeNames := r.replicationFSMReader.FilterOneShardReplicasWrite(collection, shard, replicas)
-	writeReplicas := buildReplicas(writeNodeNames, shard, r.clusterStateReader.NodeHostname)
-	additionalWriteReplicas := buildReplicas(additionalWriteNodeNames, shard, r.clusterStateReader.NodeHostname)
+	writeReplicas := buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
+	additionalWriteReplicas := buildReplicas(additionalWriteNodeNames, shard, r.nodeSelector.NodeHostname)
 
 	return types.ReplicaSet{Replicas: deduplicate(readReplicas)},
 		types.ReplicaSet{Replicas: deduplicate(writeReplicas)},
@@ -490,12 +490,12 @@ func (r *multiTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildO
 
 // NodeHostname returns the hostname for the given node name in multi-tenant collections.
 func (r *multiTenantRouter) NodeHostname(nodeName string) (string, bool) {
-	return r.clusterStateReader.NodeHostname(nodeName)
+	return r.nodeSelector.NodeHostname(nodeName)
 }
 
 // AllHostnames returns all known hostnames in the cluster for multi-tenant collections.
 func (r *multiTenantRouter) AllHostnames() []string {
-	return r.clusterStateReader.AllHostnames()
+	return r.nodeSelector.AllHostnames()
 }
 
 func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
@@ -509,7 +509,7 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 	}
 
 	// Order replicas with direct candidate first
-	orderedReplicas := sort(readReplicas.Replicas, params.DirectCandidateNode, r.clusterStateReader.LocalName())
+	orderedReplicas := sort(readReplicas.Replicas, params.DirectCandidateNode, r.nodeSelector.LocalName())
 
 	plan := types.ReadRoutingPlan{
 		Shard: params.Shard,
@@ -538,7 +538,7 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 	}
 
 	// Order replicas with direct candidate first
-	orderedReplicas := sort(writeReplicas.Replicas, params.DirectCandidateNode, r.clusterStateReader.LocalName())
+	orderedReplicas := sort(writeReplicas.Replicas, params.DirectCandidateNode, r.nodeSelector.LocalName())
 
 	plan := types.WriteRoutingPlan{
 		Shard: params.Shard,
