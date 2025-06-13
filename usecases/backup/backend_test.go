@@ -47,12 +47,9 @@ func TestCalculateShardPreCompressionSize(t *testing.T) {
 
 	// Create a test shard descriptor
 	shard := &backup.ShardDescriptor{
-		Name:              "test-shard",
-		Node:              "test-node",
-		Files:             testFiles,
-		DocIDCounter:      []byte("docid-data"),
-		PropLengthTracker: []byte("prop-data"),
-		Version:           []byte("version-data"),
+		Name:  "test-shard",
+		Node:  "test-node",
+		Files: testFiles,
 	}
 
 	// Create a mock backend with expectations
@@ -72,14 +69,5 @@ func TestCalculateShardPreCompressionSize(t *testing.T) {
 	// Calculate pre-compression size
 	preCompressionSize := uploader.calculateShardPreCompressionSize(shard)
 
-	// Expected size: sum of file sizes + metadata sizes
-	expectedSize := int64(0)
-	for _, size := range fileSizes {
-		expectedSize += size
-	}
-	expectedSize += int64(len(shard.DocIDCounter))
-	expectedSize += int64(len(shard.PropLengthTracker))
-	expectedSize += int64(len(shard.Version))
-
-	assert.Equal(t, expectedSize, preCompressionSize)
+	assert.Equal(t, int64(100+200+300), preCompressionSize)
 }

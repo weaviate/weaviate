@@ -479,23 +479,9 @@ func (u *uploader) calculateShardPreCompressionSize(shard *backup.ShardDescripto
 		}
 	}
 
-	// Add size of metadata files that are read from disk
-	metadataSize := int64(0)
-	if len(shard.DocIDCounter) > 0 {
-		metadataSize += int64(len(shard.DocIDCounter))
-	}
-	if len(shard.PropLengthTracker) > 0 {
-		metadataSize += int64(len(shard.PropLengthTracker))
-	}
-	if len(shard.Version) > 0 {
-		metadataSize += int64(len(shard.Version))
-	}
-	totalSize += metadataSize
-
 	u.log.WithFields(logrus.Fields{
 		"shard":          shard.Name,
 		"filesCount":     len(shard.Files),
-		"metadataSize":   metadataSize,
 		"totalSize":      totalSize,
 		"sourceDataPath": sourceDataPath,
 	}).Debug("calculated pre-compression size for shard")
