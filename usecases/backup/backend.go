@@ -416,7 +416,8 @@ func (u *uploader) compress(ctx context.Context,
 		shards   = make([]string, 0, 10)
 		// add tolerance to enable better optimization of the chunk size
 		maxSize            = int64(u.ChunkSize + u.ChunkSize/20) // size + 5%
-		preCompressionSize int64
+		preCompressionSize atomic.Int64
+		eg                 = enterrors.NewErrorGroupWrapper(u.log)
 	)
 	zip, reader := NewZip(u.backend.SourceDataPath(), u.Level)
 	producer := func() error {
@@ -426,9 +427,13 @@ func (u *uploader) compress(ctx context.Context,
 			if err := ctx.Err(); err != nil {
 				return err
 			}
-			// Calculate pre-compression size for this shard
-			shardPreSize := u.calculateShardPreCompressionSize(shard)
-			preCompressionSize += shardPreSize
+
+			eg.Go(func() error {
+				// Calculate pre-compression size for this shard
+				shardPreSize := u.calculateShardPreCompressionSize(shard)
+				preCompressionSize.Add(shardPreSize)
+				return nil
+			})
 
 			if _, err := zip.WriteShard(ctx, shard); err != nil {
 				return err
@@ -446,7 +451,6 @@ func (u *uploader) compress(ctx context.Context,
 	}
 
 	// consumer
-	eg := enterrors.NewErrorGroupWrapper(u.log)
 	eg.Go(func() error {
 		if _, err := u.backend.Write(ctx, chunkKey, overrideBucket, overridePath, reader); err != nil {
 			return err
@@ -455,10 +459,10 @@ func (u *uploader) compress(ctx context.Context,
 	})
 
 	if err := producer(); err != nil {
-		return shards, preCompressionSize, err
+		return shards, preCompressionSize.Load(), err
 	}
 	// wait for the consumer to finish
-	return shards, preCompressionSize, eg.Wait()
+	return shards, preCompressionSize.Load(), eg.Wait()
 }
 
 // calculateShardPreCompressionSize calculates the total size of a shard before compression
