@@ -65,6 +65,11 @@ func (p ReadRoutingPlan) String() string {
 	)
 }
 
+// Replicas returns the replicas involved in the read operation.
+func (p ReadRoutingPlan) Replicas() []Replica {
+	return p.ReplicaSet.Replicas
+}
+
 // WriteRoutingPlan represents the plan for routing a write operation.
 //
 // Fields:
@@ -93,6 +98,17 @@ func (p WriteRoutingPlan) String() string {
 	)
 }
 
+// Replicas returns the primary write replicas for the operation.
+func (p WriteRoutingPlan) Replicas() []Replica {
+	return p.ReplicaSet.Replicas
+}
+
+// AdditionalReplicas returns secondary write replicas,
+// typically used during shard migration or replication.
+func (p WriteRoutingPlan) AdditionalReplicas() []Replica {
+	return p.AdditionalReplicaSet.Replicas
+}
+
 // LogFields returns a structured representation of the ReadRoutingPlan for logging purposes.
 func (p ReadRoutingPlan) LogFields() logrus.Fields {
 	return logrus.Fields{
@@ -119,7 +135,7 @@ func (p WriteRoutingPlan) LogFields() logrus.Fields {
 //   - The resolved numeric consistency level.
 //   - An error if the level exceeds the number of available replicas.
 func (p ReadRoutingPlan) ValidateConsistencyLevel() (int, error) {
-	return validateConsistencyLevel(p.ConsistencyLevel, p.ReplicaSet.Replicas)
+	return validateConsistencyLevel(p.ConsistencyLevel, p.Replicas())
 }
 
 // ValidateConsistencyLevel validates that the resolved consistency level can be satisfied
@@ -129,7 +145,7 @@ func (p ReadRoutingPlan) ValidateConsistencyLevel() (int, error) {
 //   - The resolved numeric consistency level.
 //   - An error if the level exceeds the number of available replicas.
 func (p WriteRoutingPlan) ValidateConsistencyLevel() (int, error) {
-	return validateConsistencyLevel(p.ConsistencyLevel, p.ReplicaSet.Replicas)
+	return validateConsistencyLevel(p.ConsistencyLevel, p.Replicas())
 }
 
 func validateConsistencyLevel(level ConsistencyLevel, replicas []Replica) (int, error) {
