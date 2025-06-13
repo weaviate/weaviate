@@ -367,7 +367,7 @@ func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName
 	}
 	defer release()
 
-	return shard.UpdateAsyncReplicationConfig(ctx, true)
+	return shard.SetAsyncReplicationEnabled(ctx, true)
 }
 
 func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error {
@@ -385,7 +385,7 @@ func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionNa
 	}
 	defer release()
 
-	return shard.UpdateAsyncReplicationConfig(ctx, shard.Index().Config.AsyncReplicationEnabled)
+	return shard.SetAsyncReplicationEnabled(ctx, shard.Index().Config.AsyncReplicationEnabled)
 }
 
 // AsyncReplicationStatus returns the async replication status for a shard.
