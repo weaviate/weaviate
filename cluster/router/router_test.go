@@ -436,7 +436,7 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_TenantNotActive(t *testi
 	readReplicas, writeReplicas, additionalWriteReplicas, err := r.GetReadWriteReplicasLocation("TestClass", "luke")
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "tenant not active: \"luke\"")
+	require.Contains(t, err.Error(), "error while checking tenant active status: \"luke\"")
 	require.Empty(t, readReplicas)
 	require.Empty(t, writeReplicas)
 	require.Empty(t, additionalWriteReplicas)
@@ -600,7 +600,7 @@ func TestMultiTenantRouter_TenantStatusChangeDuringOperation(t *testing.T) {
 
 	readReplicas, writeReplicas, additionalWriteReplicas, err = r.GetReadWriteReplicasLocation("TestClass", "luke")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "tenant not active")
+	require.Contains(t, err.Error(), "error while checking tenant status for tenant \"luke\"")
 	require.Empty(t, readReplicas.Replicas)
 	require.Empty(t, writeReplicas)
 	require.Empty(t, additionalWriteReplicas)
@@ -613,10 +613,10 @@ func TestMultiTenantRouter_VariousTenantStatuses(t *testing.T) {
 		errMsg    string
 	}{
 		{models.TenantActivityStatusHOT, false, ""},
-		{models.TenantActivityStatusCOLD, true, "tenant not active"},
-		{models.TenantActivityStatusFROZEN, true, "tenant not active"},
-		{models.TenantActivityStatusFREEZING, true, "tenant not active"},
-		{"UNKNOWN_STATUS", true, "tenant not active"},
+		{models.TenantActivityStatusCOLD, true, "error while checking tenant status for tenant \"luke\""},
+		{models.TenantActivityStatusFROZEN, true, "error while checking tenant status for tenant \"luke\""},
+		{models.TenantActivityStatusFREEZING, true, "error while checking tenant status for tenant \"luke\""},
+		{"UNKNOWN_STATUS", true, "error while checking tenant status for tenant \"luke\""},
 	}
 
 	for _, test := range statusTests {
@@ -695,7 +695,7 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 	plan, err := r.BuildReadRoutingPlan(params)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "could not get read replicas: shard \"shard1\" not found in collection \"TestClass\"")
+	require.Contains(t, err.Error(), "error while getting read replicas for collection \"TestClass\" shard \"shard1\"")
 	require.Equal(t, []types.Replica(nil), plan.Replicas())
 }
 
@@ -735,7 +735,7 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 	plan, err := r.BuildReadRoutingPlan(params)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no read replicas found for tenant luke")
+	require.Contains(t, err.Error(), "error while checking read replica availability for collection \"TestClass\" shard \"luke\"")
 	require.Equal(t, []types.Replica(nil), plan.Replicas())
 }
 
@@ -801,7 +801,7 @@ func TestMultiTenantRouter_BuildRoutingPlan_TenantNotFoundDuringBuild(t *testing
 	plan, err := r.BuildReadRoutingPlan(params)
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "tenant not found: \"nonexistent\"")
+	require.Contains(t, err.Error(), "error while building read routing plan for collection \"TestClass\" shard \"nonexistent\"")
 	require.Empty(t, plan.Replicas())
 }
 
@@ -993,11 +993,11 @@ func TestMultiTenantRouter_MixedTenantStates(t *testing.T) {
 		shouldWork  bool
 		description string
 	}{
-		"active-tenant-1": {models.TenantActivityStatusHOT, true, "primary active tenant"},
-		"active-tenant-2": {models.TenantActivityStatusHOT, true, "secondary active tenant"},
-		"cold-tenant":     {models.TenantActivityStatusCOLD, false, "deactivated tenant"},
-		"frozen-tenant":   {models.TenantActivityStatusFROZEN, false, "archived tenant"},
-		"freezing-tenant": {models.TenantActivityStatusFREEZING, false, "tenant being migrated"},
+		"active-tenant-1": {models.TenantActivityStatusHOT, true, "error while checking tenant status for tenant \"active-tenant-1\""},
+		"active-tenant-2": {models.TenantActivityStatusHOT, true, "error while checking tenant status for tenant \"active-tenant-2\""},
+		"cold-tenant":     {models.TenantActivityStatusCOLD, false, "error while checking tenant status for tenant \"cold-tenant\""},
+		"frozen-tenant":   {models.TenantActivityStatusFROZEN, false, "error while checking tenant status for tenant \"frozen-tenant\""},
+		"freezing-tenant": {models.TenantActivityStatusFREEZING, false, "error while checking tenant status for tenant \"freezing-tenant\""},
 	}
 
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
@@ -1033,7 +1033,7 @@ func TestMultiTenantRouter_MixedTenantStates(t *testing.T) {
 				require.Equal(t, []string{"node2"}, additionalWrites.NodeNames())
 			} else {
 				require.Error(t, err, "%s: should fail", tenantsStatus.description)
-				require.Contains(t, err.Error(), "tenant not active", "error should mention tenant not active")
+				require.Contains(t, err.Error(), "error while checking tenant status", "error should mention tenant not active")
 				require.Empty(t, readReplicas)
 				require.Empty(t, writeReplicas)
 				require.Empty(t, additionalWrites)
@@ -1238,8 +1238,6 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_SpecificRandomShard(t *
 	require.Equal(t, expectedReadReplicas, readReplicas.Replicas)
 	require.Equal(t, expectedWriteReplicas, writeReplicas.Replicas)
 	require.Equal(t, expectedAdditionalWriteReplicas, additionalWriteReplicas.Replicas)
-
-	t.Logf("✅ Successfully tested targeting specific shard: %s with nodes: %v", targetShard, targetNodes)
 }
 
 func TestSingleTenantRouter_GetReadWriteReplicasLocation_InvalidShard(t *testing.T) {
@@ -1264,7 +1262,7 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_InvalidShard(t *testing
 	readReplicas, writeReplicas, additionalWriteReplicas, err := r.GetReadWriteReplicasLocation("TestClass", "invalid_shard")
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "shard \"invalid_shard\" not found in collection \"TestClass\"")
+	require.Contains(t, err.Error(), "error while getting target shards for collection \"TestClass\" shard \"invalid_shard\"")
 	require.Empty(t, readReplicas)
 	require.Empty(t, writeReplicas)
 	require.Empty(t, additionalWriteReplicas)
