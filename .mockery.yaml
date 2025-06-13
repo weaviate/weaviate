@@ -16,6 +16,9 @@ packages:
       BackupBackendProvider:
       NodeResolver:
       Selector:
+  github.com/weaviate/weaviate/usecases/cluster:
+    interfaces:
+      NodeSelector:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
