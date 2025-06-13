@@ -872,8 +872,6 @@ func TestRouter_NodeHostname(t *testing.T) {
 			mockNodeSelector := cluster.NewMockNodeSelector(t)
 			mockSchemaGetter := schema.NewMockSchemaGetter(t)
 			mockReplicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-
-			mockNodeSelector.EXPECT().LocalName().Return("node1")
 			mockNodeSelector.EXPECT().NodeHostname("node1").Return("host1.example.com", true)
 			mockNodeSelector.EXPECT().NodeHostname("node2").Return("", false)
 
