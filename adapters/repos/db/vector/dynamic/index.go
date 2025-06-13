@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -612,6 +613,21 @@ func (dynamic *dynamic) VectorStorageSize() int64 {
 
 	// Fallback: return 0 if the underlying index doesn't support VectorStorageSize
 	return 0
+}
+
+func (dynamic *dynamic) CompressionStats() (compressionhelpers.CompressionStats, error) {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+
+	// Delegate to the underlying index (flat or hnsw)
+	if vectorIndex, ok := dynamic.index.(interface {
+		CompressionStats() (compressionhelpers.CompressionStats, error)
+	}); ok {
+		return vectorIndex.CompressionStats()
+	}
+
+	// Fallback: return uncompressed stats if the underlying index doesn't support CompressionStats
+	return compressionhelpers.UncompressedStats{}, nil
 }
 
 type DynamicStats struct{}
