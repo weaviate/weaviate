@@ -13,6 +13,7 @@ package modimage
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 
@@ -85,6 +86,11 @@ func (m *ImageModule) initVectorizer(ctx context.Context, timeout time.Duration,
 
 	m.vectorizer = vectorizer.New(client)
 
+	return nil
+}
+
+func (m *ImageModule) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
 	return nil
 }
 

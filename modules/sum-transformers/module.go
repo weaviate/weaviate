@@ -13,6 +13,7 @@ package modsum
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 
@@ -85,6 +86,11 @@ func (m *SUMModule) initAdditional(ctx context.Context, timeout time.Duration,
 	tokenProvider := sumadditionalsummary.New(m.sum)
 	m.additionalPropertiesProvider = sumadditional.New(tokenProvider)
 
+	return nil
+}
+
+func (m *SUMModule) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
 	return nil
 }
 

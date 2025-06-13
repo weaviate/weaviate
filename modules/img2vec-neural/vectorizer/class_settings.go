@@ -17,21 +17,21 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 )
 
-type ClsSettings struct {
-	Cfg moduletools.ClassConfig
+type classSettings struct {
+	cfg moduletools.ClassConfig
 }
 
-func NewClassSettings(cfg moduletools.ClassConfig) *ClsSettings {
-	return &ClsSettings{Cfg: cfg}
+func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
+	return &classSettings{cfg: cfg}
 }
 
-func (ic *ClsSettings) Properties() ([]string, error) {
-	if ic.Cfg == nil {
+func (ic *classSettings) Properties() ([]string, error) {
+	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return nil, errors.New("empty config")
 	}
 
-	imageFields, ok := ic.Cfg.Class()["imageFields"]
+	imageFields, ok := ic.cfg.Class()["imageFields"]
 	if !ok {
 		return nil, errors.New("imageFields not present")
 	}
@@ -48,7 +48,7 @@ func (ic *ClsSettings) Properties() ([]string, error) {
 	return fieldNames, nil
 }
 
-func (ic *ClsSettings) ImageField(property string) bool {
+func (ic *classSettings) ImageField(property string) bool {
 	fieldNames, err := ic.Properties()
 	if err != nil {
 		return false
@@ -62,13 +62,13 @@ func (ic *ClsSettings) ImageField(property string) bool {
 	return false
 }
 
-func (ic *ClsSettings) Validate() error {
-	if ic.Cfg == nil {
+func (ic *classSettings) Validate() error {
+	if ic.cfg == nil {
 		// we would receive a nil-config on cross-class requests, such as Explore{}
 		return errors.New("empty config")
 	}
 
-	imageFields, ok := ic.Cfg.Class()["imageFields"]
+	imageFields, ok := ic.cfg.Class()["imageFields"]
 	if !ok {
 		return errors.New("imageFields not present")
 	}

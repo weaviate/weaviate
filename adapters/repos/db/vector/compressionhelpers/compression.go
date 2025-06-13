@@ -39,6 +39,7 @@ type ReturnDistancerFn func()
 type CommitLogger interface {
 	AddPQCompression(PQData) error
 	AddSQCompression(SQData) error
+	AddRQCompression(RQData) error
 }
 
 type CompressionStats interface {
@@ -629,6 +630,152 @@ func RestoreHNSWSQMultiCompressor(
 		sqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
 		0, allocChecker)
 	return sqVectorsCompressor, nil
+}
+
+func NewRQCompressor(
+	distance distancer.Provider,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+	dataBits int,
+	queryBits int,
+	dim int,
+) (VectorCompressor, error) {
+	seed := uint64(0x535ab5105169b1df)
+
+	quantizer := NewRotationalQuantizer(dim, seed, dataBits, queryBits, distance)
+	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
+	switch dataBits {
+	case 8:
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:       quantizer,
+			compressedStore: store,
+			storeId:         binary.BigEndian.PutUint64,
+			loadId:          binary.BigEndian.Uint64,
+			logger:          logger,
+		}
+	default:
+		panic("invalid bits value")
+	}
+	rqVectorsCompressor.initCompressedStore()
+	rqVectorsCompressor.cache = cache.NewShardedByteLockCache(
+		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+		0, allocChecker)
+	return rqVectorsCompressor, nil
+}
+
+func RestoreRQCompressor(
+	distance distancer.Provider,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	dimensions int,
+	dataBits int,
+	queryBits int,
+	outputDim int,
+	rounds int,
+	swaps [][]Swap,
+	signs [][]int8,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+) (VectorCompressor, error) {
+	seed := uint64(0x535ab5105169b1df)
+
+	quantizer, err := RestoreRotationalQuantizer(dimensions, seed, dataBits, queryBits, outputDim, rounds, swaps, signs, distance)
+	if err != nil {
+		return nil, err
+	}
+	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
+	switch dataBits {
+	case 8:
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:       quantizer,
+			compressedStore: store,
+			storeId:         binary.BigEndian.PutUint64,
+			loadId:          binary.BigEndian.Uint64,
+			logger:          logger,
+		}
+	default:
+		panic("invalid bits value")
+	}
+	rqVectorsCompressor.initCompressedStore()
+	rqVectorsCompressor.cache = cache.NewShardedByteLockCache(
+		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, 1, logger,
+		0, allocChecker)
+	return rqVectorsCompressor, nil
+}
+
+func NewRQMultiCompressor(
+	distance distancer.Provider,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+	dataBits int,
+	queryBits int,
+	dim int,
+) (VectorCompressor, error) {
+	seed := uint64(0x535ab5105169b1df)
+
+	quantizer := NewRotationalQuantizer(dim, seed, dataBits, queryBits, distance)
+	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
+	switch dataBits {
+	case 8:
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:       quantizer,
+			compressedStore: store,
+			storeId:         binary.BigEndian.PutUint64,
+			loadId:          binary.BigEndian.Uint64,
+			logger:          logger,
+		}
+	default:
+		panic("invalid bits value")
+	}
+	rqVectorsCompressor.initCompressedStore()
+	rqVectorsCompressor.cache = cache.NewShardedMultiByteLockCache(
+		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		0, allocChecker)
+	return rqVectorsCompressor, nil
+}
+
+func RestoreRQMultiCompressor(
+	distance distancer.Provider,
+	vectorCacheMaxObjects int,
+	logger logrus.FieldLogger,
+	dimensions int,
+	dataBits int,
+	queryBits int,
+	outputDim int,
+	rounds int,
+	swaps [][]Swap,
+	signs [][]int8,
+	store *lsmkv.Store,
+	allocChecker memwatch.AllocChecker,
+) (VectorCompressor, error) {
+	seed := uint64(0x535ab5105169b1df)
+
+	quantizer, err := RestoreRotationalQuantizer(dimensions, seed, dataBits, queryBits, outputDim, rounds, swaps, signs, distance)
+	if err != nil {
+		return nil, err
+	}
+	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
+	switch dataBits {
+	case 8:
+		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
+			quantizer:       quantizer,
+			compressedStore: store,
+			storeId:         binary.BigEndian.PutUint64,
+			loadId:          binary.BigEndian.Uint64,
+			logger:          logger,
+		}
+	default:
+		panic("invalid bits value")
+	}
+	rqVectorsCompressor.initCompressedStore()
+	rqVectorsCompressor.cache = cache.NewShardedMultiByteLockCache(
+		rqVectorsCompressor.getCompressedVectorForID, vectorCacheMaxObjects, logger,
+		0, allocChecker)
+	return rqVectorsCompressor, nil
 }
 
 type quantizedCompressorDistancer[T byte | uint64] struct {

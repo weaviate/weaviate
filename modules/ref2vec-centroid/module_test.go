@@ -19,11 +19,9 @@ import (
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
-
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -39,7 +37,7 @@ func TestRef2VecCentroid(t *testing.T) {
 	defer cancel()
 	sp := newFakeStorageProvider(t)
 	logger, _ := test.NewNullLogger()
-	params := moduletools.NewInitParams(sp, nil, config.Config{}, logger, prometheus.NewPedanticRegistry())
+	params := moduletools.NewInitParams(sp, nil, config.Config{}, logger)
 
 	mod := New()
 	classConfig := fakeClassConfig(mod.ClassConfigDefaults())
@@ -49,6 +47,11 @@ func TestRef2VecCentroid(t *testing.T) {
 	t.Run("Init", func(t *testing.T) {
 		err := mod.Init(ctx, params)
 		assert.Nil(t, err)
+	})
+
+	t.Run("RootHandler", func(t *testing.T) {
+		h := mod.RootHandler()
+		assert.Nil(t, h)
 	})
 
 	t.Run("Type", func(t *testing.T) {

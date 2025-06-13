@@ -13,6 +13,7 @@ package modtransformers
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 
@@ -112,6 +113,11 @@ func (m *Model2VecModule) initVectorizer(ctx context.Context, timeout time.Durat
 
 func (m *Model2VecModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
+	return nil
+}
+
+func (m *Model2VecModule) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
 	return nil
 }
 

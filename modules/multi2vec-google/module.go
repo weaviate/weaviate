@@ -13,6 +13,7 @@ package modclip
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 
@@ -137,6 +138,11 @@ func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration,
 	m.videoVectorizer = vectorizer.New(client)
 	m.metaClient = client
 
+	return nil
+}
+
+func (m *Module) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
 	return nil
 }
 

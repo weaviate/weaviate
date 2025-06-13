@@ -9,14 +9,12 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer_test
+package vectorizer
 
 import (
 	"context"
 	"strings"
 	"testing"
-
-	"github.com/weaviate/weaviate/modules/text2vec-aws/vectorizer"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -82,7 +80,7 @@ func TestVectorizingTexts(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			client := &fakeClient{}
 
-			v := vectorizer.New(client)
+			v := New(client)
 
 			settings := &fakeClassConfig{
 				service: "bedrock",

@@ -22,7 +22,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
-
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modelsext"
@@ -97,17 +96,6 @@ func (p *Provider) GetAll() []modulecapabilities.Module {
 	return out
 }
 
-func (p *Provider) GetAllWithHTTPHandlers() []modulecapabilities.ModuleWithHTTPHandlers {
-	out := make([]modulecapabilities.ModuleWithHTTPHandlers, 0)
-	for _, mod := range p.registered {
-		if modWithHTTPHandlers, ok := mod.(modulecapabilities.ModuleWithHTTPHandlers); ok {
-			out = append(out, modWithHTTPHandlers)
-		}
-	}
-
-	return out
-}
-
 func (p *Provider) GetAllExclude(module string) []modulecapabilities.Module {
 	filtered := []modulecapabilities.Module{}
 	for _, mod := range p.GetAll() {
@@ -116,18 +104,6 @@ func (p *Provider) GetAllExclude(module string) []modulecapabilities.Module {
 		}
 	}
 	return filtered
-}
-
-func (p *Provider) Close() error {
-	for _, mod := range p.registered {
-		if m, ok := mod.(modulecapabilities.ModuleWithClose); ok {
-			if err := m.Close(); err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
 }
 
 func (p *Provider) SetSchemaGetter(sg schemaGetter) {

@@ -13,6 +13,7 @@ package modner
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 
@@ -85,6 +86,11 @@ func (m *NERModule) initAdditional(ctx context.Context, timeout time.Duration,
 	tokenProvider := neradditionaltoken.New(m.ner)
 	m.additionalPropertiesProvider = neradditional.New(tokenProvider)
 
+	return nil
+}
+
+func (m *NERModule) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
 	return nil
 }
 

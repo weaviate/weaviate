@@ -324,7 +324,7 @@ func (s *Shard) initAsyncReplication() error {
 	// sync hashtree with current object states
 
 	enterrors.GoWrapper(func() {
-		err := s.HaltForTransfer(ctx, false, 0)
+		err := s.store.PauseCompaction(ctx)
 		if err != nil {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -333,7 +333,7 @@ func (s *Shard) initAsyncReplication() error {
 				Errorf("pausing compaction during hashtree initialization: %v", err)
 			return
 		}
-		defer s.resumeMaintenanceCycles(ctx)
+		defer s.store.ResumeCompaction(ctx)
 
 		objCount := 0
 		prevProgressLogging := time.Now()

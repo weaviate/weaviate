@@ -63,6 +63,12 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
@@ -108,6 +114,12 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -166,6 +178,12 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
@@ -222,6 +240,12 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -281,6 +305,12 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
@@ -335,6 +365,12 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -400,6 +436,12 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
@@ -462,6 +504,12 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -545,6 +593,12 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -640,6 +694,12 @@ func Test_UserConfig(t *testing.T) {
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
 				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
+				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
 					Enabled:     DefaultMultivectorEnabled,
@@ -694,6 +754,12 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       true,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: DefaultFilterStrategy,
 				Multivector: MultivectorConfig{
@@ -764,6 +830,12 @@ func Test_UserConfig(t *testing.T) {
 					Enabled:       DefaultSQEnabled,
 					TrainingLimit: DefaultSQTrainingLimit,
 					RescoreLimit:  DefaultSQRescoreLimit,
+				},
+				RQ: RQConfig{
+					Enabled:      DefaultRQEnabled,
+					DataBits:     DefaultRQDataBits,
+					QueryBits:    DefaultRQQueryBits,
+					RescoreLimit: DefaultRQRescoreLimit,
 				},
 				FilterStrategy: FilterStrategyAcorn,
 				Multivector: MultivectorConfig{

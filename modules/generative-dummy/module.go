@@ -13,6 +13,7 @@ package modgenerativedummy
 
 import (
 	"context"
+	"net/http"
 	"time"
 
 	"github.com/pkg/errors"
@@ -58,6 +59,11 @@ func (m *GenerativeDummyModule) initAdditional(ctx context.Context, timeout time
 	logger logrus.FieldLogger,
 ) error {
 	m.generative = clients.New(logger)
+	return nil
+}
+
+func (m *GenerativeDummyModule) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
 	return nil
 }
 

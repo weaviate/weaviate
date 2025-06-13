@@ -13,6 +13,7 @@ package modgenerativefriendliai
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"time"
 
@@ -67,6 +68,11 @@ func (m *GenerativeFriendliAIModule) initAdditional(ctx context.Context, timeout
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
 
+	return nil
+}
+
+func (m *GenerativeFriendliAIModule) RootHandler() http.Handler {
+	// TODO: remove once this is a capability interface
 	return nil
 }
 

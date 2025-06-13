@@ -53,6 +53,3 @@ packages:
   github.com/weaviate/weaviate/cluster/replication/copier/types:
     interfaces:
       RemoteIndex:
-  github.com/weaviate/weaviate/entities/moduletools:
-    interfaces:
-      ModuleInitParams:

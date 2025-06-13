@@ -64,6 +64,12 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					RQ: hnsw.RQConfig{
+						Enabled:      hnsw.DefaultRQEnabled,
+						DataBits:     hnsw.DefaultRQDataBits,
+						QueryBits:    hnsw.DefaultRQQueryBits,
+						RescoreLimit: hnsw.DefaultRQRescoreLimit,
+					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
 					Multivector: hnsw.MultivectorConfig{
 						Enabled:     hnsw.DefaultMultivectorEnabled,
@@ -131,6 +137,12 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:       hnsw.DefaultSQEnabled,
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
+					},
+					RQ: hnsw.RQConfig{
+						Enabled:      hnsw.DefaultRQEnabled,
+						DataBits:     hnsw.DefaultRQDataBits,
+						QueryBits:    hnsw.DefaultRQQueryBits,
+						RescoreLimit: hnsw.DefaultRQRescoreLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
 					Multivector: hnsw.MultivectorConfig{
@@ -220,6 +232,12 @@ func Test_DynamicUserConfig(t *testing.T) {
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
 					},
+					RQ: hnsw.RQConfig{
+						Enabled:      hnsw.DefaultRQEnabled,
+						DataBits:     hnsw.DefaultRQDataBits,
+						QueryBits:    hnsw.DefaultRQQueryBits,
+						RescoreLimit: hnsw.DefaultRQRescoreLimit,
+					},
 					FilterStrategy: hnsw.FilterStrategyAcorn,
 					Multivector: hnsw.MultivectorConfig{
 						Enabled:     hnsw.DefaultMultivectorEnabled,
@@ -307,6 +325,12 @@ func Test_DynamicUserConfig(t *testing.T) {
 						Enabled:       hnsw.DefaultSQEnabled,
 						TrainingLimit: hnsw.DefaultSQTrainingLimit,
 						RescoreLimit:  hnsw.DefaultSQRescoreLimit,
+					},
+					RQ: hnsw.RQConfig{
+						Enabled:      hnsw.DefaultRQEnabled,
+						DataBits:     hnsw.DefaultRQDataBits,
+						QueryBits:    hnsw.DefaultRQQueryBits,
+						RescoreLimit: hnsw.DefaultRQRescoreLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
 					Multivector: hnsw.MultivectorConfig{

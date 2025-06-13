@@ -9,13 +9,11 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package vectorizer_test
+package vectorizer
 
 import (
 	"context"
 	"testing"
-
-	"github.com/weaviate/weaviate/modules/img2vec-neural/vectorizer"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -28,7 +26,7 @@ func TestVectorizer(t *testing.T) {
 	t.Run("should vectorize image", func(t *testing.T) {
 		// given
 		client := &fakeClient{}
-		vectorizer := vectorizer.New(client)
+		vectorizer := &Vectorizer{client}
 		config := newConfigBuilder().addSetting("imageFields", []interface{}{"image"}).build()
 
 		props := map[string]interface{}{
@@ -50,7 +48,7 @@ func TestVectorizer(t *testing.T) {
 	t.Run("should vectorize 2 image fields", func(t *testing.T) {
 		// given
 		client := &fakeClient{}
-		vectorizer := vectorizer.New(client)
+		vectorizer := &Vectorizer{client}
 		config := newConfigBuilder().addSetting("imageFields", []interface{}{"image1", "image2"}).build()
 
 		props := map[string]interface{}{
