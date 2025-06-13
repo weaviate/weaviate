@@ -56,6 +56,18 @@ func (b BQStats) CompressionType() string {
 	return "bq"
 }
 
+func (b BQStats) CompressionRatio(_ int) float64 {
+	// BQ compression: original size = dimensions * 4 bytes (float32)
+	// compressed size = ceil(dimensions / 64) * 8 bytes (uint64)
+	// For practical vector dimensions, the ratio approaches 32
+	// For 64 dimensions: (64 * 4) / (1 * 8) = 32x
+	// For 128 dimensions: (128 * 4) / (2 * 8) = 32x
+	// For 1536 dimensions: (1536 * 4) / (24 * 8) = 32x
+	// For 1600 dimensions: (1600 * 4) / (25 * 8) = 32x
+	// The ratio is essentially constant at ~32x compression
+	return 32.0
+}
+
 func (bq *BinaryQuantizer) Stats() CompressionStats {
 	return BQStats{}
 }
