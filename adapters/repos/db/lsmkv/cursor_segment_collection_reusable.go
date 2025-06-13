@@ -78,7 +78,7 @@ func (s *segmentCursorCollectionReusable) first() ([]byte, []value, error) {
 }
 
 func (s *segmentCursorCollectionReusable) parseCollectionNodeInto(offset nodeOffset) error {
-	r, err := s.segment.newNodeReader(offset)
+	r, err := s.segment.newNodeReader(offset, "segmentCursorCollectionReusable")
 	if err != nil {
 		return err
 	}
