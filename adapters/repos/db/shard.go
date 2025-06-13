@@ -77,7 +77,7 @@ type ShardLike interface {
 	Counter() *indexcounter.Counter
 	ObjectCount() int
 	ObjectCountAsync() int
-	ObjectStorageBytes() int64
+	ObjectStorageSize() int64
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
@@ -417,7 +417,7 @@ func (s *Shard) ObjectCountAsync() int {
 	return b.CountAsync()
 }
 
-func (s *Shard) ObjectStorageBytes() int64 {
+func (s *Shard) ObjectStorageSize() int64 {
 	// TODO-usage: implement this storage bytes
 	return 0
 }
