@@ -998,7 +998,7 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	return &stats, nil
 }
 
-func (h *hnsw) VectorStorageBytes() int64 {
+func (h *hnsw) VectorStorageSize() int64 {
 	// TODO-usage: Implement this
 	return 0
 }
