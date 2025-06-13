@@ -434,7 +434,7 @@ type nodeOffset struct {
 	start, end uint64
 }
 
-func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
+func (s *segment) newNodeReader(offset nodeOffset, operation string) (*nodeReader, error) {
 	var (
 		r   io.Reader
 		err error
@@ -446,7 +446,7 @@ func (s *segment) newNodeReader(offset nodeOffset) (*nodeReader, error) {
 		}
 		r, err = s.bytesReaderFrom(contents)
 	} else {
-		r, err = s.bufferedReaderAt(offset.start, "ReadFromSegment")
+		r, err = s.bufferedReaderAt(offset.start, "ReadFromSegment"+operation)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("new nodeReader: %w", err)
@@ -459,7 +459,7 @@ func (s *segment) copyNode(b []byte, offset nodeOffset) error {
 		copy(b, s.contents[offset.start:offset.end])
 		return nil
 	}
-	n, err := s.newNodeReader(offset)
+	n, err := s.newNodeReader(offset, "copyNode")
 	if err != nil {
 		return fmt.Errorf("copy node: %w", err)
 	}
@@ -482,5 +482,5 @@ func (s *segment) bufferedReaderAt(offset uint64, operation string) (io.Reader, 
 	meteredF := diskio.NewMeteredReader(s.contentFile, diskio.MeteredReaderCallback(s.metrics.ReadObserver(operation)))
 	r := io.NewSectionReader(meteredF, int64(offset), s.size)
 
-	return r, nil
+	return bufio.NewReader(r), nil
 }
