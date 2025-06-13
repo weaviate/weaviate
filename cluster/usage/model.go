@@ -74,6 +74,9 @@ type VectorUsage struct {
 	// The actual memory storage bytes used by vectors
 	VectorStorageBytes int64 `json:"vector_storage_bytes"`
 
+	// The actual memory storage bytes used by vectors
+	VectorStorageBytes int64 `json:"vectorStorageBytes"`
+
 	// List of dimensionalities and their metrics
 	Dimensionalities []*DimensionalityUsage `json:"dimensionalities"`
 }
