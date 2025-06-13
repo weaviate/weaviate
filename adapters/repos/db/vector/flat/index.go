@@ -24,10 +24,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/memwatch"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+	bolt "go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -42,7 +41,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
-	bolt "go.etcd.io/bbolt"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 const (
@@ -1049,6 +1048,11 @@ func (index *flat) QueryMultiVectorDistancer(queryVector [][]float32) common.Que
 
 func (index *flat) Stats() (common.IndexStats, error) {
 	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
+}
+
+func (index *flat) VectorStorageBytes() int64 {
+	// TODO-usage: Implement this
+	return 0
 }
 
 type FlatStats struct{}

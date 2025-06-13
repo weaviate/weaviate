@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
@@ -995,4 +996,9 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
+}
+
+func (h *hnsw) VectorStorageBytes() int64 {
+	// TODO-usage: Implement this
+	return 0
 }
