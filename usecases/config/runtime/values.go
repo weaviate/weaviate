@@ -77,10 +77,6 @@ func (dv *DynamicValue[T]) Reset() {
 
 // Set is used by the config manager to update the dynamic value.
 func (dv *DynamicValue[T]) SetValue(val T) {
-	if dv == nil {
-		return
-	}
-
 	dv.mu.Lock()
 	defer dv.mu.Unlock()
 
