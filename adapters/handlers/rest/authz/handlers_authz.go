@@ -92,6 +92,7 @@ func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers
 	api.AuthzAssignRoleToGroupHandler = authz.AssignRoleToGroupHandlerFunc(h.assignRoleToGroup)
 	api.AuthzRevokeRoleFromGroupHandler = authz.RevokeRoleFromGroupHandlerFunc(h.revokeRoleFromGroup)
 	api.AuthzGetRolesForUserDeprecatedHandler = authz.GetRolesForUserDeprecatedHandlerFunc(h.getRolesForUserDeprecated)
+	api.AuthzGetRolesForGroupHandler = authz.GetRolesForGroupHandlerFunc(h.getRolesForGroup)
 }
 
 func (h *authZHandlers) authorizeRoleScopes(principal *models.Principal, originalVerb string, policies []authorization.Policy, roleName string) error {
@@ -546,13 +547,13 @@ func (h *authZHandlers) getRolesForUserDeprecated(params authz.GetRolesForUserDe
 		return authz.NewGetRolesForUserDeprecatedNotFound()
 	}
 
-	existingRolesDB, err := h.controller.GetRolesForUser(params.ID, models.UserTypeInputDb)
+	existingRolesDB, err := h.controller.GetRolesForUserOrGroup(params.ID, models.UserTypeInputDb, false)
 	if err != nil {
-		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
+		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUserOrGroup: %w", err)))
 	}
-	existingRolesOIDC, err := h.controller.GetRolesForUser(params.ID, models.UserTypeInputOidc)
+	existingRolesOIDC, err := h.controller.GetRolesForUserOrGroup(params.ID, models.UserTypeInputOidc, false)
 	if err != nil {
-		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
+		return authz.NewGetRolesForUserDeprecatedInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUserOrGroup: %w", err)))
 	}
 
 	var response []*models.Role
@@ -626,9 +627,9 @@ func (h *authZHandlers) getRolesForUser(params authz.GetRolesForUserParams, prin
 		return authz.NewGetRolesForUserNotFound()
 	}
 
-	existingRoles, err := h.controller.GetRolesForUser(params.ID, userType)
+	existingRoles, err := h.controller.GetRolesForUserOrGroup(params.ID, userType, false)
 	if err != nil {
-		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUser: %w", err)))
+		return authz.NewGetRolesForUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUserOrGroup: %w", err)))
 	}
 
 	var roles []*models.Role
@@ -877,6 +878,64 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 	}).Info("roles revoked from group")
 
 	return authz.NewRevokeRoleFromGroupOK()
+}
+
+func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, principal *models.Principal) middleware.Responder {
+	ownGroup := slices.Contains(principal.Groups, params.ID) && params.GroupType == string(principal.UserType)
+
+	if !ownGroup {
+		if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.ID)...); err != nil {
+			return authz.NewGetRolesForGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+	}
+
+	includeFullRoles := params.IncludeFullRoles != nil && *params.IncludeFullRoles
+
+	userType, err := validateUserTypeInput(params.GroupType)
+	if err != nil || userType != models.UserTypeInputOidc {
+		return authz.NewGetRolesForGroupBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown userType: %v", params.GroupType)))
+	}
+
+	existingRoles, err := h.controller.GetRolesForUserOrGroup(params.ID, userType, true)
+	if err != nil {
+		return authz.NewGetRolesForGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("GetRolesForUserOrGroup: %w", err)))
+	}
+
+	var roles []*models.Role
+	var authErrs []error
+	for roleName, policies := range existingRoles {
+		perms, err := conv.PoliciesToPermission(policies...)
+		if err != nil {
+			return authz.NewGetRolesForGroupInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("PoliciesToPermission: %w", err)))
+		}
+
+		role := &models.Role{Name: &roleName}
+		if includeFullRoles {
+			if !ownGroup {
+				if err := h.authorizeRoleScopes(principal, authorization.READ, nil, roleName); err != nil {
+					authErrs = append(authErrs, err)
+					continue
+				}
+			}
+			role.Permissions = perms
+		}
+		roles = append(roles, role)
+	}
+
+	if len(authErrs) > 0 {
+		return authz.NewGetRolesForGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.Join(authErrs...)))
+	}
+
+	sortByName(roles)
+
+	h.logger.WithFields(logrus.Fields{
+		"action":                "get_roles_for_user",
+		"component":             authorization.ComponentName,
+		"user":                  principal.Username,
+		"user_to_get_roles_for": params.ID,
+	}).Info("roles requested")
+
+	return authz.NewGetRolesForGroupOK().WithPayload(roles)
 }
 
 func (h *authZHandlers) userExists(user string, userType models.UserTypeInput) (bool, error) {

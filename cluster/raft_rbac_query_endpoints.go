@@ -50,10 +50,11 @@ func (s *Raft) GetRoles(names ...string) (map[string][]authorization.Policy, err
 	return response.Roles, nil
 }
 
-func (s *Raft) GetRolesForUser(user string, userType models.UserTypeInput) (map[string][]authorization.Policy, error) {
-	req := cmd.QueryGetRolesForUserRequest{
+func (s *Raft) GetRolesForUserOrGroup(user string, userType models.UserTypeInput, isGroup bool) (map[string][]authorization.Policy, error) {
+	req := cmd.QueryGetRolesForUserOrGroupRequest{
 		User:     user,
 		UserType: userType,
+		IsGroup:  isGroup,
 	}
 
 	subCommand, err := json.Marshal(&req)
@@ -70,7 +71,7 @@ func (s *Raft) GetRolesForUser(user string, userType models.UserTypeInput) (map[
 		return nil, fmt.Errorf("failed to execute query: %w", err)
 	}
 
-	response := cmd.QueryGetRolesForUserResponse{}
+	response := cmd.QueryGetRolesForUserOrGroupResponse{}
 	err = json.Unmarshal(queryResp.Payload, &response)
 	if err != nil {
 		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)

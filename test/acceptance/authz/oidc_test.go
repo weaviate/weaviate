@@ -236,10 +236,23 @@ func TestRbacWithOIDCGroups(t *testing.T) {
 	var forbidden *clschema.SchemaObjectsCreateForbidden
 	require.True(t, errors.As(err, &forbidden))
 
+	roles := helper.GetRolesForGroup(t, tokenAdmin, "custom-group", false)
+	require.Len(t, roles, 0)
+
 	// assigning role to group and now user has permission
 	helper.AssignRoleToGroup(t, tokenAdmin, createSchemaRoleName, "custom-group")
 	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
 	require.NoError(t, err)
+
+	roles = helper.GetRolesForGroup(t, tokenAdmin, "custom-group", false)
+	require.Len(t, roles, 1)
+	require.Equal(t, *roles[0].Name, createSchemaRoleName)
+	require.Len(t, roles[0].Permissions, 0)
+
+	rolesWithRoles := helper.GetRolesForGroup(t, tokenAdmin, "custom-group", true)
+	require.Len(t, rolesWithRoles, 1)
+	require.Equal(t, *rolesWithRoles[0].Name, createSchemaRoleName)
+	require.Len(t, rolesWithRoles[0].Permissions, 2)
 
 	// delete class to test again after revocation
 	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))

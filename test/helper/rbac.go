@@ -235,6 +235,17 @@ func RevokeRoleFromGroup(t *testing.T, key, role, group string) {
 	require.Nil(t, err)
 }
 
+func GetRolesForGroup(t *testing.T, key, group string, includeRoles bool) []*models.Role {
+	includeRolesP := &includeRoles
+	resp, err := Client(t).Authz.GetRolesForGroup(
+		authz.NewGetRolesForGroupParams().WithID(group).WithGroupType(string(models.UserTypeInputOidc)).WithIncludeFullRoles(includeRolesP),
+		CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
 func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
 	resp, err := Client(t).Authz.AddPermissions(
 		authz.NewAddPermissionsParams().WithID(role).WithBody(authz.AddPermissionsBody{

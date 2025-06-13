@@ -284,6 +284,82 @@ func init() {
         ]
       }
     },
+    "/authz/groups/{id}/roles/{groupType}": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to user",
+        "operationId": "getRolesForGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of user",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission",
+            "name": "includeFullRoles",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned to group",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no group not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups.roles"
+        ]
+      }
+    },
     "/authz/roles": {
       "get": {
         "tags": [
@@ -7563,6 +7639,82 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.revoke.role.group"
+        ]
+      }
+    },
+    "/authz/groups/{id}/roles/{groupType}": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to user",
+        "operationId": "getRolesForGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of user",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission",
+            "name": "includeFullRoles",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned to group",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no group not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups.roles"
         ]
       }
     },

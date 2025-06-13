@@ -205,11 +205,21 @@ func (m *manager) AddRolesForUser(user string, roles []string) error {
 	return nil
 }
 
-func (m *manager) GetRolesForUser(userName string, userType models.UserTypeInput) (map[string][]authorization.Policy, error) {
-	rolesNames, err := m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
-	if err != nil {
-		return nil, fmt.Errorf("GetRolesForUser: %w", err)
+func (m *manager) GetRolesForUserOrGroup(userName string, userType models.UserTypeInput, isGroup bool) (map[string][]authorization.Policy, error) {
+	var rolesNames []string
+	var err error
+	if isGroup {
+		rolesNames, err = m.casbin.GetRolesForUser(conv.PrefixGroupName(userName))
+		if err != nil {
+			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
+		}
+	} else {
+		rolesNames, err = m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
+		if err != nil {
+			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
+		}
 	}
+
 	if len(rolesNames) == 0 {
 		return map[string][]authorization.Policy{}, err
 	}

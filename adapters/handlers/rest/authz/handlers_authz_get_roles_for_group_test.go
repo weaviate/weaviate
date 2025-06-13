@@ -26,7 +26,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 )
 
-func TestGetRolesForUserSuccess(t *testing.T) {
+func TestGetRolesForGroupSuccess(t *testing.T) {
 	authorizer := authorization.NewMockAuthorizer(t)
 	controller := NewMockControllerAndGetUsers(t)
 	logger, _ := test.NewNullLogger()
@@ -46,15 +46,15 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 	falseP := false
 	tests := []struct {
 		name        string
-		params      authz.GetRolesForUserParams
+		params      authz.GetRolesForGroupParams
 		principal   *models.Principal
 		expectAuthz bool
 	}{
 		{
 			name: "success",
-			params: authz.GetRolesForUserParams{
+			params: authz.GetRolesForGroupParams{
 				ID:               "testUser",
-				UserType:         string(userType),
+				GroupType:        string(userType),
 				IncludeFullRoles: &truep,
 			},
 			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
@@ -62,9 +62,9 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 		},
 		{
 			name: "success without roles",
-			params: authz.GetRolesForUserParams{
+			params: authz.GetRolesForGroupParams{
 				ID:               "testUser",
-				UserType:         string(userType),
+				GroupType:        string(userType),
 				IncludeFullRoles: &falseP,
 			},
 			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
@@ -72,9 +72,9 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 		},
 		{
 			name: "success for own user",
-			params: authz.GetRolesForUserParams{
+			params: authz.GetRolesForGroupParams{
 				ID:               "user1",
-				UserType:         string(userType),
+				GroupType:        string(userType),
 				IncludeFullRoles: &truep,
 			},
 			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
@@ -98,7 +98,7 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.getRolesForUser(tt.params, tt.principal)
+			res := h.getRolesForGroup(tt.params, tt.principal)
 			parsed, ok := res.(*authz.GetRolesForUserOK)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
@@ -123,22 +123,22 @@ func TestGetRolesForUserSuccess(t *testing.T) {
 	}
 }
 
-func TestGetRolesForUserForbidden(t *testing.T) {
+func TestGetRolesForGroupForbidden(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.GetRolesForUserParams
+		params        authz.GetRolesForGroupParams
 		principal     *models.Principal
 		authorizeErr  error
 		expectedError string
 	}
 	truep := true
-	userType := models.UserTypeInputDb
+	userType := models.UserTypeInputOidc
 	tests := []testCase{
 		{
 			name: "authorization error no access to role",
-			params: authz.GetRolesForUserParams{
+			params: authz.GetRolesForGroupParams{
 				ID:               "testUser",
-				UserType:         string(userType),
+				GroupType:        string(userType),
 				IncludeFullRoles: &truep,
 			},
 			principal:     &models.Principal{Username: "user1", UserType: userType},
@@ -162,21 +162,22 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 					},
 				},
 			}
+
 			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
 			if tt.authorizeErr != nil {
+				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
 				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_MATCH), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
 			}
-			controller.On("GetRolesForUserOrGroup", tt.params.ID, userType).Return(returnedPolices, nil)
-			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{tt.params.ID: {}}, nil)
+			controller.On("GetRolesForUserOrGroup", tt.params.ID, models.UserTypeInputOidc, true).Return(returnedPolices, nil)
+
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.getRolesForUser(tt.params, tt.principal)
-			parsed, ok := res.(*authz.GetRolesForUserForbidden)
+			res := h.getRolesForGroup(tt.params, tt.principal)
+			parsed, ok := res.(*authz.GetRolesForGroupForbidden)
 			assert.True(t, ok)
 
 			if tt.expectedError != "" {
@@ -186,7 +187,7 @@ func TestGetRolesForUserForbidden(t *testing.T) {
 	}
 }
 
-func TestGetRolesForUserInternalServerError(t *testing.T) {
+func TestGetRolesForGroupInternalServerError(t *testing.T) {
 	type testCase struct {
 		name          string
 		params        authz.GetRolesForUserParams
@@ -231,61 +232,6 @@ func TestGetRolesForUserInternalServerError(t *testing.T) {
 			if tt.expectedError != "" {
 				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
 			}
-		})
-	}
-}
-
-func TestSortRolesByName(t *testing.T) {
-	tests := []struct {
-		name     string
-		input    []*models.Role
-		expected []*models.Role
-	}{
-		{
-			name: "already sorted",
-			input: []*models.Role{
-				{Name: String("admin")},
-				{Name: String("editor")},
-				{Name: String("user")},
-			},
-			expected: []*models.Role{
-				{Name: String("admin")},
-				{Name: String("editor")},
-				{Name: String("user")},
-			},
-		},
-		{
-			name: "unsorted",
-			input: []*models.Role{
-				{Name: String("user")},
-				{Name: String("admin")},
-				{Name: String("editor")},
-			},
-			expected: []*models.Role{
-				{Name: String("admin")},
-				{Name: String("editor")},
-				{Name: String("user")},
-			},
-		},
-		{
-			name: "same name",
-			input: []*models.Role{
-				{Name: String("admin")},
-				{Name: String("admin")},
-				{Name: String("editor")},
-			},
-			expected: []*models.Role{
-				{Name: String("admin")},
-				{Name: String("admin")},
-				{Name: String("editor")},
-			},
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			sortByName(tt.input)
-			assert.Equal(t, tt.expected, tt.input)
 		})
 	}
 }
