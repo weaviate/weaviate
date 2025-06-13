@@ -696,7 +696,7 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "could not get read replicas: shard \"shard1\" not found in collection \"TestClass\"")
-	require.Equal(t, []types.Replica(nil), plan.ReplicaSet.Replicas)
+	require.Equal(t, []types.Replica(nil), plan.Replicas())
 }
 
 func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
@@ -736,7 +736,7 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no read replicas found for tenant luke")
-	require.Equal(t, []types.Replica(nil), plan.ReplicaSet.Replicas)
+	require.Equal(t, []types.Replica(nil), plan.Replicas())
 }
 
 func TestMultiTenantRouter_BuildReadRoutingPlan_Success(t *testing.T) {
@@ -802,7 +802,7 @@ func TestMultiTenantRouter_BuildRoutingPlan_TenantNotFoundDuringBuild(t *testing
 
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "tenant not found: \"nonexistent\"")
-	require.Empty(t, plan.ReplicaSet.Replicas)
+	require.Empty(t, plan.Replicas())
 }
 
 func TestSingleTenantRouter_BuildRoutingPlan_WithDirectCandidate(t *testing.T) {
@@ -855,7 +855,7 @@ func TestSingleTenantRouter_BuildRoutingPlan_WithDirectCandidate(t *testing.T) {
 		{NodeName: "node1", ShardName: "shard1", HostAddr: "host1.example.com"},
 		{NodeName: "node3", ShardName: "shard1", HostAddr: "host3.example.com"},
 	}
-	require.Equal(t, expectedReplicas, plan.ReplicaSet.Replicas)
+	require.Equal(t, expectedReplicas, plan.Replicas())
 }
 
 func TestRouter_NodeHostname(t *testing.T) {
@@ -1174,9 +1174,9 @@ func TestMultiTenantRouter_RoutingPlanConstruction_DirectCandidate(t *testing.T)
 
 			require.NoError(t, err, "unexpected error for %s", testCase.description)
 			require.Equal(t, testCase.tenant, plan.Shard)
-			require.Len(t, plan.ReplicaSet.Replicas, testCase.expectedTotal, "replica count mismatch for %s", testCase.description)
-			require.Equal(t, testCase.expectedFirst, plan.ReplicaSet.Replicas[0].NodeName, "first replica mismatch for %s", testCase.description)
-			require.Equal(t, testCase.expectedFirst+".example.com", plan.ReplicaSet.Replicas[0].HostAddr, "first host address mismatch for %s", testCase.description)
+			require.Len(t, plan.Replicas(), testCase.expectedTotal, "replica count mismatch for %s", testCase.description)
+			require.Equal(t, testCase.expectedFirst, plan.Replicas()[0].NodeName, "first replica mismatch for %s", testCase.description)
+			require.Equal(t, testCase.expectedFirst+".example.com", plan.Replicas()[0].HostAddr, "first host address mismatch for %s", testCase.description)
 		})
 	}
 }
