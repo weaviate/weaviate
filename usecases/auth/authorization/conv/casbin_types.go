@@ -415,7 +415,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Collections = authorization.AllCollections
 		permission.Tenants = authorization.AllTenants
 		permission.Users = authorization.AllUsers
-		permission.Groups = authorization.AllGroups
+		permission.Groups = authorization.AllOIDCGroups
 	case authorization.ClusterDomain:
 		// do nothing
 	default:

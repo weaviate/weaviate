@@ -77,8 +77,9 @@ var (
 	AllUsers = &models.PermissionUsers{
 		Users: All,
 	}
-	AllGroups = &models.PermissionGroups{
+	AllOIDCGroups = &models.PermissionGroups{
 		Group: All,
+		Type:  models.PermissionGroupsTypeOidc,
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
@@ -483,7 +484,7 @@ func viewerPermissions() []*models.Permission {
 			Collections: AllCollections,
 			Tenants:     AllTenants,
 			Users:       AllUsers,
-			Groups:      AllGroups,
+			Groups:      AllOIDCGroups,
 		})
 	}
 
@@ -504,7 +505,7 @@ func adminPermissions() []*models.Permission {
 			Collections: AllCollections,
 			Tenants:     AllTenants,
 			Users:       AllUsers,
-			Groups:      AllGroups,
+			Groups:      AllOIDCGroups,
 		})
 	}
 

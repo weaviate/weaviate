@@ -562,7 +562,7 @@ func Test_permission(t *testing.T) {
 			name:   "all groups",
 			policy: []string{"p", "/*", "", authorization.GroupsDomain},
 			permission: &models.Permission{
-				Groups: authorization.AllGroups,
+				Groups: authorization.AllOIDCGroups,
 			},
 			tests: groupTests,
 		},
