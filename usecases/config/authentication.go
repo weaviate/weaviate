@@ -64,6 +64,7 @@ type OIDC struct {
 	UsernameClaim     string   `yaml:"username_claim" json:"username_claim"`
 	GroupsClaim       string   `yaml:"groups_claim" json:"groups_claim"`
 	Scopes            []string `yaml:"scopes" json:"scopes"`
+	Certificate       string   `yaml:"certificate" json:"certificate"`
 }
 
 type StaticAPIKey struct {

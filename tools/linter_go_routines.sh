@@ -18,6 +18,7 @@ excluded_files=(
     "usecases/classification/classifier_run.go"
     "usecases/auth/authorization/docs/generator.go" # docs generator
     "tools/dev/generate_release_notes/main.go" # generate release notes tool
+    "test/docker/mockoidchelper/mockoidc_helper.go" # used only for OIDC tests
 )
 
 # Check if file is in excluded list
