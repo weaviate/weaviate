@@ -18,12 +18,15 @@ package authz
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -455,12 +458,64 @@ swagger:model AssignRoleToGroupBody
 */
 type AssignRoleToGroupBody struct {
 
+	// The type of group
+	// Enum: [oidc]
+	GroupType string `json:"groupType,omitempty"`
+
 	// the roles that assigned to group
 	Roles []string `json:"roles"`
 }
 
 // Validate validates this assign role to group body
 func (o *AssignRoleToGroupBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateGroupType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var assignRoleToGroupBodyTypeGroupTypePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["oidc"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		assignRoleToGroupBodyTypeGroupTypePropEnum = append(assignRoleToGroupBodyTypeGroupTypePropEnum, v)
+	}
+}
+
+const (
+
+	// AssignRoleToGroupBodyGroupTypeOidc captures enum value "oidc"
+	AssignRoleToGroupBodyGroupTypeOidc string = "oidc"
+)
+
+// prop value enum
+func (o *AssignRoleToGroupBody) validateGroupTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, assignRoleToGroupBodyTypeGroupTypePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (o *AssignRoleToGroupBody) validateGroupType(formats strfmt.Registry) error {
+	if swag.IsZero(o.GroupType) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := o.validateGroupTypeEnum("body"+"."+"groupType", "body", o.GroupType); err != nil {
+		return err
+	}
+
 	return nil
 }
 

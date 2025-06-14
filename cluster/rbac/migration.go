@@ -128,7 +128,7 @@ func migrateUpsertRolesPermissionsV3(roles map[string][]authorization.Policy) ma
 				continue
 			}
 
-			roles[roleName][idx].Verb = authorization.USER_ASSIGN_AND_REVOKE
+			roles[roleName][idx].Verb = authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE
 
 		}
 	}
@@ -232,7 +232,7 @@ func migrateRemoveRolesPermissionsV3(permissions []*authorization.Policy) []*aut
 			continue
 		}
 
-		permissions[idx].Verb = authorization.USER_ASSIGN_AND_REVOKE
+		permissions[idx].Verb = authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE
 	}
 	return permissions
 }

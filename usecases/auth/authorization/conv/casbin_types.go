@@ -47,18 +47,20 @@ var (
 		authorization.Root:   VALID_VERBS,
 	}
 	weaviate_actions_prefixes = map[string]string{
-		CRUD:                                 "manage",
-		CRU:                                  "manage",
-		authorization.ROLE_SCOPE_MATCH:       "manage",
-		authorization.CREATE:                 "create",
-		authorization.READ:                   "read",
-		authorization.UPDATE:                 "update",
-		authorization.DELETE:                 "delete",
-		authorization.USER_ASSIGN_AND_REVOKE: "assign_and_revoke",
+		CRUD:                           "manage",
+		CRU:                            "manage",
+		authorization.ROLE_SCOPE_MATCH: "manage",
+		authorization.CREATE:           "create",
+		authorization.READ:             "read",
+		authorization.UPDATE:           "update",
+		authorization.DELETE:           "delete",
+		authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE: "assign_and_revoke",
 	}
 )
 
 var resourcePatterns = []string{
+	fmt.Sprintf(`^%s/.*$`, authorization.GroupsDomain),
+	fmt.Sprintf(`^%s/[^/]+$`, authorization.GroupsDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.UsersDomain),
 	fmt.Sprintf(`^%s/[^/]+$`, authorization.UsersDomain),
 	fmt.Sprintf(`^%s/.*$`, authorization.RolesDomain),
@@ -119,6 +121,14 @@ func CasbinUsers(user string) string {
 	}
 	user = strings.ReplaceAll(user, "*", ".*")
 	return fmt.Sprintf("%s/%s", authorization.UsersDomain, user)
+}
+
+func CasbinGroups(group string, groupType string) string {
+	if group == "" {
+		group = "*"
+	}
+	group = strings.ReplaceAll(group, "*", ".*")
+	return fmt.Sprintf("%s/%s/%s", authorization.GroupsDomain, groupType, group)
 }
 
 func CasbinRoles(role string) string {
@@ -202,6 +212,19 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 
 	var resource string
 	switch domain {
+	case authorization.GroupsDomain:
+		group := "*"
+		if permission.Groups != nil {
+			if permission.Groups.Group != nil {
+				group = *permission.Groups.Group
+			}
+			if permission.Groups.Type != models.PermissionGroupsTypeOidc {
+				return nil, fmt.Errorf("invalid groups type: %v", permission.Groups.Type)
+			}
+		} else {
+			return nil, fmt.Errorf("invalid permission: %v", permission)
+		}
+		resource = CasbinGroups(group, models.PermissionGroupsTypeOidc)
 	case authorization.UsersDomain:
 		user := "*"
 		if permission.Users != nil && permission.Users.Users != nil {
@@ -379,6 +402,11 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Users = &models.PermissionUsers{
 			Users: &splits[1],
 		}
+	case authorization.GroupsDomain:
+		permission.Groups = &models.PermissionGroups{
+			Group: &splits[2],
+			Type:  splits[1],
+		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
@@ -387,6 +415,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Collections = authorization.AllCollections
 		permission.Tenants = authorization.AllTenants
 		permission.Users = authorization.AllUsers
+		permission.Groups = authorization.AllGroups
 	case authorization.ClusterDomain:
 		// do nothing
 	default:

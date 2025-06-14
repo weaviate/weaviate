@@ -172,6 +172,13 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "description": "The type of group",
+                  "type": "string",
+                  "enum": [
+                    "oidc"
+                  ]
+                },
                 "roles": {
                   "description": "the roles that assigned to group",
                   "type": "array",
@@ -239,6 +246,13 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "description": "The type of group",
+                  "type": "string",
+                  "enum": [
+                    "oidc"
+                  ]
+                },
                 "roles": {
                   "description": "the roles that revoked from group",
                   "type": "array",
@@ -304,7 +318,7 @@ func init() {
               "oidc"
             ],
             "type": "string",
-            "description": "The type of user",
+            "description": "The type of group",
             "name": "groupType",
             "in": "path",
             "required": true
@@ -6335,6 +6349,8 @@ func init() {
             "read_collections",
             "update_collections",
             "delete_collections",
+            "assign_and_revoke_groups",
+            "read_groups",
             "assign_and_revoke_users",
             "create_users",
             "read_users",
@@ -6386,6 +6402,24 @@ func init() {
               "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
+            }
+          }
+        },
+        "groups": {
+          "description": "resources applicable for group actions",
+          "type": "object",
+          "properties": {
+            "group": {
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "type": {
+              "description": "The type of group",
+              "type": "string",
+              "enum": [
+                "oidc"
+              ]
             }
           }
         },
@@ -7530,6 +7564,13 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "description": "The type of group",
+                  "type": "string",
+                  "enum": [
+                    "oidc"
+                  ]
+                },
                 "roles": {
                   "description": "the roles that assigned to group",
                   "type": "array",
@@ -7597,6 +7638,13 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "description": "The type of group",
+                  "type": "string",
+                  "enum": [
+                    "oidc"
+                  ]
+                },
                 "roles": {
                   "description": "the roles that revoked from group",
                   "type": "array",
@@ -7662,7 +7710,7 @@ func init() {
               "oidc"
             ],
             "type": "string",
-            "description": "The type of user",
+            "description": "The type of group",
             "name": "groupType",
             "in": "path",
             "required": true
@@ -13996,6 +14044,8 @@ func init() {
             "read_collections",
             "update_collections",
             "delete_collections",
+            "assign_and_revoke_groups",
+            "read_groups",
             "assign_and_revoke_users",
             "create_users",
             "read_users",
@@ -14047,6 +14097,24 @@ func init() {
               "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
+            }
+          }
+        },
+        "groups": {
+          "description": "resources applicable for group actions",
+          "type": "object",
+          "properties": {
+            "group": {
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "type": {
+              "description": "The type of group",
+              "type": "string",
+              "enum": [
+                "oidc"
+              ]
             }
           }
         },
@@ -14159,6 +14227,24 @@ func init() {
           "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        }
+      }
+    },
+    "PermissionGroups": {
+      "description": "resources applicable for group actions",
+      "type": "object",
+      "properties": {
+        "group": {
+          "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "type": {
+          "description": "The type of group",
+          "type": "string",
+          "enum": [
+            "oidc"
+          ]
         }
       }
     },

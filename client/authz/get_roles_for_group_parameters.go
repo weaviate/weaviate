@@ -75,7 +75,7 @@ type GetRolesForGroupParams struct {
 
 	/* GroupType.
 
-	   The type of user
+	   The type of group
 	*/
 	GroupType string
 

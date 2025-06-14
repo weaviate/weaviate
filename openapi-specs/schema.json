@@ -207,6 +207,24 @@
             }
           }
         },
+        "groups": {
+          "type": "object",
+          "description": "resources applicable for group actions",
+          "properties": {
+            "group": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "oidc"
+              ],
+              "description": "The type of group"
+            }
+          }
+        },
         "tenants": {
           "type": "object",
           "description": "resources applicable for tenant actions",
@@ -273,6 +291,8 @@
             "read_collections",
             "update_collections",
             "delete_collections",
+            "assign_and_revoke_groups",
+            "read_groups",
             "assign_and_revoke_users",
             "create_users",
             "read_users",
@@ -4015,6 +4035,13 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "groupType":{
+                  "type": "string",
+                  "enum": [
+                    "oidc"
+                  ],
+                  "description": "The type of group"
                 }
               }
             }
@@ -4082,6 +4109,13 @@
                   "items": {
                     "type": "string"
                   }
+                },
+                "groupType":{
+                  "type": "string",
+                  "enum": [
+                    "oidc"
+                  ],
+                  "description": "The type of group"
                 }
               }
             }
@@ -4144,7 +4178,7 @@
             "enum": [
               "oidc"
             ],
-            "description": "The type of user"
+            "description": "The type of group"
           },
           {
             "in": "query",

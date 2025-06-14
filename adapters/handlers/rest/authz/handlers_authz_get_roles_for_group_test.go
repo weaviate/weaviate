@@ -163,7 +163,7 @@ func TestGetRolesForGroupForbidden(t *testing.T) {
 				},
 			}
 
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Groups(models.PermissionGroupsTypeOidc, tt.params.ID)[0]).Return(nil)
 
 			if tt.authorizeErr != nil {
 				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
@@ -229,9 +229,7 @@ func TestGetRolesForGroupInternalServerError(t *testing.T) {
 			parsed, ok := res.(*authz.GetRolesForUserInternalServerError)
 			assert.True(t, ok)
 
-			if tt.expectedError != "" {
-				assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
-			}
+			assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
 		})
 	}
 }

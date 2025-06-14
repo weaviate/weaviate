@@ -38,12 +38,12 @@ var (
 	deleteDesc = "delete"
 	manageDesc = "manage"
 
-	createVerb              = authorization.CREATE
-	readVerb                = authorization.READ
-	updateVerb              = authorization.UPDATE
-	deleteVerb              = authorization.DELETE
-	assignAndRevokeUserVerb = authorization.USER_ASSIGN_AND_REVOKE
-	manageVerb              = CRUD
+	createVerb          = authorization.CREATE
+	readVerb            = authorization.READ
+	updateVerb          = authorization.UPDATE
+	deleteVerb          = authorization.DELETE
+	assignAndRevokeVerb = authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE
+	manageVerb          = CRUD
 
 	rolesTestsR = []innerTest{
 		{permissionAction: authorization.ReadRoles, testDescription: readDesc, policyVerb: authorization.VerbWithScope(readVerb, authorization.ROLE_SCOPE_MATCH)},
@@ -81,11 +81,15 @@ var (
 		{permissionAction: authorization.DeleteTenants, testDescription: deleteDesc, policyVerb: deleteVerb},
 	}
 	userTests = []innerTest{
-		{permissionAction: authorization.AssignAndRevokeUsers, testDescription: manageDesc, policyVerb: assignAndRevokeUserVerb},
+		{permissionAction: authorization.AssignAndRevokeUsers, testDescription: manageDesc, policyVerb: assignAndRevokeVerb},
 		{permissionAction: authorization.CreateUsers, testDescription: createDesc, policyVerb: createVerb},
 		{permissionAction: authorization.ReadUsers, testDescription: readDesc, policyVerb: readVerb},
 		{permissionAction: authorization.UpdateUsers, testDescription: updateDesc, policyVerb: updateVerb},
 		{permissionAction: authorization.DeleteUsers, testDescription: deleteDesc, policyVerb: deleteVerb},
+	}
+	groupTests = []innerTest{
+		{permissionAction: authorization.ReadGroups, testDescription: readDesc, policyVerb: readVerb},
+		{permissionAction: authorization.AssignAndRevokeGroups, testDescription: manageDesc, policyVerb: assignAndRevokeVerb},
 	}
 )
 
@@ -555,6 +559,14 @@ func Test_permission(t *testing.T) {
 			tests: userTests,
 		},
 		{
+			name:   "all groups",
+			policy: []string{"p", "/*", "", authorization.GroupsDomain},
+			permission: &models.Permission{
+				Groups: authorization.AllGroups,
+			},
+			tests: groupTests,
+		},
+		{
 			name:       "cluster",
 			policy:     []string{"p", "/*", "", authorization.ClusterDomain},
 			permission: &models.Permission{},
@@ -847,6 +859,26 @@ func Test_permission(t *testing.T) {
 			},
 			tests: userTests,
 		},
+		{
+			name:   "a group",
+			policy: []string{"p", "/baz", "", authorization.GroupsDomain},
+			permission: &models.Permission{
+				Groups: &models.PermissionGroups{
+					Group: baz,
+				},
+			},
+			tests: groupTests,
+		},
+		{
+			name:   "all groups",
+			policy: []string{"p", "/*", "", authorization.GroupsDomain},
+			permission: &models.Permission{
+				Groups: &models.PermissionGroups{
+					Group: authorization.All,
+				},
+			},
+			tests: groupTests,
+		},
 	}
 	for _, tt := range tests {
 		tt.policy[1] = fmt.Sprintf("%s%s", tt.policy[3], tt.policy[1])
@@ -882,6 +914,24 @@ func Test_pUsers(t *testing.T) {
 		name := fmt.Sprintf("user: %s", tt.user)
 		t.Run(name, func(t *testing.T) {
 			p := CasbinUsers(tt.user)
+			require.Equal(t, tt.expected, p)
+		})
+	}
+}
+
+func Test_pGroups(t *testing.T) {
+	tests := []struct {
+		group    string
+		expected string
+	}{
+		{group: "", expected: fmt.Sprintf("%s/%s/.*", authorization.GroupsDomain, models.PermissionGroupsTypeOidc)},
+		{group: "*", expected: fmt.Sprintf("%s/%s/.*", authorization.GroupsDomain, models.PermissionGroupsTypeOidc)},
+		{group: "foo", expected: fmt.Sprintf("%s/%s/foo", authorization.GroupsDomain, models.PermissionGroupsTypeOidc)},
+	}
+	for _, tt := range tests {
+		name := fmt.Sprintf("group: %s", tt.group)
+		t.Run(name, func(t *testing.T) {
+			p := CasbinGroups(tt.group, models.PermissionGroupsTypeOidc)
 			require.Equal(t, tt.expected, p)
 		})
 	}
@@ -1025,6 +1075,11 @@ func TestValidResource(t *testing.T) {
 		{
 			name:     "valid resource - users",
 			input:    fmt.Sprintf("%s/testUser", authorization.UsersDomain),
+			expected: true,
+		},
+		{
+			name:     "valid resource - groups",
+			input:    fmt.Sprintf("%s/testGroups", authorization.GroupsDomain),
 			expected: true,
 		},
 		{

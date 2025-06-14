@@ -617,7 +617,8 @@ func (_c *MockBackupBackend_WriteToFile_Call) RunAndReturn(run func(context.Cont
 func NewMockBackupBackend(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockBackupBackend {
+},
+) *MockBackupBackend {
 	mock := &MockBackupBackend{}
 	mock.Mock.Test(t)
 

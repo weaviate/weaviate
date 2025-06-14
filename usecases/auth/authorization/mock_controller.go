@@ -589,7 +589,8 @@ func (_c *MockController_UpdateRolesPermissions_Call) RunAndReturn(run func(map[
 func NewMockController(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockController {
+},
+) *MockController {
 	mock := &MockController{}
 	mock.Mock.Test(t)
 

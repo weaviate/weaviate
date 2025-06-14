@@ -35,10 +35,11 @@ const (
 	ROLE_SCOPE_ALL   = "ALL"
 	ROLE_SCOPE_MATCH = "MATCH"
 
-	USER_ASSIGN_AND_REVOKE = "A"
+	USER_AND_GROUP_ASSIGN_AND_REVOKE = "A"
 )
 
 const (
+	GroupsDomain      = "groups"
 	UsersDomain       = "users"
 	RolesDomain       = "roles"
 	ClusterDomain     = "cluster"
@@ -76,6 +77,9 @@ var (
 	AllUsers = &models.PermissionUsers{
 		Users: All,
 	}
+	AllGroups = &models.PermissionGroups{
+		Group: All,
+	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,
 	}
@@ -92,6 +96,9 @@ var (
 
 	ReadCluster = "read_cluster"
 	ReadNodes   = "read_nodes"
+
+	AssignAndRevokeGroups = "assign_and_revoke_groups"
+	ReadGroups            = "read_groups"
 
 	AssignAndRevokeUsers = "assign_and_revoke_users"
 	CreateUsers          = "create_users"
@@ -132,6 +139,10 @@ var (
 		ReadUsers,
 		UpdateUsers,
 		DeleteUsers,
+
+		// Groups domain
+		AssignAndRevokeGroups,
+		ReadGroups,
 
 		// Cluster domain
 		ReadCluster,
@@ -212,6 +223,31 @@ func Nodes(verbosity string, classes ...string) []string {
 		} else {
 			resources[idx] = nodes(verbosity, classes[idx])
 		}
+	}
+
+	return resources
+}
+
+// Groups generates a list of user resource strings based on the provided group names.
+// If no group names are provided, it returns a default user resource string "groups/*".
+//
+// Parameters:
+//
+//	groups - A variadic parameter representing the group names.
+//
+// Returns:
+//
+//	A slice of strings where each string is a formatted user resource string.
+func Groups(groupType string, groups ...string) []string {
+	if len(groups) == 0 || (len(groups) == 1 && (groups[0] == "" || groups[0] == "*")) {
+		return []string{
+			fmt.Sprintf("%s/%s/*", GroupsDomain, groupType),
+		}
+	}
+
+	resources := make([]string, len(groups))
+	for idx := range groups {
+		resources[idx] = fmt.Sprintf("%s/%s/%s", GroupsDomain, groupType, groups[idx])
 	}
 
 	return resources
@@ -447,6 +483,7 @@ func viewerPermissions() []*models.Permission {
 			Collections: AllCollections,
 			Tenants:     AllTenants,
 			Users:       AllUsers,
+			Groups:      AllGroups,
 		})
 	}
 
@@ -467,6 +504,7 @@ func adminPermissions() []*models.Permission {
 			Collections: AllCollections,
 			Tenants:     AllTenants,
 			Users:       AllUsers,
+			Groups:      AllGroups,
 		})
 	}
 

@@ -218,8 +218,9 @@ func RevokeRoleFromUser(t *testing.T, key, role, user string) {
 }
 
 func AssignRoleToGroup(t *testing.T, key, role, group string) {
+	t.Helper()
 	resp, err := Client(t).Authz.AssignRoleToGroup(
-		authz.NewAssignRoleToGroupParams().WithID(group).WithBody(authz.AssignRoleToGroupBody{Roles: []string{role}}),
+		authz.NewAssignRoleToGroupParams().WithID(group).WithBody(authz.AssignRoleToGroupBody{Roles: []string{role}, GroupType: models.PermissionGroupsTypeOidc}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)
@@ -227,8 +228,9 @@ func AssignRoleToGroup(t *testing.T, key, role, group string) {
 }
 
 func RevokeRoleFromGroup(t *testing.T, key, role, group string) {
+	t.Helper()
 	resp, err := Client(t).Authz.RevokeRoleFromGroup(
-		authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{role}}),
+		authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{Roles: []string{role}, GroupType: models.PermissionGroupsTypeOidc}),
 		CreateAuth(key),
 	)
 	AssertRequestOk(t, resp, err, nil)

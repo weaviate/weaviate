@@ -31,9 +31,11 @@ import (
 // with the default values initialized.
 func NewGetRolesForGroupParams() GetRolesForGroupParams {
 
-	// initialize parameters with default values
+	var (
+		// initialize parameters with default values
 
-	includeFullRolesDefault := bool(false)
+		includeFullRolesDefault = bool(false)
+	)
 
 	return GetRolesForGroupParams{
 		IncludeFullRoles: &includeFullRolesDefault,
@@ -45,10 +47,11 @@ func NewGetRolesForGroupParams() GetRolesForGroupParams {
 //
 // swagger:parameters getRolesForGroup
 type GetRolesForGroupParams struct {
+
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*The type of user
+	/*The type of group
 	  Required: true
 	  In: path
 	*/
@@ -116,6 +119,7 @@ func (o *GetRolesForGroupParams) bindGroupType(rawData []string, hasKey bool, fo
 
 // validateGroupType carries on validations for parameter GroupType
 func (o *GetRolesForGroupParams) validateGroupType(formats strfmt.Registry) error {
+
 	if err := validate.EnumCase("groupType", "path", o.GroupType, []interface{}{"oidc"}, true); err != nil {
 		return err
 	}
