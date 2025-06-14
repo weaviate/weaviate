@@ -1003,16 +1003,6 @@ func (h *authZHandlers) validateRootGroup(name string) error {
 	return nil
 }
 
-// isRootUser checks that the provided username belongs to the root users list
-func (h *authZHandlers) isRootUser(principal *models.Principal) bool {
-	for _, groupName := range principal.Groups {
-		if slices.Contains(h.rbacconfig.RootGroups, groupName) {
-			return true
-		}
-	}
-	return slices.Contains(h.rbacconfig.RootUsers, principal.Username)
-}
-
 func (h *authZHandlers) getUserTypesAndValidateExistence(id string, userTypeParam models.UserTypeInput) ([]models.UserTypeInput, error) {
 	if userTypeParam == "" {
 		exists, err := h.userExistsDeprecated(id)
