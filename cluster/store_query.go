@@ -71,7 +71,7 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get RBAC permissions: %w", err)
 		}
 	case cmd.QueryRequest_TYPE_GET_ROLES_FOR_USER:
-		payload, err = st.authZManager.GetRolesForUser(req)
+		payload, err = st.authZManager.GetRolesForUserOrGroup(req)
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get RBAC permissions: %w", err)
 		}

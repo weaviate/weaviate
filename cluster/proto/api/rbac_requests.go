@@ -93,12 +93,13 @@ type QueryGetRolesResponse struct {
 	Roles map[string][]authorization.Policy
 }
 
-type QueryGetRolesForUserRequest struct {
+type QueryGetRolesForUserOrGroupRequest struct {
 	User     string
 	UserType models.UserTypeInput
+	IsGroup  bool
 }
 
-type QueryGetRolesForUserResponse struct {
+type QueryGetRolesForUserOrGroupResponse struct {
 	Roles map[string][]authorization.Policy
 }
 

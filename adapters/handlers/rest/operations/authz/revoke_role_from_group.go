@@ -18,11 +18,14 @@ package authz
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 
+	"github.com/go-openapi/errors"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
 	"github.com/go-openapi/swag"
+	"github.com/go-openapi/validate"
 
 	"github.com/weaviate/weaviate/entities/models"
 )
@@ -89,12 +92,64 @@ func (o *RevokeRoleFromGroup) ServeHTTP(rw http.ResponseWriter, r *http.Request)
 // swagger:model RevokeRoleFromGroupBody
 type RevokeRoleFromGroupBody struct {
 
+	// The type of group
+	// Enum: [oidc]
+	GroupType string `json:"groupType,omitempty" yaml:"groupType,omitempty"`
+
 	// the roles that revoked from group
 	Roles []string `json:"roles" yaml:"roles"`
 }
 
 // Validate validates this revoke role from group body
 func (o *RevokeRoleFromGroupBody) Validate(formats strfmt.Registry) error {
+	var res []error
+
+	if err := o.validateGroupType(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if len(res) > 0 {
+		return errors.CompositeValidationError(res...)
+	}
+	return nil
+}
+
+var revokeRoleFromGroupBodyTypeGroupTypePropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["oidc"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		revokeRoleFromGroupBodyTypeGroupTypePropEnum = append(revokeRoleFromGroupBodyTypeGroupTypePropEnum, v)
+	}
+}
+
+const (
+
+	// RevokeRoleFromGroupBodyGroupTypeOidc captures enum value "oidc"
+	RevokeRoleFromGroupBodyGroupTypeOidc string = "oidc"
+)
+
+// prop value enum
+func (o *RevokeRoleFromGroupBody) validateGroupTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, revokeRoleFromGroupBodyTypeGroupTypePropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (o *RevokeRoleFromGroupBody) validateGroupType(formats strfmt.Registry) error {
+	if swag.IsZero(o.GroupType) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := o.validateGroupTypeEnum("body"+"."+"groupType", "body", o.GroupType); err != nil {
+		return err
+	}
+
 	return nil
 }
 

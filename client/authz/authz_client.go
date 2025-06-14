@@ -55,6 +55,8 @@ type ClientService interface {
 
 	GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesOK, error)
 
+	GetRolesForGroup(params *GetRolesForGroupParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForGroupOK, error)
+
 	GetRolesForUser(params *GetRolesForUserParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserOK, error)
 
 	GetRolesForUserDeprecated(params *GetRolesForUserDeprecatedParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForUserDeprecatedOK, error)
@@ -344,6 +346,45 @@ func (a *Client) GetRoles(params *GetRolesParams, authInfo runtime.ClientAuthInf
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for getRoles: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+GetRolesForGroup gets roles assigned to user
+*/
+func (a *Client) GetRolesForGroup(params *GetRolesForGroupParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*GetRolesForGroupOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewGetRolesForGroupParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "getRolesForGroup",
+		Method:             "GET",
+		PathPattern:        "/authz/groups/{id}/roles/{groupType}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &GetRolesForGroupReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*GetRolesForGroupOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for getRolesForGroup: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 
