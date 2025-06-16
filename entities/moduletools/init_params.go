@@ -23,10 +23,10 @@ type ModuleInitParams interface {
 	GetAppState() interface{}
 	GetLogger() logrus.FieldLogger
 	GetConfig() config.Config
-	GetMetricsRegisterer() prometheus.Registerer
-	// GetConfigPtr() used to be a pointer to a config.Config, to be used for
-	// runtime overrides.
+	// GetConfigPtr() used to be a pointer to a config.Config to be used for
+	// runtime overrides initialization.
 	GetConfigPtr() *config.Config
+	GetMetricsRegisterer() prometheus.Registerer
 }
 
 type InitParams struct {
