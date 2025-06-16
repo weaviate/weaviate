@@ -22,10 +22,7 @@ type ModuleInitParams interface {
 	GetStorageProvider() StorageProvider
 	GetAppState() interface{}
 	GetLogger() logrus.FieldLogger
-	GetConfig() config.Config
-	// GetConfigPtr() used to be a pointer to a config.Config to be used for
-	// runtime overrides initialization.
-	GetConfigPtr() *config.Config
+	GetConfig() *config.Config
 	GetMetricsRegisterer() prometheus.Registerer
 }
 
@@ -55,11 +52,7 @@ func (p *InitParams) GetLogger() logrus.FieldLogger {
 	return p.logger
 }
 
-func (p *InitParams) GetConfig() config.Config {
-	return *p.config
-}
-
-func (p *InitParams) GetConfigPtr() *config.Config {
+func (p *InitParams) GetConfig() *config.Config {
 	return p.config
 }
 
