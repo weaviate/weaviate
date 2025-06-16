@@ -39,10 +39,3 @@ func errPayloadFromSingleErr(err error) *models.ErrorResponse {
 		Code:    500,
 	}}}
 }
-
-func errPayloadFromSingleErrWithCode(err error, code int64) *models.ErrorResponse {
-	return &models.ErrorResponse{Error: []*models.ErrorResponseErrorItems0{{
-		Message: fmt.Sprintf("%s", err),
-		Code:    code,
-	}}}
-}
