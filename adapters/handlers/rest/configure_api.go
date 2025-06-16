@@ -217,6 +217,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	appState := startupRoutine(ctx, options)
 
+	// this is before initRuntimeOverrides to be able to init module configs
+	// as runtime overrides are applied after initModules
 	if err := registerModules(appState); err != nil {
 		appState.Logger.
 			WithField("action", "startup").WithError(err).
