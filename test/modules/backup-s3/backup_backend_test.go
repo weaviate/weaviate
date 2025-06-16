@@ -20,9 +20,7 @@ import (
 	"time"
 
 	"github.com/pkg/errors"
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
@@ -32,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/test/docker"
 	moduleshelper "github.com/weaviate/weaviate/test/helper/modules"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 func Test_S3Backend_Start(t *testing.T) {
@@ -83,7 +80,6 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 
 	bucketName := containerName
 
-	dataDir := t.TempDir()
 	className := "BackupClass"
 	backupID := "backup_id"
 	endpoint := os.Getenv(envMinioEndpoint)
@@ -95,7 +91,10 @@ func moduleLevelStoreBackupMeta(t *testing.T, override bool, containerName, over
 		t.Setenv(envS3UseSSL, "false")
 		t.Setenv(envS3Endpoint, endpoint)
 		s3 := mod.New()
-		err := s3.Init(testCtx, newFakeModuleParams(dataDir))
+		params := moduletools.NewMockModuleInitParams(t)
+		params.EXPECT().GetLogger().Return(logrus.New())
+		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		err := s3.Init(testCtx, params)
 		require.Nil(t, err)
 
 		t.Run("access permissions", func(t *testing.T) {
@@ -164,7 +163,6 @@ func moduleLevelCopyObjects(t *testing.T, override bool, containerName, override
 	testCtx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 
-	dataDir := t.TempDir()
 	key := "moduleLevelCopyObjects"
 	backupID := "backup_id"
 	endpoint := os.Getenv(envMinioEndpoint)
@@ -177,7 +175,10 @@ func moduleLevelCopyObjects(t *testing.T, override bool, containerName, override
 		t.Setenv(envS3UseSSL, "false")
 		t.Setenv(envS3Endpoint, endpoint)
 		s3 := mod.New()
-		err := s3.Init(testCtx, newFakeModuleParams(dataDir))
+		params := moduletools.NewMockModuleInitParams(t)
+		params.EXPECT().GetLogger().Return(logrus.New())
+		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		err := s3.Init(testCtx, params)
 		require.Nil(t, err)
 
 		t.Run("put object to bucket", func(t *testing.T) {
@@ -214,7 +215,10 @@ func moduleLevelCopyFiles(t *testing.T, override bool, containerName, overrideBu
 		t.Setenv(envS3UseSSL, "false")
 		t.Setenv(envS3Endpoint, endpoint)
 		s3 := mod.New()
-		err = s3.Init(testCtx, newFakeModuleParams(dataDir))
+		params := moduletools.NewMockModuleInitParams(t)
+		params.EXPECT().GetLogger().Return(logrus.New())
+		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: dataDir})
+		err = s3.Init(testCtx, params)
 		require.Nil(t, err)
 
 		t.Run("verify source data path", func(t *testing.T) {
@@ -243,44 +247,6 @@ func moduleLevelCopyFiles(t *testing.T, override bool, containerName, overrideBu
 			assert.Equal(t, expectedContents, contents)
 		})
 	})
-}
-
-type fakeModuleParams struct {
-	logger   logrus.FieldLogger
-	provider fakeStorageProvider
-	config   config.Config
-}
-
-func newFakeModuleParams(dataPath string) *fakeModuleParams {
-	logger, _ := logrustest.NewNullLogger()
-	return &fakeModuleParams{
-		logger:   logger,
-		provider: fakeStorageProvider{dataPath: dataPath},
-	}
-}
-
-func (f *fakeModuleParams) GetStorageProvider() moduletools.StorageProvider {
-	return &f.provider
-}
-
-func (f *fakeModuleParams) GetAppState() interface{} {
-	return nil
-}
-
-func (f *fakeModuleParams) GetLogger() logrus.FieldLogger {
-	return f.logger
-}
-
-func (f *fakeModuleParams) GetConfig() config.Config {
-	return f.config
-}
-
-func (f *fakeModuleParams) GetConfigPtr() *config.Config {
-	return &f.config
-}
-
-func (f *fakeModuleParams) GetMetricsRegisterer() prometheus.Registerer {
-	return prometheus.NewPedanticRegistry()
 }
 
 type fakeStorageProvider struct {

@@ -78,7 +78,7 @@ func TestModule_Init_Success(t *testing.T) {
 	}
 
 	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(testConfig)
+	params.EXPECT().GetConfigPtr().Return(&testConfig)
 	params.EXPECT().GetLogger().Return(logger)
 	params.EXPECT().GetMetricsRegisterer().Return(prometheus.NewPedanticRegistry())
 
@@ -96,7 +96,7 @@ func TestModule_Init_MissingHostname(t *testing.T) {
 	logger.SetOutput(os.Stdout)
 
 	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(config.Config{
+	params.EXPECT().GetConfigPtr().Return(&config.Config{
 		Cluster: cluster.Config{
 			Hostname: "",
 		},
@@ -122,7 +122,7 @@ func TestModule_Init_MissingBucket(t *testing.T) {
 	}
 
 	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(testConfig)
+	params.EXPECT().GetConfigPtr().Return(&testConfig)
 
 	err := mod.Init(context.Background(), params)
 	assert.Error(t, err)
@@ -453,7 +453,7 @@ func TestModule_Init_MissingConfig(t *testing.T) {
 
 	// Test with missing hostname
 	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(config.Config{
+	params.EXPECT().GetConfigPtr().Return(&config.Config{
 		Cluster: cluster.Config{
 			Hostname: "",
 		},

@@ -15,17 +15,13 @@ import (
 	"context"
 	"testing"
 
-	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
@@ -42,49 +38,12 @@ func TestBigramModule_Type(t *testing.T) {
 func TestBigramModule_Init(t *testing.T) {
 	t.Setenv("BIGRAM", "alphabet")
 	mod := New()
-	params := newFakeModuleParams("data")
+	params := moduletools.NewMockModuleInitParams(t)
+	params.EXPECT().GetLogger().Return(logrus.New())
+	params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
 	err := mod.Init(context.Background(), params)
 	assert.NoError(t, err)
 	assert.Equal(t, "alphabet", mod.activeVectoriser)
-}
-
-type fakeModuleParams struct {
-	logger   logrus.FieldLogger
-	provider fakeStorageProvider
-	config   config.Config
-	appState *state.State
-}
-
-func newFakeModuleParams(dataPath string) *fakeModuleParams {
-	logger, _ := logrustest.NewNullLogger()
-	return &fakeModuleParams{
-		logger:   logger,
-		provider: fakeStorageProvider{dataPath: dataPath},
-	}
-}
-
-func (f *fakeModuleParams) GetStorageProvider() moduletools.StorageProvider {
-	return &f.provider
-}
-
-func (f *fakeModuleParams) GetAppState() interface{} {
-	return f.appState
-}
-
-func (f *fakeModuleParams) GetLogger() logrus.FieldLogger {
-	return f.logger
-}
-
-func (f *fakeModuleParams) GetConfig() config.Config {
-	return f.config
-}
-
-func (f *fakeModuleParams) GetConfigPtr() *config.Config {
-	return &f.config
-}
-
-func (f *fakeModuleParams) GetMetricsRegisterer() prometheus.Registerer {
-	return prometheus.NewPedanticRegistry()
 }
 
 type fakeStorageProvider struct {
