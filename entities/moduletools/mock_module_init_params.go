@@ -127,6 +127,53 @@ func (_c *MockModuleInitParams_GetConfig_Call) RunAndReturn(run func() config.Co
 	return _c
 }
 
+// GetConfigPtr provides a mock function with no fields
+func (_m *MockModuleInitParams) GetConfigPtr() *config.Config {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetConfigPtr")
+	}
+
+	var r0 *config.Config
+	if rf, ok := ret.Get(0).(func() *config.Config); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*config.Config)
+		}
+	}
+
+	return r0
+}
+
+// MockModuleInitParams_GetConfigPtr_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetConfigPtr'
+type MockModuleInitParams_GetConfigPtr_Call struct {
+	*mock.Call
+}
+
+// GetConfigPtr is a helper method to define mock.On call
+func (_e *MockModuleInitParams_Expecter) GetConfigPtr() *MockModuleInitParams_GetConfigPtr_Call {
+	return &MockModuleInitParams_GetConfigPtr_Call{Call: _e.mock.On("GetConfigPtr")}
+}
+
+func (_c *MockModuleInitParams_GetConfigPtr_Call) Run(run func()) *MockModuleInitParams_GetConfigPtr_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockModuleInitParams_GetConfigPtr_Call) Return(_a0 *config.Config) *MockModuleInitParams_GetConfigPtr_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockModuleInitParams_GetConfigPtr_Call) RunAndReturn(run func() *config.Config) *MockModuleInitParams_GetConfigPtr_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetLogger provides a mock function with no fields
 func (_m *MockModuleInitParams) GetLogger() logrus.FieldLogger {
 	ret := _m.Called()

@@ -73,7 +73,7 @@ func (m *module) Type() modulecapabilities.ModuleType {
 
 func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	// Usage module configuration
-	m.config = params.GetConfigPointer()
+	m.config = params.GetConfigPtr()
 	if err := parseUsageConfig(m.config); err != nil {
 		return err
 	}

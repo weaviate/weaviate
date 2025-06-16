@@ -320,6 +320,10 @@ func (f *fakeModuleParams) GetConfig() config.Config {
 	return f.config
 }
 
+func (f *fakeModuleParams) GetConfigPtr() *config.Config {
+	return &f.config
+}
+
 func (f *fakeModuleParams) GetMetricsRegisterer() prometheus.Registerer {
 	return prometheus.NewPedanticRegistry()
 }
