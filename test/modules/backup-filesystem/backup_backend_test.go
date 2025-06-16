@@ -62,7 +62,7 @@ func moduleLevelStoreBackupMeta(t *testing.T, overrideBucket, overridePath, over
 	t.Run("store backup meta in fs"+overrideDescription, func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		sp := fakeStorageProvider{dataDir}
-		params := moduletools.NewInitParams(sp, nil, config.Config{}, logger, prometheus.NewPedanticRegistry())
+		params := moduletools.NewInitParams(sp, nil, &config.Config{}, logger, prometheus.NewPedanticRegistry())
 
 		fs := modstgfs.New()
 		err := fs.Init(testCtx, params)
@@ -126,7 +126,7 @@ func moduleLevelCopyObjects(t *testing.T, overrideBucket, overridePath, override
 	t.Run("copy objects"+overrideDescription, func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
 		sp := fakeStorageProvider{dataDir}
-		params := moduletools.NewInitParams(sp, nil, config.Config{}, logger, prometheus.NewPedanticRegistry())
+		params := moduletools.NewInitParams(sp, nil, &config.Config{}, logger, prometheus.NewPedanticRegistry())
 
 		fs := modstgfs.New()
 		err := fs.Init(testCtx, params)
@@ -165,7 +165,7 @@ func moduleLevelCopyFiles(t *testing.T, overrideBucket, overridePath, overrideDe
 
 		logger, _ := test.NewNullLogger()
 		sp := fakeStorageProvider{dataDir}
-		params := moduletools.NewInitParams(sp, nil, config.Config{}, logger, prometheus.NewPedanticRegistry())
+		params := moduletools.NewInitParams(sp, nil, &config.Config{}, logger, prometheus.NewPedanticRegistry())
 
 		fs := modstgfs.New()
 		err = fs.Init(testCtx, params)

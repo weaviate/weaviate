@@ -22,20 +22,20 @@ type ModuleInitParams interface {
 	GetStorageProvider() StorageProvider
 	GetAppState() interface{}
 	GetLogger() logrus.FieldLogger
-	GetConfig() config.Config
+	GetConfig() *config.Config
 	GetMetricsRegisterer() prometheus.Registerer
 }
 
 type InitParams struct {
 	storageProvider StorageProvider
 	appState        interface{}
-	config          config.Config
+	config          *config.Config
 	logger          logrus.FieldLogger
 	registerer      prometheus.Registerer
 }
 
 func NewInitParams(storageProvider StorageProvider, appState interface{},
-	config config.Config, logger logrus.FieldLogger, registerer prometheus.Registerer,
+	config *config.Config, logger logrus.FieldLogger, registerer prometheus.Registerer,
 ) ModuleInitParams {
 	return &InitParams{storageProvider, appState, config, logger, registerer}
 }
@@ -52,7 +52,7 @@ func (p *InitParams) GetLogger() logrus.FieldLogger {
 	return p.logger
 }
 
-func (p *InitParams) GetConfig() config.Config {
+func (p *InitParams) GetConfig() *config.Config {
 	return p.config
 }
 

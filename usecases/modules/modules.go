@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	modusagegcs "github.com/weaviate/weaviate/modules/usage-gcs"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
@@ -1138,4 +1139,13 @@ func (p *Provider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
 		}
 	}
 	return backends
+}
+
+func (p *Provider) UsageEnabled() bool {
+	if module := p.GetByName(modusagegcs.Name); module != nil {
+		if module.Type() == modulecapabilities.Usage {
+			return true
+		}
+	}
+	return false
 }
