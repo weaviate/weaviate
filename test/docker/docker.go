@@ -208,6 +208,10 @@ func (d *DockerCompose) GetMockOIDC() *DockerContainer {
 	return d.getContainerByName(MockOIDC)
 }
 
+func (d *DockerCompose) GetMockOIDCHelper() *DockerContainer {
+	return d.getContainerByName(MockOIDCHelper)
+}
+
 func (d *DockerCompose) getContainerByName(name string) *DockerContainer {
 	for _, c := range d.containers {
 		if c.name == name {
