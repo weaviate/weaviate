@@ -44,7 +44,7 @@ const (
 
 // module handles collecting and uploading usage metrics
 type module struct {
-	config        config.Config
+	config        *config.Config
 	logger        logrus.FieldLogger
 	storageClient *storage.Client
 	bucketName    string
@@ -73,8 +73,8 @@ func (m *module) Type() modulecapabilities.ModuleType {
 
 func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	// Usage module configuration
-	m.config = params.GetConfig()
-	if err := parseUsageConfig(&m.config); err != nil {
+	m.config = params.GetConfigPointer()
+	if err := parseUsageConfig(m.config); err != nil {
 		return err
 	}
 

@@ -24,18 +24,21 @@ type ModuleInitParams interface {
 	GetLogger() logrus.FieldLogger
 	GetConfig() config.Config
 	GetMetricsRegisterer() prometheus.Registerer
+	// GetConfigPointer() used to be a pointer to a config.Config, to be used for
+	// runtime overrides.
+	GetConfigPointer() *config.Config
 }
 
 type InitParams struct {
 	storageProvider StorageProvider
 	appState        interface{}
-	config          config.Config
+	config          *config.Config
 	logger          logrus.FieldLogger
 	registerer      prometheus.Registerer
 }
 
 func NewInitParams(storageProvider StorageProvider, appState interface{},
-	config config.Config, logger logrus.FieldLogger, registerer prometheus.Registerer,
+	config *config.Config, logger logrus.FieldLogger, registerer prometheus.Registerer,
 ) ModuleInitParams {
 	return &InitParams{storageProvider, appState, config, logger, registerer}
 }
@@ -53,6 +56,10 @@ func (p *InitParams) GetLogger() logrus.FieldLogger {
 }
 
 func (p *InitParams) GetConfig() config.Config {
+	return *p.config
+}
+
+func (p *InitParams) GetConfigPointer() *config.Config {
 	return p.config
 }
 
