@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -78,13 +79,18 @@ func setupDebugHandlers(appState *state.State) {
 
 	http.HandleFunc("/debug/index/rebuild/inverted/start", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
-		forceRestartString := r.URL.Query().Get("force")
+		forceRestartString := r.URL.Query().Get("reload")
 		rootPath := appState.DB.GetConfig().RootPath
 
 		if colName == "" {
 			http.Error(w, "collection and shard are required", http.StatusBadRequest)
 			return
 		}
+
+		shardsToMigrate := strings.Split(colName, ",")[1:]
+		colName = strings.Split(colName, ",")[0]
+
+		// if len(shardsToMigrate) == 0, migrate all shards
 
 		forceRestart := config.Enabled(forceRestartString)
 
@@ -104,9 +110,11 @@ func setupDebugHandlers(appState *state.State) {
 		// shards will not be force loaded, as we are only getting the name
 		err := idx.ForEachShard(
 			func(shardName string, shard db.ShardLike) error {
-				shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
-				paths[shardName] = shardPath
-				shards[shardName] = shard
+				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
+					shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
+					paths[shardName] = shardPath
+					shards[shardName] = shard
+				}
 				return nil
 			},
 		)
@@ -177,19 +185,105 @@ func setupDebugHandlers(appState *state.State) {
 			migratingShards = append(migratingShards, shard.Name())
 
 		}
-		for _, shard := range migratingShards {
-			err := idx.IncomingReinitShard(
-				context.Background(),
-				shard,
-			)
-			if err != nil {
-				logger.WithField("shard", shard).Error("failed to reinit shard")
-				http.Error(w, "failed to reinit shard", http.StatusInternalServerError)
-				return
+
+		if forceRestart {
+			for _, shard := range migratingShards {
+				err := idx.IncomingReinitShard(
+					context.Background(),
+					shard,
+				)
+				if err != nil {
+					logger.WithField("shard", shard).Error("failed to reinit shard")
+					http.Error(w, "failed to reinit shard", http.StatusInternalServerError)
+					return
+				}
+				logger.WithField("shard", shard).Info("reinit shard started")
+				output[shard]["status"] = "reinit"
+				output[shard]["message"] = "reinit shard started"
 			}
-			logger.WithField("shard", shard).Info("reinit shard started")
-			output[shard]["status"] = "reinit"
-			output[shard]["message"] = "reinit shard started"
+		}
+
+		response := map[string]interface{}{
+			"shards": output,
+		}
+		jsonBytes, err := json.Marshal(response)
+		if err != nil {
+			logger.WithError(err).Error("marshal failed on stats")
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(jsonBytes)
+	}))
+
+	http.HandleFunc("/debug/index/rebuild/inverted/rollback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		colName := r.URL.Query().Get("collection")
+		forceRestartString := r.URL.Query().Get("reload")
+		rootPath := appState.DB.GetConfig().RootPath
+
+		if colName == "" {
+			http.Error(w, "collection and shard are required", http.StatusBadRequest)
+			return
+		}
+
+		shardsToMigrate := strings.Split(colName, ",")[1:]
+		colName = strings.Split(colName, ",")[0]
+
+		// if len(shardsToMigrate) == 0, migrate all shards
+
+		forceRestart := config.Enabled(forceRestartString)
+
+		className := schema.ClassName(colName)
+		classNameString := strings.ToLower(className.String())
+		idx := appState.DB.GetIndex(className)
+
+		if idx == nil {
+			logger.WithField("collection", colName).Error("collection not found or not ready")
+			http.Error(w, "collection not found or not ready", http.StatusNotFound)
+			return
+		}
+		// shard map: shardName -> shardPath
+		paths := make(map[string]string)
+		shards := make(map[string]db.ShardLike)
+
+		// shards will not be force loaded, as we are only getting the name
+		err := idx.ForEachShard(
+			func(shardName string, shard db.ShardLike) error {
+				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
+					shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
+					paths[shardName] = shardPath
+					shards[shardName] = shard
+				}
+				return nil
+			},
+		)
+		if err != nil {
+			logger.WithField("collection", colName).Error("failed to get shard names")
+			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
+			return
+		}
+
+		appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.Rollback = true
+		os.Setenv("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", "true")
+		output := make(map[string]map[string]string, len(paths))
+
+		if forceRestart {
+			for shard := range shards {
+				err := idx.IncomingReinitShard(
+					context.Background(),
+					shard,
+				)
+				if err != nil {
+					logger.WithField("shard", shard).Error("failed to reinit shard")
+					http.Error(w, "failed to reinit shard", http.StatusInternalServerError)
+					return
+				}
+				logger.WithField("shard", shard).Info("reinit shard started")
+				output[shard] = map[string]string{
+					"status":  "reinit",
+					"message": "reinit shard started",
+				}
+			}
 		}
 
 		response := map[string]interface{}{

@@ -180,6 +180,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 		return
 	}
 
+	t.config.rollback = os.Getenv("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK") == "true"
 	if t.config.rollback {
 		logger.Debug("rollback started")
 
@@ -312,6 +313,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 	// otherwise double writes have to be enabled if migration was already started
 	isShardSelected := t.isShardSelected(collectionName, shardName)
 
+	t.config.rollback = os.Getenv("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK") == "true"
 	if t.config.rollback && isShardSelected {
 		logger.Debug("rollback. nothing to do")
 		return nil
@@ -425,6 +427,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 		return zerotime, false, nil
 	}
 
+	t.config.rollback = os.Getenv("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK") == "true"
 	if t.config.rollback {
 		logger.Debug("rollback. nothing to do")
 		return zerotime, false, nil
