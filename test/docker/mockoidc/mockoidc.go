@@ -19,6 +19,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"log"
 	"net"
 	"os"
 	"os/signal"
@@ -44,24 +45,24 @@ func main() {
 		certificate := os.Getenv("MOCK_CERTIFICATE")
 		certificateKey := os.Getenv("MOCK_CERTIFICATE_PRIVATE_KEY")
 		if certificate != "" && certificateKey != "" {
-			fmt.Println("Creating TLS config self signed certificates")
+			log.Println("Creating TLS config self signed certificates")
 			// read certificates
 			certBlock, _ := pem.Decode([]byte(certificate))
 			cert, err := x509.ParseCertificate(certBlock.Bytes)
 			if err != nil {
-				panic(fmt.Sprintf("parse certificate: %v", err))
+				log.Fatalf("parse certificate: %v", err)
 			}
 			var privKey crypto.PrivateKey
 			keyBlock, _ := pem.Decode([]byte(certificateKey))
 			if keyBlock.Type == "RSA PRIVATE KEY" {
 				privKey, err = x509.ParsePKCS1PrivateKey(keyBlock.Bytes)
 				if err != nil {
-					panic(fmt.Sprintf("parse certificate's private rsa key: %v", err))
+					log.Fatalf("parse certificate's private rsa key: %v", err)
 				}
 			} else {
 				privKey, err = x509.ParsePKCS8PrivateKey(keyBlock.Bytes)
 				if err != nil {
-					panic(fmt.Sprintf("parse certificate's private key: %v", err))
+					log.Fatalf("parse certificate's private key: %v", err)
 				}
 			}
 			// TLS configuration
@@ -101,17 +102,17 @@ func main() {
 	m.QueueUser(custom)
 	m.QueueCode(authCode)
 
-	fmt.Printf("issuer: %v\n", m.Issuer())
-	fmt.Printf("discovery endpoint: %v\n", m.DiscoveryEndpoint())
+	log.Printf("issuer: %v\n", m.Issuer())
+	log.Printf("discovery endpoint: %v\n", m.DiscoveryEndpoint())
 	// Create a channel to receive OS signals
 	sigChan := make(chan os.Signal, 1)
 	// Notify the channel of the interrupt signal (Ctrl+C)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	// Print a message indicating the program is running
-	fmt.Println("Program is running. Press Ctrl+C to stop.")
+	log.Println("Program is running. Press Ctrl+C to stop.")
 
 	// Block until a signal is received
 	sig := <-sigChan
-	fmt.Printf("Received signal: %v. Shutting down...\n", sig)
+	log.Printf("Received signal: %v. Shutting down...\n", sig)
 }

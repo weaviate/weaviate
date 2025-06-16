@@ -759,17 +759,29 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		containers = append(containers, container)
 	}
 	if d.withMockOIDC || d.withMockOIDCWithCertificate {
+		var certificate, certificateKey string
+		if d.withMockOIDCWithCertificate {
+			// Generate certifcate and certificate's private key
+			certificate, certificateKey, err = GenerateCertificateAndKey(MockOIDC)
+			if err != nil {
+				return nil, errors.Wrapf(err, "cannot generate mock certificates for %s", MockOIDC)
+			}
+		}
 		image := os.Getenv(envTestMockOIDCImage)
-		container, err := startMockOIDC(ctx, networkName, image, d.withMockOIDCWithCertificate)
+		container, err := startMockOIDC(ctx, networkName, image, certificate, certificateKey)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MockOIDC)
 		}
 		for k, v := range container.envSettings {
+			if k == "AUTHENTICATION_OIDC_CERTIFICATE" && envSettings[k] != "" {
+				// allow to pass some other certificate using WithWeaviateEnv method
+				continue
+			}
 			envSettings[k] = v
 		}
 		containers = append(containers, container)
 		helperImage := os.Getenv(envTestMockOIDCHelperImage)
-		helperContainer, err := startMockOIDCHelper(ctx, networkName, helperImage, container.envSettings["AUTHENTICATION_OIDC_CERTIFICATE"])
+		helperContainer, err := startMockOIDCHelper(ctx, networkName, helperImage, certificate)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MockOIDCHelper)
 		}

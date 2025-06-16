@@ -13,6 +13,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
@@ -141,6 +142,9 @@ func startWeaviate(ctx context.Context,
 		Reuse:            false,
 	})
 	if err != nil {
+		if terminateErr := testcontainers.TerminateContainer(c); terminateErr != nil {
+			return nil, fmt.Errorf("%w: failed to terminate: %w", err, terminateErr)
+		}
 		return nil, err
 	}
 	httpUri, err := c.PortEndpoint(ctx, httpPort, "")

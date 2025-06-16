@@ -32,7 +32,7 @@ import (
 
 const MockOIDC = "mock-oidc"
 
-func startMockOIDC(ctx context.Context, networkName, mockoidcImage string, withCertificate bool) (*DockerContainer, error) {
+func startMockOIDC(ctx context.Context, networkName, mockoidcImage, certificate, certificatePrivateKey string) (*DockerContainer, error) {
 	path, err := os.Getwd()
 	if err != nil {
 		return nil, err
@@ -59,13 +59,9 @@ func startMockOIDC(ctx context.Context, networkName, mockoidcImage string, withC
 	containerEnvs := map[string]string{
 		"MOCK_HOSTNAME": MockOIDC,
 	}
-	if withCertificate {
-		certificate, certificateKey, err := generateCertificateAndKey(MockOIDC)
-		if err != nil {
-			return nil, fmt.Errorf("cannot generte mock certitifcate: %w", err)
-		}
+	if certificate != "" && certificatePrivateKey != "" {
 		containerEnvs["MOCK_CERTIFICATE"] = certificate
-		containerEnvs["MOCK_CERTIFICATE_PRIVATE_KEY"] = certificateKey
+		containerEnvs["MOCK_CERTIFICATE_PRIVATE_KEY"] = certificatePrivateKey
 	}
 	port := nat.Port("48001/tcp")
 	container, err := testcontainers.GenericContainer(ctx, testcontainers.GenericContainerRequest{
@@ -103,16 +99,16 @@ func startMockOIDC(ctx context.Context, networkName, mockoidcImage string, withC
 	envSettings["AUTHENTICATION_OIDC_USERNAME_CLAIM"] = "sub"
 	envSettings["AUTHENTICATION_OIDC_GROUPS_CLAIM"] = "groups"
 	envSettings["AUTHENTICATION_OIDC_SCOPES"] = "openid"
-	if withCertificate {
+	if certificate != "" && certificatePrivateKey != "" {
 		envSettings["AUTHENTICATION_OIDC_ISSUER"] = fmt.Sprintf("https://%s:48001/oidc", MockOIDC)
-		envSettings["AUTHENTICATION_OIDC_CERTIFICATE"] = containerEnvs["MOCK_CERTIFICATE"]
+		envSettings["AUTHENTICATION_OIDC_CERTIFICATE"] = certificate
 	} else {
 		envSettings["AUTHENTICATION_OIDC_ISSUER"] = fmt.Sprintf("http://%s:48001/oidc", MockOIDC)
 	}
 	return &DockerContainer{MockOIDC, endpoints, container, envSettings}, nil
 }
 
-func generateCertificateAndKey(dnsName string) (string, string, error) {
+func GenerateCertificateAndKey(dnsName string) (string, string, error) {
 	// Generate a private key
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {

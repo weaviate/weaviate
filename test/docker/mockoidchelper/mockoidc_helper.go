@@ -107,7 +107,7 @@ func (t *tokensHandler) handler(w http.ResponseWriter, r *http.Request) {
 
 	response := Response{AccessToken: accessToken, RefreshToken: refreshToken}
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		http.Error(w, "internal server error", http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("encode response: %v", err), http.StatusInternalServerError)
 	}
 }
 
@@ -213,9 +213,9 @@ func main() {
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
 	// Print a message indicating the program is running
-	fmt.Println("Program is running. Press Ctrl+C to stop.")
+	log.Println("Program is running. Press Ctrl+C to stop.")
 
 	// Block until a signal is received
 	sig := <-sigChan
-	fmt.Printf("Received signal: %v. Shutting down...\n", sig)
+	log.Printf("Received signal: %v. Shutting down...\n", sig)
 }

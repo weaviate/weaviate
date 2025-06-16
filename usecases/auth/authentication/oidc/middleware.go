@@ -17,6 +17,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 
@@ -189,7 +190,26 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 }
 
 func (c *Client) useCertificate() (*http.Client, error) {
-	certBlock, _ := pem.Decode([]byte(c.config.Certificate))
+	var certificate string
+	if strings.HasPrefix(c.config.Certificate, "http") {
+		resp, err := http.Get(c.config.Certificate)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get certificate from %s: %w", c.config.Certificate, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("failed to download certificate from %s: http status: %v", c.config.Certificate, resp.StatusCode)
+		}
+		certBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read certificate from %s: %w", c.config.Certificate, err)
+		}
+		certificate = string(certBytes)
+	} else {
+		certificate = c.config.Certificate
+	}
+
+	certBlock, _ := pem.Decode([]byte(certificate))
 	cert, err := x509.ParseCertificate(certBlock.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode certificate: %w", err)

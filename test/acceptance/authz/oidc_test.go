@@ -462,3 +462,30 @@ func TestOidcRootAndDynamicUsers(t *testing.T) {
 		})
 	}
 }
+
+func TestOidcWrongCertificate(t *testing.T) {
+	ctx := context.Background()
+	t.Run("wrong certificates", func(t *testing.T) {
+		// MockOIDC server has been created with it's own certifcates but we pass here some other certifcate, this situation should
+		// lead to Weaviate not being able to connect OIDC server thus not being able to start
+		wrongCertificate, _, err := docker.GenerateCertificateAndKey(docker.MockOIDC)
+		require.NoError(t, err)
+		compose, err := docker.New().
+			WithWeaviate().WithDbUsers().
+			WithMockOIDCWithCertificate().
+			// pass some other certificate which is not used by MockOIDC
+			WithWeaviateEnv("AUTHENTICATION_OIDC_CERTIFICATE", wrongCertificate).
+			Start(ctx)
+		// Weaviate should not start in this configuration
+		require.Error(t, err)
+		require.NoError(t, compose.Terminate(ctx))
+	})
+	t.Run("proper certificates", func(t *testing.T) {
+		compose, err := docker.New().
+			WithWeaviate().WithDbUsers().
+			WithMockOIDCWithCertificate().
+			Start(ctx)
+		require.NoError(t, err)
+		require.NoError(t, compose.Terminate(ctx))
+	})
+}
