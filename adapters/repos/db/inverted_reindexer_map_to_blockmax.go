@@ -520,7 +520,22 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
 		propExtraction, reindexStarted, breakCh)
 
+	sleepFor := os.Getenv("DEBUG_SHARD_PER_OBJECT_DELAY")
+
+	sleepForDuration := 0 * time.Millisecond
+	if sleepFor != "" {
+		sleepForDuration, err = time.ParseDuration(sleepFor)
+		if err != nil {
+			err = fmt.Errorf("parsing DEBUG_SHARD_PER_OBJECT_DELAY: %w", err)
+			return zerotime, false, err
+		}
+		if sleepForDuration < 0 {
+			err = fmt.Errorf("DEBUG_SHARD_PER_OBJECT_DELAY must be a positive duration, got: %s", sleepFor)
+			return zerotime, false, err
+		}
+	}
 	for md := range mdCh {
+		time.Sleep(sleepForDuration)
 		if md == nil {
 			finished = true
 		} else if md.err != nil {

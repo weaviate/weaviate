@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
-	"strconv"
 	"sync"
 	"time"
 
@@ -133,14 +132,11 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	}
 
 	if os.Getenv("DEBUG_SHARD_INIT_DELAY") != "" { // ensure that the env var is set
-		val, err := strconv.ParseInt(os.Getenv("DEBUG_SHARD_INIT_DELAY"), 10, 64)
+		val, err := time.ParseDuration(os.Getenv("DEBUG_SHARD_INIT_DELAY"))
 		if err != nil {
 			return nil, fmt.Errorf("invalid DEBUG_SHARD_INIT_DELAY value: %w", err)
 		}
-		if val < 0 {
-			return nil, fmt.Errorf("DEBUG_SHARD_INIT_DELAY must be a positive integer, got: %s", os.Getenv("DEBUG_SHARD_INIT_DELAY"))
-		}
-		time.Sleep(time.Duration(val) * time.Second)
+		time.Sleep(val)
 	}
 
 	if err = s.initShardVectors(ctx); err != nil {

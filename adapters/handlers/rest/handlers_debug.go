@@ -80,6 +80,12 @@ func setupDebugHandlers(appState *state.State) {
 	http.HandleFunc("/debug/index/rebuild/inverted/start", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
 		forceRestartString := r.URL.Query().Get("reload")
+		delayStartString := r.URL.Query().Get("delayStart")
+
+		if delayStartString != "" {
+			os.Setenv("DEBUG_SHARD_INIT_DELAY", delayStartString)
+		}
+
 		rootPath := appState.DB.GetConfig().RootPath
 
 		if colName == "" {
@@ -193,7 +199,7 @@ func setupDebugHandlers(appState *state.State) {
 					shard,
 				)
 				if err != nil {
-					logger.WithField("shard", shard).Error("failed to reinit shard")
+					logger.WithField("shard", shard).Error("failed to reinit shard " + err.Error())
 					http.Error(w, "failed to reinit shard", http.StatusInternalServerError)
 					return
 				}
@@ -219,6 +225,7 @@ func setupDebugHandlers(appState *state.State) {
 	http.HandleFunc("/debug/index/rebuild/inverted/rollback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
 		forceRestartString := r.URL.Query().Get("reload")
+		forceRevertRollback := r.URL.Query().Get("revert")
 		rootPath := appState.DB.GetConfig().RootPath
 
 		if colName == "" {
@@ -232,6 +239,7 @@ func setupDebugHandlers(appState *state.State) {
 		// if len(shardsToMigrate) == 0, migrate all shards
 
 		forceRestart := config.Enabled(forceRestartString)
+		forceRevert := config.Enabled(forceRevertRollback)
 
 		className := schema.ClassName(colName)
 		classNameString := strings.ToLower(className.String())
@@ -263,8 +271,13 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.Rollback = true
-		os.Setenv("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", "true")
+		if forceRevert {
+			appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.Rollback = false
+			os.Setenv("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", "false")
+		} else {
+			appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.Rollback = true
+			os.Setenv("REINDEX_MAP_TO_BLOCKMAX_ROLLBACK", "true")
+		}
 		output := make(map[string]map[string]string, len(paths))
 
 		if forceRestart {
@@ -274,7 +287,7 @@ func setupDebugHandlers(appState *state.State) {
 					shard,
 				)
 				if err != nil {
-					logger.WithField("shard", shard).Error("failed to reinit shard")
+					logger.WithField("shard", shard).Error("failed to reinit shard " + err.Error())
 					http.Error(w, "failed to reinit shard", http.StatusInternalServerError)
 					return
 				}
