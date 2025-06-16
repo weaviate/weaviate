@@ -5,6 +5,10 @@ on:
     - cron: '0 0 1 1 *'  # Every January 1st
   workflow_dispatch:
 
+permissions:
+  contents: write
+  pull-requests: write
+  
 jobs:
   update-headers:
     runs-on: ubuntu-latest
