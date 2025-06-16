@@ -62,7 +62,7 @@ func TestSuccessGetUser(t *testing.T) {
 			if test.userType == models.UserTypeOutputDbUser {
 				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId, ApiKeyFirstLetters: "abc"}}, nil)
 			}
-			dynUser.On("GetRolesForUserOrGroup", test.userId, models.UserTypeInputDb).Return(
+			dynUser.On("GetRolesForUserOrGroup", test.userId, models.UserTypeInputDb, false).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
 
 			if test.addLastUsed {
@@ -120,7 +120,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 			schemaGetter := schema.NewMockSchemaGetter(t)
 
 			dynUser.On("GetUsers", userId).Return(map[string]*apikey.User{userId: {Id: userId, LastUsedAt: returnedTime}}, nil)
-			dynUser.On("GetRolesForUserOrGroup", userId, models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
+			dynUser.On("GetRolesForUserOrGroup", userId, models.UserTypeInputDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 
 			var nodes []string
 			for i := range test.nodeResponses {
@@ -208,7 +208,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(tt.GetUserReturnValue, tt.GetUserReturnErr)
 			if tt.GetUserReturnErr == nil {
-				dynUser.On("GetRolesForUserOrGroup", "user", models.UserTypeInputDb).Return(nil, tt.GetRolesReturn)
+				dynUser.On("GetRolesForUserOrGroup", "user", models.UserTypeInputDb, false).Return(nil, tt.GetRolesReturn)
 			}
 
 			h := dynUserHandler{
@@ -265,7 +265,7 @@ func TestGetUserWithNoPrincipal(t *testing.T) {
 	authorizer.On("Authorize", principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{userID: {Id: userID, ApiKeyFirstLetters: "abc"}}, nil)
-	dynUser.On("GetRolesForUserOrGroup", userID, models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
+	dynUser.On("GetRolesForUserOrGroup", userID, models.UserTypeInputDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 
 	h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
 

@@ -111,9 +111,10 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 			name:      "successful revocation",
 			principal: &models.Principal{Username: "root-user"},
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "user1",
+				ID: "group1",
 				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"testRole"},
+					Roles:     []string{"testRole"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 		},
@@ -121,18 +122,20 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 			name:      "successful revocation via root group",
 			principal: &models.Principal{Username: "not-root-user", Groups: []string{"root-group"}},
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "user1",
+				ID: "group1",
 				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"testRole"},
+					Roles:     []string{"testRole"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 		},
 		{
 			name: "revoke another user not configured admin role",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "user1",
+				ID: "group1",
 				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"admin"},
+					Roles:     []string{"admin"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			configuredAdmins: []string{"testUser"},
@@ -141,9 +144,10 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 		{
 			name: "revoke another user user not configured viewer role",
 			params: authz.RevokeRoleFromGroupParams{
-				ID: "user1",
+				ID: "group1",
 				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"viewer"},
+					Roles:     []string{"viewer"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			configuredViewers: []string{"testUser"},
@@ -157,7 +161,7 @@ func TestRevokeRoleFromGroupSuccess(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(models.PermissionGroupsGroupTypeOidc, tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, nil)
 			controller.On("RevokeRolesForUser", conv.PrefixGroupName(tt.params.ID), tt.params.Body.Roles[0]).Return(nil)
 
@@ -362,7 +366,8 @@ func TestRevokeRoleFromGroupOrUserNotFound(t *testing.T) {
 			params: authz.RevokeRoleFromGroupParams{
 				ID: "user1",
 				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"role1"},
+					Roles:     []string{"role1"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "root-user"},
@@ -378,7 +383,7 @@ func TestRevokeRoleFromGroupOrUserNotFound(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), mock.Anything, mock.Anything).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(models.PermissionGroupsGroupTypeOidc, tt.params.ID)[0]).Return(nil)
 
 			if tt.callToGetRole {
 				controller.On("GetRoles", tt.params.Body.Roles[0]).Return(tt.existedRoles, nil)
@@ -482,7 +487,8 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 			params: authz.RevokeRoleFromGroupParams{
 				ID: "testUser",
 				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"testRole"},
+					Roles:     []string{"testRole"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "user1", Groups: []string{"testGroup"}},
@@ -494,29 +500,20 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 			params: authz.RevokeRoleFromGroupParams{
 				ID: "viewer-root-group",
 				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"something"},
+					Roles:     []string{"something"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "root-user"},
 			expectedError: "revoking: cannot assign or revoke from root group",
 		},
 		{
-			name: "revoke role from root group as non-root user",
-			params: authz.RevokeRoleFromGroupParams{
-				ID: "viewer-root-group",
-				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"something"},
-				},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "revoking: only root users can revoke roles from groups",
-		},
-		{
 			name: "revoke configured root role",
 			params: authz.RevokeRoleFromGroupParams{
 				ID: "testUser",
 				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"root"},
+					Roles:     []string{"root"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			skipAuthZ:     true,
@@ -532,7 +529,7 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 			logger, _ := test.NewNullLogger()
 
 			if !tt.skipAuthZ {
-				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(tt.authorizeErr)
+				authorizer.On("Authorize", tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(models.PermissionGroupsGroupTypeOidc, tt.params.ID)[0]).Return(tt.authorizeErr)
 			}
 
 			h := &authZHandlers{
@@ -640,7 +637,8 @@ func TestRevokeRoleFromGroupInternalServerError(t *testing.T) {
 			params: authz.RevokeRoleFromGroupParams{
 				ID: "testUser",
 				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"testRole"},
+					Roles:     []string{"testRole"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "root-user"},
@@ -652,7 +650,8 @@ func TestRevokeRoleFromGroupInternalServerError(t *testing.T) {
 			params: authz.RevokeRoleFromGroupParams{
 				ID: "testUser",
 				Body: authz.RevokeRoleFromGroupBody{
-					Roles: []string{"testRole"},
+					Roles:     []string{"testRole"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "root-user"},
@@ -667,7 +666,7 @@ func TestRevokeRoleFromGroupInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(models.PermissionGroupsGroupTypeOidc, tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("RevokeRolesForUser", conv.PrefixGroupName(tt.params.ID), tt.params.Body.Roles[0]).Return(tt.revokeErr)

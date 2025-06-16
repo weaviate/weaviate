@@ -78,8 +78,8 @@ var (
 		Users: All,
 	}
 	AllOIDCGroups = &models.PermissionGroups{
-		Group: All,
-		Type:  models.PermissionGroupsTypeOidc,
+		Group:     All,
+		GroupType: models.PermissionGroupsGroupTypeOidc,
 	}
 	AllCollections = &models.PermissionCollections{
 		Collection: All,

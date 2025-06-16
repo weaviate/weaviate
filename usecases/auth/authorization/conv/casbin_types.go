@@ -218,13 +218,13 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			if permission.Groups.Group != nil {
 				group = *permission.Groups.Group
 			}
-			if permission.Groups.Type != models.PermissionGroupsTypeOidc {
-				return nil, fmt.Errorf("invalid groups type: %v", permission.Groups.Type)
+			if permission.Groups.GroupType != models.PermissionGroupsGroupTypeOidc {
+				return nil, fmt.Errorf("invalid groups type: %v", permission.Groups.GroupType)
 			}
 		} else {
 			return nil, fmt.Errorf("invalid permission: %v", permission)
 		}
-		resource = CasbinGroups(group, models.PermissionGroupsTypeOidc)
+		resource = CasbinGroups(group, models.PermissionGroupsGroupTypeOidc)
 	case authorization.UsersDomain:
 		user := "*"
 		if permission.Users != nil && permission.Users.Users != nil {
@@ -404,8 +404,8 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		}
 	case authorization.GroupsDomain:
 		permission.Groups = &models.PermissionGroups{
-			Group: &splits[2],
-			Type:  splits[1],
+			Group:     &splits[2],
+			GroupType: splits[1],
 		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups

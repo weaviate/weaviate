@@ -559,14 +559,6 @@ func Test_permission(t *testing.T) {
 			tests: userTests,
 		},
 		{
-			name:   "all groups",
-			policy: []string{"p", "/*", "", authorization.GroupsDomain},
-			permission: &models.Permission{
-				Groups: authorization.AllOIDCGroups,
-			},
-			tests: groupTests,
-		},
-		{
 			name:       "cluster",
 			policy:     []string{"p", "/*", "", authorization.ClusterDomain},
 			permission: &models.Permission{},
@@ -861,20 +853,22 @@ func Test_permission(t *testing.T) {
 		},
 		{
 			name:   "a group",
-			policy: []string{"p", "/baz", "", authorization.GroupsDomain},
+			policy: []string{"p", "/oidc/baz", "", authorization.GroupsDomain},
 			permission: &models.Permission{
 				Groups: &models.PermissionGroups{
-					Group: baz,
+					Group:     baz,
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			tests: groupTests,
 		},
 		{
 			name:   "all groups",
-			policy: []string{"p", "/*", "", authorization.GroupsDomain},
+			policy: []string{"p", "/oidc/*", "", authorization.GroupsDomain},
 			permission: &models.Permission{
 				Groups: &models.PermissionGroups{
-					Group: authorization.All,
+					Group:     authorization.All,
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			tests: groupTests,
@@ -924,14 +918,14 @@ func Test_pGroups(t *testing.T) {
 		group    string
 		expected string
 	}{
-		{group: "", expected: fmt.Sprintf("%s/%s/.*", authorization.GroupsDomain, models.PermissionGroupsTypeOidc)},
-		{group: "*", expected: fmt.Sprintf("%s/%s/.*", authorization.GroupsDomain, models.PermissionGroupsTypeOidc)},
-		{group: "foo", expected: fmt.Sprintf("%s/%s/foo", authorization.GroupsDomain, models.PermissionGroupsTypeOidc)},
+		{group: "", expected: fmt.Sprintf("%s/%s/.*", authorization.GroupsDomain, models.PermissionGroupsGroupTypeOidc)},
+		{group: "*", expected: fmt.Sprintf("%s/%s/.*", authorization.GroupsDomain, models.PermissionGroupsGroupTypeOidc)},
+		{group: "foo", expected: fmt.Sprintf("%s/%s/foo", authorization.GroupsDomain, models.PermissionGroupsGroupTypeOidc)},
 	}
 	for _, tt := range tests {
 		name := fmt.Sprintf("group: %s", tt.group)
 		t.Run(name, func(t *testing.T) {
-			p := CasbinGroups(tt.group, models.PermissionGroupsTypeOidc)
+			p := CasbinGroups(tt.group, models.PermissionGroupsGroupTypeOidc)
 			require.Equal(t, tt.expected, p)
 		})
 	}

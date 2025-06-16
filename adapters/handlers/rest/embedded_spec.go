@@ -6414,7 +6414,7 @@ func init() {
               "type": "string",
               "default": "*"
             },
-            "type": {
+            "groupType": {
               "description": "The type of group",
               "type": "string",
               "enum": [
@@ -14109,7 +14109,7 @@ func init() {
               "type": "string",
               "default": "*"
             },
-            "type": {
+            "groupType": {
               "description": "The type of group",
               "type": "string",
               "enum": [
@@ -14239,7 +14239,7 @@ func init() {
           "type": "string",
           "default": "*"
         },
-        "type": {
+        "groupType": {
           "description": "The type of group",
           "type": "string",
           "enum": [

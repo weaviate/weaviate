@@ -62,10 +62,10 @@ func TestSuccessListAll(t *testing.T) {
 			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers").Return(map[string]*apikey.User{dbUser: {Id: dbUser}}, nil)
-			dynUser.On("GetRolesForUserOrGroup", dbUser, models.UserTypeInputDb).Return(
+			dynUser.On("GetRolesForUserOrGroup", dbUser, models.UserTypeInputDb, false).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
 			if tt.includeStatic {
-				dynUser.On("GetRolesForUserOrGroup", staticUser, models.UserTypeInputDb).Return(
+				dynUser.On("GetRolesForUserOrGroup", staticUser, models.UserTypeInputDb, false).Return(
 					map[string][]authorization.Policy{"role": {}}, nil)
 			}
 
@@ -172,7 +172,7 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 
 			dynUser.On("GetUsers").Return(usersRet, nil)
 			for _, user := range tt.userIds {
-				dynUser.On("GetRolesForUserOrGroup", user, models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
+				dynUser.On("GetRolesForUserOrGroup", user, models.UserTypeInputDb, false).Return(map[string][]authorization.Policy{"role": {}}, nil)
 			}
 
 			var nodes []string

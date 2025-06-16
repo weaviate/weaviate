@@ -70,7 +70,7 @@ func TestAssignRoleToGroupSuccess(t *testing.T) {
 		ID: "group1",
 		Body: authz.AssignRoleToGroupBody{
 			Roles:     []string{"testRole"},
-			GroupType: models.PermissionGroupsTypeOidc,
+			GroupType: models.PermissionGroupsGroupTypeOidc,
 		},
 	}
 
@@ -175,7 +175,7 @@ func TestAssignRoleToGroupOrUserNotFound(t *testing.T) {
 				ID: "group1",
 				Body: authz.AssignRoleToGroupBody{
 					Roles:     []string{"role1"},
-					GroupType: models.PermissionGroupsTypeOidc,
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "root-user"},
@@ -402,7 +402,7 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 				ID: "testUser",
 				Body: authz.AssignRoleToGroupBody{
 					Roles:     []string{"testRole"},
-					GroupType: models.PermissionGroupsTypeOidc,
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "user1"},
@@ -413,19 +413,10 @@ func TestAssignRoleToGroupForbidden(t *testing.T) {
 			name: "root group",
 			params: authz.AssignRoleToGroupParams{
 				ID:   "root-group",
-				Body: authz.AssignRoleToGroupBody{Roles: []string{"some-role"}, GroupType: models.PermissionGroupsTypeOidc},
+				Body: authz.AssignRoleToGroupBody{Roles: []string{"some-role"}, GroupType: models.PermissionGroupsGroupTypeOidc},
 			},
 			principal:     &models.Principal{Username: "root-user"},
 			expectedError: "assigning: cannot assign or revoke from root group root-group",
-		},
-		{
-			name: "viewer root group",
-			params: authz.AssignRoleToGroupParams{
-				ID:   "viewer-root-group",
-				Body: authz.AssignRoleToGroupBody{Roles: []string{"some-role"}, GroupType: models.PermissionGroupsTypeOidc},
-			},
-			principal:     &models.Principal{Username: "user1"},
-			expectedError: "assigning: only root users can assign roles to groups",
 		},
 	}
 
@@ -544,7 +535,8 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 			params: authz.AssignRoleToGroupParams{
 				ID: "testUser",
 				Body: authz.AssignRoleToGroupBody{
-					Roles: []string{"testRole"},
+					Roles:     []string{"testRole"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "root-user"},
@@ -556,7 +548,8 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 			params: authz.AssignRoleToGroupParams{
 				ID: "testUser",
 				Body: authz.AssignRoleToGroupBody{
-					Roles: []string{"testRole"},
+					Roles:     []string{"testRole"},
+					GroupType: models.PermissionGroupsGroupTypeOidc,
 				},
 			},
 			principal:     &models.Principal{Username: "root-user"},
@@ -571,7 +564,7 @@ func TestAssignRoleToGroupInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.UPDATE, authorization.ROLE_SCOPE_ALL), authorization.Roles(tt.params.Body.Roles...)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE, authorization.Groups(tt.params.Body.GroupType, tt.params.ID)[0]).Return(nil)
 			controller.On("GetRoles", tt.params.Body.Roles[0]).Return(map[string][]authorization.Policy{tt.params.Body.Roles[0]: {}}, tt.getRolesErr)
 			if tt.getRolesErr == nil {
 				controller.On("AddRolesForUser", conv.PrefixGroupName(tt.params.ID), tt.params.Body.Roles).Return(tt.assignErr)

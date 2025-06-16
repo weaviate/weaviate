@@ -216,7 +216,7 @@
               "default": "*",
               "description": "string or regex. if a specific name, if left empty it will be ALL or *"
             },
-            "type": {
+            "groupType": {
               "type": "string",
               "enum": [
                 "oidc"

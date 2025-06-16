@@ -15,8 +15,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 
@@ -38,7 +36,7 @@ func TestGetRolesForGroupSuccess(t *testing.T) {
 			Domain:   authorization.SchemaDomain,
 		},
 	}
-	userType := models.UserTypeInputDb
+	groupType := models.PermissionGroupsGroupTypeOidc
 	returnedPolices := map[string][]authorization.Policy{
 		"testRole": policies,
 	}
@@ -53,8 +51,8 @@ func TestGetRolesForGroupSuccess(t *testing.T) {
 		{
 			name: "success",
 			params: authz.GetRolesForGroupParams{
-				ID:               "testUser",
-				GroupType:        string(userType),
+				ID:               "group1",
+				GroupType:        string(groupType),
 				IncludeFullRoles: &truep,
 			},
 			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
@@ -63,21 +61,21 @@ func TestGetRolesForGroupSuccess(t *testing.T) {
 		{
 			name: "success without roles",
 			params: authz.GetRolesForGroupParams{
-				ID:               "testUser",
-				GroupType:        string(userType),
+				ID:               "group1",
+				GroupType:        string(groupType),
 				IncludeFullRoles: &falseP,
 			},
 			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
 			expectAuthz: true,
 		},
 		{
-			name: "success for own user",
+			name: "success for own group",
 			params: authz.GetRolesForGroupParams{
-				ID:               "user1",
-				GroupType:        string(userType),
+				ID:               "group1",
+				GroupType:        string(groupType),
 				IncludeFullRoles: &truep,
 			},
-			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputDb},
+			principal:   &models.Principal{Username: "user1", UserType: models.UserTypeInputOidc, Groups: []string{"group1", "group2"}},
 			expectAuthz: false,
 		},
 	}
@@ -85,13 +83,16 @@ func TestGetRolesForGroupSuccess(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			if tt.expectAuthz {
-				authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
+				if tt.expectAuthz {
+					authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Groups(tt.params.GroupType, tt.params.ID)[0]).Return(nil)
+				}
+
 				if *tt.params.IncludeFullRoles {
 					authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(nil)
 				}
 			}
-			controller.On("GetRolesForUserOrGroup", tt.params.ID, models.UserTypeInputDb).Return(returnedPolices, nil)
-			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{"testUser": {}}, nil)
+			controller.On("GetRolesForUserOrGroup", tt.params.ID, models.UserTypeInputOidc, true).Return(returnedPolices, nil)
+			// controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{"testUser": {}}, nil)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
@@ -99,7 +100,7 @@ func TestGetRolesForGroupSuccess(t *testing.T) {
 				logger:     logger,
 			}
 			res := h.getRolesForGroup(tt.params, tt.principal)
-			parsed, ok := res.(*authz.GetRolesForUserOK)
+			parsed, ok := res.(*authz.GetRolesForGroupOK)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
 
@@ -163,7 +164,7 @@ func TestGetRolesForGroupForbidden(t *testing.T) {
 				},
 			}
 
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Groups(models.PermissionGroupsTypeOidc, tt.params.ID)[0]).Return(nil)
+			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Groups(models.PermissionGroupsGroupTypeOidc, tt.params.ID)[0]).Return(nil)
 
 			if tt.authorizeErr != nil {
 				authorizer.On("Authorize", tt.principal, authorization.VerbWithScope(authorization.READ, authorization.ROLE_SCOPE_ALL), authorization.Roles("testRole")[0]).Return(tt.authorizeErr)
@@ -190,21 +191,21 @@ func TestGetRolesForGroupForbidden(t *testing.T) {
 func TestGetRolesForGroupInternalServerError(t *testing.T) {
 	type testCase struct {
 		name          string
-		params        authz.GetRolesForUserParams
+		params        authz.GetRolesForGroupParams
 		principal     *models.Principal
 		getRolesErr   error
 		expectedError string
 	}
 
-	userType := models.UserTypeInputDb
+	userType := models.PermissionGroupsGroupTypeOidc
 	tests := []testCase{
 		{
 			name: "internal server error",
-			params: authz.GetRolesForUserParams{
-				ID:       "testUser",
-				UserType: string(userType),
+			params: authz.GetRolesForGroupParams{
+				ID:        "testGroup",
+				GroupType: userType,
 			},
-			principal:     &models.Principal{Username: "user1", UserType: userType},
+			principal:     &models.Principal{Username: "user1", UserType: models.UserTypeInputOidc},
 			getRolesErr:   fmt.Errorf("internal server error"),
 			expectedError: "internal server error",
 		},
@@ -216,17 +217,16 @@ func TestGetRolesForGroupInternalServerError(t *testing.T) {
 			controller := NewMockControllerAndGetUsers(t)
 			logger, _ := test.NewNullLogger()
 
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users(tt.params.ID)[0]).Return(nil)
-			controller.On("GetRolesForUserOrGroup", tt.params.ID, userType).Return(nil, tt.getRolesErr)
-			controller.On("GetUsers", tt.params.ID).Return(map[string]*apikey.User{tt.params.ID: {}}, nil)
+			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Groups(models.PermissionGroupsGroupTypeOidc, tt.params.ID)[0]).Return(nil)
+			controller.On("GetRolesForUserOrGroup", tt.params.ID, models.UserTypeInputOidc, true).Return(nil, tt.getRolesErr)
 
 			h := &authZHandlers{
 				authorizer: authorizer,
 				controller: controller,
 				logger:     logger,
 			}
-			res := h.getRolesForUser(tt.params, tt.principal)
-			parsed, ok := res.(*authz.GetRolesForUserInternalServerError)
+			res := h.getRolesForGroup(tt.params, tt.principal)
+			parsed, ok := res.(*authz.GetRolesForGroupInternalServerError)
 			assert.True(t, ok)
 
 			assert.Contains(t, parsed.Payload.Error[0].Message, tt.expectedError)
