@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package t2vbigram
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"regexp"
 	"strings"
@@ -39,12 +38,16 @@ func New() *BigramModule {
 type BigramModule struct {
 	vectors                      map[string][]float32
 	storageProvider              moduletools.StorageProvider
-	graphqlProvider              modulecapabilities.GraphQLArguments
+	GraphqlProvider              modulecapabilities.GraphQLArguments
 	Searcher                     modulecapabilities.Searcher[[]float32]
-	nearTextTransformer          modulecapabilities.TextTransform
+	NearTextTransformer          modulecapabilities.TextTransform
 	logger                       logrus.FieldLogger
 	AdditionalPropertiesProvider modulecapabilities.AdditionalProperties
 	activeVectoriser             string
+}
+
+func (m *BigramModule) Arguments() map[string]modulecapabilities.GraphQLArgument {
+	return map[string]modulecapabilities.GraphQLArgument{}
 }
 
 func (m *BigramModule) Name() string {
@@ -58,7 +61,6 @@ func (m *BigramModule) Type() modulecapabilities.ModuleType {
 func (m *BigramModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	m.storageProvider = params.GetStorageProvider()
 	m.logger = params.GetLogger()
-	m.graphqlProvider = nearText.New(m.nearTextTransformer)
 
 	switch strings.ToLower(os.Getenv("BIGRAM")) {
 	case "alphabet":
@@ -87,10 +89,6 @@ func (m *BigramModule) VectorizableProperties(cfg moduletools.ClassConfig) (bool
 }
 
 func (m *BigramModule) InitAdditionalPropertiesProvider() error {
-	return nil
-}
-
-func (m *BigramModule) RootHandler() http.Handler {
 	return nil
 }
 
@@ -242,6 +240,13 @@ func (m *BigramModule) VectorFromParams(ctx context.Context, params interface{},
 	}
 }
 
+func (m *BigramModule) VectorSearches() map[string]modulecapabilities.VectorForParams[[]float32] {
+	vectorSearches := map[string]modulecapabilities.VectorForParams[[]float32]{}
+
+	vectorSearches["nearText"] = &vectorForParams{m.VectorFromParams}
+	return vectorSearches
+}
+
 func (m *BigramModule) Texts(ctx context.Context, inputs []string, cfg moduletools.ClassConfig) ([]float32, error) {
 	var vectors [][]float32
 	for _, input := range inputs {
@@ -277,7 +282,6 @@ var (
 	_ = modulecapabilities.Vectorizer[[]float32](New())
 	_ = modulecapabilities.MetaProvider(New())
 	_ = modulecapabilities.Searcher[[]float32](New())
-	_ = modulecapabilities.GraphQLArguments(New())
 )
 
 func (m *BigramModule) ClassConfigDefaults() map[string]interface{} {

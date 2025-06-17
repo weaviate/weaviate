@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,7 +33,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	} else {
 		// read first 8 bytes to get
 		buf = make([]byte, 8+12*terms.ENCODE_AS_FULL_BYTES)
-		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+12*terms.ENCODE_AS_FULL_BYTES)})
+		r, err := s.newNodeReader(nodeOffset{node.Start, node.Start + uint64(8+12*terms.ENCODE_AS_FULL_BYTES)}, "loadBMW")
 		if err != nil {
 			return nil, 0, nil, err
 		}
@@ -67,7 +67,7 @@ func (s *segment) loadBlockEntries(node segmentindex.Node) ([]*terms.BlockEntry,
 	if s.readFromMemory {
 		buf = s.contents[node.Start+16 : node.Start+16+uint64(blockCount*20)]
 	} else {
-		r, err := s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)})
+		r, err := s.newNodeReader(nodeOffset{node.Start + 16, node.Start + 16 + uint64(blockCount*20)}, "loadBMW")
 		if err != nil {
 			return nil, 0, nil, err
 		}

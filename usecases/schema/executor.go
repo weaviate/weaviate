@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -131,7 +131,7 @@ func (e *executor) LoadShard(class string, shard string) {
 			"action": "load_shard",
 			"class":  class,
 			"shard":  shard,
-		}).WithError(err).Error("migrator")
+		}).WithError(err).Warn("migrator")
 	}
 }
 
@@ -142,7 +142,7 @@ func (e *executor) ShutdownShard(class string, shard string) {
 			"action": "shutdown_shard",
 			"class":  class,
 			"shard":  shard,
-		}).WithError(err).Error("migrator")
+		}).WithError(err).Warn("migrator")
 	}
 }
 
@@ -153,7 +153,7 @@ func (e *executor) DropShard(class string, shard string) {
 			"action": "drop_shard",
 			"class":  class,
 			"shard":  shard,
-		}).WithError(err).Error("migrator")
+		}).WithError(err).Warn("migrator")
 	}
 }
 

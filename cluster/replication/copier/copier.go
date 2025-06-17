@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -367,7 +367,7 @@ func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName
 	}
 	defer release()
 
-	return shard.UpdateAsyncReplicationConfig(ctx, true)
+	return shard.SetAsyncReplicationEnabled(ctx, true)
 }
 
 func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error {
@@ -385,7 +385,7 @@ func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionNa
 	}
 	defer release()
 
-	return shard.UpdateAsyncReplicationConfig(ctx, shard.Index().Config.AsyncReplicationEnabled)
+	return shard.SetAsyncReplicationEnabled(ctx, shard.Index().Config.AsyncReplicationEnabled)
 }
 
 // AsyncReplicationStatus returns the async replication status for a shard.

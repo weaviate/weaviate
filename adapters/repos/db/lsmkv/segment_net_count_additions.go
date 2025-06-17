@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -127,7 +127,7 @@ func storeCountNetOnDisk(path string, value int, observeWrite diskio.MeteredWrit
 }
 
 func (s *segment) loadCountNetFromDisk() error {
-	data, err := loadWithChecksum(s.countNetPath(), 12)
+	data, err := loadWithChecksum(s.countNetPath(), 12, s.metrics.ReadObserver("netAdditions"))
 	if err != nil {
 		return err
 	}

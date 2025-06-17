@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,7 +47,7 @@ func testHybrid(host string) func(t *testing.T) {
 					Vectorizer: map[string]interface{}{
 						text2vecTransformers: map[string]interface{}{
 							"vectorizeClassName": false,
-							"properties":         []string{"text"},
+							"sourceProperties":   []string{"text"},
 						},
 					},
 					VectorIndexType: "flat",
@@ -56,7 +56,7 @@ func testHybrid(host string) func(t *testing.T) {
 					Vectorizer: map[string]interface{}{
 						text2vecContextionary: map[string]interface{}{
 							"vectorizeClassName": false,
-							"properties":         []string{"text2"},
+							"sourceProperties":   []string{"text2"},
 						},
 					},
 					VectorIndexType: "flat",

@@ -4,17 +4,19 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
-package replica
+package replica_test
 
 import (
 	"sort"
 	"strconv"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/replica"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
@@ -22,6 +24,49 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
+
+// createBatch creates IndexedBatch from xs
+func createBatch(xs []*storobj.Object) replica.IndexedBatch {
+	var bi replica.IndexedBatch
+	bi.Data = xs
+	bi.Index = make([]int, len(xs))
+	for i := 0; i < len(xs); i++ {
+		bi.Index[i] = i
+	}
+	return bi
+}
+
+// cluster data object by shard
+func cluster(bi replica.IndexedBatch) []replica.ShardPart {
+	index := bi.Index
+	data := bi.Data
+	sort.Slice(index, func(i, j int) bool {
+		return data[index[i]].BelongsToShard < data[index[j]].BelongsToShard
+	})
+	clusters := make([]replica.ShardPart, 0, 16)
+	// partition
+	cur := data[index[0]]
+	j := 0
+	for i := 1; i < len(index); i++ {
+		if data[index[i]].BelongsToShard == cur.BelongsToShard {
+			continue
+		}
+		clusters = append(clusters, replica.ShardPart{
+			Shard: cur.BelongsToShard,
+			Node:  cur.BelongsToNode, Data: data,
+			Index: index[j:i],
+		})
+		j = i
+		cur = data[index[j]]
+
+	}
+	clusters = append(clusters, replica.ShardPart{
+		Shard: cur.BelongsToShard,
+		Node:  cur.BelongsToNode, Data: data,
+		Index: index[j:],
+	})
+	return clusters
+}
 
 func TestBatchInput(t *testing.T) {
 	var (
@@ -36,7 +81,7 @@ func TestBatchInput(t *testing.T) {
 	}
 	parts := cluster(createBatch(data))
 	assert.Len(t, parts, 1)
-	assert.Equal(t, parts[0], shardPart{
+	assert.Equal(t, parts[0], replica.ShardPart{
 		Shard: "S1",
 		Node:  "N1",
 		Data:  data,

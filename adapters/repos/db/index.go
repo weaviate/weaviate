@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -617,7 +617,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
-		if err := shard.UpdateAsyncReplicationConfig(ctx, i.Config.AsyncReplicationEnabled); err != nil {
+		if err := shard.SetAsyncReplicationEnabled(ctx, i.Config.AsyncReplicationEnabled); err != nil {
 			return fmt.Errorf("updating async replication on shard %q: %w", name, err)
 		}
 		return nil

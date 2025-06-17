@@ -4,16 +4,18 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
 
-package replica
+package replica_test
 
 import (
 	"fmt"
 	"testing"
+
+	"github.com/weaviate/weaviate/usecases/replica"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -72,7 +74,7 @@ func Test_ValidateConfig(t *testing.T) {
 			class := &models.Class{
 				ReplicationConfig: test.initialconfig,
 			}
-			err := ValidateConfig(class, test.globalConfig)
+			err := replica.ValidateConfig(class, test.globalConfig)
 			if test.expectedErr != nil {
 				assert.EqualError(t, test.expectedErr, err.Error())
 			} else {
@@ -101,7 +103,7 @@ func Test_ValidateConfigUpdate(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			err := ValidateConfigUpdate(
+			err := replica.ValidateConfigUpdate(
 				&models.Class{ReplicationConfig: test.initial},
 				&models.Class{ReplicationConfig: test.update},
 				&fakeNodeCounter{3})

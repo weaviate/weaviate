@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -81,7 +81,7 @@ func (s *segmentCursorInvertedReusable) first() ([]byte, []MapPair, error) {
 
 func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset) error {
 	buffer := make([]byte, 16)
-	r, err := s.segment.newNodeReader(offset)
+	r, err := s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
 	if err != nil {
 		return err
 	}
@@ -96,7 +96,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 	}
 	offset.end = offset.start + end + 4
 
-	r, err = s.segment.newNodeReader(offset)
+	r, err = s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
 	if err != nil {
 		return err
 	}
@@ -114,7 +114,7 @@ func (s *segmentCursorInvertedReusable) parseInvertedNodeInto(offset nodeOffset)
 
 	offset.start = offset.end
 	offset.end += uint64(keyLen)
-	r, err = s.segment.newNodeReader(offset)
+	r, err = s.segment.newNodeReader(offset, "segmentCursorInvertedReusable")
 	if err != nil {
 		return err
 	}

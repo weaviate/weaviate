@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -78,7 +78,7 @@ func (s *segmentCursorCollectionReusable) first() ([]byte, []value, error) {
 }
 
 func (s *segmentCursorCollectionReusable) parseCollectionNodeInto(offset nodeOffset) error {
-	r, err := s.segment.newNodeReader(offset)
+	r, err := s.segment.newNodeReader(offset, "segmentCursorCollectionReusable")
 	if err != nil {
 		return err
 	}

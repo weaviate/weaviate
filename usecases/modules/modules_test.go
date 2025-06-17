@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -15,12 +15,12 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"net/http"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/tailor-inc/graphql"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
@@ -498,10 +498,6 @@ func (m *dummyBackupModuleWithAltNames) AltNames() []string {
 }
 
 func (m *dummyBackupModuleWithAltNames) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *dummyBackupModuleWithAltNames) RootHandler() http.Handler {
 	return nil
 }
 

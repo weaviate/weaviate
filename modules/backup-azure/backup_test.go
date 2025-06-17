@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,11 +18,10 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	logrustest "github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+
 	"github.com/weaviate/weaviate/entities/moduletools"
-	"github.com/weaviate/weaviate/usecases/config"
 )
 
 // Test user overrides
@@ -32,12 +31,15 @@ func TestUploadParams(t *testing.T) {
 	defaultHeaderValue := int64(13)
 	testCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	dataDir := t.TempDir()
 
 	azure := New()
 	os.Setenv("BACKUP_AZURE_CONTAINER", "test")
 	os.Setenv("AZURE_STORAGE_ACCOUNT", "test")
-	err := azure.Init(testCtx, newFakeModuleParams(dataDir))
+
+	params := moduletools.NewMockModuleInitParams(t)
+	params.EXPECT().GetLogger().Return(logrus.New())
+	params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+	err := azure.Init(testCtx, params)
 	require.Nil(t, err)
 
 	t.Run("getBlockSize with no inputs", func(t *testing.T) {
@@ -48,7 +50,10 @@ func TestUploadParams(t *testing.T) {
 	t.Run("getBlockSize with environment variable", func(t *testing.T) {
 		t.Setenv("AZURE_BLOCK_SIZE", "11")
 		azure := New()
-		err := azure.Init(testCtx, newFakeModuleParams(dataDir))
+		params := moduletools.NewMockModuleInitParams(t)
+		params.EXPECT().GetLogger().Return(logrus.New())
+		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 
 		blockSize := azure.getBlockSize(testCtx)
@@ -58,7 +63,10 @@ func TestUploadParams(t *testing.T) {
 	t.Run("getBlockSize with invalid environment variable", func(t *testing.T) {
 		t.Setenv("AZURE_BLOCK_SIZE", "invalid")
 		azure := New()
-		err := azure.Init(testCtx, newFakeModuleParams(dataDir))
+		params := moduletools.NewMockModuleInitParams(t)
+		params.EXPECT().GetLogger().Return(logrus.New())
+		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 
 		blockSize := azure.getBlockSize(testCtx)
@@ -98,7 +106,10 @@ func TestUploadParams(t *testing.T) {
 	t.Run("getConcurrency with environment variable", func(t *testing.T) {
 		t.Setenv("AZURE_CONCURRENCY", "11")
 		azure := New()
-		err := azure.Init(testCtx, newFakeModuleParams(dataDir))
+		params := moduletools.NewMockModuleInitParams(t)
+		params.EXPECT().GetLogger().Return(logrus.New())
+		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 
 		concurrency := azure.getConcurrency(testCtx)
@@ -108,7 +119,10 @@ func TestUploadParams(t *testing.T) {
 	t.Run("getConcurrency with invalid environment variable", func(t *testing.T) {
 		t.Setenv("AZURE_CONCURRENCY", "invalid")
 		azure := New()
-		err := azure.Init(testCtx, newFakeModuleParams(dataDir))
+		params := moduletools.NewMockModuleInitParams(t)
+		params.EXPECT().GetLogger().Return(logrus.New())
+		params.EXPECT().GetStorageProvider().Return(&fakeStorageProvider{dataPath: t.TempDir()})
+		err := azure.Init(testCtx, params)
 		assert.Nil(t, err)
 
 		concurrency := azure.getConcurrency(testCtx)
@@ -139,36 +153,6 @@ func TestUploadParams(t *testing.T) {
 		concurrency := azure.getConcurrency(ctxWithValue)
 		assert.Equal(t, defaultHeaderValue, int64(concurrency))
 	})
-}
-
-type fakeModuleParams struct {
-	logger   logrus.FieldLogger
-	provider fakeStorageProvider
-	config   config.Config
-}
-
-func newFakeModuleParams(dataPath string) *fakeModuleParams {
-	logger, _ := logrustest.NewNullLogger()
-	return &fakeModuleParams{
-		logger:   logger,
-		provider: fakeStorageProvider{dataPath: dataPath},
-	}
-}
-
-func (f *fakeModuleParams) GetStorageProvider() moduletools.StorageProvider {
-	return &f.provider
-}
-
-func (f *fakeModuleParams) GetAppState() interface{} {
-	return nil
-}
-
-func (f *fakeModuleParams) GetLogger() logrus.FieldLogger {
-	return f.logger
-}
-
-func (f *fakeModuleParams) GetConfig() config.Config {
-	return f.config
 }
 
 type fakeStorageProvider struct {

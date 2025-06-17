@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -604,7 +604,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 						m.logger.WithField("shard", shard.Name()).Debug("already shut down or dropped")
 					} else {
 						idx.logger.
-							WithField("action", "shutdown_shard").
+							WithField("action", "shard_shutdown").
 							WithField("shard", shard.ID()).
 							Error(err)
 						ec.Add(err)

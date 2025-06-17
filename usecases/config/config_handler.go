@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -99,6 +99,15 @@ type RuntimeOverrides struct {
 	Enabled      bool          `json:"enabled"`
 	Path         string        `json:"path" yaml:"path"`
 	LoadInterval time.Duration `json:"load_interval" yaml:"load_interval"`
+}
+
+// UsageConfig holds configuration for usage data collection and upload
+type UsageConfig struct {
+	GCSAuth        *runtime.DynamicValue[bool]          `json:"usage_gcs_auth" yaml:"usage_gcs_auth"`
+	GCSBucket      *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
+	GCSPrefix      *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
+	ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
+	PolicyVersion  *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 }
 
 // Config outline of the config file
@@ -209,6 +218,9 @@ type Config struct {
 	//
 	// This flat may be removed in the future.
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+
+	// Usage configuration for the usage module
+	Usage UsageConfig `json:"usage" yaml:"usage"`
 }
 
 type MapToBlockamaxConfig struct {

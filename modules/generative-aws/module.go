@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,6 @@ package modgenerativeaws
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -85,11 +84,6 @@ func (m *GenerativeAWSModule) getAWSSecretAccessKey() string {
 		return os.Getenv("AWS_SECRET_ACCESS_KEY")
 	}
 	return os.Getenv("AWS_SECRET_KEY")
-}
-
-func (m *GenerativeAWSModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
-	return nil
 }
 
 func (m *GenerativeAWSModule) MetaInfo() (map[string]interface{}, error) {
