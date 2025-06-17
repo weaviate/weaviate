@@ -84,7 +84,7 @@ func (r *Router) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (ty
 
 	writeReplicas, additionalWriteReplicas, err := r.GetWriteReplicasLocation(params.Collection, params.Shard)
 	if err != nil {
-		return types.RoutingPlan{}, fmt.Errorf("could not get read replicas location from sharding state: %w", err)
+		return types.RoutingPlan{}, fmt.Errorf("could not get write replicas location from sharding state: %w", err)
 	}
 
 	routingPlan, err := r.routingPlanFromReplicas(params, writeReplicas)
@@ -131,10 +131,12 @@ func (r *Router) routingPlanFromReplicas(
 				routingPlan.Replicas = append(routingPlan.Replicas, replica)
 				routingPlan.ReplicasHostAddrs = append(routingPlan.ReplicasHostAddrs, replicaAddr)
 			}
+		} else {
+			r.logger.Warnf("no hostname found for replica %s", replica)
 		}
 	}
 	if len(routingPlan.Replicas) == 0 {
-		return routingPlan, fmt.Errorf("no replicas found for class %s shard %s", routingPlan.Collection, routingPlan.Shard)
+		return routingPlan, fmt.Errorf("no usable replica found for class %s shard %s in replicas %v", routingPlan.Collection, routingPlan.Shard, replicas)
 	}
 	cl, err := routingPlan.ValidateConsistencyLevel()
 	if err != nil {
