@@ -803,12 +803,7 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 		}
 		offset += writeUint32Size
 
-		if err := writeUint32(w, state.CompressionRQData.DataBits); err != nil {
-			return 0, err
-		}
-		offset += writeUint32Size
-
-		if err := writeUint32(w, state.CompressionRQData.QueryBits); err != nil {
+		if err := writeUint32(w, state.CompressionRQData.Bits); err != nil {
 			return 0, err
 		}
 		offset += writeUint32Size
@@ -1069,17 +1064,11 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 			}
 			inputDim := binary.LittleEndian.Uint32(b[:4])
 
-			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.DataBits
+			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Bits
 			if err != nil {
-				return nil, errors.Wrapf(err, "read RQData.DataBits")
+				return nil, errors.Wrapf(err, "read RQData.Bits")
 			}
-			dataBits := binary.LittleEndian.Uint32(b[:4])
-
-			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.QueryBits
-			if err != nil {
-				return nil, errors.Wrapf(err, "read RQData.QueryBits")
-			}
-			queryBits := binary.LittleEndian.Uint32(b[:4])
+			bits := binary.LittleEndian.Uint32(b[:4])
 
 			_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.OutputDim
 			if err != nil {
@@ -1125,9 +1114,8 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 			}
 
 			res.CompressionRQData = &compressionhelpers.RQData{
-				InputDim:  inputDim,
-				DataBits:  dataBits,
-				QueryBits: queryBits,
+				InputDim: inputDim,
+				Bits:     bits,
 				Rotation: compressionhelpers.FastRotation{
 					OutputDim: outputDim,
 					Rounds:    rounds,

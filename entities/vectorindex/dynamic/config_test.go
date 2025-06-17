@@ -66,8 +66,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 					},
 					RQ: hnsw.RQConfig{
 						Enabled:      hnsw.DefaultRQEnabled,
-						DataBits:     hnsw.DefaultRQDataBits,
-						QueryBits:    hnsw.DefaultRQQueryBits,
+						Bits:         hnsw.DefaultRQBits,
 						RescoreLimit: hnsw.DefaultRQRescoreLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
@@ -140,8 +139,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 					},
 					RQ: hnsw.RQConfig{
 						Enabled:      hnsw.DefaultRQEnabled,
-						DataBits:     hnsw.DefaultRQDataBits,
-						QueryBits:    hnsw.DefaultRQQueryBits,
+						Bits:         hnsw.DefaultRQBits,
 						RescoreLimit: hnsw.DefaultRQRescoreLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,
@@ -234,8 +232,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 					},
 					RQ: hnsw.RQConfig{
 						Enabled:      hnsw.DefaultRQEnabled,
-						DataBits:     hnsw.DefaultRQDataBits,
-						QueryBits:    hnsw.DefaultRQQueryBits,
+						Bits:         hnsw.DefaultRQBits,
 						RescoreLimit: hnsw.DefaultRQRescoreLimit,
 					},
 					FilterStrategy: hnsw.FilterStrategyAcorn,
@@ -328,8 +325,7 @@ func Test_DynamicUserConfig(t *testing.T) {
 					},
 					RQ: hnsw.RQConfig{
 						Enabled:      hnsw.DefaultRQEnabled,
-						DataBits:     hnsw.DefaultRQDataBits,
-						QueryBits:    hnsw.DefaultRQQueryBits,
+						Bits:         hnsw.DefaultRQBits,
 						RescoreLimit: hnsw.DefaultRQRescoreLimit,
 					},
 					FilterStrategy: hnsw.DefaultFilterStrategy,

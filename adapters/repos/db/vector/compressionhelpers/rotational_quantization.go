@@ -25,8 +25,7 @@ type RotationalQuantizer struct {
 	inputDim  uint32
 	rotation  *FastRotation
 	distancer distancer.Provider
-	dataBits  uint32 // The number of bits per entry used by Encode() to encode data vectors.
-	queryBits uint32 // The number of bits per entry used by NewDistancer() to encode the query vector.
+	bits      uint32 // The number of bits per entry used by Encode() to encode data vectors.
 
 	// Precomputed for faster distance computations.
 	err error   // Precomputed error returned by DistanceBetweenCompressedVectors.
@@ -36,7 +35,7 @@ type RotationalQuantizer struct {
 
 var DefaultRotationRounds = 5
 
-func NewRotationalQuantizer(inputDim int, seed uint64, dataBits int, queryBits int, distancer distancer.Provider) *RotationalQuantizer {
+func NewRotationalQuantizer(inputDim int, seed uint64, bits int, distancer distancer.Provider) *RotationalQuantizer {
 	var err error = nil
 	if !supportsDistancer(distancer) {
 		err = errors.Errorf("Distance not supported yet %s", distancer)
@@ -57,8 +56,7 @@ func NewRotationalQuantizer(inputDim int, seed uint64, dataBits int, queryBits i
 	rq := &RotationalQuantizer{
 		inputDim:  uint32(inputDim),
 		rotation:  rotation,
-		dataBits:  uint32(dataBits),
-		queryBits: uint32(queryBits),
+		bits:      uint32(bits),
 		distancer: distancer,
 		// Precomputed values for faster distance computation.
 		err: err,
@@ -68,7 +66,7 @@ func NewRotationalQuantizer(inputDim int, seed uint64, dataBits int, queryBits i
 	return rq
 }
 
-func RestoreRotationalQuantizer(inputDim int, seed uint64, dataBits int, queryBits int, outputDim int, rounds int, swaps [][]Swap, signs [][]int8, distancer distancer.Provider) (*RotationalQuantizer, error) {
+func RestoreRotationalQuantizer(inputDim int, seed uint64, bits int, outputDim int, rounds int, swaps [][]Swap, signs [][]int8, distancer distancer.Provider) (*RotationalQuantizer, error) {
 	var err error = nil
 	if !supportsDistancer(distancer) {
 		err = errors.Errorf("Distance not supported yet %s", distancer)
@@ -86,8 +84,7 @@ func RestoreRotationalQuantizer(inputDim int, seed uint64, dataBits int, queryBi
 	rq := &RotationalQuantizer{
 		inputDim:  uint32(inputDim),
 		rotation:  RestoreFastRotation(outputDim, rounds, swaps, signs),
-		dataBits:  uint32(dataBits),
-		queryBits: uint32(queryBits),
+		bits:      uint32(bits),
 		distancer: distancer,
 		err:       err,
 		cos:       cos,
@@ -167,7 +164,7 @@ func (c RQCode) String() string {
 
 // Note: This function has to be thread-safe.
 func (rq *RotationalQuantizer) Encode(x []float32) []byte {
-	return rq.encode(x, rq.dataBits)
+	return rq.encode(x, rq.bits)
 }
 
 func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
@@ -331,8 +328,7 @@ func (rq *RotationalQuantizer) NewCompressedQuantizerDistancer(a []byte) quantiz
 }
 
 type RQStats struct {
-	DataBits  uint32 `json:"data_bits"`
-	QueryBits uint32 `json:"query_bits"`
+	Bits uint32 `json:"bits"`
 }
 
 func (rq RQStats) CompressionType() string {
@@ -341,8 +337,7 @@ func (rq RQStats) CompressionType() string {
 
 func (rq *RotationalQuantizer) Stats() CompressionStats {
 	return RQStats{
-		DataBits:  rq.dataBits,
-		QueryBits: rq.queryBits,
+		Bits: rq.bits,
 	}
 }
 
@@ -375,17 +370,15 @@ func (rq *RotationalQuantizer) ReturnQuantizerDistancer(distancer quantizerDista
 }
 
 type RQData struct {
-	InputDim  uint32
-	DataBits  uint32
-	QueryBits uint32
-	Rotation  FastRotation
+	InputDim uint32
+	Bits     uint32
+	Rotation FastRotation
 }
 
 func (rq *RotationalQuantizer) PersistCompression(logger CommitLogger) {
 	logger.AddRQCompression(RQData{
-		InputDim:  rq.inputDim,
-		DataBits:  rq.dataBits,
-		QueryBits: rq.queryBits,
-		Rotation:  *rq.rotation,
+		InputDim: rq.inputDim,
+		Bits:     rq.bits,
+		Rotation: *rq.rotation,
 	})
 }

@@ -302,12 +302,11 @@ func (bq *BQNeighborProvider) NearestNeighbors(query []float32, k int) []int {
 // Rotational quantization
 
 type RQSettings struct {
-	QueryBits int
-	DataBits  int
+	Bits int
 }
 
 func (s *RQSettings) BitsPerDimension() float64 {
-	return float64(s.DataBits)
+	return float64(s.Bits)
 }
 
 func (s *RQSettings) Description() string {
@@ -319,13 +318,12 @@ type RQNeighborProvider struct {
 	quantizedData [][]byte
 	norms         []float32
 	distance      distancer.Provider
-	dataBits      int
-	queryBits     int
+	bits          int
 }
 
 func NewRQNeighborProvider(data [][]float32, settings RQSettings, distance distancer.Provider) *RQNeighborProvider {
 	d := len(data[0])
-	quantizer := compressionhelpers.NewRotationalQuantizer(d, 42, settings.DataBits, settings.QueryBits, distance)
+	quantizer := compressionhelpers.NewRotationalQuantizer(d, 42, settings.Bits, distance)
 
 	quantizedData := make([][]byte, len(data))
 	norms := make([]float32, len(data))
@@ -342,8 +340,7 @@ func NewRQNeighborProvider(data [][]float32, settings RQSettings, distance dista
 		quantizedData: quantizedData,
 		norms:         norms,
 		distance:      distance,
-		dataBits:      settings.DataBits,
-		queryBits:     settings.QueryBits,
+		bits:          settings.Bits,
 	}
 	return bq
 }
@@ -553,7 +550,7 @@ func BenchmarkQuantizationRecall(b *testing.B) {
 
 	algorithms := []QuantizationSettings{
 		&SQSettings{TrainingSize: 100_000},
-		&RQSettings{DataBits: 8, QueryBits: 8},
+		&RQSettings{Bits: 8},
 		// &TRQSettings{Order: 1},
 		// &TRQSettings{Order: 4},
 		// &TRQSettings{Order: 8},

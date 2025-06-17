@@ -638,15 +638,14 @@ func NewRQCompressor(
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
-	dataBits int,
-	queryBits int,
+	bits int,
 	dim int,
 ) (VectorCompressor, error) {
 	seed := uint64(0x535ab5105169b1df)
 
-	quantizer := NewRotationalQuantizer(dim, seed, dataBits, queryBits, distance)
+	quantizer := NewRotationalQuantizer(dim, seed, bits, distance)
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
-	switch dataBits {
+	switch bits {
 	case 8:
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
 			quantizer:       quantizer,
@@ -670,8 +669,7 @@ func RestoreRQCompressor(
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
 	dimensions int,
-	dataBits int,
-	queryBits int,
+	bits int,
 	outputDim int,
 	rounds int,
 	swaps [][]Swap,
@@ -681,12 +679,12 @@ func RestoreRQCompressor(
 ) (VectorCompressor, error) {
 	seed := uint64(0x535ab5105169b1df)
 
-	quantizer, err := RestoreRotationalQuantizer(dimensions, seed, dataBits, queryBits, outputDim, rounds, swaps, signs, distance)
+	quantizer, err := RestoreRotationalQuantizer(dimensions, seed, bits, outputDim, rounds, swaps, signs, distance)
 	if err != nil {
 		return nil, err
 	}
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
-	switch dataBits {
+	switch bits {
 	case 8:
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
 			quantizer:       quantizer,
@@ -711,15 +709,14 @@ func NewRQMultiCompressor(
 	logger logrus.FieldLogger,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
-	dataBits int,
-	queryBits int,
+	bits int,
 	dim int,
 ) (VectorCompressor, error) {
 	seed := uint64(0x535ab5105169b1df)
 
-	quantizer := NewRotationalQuantizer(dim, seed, dataBits, queryBits, distance)
+	quantizer := NewRotationalQuantizer(dim, seed, bits, distance)
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
-	switch dataBits {
+	switch bits {
 	case 8:
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
 			quantizer:       quantizer,
@@ -743,8 +740,7 @@ func RestoreRQMultiCompressor(
 	vectorCacheMaxObjects int,
 	logger logrus.FieldLogger,
 	dimensions int,
-	dataBits int,
-	queryBits int,
+	bits int,
 	outputDim int,
 	rounds int,
 	swaps [][]Swap,
@@ -754,12 +750,12 @@ func RestoreRQMultiCompressor(
 ) (VectorCompressor, error) {
 	seed := uint64(0x535ab5105169b1df)
 
-	quantizer, err := RestoreRotationalQuantizer(dimensions, seed, dataBits, queryBits, outputDim, rounds, swaps, signs, distance)
+	quantizer, err := RestoreRotationalQuantizer(dimensions, seed, bits, outputDim, rounds, swaps, signs, distance)
 	if err != nil {
 		return nil, err
 	}
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
-	switch dataBits {
+	switch bits {
 	case 8:
 		rqVectorsCompressor = &quantizedVectorsCompressor[byte]{
 			quantizer:       quantizer,

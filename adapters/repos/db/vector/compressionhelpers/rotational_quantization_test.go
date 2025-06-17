@@ -23,7 +23,7 @@ import (
 )
 
 func defaultRotationalQuantizer(dim int, seed uint64) *compressionhelpers.RotationalQuantizer {
-	return compressionhelpers.NewRotationalQuantizer(dim, seed, 8, 8, distancer.NewCosineDistanceProvider())
+	return compressionhelpers.NewRotationalQuantizer(dim, seed, 8, distancer.NewCosineDistanceProvider())
 }
 
 // Create two d-dimensional unit vectors with a cosine similarity of alpha.
@@ -52,7 +52,7 @@ func TestRQDistanceEstimatesAreIdentical(t *testing.T) {
 		d := 2 + rng.IntN(2000)
 		for _, m := range metrics {
 			bits := 8
-			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, bits, m)
+			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, m)
 			q, x := randomUnitVector(d, rng), randomUnitVector(d, rng)
 			cq, cx := rq.Encode(q), rq.Encode(x)
 			distancer := rq.NewDistancer(q)
@@ -84,7 +84,7 @@ func TestRQDistanceEstimate(t *testing.T) {
 	}
 
 	for _, m := range metrics {
-		rq := compressionhelpers.NewRotationalQuantizer(dim, seed, bits, bits, m)
+		rq := compressionhelpers.NewRotationalQuantizer(dim, seed, bits, m)
 		cq, cx := rq.Encode(q), rq.Encode(x)
 		distancer := rq.NewDistancer(q)
 		distancerEstimate, _ := distancer.Distance(cx)
@@ -153,7 +153,7 @@ func TestRQDistancer(t *testing.T) {
 		q, x := correlatedVectors(d, alpha)
 		for _, m := range metrics {
 			bits := 8
-			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, bits, m)
+			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, m)
 			distancer := rq.NewDistancer(q)
 			expected, _ := m.SingleDist(q, x)
 			cx := rq.Encode(x)
@@ -171,16 +171,15 @@ func TestRQDistancer(t *testing.T) {
 func TestRQEstimationConcentrationBounds(t *testing.T) {
 	rng := newRNG(1234)
 	n := 1000
-	queryBits := 8
 	for range n {
 		d := 2 + rng.IntN(1000)
 		alpha := -1.0 + 2*rng.Float32()
-		dataBits := 8
+		bits := 8
 
 		// With probability > 0.999 the absolute error should be less than eps.
 		// For d = 256 the error for b bits is 2^(-b) * 0.36, so 0.18, 0.09,
 		// 0.045.. for b = 1, 2, 3,...
-		eps := math.Pow(2.0, -float64(dataBits)) * 5.75 / math.Sqrt(float64(d))
+		eps := math.Pow(2.0, -float64(bits)) * 5.75 / math.Sqrt(float64(d))
 
 		// With the optimizations we are adding, such as reducing the number of
 		// rotation rounds and removing randomized rounding from the encoding we
@@ -193,7 +192,7 @@ func TestRQEstimationConcentrationBounds(t *testing.T) {
 		eps *= additionalErrorFactor
 
 		q, x := correlatedVectors(d, alpha)
-		rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), dataBits, queryBits, distancer.NewDotProductProvider())
+		rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, distancer.NewDotProductProvider())
 		cx := rq.Encode(x)
 		dist := rq.NewDistancer(q)
 		estimate, _ := dist.Distance(cx)
@@ -228,7 +227,7 @@ func TestRQDistancerRandomVectorsWithScaling(t *testing.T) {
 		scale(x, s2)
 		for _, m := range metrics {
 			bits := 8
-			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, bits, m)
+			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, m)
 			distancer := rq.NewDistancer(q)
 			cx := rq.Encode(x)
 			target, _ := m.SingleDist(q, x)
@@ -271,7 +270,7 @@ func BenchmarkRQDistancer(b *testing.B) {
 		for _, m := range metrics {
 			// Rotational quantization.
 			bits := 8
-			rq := compressionhelpers.NewRotationalQuantizer(dim, rng.Uint64(), bits, bits, m)
+			rq := compressionhelpers.NewRotationalQuantizer(dim, rng.Uint64(), bits, m)
 			q, x := correlatedVectors(dim, 0.5)
 			cx := rq.Encode(x)
 			distancer := rq.NewDistancer(q)

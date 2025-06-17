@@ -355,8 +355,7 @@ func (c *MemoryCondensor) AddRQCompression(data compressionhelpers.RQData) error
 
 	buf.WriteByte(byte(AddRQ))                                       // 1
 	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim
-	binary.Write(&buf, binary.LittleEndian, data.DataBits)           // 4 data bits
-	binary.Write(&buf, binary.LittleEndian, data.QueryBits)          // 4 query bits
+	binary.Write(&buf, binary.LittleEndian, data.Bits)               // 4 bits
 	binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4 rotation - output dim
 	binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4 rotation - rounds
 

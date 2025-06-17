@@ -647,11 +647,7 @@ func (d *Deserializer) ReadRQ(r io.Reader, res *DeserializationResult) (int, err
 	if err != nil {
 		return 0, err
 	}
-	dataBits, err := readUint32(r)
-	if err != nil {
-		return 0, err
-	}
-	queryBits, err := readUint32(r)
+	bits, err := readUint32(r)
 	if err != nil {
 		return 0, err
 	}
@@ -696,9 +692,8 @@ func (d *Deserializer) ReadRQ(r io.Reader, res *DeserializationResult) (int, err
 	}
 
 	res.CompressionRQData = &compressionhelpers.RQData{
-		InputDim:  inputDim,
-		DataBits:  dataBits,
-		QueryBits: queryBits,
+		InputDim: inputDim,
+		Bits:     bits,
 		Rotation: compressionhelpers.FastRotation{
 			OutputDim: outputDim,
 			Rounds:    rounds,
