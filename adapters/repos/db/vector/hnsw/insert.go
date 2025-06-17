@@ -104,7 +104,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		return err
 	}
 
-	if h.rqConfig.Enabled {
+	if h.rqConfig.Enabled && h.rqActive {
 		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.NewRQCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
@@ -233,7 +233,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 	if err != nil {
 		return err
 	}
-	if h.rqConfig.Enabled {
+	if h.rqConfig.Enabled && h.rqActive {
 		h.trackRQOnce.Do(func() {
 			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
 				h.distancerProvider, 1e12, h.logger, h.store,
