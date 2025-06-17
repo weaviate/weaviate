@@ -27,15 +27,29 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-const (
-	envMinioEndpoint = "MINIO_ENDPOINT"
-	envAwsRegion     = "AWS_REGION"
-	envS3AccessKey   = "AWS_ACCESS_KEY_ID"
-	envS3SecretKey   = "AWS_SECRET_KEY"
-	envS3Bucket      = "BACKUP_S3_BUCKET"
-	envS3Endpoint    = "BACKUP_S3_ENDPOINT"
-	envS3UseSSL      = "BACKUP_S3_USE_SSL"
+Error: test/acceptance/authz/backup_restore_test.go:31:2: const `envMinioEndpoint` is unused (unused)
+  	envMinioEndpoint = "MINIO_ENDPOINT"
+  	^
+  Error: test/acceptance/authz/backup_restore_test.go:32:2: const `envAwsRegion` is unused (unused)
+  	envAwsRegion     = "AWS_REGION"
+  	^
+  Error: test/acceptance/authz/backup_restore_test.go:33:2: const `envS3AccessKey` is unused (unused)
+  	envS3AccessKey   = "AWS_ACCESS_KEY_ID"
+  	^
+  Error: test/acceptance/authz/backup_restore_test.go:34:2: const `envS3SecretKey` is unused (unused)
+  	envS3SecretKey   = "AWS_SECRET_KEY"
+  	^
+  Error: test/acceptance/authz/backup_restore_test.go:35:2: const `envS3Bucket` is unused (unused)
+  	envS3Bucket      = "BACKUP_S3_BUCKET"
+  	^
+  Error: test/acceptance/authz/backup_restore_test.go:36:2: const `envS3Endpoint` is unused (unused)
+  	envS3Endpoint    = "BACKUP_S3_ENDPOINT"
+  	^
+  Error: test/acceptance/authz/backup_restore_test.go:37:2: const `envS3UseSSL` is unused (unused)
 
+
+const (
+	envS3UseSSL      = "BACKUP_S3_USE_SSL"
 	s3BackupJourneyClassName          = "S3Backup"
 	s3BackupJourneyBackupIDSingleNode = "s3-backup-single-node"
 	s3BackupJourneyBackupIDCluster    = "s3-backup-cluster"

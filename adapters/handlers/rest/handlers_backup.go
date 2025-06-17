@@ -29,7 +29,7 @@ import (
 type backupHandlers struct {
 	manager             *ubak.Scheduler
 	metricRequestsTotal restApiRequestsTotal
-	logger 			logrus.FieldLogger
+	logger              logrus.FieldLogger
 }
 
 // compressionFromBCfg transforms model backup config to a backup compression config
