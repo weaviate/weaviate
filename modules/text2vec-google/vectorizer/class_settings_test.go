@@ -30,6 +30,7 @@ func Test_classSettings_Validate(t *testing.T) {
 		wantProjectID   string
 		wantModelID     string
 		wantTitle       string
+		wantLocation    string
 		wantErr         error
 	}{
 		{
@@ -42,6 +43,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
 			wantProjectID:   "projectId",
 			wantModelID:     "textembedding-gecko@001",
+			wantLocation:    "us-central1",
 			wantErr:         nil,
 		},
 		{
@@ -57,6 +59,35 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantProjectID:   "projectId",
 			wantModelID:     "textembedding-gecko@001",
 			wantTitle:       "title",
+			wantLocation:    "us-central1",
+			wantErr:         nil,
+		},
+		{
+			name: "custom location europe",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "projectId",
+					"location":  "europe-west1",
+				},
+			},
+			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
+			wantProjectID:   "projectId",
+			wantModelID:     "textembedding-gecko@001",
+			wantLocation:    "europe-west1",
+			wantErr:         nil,
+		},
+		{
+			name: "custom location asia",
+			cfg: fakeClassConfig{
+				classConfig: map[string]interface{}{
+					"projectId": "projectId",
+					"location":  "asia-southeast1",
+				},
+			},
+			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
+			wantProjectID:   "projectId",
+			wantModelID:     "textembedding-gecko@001",
+			wantLocation:    "asia-southeast1",
 			wantErr:         nil,
 		},
 		{
@@ -107,6 +138,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "embedding-001",
+			wantLocation:    "us-central1",
 			wantErr:         nil,
 		},
 		{
@@ -120,6 +152,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantApiEndpoint: "generativelanguage.googleapis.com",
 			wantProjectID:   "",
 			wantModelID:     "embedding-gecko-001",
+			wantLocation:    "us-central1",
 			wantErr:         nil,
 		},
 		{
@@ -161,6 +194,7 @@ func Test_classSettings_Validate(t *testing.T) {
 				assert.Equal(t, tt.wantProjectID, ic.ProjectID())
 				assert.Equal(t, tt.wantModelID, ic.ModelID())
 				assert.Equal(t, tt.wantTitle, ic.TitleProperty())
+				assert.Equal(t, tt.wantLocation, ic.Location())
 			}
 		})
 	}

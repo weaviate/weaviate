@@ -29,6 +29,71 @@ import (
 	"github.com/weaviate/weaviate/usecases/modulecomponents/apikey"
 )
 
+func TestBuildURL(t *testing.T) {
+	tests := []struct {
+		name               string
+		useGenerativeAI    bool
+		apiEndpoint        string
+		projectID          string
+		modelID            string
+		location           string
+		expectedURL        string
+	}{
+		{
+			name:            "Vertex AI with custom location",
+			useGenerativeAI: false,
+			apiEndpoint:     "europe-west1-aiplatform.googleapis.com",
+			projectID:       "my-project",
+			modelID:         "textembedding-gecko@001",
+			location:        "europe-west1",
+			expectedURL:     "https://europe-west1-aiplatform.googleapis.com/v1/projects/my-project/locations/europe-west1/publishers/google/models/textembedding-gecko@001:predict",
+		},
+		{
+			name:            "Vertex AI with us-central1",
+			useGenerativeAI: false,
+			apiEndpoint:     "us-central1-aiplatform.googleapis.com",
+			projectID:       "my-project",
+			modelID:         "textembedding-gecko@001",
+			location:        "us-central1",
+			expectedURL:     "https://us-central1-aiplatform.googleapis.com/v1/projects/my-project/locations/us-central1/publishers/google/models/textembedding-gecko@001:predict",
+		},
+		{
+			name:            "Vertex AI with asia location",
+			useGenerativeAI: false,
+			apiEndpoint:     "asia-southeast1-aiplatform.googleapis.com",
+			projectID:       "my-project",
+			modelID:         "textembedding-gecko@001",
+			location:        "asia-southeast1",
+			expectedURL:     "https://asia-southeast1-aiplatform.googleapis.com/v1/projects/my-project/locations/asia-southeast1/publishers/google/models/textembedding-gecko@001:predict",
+		},
+		{
+			name:            "Generative AI endpoint (location ignored)",
+			useGenerativeAI: true,
+			apiEndpoint:     "generativelanguage.googleapis.com",
+			projectID:       "",
+			modelID:         "embedding-001",
+			location:        "europe-west1",
+			expectedURL:     "https://generativelanguage.googleapis.com/v1/models/embedding-001:batchEmbedContents",
+		},
+		{
+			name:            "Legacy PaLM model (location ignored)",
+			useGenerativeAI: true,
+			apiEndpoint:     "generativelanguage.googleapis.com",
+			projectID:       "",
+			modelID:         "embedding-gecko-001",
+			location:        "europe-west1",
+			expectedURL:     "https://generativelanguage.googleapis.com/v1beta3/models/embedding-gecko-001:batchEmbedText",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url := buildURL(tt.useGenerativeAI, tt.apiEndpoint, tt.projectID, tt.modelID, tt.location)
+			assert.Equal(t, tt.expectedURL, url)
+		})
+	}
+}
+
 func TestClient(t *testing.T) {
 	t.Run("when all is fine", func(t *testing.T) {
 		server := httptest.NewServer(&fakeHandler{t: t})
@@ -37,10 +102,11 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID, location string) string {
 				assert.Equal(t, "endpoint", apiEndoint)
 				assert.Equal(t, "project", projectID)
 				assert.Equal(t, "model", modelID)
+				assert.Equal(t, "us-central1", location)
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -55,6 +121,40 @@ func TestClient(t *testing.T) {
 				ApiEndpoint: "endpoint",
 				ProjectID:   "project",
 				Model:       "model",
+				Location:    "us-central1",
+			}, "")
+
+		assert.Nil(t, err)
+		assert.Equal(t, expected, res)
+	})
+
+	t.Run("when using custom location", func(t *testing.T) {
+		server := httptest.NewServer(&fakeHandler{t: t})
+		defer server.Close()
+		c := &google{
+			apiKey:       "apiKey",
+			httpClient:   &http.Client{},
+			googleApiKey: apikey.NewGoogleApiKey(),
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID, location string) string {
+				assert.Equal(t, "europe-west1-aiplatform.googleapis.com", apiEndoint)
+				assert.Equal(t, "my-project", projectID)
+				assert.Equal(t, "textembedding-gecko@001", modelID)
+				assert.Equal(t, "europe-west1", location)
+				return server.URL
+			},
+			logger: nullLogger(),
+		}
+		expected := &ent.VectorizationResult{
+			Texts:      []string{"This is my text"},
+			Vectors:    [][]float32{{0.1, 0.2, 0.3}},
+			Dimensions: 3,
+		}
+		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
+			ent.VectorizationConfig{
+				ApiEndpoint: "europe-west1-aiplatform.googleapis.com",
+				ProjectID:   "my-project",
+				Model:       "textembedding-gecko@001",
+				Location:    "europe-west1",
 			}, "")
 
 		assert.Nil(t, err)
@@ -68,7 +168,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID, location string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -92,7 +192,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "apiKey",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID, location string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -111,7 +211,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID, location string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
@@ -137,7 +237,7 @@ func TestClient(t *testing.T) {
 			apiKey:       "",
 			httpClient:   &http.Client{},
 			googleApiKey: apikey.NewGoogleApiKey(),
-			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID string) string {
+			urlBuilderFn: func(useGenerativeAI bool, apiEndoint, projectID, modelID, location string) string {
 				return server.URL
 			},
 			logger: nullLogger(),
