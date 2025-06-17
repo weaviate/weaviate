@@ -17,6 +17,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -37,7 +39,7 @@ import (
 // able to find a way to unify the two -- there are subtle differences.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
-	enableChecksumValidation bool, minMMapSize int64, allocChecker memwatch.AllocChecker,
+	enableChecksumValidation bool, minMMapSize int64, allocChecker memwatch.AllocChecker, metrics *Metrics,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -81,10 +83,13 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 
 		defer contents2.Unmap()
 	} else { // read the file into memory if it's small enough and we have enough memory
-		contents, err = io.ReadAll(file)
+		meteredF := diskio.NewMeteredReader(file, diskio.MeteredReaderCallback(metrics.ReadObserver("readSegmentFileCompaction")))
+
+		contents, err = io.ReadAll(meteredF)
 		if err != nil {
 			return nil, fmt.Errorf("read file: %w", err)
 		}
+		useBloomFilter = false // we don't read bloom filters if we are below the MMAP threshold so there is no point in precomputing them
 	}
 
 	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])

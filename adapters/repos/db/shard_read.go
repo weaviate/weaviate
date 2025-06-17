@@ -65,7 +65,7 @@ func (s *Shard) ObjectByIDErrDeleted(ctx context.Context, id strfmt.UUID, props 
 }
 
 func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.SelectProperties, additional additional.Properties) (*storobj.Object, error) {
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return nil, err
@@ -89,7 +89,7 @@ func (s *Shard) ObjectByID(ctx context.Context, id strfmt.UUID, props search.Sel
 }
 
 func (s *Shard) MultiObjectByID(ctx context.Context, query []multi.Identifier) ([]*storobj.Object, error) {
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	objects := make([]*storobj.Object, len(query))
 
 	ids := make([][]byte, len(query))
@@ -175,7 +175,7 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 // of a true negative would be considerably faster. For a (false) positive,
 // we'd still need to check, though.
 func (s *Shard) Exists(ctx context.Context, id strfmt.UUID) (bool, error) {
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return false, err
@@ -288,7 +288,7 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 		})
 	}()
 
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	if keywordRanking != nil {
 		if v := s.versioner.Version(); v < 2 {
 			return nil, nil, errors.Errorf(
@@ -338,7 +338,8 @@ func (s *Shard) ObjectSearch(ctx context.Context, limit int, filters *filters.Lo
 	objs, err := inverted.NewSearcher(s.index.logger, s.store, s.index.getSchema.ReadOnlyClass,
 		s.propertyIndices, s.index.classSearcher, s.index.stopwords, s.versioner.Version(),
 		s.isFallbackToSearchable, s.tenant(), s.index.Config.QueryNestedRefLimit, s.bitmapFactory).
-		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties)
+		Objects(ctx, limit, filters, sort, additional, s.index.Config.ClassName, properties,
+			s.index.Config.InvertedSorterDisabled)
 	return objs, nil, err
 }
 
@@ -391,7 +392,7 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 		})
 	}()
 
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 
 	var allowList helpers.AllowList
 	if filters != nil {
@@ -552,13 +553,21 @@ func (s *Shard) ObjectVectorSearch(ctx context.Context, searchVectors []models.V
 }
 
 func (s *Shard) ObjectList(ctx context.Context, limit int, sort []filters.Sort, cursor *filters.Cursor, additional additional.Properties, className schema.ClassName) ([]*storobj.Object, error) {
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	if len(sort) > 0 {
+		beforeSort := time.Now()
 		docIDs, err := s.sortedObjectList(ctx, limit, sort, className)
 		if err != nil {
 			return nil, err
 		}
+		helpers.AnnotateSlowQueryLog(ctx, "sort_took", time.Since(beforeSort))
 		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+		beforeObjects := time.Now()
+		defer func() {
+			took := time.Since(beforeObjects)
+			helpers.AnnotateSlowQueryLog(ctx, "objects_took", took)
+		}()
 		return storobj.ObjectsByDocID(bucket, docIDs, additional, nil, s.index.logger)
 	}
 
@@ -606,8 +615,11 @@ func (s *Shard) cursorObjectList(ctx context.Context, c *filters.Cursor,
 	return out[:i], nil
 }
 
-func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort, className schema.ClassName) ([]uint64, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass, className)
+func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.Sort,
+	className schema.ClassName,
+) ([]uint64, error) {
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass,
+		className, s.index.Config.InvertedSorterDisabled)
 	if err != nil {
 		return nil, errors.Wrap(err, "sort object list")
 	}
@@ -618,8 +630,11 @@ func (s *Shard) sortedObjectList(ctx context.Context, limit int, sort []filters.
 	return docIDs, nil
 }
 
-func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort, className schema.ClassName, docIDs []uint64, dists []float32) ([]uint64, []float32, error) {
-	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass, className)
+func (s *Shard) sortDocIDsAndDists(ctx context.Context, limit int, sort []filters.Sort,
+	className schema.ClassName, docIDs []uint64, dists []float32,
+) ([]uint64, []float32, error) {
+	lsmSorter, err := sorter.NewLSMSorter(s.store, s.index.getSchema.ReadOnlyClass,
+		className, s.index.Config.InvertedSorterDisabled)
 	if err != nil {
 		return nil, nil, errors.Wrap(err, "sort objects with distances")
 	}
@@ -723,7 +738,7 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 }
 
 func (s *Shard) WasDeleted(ctx context.Context, id strfmt.UUID) (bool, time.Time, error) {
-	s.activityTracker.Add(1)
+	s.activityTrackerRead.Add(1)
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return false, time.Time{}, err

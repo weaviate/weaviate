@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -81,7 +82,7 @@ func (s *Scheduler) CleanupUnfinishedBackups(ctx context.Context) {
 			continue
 		}
 		for _, bak := range backups {
-			if backupNotCompleted(bak.Status) {
+			if backupNotCompleted(bak.Status, bak.Error) {
 				bak.Status = backup.Cancelled
 				bak.Error = "backup canceled due to node restart"
 				// TODO: make compatible with override bucket/path?
@@ -102,10 +103,11 @@ func (s *Scheduler) CleanupUnfinishedBackups(ctx context.Context) {
 	}
 }
 
-func backupNotCompleted(status backup.Status) bool {
+func backupNotCompleted(status backup.Status, errorStr string) bool {
 	return status == backup.Started ||
 		status == backup.Transferred ||
-		status == backup.Transferring
+		status == backup.Transferring ||
+		strings.Contains(errorStr, "might be down")
 }
 
 func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *BackupRequest,

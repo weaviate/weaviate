@@ -160,6 +160,50 @@ type Config struct {
 	ReindexIndexesAtStartup map[string][]string `json:"reindex_indexes_at_startup" yaml:"reindex_indexes_at_startup"`
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
+
+	// TenantActivityReadLogLevel is 'debug' by default as every single READ
+	// interaction with a tenant leads to a log line. However, this may
+	// temporarily be desired, e.g. for analysis or debugging purposes. In this
+	// case the log level can be elevated, e.g. to 'info'. This is overall less
+	// noisy than changing the global log level, but still allows to see all
+	// tenant read activity.
+	TenantActivityReadLogLevel *runtime.DynamicValue[string] `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
+	// TenantActivityWriteLogLevel is 'debug' by default as every single WRITE
+	// interaction with a tenant leads to a log line. However, this may
+	// temporarily be desired, e.g. for analysis or debugging purposes. In this
+	// case the log level can be elevated, e.g. to 'info'. This is overall less
+	// noisy than changing the global log level, but still allows to see all
+	// tenant write activity.
+	TenantActivityWriteLogLevel *runtime.DynamicValue[string] `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
+
+	// RevectorizeCheck is an optimization where Weaviate checks if a vector can
+	// be reused from a previous version of the object, for example because the
+	// only change was an update of a property that is excluded from
+	// vectorization. This check is on by default (backward-compatibility).
+	//
+	// However, this check comes at a cost, it means that every single insert
+	// will turn into a read-before-write pattern, even if the inserted object is
+	// new. That is because the logic first needs to check if the object even
+	// exists. In cases where write throughput matters and the overwhelming
+	// majority of inserts are new, unique objects, it might be advisable to turn
+	// this feature off using the provided flag.
+	RevectorizeCheckDisabled *runtime.DynamicValue[bool] `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
+
+	QuerySlowLogEnabled   *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
+	QuerySlowLogThreshold *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
+
+	// InvertedSorterDisabled forces the "objects bucket" strategy and doesn't
+	// not consider inverted sorting, even when the query planner thinks this is
+	// the better option.
+	//
+	// Most users should never set this flag, it exists for two reasons:
+	//  - For benchmarking reasons, this flag can be used to evaluate the
+	//		(positive) impact of the inverted sorter.
+	//  - As a safety net to revert to the old behavior in case there is a bug
+	//		in the inverted indexer despite the very extensive testing.
+	//
+	// This flat may be removed in the future.
+	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 }
 
 type MapToBlockamaxConfig struct {
@@ -447,6 +491,8 @@ type Raft struct {
 
 	HeartbeatTimeout       time.Duration
 	ElectionTimeout        time.Duration
+	LeaderLeaseTimeout     time.Duration
+	TimeoutsMultiplier     int
 	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration

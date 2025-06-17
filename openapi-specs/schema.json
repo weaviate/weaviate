@@ -7,12 +7,19 @@
   "definitions": {
     "UserTypeInput": {
       "type": "string",
-      "enum": ["db", "oidc"],
+      "enum": [
+        "db",
+        "oidc"
+      ],
       "description": "the type of user"
     },
     "UserTypeOutput": {
       "type": "string",
-      "enum": ["db_user", "db_env_user", "oidc"],
+      "enum": [
+        "db_user",
+        "db_env_user",
+        "oidc"
+      ],
       "description": "the type of user"
     },
     "UserOwnInfo": {
@@ -56,7 +63,7 @@
           "type": "string",
           "description": "The user id of the given user"
         },
-        "dbUserType":{
+        "dbUserType": {
           "type": "string",
           "enum": [
             "db_user",
@@ -64,12 +71,15 @@
           ],
           "description": "type of the returned user"
         },
-        "active":{
+        "active": {
           "type": "boolean",
           "description": "activity status of the returned user"
         },
         "createdAt": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time",
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)"
         },
@@ -82,13 +92,20 @@
           "description": "First 3 letters of the associated API-key"
         },
         "lastUsedAt": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time",
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)"
         }
       },
       "required": [
-        "userId", "dbUserType", "roles", "active"]
+        "userId",
+        "dbUserType",
+        "roles",
+        "active"
+      ]
     },
     "UserApiKey": {
       "type": "object",
@@ -98,7 +115,9 @@
           "description": "The apikey"
         }
       },
-      "required": ["apikey"]
+      "required": [
+        "apikey"
+      ]
     },
     "Role": {
       "type": "object",
@@ -2501,7 +2520,7 @@
           ]
         }
       }
-    }    
+    }
   },
   "externalDocs": {
     "url": "https://github.com/weaviate/weaviate"
@@ -2514,7 +2533,7 @@
     },
     "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).",
     "title": "Weaviate",
-    "version": "1.30.4"
+    "version": "1.30.8"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -3094,7 +3113,7 @@
               "type": "object",
               "properties": {
                 "revoke_key": {
-                  "type":"boolean",
+                  "type": "boolean",
                   "description": "if the key should be revoked when deactivating the user",
                   "default": false
                 }
@@ -3647,7 +3666,10 @@
                     "$ref": "#/definitions/UserTypeOutput"
                   }
                 },
-                "required": ["name", "userType"]
+                "required": [
+                  "name",
+                  "userType"
+                ]
               }
             }
           },
@@ -3761,7 +3783,10 @@
             "name": "userType",
             "required": true,
             "type": "string",
-            "enum": ["oidc", "db"],
+            "enum": [
+              "oidc",
+              "db"
+            ],
             "description": "The type of user"
           },
           {
@@ -3846,7 +3871,7 @@
                   }
                 },
                 "userType": {
-                   "$ref": "#/definitions/UserTypeInput"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }

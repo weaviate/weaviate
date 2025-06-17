@@ -34,7 +34,6 @@ import (
 func (s *Shard) PutObjectBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
-	s.activityTracker.Add(1)
 	if err := s.isReadOnly(); err != nil {
 		return []error{err}
 	}
@@ -54,6 +53,7 @@ func asyncEnabled() bool {
 func (s *Shard) putBatch(ctx context.Context,
 	objects []*storobj.Object,
 ) []error {
+	s.activityTrackerWrite.Add(1)
 	if asyncEnabled() {
 		return s.putBatchAsync(ctx, objects)
 	}

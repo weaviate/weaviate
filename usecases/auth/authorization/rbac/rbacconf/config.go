@@ -11,8 +11,6 @@
 
 package rbacconf
 
-import "fmt"
-
 // Config makes every subject on the list an admin, whereas everyone else
 // has no rights whatsoever
 type Config struct {
@@ -25,13 +23,5 @@ type Config struct {
 // Validate admin list config for viability, can be called from the central
 // config package
 func (c Config) Validate() error {
-	return c.validateOverlap()
-}
-
-func (c Config) validateOverlap() error {
-	if len(c.RootUsers) == 0 {
-		return fmt.Errorf("at least one root user is required")
-	}
-
 	return nil
 }

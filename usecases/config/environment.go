@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -170,6 +171,10 @@ func FromEnv(config *Config) error {
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
 			config.Authentication.OIDC.GroupsClaim = v
+		}
+
+		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
+			config.Authentication.OIDC.Certificate = v
 		}
 	}
 
@@ -521,6 +526,18 @@ func FromEnv(config *Config) error {
 		config.AutoSchema.DefaultDate = v
 	}
 
+	tenantActivityReadLogLevel := "debug"
+	if v := os.Getenv("TENANT_ACTIVITY_READ_LOG_LEVEL"); v != "" {
+		tenantActivityReadLogLevel = v
+	}
+	config.TenantActivityReadLogLevel = runtime.NewDynamicValue(tenantActivityReadLogLevel)
+
+	tenantActivityWriteLogLevel := "debug"
+	if v := os.Getenv("TENANT_ACTIVITY_WRITE_LOG_LEVEL"); v != "" {
+		tenantActivityWriteLogLevel = v
+	}
+	config.TenantActivityWriteLogLevel = runtime.NewDynamicValue(tenantActivityWriteLogLevel)
+
 	ru, err := parseResourceUsageEnvVars()
 	if err != nil {
 		return err
@@ -663,6 +680,31 @@ func FromEnv(config *Config) error {
 		config.RuntimeOverrides.LoadInterval = interval
 	}
 
+	revoctorizeCheckDisabled := false
+	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
+		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
+	}
+	config.RevectorizeCheckDisabled = runtime.NewDynamicValue(revoctorizeCheckDisabled)
+
+	querySlowLogEnabled := entcfg.Enabled(os.Getenv("QUERY_SLOW_LOG_ENABLED"))
+	config.QuerySlowLogEnabled = runtime.NewDynamicValue(querySlowLogEnabled)
+
+	querySlowLogThreshold := dbhelpers.DefaultSlowLogThreshold
+	if v := os.Getenv("QUERY_SLOW_LOG_THRESHOLD"); v != "" {
+		threshold, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_SLOW_LOG_THRESHOLD as time.Duration: %w", err)
+		}
+		querySlowLogThreshold = threshold
+	}
+	config.QuerySlowLogThreshold = runtime.NewDynamicValue(querySlowLogThreshold)
+
+	invertedSorterDisabled := false
+	if v := os.Getenv("INVERTED_SORTER_DISABLED"); v != "" {
+		invertedSorterDisabled = !(strings.ToLower(v) == "false")
+	}
+	config.InvertedSorterDisabled = runtime.NewDynamicValue(invertedSorterDisabled)
+
 	return nil
 }
 
@@ -730,6 +772,22 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	if err := parsePositiveInt(
 		"RAFT_ELECTION_TIMEOUT",
 		func(val int) { cfg.ElectionTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveFloat(
+		"RAFT_LEADER_LEASE_TIMEOUT",
+		func(val float64) { cfg.LeaderLeaseTimeout = time.Second * time.Duration(val) },
+		0.5, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_TIMEOUTS_MULTIPLIER",
+		func(val int) { cfg.TimeoutsMultiplier = val },
 		1, // raft default
 	); err != nil {
 		return cfg, err

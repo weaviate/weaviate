@@ -1257,6 +1257,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
+		EF:             36,
 
 		// The actual size does not matter for this test, but if it defaults to
 		// zero it will constantly think it's full and needs to be deleted - even
@@ -1351,7 +1352,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 
 	t.Run("verify that the results are correct", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 50, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -1451,7 +1452,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 
 	t.Run("verify that the results are correct", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 50, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
