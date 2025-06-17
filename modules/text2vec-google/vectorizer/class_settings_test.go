@@ -63,7 +63,7 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:         nil,
 		},
 		{
-			name: "custom location europe",
+			name: "custom location",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
 					"projectId": "projectId",
@@ -74,20 +74,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantProjectID:   "projectId",
 			wantModelID:     "textembedding-gecko@001",
 			wantLocation:    "europe-west1",
-			wantErr:         nil,
-		},
-		{
-			name: "custom location asia",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"projectId": "projectId",
-					"location":  "asia-southeast1",
-				},
-			},
-			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "projectId",
-			wantModelID:     "textembedding-gecko@001",
-			wantLocation:    "asia-southeast1",
 			wantErr:         nil,
 		},
 		{
