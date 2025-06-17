@@ -102,6 +102,8 @@ func TestAuthzRolesForGroups(t *testing.T) {
 
 		// assigning works after user has appropriate rights
 		helper.AssignRoleToGroup(t, customKey, groupReadName, group)
+		defer helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group)
+
 		groupRoles := helper.GetRolesForGroup(t, adminKey, group, false)
 		require.Len(t, groupRoles, 1)
 		require.Equal(t, groupReadName, *groupRoles[0].Name)
@@ -114,7 +116,9 @@ func TestAuthzRolesForGroups(t *testing.T) {
 		group := "revoke-group"
 
 		helper.AssignRoleToGroup(t, adminKey, groupReadName, group)
+		defer helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group)
 
+		defer helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group)
 		_, err := helper.Client(t).Authz.RevokeRoleFromGroup(
 			authz.NewRevokeRoleFromGroupParams().WithID(group).WithBody(authz.RevokeRoleFromGroupBody{GroupType: models.PermissionGroupsGroupTypeOidc, Roles: []string{groupReadName}}),
 			helper.CreateAuth(customKey),
@@ -138,6 +142,8 @@ func TestAuthzRolesForGroups(t *testing.T) {
 
 		helper.AssignRoleToGroup(t, adminKey, groupReadName, group)
 		helper.AssignRoleToGroup(t, adminKey, groupAssignName, group)
+		defer helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group)
+		defer helper.RevokeRoleFromGroup(t, adminKey, groupAssignName, group)
 
 		_, err := helper.Client(t).Authz.GetRolesForGroup(
 			authz.NewGetRolesForGroupParams().WithID(group).WithGroupType(models.PermissionGroupsGroupTypeOidc),
@@ -170,13 +176,16 @@ func TestAuthzRolesForGroups(t *testing.T) {
 	})
 
 	t.Run("list all known groups", func(t *testing.T) {
-		group1 := "group1"
-		group2 := "group2"
+		group1 := "list-group1"
+		group2 := "list-group2"
 
 		helper.AssignRoleToGroup(t, adminKey, groupReadName, group1)
 		helper.AssignRoleToGroup(t, adminKey, groupAssignName, group2)
 
 		groups := helper.GetKnownGroups(t, adminKey)
 		require.Len(t, groups, 2)
+
+		helper.RevokeRoleFromGroup(t, adminKey, groupReadName, group1)
+		helper.RevokeRoleFromGroup(t, adminKey, groupAssignName, group2)
 	})
 }
