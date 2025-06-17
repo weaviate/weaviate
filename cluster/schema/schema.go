@@ -549,6 +549,10 @@ func (s *schema) Restore(data []byte, parser Parser) error {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
 
+	if classes == nil {
+		classes = make(map[string]*metaClass)
+	}
+
 	return s.restore(classes, parser)
 }
 
@@ -557,6 +561,11 @@ func (s *schema) RestoreLegacy(data []byte, parser Parser) error {
 	if err := json.Unmarshal(data, &snap); err != nil {
 		return fmt.Errorf("restore snapshot: decode json: %w", err)
 	}
+
+	if snap.Classes == nil {
+		snap.Classes = make(map[string]*metaClass)
+	}
+
 	return s.restore(snap.Classes, parser)
 }
 
