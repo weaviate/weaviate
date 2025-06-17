@@ -61,6 +61,11 @@ func (m *KMeansEncoder) Fit(data [][]float32) error {
 	km.Assignment = kmeans.GraphPruning
 	err := km.Fit(data)
 	m.centers = km.Centers
+
+	if len(m.centers) == 0 {
+		return fmt.Errorf("k-means training failed: no centers were generated")
+	}
+
 	return err
 }
 
@@ -97,7 +102,7 @@ func (m *KMeansEncoder) ExposeDataForRestore() []byte {
 
 // String prints some minimal information about the encoder. This can be
 // used for viability checks to see if the encoder was initialized
-// correctly – for example after a restart.
+// correctly – for example after a restart.
 func (m *KMeansEncoder) String() string {
 	maxElem := 5
 	var firstCenters []float32
