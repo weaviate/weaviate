@@ -130,6 +130,8 @@ func NewShardedUInt64LockCache(vecForID common.VectorForID[uint64], maxSize int,
 }
 
 func (s *shardedLockCache[T]) All() [][]T {
+	s.shardedLocks.LockAll()
+	defer s.shardedLocks.UnlockAll()
 	return s.cache
 }
 
