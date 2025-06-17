@@ -159,9 +159,9 @@ func validateConsistencyLevel(level ConsistencyLevel, replicas []Replica) (int, 
 	return resolved, nil
 }
 
-// HostNames returns the hostnames of the replicas included in the ReadRoutingPlan.
-func (p ReadRoutingPlan) HostNames() []string {
-	return p.ReplicaSet.HostAddresses()
+// NodeNames returns the hostnames of the replicas included in the ReadRoutingPlan.
+func (p ReadRoutingPlan) NodeNames() []string {
+	return p.ReplicaSet.NodeNames()
 }
 
 // HostAddresses returns the host addresses of all replicas in the ReadRoutingPlan.
