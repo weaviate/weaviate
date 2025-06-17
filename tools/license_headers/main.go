@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,6 +18,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/bmatcuk/doublestar"
 )
@@ -26,14 +27,20 @@ var (
 	headerSectionRe *regexp.Regexp
 	buildTagRe      *regexp.Regexp
 	targetHeader    []byte
+	yearRe          *regexp.Regexp
 )
 
 func init() {
 	headerSectionRe = regexp.MustCompile(`^(//.*\n)*\n`)
 	buildTagRe = regexp.MustCompile(`^//go:build`)
+	yearRe = regexp.MustCompile(`2016 - \d{4}`)
 	h, err := os.ReadFile("tools/license_headers/header.txt")
 	fatal(err)
-	targetHeader = bytes.TrimSpace(h)
+
+	// Replace the year with current year
+	currentYear := time.Now().Year()
+	targetHeader = yearRe.ReplaceAll(h, []byte(fmt.Sprintf("2016 - %d", currentYear)))
+	targetHeader = bytes.TrimSpace(targetHeader)
 }
 
 func main() {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -175,4 +175,37 @@ func tokenWithClaims(t *testing.T, subject string, issuer string, aud string, cl
 	require.Nil(t, err, "signing token should not error")
 
 	return token
+}
+
+func Test_Middleware_CertificateDownload(t *testing.T) {
+	newClientWithCertificate := func(certificate string) *Client {
+		cfg := config.Config{
+			Authentication: config.Authentication{
+				OIDC: config.OIDC{
+					Enabled:     true,
+					Certificate: certificate,
+				},
+			},
+		}
+		client := &Client{
+			config: cfg.Authentication.OIDC,
+		}
+		return client
+	}
+
+	t.Run("certificate string", func(t *testing.T) {
+		client := newClientWithCertificate(testingCertificate)
+		clientWithCertificate, err := client.useCertificate()
+		require.NoError(t, err)
+		require.NotNil(t, clientWithCertificate)
+	})
+
+	t.Run("certificate URL", func(t *testing.T) {
+		certificateServer := newServerWithCertificate()
+		defer certificateServer.Close()
+		client := newClientWithCertificate(certificateURL(certificateServer))
+		clientWithCertificate, err := client.useCertificate()
+		require.NoError(t, err)
+		require.NotNil(t, clientWithCertificate)
+	})
 }

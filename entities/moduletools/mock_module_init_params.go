@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -83,18 +83,20 @@ func (_c *MockModuleInitParams_GetAppState_Call) RunAndReturn(run func() interfa
 }
 
 // GetConfig provides a mock function with no fields
-func (_m *MockModuleInitParams) GetConfig() config.Config {
+func (_m *MockModuleInitParams) GetConfig() *config.Config {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetConfig")
 	}
 
-	var r0 config.Config
-	if rf, ok := ret.Get(0).(func() config.Config); ok {
+	var r0 *config.Config
+	if rf, ok := ret.Get(0).(func() *config.Config); ok {
 		r0 = rf()
 	} else {
-		r0 = ret.Get(0).(config.Config)
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*config.Config)
+		}
 	}
 
 	return r0
@@ -117,12 +119,12 @@ func (_c *MockModuleInitParams_GetConfig_Call) Run(run func()) *MockModuleInitPa
 	return _c
 }
 
-func (_c *MockModuleInitParams_GetConfig_Call) Return(_a0 config.Config) *MockModuleInitParams_GetConfig_Call {
+func (_c *MockModuleInitParams_GetConfig_Call) Return(_a0 *config.Config) *MockModuleInitParams_GetConfig_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockModuleInitParams_GetConfig_Call) RunAndReturn(run func() config.Config) *MockModuleInitParams_GetConfig_Call {
+func (_c *MockModuleInitParams_GetConfig_Call) RunAndReturn(run func() *config.Config) *MockModuleInitParams_GetConfig_Call {
 	_c.Call.Return(run)
 	return _c
 }

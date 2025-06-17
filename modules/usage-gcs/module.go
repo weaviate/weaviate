@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -26,10 +26,12 @@ import (
 	"google.golang.org/api/option"
 	storageapi "google.golang.org/api/storage/v1"
 
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const (
@@ -42,7 +44,7 @@ const (
 
 // module handles collecting and uploading usage metrics
 type module struct {
-	config        config.Config
+	config        *config.Config
 	logger        logrus.FieldLogger
 	storageClient *storage.Client
 	bucketName    string
@@ -70,7 +72,12 @@ func (m *module) Type() modulecapabilities.ModuleType {
 }
 
 func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
+	// Usage module configuration
 	m.config = params.GetConfig()
+	if err := parseUsageConfig(m.config); err != nil {
+		return err
+	}
+
 	if m.config.Cluster.Hostname == "" {
 		return fmt.Errorf("cluster hostname is not set")
 	}
@@ -391,6 +398,29 @@ func (m *module) usage(ctx context.Context) (*UsageResponse, error) {
 			},
 		},
 	}, nil
+}
+
+func parseUsageConfig(config *config.Config) error {
+	if v := os.Getenv("USAGE_GCS_USE_AUTH"); v != "" {
+		config.Usage.GCSAuth = runtime.NewDynamicValue(entcfg.Enabled(v))
+	}
+	if v := os.Getenv("USAGE_GCS_BUCKET"); v != "" {
+		config.Usage.GCSBucket = runtime.NewDynamicValue(v)
+	}
+	if v := os.Getenv("USAGE_GCS_PREFIX"); v != "" {
+		config.Usage.GCSPrefix = runtime.NewDynamicValue(v)
+	}
+	if v := os.Getenv("USAGE_SCRAPE_INTERVAL"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid %s: %w", "USAGE_SCRAPE_INTERVAL", err)
+		}
+		config.Usage.ScrapeInterval = runtime.NewDynamicValue(duration)
+	}
+	if v := os.Getenv("USAGE_POLICY_VERSION"); v != "" {
+		config.Usage.PolicyVersion = runtime.NewDynamicValue(v)
+	}
+	return nil
 }
 
 // verify we implement the modules.ModuleWithClose interface

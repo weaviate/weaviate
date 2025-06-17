@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -64,6 +64,7 @@ type OIDC struct {
 	UsernameClaim     string   `yaml:"username_claim" json:"username_claim"`
 	GroupsClaim       string   `yaml:"groups_claim" json:"groups_claim"`
 	Scopes            []string `yaml:"scopes" json:"scopes"`
+	Certificate       string   `yaml:"certificate" json:"certificate"`
 }
 
 type StaticAPIKey struct {

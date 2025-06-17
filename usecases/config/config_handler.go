@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -103,11 +103,11 @@ type RuntimeOverrides struct {
 
 // UsageConfig holds configuration for usage data collection and upload
 type UsageConfig struct {
-	GCSAuth        *runtime.DynamicValue[bool]          `json:"gcs_use_auth" yaml:"gcs_use_auth"`
-	GCSBucket      *runtime.DynamicValue[string]        `json:"gcs_bucket" yaml:"gcs_bucket"`
-	GCSPrefix      *runtime.DynamicValue[string]        `json:"gcs_prefix" yaml:"gcs_prefix"`
-	ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"scrape_interval" yaml:"scrape_interval"`
-	PolicyVersion  *runtime.DynamicValue[string]        `json:"policy_version" yaml:"policy_version"`
+	GCSAuth        *runtime.DynamicValue[bool]          `json:"usage_gcs_auth" yaml:"usage_gcs_auth"`
+	GCSBucket      *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
+	GCSPrefix      *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
+	ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
+	PolicyVersion  *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 }
 
 // Config outline of the config file
@@ -220,13 +220,6 @@ type Config struct {
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
 	// Usage configuration for the usage module
-	// example:
-	// usage:
-	//   gcp_use_auth: true
-	//   gcp_bucket: "my-bucket"
-	//   gcs_prefix: "my-prefix"
-	//   scrape_interval: 1m
-	//   policy_version: "2025-06-01"
 	Usage UsageConfig `json:"usage" yaml:"usage"`
 }
 

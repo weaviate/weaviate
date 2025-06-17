@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -78,7 +78,7 @@ func TestModule_Init_Success(t *testing.T) {
 	}
 
 	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(testConfig)
+	params.EXPECT().GetConfig().Return(&testConfig)
 	params.EXPECT().GetLogger().Return(logger)
 	params.EXPECT().GetMetricsRegisterer().Return(prometheus.NewPedanticRegistry())
 
@@ -96,7 +96,7 @@ func TestModule_Init_MissingHostname(t *testing.T) {
 	logger.SetOutput(os.Stdout)
 
 	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(config.Config{
+	params.EXPECT().GetConfig().Return(&config.Config{
 		Cluster: cluster.Config{
 			Hostname: "",
 		},
@@ -122,7 +122,7 @@ func TestModule_Init_MissingBucket(t *testing.T) {
 	}
 
 	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(testConfig)
+	params.EXPECT().GetConfig().Return(&testConfig)
 
 	err := mod.Init(context.Background(), params)
 	assert.Error(t, err)
@@ -148,7 +148,7 @@ func TestModule_ConfigBasedIntervalUpdate(t *testing.T) {
 			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
 		},
 	}
-	mod.config = testConfig
+	mod.config = &testConfig
 
 	// Test that interval gets updated from config
 	oldInterval := mod.interval
@@ -168,7 +168,7 @@ func TestModule_CollectAndUploadPeriodically_ContextCancellation(t *testing.T) {
 	mod.interval = 100 * time.Millisecond // Short interval for testing
 
 	// Set up config with proper RuntimeOverrides to prevent panic
-	mod.config = config.Config{
+	mod.config = &config.Config{
 		RuntimeOverrides: config.RuntimeOverrides{
 			LoadInterval: 2 * time.Minute, // Use default value
 		},
@@ -205,7 +205,7 @@ func TestModule_CollectAndUploadPeriodically_StopSignal(t *testing.T) {
 	mod.interval = 100 * time.Millisecond // Short interval for testing
 
 	// Set up config with proper RuntimeOverrides to prevent panic
-	mod.config = config.Config{
+	mod.config = &config.Config{
 		RuntimeOverrides: config.RuntimeOverrides{
 			LoadInterval: 2 * time.Minute, // Use default value
 		},
@@ -403,7 +403,7 @@ func TestModule_ConfigurationChanges(t *testing.T) {
 			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
 	}
-	mod.config = testConfig
+	mod.config = &testConfig
 
 	// Test interval update
 	if interval := mod.config.Usage.ScrapeInterval.Get(); interval > 0 && mod.interval != interval {
@@ -453,7 +453,7 @@ func TestModule_Init_MissingConfig(t *testing.T) {
 
 	// Test with missing hostname
 	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(config.Config{
+	params.EXPECT().GetConfig().Return(&config.Config{
 		Cluster: cluster.Config{
 			Hostname: "",
 		},
@@ -533,7 +533,7 @@ func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
 			LoadInterval: 2 * time.Minute, // Use default value
 		},
 	}
-	mod.config = testConfig
+	mod.config = &testConfig
 	mod.bucketName = "bucket1"
 	mod.prefix = "prefix1"
 
@@ -583,7 +583,7 @@ func TestModule_ZeroIntervalProtection(t *testing.T) {
 	mod.interval = 0 // Set invalid interval
 
 	// Set up config with zero runtime overrides interval
-	mod.config = config.Config{
+	mod.config = &config.Config{
 		RuntimeOverrides: config.RuntimeOverrides{
 			LoadInterval: 0, // Invalid interval
 		},

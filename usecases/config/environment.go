@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -189,6 +189,10 @@ func FromEnv(config *Config) error {
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
 			config.Authentication.OIDC.GroupsClaim = v
+		}
+
+		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
+			config.Authentication.OIDC.Certificate = v
 		}
 	}
 
@@ -787,34 +791,6 @@ func FromEnv(config *Config) error {
 	}
 	config.InvertedSorterDisabled = runtime.NewDynamicValue(invertedSorterDisabled)
 
-	// Usage module configuration
-	if err := parseUsageConfig(config); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-func parseUsageConfig(config *Config) error {
-	if v := os.Getenv("USAGE_GCS_USE_AUTH"); v != "" {
-		config.Usage.GCSAuth = runtime.NewDynamicValue(entcfg.Enabled(v))
-	}
-	if v := os.Getenv("USAGE_GCS_BUCKET"); v != "" {
-		config.Usage.GCSBucket = runtime.NewDynamicValue(v)
-	}
-	if v := os.Getenv("USAGE_GCS_PREFIX"); v != "" {
-		config.Usage.GCSPrefix = runtime.NewDynamicValue(v)
-	}
-	if v := os.Getenv("USAGE_SCRAPE_INTERVAL"); v != "" {
-		duration, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("invalid %s: %w", "USAGE_SCRAPE_INTERVAL", err)
-		}
-		config.Usage.ScrapeInterval = runtime.NewDynamicValue(duration)
-	}
-	if v := os.Getenv("USAGE_POLICY_VERSION"); v != "" {
-		config.Usage.PolicyVersion = runtime.NewDynamicValue(v)
-	}
 	return nil
 }
 
