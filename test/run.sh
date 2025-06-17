@@ -204,7 +204,12 @@ function build_mockoidc_docker_image_for_tests() {
   echo_green "Building MockOIDC image for module acceptance tests..."
   docker build  -t $mockoidc_test_image test/docker/mockoidc
   export "TEST_MOCKOIDC_IMAGE"=$mockoidc_test_image
+  local mockoidc_helper_test_image=mockoidchelper:module-tests
   echo_green "MockOIDC image successfully built"
+  echo_green "Building MockOIDC Helper image for module acceptance tests..."
+  docker build  -t $mockoidc_helper_test_image test/docker/mockoidchelper
+  export "TEST_MOCKOIDC_HELPER_IMAGE"=$mockoidc_helper_test_image
+  echo_green "MockOIDC Helper image successfully built"
 }
 
 function run_unit_tests() {

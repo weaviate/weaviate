@@ -12,7 +12,7 @@ require (
 	github.com/stretchr/testify v1.10.0
 	github.com/tailor-inc/graphql v0.5.7
 	github.com/weaviate/weaviate v1.30.0
-	github.com/weaviate/weaviate-go-client/v5 v5.1.0
+	github.com/weaviate/weaviate-go-client/v5 v5.2.0
 )
 
 require (
