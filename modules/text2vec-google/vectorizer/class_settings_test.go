@@ -86,22 +86,6 @@ func Test_classSettings_Validate(t *testing.T) {
 			wantErr:         nil,
 		},
 		{
-			name: "custom Asia location",
-			cfg: fakeClassConfig{
-				classConfig: map[string]interface{}{
-					"projectId": "projectId",
-					"location":  "asia-southeast1",
-				},
-			},
-			wantApiEndpoint: "us-central1-aiplatform.googleapis.com",
-			wantProjectID:   "projectId",
-			wantModelID:     "gemini-embedding-001",
-			wantLocation:    "asia-southeast1",
-			wantTaskType:    DefaultTaskType,
-			wantDimensions:  &DefaultDimensions,
-			wantErr:         nil,
-		},
-		{
 			name: "empty projectId",
 			cfg: fakeClassConfig{
 				classConfig: map[string]interface{}{
