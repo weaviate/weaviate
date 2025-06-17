@@ -58,6 +58,32 @@ func (m *manager) CreateRolesPermissions(roles map[string][]authorization.Policy
 	return m.upsertRolesPermissions(roles)
 }
 
+func (m *manager) GetUsersOrGroupsWithRoles(isGroup bool, authType string) ([]string, error) {
+	roles, err := m.casbin.GetAllSubjects()
+	if err != nil {
+		return nil, err
+	}
+	usersOrGroups := map[string]struct{}{}
+	for _, role := range roles {
+		users, err := m.casbin.GetUsersForRole(role)
+		if err != nil {
+			return nil, err
+		}
+		for _, user := range users {
+			if isGroup && strings.HasPrefix(user, conv.GROUP_NAME_PREFIX) {
+				usersOrGroups[user] = struct{}{}
+			}
+		}
+	}
+
+	usersOrGroupsList := make([]string, 0, len(usersOrGroups))
+	for user := range usersOrGroups {
+		usersOrGroupsList = append(usersOrGroupsList, user)
+	}
+
+	return usersOrGroupsList, nil
+}
+
 func (m *manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles

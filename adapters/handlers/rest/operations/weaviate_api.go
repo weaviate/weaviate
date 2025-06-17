@@ -135,6 +135,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		UsersDeleteUserHandler: users.DeleteUserHandlerFunc(func(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.DeleteUser has not yet been implemented")
 		}),
+		AuthzGetGroupsHandler: authz.GetGroupsHandlerFunc(func(params authz.GetGroupsParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation authz.GetGroups has not yet been implemented")
+		}),
 		UsersGetOwnInfoHandler: users.GetOwnInfoHandlerFunc(func(params users.GetOwnInfoParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation users.GetOwnInfo has not yet been implemented")
 		}),
@@ -414,6 +417,8 @@ type WeaviateAPI struct {
 	AuthzDeleteRoleHandler authz.DeleteRoleHandler
 	// UsersDeleteUserHandler sets the operation handler for the delete user operation
 	UsersDeleteUserHandler users.DeleteUserHandler
+	// AuthzGetGroupsHandler sets the operation handler for the get groups operation
+	AuthzGetGroupsHandler authz.GetGroupsHandler
 	// UsersGetOwnInfoHandler sets the operation handler for the get own info operation
 	UsersGetOwnInfoHandler users.GetOwnInfoHandler
 	// AuthzGetRoleHandler sets the operation handler for the get role operation
@@ -675,6 +680,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.UsersDeleteUserHandler == nil {
 		unregistered = append(unregistered, "users.DeleteUserHandler")
+	}
+	if o.AuthzGetGroupsHandler == nil {
+		unregistered = append(unregistered, "authz.GetGroupsHandler")
 	}
 	if o.UsersGetOwnInfoHandler == nil {
 		unregistered = append(unregistered, "users.GetOwnInfoHandler")
@@ -1032,6 +1040,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["DELETE"] = make(map[string]http.Handler)
 	}
 	o.handlers["DELETE"]["/users/db/{user_id}"] = users.NewDeleteUser(o.context, o.UsersDeleteUserHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/authz/groups/{groupType}"] = authz.NewGetGroups(o.context, o.AuthzGetGroupsHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

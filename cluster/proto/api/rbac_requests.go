@@ -85,6 +85,15 @@ type QueryHasPermissionResponse struct {
 	HasPermission bool
 }
 
+type GetAllUsersOrGroupsWithRolesRequest struct {
+	IsGroup  bool
+	AuthType string
+}
+
+type GetAllUsersOrGroupsWithRolesResponse struct {
+	UsersOrGroups []string
+}
+
 type QueryGetRolesRequest struct {
 	Roles []string
 }

@@ -93,6 +93,7 @@ func SetupHandlers(api *operations.WeaviateAPI, controller ControllerAndGetUsers
 	api.AuthzRevokeRoleFromGroupHandler = authz.RevokeRoleFromGroupHandlerFunc(h.revokeRoleFromGroup)
 	api.AuthzGetRolesForUserDeprecatedHandler = authz.GetRolesForUserDeprecatedHandlerFunc(h.getRolesForUserDeprecated)
 	api.AuthzGetRolesForGroupHandler = authz.GetRolesForGroupHandlerFunc(h.getRolesForGroup)
+	api.AuthzGetGroupsHandler = authz.GetGroupsHandlerFunc(h.getGroups)
 }
 
 func (h *authZHandlers) authorizeRoleScopes(principal *models.Principal, originalVerb string, policies []authorization.Policy, roleName string) error {
@@ -878,6 +879,23 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 	}).Info("roles revoked from group")
 
 	return authz.NewRevokeRoleFromGroupOK()
+}
+
+func (h *authZHandlers) getGroups(params authz.GetGroupsParams, principal *models.Principal) middleware.Responder {
+	userType, err := validateUserTypeInput(params.GroupType)
+	if err != nil || userType != models.UserTypeInputOidc {
+		return authz.NewGetGroupsBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("unknown groupType: %v", params.GroupType)))
+	}
+	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Groups(string(userType))...); err != nil {
+		return authz.NewGetRolesForGroupForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	users, err := h.controller.GetUsersOrGroupsWithRoles(true, string(userType))
+	if err != nil {
+		return nil
+	}
+
+	return authz.NewGetGroupsOK().WithPayload(users)
 }
 
 func (h *authZHandlers) getRolesForGroup(params authz.GetRolesForGroupParams, principal *models.Principal) middleware.Responder {

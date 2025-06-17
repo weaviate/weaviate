@@ -248,6 +248,15 @@ func GetRolesForGroup(t *testing.T, key, group string, includeRoles bool) []*mod
 	return resp.Payload
 }
 
+func GetKnownGroups(t *testing.T, key string) []string {
+	resp, err := Client(t).Authz.GetGroups(
+		authz.NewGetGroupsParams().WithGroupType(models.PermissionGroupsGroupTypeOidc), CreateAuth(key),
+	)
+	AssertRequestOk(t, resp, err, nil)
+	require.Nil(t, err)
+	return resp.Payload
+}
+
 func AddPermissions(t *testing.T, key, role string, permissions ...*models.Permission) {
 	resp, err := Client(t).Authz.AddPermissions(
 		authz.NewAddPermissionsParams().WithID(role).WithBody(authz.AddPermissionsBody{

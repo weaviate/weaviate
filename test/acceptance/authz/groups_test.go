@@ -24,14 +24,16 @@ import (
 )
 
 func TestAuthzRolesForGroups(t *testing.T) {
-	adminUser := "admin-user"
+	// adminUser := "admin-user"
 	adminKey := "admin-key"
 
 	customUser := "custom-user"
 	customKey := "custom-key"
 
-	_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
-	defer down()
+	//_, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
+	//defer down()
+
+	helper.SetupClient("127.0.0.1:8081")
 
 	all := "*"
 
@@ -165,5 +167,16 @@ func TestAuthzRolesForGroups(t *testing.T) {
 
 		helper.RevokeRoleFromUser(t, adminKey, groupReadName, customUser)
 		helper.RevokeRoleFromUser(t, adminKey, roleReadName, customUser)
+	})
+
+	t.Run("list all known groups", func(t *testing.T) {
+		group1 := "group1"
+		group2 := "group2"
+
+		helper.AssignRoleToGroup(t, adminKey, groupReadName, group1)
+		helper.AssignRoleToGroup(t, adminKey, groupAssignName, group2)
+
+		groups := helper.GetKnownGroups(t, adminKey)
+		require.Len(t, groups, 2)
 	})
 }

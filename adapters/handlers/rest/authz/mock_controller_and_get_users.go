@@ -448,6 +448,65 @@ func (_c *MockControllerAndGetUsers_GetUsersForRole_Call) RunAndReturn(run func(
 	return _c
 }
 
+// GetUsersOrGroupsWithRoles provides a mock function with given fields: isGroup, authType
+func (_m *MockControllerAndGetUsers) GetUsersOrGroupsWithRoles(isGroup bool, authType string) ([]string, error) {
+	ret := _m.Called(isGroup, authType)
+
+	if len(ret) == 0 {
+		panic("no return value specified for GetUsersOrGroupsWithRoles")
+	}
+
+	var r0 []string
+	var r1 error
+	if rf, ok := ret.Get(0).(func(bool, string) ([]string, error)); ok {
+		return rf(isGroup, authType)
+	}
+	if rf, ok := ret.Get(0).(func(bool, string) []string); ok {
+		r0 = rf(isGroup, authType)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).([]string)
+		}
+	}
+
+	if rf, ok := ret.Get(1).(func(bool, string) error); ok {
+		r1 = rf(isGroup, authType)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'GetUsersOrGroupsWithRoles'
+type MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call struct {
+	*mock.Call
+}
+
+// GetUsersOrGroupsWithRoles is a helper method to define mock.On call
+//   - isGroup bool
+//   - authType string
+func (_e *MockControllerAndGetUsers_Expecter) GetUsersOrGroupsWithRoles(isGroup interface{}, authType interface{}) *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call {
+	return &MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call{Call: _e.mock.On("GetUsersOrGroupsWithRoles", isGroup, authType)}
+}
+
+func (_c *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call) Run(run func(isGroup bool, authType string)) *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(bool), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call) Return(_a0 []string, _a1 error) *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call) RunAndReturn(run func(bool, string) ([]string, error)) *MockControllerAndGetUsers_GetUsersOrGroupsWithRoles_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // HasPermission provides a mock function with given fields: role, permission
 func (_m *MockControllerAndGetUsers) HasPermission(role string, permission *authorization.Policy) (bool, error) {
 	ret := _m.Called(role, permission)

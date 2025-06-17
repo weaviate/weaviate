@@ -60,6 +60,29 @@ func (m *Manager) GetRoles(req *cmd.QueryRequest) ([]byte, error) {
 	return payload, nil
 }
 
+func (m *Manager) GetUsersOrGroupsWithRoles(req *cmd.QueryRequest) ([]byte, error) {
+	if m.authZ == nil {
+		payload, _ := json.Marshal(cmd.GetAllUsersOrGroupsWithRolesResponse{})
+		return payload, nil
+	}
+	subCommand := cmd.GetAllUsersOrGroupsWithRolesRequest{}
+	if err := json.Unmarshal(req.SubCommand, &subCommand); err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	usersOrGroups, err := m.authZ.GetUsersOrGroupsWithRoles(subCommand.IsGroup, subCommand.AuthType)
+	if err != nil {
+		return []byte{}, fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	response := cmd.GetAllUsersOrGroupsWithRolesResponse{UsersOrGroups: usersOrGroups}
+	payload, err := json.Marshal(response)
+	if err != nil {
+		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
+	}
+	return payload, nil
+}
+
 func (m *Manager) GetRolesForUserOrGroup(req *cmd.QueryRequest) ([]byte, error) {
 	if m.authZ == nil {
 		payload, _ := json.Marshal(cmd.QueryGetRolesForUserOrGroupResponse{})

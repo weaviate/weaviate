@@ -24,4 +24,5 @@ type Controller interface {
 	RevokeRolesForUser(user string, roles ...string) error
 	RemovePermissions(role string, permissions []*Policy) error
 	HasPermission(role string, permission *Policy) (bool, error)
+	GetUsersOrGroupsWithRoles(isGroup bool, authType string) ([]string, error)
 }

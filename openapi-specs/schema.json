@@ -4229,6 +4229,71 @@
         }
       }
     },
+    "/authz/groups/{groupType}": {
+      "get": {
+        "summary": "get all groups",
+        "operationId": "getGroups",
+        "x-serviceIds": [
+          "weaviate.authz.get.groups"
+        ],
+        "tags": [
+          "authz"
+        ],
+        "parameters": [
+          {
+            "in": "path",
+            "name": "groupType",
+            "required": true,
+            "type": "string",
+            "enum": [
+              "oidc"
+            ],
+            "description": "The type of group"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned to group",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no group not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
 
     "/objects": {
       "get": {

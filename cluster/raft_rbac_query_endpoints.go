@@ -50,6 +50,35 @@ func (s *Raft) GetRoles(names ...string) (map[string][]authorization.Policy, err
 	return response.Roles, nil
 }
 
+func (s *Raft) GetUsersOrGroupsWithRoles(isGroup bool, authType string) ([]string, error) {
+	req := cmd.GetAllUsersOrGroupsWithRolesRequest{
+		IsGroup:  isGroup,
+		AuthType: authType,
+	}
+
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return nil, fmt.Errorf("marshal request: %w", err)
+	}
+
+	command := &cmd.QueryRequest{
+		Type:       cmd.QueryRequest_TYPE_GET_USERS_OR_GROUPS_WITH_ROLES,
+		SubCommand: subCommand,
+	}
+	queryResp, err := s.Query(context.Background(), command)
+	if err != nil {
+		return nil, fmt.Errorf("failed to execute query: %w", err)
+	}
+
+	response := cmd.GetAllUsersOrGroupsWithRolesResponse{}
+	err = json.Unmarshal(queryResp.Payload, &response)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unmarshal query result: %w", err)
+	}
+
+	return response.UsersOrGroups, nil
+}
+
 func (s *Raft) GetRolesForUserOrGroup(user string, userType models.UserTypeInput, isGroup bool) (map[string][]authorization.Policy, error) {
 	req := cmd.QueryGetRolesForUserOrGroupRequest{
 		User:     user,
