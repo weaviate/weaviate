@@ -28,7 +28,7 @@ import (
 )
 
 const (
-	envS3UseSSL      = "BACKUP_S3_USE_SSL"
+	envS3UseSSL                       = "BACKUP_S3_USE_SSL"
 	s3BackupJourneyClassName          = "S3Backup"
 	s3BackupJourneyBackupIDSingleNode = "s3-backup-single-node"
 	s3BackupJourneyBackupIDCluster    = "s3-backup-cluster"

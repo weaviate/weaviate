@@ -285,7 +285,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 	})
 
 	t.Run("a dirty memtable is flushed once dirty period has passed with single write", func(t *testing.T) {
-		t.Skip("This test is flaky") //FIXME
+		t.Skip("This test is flaky") // FIXME
 		dirName := t.TempDir()
 
 		flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)
@@ -335,7 +335,7 @@ func TestMemtableFlushesIfDirty(t *testing.T) {
 	})
 
 	t.Run("a dirty memtable is flushed once dirty period has passed with ongoing writes", func(t *testing.T) {
-		t.Skip("This test is flaky") //FIXME
+		t.Skip("This test is flaky") // FIXME
 		dirName := t.TempDir()
 
 		flushCallbacks := cyclemanager.NewCallbackGroup("flush", nullLogger(), 1)

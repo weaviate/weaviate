@@ -2357,7 +2357,6 @@ func runCompactionCandidatesTestCases(t *testing.T, testCases []testCaseCompacti
 				})
 			}
 		})
-
 	}
 }
 
