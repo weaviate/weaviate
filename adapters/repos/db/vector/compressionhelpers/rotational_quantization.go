@@ -324,7 +324,21 @@ func (rq RotationalQuantizer) DistanceBetweenCompressedVectors(x, y []byte) (flo
 }
 
 func (rq *RotationalQuantizer) NewCompressedQuantizerDistancer(a []byte) quantizerDistancer[byte] {
-	panic("NewCompressedQuantizerDistancer not implemented")
+	return &RQDistancer{
+		distancer: rq.distancer,
+		rq:        rq,
+		query:     rq.Restore(a),
+		err:       rq.err,
+		cos:       rq.cos,
+		l2:        rq.l2,
+		// RQCode fields
+		lower:   getFloat32(a, 0),
+		step:    getFloat32(a, 4),
+		codeSum: getFloat32(a, 8),
+		norm2:   getFloat32(a, 12),
+		bytes:   a[16:],
+		a:       float32(len(a)-16)*getFloat32(a, 0) + getFloat32(a, 8),
+	}
 }
 
 type RQStats struct {
