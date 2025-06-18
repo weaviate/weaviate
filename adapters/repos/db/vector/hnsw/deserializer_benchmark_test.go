@@ -34,8 +34,8 @@ func sampleCommitType(r *rand.Rand) HnswCommitType {
 		return ClearLinksAtLevel
 	}
 }
-func BenchmarkDeserializerPerf(b *testing.B) {
 
+func BenchmarkDeserializerPerf(b *testing.B) {
 	buf := new(bytes.Buffer)
 	writer := bufio.NewWriter(buf)
 
@@ -125,6 +125,8 @@ func BenchmarkDeserializerPerf(b *testing.B) {
 			writer.WriteByte(byte(commit))
 			binary.Write(writer, binary.LittleEndian, nodeID)
 			binary.Write(writer, binary.LittleEndian, level)
+		default:
+			continue
 		}
 	}
 	writer.Flush()
