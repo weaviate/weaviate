@@ -61,6 +61,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/router"
+	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -1613,7 +1614,7 @@ func registerModules(appState *state.State) error {
 	}
 
 	if _, ok := enabledModules[modusagegcs.Name]; ok {
-		appState.Modules.Register(modusagegcs.New())
+		appState.Modules.Register(modusagegcs.New(usage.NewService(appState.SchemaManager, appState.DB, appState.Modules)))
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modusagegcs.Name).

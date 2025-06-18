@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	modusagegcs "github.com/weaviate/weaviate/modules/usage-gcs"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
@@ -1142,7 +1141,9 @@ func (p *Provider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
 }
 
 func (p *Provider) UsageEnabled() bool {
-	if module := p.GetByName(modusagegcs.Name); module != nil {
+	// TODO: used as string here to avoid circular dependency
+	// need to find a better way to do this may be GetAll instead of GetByName
+	if module := p.GetByName("usage-gcs"); module != nil {
 		if module.Type() == modulecapabilities.Usage {
 			return true
 		}
