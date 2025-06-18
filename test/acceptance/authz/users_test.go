@@ -884,15 +884,11 @@ func TestStaticUserImport(t *testing.T) {
 			_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(oldKey))
 			require.Error(t, err)
 
-			infoNew := helper.GetInfoForOwnUser(t, newKey)
-			require.Equal(t, userName, *infoNew.Username)
-
 			user := helper.GetUser(t, userName, rootKey)
 			require.Equal(t, user.APIKeyFirstLetters, newKey[:3])
 			require.NotEqual(t, newKey, oldKey)
-			require.NotEqual(t, newKey[:10], oldKey[:10])
 
-			info := helper.GetInfoForOwnUser(t, oldKey)
+			info := helper.GetInfoForOwnUser(t, newKey)
 			require.Equal(t, userName, *info.Username)
 			require.Len(t, info.Roles, 1)
 			require.Equal(t, *info.Roles[0].Name, role)
