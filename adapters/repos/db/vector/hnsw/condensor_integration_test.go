@@ -864,7 +864,7 @@ func TestCondensorWithRQInformation(t *testing.T) {
 					{I: 17, J: 19},
 				},
 			},
-			Signs: [][]int8{
+			Signs: [][]float32{
 				{1, -1, 1, -1},
 				{1, -1, 1, -1},
 				{1, -1, 1, -1},

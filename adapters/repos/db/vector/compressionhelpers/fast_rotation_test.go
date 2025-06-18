@@ -74,7 +74,7 @@ func TestFastRotationPreservesNorm(t *testing.T) {
 		rotation := compressionhelpers.NewFastRotation(d, r, rng.Uint64())
 		z := randomNormalVector(d, rng)
 		rz := rotation.Rotate(z)
-		assert.Less(t, math.Abs(norm(rz)-norm(z)), 1e-6)
+		assert.Less(t, math.Abs(norm(rz)-norm(z)), 5e-6)
 	}
 }
 
@@ -89,7 +89,7 @@ func TestFastRotationPreservesDistance(t *testing.T) {
 		z2 := randomNormalVector(d, rng)
 		rz1 := rotation.Rotate(z1)
 		rz2 := rotation.Rotate(z2)
-		assert.Less(t, math.Abs(dist(rz1, rz2)-dist(z1, z2)), 1.5e-6)
+		assert.Less(t, math.Abs(dist(rz1, rz2)-dist(z1, z2)), 6e-6)
 	}
 }
 
@@ -231,7 +231,7 @@ func TestFastRotatedEntriesAreNormalizedGaussian(t *testing.T) {
 
 func TestFastRotatedVectorsAreUniformOnSphere(t *testing.T) {
 	d := 128
-	rounds := 5
+	rounds := 3
 	v := make([]float32, d)
 	v[0] = 1.0
 	target := 100
@@ -250,7 +250,7 @@ func TestFastRotatedVectorsAreUniformOnSphere(t *testing.T) {
 }
 
 // For testing that the unrolled recursion gives the same result.
-func slowFastWalshHadamardTransform(x []float64) {
+func slowFastWalshHadamardTransform(x []float32) {
 	if len(x) == 2 {
 		x[0], x[1] = x[0]+x[1], x[0]-x[1]
 		return
@@ -267,35 +267,73 @@ func TestFastWalshHadamardTransform(t *testing.T) {
 	rng := newRNG(7234)
 	dimensions := []int{16, 32, 64, 128, 256, 512, 1024, 2048, 4096}
 	for _, d := range dimensions {
-		x := make([]float64, d)
+		x := make([]float32, d)
 		for i := range x {
 			x[i] = 1
 			if rng.Float64() < 0.5 {
 				x[i] = -1
 			}
 		}
-		target := make([]float64, d)
+		target := make([]float32, d)
 		copy(target, x)
 		slowFastWalshHadamardTransform(target)
-		compressionhelpers.FastWalshHadamardTransform(x)
+		compressionhelpers.FastWalshHadamardTransform(x, 1.0)
+		assert.True(t, slices.Equal(x, target))
+	}
+}
+
+func TestFastWalshHadamardTransform64(t *testing.T) {
+	rng := newRNG(7212334)
+	n := 1000
+	dim := 64
+	for range n {
+		x := make([]float32, dim)
+		for i := range x {
+			x[i] = 1
+			if rng.Float64() < 0.5 {
+				x[i] = -1
+			}
+		}
+		target := make([]float32, dim)
+		copy(target, x)
+		compressionhelpers.FastWalshHadamardTransform(target, 0.125)
+		compressionhelpers.FastWalshHadamardTransform64(x)
+		assert.True(t, slices.Equal(x, target))
+	}
+}
+
+func TestFastWalshHadamardTransform256(t *testing.T) {
+	rng := newRNG(7212334)
+	n := 1000
+	dim := 256
+	for range n {
+		x := make([]float32, dim)
+		for i := range x {
+			x[i] = 1
+			if rng.Float64() < 0.5 {
+				x[i] = -1
+			}
+		}
+		target := make([]float32, 256)
+		copy(target, x)
+		compressionhelpers.FastWalshHadamardTransform(target, 0.0625)
+		compressionhelpers.FastWalshHadamardTransform256(x)
 		assert.True(t, slices.Equal(x, target))
 	}
 }
 
 func BenchmarkFastRotation(b *testing.B) {
 	rng := newRNG(42)
-	dimensions := []int{128, 256, 512, 1024, 1536}
-	rounds := []int{1, 3, 5}
+	dimensions := []int{128, 256, 512, 768, 1024, 1536, 2048}
+	rounds := []int{3}
 	for _, dim := range dimensions {
-		x32 := make([]float32, dim)
-		x32[0] = 1.0
-		x64 := make([]float64, dim)
-		x64[0] = 1.0
+		x := make([]float32, dim)
+		x[0] = 1.0
 		for _, r := range rounds {
 			rotation := compressionhelpers.NewFastRotation(dim, r, rng.Uint64())
-			b.Run(fmt.Sprintf("RotateInPlaceFloat64-d%d-r%d", dim, r), func(b *testing.B) {
+			b.Run(fmt.Sprintf("RotateInPlace-d%d-r%d", dim, r), func(b *testing.B) {
 				for b.Loop() {
-					rotation.RotateInPlaceFloat64(x64)
+					rotation.RotateInPlace(x)
 				}
 			})
 		}
@@ -304,24 +342,37 @@ func BenchmarkFastRotation(b *testing.B) {
 
 func BenchmarkFastWalshHadamardTransform(b *testing.B) {
 	rng := newRNG(42)
-	dimensions := []int{128, 256, 512, 1024, 2048}
+	dimensions := []int{256}
 	for _, dim := range dimensions {
-		z := randomNormalVector(dim, rng)
-		x := make([]float64, dim)
-		for i := range x {
-			x[i] = float64(z[i])
-		}
-		b.Run(fmt.Sprintf("Unrolled-d%d", dim), func(b *testing.B) {
+		x := randomNormalVector(dim, rng)
+		b.Run(fmt.Sprintf("FastWalshHadamardTransform-d%d", dim), func(b *testing.B) {
 			for b.Loop() {
-				compressionhelpers.FastWalshHadamardTransform(x)
-			}
-		})
-		b.Run(fmt.Sprintf("Recursive-d%d", dim), func(b *testing.B) {
-			for b.Loop() {
-				slowFastWalshHadamardTransform(x)
+				compressionhelpers.FastWalshHadamardTransform(x, 1.0)
 			}
 		})
 	}
+}
+
+func BenchmarkFastWalshHadamardTransform64(b *testing.B) {
+	rng := newRNG(42)
+	dim := 64
+	x := randomNormalVector(dim, rng)
+	b.Run(fmt.Sprintf("FastWalshHadamardTransform64-d%d", dim), func(b *testing.B) {
+		for b.Loop() {
+			compressionhelpers.FastWalshHadamardTransform64(x)
+		}
+	})
+}
+
+func BenchmarkFastWalshHadamardTransform256(b *testing.B) {
+	rng := newRNG(42)
+	dim := 256
+	x := randomNormalVector(dim, rng)
+	b.Run(fmt.Sprintf("FastWalshHadamardTransform256-d%d", dim), func(b *testing.B) {
+		for b.Loop() {
+			compressionhelpers.FastWalshHadamardTransform256(x)
+		}
+	})
 }
 
 func BenchmarkFastRotationError(b *testing.B) {

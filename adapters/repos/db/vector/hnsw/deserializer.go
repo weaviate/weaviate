@@ -679,15 +679,15 @@ func (d *Deserializer) ReadRQ(r io.Reader, res *DeserializationResult) (int, err
 		}
 	}
 
-	signs := make([][]int8, rounds)
+	signs := make([][]float32, rounds)
 	for i := uint32(0); i < rounds; i++ {
-		signs[i] = make([]int8, outputDim)
+		signs[i] = make([]float32, outputDim)
 		for j := uint32(0); j < outputDim; j++ {
 			sign, err := readByte(r)
 			if err != nil {
 				return 0, err
 			}
-			signs[i][j] = int8(sign)
+			signs[i][j] = float32(int8(sign))
 		}
 	}
 

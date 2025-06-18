@@ -673,7 +673,7 @@ func RestoreRQCompressor(
 	outputDim int,
 	rounds int,
 	swaps [][]Swap,
-	signs [][]int8,
+	signs [][]float32,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
@@ -744,7 +744,7 @@ func RestoreRQMultiCompressor(
 	outputDim int,
 	rounds int,
 	swaps [][]Swap,
-	signs [][]int8,
+	signs [][]float32,
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {

@@ -12,19 +12,19 @@
 package compressionhelpers
 
 import (
-	"math"
 	"math/rand/v2"
+	"slices"
 )
 
 type FastRotation struct {
-	OutputDim uint32   // The dimension of the output returned by Rotate().
-	Rounds    uint32   // The number of rounds of random signs, swaps, and blocked transforms that the Rotate() function is going to apply.
-	Swaps     [][]Swap // Random swaps to apply each round prior to transforming.
-	Signs     [][]int8 // Random signs to apply each round prior to transforming.
+	OutputDim uint32      // The dimension of the output returned by Rotate().
+	Rounds    uint32      // The number of rounds of random signs, swaps, and blocked transforms that the Rotate() function is going to apply.
+	Swaps     [][]Swap    // Random swaps to apply each round prior to transforming.
+	Signs     [][]float32 // Random signs to apply each round prior to transforming. We store these as float32 values for performance reasons, to avoid casts.
 }
 
-func randomSignsInt8(dim int, rng *rand.Rand) []int8 {
-	signs := make([]int8, dim)
+func randomSigns(dim int, rng *rand.Rand) []float32 {
+	signs := make([]float32, dim)
 	for i := range signs {
 		if rng.Float64() < 0.5 {
 			signs[i] = -1
@@ -40,13 +40,28 @@ type Swap struct {
 }
 
 // Returns a slice of n/2 random swaps such that every element in a slice of length n gets swapped exactly once.
-// Consider performing the swaps in sorted order to make the access pattern more sequential.
+// We order the swaps to make the access pattern more sequential.
 func randomSwaps(n int, rng *rand.Rand) []Swap {
 	swaps := make([]Swap, n/2)
 	p := rng.Perm(n)
 	for s := range swaps {
-		swaps[s] = Swap{I: uint16(p[2*s]), J: uint16(p[2*s+1])}
+		a := uint16(p[2*s])
+		b := uint16(p[2*s+1])
+		if a < b {
+			swaps[s] = Swap{I: a, J: b}
+		} else {
+			swaps[s] = Swap{I: b, J: a}
+		}
 	}
+	slices.SortFunc(swaps, func(a, b Swap) int {
+		if a.I < b.I {
+			return -1
+		}
+		if a.I > b.I {
+			return 1
+		}
+		return 0
+	})
 	return swaps
 }
 
@@ -57,10 +72,10 @@ func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
 	}
 	rng := rand.New(rand.NewPCG(seed, 0x385ab5285169b1ac))
 	swaps := make([][]Swap, rounds)
-	signs := make([][]int8, rounds)
+	signs := make([][]float32, rounds)
 	for i := range rounds {
 		swaps[i] = randomSwaps(outputDim, rng)
-		signs[i] = randomSignsInt8(outputDim, rng)
+		signs[i] = randomSigns(outputDim, rng)
 	}
 	return &FastRotation{
 		OutputDim: uint32(outputDim),
@@ -70,7 +85,7 @@ func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
 	}
 }
 
-func RestoreFastRotation(outputDim int, rounds int, swaps [][]Swap, signs [][]int8) *FastRotation {
+func RestoreFastRotation(outputDim int, rounds int, swaps [][]Swap, signs [][]float32) *FastRotation {
 	return &FastRotation{
 		OutputDim: uint32(outputDim),
 		Rounds:    uint32(rounds),
@@ -83,125 +98,181 @@ func (r *FastRotation) OutputDimension() uint32 {
 	return r.OutputDim
 }
 
-func (r *FastRotation) RotateInPlaceFloat64(x []float64) {
+func (r *FastRotation) RotateInPlace(x []float32) {
 	for i := range r.Rounds {
 		// Apply random swaps and signs.
 		for _, s := range r.Swaps[i] {
-			x[s.I], x[s.J] = float64(r.Signs[i][s.I])*x[s.J], float64(r.Signs[i][s.J])*x[s.I]
+			x[s.I], x[s.J] = r.Signs[i][s.I]*x[s.J], r.Signs[i][s.J]*x[s.I]
 		}
-		// Greedily apply the largest possible FWHT of length 2^k >= 64 to the
-		// remaining untransformed portion of the vector.
+		// Transform in blocks (of length 256 if possible, otherwise length 64).
 		pos := 0
-		for pos < int(r.OutputDim) {
-			length := 64
-			normalize := 0.125
-			for pos+2*length <= int(r.OutputDim) {
-				length *= 2
-				normalize *= 1.0 / math.Sqrt2
+		for pos < len(x) {
+			if len(x)-pos >= 256 {
+				FastWalshHadamardTransform256(x[pos:(pos + 256)])
+				pos += 256
+				continue
 			}
-			FastWalshHadamardTransform(x[pos : pos+length])
-			for j := range length {
-				x[pos+j] *= normalize
-			}
-			pos += length
+			FastWalshHadamardTransform64(x[pos:(pos + 64)])
+			pos += 64
 		}
 	}
-}
-
-func (r *FastRotation) RotateFloat64(x []float64) []float64 {
-	xCopy := make([]float64, r.OutputDim)
-	copy(xCopy, x)
-	r.RotateInPlaceFloat64(xCopy)
-	return xCopy
-}
-
-func (r *FastRotation) rotateFloat32UsingFloat64(x []float32) []float32 {
-	xFloat64 := make([]float64, r.OutputDim)
-	for i := range x {
-		xFloat64[i] = float64(x[i])
-	}
-	r.RotateInPlaceFloat64(xFloat64)
-	res := make([]float32, r.OutputDim)
-	for i := range xFloat64 {
-		res[i] = float32(xFloat64[i])
-	}
-	return res
 }
 
 func (r *FastRotation) Rotate(x []float32) []float32 {
-	return r.rotateFloat32UsingFloat64(x)
+	rx := make([]float32, r.OutputDim)
+	copy(rx, x)
+	r.RotateInPlace(rx)
+	return rx
 }
 
-func FastWalshHadamardTransform(x []float64) {
+func FastWalshHadamardTransform(x []float32, normalize float32) {
 	// Unrolling the recursion at d = 4 gives an almost 2x speedup compared to
 	// no unrolling. Unrolling to d = 8 and d = 16 gave a further ~1.1x speedup.
 	// The local access pattern of the recursive approach seems important.
 	if len(x) == 16 {
-		// FWHT(x[0:2])
-		x[0], x[1] = x[0]+x[1], x[0]-x[1]
-		// FWHT(x[2:4])
-		x[2], x[3] = x[2]+x[3], x[2]-x[3]
-
-		// FWHT(x[0:4]), merging step
-		x[0], x[2] = x[0]+x[2], x[0]-x[2]
-		x[1], x[3] = x[1]+x[3], x[1]-x[3]
-
-		// FWHT(x[4:6])
-		x[4], x[5] = x[4]+x[5], x[4]-x[5]
-		// FWHT(x[6:8])
-		x[6], x[7] = x[6]+x[7], x[6]-x[7]
-
-		// FWHT(x[4:8]), merging step
-		x[4], x[6] = x[4]+x[6], x[4]-x[6]
-		x[5], x[7] = x[5]+x[7], x[5]-x[7]
-
-		// FWHT(x[0:8]), merging step
-		x[0], x[4] = x[0]+x[4], x[0]-x[4]
-		x[1], x[5] = x[1]+x[5], x[1]-x[5]
-		x[2], x[6] = x[2]+x[6], x[2]-x[6]
-		x[3], x[7] = x[3]+x[7], x[3]-x[7]
-
-		// FWHT(x[8:10])
-		x[8], x[9] = x[8]+x[9], x[8]-x[9]
-
-		// FWHT(x[10:12])
-		x[10], x[11] = x[10]+x[11], x[10]-x[11]
-
-		// FWHT(x[8:12]), merging step
-		x[8], x[10] = x[8]+x[10], x[8]-x[10]
-		x[9], x[11] = x[9]+x[11], x[9]-x[11]
-
-		// FWHT(x[12:14])
-		x[12], x[13] = x[12]+x[13], x[12]-x[13]
-
-		// FWHT(x[14:16])
-		x[14], x[15] = x[14]+x[15], x[14]-x[15]
-
-		// FWHT(x[12:16]), merging step
-		x[12], x[14] = x[12]+x[14], x[12]-x[14]
-		x[13], x[15] = x[13]+x[15], x[13]-x[15]
-
-		// FWHT(x[8:16]), merging step
-		x[8], x[12] = x[8]+x[12], x[8]-x[12]
-		x[9], x[13] = x[9]+x[13], x[9]-x[13]
-		x[10], x[14] = x[10]+x[14], x[10]-x[14]
-		x[11], x[15] = x[11]+x[15], x[11]-x[15]
-
-		// FWHT(x[0:16]), merging step
-		x[0], x[8] = x[0]+x[8], x[0]-x[8]
-		x[1], x[9] = x[1]+x[9], x[1]-x[9]
-		x[2], x[10] = x[2]+x[10], x[2]-x[10]
-		x[3], x[11] = x[3]+x[11], x[3]-x[11]
-		x[4], x[12] = x[4]+x[12], x[4]-x[12]
-		x[5], x[13] = x[5]+x[13], x[5]-x[13]
-		x[6], x[14] = x[6]+x[14], x[6]-x[14]
-		x[7], x[15] = x[7]+x[15], x[7]-x[15]
+		fastWalshHadamardTransform16(x, normalize)
 		return
 	}
 	m := len(x) / 2
-	FastWalshHadamardTransform(x[:m])
-	FastWalshHadamardTransform(x[m:])
+	FastWalshHadamardTransform(x[:m], normalize)
+	FastWalshHadamardTransform(x[m:], normalize)
 	for i := range m {
 		x[i], x[m+i] = x[i]+x[m+i], x[i]-x[m+i]
+	}
+}
+
+func fastWalshHadamardTransform16(x []float32, normalize float32) {
+	x0 := normalize * x[0]
+	x1 := normalize * x[1]
+	x2 := normalize * x[2]
+	x3 := normalize * x[3]
+	x4 := normalize * x[4]
+	x5 := normalize * x[5]
+	x6 := normalize * x[6]
+	x7 := normalize * x[7]
+	x8 := normalize * x[8]
+	x9 := normalize * x[9]
+	x10 := normalize * x[10]
+	x11 := normalize * x[11]
+	x12 := normalize * x[12]
+	x13 := normalize * x[13]
+	x14 := normalize * x[14]
+	x15 := normalize * x[15]
+
+	x0, x1 = x0+x1, x0-x1
+	x2, x3 = x2+x3, x2-x3
+
+	x0, x2 = x0+x2, x0-x2
+	x1, x3 = x1+x3, x1-x3
+
+	x4, x5 = x4+x5, x4-x5
+	x6, x7 = x6+x7, x6-x7
+
+	x4, x6 = x4+x6, x4-x6
+	x5, x7 = x5+x7, x5-x7
+
+	x0, x4 = x0+x4, x0-x4
+	x1, x5 = x1+x5, x1-x5
+	x2, x6 = x2+x6, x2-x6
+	x3, x7 = x3+x7, x3-x7
+
+	x8, x9 = x8+x9, x8-x9
+	x10, x11 = x10+x11, x10-x11
+
+	x8, x10 = x8+x10, x8-x10
+	x9, x11 = x9+x11, x9-x11
+
+	x12, x13 = x12+x13, x12-x13
+	x14, x15 = x14+x15, x14-x15
+
+	x12, x14 = x12+x14, x12-x14
+	x13, x15 = x13+x15, x13-x15
+
+	x8, x12 = x8+x12, x8-x12
+	x9, x13 = x9+x13, x9-x13
+	x10, x14 = x10+x14, x10-x14
+	x11, x15 = x11+x15, x11-x15
+
+	x0, x8 = x0+x8, x0-x8
+	x1, x9 = x1+x9, x1-x9
+	x2, x10 = x2+x10, x2-x10
+	x3, x11 = x3+x11, x3-x11
+	x4, x12 = x4+x12, x4-x12
+	x5, x13 = x5+x13, x5-x13
+	x6, x14 = x6+x14, x6-x14
+	x7, x15 = x7+x15, x7-x15
+
+	x[0] = x0
+	x[1] = x1
+	x[2] = x2
+	x[3] = x3
+	x[4] = x4
+	x[5] = x5
+	x[6] = x6
+	x[7] = x7
+	x[8] = x8
+	x[9] = x9
+	x[10] = x10
+	x[11] = x11
+	x[12] = x12
+	x[13] = x13
+	x[14] = x14
+	x[15] = x15
+}
+
+// This explicit instantiation is about 10% faster.
+func FastWalshHadamardTransform64(x []float32) {
+	const normalize = 0.125
+	fastWalshHadamardTransform16(x[:16], normalize)
+	fastWalshHadamardTransform16(x[16:32], normalize)
+	for i := range 16 {
+		x[i], x[16+i] = x[i]+x[16+i], x[i]-x[16+i]
+	}
+
+	fastWalshHadamardTransform16(x[32:48], normalize)
+	fastWalshHadamardTransform16(x[48:], normalize)
+	for i := 32; i < 48; i++ {
+		x[i], x[16+i] = x[i]+x[16+i], x[i]-x[16+i]
+	}
+
+	for i := range 32 {
+		x[i], x[32+i] = x[i]+x[32+i], x[i]-x[32+i]
+	}
+}
+
+func block64FWHT256(x []float32) {
+	const normalize = 0.0625
+	fastWalshHadamardTransform16(x[0:16], normalize)
+	fastWalshHadamardTransform16(x[16:32], normalize)
+	for i := range 16 {
+		x[i], x[16+i] = x[i]+x[16+i], x[i]-x[16+i]
+	}
+
+	fastWalshHadamardTransform16(x[32:48], normalize)
+	fastWalshHadamardTransform16(x[48:64], normalize)
+	for i := 32; i < 48; i++ {
+		x[i], x[16+i] = x[i]+x[16+i], x[i]-x[16+i]
+	}
+
+	for i := range 32 {
+		x[i], x[32+i] = x[i]+x[32+i], x[i]-x[32+i]
+	}
+}
+
+func FastWalshHadamardTransform256(x []float32) {
+	block64FWHT256(x[0:64])
+	block64FWHT256(x[64:128])
+	for i := range 64 {
+		x[i], x[64+i] = x[i]+x[64+i], x[i]-x[64+i]
+	}
+
+	block64FWHT256(x[128:192])
+	block64FWHT256(x[192:256])
+	for i := 128; i < 192; i++ {
+		x[i], x[64+i] = x[i]+x[64+i], x[i]-x[64+i]
+	}
+
+	for i := range 128 {
+		x[i], x[128+i] = x[i]+x[128+i], x[i]-x[128+i]
 	}
 }

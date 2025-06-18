@@ -537,15 +537,15 @@ func BenchmarkQuantizationRecall(b *testing.B) {
 		{Name: "glove-200-angular", Distance: distancer.NewCosineDistanceProvider()},
 
 		// Smaller OpenAI datasets
-		// {Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
-		// {Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
+		{Name: "dbpedia-100k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		{Name: "dbpedia-100k-openai-ada002-angular", Distance: distancer.NewCosineDistanceProvider()},
 		// {Name: "dbpedia-100k-openai-3large-dot", Distance: distancer.NewDotProductProvider()},
 
 		// Bigger datasets
-		{Name: "dbpedia-500k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
-		{Name: "dbpedia-openai-1000k-angular", Distance: distancer.NewCosineDistanceProvider()},
-		{Name: "sphere-1M-meta-dpr", Distance: distancer.NewDotProductProvider()},
-		// {Name: "snowflake-msmarco-arctic-embed-m-v1.5-angular", Distance: distancer.NewCosineDistanceProvider()},
+		// {Name: "dbpedia-500k-openai-ada002-euclidean", Distance: distancer.NewL2SquaredProvider()},
+		// {Name: "dbpedia-openai-1000k-angular", Distance: distancer.NewCosineDistanceProvider()},
+		// {Name: "sphere-1M-meta-dpr", Distance: distancer.NewDotProductProvider()},
+		// // {Name: "snowflake-msmarco-arctic-embed-m-v1.5-angular", Distance: distancer.NewCosineDistanceProvider()},
 	}
 
 	algorithms := []QuantizationSettings{
@@ -554,13 +554,13 @@ func BenchmarkQuantizationRecall(b *testing.B) {
 		// &TRQSettings{Order: 1},
 		// &TRQSettings{Order: 4},
 		// &TRQSettings{Order: 8},
-		&CRQSettings{TrainingSize: 100_000, Centers: 1},
-		&CRQSettings{TrainingSize: 100_000, Centers: 16},
-		&CRQSettings{TrainingSize: 100_000, Centers: 64},
+		// &CRQSettings{TrainingSize: 100_000, Centers: 1},
+		// &CRQSettings{TrainingSize: 100_000, Centers: 16},
+		// &CRQSettings{TrainingSize: 100_000, Centers: 64},
 	}
 
-	maxVectors := 1_000_000
-	maxQueries := 250
+	maxVectors := 100_000
+	maxQueries := 500
 
 	for _, descriptor := range datasets {
 		data := NewANNBenchData(dataDir, descriptor.Name, descriptor.Distance)

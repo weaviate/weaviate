@@ -21,6 +21,23 @@ import (
 	"golang.org/x/exp/slices"
 )
 
+// type RQCenters struct {
+// 	numCenters int
+// 	centers    [][]float32
+
+// 	encodeCount        int
+// 	numCentroidUpdates int
+// 	centroid           []float64
+// }
+
+// func NewRQCenters(d int) *RQCenters {
+// 	const maxCenters = 64
+// 	center := &RQCenters{
+// 		numCenters: 0,
+// 		centers:    make([][]float32, maxCenmaxCenters),
+// 	}
+// }
+
 type RotationalQuantizer struct {
 	inputDim  uint32
 	rotation  *FastRotation
@@ -33,7 +50,7 @@ type RotationalQuantizer struct {
 	l2  float32 // Indicator for the l2-squared distancer.
 }
 
-var DefaultRotationRounds = 5
+var DefaultRotationRounds = 3
 
 func NewRotationalQuantizer(inputDim int, seed uint64, bits int, distancer distancer.Provider) *RotationalQuantizer {
 	var err error = nil
@@ -66,7 +83,7 @@ func NewRotationalQuantizer(inputDim int, seed uint64, bits int, distancer dista
 	return rq
 }
 
-func RestoreRotationalQuantizer(inputDim int, seed uint64, bits int, outputDim int, rounds int, swaps [][]Swap, signs [][]int8, distancer distancer.Provider) (*RotationalQuantizer, error) {
+func RestoreRotationalQuantizer(inputDim int, seed uint64, bits int, outputDim int, rounds int, swaps [][]Swap, signs [][]float32, distancer distancer.Provider) (*RotationalQuantizer, error) {
 	var err error = nil
 	if !supportsDistancer(distancer) {
 		err = errors.Errorf("Distance not supported yet %s", distancer)
@@ -173,12 +190,6 @@ func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
 		norm2 += x[i] * x[i]
 	}
 
-	// TODO: Optimize this. Reconsider doing the rotation using float32s. Test what kind of recall we lose going from float64 to float32.
-	// Perform the rotation in-place on a float32 vector that we grab from a pool.
-	// Acquiring a vector from a pool should only take ~50ns compared to performing the rotation itself which is several orders of magnitude slower.
-	// Consider whether 3 rotational rounds suffice.
-	// Consider further unrolling or SIMD optimizing the transform.
-	// Consider dropping the random swaps or replacing them with something faster, like a reversal.
 	rx := rq.rotation.Rotate(x)
 
 	var maxCode uint8 = (1 << bits) - 1
@@ -280,36 +291,6 @@ func (d *RQDistancer) DistanceToFloat(x []float32) (float32, error) {
 	cx := d.rq.Encode(x)
 	return d.Distance(cx)
 }
-
-// func byteSum(b []byte) float32 {
-// 	var sum float32
-// 	for i := range b {
-// 		sum += float32(b[i])
-// 	}
-// 	return sum
-// }
-
-// func byteDot(a []byte, b []byte) float32 {
-// 	var sum float32
-// 	for i := range a {
-// 		sum += float32(a[i]) * float32(b[i])
-// 	}
-// 	return sum
-// }
-
-// Compute the dot product, very explicitly, for testing
-// func distance(x, y RQCode) float32 {
-// 	a := float32(x.Dimension()) * x.Lower() * y.Lower()
-// 	b := x.Lower() * y.Step() * byteSum(y.Bytes())
-// 	c := y.Lower() * x.Step() * byteSum(x.Bytes())
-// 	d := x.Step() * y.Step() * byteDot(x.Bytes(), y.Bytes())
-// 	fmt.Println("y.Step() * byteSum(y.Bytes())", y.Step()*byteSum(y.Bytes()))
-// 	fmt.Println("x.Step() * byteSum(x.Bytes())", x.Step()*byteSum(x.Bytes()))
-// 	fmt.Println("a", a, "b", b, "c", c, "d", d)
-// 	dotEstimate := a + b + c + d
-// 	fmt.Println("slow dot estimate:", dotEstimate)
-// 	return dotEstimate
-// }
 
 // We duplicate the distance computation from the RQDistancer here for performance reasons.
 // Alternatively we could instantiate an RQDistancer from a compressed vector instead.

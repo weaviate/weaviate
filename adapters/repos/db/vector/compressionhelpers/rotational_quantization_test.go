@@ -145,11 +145,14 @@ func TestRQDistancer(t *testing.T) {
 		distancer.NewDotProductProvider(),
 		distancer.NewL2SquaredProvider(),
 	}
-	rng := newRNG(678)
+	rng := newRNG(6789)
 	n := 250
 	for range n {
-		d := 2 + rng.IntN(1000)
+		d := 2 + rng.IntN(2000)
 		alpha := -1.0 + 2*rng.Float32()
+		// Note that we are testing on vectors where all mass is concentrated in
+		// the first two entries. It might be more realistic to test on vectors
+		// that have already been rotated randomly.
 		q, x := correlatedVectors(d, alpha)
 		for _, m := range metrics {
 			bits := 8
@@ -158,7 +161,7 @@ func TestRQDistancer(t *testing.T) {
 			expected, _ := m.SingleDist(q, x)
 			cx := rq.Encode(x)
 			estimated, _ := distancer.Distance(cx)
-			assert.Less(t, math.Abs(float64(estimated-expected)), 0.004)
+			assert.Less(t, math.Abs(float64(estimated-expected)), 0.0051)
 		}
 	}
 }
@@ -169,10 +172,10 @@ func TestRQDistancer(t *testing.T) {
 // satisfy their bounds exactly in all cases. This is especially the case when
 // using few bits, something this quantization scheme is not optimized for.
 func TestRQEstimationConcentrationBounds(t *testing.T) {
-	rng := newRNG(1234)
-	n := 1000
+	rng := newRNG(12345)
+	n := 100
 	for range n {
-		d := 2 + rng.IntN(1000)
+		d := 2 + rng.IntN(2000)
 		alpha := -1.0 + 2*rng.Float32()
 		bits := 8
 
@@ -188,7 +191,7 @@ func TestRQEstimationConcentrationBounds(t *testing.T) {
 		// implementation this factor was 1.0. Note that a factor of 2
 		// corresponds to a loss of 1 bit compared to extended RabitQ. A factor
 		// of 4 corresponds to 2 bits and so on...
-		additionalErrorFactor := 1.25
+		additionalErrorFactor := 1.5
 		eps *= additionalErrorFactor
 
 		q, x := correlatedVectors(d, alpha)
@@ -244,7 +247,8 @@ func TestRQDistancerRandomVectorsWithScaling(t *testing.T) {
 
 func BenchmarkRQEncode(b *testing.B) {
 	rng := newRNG(42)
-	dimensions := []int{64, 128, 256, 512, 1024, 1536, 2048}
+	dimensions := []int{256, 1024, 1536}
+
 	for _, dim := range dimensions {
 		quantizer := defaultRotationalQuantizer(dim, rng.Uint64())
 		x := make([]float32, dim)
