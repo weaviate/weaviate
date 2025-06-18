@@ -33,23 +33,23 @@ func (_m *MockService) EXPECT() *MockService_Expecter {
 }
 
 // Usage provides a mock function with given fields: ctx
-func (_m *MockService) Usage(ctx context.Context) (*Response, error) {
+func (_m *MockService) Usage(ctx context.Context) (*Report, error) {
 	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Usage")
 	}
 
-	var r0 *Response
+	var r0 *Report
 	var r1 error
-	if rf, ok := ret.Get(0).(func(context.Context) (*Response, error)); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) (*Report, error)); ok {
 		return rf(ctx)
 	}
-	if rf, ok := ret.Get(0).(func(context.Context) *Response); ok {
+	if rf, ok := ret.Get(0).(func(context.Context) *Report); ok {
 		r0 = rf(ctx)
 	} else {
 		if ret.Get(0) != nil {
-			r0 = ret.Get(0).(*Response)
+			r0 = ret.Get(0).(*Report)
 		}
 	}
 
@@ -80,12 +80,12 @@ func (_c *MockService_Usage_Call) Run(run func(ctx context.Context)) *MockServic
 	return _c
 }
 
-func (_c *MockService_Usage_Call) Return(_a0 *Response, _a1 error) *MockService_Usage_Call {
+func (_c *MockService_Usage_Call) Return(_a0 *Report, _a1 error) *MockService_Usage_Call {
 	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockService_Usage_Call) RunAndReturn(run func(context.Context) (*Response, error)) *MockService_Usage_Call {
+func (_c *MockService_Usage_Call) RunAndReturn(run func(context.Context) (*Report, error)) *MockService_Usage_Call {
 	_c.Call.Return(run)
 	return _c
 }

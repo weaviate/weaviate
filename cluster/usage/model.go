@@ -11,8 +11,8 @@
 
 package usage
 
-// Response represents the response from the metrics endpoint
-type Response struct {
+// Report represents the usage metrics report from the metrics endpoint
+type Report struct {
 	// The version of usage policy, date based versioning
 	// e.g. 2025-06-01
 	Version string `json:"version"`
