@@ -144,10 +144,8 @@ func (s *schema) ResolveAlias(alias string) (string, bool) {
 	s.amu.Lock()
 	defer s.amu.Unlock()
 
-	fmt.Println("Debug!!", s.aliases)
 	a, ok := s.aliases[alias]
 
-	fmt.Println("Debug!!!", a)
 	return a, ok
 }
 

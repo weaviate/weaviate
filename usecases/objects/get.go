@@ -36,8 +36,6 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 ) (*models.Object, error) {
 	// may be it's accessed via alias?
 	className := schema.UppercaseClassName(class)
-	fmt.Println("Debug!!! canonical class name", className)
-
 	cl, ok := m.schemaManager.ResolveAlias(className)
 	if ok {
 		class = cl
