@@ -78,5 +78,4 @@ func Test_BackupJourney(t *testing.T) {
 			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstgfilesystem.Name)
 		})
 	})
-
 }

@@ -30,9 +30,9 @@ const (
 	envGCSBucket              = "BACKUP_GCS_BUCKET"
 	envGCSUseAuth             = "BACKUP_GCS_USE_AUTH"
 
-	gcsBackupJourneyClassName          = "GcsBackup"
-	gcsBackupJourneyBackupIDCluster    = "gcs_backup_cluster"
-	gcsBackupJourneyProjectID          = "gcs_backup_journey"
+	gcsBackupJourneyClassName       = "GcsBackup"
+	gcsBackupJourneyBackupIDCluster = "gcs_backup_cluster"
+	gcsBackupJourneyProjectID       = "gcs_backup_journey"
 )
 
 func Test_BackupJourney(t *testing.T) {
@@ -69,7 +69,6 @@ func Test_BackupJourney(t *testing.T) {
 }
 
 func runBackupJourney(t *testing.T, ctx context.Context, override bool, containerName, overrideBucket, overridePath string) {
-
 	t.Run("multiple node", func(t *testing.T) {
 		ctx := context.Background()
 		t.Log("pre-instance env setup")

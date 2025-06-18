@@ -30,11 +30,11 @@ const (
 	envS3Endpoint    = "BACKUP_S3_ENDPOINT"
 	envS3UseSSL      = "BACKUP_S3_USE_SSL"
 
-	s3BackupJourneyClassName          = "S3Backup"
-	s3BackupJourneyBackupIDCluster    = "s3-backup-cluster"
-	s3BackupJourneyRegion             = "eu-west-1"
-	s3BackupJourneyAccessKey          = "aws_access_key"
-	s3BackupJourneySecretKey          = "aws_secret_key"
+	s3BackupJourneyClassName       = "S3Backup"
+	s3BackupJourneyBackupIDCluster = "s3-backup-cluster"
+	s3BackupJourneyRegion          = "eu-west-1"
+	s3BackupJourneyAccessKey       = "aws_access_key"
+	s3BackupJourneySecretKey       = "aws_secret_key"
 )
 
 func Test_BackupJourney(t *testing.T) {
