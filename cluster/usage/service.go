@@ -23,7 +23,7 @@ import (
 )
 
 type Service interface {
-	Usage(ctx context.Context) (*Response, error)
+	Usage(ctx context.Context) (*Report, error)
 }
 
 type service struct {
@@ -40,9 +40,9 @@ func NewService(schemaManager *schema.Manager, db *db.DB, modules *modules.Provi
 	}
 }
 
-func (m *service) Usage(ctx context.Context) (*Response, error) {
+func (m *service) Usage(ctx context.Context) (*Report, error) {
 	collections := m.schemaManager.GetSchemaSkipAuth().Objects.Classes
-	usage := &Response{
+	usage := &Report{
 		Node:                    m.schemaManager.NodeName(),
 		SingleTenantCollections: make([]*CollectionUsage, 0, len(collections)),
 		Backups:                 make([]*BackupUsage, 0),
@@ -100,7 +100,7 @@ func (m *service) Usage(ctx context.Context) (*Response, error) {
 
 	// Get backup usage from all enabled backup backends
 	for _, backend := range m.modules.EnabledBackupBackends() {
-		backups, err := backend.AllBackups(context.TODO())
+		backups, err := backend.AllBackups(ctx)
 		if err == nil {
 			for _, backup := range backups {
 				usage.Backups = append(usage.Backups, &BackupUsage{
