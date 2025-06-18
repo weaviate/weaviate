@@ -328,13 +328,8 @@ func (m *manager) Restore(b []byte) error {
 	}
 
 	// environment config needs to be applied again in case there were changes since the last snapshot
-	if err := applyEnvConfig(m.casbin, m.rbacConf, m.authNconf); err != nil {
+	if err := applyPredefinedRoles(m.casbin, m.rbacConf, m.authNconf); err != nil {
 		return fmt.Errorf("apply env config: %w", err)
-	}
-
-	// Save the policies to ensure they are persisted
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("save policies: %w", err)
 	}
 
 	// Load the policies to ensure they are in memory

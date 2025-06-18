@@ -131,12 +131,8 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
-	if err := applyEnvConfig(enforcer, conf, authNconf); err != nil {
+	if err := applyPredefinedRoles(enforcer, conf, authNconf); err != nil {
 		return nil, errors.Wrapf(err, "apply env config")
-	}
-
-	if err := enforcer.SavePolicy(); err != nil {
-		return nil, errors.Wrapf(err, "save policy")
 	}
 
 	// update version after casbin policy has been written
@@ -147,7 +143,9 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	return enforcer, nil
 }
 
-func applyEnvConfig(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication) error {
+// applyPredefinedRoles adds pre-defined roles (admin/viewer/root) and assigns them to the users provided in the
+// local config
+func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication) error {
 	// remove preexisting root role including assignments
 	_, err := enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
 	if err != nil {
@@ -203,6 +201,11 @@ func applyEnvConfig(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config,
 			return fmt.Errorf("add viewer role for group %s: %w", viewerGroup, err)
 		}
 	}
+
+	if err := enforcer.SavePolicy(); err != nil {
+		return errors.Wrapf(err, "save policy")
+	}
+
 	return nil
 }
 
