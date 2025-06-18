@@ -183,6 +183,18 @@ type PQStats struct {
 	M  int `json:"segments"`
 }
 
+func (p PQStats) CompressionType() string {
+	return "pq"
+}
+
+func (p PQStats) CompressionRatio(dimensions int) float64 {
+	// PQ compression: original size = dimensions * 4 bytes (float32)
+	// compressed size = segments * 1 byte (one code per segment)
+	originalSize := dimensions * 4
+	compressedSize := p.M // segments
+	return float64(originalSize) / float64(compressedSize)
+}
+
 type PQEncoder interface {
 	Encode(x []float32) byte
 	Centroid(b byte) []float32
@@ -433,10 +445,6 @@ func (pq *ProductQuantizer) CenterAt(vec []float32) *DistanceLookUpTable {
 
 func (pq *ProductQuantizer) Distance(encoded []byte, lut *DistanceLookUpTable) float32 {
 	return lut.LookUp(encoded, pq)
-}
-
-func (p PQStats) CompressionType() string {
-	return "pq"
 }
 
 func (pq *ProductQuantizer) Stats() CompressionStats {
