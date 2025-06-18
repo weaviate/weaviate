@@ -971,7 +971,7 @@ case $CONFIG in
         --write-timeout=600s
     ;;
   local-bigram)
-      AUTHENTICATION_ANONYMOUS_ACCESS=true \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       DEFAULT_VECTORIZER_MODULE=text2vec-bigram \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups" \
       ENABLE_MODULES="text2vec-bigram,backup-filesystem" \
