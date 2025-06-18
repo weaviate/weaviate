@@ -22,7 +22,7 @@ type Snapshot struct {
 	// LegacySchema is the old schema that was used to create the snapshot
 	// it is used to restore the schema if the snapshot is not compatible with the current schema
 	// note: this is not used anymore, but we keep it for backwards compatibility
-	LegacySchema map[string]any `json:"classes,omitempty"`
+	LegacySchema map[string]any `json:"classes"`
 	// Schema is the new schema that will be used to restore the FSM
 	Schema []byte `json:"schema,omitempty"`
 	// RBAC is the rbac that will be used to restore the FSM

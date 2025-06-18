@@ -12,6 +12,7 @@
 package schema
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 
@@ -243,5 +244,113 @@ func Test_schemaDeepCopy(t *testing.T) {
 			s.addClass(&models.Class{Class: fmt.Sprintf("concurrent%d", i)}, shardState, uint64(i))
 		}
 		<-done
+	})
+}
+
+func TestSchemaRestoreLegacyWithEmptyClasses(t *testing.T) {
+	// Test the scenario where snapshot contains "classes":{} which should unmarshal to empty map
+	t.Run("empty classes object", func(t *testing.T) {
+		s := NewSchema("test-node", &MockShardReader{}, nil)
+
+		// Create snapshot JSON with empty classes object
+		snapData := `{"node_id":"test-node","snapshot_id":"test-snapshot","classes":{}}`
+
+		// Test RestoreLegacy
+		mockParser := NewMockParser(t)
+
+		err := s.RestoreLegacy([]byte(snapData), mockParser)
+		require.NoError(t, err)
+
+		// Verify that s.classes is an empty map, not nil
+		assert.NotNil(t, s.classes)
+		assert.Equal(t, 0, len(s.classes))
+	})
+}
+
+func TestSchemaRestoreLegacyWithNilClasses(t *testing.T) {
+	// Test the scenario where snapshot JSON unmarshaling results in nil Classes
+	t.Run("nil classes after unmarshal", func(t *testing.T) {
+		s := NewSchema("test-node", &MockShardReader{}, nil)
+
+		// Create a snapshot struct with nil Classes to simulate unmarshal failure
+		snap := snapshot{
+			NodeID:     "test-node",
+			SnapshotID: "test-snapshot",
+			Classes:    nil, // This simulates the problematic case
+		}
+
+		// Marshal it back to JSON
+		snapData, err := json.Marshal(snap)
+		require.NoError(t, err)
+
+		// Test RestoreLegacy
+		mockParser := NewMockParser(t)
+		err = s.RestoreLegacy(snapData, mockParser)
+		require.NoError(t, err)
+
+		// Verify that s.classes is initialized, not nil
+		assert.NotNil(t, s.classes)
+		assert.Equal(t, 0, len(s.classes))
+	})
+}
+
+func TestSchemaAddClassAfterRestoreWithEmptyClasses(t *testing.T) {
+	// Test the scenario where addClass is called after restoring empty classes
+	t.Run("add class after empty restore", func(t *testing.T) {
+		s := NewSchema("test-node", &MockShardReader{}, nil)
+
+		// First restore with empty classes
+		snapData := `{"node_id":"test-node","snapshot_id":"test-snapshot","classes":{}}`
+		mockParser := NewMockParser(t)
+		err := s.RestoreLegacy([]byte(snapData), mockParser)
+		require.NoError(t, err)
+
+		// Verify s.classes is not nil
+		assert.NotNil(t, s.classes)
+
+		// Now try to add a class - this should not panic
+		cls := &models.Class{Class: "TestClass"}
+		ss := &sharding.State{Physical: map[string]sharding.Physical{}}
+
+		err = s.addClass(cls, ss, 1)
+		require.NoError(t, err)
+
+		// Verify the class was added
+		assert.Equal(t, 1, len(s.classes))
+		assert.NotNil(t, s.classes["TestClass"])
+	})
+}
+
+func TestSchemaAddClassAfterRestoreWithNilClasses(t *testing.T) {
+	// Test the scenario where addClass is called after restoring with nil classes
+	t.Run("add class after nil restore", func(t *testing.T) {
+		s := NewSchema("test-node", &MockShardReader{}, nil)
+
+		// First restore with nil classes (simulating unmarshal failure)
+		snap := snapshot{
+			NodeID:     "test-node",
+			SnapshotID: "test-snapshot",
+			Classes:    nil,
+		}
+		snapData, err := json.Marshal(snap)
+		require.NoError(t, err)
+
+		mockParser := NewMockParser(t)
+		err = s.RestoreLegacy(snapData, mockParser)
+		require.NoError(t, err)
+
+		// Verify s.classes is not nil
+		assert.NotNil(t, s.classes)
+
+		// Now try to add a class - this should not panic
+		cls := &models.Class{Class: "TestClass"}
+		ss := &sharding.State{Physical: map[string]sharding.Physical{}}
+
+		err = s.addClass(cls, ss, 1)
+		require.NoError(t, err)
+
+		// Verify the class was added
+		assert.Equal(t, 1, len(s.classes))
+		assert.NotNil(t, s.classes["TestClass"])
 	})
 }
