@@ -83,6 +83,8 @@ const (
 	envTestRerankerTransformersImage = "TEST_RERANKER_TRANSFORMERS_IMAGE"
 	// envTestMockOIDCImage adds ability to pass a custom image to module tests
 	envTestMockOIDCImage = "TEST_MOCKOIDC_IMAGE"
+	// envTestMockOIDCHelperImage adds ability to pass a custom image to module tests
+	envTestMockOIDCHelperImage = "TEST_MOCKOIDC_HELPER_IMAGE"
 )
 
 const (
@@ -136,6 +138,7 @@ type Compose struct {
 	withOllamaGenerative           bool
 	withAutoschema                 bool
 	withMockOIDC                   bool
+	withMockOIDCWithCertificate    bool
 	weaviateEnvs                   map[string]string
 	removeEnvs                     map[string]struct{}
 }
@@ -510,6 +513,11 @@ func (d *Compose) WithMockOIDC() *Compose {
 	return d
 }
 
+func (d *Compose) WithMockOIDCWithCertificate() *Compose {
+	d.withMockOIDCWithCertificate = true
+	return d
+}
+
 func (d *Compose) WithApiKey() *Compose {
 	d.withWeaviateApiKey = true
 	return d
@@ -750,16 +758,34 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
-	if d.withMockOIDC {
+	if d.withMockOIDC || d.withMockOIDCWithCertificate {
+		var certificate, certificateKey string
+		if d.withMockOIDCWithCertificate {
+			// Generate certifcate and certificate's private key
+			certificate, certificateKey, err = GenerateCertificateAndKey(MockOIDC)
+			if err != nil {
+				return nil, errors.Wrapf(err, "cannot generate mock certificates for %s", MockOIDC)
+			}
+		}
 		image := os.Getenv(envTestMockOIDCImage)
-		container, err := startMockOIDC(ctx, networkName, image)
+		container, err := startMockOIDC(ctx, networkName, image, certificate, certificateKey)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MockOIDC)
 		}
 		for k, v := range container.envSettings {
+			if k == "AUTHENTICATION_OIDC_CERTIFICATE" && envSettings[k] != "" {
+				// allow to pass some other certificate using WithWeaviateEnv method
+				continue
+			}
 			envSettings[k] = v
 		}
 		containers = append(containers, container)
+		helperImage := os.Getenv(envTestMockOIDCHelperImage)
+		helperContainer, err := startMockOIDCHelper(ctx, networkName, helperImage, certificate)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", MockOIDCHelper)
+		}
+		containers = append(containers, helperContainer)
 	}
 
 	if d.withWeaviateCluster {
