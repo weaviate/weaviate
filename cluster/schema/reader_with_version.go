@@ -47,6 +47,10 @@ func (rs SchemaReader) MultiTenancyWithVersion(ctx context.Context, class string
 	return mc, nil
 }
 
+func (rs SchemaReader) ResolveAlias(alias string) (string, bool) {
+	return rs.schema.ResolveAlias(alias)
+}
+
 // ReadOnlyClass returns a shallow copy of a class.
 // The copy is read-only and should not be modified.
 func (rs SchemaReader) ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64) (cls *models.Class, err error) {

@@ -38,8 +38,16 @@ import (
 func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, object *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
+	// may be it's accessed via alias?
 	className := schema.UppercaseClassName(object.Class)
+	class, ok := m.schemaManager.ResolveAlias(className)
+	if ok {
+		className = class
+	}
+
 	object.Class = className
+
+	m.schemaManager.ResolveAlias(className)
 
 	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
 		return nil, err

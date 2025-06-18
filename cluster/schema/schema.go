@@ -58,6 +58,10 @@ type schema struct {
 	mu      sync.RWMutex
 	classes map[string]*metaClass
 
+	// amu protects the 'aliases'
+	amu     sync.RWMutex
+	aliases map[string]string // alias -> collection name
+
 	// metrics
 	// collectionsCount represents the number of collections on this specific node.
 	collectionsCount prometheus.Gauge
@@ -134,6 +138,17 @@ func (s *schema) metaClass(class string) *metaClass {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.classes[class]
+}
+
+func (s *schema) ResolveAlias(alias string) (string, bool) {
+	s.amu.Lock()
+	defer s.amu.Unlock()
+
+	fmt.Println("Debug!!", s.aliases)
+	a, ok := s.aliases[alias]
+
+	fmt.Println("Debug!!!", a)
+	return a, ok
 }
 
 // ReadOnlyClass returns a shallow copy of a class.
@@ -294,6 +309,13 @@ func (s *schema) addClass(cls *models.Class, ss *sharding.State, v uint64) error
 	s.classes[cls.Class] = &metaClass{
 		Class: *cls, Sharding: *ss, ClassVersion: v, ShardVersion: v,
 	}
+
+	// hack(kavi): to add alias for every single collection addition.
+	// alias-<collection>
+	if s.aliases == nil {
+		s.aliases = make(map[string]string)
+	}
+	s.aliases[fmt.Sprintf("Alias-%s", cls.Class)] = cls.Class
 
 	s.collectionsCount.Inc()
 

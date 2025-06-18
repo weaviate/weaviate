@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	authzerrs "github.com/weaviate/weaviate/usecases/auth/authorization/errors"
@@ -33,6 +34,18 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, additional additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string,
 ) (*models.Object, error) {
+	// may be it's accessed via alias?
+	className := schema.UppercaseClassName(class)
+	fmt.Println("Debug!!! canonical class name", className)
+
+	cl, ok := m.schemaManager.ResolveAlias(className)
+	if ok {
+		class = cl
+	} else {
+		class = className
+	}
+
+	fmt.Println("Debug!!! final resolved class name", class)
 	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id))
 	if err != nil {
 		return nil, err

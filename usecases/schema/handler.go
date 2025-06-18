@@ -85,6 +85,7 @@ type SchemaReader interface {
 	ClassEqual(name string) string
 	MultiTenancy(class string) models.MultiTenancyConfig
 	ClassInfo(class string) (ci clusterSchema.ClassInfo)
+	ResolveAlias(alias string) (string, bool)
 	ReadOnlyClass(name string) *models.Class
 	ReadOnlyVersionedClass(name string) versioned.Class
 	ReadOnlySchema() models.Schema
