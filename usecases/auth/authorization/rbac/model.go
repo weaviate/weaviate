@@ -20,15 +20,16 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
+
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
 	fileadapter "github.com/casbin/casbin/v2/persist/file-adapter"
 	casbinutil "github.com/casbin/casbin/v2/util"
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 	"github.com/weaviate/weaviate/usecases/build"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -130,60 +131,8 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
-	// remove preexisting root role including assignments
-	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
-	if err != nil {
-		return nil, err
-	}
-	_, err = enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(authorization.Root))
-	if err != nil {
-		return nil, err
-	}
-
-	// add pre existing roles
-	for name, verb := range conv.BuiltInPolicies {
-		if verb == "" {
-			continue
-		}
-		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(name), "*", verb, "*"); err != nil {
-			return nil, fmt.Errorf("add policy: %w", err)
-		}
-	}
-
-	for i := range conf.RootUsers {
-		if strings.TrimSpace(conf.RootUsers[i]) == "" {
-			continue
-		}
-
-		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.RootUsers[i]) {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputDb), conv.PrefixRoleName(authorization.Root)); err != nil {
-				return nil, fmt.Errorf("add role for user: %w", err)
-			}
-		}
-
-		if authNconf.OIDC.Enabled {
-			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Root)); err != nil {
-				return nil, fmt.Errorf("add role for user: %w", err)
-			}
-		}
-	}
-
-	for _, group := range conf.RootGroups {
-		if strings.TrimSpace(group) == "" {
-			continue
-		}
-		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(group), conv.PrefixRoleName(authorization.Root)); err != nil {
-			return nil, fmt.Errorf("add role for group %s: %w", group, err)
-		}
-	}
-
-	for _, viewerGroup := range conf.ViewerRootGroups {
-		if strings.TrimSpace(viewerGroup) == "" {
-			continue
-		}
-		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(viewerGroup), conv.PrefixRoleName(authorization.Viewer)); err != nil {
-			return nil, fmt.Errorf("add viewer role for group %s: %w", viewerGroup, err)
-		}
+	if err := applyEnvConfig(enforcer, conf, authNconf); err != nil {
+		return nil, errors.Wrapf(err, "apply env config")
 	}
 
 	if err := enforcer.SavePolicy(); err != nil {
@@ -196,6 +145,65 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 	}
 
 	return enforcer, nil
+}
+
+func applyEnvConfig(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication) error {
+	// remove preexisting root role including assignments
+	_, err := enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
+	if err != nil {
+		return err
+	}
+	_, err = enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(authorization.Root))
+	if err != nil {
+		return err
+	}
+
+	// add pre existing roles
+	for name, verb := range conv.BuiltInPolicies {
+		if verb == "" {
+			continue
+		}
+		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(name), "*", verb, "*"); err != nil {
+			return fmt.Errorf("add policy: %w", err)
+		}
+	}
+
+	for i := range conf.RootUsers {
+		if strings.TrimSpace(conf.RootUsers[i]) == "" {
+			continue
+		}
+
+		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.RootUsers[i]) {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputDb), conv.PrefixRoleName(authorization.Root)); err != nil {
+				return fmt.Errorf("add role for user: %w", err)
+			}
+		}
+
+		if authNconf.OIDC.Enabled {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Root)); err != nil {
+				return fmt.Errorf("add role for user: %w", err)
+			}
+		}
+	}
+
+	for _, group := range conf.RootGroups {
+		if strings.TrimSpace(group) == "" {
+			continue
+		}
+		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(group), conv.PrefixRoleName(authorization.Root)); err != nil {
+			return fmt.Errorf("add role for group %s: %w", group, err)
+		}
+	}
+
+	for _, viewerGroup := range conf.ViewerRootGroups {
+		if strings.TrimSpace(viewerGroup) == "" {
+			continue
+		}
+		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(viewerGroup), conv.PrefixRoleName(authorization.Viewer)); err != nil {
+			return fmt.Errorf("add viewer role for group %s: %w", viewerGroup, err)
+		}
+	}
+	return nil
 }
 
 func WeaviateMatcher(key1 string, key2 string) bool {
