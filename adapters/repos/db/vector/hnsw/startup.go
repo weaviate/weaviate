@@ -223,7 +223,21 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					)
 				})
 			} else {
-				panic("Restore RQ Compressor for multi vector not implemented")
+				h.trackRQOnce.Do(func() {
+					h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
+						h.distancerProvider,
+						1e12,
+						h.logger,
+						int(data.InputDim),
+						int(data.Bits),
+						int(data.Rotation.OutputDim),
+						int(data.Rotation.Rounds),
+						data.Rotation.Swaps,
+						data.Rotation.Signs,
+						h.store,
+						h.allocChecker,
+					)
+				})
 			}
 			if err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")

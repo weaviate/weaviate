@@ -655,7 +655,7 @@ func NewRQCompressor(
 			logger:          logger,
 		}
 	default:
-		panic("invalid bits value")
+		return nil, errors.New("invalid bits value, only 8 bits are supported")
 	}
 	rqVectorsCompressor.initCompressedStore()
 	rqVectorsCompressor.cache = cache.NewShardedByteLockCache(
@@ -694,7 +694,7 @@ func RestoreRQCompressor(
 			logger:          logger,
 		}
 	default:
-		panic("invalid bits value")
+		return nil, errors.New("invalid bits value, only 8 bits are supported")
 	}
 	rqVectorsCompressor.initCompressedStore()
 	rqVectorsCompressor.cache = cache.NewShardedByteLockCache(
@@ -726,7 +726,7 @@ func NewRQMultiCompressor(
 			logger:          logger,
 		}
 	default:
-		panic("invalid bits value")
+		return nil, errors.New("invalid bits value, only 8 bits are supported")
 	}
 	rqVectorsCompressor.initCompressedStore()
 	rqVectorsCompressor.cache = cache.NewShardedMultiByteLockCache(
@@ -765,7 +765,7 @@ func RestoreRQMultiCompressor(
 			logger:          logger,
 		}
 	default:
-		panic("invalid bits value")
+		return nil, errors.New("invalid bits value, only 8 bits are supported")
 	}
 	rqVectorsCompressor.initCompressedStore()
 	rqVectorsCompressor.cache = cache.NewShardedMultiByteLockCache(
