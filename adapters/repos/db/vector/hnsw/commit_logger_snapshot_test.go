@@ -527,10 +527,10 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 			expectedCreated:     false,
 		},
 		{
-			name:                "big enough delta size (required 125%)",
+			name:                "big enough delta size (required 110%)",
 			setup:               []any{"1000.condensed", s1982, "1001", 2510},
 			delta:               []any{"1002", 1200},
-			deltaSizePercentage: 125,
+			deltaSizePercentage: 110,
 			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
 			expectedCreated:     true,
 		},
