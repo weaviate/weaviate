@@ -132,6 +132,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			h.trackMuveraOnce.Do(func() {
 				h.muveraEncoder.LoadMuveraConfig(*state.EncoderMuvera)
 			})
+			h.muvera.Store(true)
 		}
 	}
 
