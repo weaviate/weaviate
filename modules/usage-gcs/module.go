@@ -278,7 +278,7 @@ func (m *module) collectAndUploadUsage(ctx context.Context) error {
 	return m.uploadUsageData(ctx, usage)
 }
 
-func (m *module) collectUsageData(ctx context.Context) (*clusterusage.Response, error) {
+func (m *module) collectUsageData(ctx context.Context) (*clusterusage.Report, error) {
 	usage, err := m.usageService.Usage(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get usage data: %w", err)
@@ -302,7 +302,7 @@ func (m *module) collectUsageData(ctx context.Context) (*clusterusage.Response, 
 	return usage, nil
 }
 
-func (m *module) uploadUsageData(ctx context.Context, usage *clusterusage.Response) error {
+func (m *module) uploadUsageData(ctx context.Context, usage *clusterusage.Report) error {
 	if m.storageClient == nil {
 		return fmt.Errorf("storage client is not initialized")
 	}

@@ -235,7 +235,7 @@ func TestModule_CollectAndUploadPeriodically_StopSignal(t *testing.T) {
 
 // TestUsageResponse_Marshaling tests the JSON marshaling of usage response
 func TestUsageResponse_Marshaling(t *testing.T) {
-	u := &clusterusage.Response{
+	u := &clusterusage.Report{
 		Node: "test-node",
 		SingleTenantCollections: []*clusterusage.CollectionUsage{
 			{
@@ -266,7 +266,7 @@ func TestUsageResponse_Marshaling(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, data)
 
-	var unmarshaledUsage clusterusage.Response
+	var unmarshaledUsage clusterusage.Report
 	err = json.Unmarshal(data, &unmarshaledUsage)
 	assert.NoError(t, err)
 	assert.Equal(t, u.Node, unmarshaledUsage.Node)
@@ -306,7 +306,7 @@ func TestModule_CollectUsageData(t *testing.T) {
 	expectedNodeID := "test-node"
 	usageService := clusterusage.NewMockService(t)
 	usageService.EXPECT().Usage(mock.Anything).
-		Return(&clusterusage.Response{Node: expectedNodeID, SingleTenantCollections: []*clusterusage.CollectionUsage{}}, nil)
+		Return(&clusterusage.Report{Node: expectedNodeID, SingleTenantCollections: []*clusterusage.CollectionUsage{}}, nil)
 	mod := New(usageService)
 	mod.nodeID = expectedNodeID
 	logger := logrus.New()
@@ -330,7 +330,7 @@ func TestModule_UploadUsageData(t *testing.T) {
 	mod.bucketName = "test-bucket"
 	mod.metrics = NewMetrics(prometheus.NewRegistry())
 
-	u := &clusterusage.Response{
+	u := &clusterusage.Report{
 		Node: "test-node",
 		SingleTenantCollections: []*clusterusage.CollectionUsage{
 			{
@@ -351,7 +351,7 @@ func TestModule_UploadUsageData(t *testing.T) {
 	assert.NotEmpty(t, data)
 
 	// Verify the JSON structure
-	var unmarshaled clusterusage.Response
+	var unmarshaled clusterusage.Report
 	err = json.Unmarshal(data, &unmarshaled)
 	assert.NoError(t, err)
 	assert.Equal(t, u.Node, unmarshaled.Node)
@@ -376,7 +376,7 @@ func TestModule_UploadUsageData(t *testing.T) {
 // TestModule_CollectAndUploadUsage tests the combined collect and upload functionality
 func TestModule_CollectAndUploadUsage(t *testing.T) {
 	usageService := clusterusage.NewMockService(t)
-	usageService.EXPECT().Usage(mock.Anything).Return(&clusterusage.Response{}, nil)
+	usageService.EXPECT().Usage(mock.Anything).Return(&clusterusage.Report{}, nil)
 	mod := New(usageService)
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
@@ -480,7 +480,7 @@ func TestModule_Metrics_Updates(t *testing.T) {
 	mod.metrics = metrics
 
 	// Test usage data collection updates metrics
-	usage := &clusterusage.Response{
+	usage := &clusterusage.Report{
 		Node: "test-node",
 		SingleTenantCollections: []*clusterusage.CollectionUsage{
 			{
@@ -520,7 +520,7 @@ func TestModule_Metrics_Updates(t *testing.T) {
 
 func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
 	usageService := clusterusage.NewMockService(t)
-	usageService.EXPECT().Usage(mock.Anything).Return(&clusterusage.Response{}, nil)
+	usageService.EXPECT().Usage(mock.Anything).Return(&clusterusage.Report{}, nil)
 	mod := New(usageService)
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
