@@ -584,8 +584,8 @@ func TestDeserializerTotalReadRQ(t *testing.T) {
 		cyclemanager.NewCallbackGroupNoop())
 	require.Nil(t, err)
 
-	dimension := 10
-	bits := 8
+	dimension := uint32(10)
+	bits := uint32(8)
 	rotation := compressionhelpers.FastRotation{
 		OutputDim: 4,
 		Rounds:    5,
@@ -621,12 +621,13 @@ func TestDeserializerTotalReadRQ(t *testing.T) {
 	}
 	t.Run("add rotational quantization data to the first log", func(t *testing.T) {
 		rqData := compressionhelpers.RQData{
-			InputDim: uint32(dimension),
-			Bits:     uint32(bits),
+			InputDim: dimension,
+			Bits:     bits,
 			Rotation: rotation,
 		}
 
-		commitLogger.AddRQCompression(rqData)
+		err = commitLogger.AddRQCompression(rqData)
+		require.Nil(t, err)
 		require.Nil(t, commitLogger.Flush())
 		require.Nil(t, commitLogger.Shutdown(ctx))
 	})

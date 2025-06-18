@@ -113,9 +113,9 @@ func (l *Logger) AddSQCompression(data compressionhelpers.SQData) error {
 
 func (l *Logger) AddRQCompression(data compressionhelpers.RQData) error {
 	swapSize := 2 * data.Rotation.Rounds * (data.Rotation.OutputDim / 2) * 2
-	signSize := data.Rotation.Rounds * data.Rotation.OutputDim
+	signSize := 4 * data.Rotation.Rounds * data.Rotation.OutputDim
 	var buf bytes.Buffer
-	buf.Grow(15 + int(swapSize) + int(signSize))
+	buf.Grow(17 + int(swapSize) + int(signSize))
 
 	buf.WriteByte(byte(AddRQ))                                       // 1
 	binary.Write(&buf, binary.LittleEndian, data.InputDim)           // 4 input dim

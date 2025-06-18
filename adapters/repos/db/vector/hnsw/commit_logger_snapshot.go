@@ -1105,11 +1105,11 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 			for i := uint32(0); i < rounds; i++ {
 				signs[i] = make([]float32, outputDim)
 				for j := uint32(0); j < outputDim; j++ {
-					_, err = ReadAndHash(r, hasher, b[:1]) // RQData.Rotation.Signs[i][j]
+					_, err = ReadAndHash(r, hasher, b[:4]) // RQData.Rotation.Signs[i][j]
 					if err != nil {
 						return nil, errors.Wrapf(err, "read RQData.Rotation.Signs[i][j]")
 					}
-					signs[i][j] = float32(int8(b[0]))
+					signs[i][j] = math.Float32frombits(binary.LittleEndian.Uint32(b[:4]))
 				}
 			}
 
