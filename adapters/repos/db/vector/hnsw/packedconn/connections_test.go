@@ -881,7 +881,6 @@ func TestConnections_ElementRangeWithInsertions(t *testing.T) {
 	assert.Equal(t, len(testElements), elementCount)
 	// Use ElementsMatch to check that all elements are present regardless of order
 	assert.ElementsMatch(t, testElements, actualElements)
-
 }
 
 func TestConnections_ElementRangeConsistentIndexing(t *testing.T) {
