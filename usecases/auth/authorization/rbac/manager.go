@@ -38,15 +38,16 @@ type manager struct {
 	casbin    *casbin.SyncedCachedEnforcer
 	logger    logrus.FieldLogger
 	authNconf config.Authentication
+	rbacConf  rbacconf.Config
 }
 
-func New(rbacStoragePath string, rbac rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*manager, error) {
-	csbin, err := Init(rbac, rbacStoragePath, authNconf)
+func New(rbacStoragePath string, rbacConf rbacconf.Config, authNconf config.Authentication, logger logrus.FieldLogger) (*manager, error) {
+	csbin, err := Init(rbacConf, rbacStoragePath, authNconf)
 	if err != nil {
 		return nil, err
 	}
 
-	return &manager{csbin, logger, authNconf}, nil
+	return &manager{csbin, logger, authNconf, rbacConf}, nil
 }
 
 // there is no different between UpdateRolesPermissions and CreateRolesPermissions, purely to satisfy an interface
@@ -362,9 +363,9 @@ func (m *manager) Restore(b []byte) error {
 		}
 	}
 
-	// Save the policies to ensure they are persisted
-	if err := m.casbin.SavePolicy(); err != nil {
-		return fmt.Errorf("save policies: %w", err)
+	// environment config needs to be applied again in case there were changes since the last snapshot
+	if err := applyPredefinedRoles(m.casbin, m.rbacConf, m.authNconf); err != nil {
+		return fmt.Errorf("apply env config: %w", err)
 	}
 
 	// Load the policies to ensure they are in memory
