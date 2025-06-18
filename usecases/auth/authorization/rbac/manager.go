@@ -36,10 +36,10 @@ const (
 )
 
 type Manager struct {
-	casbin    *casbin.SyncedCachedEnforcer
-	logger    logrus.FieldLogger
-	authNconf config.Authentication
-	rbacConf  rbacconf.Config
+	casbin     *casbin.SyncedCachedEnforcer
+	logger     logrus.FieldLogger
+	authNconf  config.Authentication
+	rbacConf   rbacconf.Config
 	backupLock sync.RWMutex
 }
 
