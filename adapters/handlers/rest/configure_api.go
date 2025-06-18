@@ -41,7 +41,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors/version"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"google.golang.org/grpc"
 
 	"github.com/weaviate/fgprof"
@@ -59,6 +58,7 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/entities/concurrency"
@@ -699,32 +699,34 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		migrator.RecountProperties(ctx)
 	}
 
-	appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
-		CompletionRecorder: appState.ClusterService.Raft,
-		TasksLister:        appState.ClusterService.Raft,
-		Providers:          map[string]distributedtask.Provider{},
-		Logger:             appState.Logger,
-		MetricsRegisterer:  metricsRegisterer,
-		LocalNode:          appState.Cluster.LocalName(),
-		TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+	if appState.ServerConfig.Config.DistributedTasks.Enabled {
+		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
+			CompletionRecorder: appState.ClusterService.Raft,
+			TasksLister:        appState.ClusterService.Raft,
+			Providers:          map[string]distributedtask.Provider{},
+			Logger:             appState.Logger,
+			MetricsRegisterer:  metricsRegisterer,
+			LocalNode:          appState.Cluster.LocalName(),
+			TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
 
-		// Using a single global value for now to keep it simple. If there is a need
-		// this can be changed to provide a value per provider.
-		CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
-	})
-	enterrors.GoWrapper(func() {
-		// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
-		// and stopping tasks.
-		// Additionally, not-ready RAFT state could lead to lose of local task metadata.
-		<-storeReadyCtx.Done()
-		if !errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
-			return
-		}
-		if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
-			appState.Logger.WithError(err).WithField("action", "startup").
-				Error("failed to start distributed task scheduler")
-		}
-	}, appState.Logger)
+			// Using a single global value for now to keep it simple. If there is a need
+			// this can be changed to provide a value per provider.
+			CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		})
+		enterrors.GoWrapper(func() {
+			// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
+			// and stopping tasks.
+			// Additionally, not-ready RAFT state could lead to lose of local task metadata.
+			<-storeReadyCtx.Done()
+			if !errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
+				return
+			}
+			if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
+				appState.Logger.WithError(err).WithField("action", "startup").
+					Error("failed to start distributed task scheduler")
+			}
+		}, appState.Logger)
+	}
 
 	return appState
 }
@@ -850,7 +852,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
-	setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
+	if appState.ServerConfig.Config.DistributedTasks.Enabled {
+		setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
+	}
 
 	var grpcInstrument []grpc.ServerOption
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -896,7 +900,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
 
-		appState.DistributedTaskScheduler.Close()
+		if appState.DistributedTaskScheduler != nil {
+			appState.DistributedTaskScheduler.Close()
+		}
 
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
