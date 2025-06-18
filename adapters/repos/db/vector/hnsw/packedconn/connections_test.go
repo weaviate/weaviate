@@ -965,3 +965,17 @@ func BenchmarkReplaceLayer(b *testing.B) {
 		}
 	}
 }
+
+func TestNewWithData(t *testing.T) {
+	c, err := NewWithMaxLayer(0)
+	require.Nil(t, err)
+
+	c.appendToLayer(1, 0)
+	c.appendToLayer(9, 0)
+	c.appendToLayer(5, 0)
+
+	require.ElementsMatch(t, []uint64{1, 9, 5}, c.GetLayer(0))
+
+	copied := NewWithData(c.Data())
+	require.ElementsMatch(t, c.GetLayer(0), copied.GetLayer(0))
+}
