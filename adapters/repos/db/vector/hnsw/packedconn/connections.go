@@ -62,20 +62,13 @@ func NewWithData(data []byte) *Connections {
 	}
 
 	for i := uint8(0); i < layerCount; i++ {
-		if offset+9 > len(data) {
+		if offset+6 > len(data) { // 2 for packed, 4 for dataLen
 			break // Malformed data
 		}
 
-		// Read scheme (1 byte)
-		scheme := data[offset]
-		offset++
-
-		// Read count (4 bytes, little endian)
-		count := uint32(data[offset]) |
-			uint32(data[offset+1])<<8 |
-			uint32(data[offset+2])<<16 |
-			uint32(data[offset+3])<<24
-		offset += 4
+		// Read packed (2 bytes, little endian)
+		packed := uint16(data[offset]) | uint16(data[offset+1])<<8
+		offset += 2
 
 		// Read data length (4 bytes, little endian)
 		dataLen := uint32(data[offset]) |
@@ -94,7 +87,7 @@ func NewWithData(data []byte) *Connections {
 
 		c.layers[i] = LayerData{
 			data:   layerData,
-			packed: packSchemeAndCount(scheme, count),
+			packed: packed,
 		}
 	}
 
