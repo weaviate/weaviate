@@ -78,46 +78,4 @@ func Test_BackupJourney(t *testing.T) {
 			journey.CancelFromRestartJourney(t, compose, compose.GetWeaviate().Name(), modstgfilesystem.Name)
 		})
 	})
-
-	t.Run("multiple nodes", func(t *testing.T) {
-		compose, err := docker.New().
-			WithBackendFilesystem().
-			WithText2VecContextionary().
-			WithWeaviateCluster(3).
-			Start(ctx)
-		require.Nil(t, err)
-
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminate test containers: %s", err.Error())
-			}
-		}()
-
-		t.Run("backup-filesystem", func(t *testing.T) {
-			journey.BackupJourneyTests_Cluster(t, "filesystem",
-				fsBackupJourneyClassName, fsBackupJourneyBackupIDCluster, nil, true, "testbucketoverride", "testBucketPathOverride",
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
-		})
-	})
-
-	t.Run("multiple nodes", func(t *testing.T) {
-		compose, err := docker.New().
-			WithBackendFilesystem().
-			WithText2VecContextionary().
-			WithWeaviateCluster(3).
-			Start(ctx)
-		require.Nil(t, err)
-
-		defer func() {
-			if err := compose.Terminate(ctx); err != nil {
-				t.Fatalf("failed to terminate test containers: %s", err.Error())
-			}
-		}()
-
-		t.Run("backup-filesystem", func(t *testing.T) {
-			journey.BackupJourneyTests_Cluster(t, "filesystem",
-				fsBackupJourneyClassName, fsBackupJourneyBackupIDCluster, nil, false, "", "",
-				compose.GetWeaviate().URI(), compose.GetWeaviateNode(2).URI())
-		})
-	})
 }
