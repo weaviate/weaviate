@@ -594,7 +594,6 @@ func TestSegmentGroup_CleanupCandidates(t *testing.T) {
 	})
 
 	t.Run("multilpe segments, cleanup and compaction", func(t *testing.T) {
-		t.Skip("flaky test, needs investigation") // FIXME
 		dir := t.TempDir()
 		sg := &SegmentGroup{
 			dir: dir,
