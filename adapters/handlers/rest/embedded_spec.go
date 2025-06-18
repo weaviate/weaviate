@@ -150,6 +150,71 @@ func init() {
         }
       }
     },
+    "/authz/groups/{groupType}": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get all groups",
+        "operationId": "getGroups",
+        "parameters": [
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of group",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned to group",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no group not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups"
+        ]
+      }
+    },
     "/authz/groups/{id}/assign": {
       "post": {
         "tags": [
@@ -172,6 +237,13 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "description": "The type of group",
+                  "type": "string",
+                  "enum": [
+                    "oidc"
+                  ]
+                },
                 "roles": {
                   "description": "the roles that assigned to group",
                   "type": "array",
@@ -239,6 +311,13 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "description": "The type of group",
+                  "type": "string",
+                  "enum": [
+                    "oidc"
+                  ]
+                },
                 "roles": {
                   "description": "the roles that revoked from group",
                   "type": "array",
@@ -281,6 +360,82 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.revoke.role.group"
+        ]
+      }
+    },
+    "/authz/groups/{id}/roles/{groupType}": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to user",
+        "operationId": "getRolesForGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of group",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission",
+            "name": "includeFullRoles",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned to group",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no group not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups.roles"
         ]
       }
     },
@@ -6259,6 +6414,8 @@ func init() {
             "read_collections",
             "update_collections",
             "delete_collections",
+            "assign_and_revoke_groups",
+            "read_groups",
             "assign_and_revoke_users",
             "create_users",
             "read_users",
@@ -6310,6 +6467,24 @@ func init() {
               "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
+            }
+          }
+        },
+        "groups": {
+          "description": "resources applicable for group actions",
+          "type": "object",
+          "properties": {
+            "group": {
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "groupType": {
+              "description": "The type of group",
+              "type": "string",
+              "enum": [
+                "oidc"
+              ]
             }
           }
         },
@@ -7432,6 +7607,71 @@ func init() {
         }
       }
     },
+    "/authz/groups/{groupType}": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get all groups",
+        "operationId": "getGroups",
+        "parameters": [
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of group",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned to group",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no group not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups"
+        ]
+      }
+    },
     "/authz/groups/{id}/assign": {
       "post": {
         "tags": [
@@ -7454,6 +7694,13 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "description": "The type of group",
+                  "type": "string",
+                  "enum": [
+                    "oidc"
+                  ]
+                },
                 "roles": {
                   "description": "the roles that assigned to group",
                   "type": "array",
@@ -7521,6 +7768,13 @@ func init() {
             "schema": {
               "type": "object",
               "properties": {
+                "groupType": {
+                  "description": "The type of group",
+                  "type": "string",
+                  "enum": [
+                    "oidc"
+                  ]
+                },
                 "roles": {
                   "description": "the roles that revoked from group",
                   "type": "array",
@@ -7563,6 +7817,82 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.authz.revoke.role.group"
+        ]
+      }
+    },
+    "/authz/groups/{id}/roles/{groupType}": {
+      "get": {
+        "tags": [
+          "authz"
+        ],
+        "summary": "get roles assigned to user",
+        "operationId": "getRolesForGroup",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "group name",
+            "name": "id",
+            "in": "path",
+            "required": true
+          },
+          {
+            "enum": [
+              "oidc"
+            ],
+            "type": "string",
+            "description": "The type of group",
+            "name": "groupType",
+            "in": "path",
+            "required": true
+          },
+          {
+            "type": "boolean",
+            "default": false,
+            "description": "Whether to include detailed role information needed the roles permission",
+            "name": "includeFullRoles",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Role assigned to group",
+            "schema": {
+              "$ref": "#/definitions/RolesListResponse"
+            }
+          },
+          "400": {
+            "description": "Bad request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "no group not found"
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.authz.get.groups.roles"
         ]
       }
     },
@@ -13844,6 +14174,8 @@ func init() {
             "read_collections",
             "update_collections",
             "delete_collections",
+            "assign_and_revoke_groups",
+            "read_groups",
             "assign_and_revoke_users",
             "create_users",
             "read_users",
@@ -13895,6 +14227,24 @@ func init() {
               "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
               "type": "string",
               "default": "*"
+            }
+          }
+        },
+        "groups": {
+          "description": "resources applicable for group actions",
+          "type": "object",
+          "properties": {
+            "group": {
+              "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "groupType": {
+              "description": "The type of group",
+              "type": "string",
+              "enum": [
+                "oidc"
+              ]
             }
           }
         },
@@ -14007,6 +14357,24 @@ func init() {
           "description": "string or regex. if a specific tenant name, if left empty it will be ALL or *",
           "type": "string",
           "default": "*"
+        }
+      }
+    },
+    "PermissionGroups": {
+      "description": "resources applicable for group actions",
+      "type": "object",
+      "properties": {
+        "group": {
+          "description": "string or regex. if a specific name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "groupType": {
+          "description": "The type of group",
+          "type": "string",
+          "enum": [
+            "oidc"
+          ]
         }
       }
     },

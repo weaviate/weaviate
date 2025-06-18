@@ -79,7 +79,7 @@ func upgradePoliciesFrom129(enforcer *casbin.SyncedCachedEnforcer, keepBuildInRo
 		}
 
 		if policy[3] == authorization.UsersDomain && policy[2] == authorization.UPDATE {
-			policy[2] = authorization.USER_ASSIGN_AND_REVOKE
+			policy[2] = authorization.USER_AND_GROUP_ASSIGN_AND_REVOKE
 		}
 
 		policiesToAdd = append(policiesToAdd, policy)

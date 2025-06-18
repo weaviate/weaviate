@@ -59,6 +59,32 @@ func (m *manager) CreateRolesPermissions(roles map[string][]authorization.Policy
 	return m.upsertRolesPermissions(roles)
 }
 
+func (m *manager) GetUsersOrGroupsWithRoles(isGroup bool, authType string) ([]string, error) {
+	roles, err := m.casbin.GetAllSubjects()
+	if err != nil {
+		return nil, err
+	}
+	usersOrGroups := map[string]struct{}{}
+	for _, role := range roles {
+		users, err := m.casbin.GetUsersForRole(role)
+		if err != nil {
+			return nil, err
+		}
+		for _, user := range users {
+			if isGroup && strings.HasPrefix(user, conv.GROUP_NAME_PREFIX) {
+				usersOrGroups[user] = struct{}{}
+			}
+		}
+	}
+
+	usersOrGroupsList := make([]string, 0, len(usersOrGroups))
+	for user := range usersOrGroups {
+		usersOrGroupsList = append(usersOrGroupsList, user)
+	}
+
+	return usersOrGroupsList, nil
+}
+
 func (m *manager) upsertRolesPermissions(roles map[string][]authorization.Policy) error {
 	for roleName, policies := range roles {
 		// assign role to internal user to make sure to catch empty roles
@@ -206,11 +232,21 @@ func (m *manager) AddRolesForUser(user string, roles []string) error {
 	return nil
 }
 
-func (m *manager) GetRolesForUser(userName string, userType models.UserTypeInput) (map[string][]authorization.Policy, error) {
-	rolesNames, err := m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
-	if err != nil {
-		return nil, fmt.Errorf("GetRolesForUser: %w", err)
+func (m *manager) GetRolesForUserOrGroup(userName string, userType models.UserTypeInput, isGroup bool) (map[string][]authorization.Policy, error) {
+	var rolesNames []string
+	var err error
+	if isGroup {
+		rolesNames, err = m.casbin.GetRolesForUser(conv.PrefixGroupName(userName))
+		if err != nil {
+			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
+		}
+	} else {
+		rolesNames, err = m.casbin.GetRolesForUser(conv.UserNameWithTypeFromId(userName, userType))
+		if err != nil {
+			return nil, fmt.Errorf("GetRolesForUserOrGroup: %w", err)
+		}
 	}
+
 	if len(rolesNames) == 0 {
 		return map[string][]authorization.Policy{}, err
 	}

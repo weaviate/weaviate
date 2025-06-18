@@ -262,6 +262,25 @@ func TestRbacWithOIDCGroups(t *testing.T) {
 			defer helper.DeleteRole(t, tokenAdmin, createSchemaRoleName)
 			helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
 
+			roles := helper.GetRolesForGroup(t, tokenAdmin, "custom-group", false)
+			require.Len(t, roles, 0)
+
+			// assigning role to group and now user has permission
+			helper.AssignRoleToGroup(t, tokenAdmin, createSchemaRoleName, "custom-group")
+			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+			require.NoError(t, err)
+
+			rolesWithRoles := helper.GetRolesForGroup(t, tokenAdmin, "custom-group", true)
+			require.Len(t, rolesWithRoles, 1)
+			require.Equal(t, *rolesWithRoles[0].Name, createSchemaRoleName)
+			require.Len(t, rolesWithRoles[0].Permissions, 2)
+
+			// delete class to test again after revocation
+			helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
+			helper.RevokeRoleFromGroup(t, tokenAdmin, createSchemaRoleName, "custom-group")
+			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+			require.Error(t, err)
+
 			// custom-user does not have any roles/permissions
 			err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
 			require.Error(t, err)
