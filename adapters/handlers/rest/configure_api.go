@@ -1653,7 +1653,7 @@ func registerModules(appState *state.State) error {
 	}
 
 	if _, ok := enabledModules[modusagegcs.Name]; ok {
-		appState.Modules.Register(modusagegcs.New())
+		appState.Modules.Register(modusagegcs.New(usage.NewService(appState.SchemaManager, appState.DB, appState.Modules)))
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modusagegcs.Name).
