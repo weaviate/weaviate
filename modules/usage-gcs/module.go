@@ -58,10 +58,11 @@ type module struct {
 	usageService  clusterusage.Service
 }
 
-func New() *module {
+func New(usageService clusterusage.Service) *module {
 	return &module{
-		interval: DefaultCollectionInterval,
-		stopChan: make(chan struct{}),
+		interval:     DefaultCollectionInterval,
+		stopChan:     make(chan struct{}),
+		usageService: usageService,
 	}
 }
 
