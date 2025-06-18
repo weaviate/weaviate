@@ -256,7 +256,7 @@ type BackupDescriptor struct {
 	ID            string            `json:"id"` // User created backup id
 	Classes       []ClassDescriptor `json:"classes"`
 	RbacBackups   []byte            `json:"rbacBackups"`
-	UserBackups   []byte            `json:"dynUserBackups"`
+	UserBackups   []byte            `json:"userBackups"`
 	Status        string            `json:"status"`  // "STARTED|TRANSFERRING|TRANSFERRED|SUCCESS|FAILED|CANCELED"
 	Version       string            `json:"version"` //
 	ServerVersion string            `json:"serverVersion"`
