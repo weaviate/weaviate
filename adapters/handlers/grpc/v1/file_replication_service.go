@@ -149,7 +149,7 @@ func (fps *FileReplicationService) GetFile(stream grpc.BidiStreamingServer[pb.Ge
 			return status.Errorf(codes.Internal, "failed to receive request: %v", err)
 		}
 
-		if req.GetCompression() != pb.CompressionType_NONE {
+		if req.GetCompression() != pb.CompressionType_COMPRESSION_TYPE_UNSPECIFIED {
 			return status.Errorf(codes.Unimplemented, "compression type %q is not supported", req.GetCompression())
 		}
 
