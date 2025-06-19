@@ -127,14 +127,17 @@ func loadHdf5Float32(file *hdf5.File, name string) [][]float32 {
 
 	var chunkData [][]float32
 
-	if byteSize == 4 {
+	switch byteSize {
+	case 4:
 		chunkData1D := make([]float32, rows*dimensions)
 		dataset.Read(&chunkData1D)
 		chunkData = convert1DChunk[float32](chunkData1D, int(dimensions), int(rows))
-	} else if byteSize == 8 {
+	case 8:
 		chunkData1D := make([]float64, rows*dimensions)
 		dataset.Read(&chunkData1D)
 		chunkData = convert1DChunk[float64](chunkData1D, int(dimensions), int(rows))
+	default:
+		log.Fatalf("Unable to load dataset with byte size %d\n", byteSize)
 	}
 
 	return chunkData
@@ -170,7 +173,8 @@ func loadHdf5Neighbors(file *hdf5.File, name string) [][]uint64 {
 
 	chunkData := make([][]uint64, rows)
 
-	if byteSize == 4 {
+	switch byteSize {
+	case 4:
 		chunkData1D := make([]int32, rows*dimensions)
 		dataset.Read(&chunkData1D)
 		for i := range chunkData {
@@ -179,12 +183,14 @@ func loadHdf5Neighbors(file *hdf5.File, name string) [][]uint64 {
 				chunkData[i][j] = uint64(chunkData1D[uint(i)*dimensions+j])
 			}
 		}
-	} else if byteSize == 8 {
+	case 8:
 		chunkData1D := make([]uint64, rows*dimensions)
 		dataset.Read(&chunkData1D)
 		for i := range chunkData {
 			chunkData[i] = chunkData1D[i*int(dimensions) : (i+1)*int(dimensions)]
 		}
+	default:
+		log.Fatalf("Unable to load dataset with byte size %d\n", byteSize)
 	}
 
 	return chunkData
