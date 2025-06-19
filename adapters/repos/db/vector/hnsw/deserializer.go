@@ -375,9 +375,7 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 		res.Nodes[source].connections.GrowLayersTo(uint8(level))
 	}
 
-	for _, target := range targets {
-		res.Nodes[source].connections.InsertAtLayer(target, uint8(level))
-	}
+	res.Nodes[source].connections.BulkInsertAtLayer(targets, uint8(level))
 
 	return 12 + int(length)*8, nil
 }
