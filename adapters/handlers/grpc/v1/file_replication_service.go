@@ -149,6 +149,10 @@ func (fps *FileReplicationService) GetFile(stream grpc.BidiStreamingServer[pb.Ge
 			return status.Errorf(codes.Internal, "failed to receive request: %v", err)
 		}
 
+		if req.GetCompression() != pb.CompressionType_NONE {
+			return status.Errorf(codes.Unimplemented, "compression type %q is not supported", req.GetCompression())
+		}
+
 		indexName := req.GetIndexName()
 		shardName := req.GetShardName()
 		fileName := req.GetFileName()
@@ -173,9 +177,9 @@ func (fps *FileReplicationService) GetFile(stream grpc.BidiStreamingServer[pb.Ge
 			eof := err != nil && errors.Is(err, io.EOF)
 
 			if err := stream.Send(&pb.FileChunk{
-				Content: buf[:n],
-				Offset:  int64(offset),
-				Eof:     eof,
+				Offset: int64(offset),
+				Data:   buf[:n],
+				Eof:    eof,
 			}); err != nil {
 				return status.Errorf(codes.Internal, "failed to send file chunk: %v", err)
 			}
