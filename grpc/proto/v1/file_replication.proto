@@ -7,10 +7,10 @@ option java_package = "io.weaviate.client.grpc.protocol.v1";
 option java_outer_classname = "WeaviateProto";
 
 enum CompressionType {
-  NONE = 0;     // No compression
-  GZIP = 1;     // gzip (compress/gzip)
-  ZLIB = 2;     // zlib (compress/zlib)
-  DEFLATE = 3;  // raw DEFLATE (compress/flate)
+  COMPRESSION_TYPE_UNSPECIFIED = 0;     // No compression
+  COMPRESSION_TYPE_GZIP = 1;     // gzip (compress/gzip)
+  COMPRESSION_TYPE_ZLIB = 2;     // zlib (compress/zlib)
+  COMPRESSION_TYPE_DEFLATE = 3;  // raw DEFLATE (compress/flate)
 }
 
 service FileReplicationService {
