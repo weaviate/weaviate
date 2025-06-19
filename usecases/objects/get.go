@@ -43,7 +43,6 @@ func (m *Manager) GetObject(ctx context.Context, principal *models.Principal,
 		class = className
 	}
 
-	fmt.Println("Debug!!! final resolved class name", class)
 	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(class, tenant, id))
 	if err != nil {
 		return nil, err

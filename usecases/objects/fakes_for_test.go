@@ -198,6 +198,10 @@ func (f *fakeSchemaManager) StorageCandidates() []string {
 	return []string{}
 }
 
+func (f *fakeSchemaManager) ResolveAlias(alias string) (string, bool) {
+	return "", false
+}
+
 type fakeVectorRepo struct {
 	mock.Mock
 }

@@ -270,6 +270,10 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 	return nil
 }
 
+func (f *fakeSchemaManager) ResolveAlias(alias string) (string, bool) {
+	return "", false
+}
+
 type fakeStore struct {
 	collections map[string]*models.Class
 	parser      Parser
