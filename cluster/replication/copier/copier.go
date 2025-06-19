@@ -39,7 +39,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-const concurrency = 10
+const DefaultConcurrency = 10
 
 // Copier for shard replicas, can copy a shard replica from one node to another.
 type Copier struct {
@@ -50,6 +50,8 @@ type Copier struct {
 	// remoteIndex allows you to "call" methods on other nodes, in this case, we'll be "calling"
 	// methods on the source node to perform the copy
 	remoteIndex types.RemoteIndex
+	// concurrentWorkers is the number of concurrent workers to use for copying files
+	concurrentWorkers int
 	// rootDataPath is the local path to the root data directory for the shard, we'll copy files
 	// to this path
 	rootDataPath string
@@ -62,15 +64,20 @@ type Copier struct {
 
 // New creates a new shard replica Copier.
 func New(clientFactory FileReplicationServiceClientFactory, remoteIndex types.RemoteIndex, nodeSelector cluster.NodeSelector,
-	rootPath string, dbWrapper types.DbWrapper, logger logrus.FieldLogger,
+	concurrentWorkers int, rootPath string, dbWrapper types.DbWrapper, logger logrus.FieldLogger,
 ) *Copier {
+	if concurrentWorkers <= 0 {
+		concurrentWorkers = DefaultConcurrency
+	}
+
 	return &Copier{
-		clientFactory: clientFactory,
-		remoteIndex:   remoteIndex,
-		nodeSelector:  nodeSelector,
-		rootDataPath:  rootPath,
-		dbWrapper:     dbWrapper,
-		logger:        logger,
+		clientFactory:     clientFactory,
+		remoteIndex:       remoteIndex,
+		nodeSelector:      nodeSelector,
+		concurrentWorkers: concurrentWorkers,
+		rootDataPath:      rootPath,
+		dbWrapper:         dbWrapper,
+		logger:            logger,
 	}
 }
 
@@ -136,7 +143,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 	metadataChan := make(chan *pbv1.FileMetadata, 1000)
 	var metaWG sync.WaitGroup
 
-	for range concurrency {
+	for range c.concurrentWorkers {
 		metaWG.Add(1)
 
 		enterrors.GoWrapper(func() {
@@ -150,7 +157,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 
 	var dlWG sync.WaitGroup
 
-	for range concurrency {
+	for range c.concurrentWorkers {
 		dlWG.Add(1)
 
 		enterrors.GoWrapper(func() {

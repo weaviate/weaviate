@@ -195,10 +195,6 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 					Crc32:     fileMetadata.CRC32,
 				}, nil).Times(1)
 
-			mockBidirectionalFileMetadataStream.EXPECT().
-				Recv().
-				Return(nil, io.EOF)
-
 			mockBidirectionalFileChunkStream.EXPECT().
 				Recv().
 				Return(&pbv1.FileChunk{
@@ -206,10 +202,6 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 					Data:   remoteFilePath.fileContent,
 					Eof:    true,
 				}, nil).Times(1)
-
-			mockBidirectionalFileChunkStream.EXPECT().
-				Recv().
-				Return(nil, io.EOF)
 
 			mockBidirectionalFileChunkStream.EXPECT().
 				Send(&pbv1.GetFileRequest{
@@ -220,6 +212,14 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 
 			remoteFileRelativePaths = append(remoteFileRelativePaths, remoteFilePath.relativeFilePath)
 		}
+
+		mockBidirectionalFileMetadataStream.EXPECT().
+			Recv().
+			Return(nil, io.EOF)
+
+		mockBidirectionalFileChunkStream.EXPECT().
+			Recv().
+			Return(nil, io.EOF)
 
 		mockClient.EXPECT().GetFileMetadata(
 			mock.Anything,
@@ -246,7 +246,7 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 
 		logger, _ := logrusTest.NewNullLogger()
 
-		copier := New(mockClientFactory, mockRemoteIndex, fakeNodeSelector, localTmpDir, nil, logger)
+		copier := New(mockClientFactory, mockRemoteIndex, fakeNodeSelector, 1, localTmpDir, nil, logger)
 		err = copier.CopyReplicaFiles(t.Context(), "node1", "collection", "shard", 0)
 		require.NoError(t, err)
 
