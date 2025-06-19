@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -206,6 +206,10 @@ func (d *DockerCompose) GetOllamaGenerative() *DockerContainer {
 
 func (d *DockerCompose) GetMockOIDC() *DockerContainer {
 	return d.getContainerByName(MockOIDC)
+}
+
+func (d *DockerCompose) GetMockOIDCHelper() *DockerContainer {
+	return d.getContainerByName(MockOIDCHelper)
 }
 
 func (d *DockerCompose) getContainerByName(name string) *DockerContainer {

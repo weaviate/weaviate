@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -108,8 +108,8 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 			return err
 		}
 
-		meteredReader := diskio.NewMeteredReader(bufio.NewReaderSize(cl.file, 32*1024), b.metrics.TrackStartupReadWALDiskIO)
-
+		meteredReader := diskio.NewMeteredReader(cl.file, b.metrics.TrackStartupReadWALDiskIO)
+		bufio.NewReaderSize(meteredReader, 32*1024)
 		err = newCommitLoggerParser(b.strategy, meteredReader, mt).Do()
 		if err != nil {
 			b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").

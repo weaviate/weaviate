@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -31,7 +31,7 @@ func (sg *SegmentGroup) newRoaringSetRangeReaders() ([]roaringsetrange.InnerRead
 
 func (s *segment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
 	var segmentCursor roaringsetrange.SegmentCursor
-	if s.mmapContents {
+	if s.readFromMemory {
 		segmentCursor = roaringsetrange.NewSegmentCursorMmap(s.contents[s.dataStartPos:s.dataEndPos])
 	} else {
 		sectionReader := io.NewSectionReader(s.contentFile, int64(s.dataStartPos), int64(s.dataEndPos))
@@ -46,7 +46,7 @@ func (s *segment) newRoaringSetRangeReader() *roaringsetrange.SegmentReader {
 }
 
 func (s *segment) newRoaringSetRangeCursor() roaringsetrange.SegmentCursor {
-	if s.mmapContents {
+	if s.readFromMemory {
 		return roaringsetrange.NewSegmentCursorMmap(s.contents[s.dataStartPos:s.dataEndPos])
 	}
 

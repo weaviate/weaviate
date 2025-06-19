@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -236,6 +236,10 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			},
 			policiesExpected: [][]string{
 				{"role:some_role", "users/.*", "A", "users"},
+				// build-in roles are added after restore
+				{"role:viewer", "*", authorization.READ, "*"},
+				{"role:admin", "*", conv.VALID_VERBS, "*"},
+				{"role:root", "*", conv.VALID_VERBS, "*"},
 			},
 		},
 		{
@@ -247,6 +251,8 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			policiesExpected: [][]string{
 				{"role:viewer", "*", "R", "*"},
 				{"role:admin", "*", conv.VALID_VERBS, "*"},
+				// build-in roles are added after restore
+				{"role:root", "*", conv.VALID_VERBS, "*"},
 			},
 		},
 		{
@@ -256,6 +262,9 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			},
 			policiesExpected: [][]string{
 				{"role:admin", "*", "(C)|(R)|(U)|(D)|(A)", "*"},
+				// build-in roles are added after restore
+				{"role:viewer", "*", authorization.READ, "*"},
+				{"role:root", "*", conv.VALID_VERBS, "*"},
 			},
 			groupingsInput: [][]string{
 				{"user:test-user", "role:admin"},
@@ -283,7 +292,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 
 			finalPolicies, err := m.casbin.GetPolicy()
 			require.NoError(t, err)
-			assert.Equal(t, finalPolicies, tt.policiesExpected)
+			assert.ElementsMatch(t, finalPolicies, tt.policiesExpected)
 
 			finalGroupingPolicies, err := m.casbin.GetGroupingPolicy()
 			require.NoError(t, err)

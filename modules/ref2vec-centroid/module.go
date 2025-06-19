@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,9 +13,9 @@ package modcentroid
 
 import (
 	"context"
-	"net/http"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -40,11 +40,6 @@ func (m *CentroidModule) Name() string {
 
 func (m *CentroidModule) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	m.logger = params.GetLogger()
-	return nil
-}
-
-func (m *CentroidModule) RootHandler() http.Handler {
-	// TODO: remove from overall module, this is a capability
 	return nil
 }
 

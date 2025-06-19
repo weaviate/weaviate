@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -57,37 +57,6 @@ func TestClient(t *testing.T) {
 				Service: "bedrock",
 				Region:  "region",
 				Model:   "model",
-			})
-
-		assert.Nil(t, err)
-		assert.Equal(t, expected, res)
-	})
-
-	t.Run("when all is fine - Sagemaker", func(t *testing.T) {
-		server := httptest.NewServer(&fakeHandler{t: t})
-		defer server.Close()
-		c := &awsClient{
-			httpClient:   &http.Client{},
-			logger:       nullLogger(),
-			awsAccessKey: "access_key",
-			awsSecret:    "secret",
-			buildBedrockUrlFn: func(service, region, model string) string {
-				return server.URL
-			},
-			buildSagemakerUrlFn: func(service, region, endpoint string) string {
-				return server.URL
-			},
-		}
-		expected := &ent.VectorizationResult{
-			Text:       "This is my text",
-			Vector:     []float32{0.1, 0.2, 0.3},
-			Dimensions: 3,
-		}
-		res, err := c.Vectorize(context.Background(), []string{"This is my text"},
-			ent.VectorizationConfig{
-				Service:  "sagemaker",
-				Region:   "region",
-				Endpoint: "endpoint",
 			})
 
 		assert.Nil(t, err)
@@ -390,7 +359,7 @@ func (f *fakeHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		var req sagemakerEmbeddingsRequest
 		require.Nil(f.t, json.Unmarshal(bodyBytes, &req))
 
-		textInputs := req.TextInputs
+		textInputs := req.Inputs
 		assert.Greater(f.t, len(textInputs), 0)
 		embeddingResponse := &sagemakerEmbeddingResponse{
 			Embedding: [][]float32{{0.1, 0.2, 0.3}},

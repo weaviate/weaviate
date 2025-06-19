@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -227,6 +227,13 @@ func TestCompaction(t *testing.T) {
 		{
 			name: "compactionMapStrategy_RemoveUnnecessary",
 			f:    compactionMapStrategy_RemoveUnnecessary,
+			opts: []BucketOption{
+				WithStrategy(StrategyMapCollection),
+			},
+		},
+		{
+			name: "compactionMapStrategy_HugeEntries",
+			f:    compactionMapStrategy_HugeEntries,
 			opts: []BucketOption{
 				WithStrategy(StrategyMapCollection),
 			},

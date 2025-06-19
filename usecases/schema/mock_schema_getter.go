@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -723,7 +723,8 @@ func (_c *MockSchemaGetter_TenantsShards_Call) RunAndReturn(run func(context.Con
 func NewMockSchemaGetter(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockSchemaGetter {
+},
+) *MockSchemaGetter {
 	mock := &MockSchemaGetter{}
 	mock.Mock.Test(t)
 
