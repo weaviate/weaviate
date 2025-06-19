@@ -105,7 +105,6 @@ func randomUniformVector(d int, rng *rand.Rand) []float32 {
 	return x
 }
 
-// Consider adding an inverse transform to restore the input vector.
 func TestRQEncodeRestore(t *testing.T) {
 	n := 10
 	rng := newRNG(7542)
@@ -136,9 +135,6 @@ func TestRQEncodeRestore(t *testing.T) {
 	}
 }
 
-// TODO: Test that the code makes use of the full 8-bit range.
-
-// TODO: Test that RQ obeys the empirical extended RaBitQ bounds (test exists in previous version).
 func TestRQDistancer(t *testing.T) {
 	metrics := []distancer.Provider{
 		distancer.NewCosineDistanceProvider(),
@@ -239,7 +235,6 @@ func TestRQDistancerRandomVectorsWithScaling(t *testing.T) {
 			// Suppose we are seeing absolute errors of estimation of size eps when working with unit vectors.
 			// Then the error when scaling should scale roughly with the product of the scaling factors for the inner product.
 			// For the Euclidean distance things are slightly more complex.
-			// TODO: Do this rigorously.
 			assert.Less(t, math.Abs(float64(estimate-target)), float64(s1*s2*0.004), "Failure at a dimensionality of %d, metric %s", d, m.Type())
 		}
 	}
@@ -252,6 +247,7 @@ func BenchmarkRQEncode(b *testing.B) {
 	for _, dim := range dimensions {
 		quantizer := defaultRotationalQuantizer(dim, rng.Uint64())
 		x := make([]float32, dim)
+		x[0] = 1
 		b.Run(fmt.Sprintf("FastRQEncode-d%d", dim), func(b *testing.B) {
 			for b.Loop() {
 				quantizer.Encode(x)
