@@ -6,6 +6,13 @@ option go_package = "github.com/weaviate/weaviate/grpc/generated;protocol";
 option java_package = "io.weaviate.client.grpc.protocol.v1";
 option java_outer_classname = "WeaviateProto";
 
+enum CompressionType {
+  NONE = 0;     // No compression
+  GZIP = 1;     // gzip (compress/gzip)
+  ZLIB = 2;     // zlib (compress/zlib)
+  DEFLATE = 3;  // raw DEFLATE (compress/flate)
+}
+
 service FileReplicationService {
   rpc PauseFileActivity (PauseFileActivityRequest) returns (PauseFileActivityResponse);
 
@@ -68,10 +75,11 @@ message GetFileRequest {
   string index_name = 1;
   string shard_name = 2;
   string file_name = 3;
+  CompressionType compression = 4; // Requested compression algorithm for streamed chunks
 }
 
 message FileChunk {
-  bytes content = 4;
-  int64 offset = 5;
-  bool eof = 6;
+  int64 offset = 1; // Byte offset in the uncompressed file
+  bytes data = 2; // Compressed or raw chunk data
+  bool eof = 3; // Indicates final chunk
 }

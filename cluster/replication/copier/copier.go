@@ -14,7 +14,6 @@ package copier
 import (
 	"bufio"
 	"context"
-	"encoding/base64"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -33,12 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
-	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/integrity"
-	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
-	"google.golang.org/grpc/credentials/insecure"
-	"google.golang.org/grpc/metadata"
 
 	pbv1 "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 
@@ -49,10 +43,8 @@ const concurrency = 10
 
 // Copier for shard replicas, can copy a shard replica from one node to another.
 type Copier struct {
-	// grpcConfig is used to create a gRPC client connection to the remote node
-	grpcConfig config.GRPC
-	// basicAuth is used to authenticate the remote node, in this case, we use a static username and password
-	basicAuth cluster.BasicAuth
+	// clientFactory is a factory function to create a gRPC client for the remote node
+	clientFactory FileReplicationServiceClientFactory
 	// nodeSelector converts node IDs to hostnames
 	nodeSelector cluster.NodeSelector
 	// remoteIndex allows you to "call" methods on other nodes, in this case, we'll be "calling"
@@ -69,54 +61,29 @@ type Copier struct {
 }
 
 // New creates a new shard replica Copier.
-func New(grpcConfig config.GRPC, basicAuth cluster.BasicAuth, t types.RemoteIndex, nodeSelector cluster.NodeSelector,
+func New(clientFactory FileReplicationServiceClientFactory, remoteIndex types.RemoteIndex, nodeSelector cluster.NodeSelector,
 	rootPath string, dbWrapper types.DbWrapper, logger logrus.FieldLogger,
 ) *Copier {
 	return &Copier{
-		grpcConfig:   grpcConfig,
-		basicAuth:    basicAuth,
-		remoteIndex:  t,
-		nodeSelector: nodeSelector,
-		rootDataPath: rootPath,
-		dbWrapper:    dbWrapper,
-		logger:       logger,
+		clientFactory: clientFactory,
+		remoteIndex:   remoteIndex,
+		nodeSelector:  nodeSelector,
+		rootDataPath:  rootPath,
+		dbWrapper:     dbWrapper,
+		logger:        logger,
 	}
 }
 
 // CopyReplicaFiles copies a shard replica from the source node to this node.
 func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
-	var creds credentials.TransportCredentials
-
-	useTLS := len(c.grpcConfig.CertFile) > 0
-
-	if useTLS {
-		creds = credentials.NewClientTLSFromCert(nil, "")
-	} else {
-		creds = insecure.NewCredentials() // use insecure credentials for testing
-	}
-
 	sourceNodeAddress := c.nodeSelector.NodeAddress(srcNodeId)
 	sourceNodeGRPCPort := c.nodeSelector.NodeGRPCPort(srcNodeId)
 
-	clientConn, err := grpc.NewClient(
-		fmt.Sprintf("%s:%d", sourceNodeAddress, sourceNodeGRPCPort),
-		grpc.WithTransportCredentials(creds),
-	)
+	client, err := c.clientFactory(ctx, fmt.Sprintf("%s:%d", sourceNodeAddress, sourceNodeGRPCPort))
 	if err != nil {
 		return fmt.Errorf("failed to create gRPC client connection: %w", err)
 	}
-	defer clientConn.Close()
-
-	client := pbv1.NewFileReplicationServiceClient(clientConn)
-
-	if c.basicAuth.Enabled() {
-		auth := base64.StdEncoding.EncodeToString([]byte(c.basicAuth.Username + ":" + c.basicAuth.Password))
-		md := metadata.New(map[string]string{
-			"authorization": "Basic " + auth,
-		})
-
-		ctx = metadata.NewOutgoingContext(ctx, md)
-	}
+	defer client.Close()
 
 	_, err = client.PauseFileActivity(ctx, &pbv1.PauseFileActivityRequest{
 		IndexName:     collectionName,
@@ -277,7 +244,7 @@ func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames 
 	return nil
 }
 
-func (c *Copier) metadataWorker(ctx context.Context, client pbv1.FileReplicationServiceClient,
+func (c *Copier) metadataWorker(ctx context.Context, client FileReplicationServiceClient,
 	collectionName, shardName string, fileNameChan <-chan string, metadataChan chan<- *pbv1.FileMetadata,
 	wg *sync.WaitGroup,
 ) error {
@@ -317,7 +284,7 @@ func (c *Copier) metadataWorker(ctx context.Context, client pbv1.FileReplication
 	return nil
 }
 
-func (c *Copier) downloadWorker(ctx context.Context, client pbv1.FileReplicationServiceClient,
+func (c *Copier) downloadWorker(ctx context.Context, client FileReplicationServiceClient,
 	metadataChan <-chan *pbv1.FileMetadata, wg *sync.WaitGroup,
 ) error {
 	defer wg.Done()
@@ -376,8 +343,8 @@ func (c *Copier) downloadWorker(ctx context.Context, client pbv1.FileReplication
 				return fmt.Errorf("failed to receive file chunk for %s: %w", meta.FileName, err)
 			}
 
-			if len(chunk.Content) > 0 {
-				_, err = wbuf.Write(chunk.Content)
+			if len(chunk.Data) > 0 {
+				_, err = wbuf.Write(chunk.Data)
 				if err != nil {
 					return fmt.Errorf("writing chunk to file %q: %w", localFilePath+".tmp", err)
 				}
