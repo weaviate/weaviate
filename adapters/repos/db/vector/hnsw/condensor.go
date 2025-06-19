@@ -192,6 +192,15 @@ func writeUint16(w io.Writer, in uint16) error {
 	return err
 }
 
+const writeFloat32Size = 4
+
+func writeFloat32(w io.Writer, in float32) error {
+	var b [writeFloat32Size]byte
+	binary.LittleEndian.PutUint32(b[:], math.Float32bits(in))
+	_, err := w.Write(b[:])
+	return err
+}
+
 const writeByteSize = 1
 
 func writeByte(w io.Writer, in byte) error {

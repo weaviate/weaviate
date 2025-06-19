@@ -834,10 +834,10 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 
 		for _, sign := range state.CompressionRQData.Rotation.Signs {
 			for _, dim := range sign {
-				if err := writeByte(w, byte(dim)); err != nil {
+				if err := writeFloat32(w, dim); err != nil {
 					return 0, err
 				}
-				offset += writeByteSize
+				offset += writeFloat32Size
 			}
 		}
 
