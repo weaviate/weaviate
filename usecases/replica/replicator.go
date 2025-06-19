@@ -41,8 +41,8 @@ const (
 
 type (
 	router interface {
-		BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error)
-		BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.RoutingPlan, error)
+		BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error)
+		BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error)
 		NodeHostname(nodeName string) (string, bool)
 		AllHostnames() []string
 	}
