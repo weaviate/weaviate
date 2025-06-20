@@ -103,7 +103,8 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 
 	backendProvider := newFakeBackupBackendProvider(localDir)
 	n.backupManager = ubak.NewHandler(
-		logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider)
+		logger, &fakeAuthorizer{}, n.schemaManager, n.repo, backendProvider, fakeRbacBackupWrapper{}, fakeRbacBackupWrapper{},
+	)
 
 	backupClient := clients.NewClusterBackups(&http.Client{})
 	n.scheduler = ubak.NewScheduler(
@@ -128,6 +129,24 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 		panic(err)
 	}
 	n.hostname = u.Host
+}
+
+type fakeRbacBackupWrapper struct{}
+
+func (r fakeRbacBackupWrapper) GetBackupItems(context.Context) (map[string][]byte, error) {
+	return nil, nil
+}
+
+func (r fakeRbacBackupWrapper) WriteBackupItems(context.Context, map[string][]byte) error {
+	return nil
+}
+
+func (r fakeRbacBackupWrapper) Snapshot() ([]byte, error) {
+	return nil, nil
+}
+
+func (r fakeRbacBackupWrapper) Restore([]byte) error {
+	return nil
 }
 
 type fakeSchemaManager struct {

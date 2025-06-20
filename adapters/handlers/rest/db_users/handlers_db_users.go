@@ -568,7 +568,6 @@ func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool
 	if principal == nil {
 		return false
 	}
-
 	for _, groupName := range principal.Groups {
 		if slices.Contains(h.rbacConfig.RootGroups, groupName) {
 			return true
