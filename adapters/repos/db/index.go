@@ -2012,10 +2012,7 @@ func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
 }
 
 func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
-	mustLoad := true
-	if implicitShardLoading {
-		mustLoad = false
-	}
+	mustLoad := !implicitShardLoading
 	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading)
 }
 
