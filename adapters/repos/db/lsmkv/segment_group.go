@@ -261,34 +261,25 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		var segment Segment
+		sgConf := segmentConfig{
+			mmapContents:             sg.mmapContents,
+			useBloomFilter:           sg.useBloomFilter,
+			calcCountNetAdditions:    sg.calcCountNetAdditions,
+			overwriteDerived:         true,
+			enableChecksumValidation: sg.enableChecksumValidation,
+			MinMMapSize:              sg.MinMMapSize,
+			allocChecker:             sg.allocChecker,
+		}
 		if lazySegmentLoading {
 			segment, err = newLazySegment(rightSegmentPath, logger,
-				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]),
-				segmentConfig{
-					mmapContents:             sg.mmapContents,
-					useBloomFilter:           sg.useBloomFilter,
-					calcCountNetAdditions:    sg.calcCountNetAdditions,
-					overwriteDerived:         true,
-					enableChecksumValidation: sg.enableChecksumValidation,
-					MinMMapSize:              sg.MinMMapSize,
-					allocChecker:             sg.allocChecker,
-				},
+				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), sgConf,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("init lazy segment %s: %w", rightSegmentFilename, err)
 			}
 		} else {
 			segment, err = newSegment(rightSegmentPath, logger,
-				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]),
-				segmentConfig{
-					mmapContents:             sg.mmapContents,
-					useBloomFilter:           sg.useBloomFilter,
-					calcCountNetAdditions:    sg.calcCountNetAdditions,
-					overwriteDerived:         true,
-					enableChecksumValidation: sg.enableChecksumValidation,
-					MinMMapSize:              sg.MinMMapSize,
-					allocChecker:             sg.allocChecker,
-				},
+				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), sgConf,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("init segment %s: %w", rightSegmentFilename, err)
@@ -353,34 +344,25 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		var segment Segment
+		segConf := segmentConfig{
+			mmapContents:             sg.mmapContents,
+			useBloomFilter:           sg.useBloomFilter,
+			calcCountNetAdditions:    sg.calcCountNetAdditions,
+			overwriteDerived:         false,
+			enableChecksumValidation: sg.enableChecksumValidation,
+			MinMMapSize:              sg.MinMMapSize,
+			allocChecker:             sg.allocChecker,
+		}
 		if lazySegmentLoading {
 			segment, err = newLazySegment(filepath.Join(sg.dir, entry.Name()), logger,
-				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]),
-				segmentConfig{
-					mmapContents:             sg.mmapContents,
-					useBloomFilter:           sg.useBloomFilter,
-					calcCountNetAdditions:    sg.calcCountNetAdditions,
-					overwriteDerived:         true,
-					enableChecksumValidation: sg.enableChecksumValidation,
-					MinMMapSize:              sg.MinMMapSize,
-					allocChecker:             sg.allocChecker,
-				},
+				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), segConf,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("init lazy segment %s: %w", filepath.Join(sg.dir, entry.Name()), err)
 			}
 		} else {
 			segment, err = newSegment(filepath.Join(sg.dir, entry.Name()), logger,
-				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]),
-				segmentConfig{
-					mmapContents:             sg.mmapContents,
-					useBloomFilter:           sg.useBloomFilter,
-					calcCountNetAdditions:    sg.calcCountNetAdditions,
-					overwriteDerived:         true,
-					enableChecksumValidation: sg.enableChecksumValidation,
-					MinMMapSize:              sg.MinMMapSize,
-					allocChecker:             sg.allocChecker,
-				},
+				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), segConf,
 			)
 			if err != nil {
 				return nil, fmt.Errorf("init segment %s: %w", filepath.Join(sg.dir, entry.Name()), err)
