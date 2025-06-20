@@ -315,7 +315,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 		hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.NoError(t, err)
 
-	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil, NewShardReindexerV3Noop())
+	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil, NewShardReindexerV3Noop(), false)
 	require.NoError(t, err)
 
 	index.shards.Store("shard1", shard)
