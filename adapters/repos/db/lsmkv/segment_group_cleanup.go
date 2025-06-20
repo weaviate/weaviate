@@ -602,8 +602,8 @@ func (sg *SegmentGroup) replaceSegment(segmentIdx int, tmpSegmentPath string,
 func (sg *SegmentGroup) replaceSegmentBlocking(
 	segmentIdx int, oldSegment *segment, precomputedFiles []string,
 ) (*segment, error) {
-	sg.maintenanceLock.Lock()
-	defer sg.maintenanceLock.Unlock()
+	sg.MaintenanceLockLogging("replaceSegmentBlocking")
+	defer sg.MaintenanceUnlockLogging("replaceSegmentBlocking")
 
 	start := time.Now()
 
