@@ -36,6 +36,7 @@ import (
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestObjects(t *testing.T) {
@@ -120,7 +121,9 @@ func TestObjects(t *testing.T) {
 					},
 				}}
 				objs, err := searcher.Objects(context.Background(), numObjects,
-					filter, nil, additional.Properties{}, className, []string{propName}, emptyUserTokens)
+					filter, nil, additional.Properties{}, className, []string{propName},
+					configRuntime.NewDynamicValue(false),
+					emptyUserTokens)
 				assert.Nil(t, err)
 				assert.Len(t, objs, numObjects-multiplier)
 			}
@@ -140,7 +143,9 @@ func TestObjects(t *testing.T) {
 					},
 				}}
 				objs, err := searcher.Objects(context.Background(), numObjects,
-					filter, nil, additional.Properties{}, className, []string{propName}, emptyUserTokens)
+					filter, nil, additional.Properties{}, className, []string{propName},
+					configRuntime.NewDynamicValue(false),
+					emptyUserTokens)
 				assert.Nil(t, err)
 				assert.Len(t, objs, multiplier)
 			}

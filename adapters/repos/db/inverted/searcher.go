@@ -79,7 +79,8 @@ func NewSearcher(logger logrus.FieldLogger, store *lsmkv.Store,
 func (s *Searcher) Objects(ctx context.Context, limit int,
 	filter *filters.LocalFilter, sort []filters.Sort, additional additional.Properties,
 	className schema.ClassName, properties []string,
-	disableInvertedSorter *runtime.DynamicValue[bool], userTokens []string,
+	disableInvertedSorter *runtime.DynamicValue[bool],
+	userTokens []string,
 ) ([]*storobj.Object, error) {
 	beforeFilters := time.Now()
 	allowList, err := s.docIDs(ctx, filter, additional, className, limit, userTokens)

@@ -557,7 +557,7 @@ type searchParamsPayload struct{}
 func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []string, distance float32, limit int,
 	filter *filters.LocalFilter, keywordRanking *searchparams.KeywordRanking,
 	sort []filters.Sort, cursor *filters.Cursor, groupBy *searchparams.GroupBy,
-	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string,
+	addP additional.Properties, targetCombination *dto.TargetCombination, properties []string, userTokens []string,
 ) ([]byte, error) {
 	var vector []float32
 	var targetVector string
@@ -570,7 +570,7 @@ func (p searchParamsPayload) Marshal(vectors []models.Vector, targetVectors []st
 		}
 	}
 
-	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties}
+	par := searchParametersPayload{vector, targetVector, distance, limit, filter, keywordRanking, sort, cursor, groupBy, addP, vectors, targetVectors, targetCombination, properties, userTokens}
 	return json.Marshal(par)
 }
 

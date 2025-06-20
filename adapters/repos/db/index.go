@@ -1529,7 +1529,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
-					sort, cursor, nil, addlProps, i.replicationEnabled(), nil, properties)
+					sort, cursor, nil, addlProps, i.replicationEnabled(), nil, properties, userTokens)
 				if err != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err)
@@ -1690,6 +1690,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 	targetVectors []string, distance float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
 	targetCombination *dto.TargetCombination, properties []string, shardName string,
+	userTokens []string,
 ) ([]*storobj.Object, []float32, error) {
 	var outObjects []*storobj.Object
 	var outScores []float32
@@ -1706,7 +1707,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		// Force a search on all the replicas for the shard
 		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
 			i.logger, shardName, searchVectors, targetVectors, distance, limit, localFilters,
-			nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName(), targetCombination, properties)
+			nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName(), targetCombination, properties, userTokens)
 		// Only return an error if we failed to query remote shards AND we had no local shard to query
 		if err != nil && shard == nil {
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
@@ -1723,7 +1724,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		// Search only what is necessary
 		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
 			shardName, searchVectors, targetVectors, distance, limit, localFilters,
-			nil, sort, nil, groupBy, additional, i.replicationEnabled(), targetCombination, properties)
+			nil, sort, nil, groupBy, additional, i.replicationEnabled(), targetCombination, properties, userTokens)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 		}
@@ -1815,7 +1816,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			remoteSearches++
 			eg.Go(func() error {
 				// If we have no local shard or if we force the query to reach all replicas
-				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
+				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName, userTokens)
 				if err2 != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err2)

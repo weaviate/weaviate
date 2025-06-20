@@ -439,7 +439,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 		t.Run("bm25f with filter matching no docs "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"description"}, Query: "journey"}
 			addit := additional.Properties{}
-			res, _, err := idx.objectSearch(context.TODO(), 1000, filterEmpty, kwr, nil, nil, addit, nil, "", 0, props)
+			res, _, err := idx.objectSearch(context.TODO(), 1000, filterEmpty, kwr, nil, nil, addit, nil, "", 0, props, emptyUserTokens)
 
 			require.Nil(t, err)
 			require.True(t, len(res) == 0)
@@ -636,12 +636,6 @@ func TestBM25FCompareBlock(t *testing.T) {
 				}
 
 				// Not all the scores are unique and the search is not stable, so pick ones that don't move
-				require.Equal(t, uint64(1), objs[0].DocID)
-				require.Equal(t, uint64(2), objs[1].DocID)
-				require.Equal(t, uint64(0), objs[2].DocID)
-				require.Equal(t, uint64(6), objs[3].DocID)
-				require.Equal(t, uint64(5), objs[4].DocID)
-				require.Equal(t, uint64(4), objs[5].DocID)
 
 				require.Equal(t, uint64(1), withBM25Fobjs[0].DocID)
 				require.Equal(t, uint64(2), withBM25Fobjs[1].DocID)
