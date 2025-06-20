@@ -124,7 +124,7 @@ type Compose struct {
 	weaviateAdminlistReadOnlyUsers []string
 	withWeaviateDbUsers            bool
 	withWeaviateRbac               bool
-	weaviateRbacAdmins             []string
+	weaviateRbacRoots              []string
 	weaviateRbacRootGroups         []string
 	weaviateRbacViewers            []string
 	withSUMTransformers            bool
@@ -544,11 +544,11 @@ func (d *Compose) WithDbUsers() *Compose {
 	return d
 }
 
-func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
+func (d *Compose) WithRbacRoots(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
-	d.weaviateRbacAdmins = append(d.weaviateRbacAdmins, usernames...)
+	d.weaviateRbacRoots = append(d.weaviateRbacRoots, usernames...)
 	return d
 }
 
@@ -904,8 +904,8 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHORIZATION_RBAC_ENABLED"] = "true"
 		settings["AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"] = "false" // incompatible
 
-		if len(d.weaviateRbacAdmins) > 0 {
-			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
+		if len(d.weaviateRbacRoots) > 0 {
+			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacRoots, ",")
 		}
 		if len(d.weaviateRbacViewers) > 0 {
 			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
