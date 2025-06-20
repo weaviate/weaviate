@@ -29,6 +29,7 @@ import (
 type backupHandlers struct {
 	manager             *ubak.Scheduler
 	metricRequestsTotal restApiRequestsTotal
+	logger              logrus.FieldLogger
 }
 
 // compressionFromBCfg transforms model backup config to a backup compression config
@@ -175,22 +176,36 @@ func (s *backupHandlers) restoreBackup(params backups.BackupsRestoreParams,
 ) middleware.Responder {
 	bucket := ""
 	path := ""
+	roleOption := models.RestoreConfigRolesOptionsNoRestore
+	userOption := models.RestoreConfigUsersOptionsNoRestore
 	if params.Body.Config != nil {
 		bucket = params.Body.Config.Bucket
 		path = params.Body.Config.Path
+		if params.Body.Config.RolesOptions != nil {
+			roleOption = *params.Body.Config.RolesOptions
+		}
+		if params.Body.Config.UsersOptions != nil {
+			userOption = *params.Body.Config.UsersOptions
+		}
 	}
 	meta, err := s.manager.Restore(params.HTTPRequest.Context(), principal, &ubak.BackupRequest{
-		ID:          params.ID,
-		Backend:     params.Backend,
-		Include:     params.Body.Include,
-		Exclude:     params.Body.Exclude,
-		NodeMapping: params.Body.NodeMapping,
-		Compression: compressionFromRCfg(params.Body.Config),
-		Bucket:      bucket,
-		Path:        path,
+		ID:                params.ID,
+		Backend:           params.Backend,
+		Include:           params.Body.Include,
+		Exclude:           params.Body.Exclude,
+		NodeMapping:       params.Body.NodeMapping,
+		Compression:       compressionFromRCfg(params.Body.Config),
+		Bucket:            bucket,
+		Path:              path,
+		RbacRestoreOption: roleOption,
+		UserRestoreOption: userOption,
 	})
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
+		s.logger.WithError(err).WithField("id", params.ID).
+			WithField("backend", params.Backend).
+			WithField("bucket", bucket).WithField("path", path).
+			Warn("failed to restore backup")
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return backups.NewBackupsRestoreForbidden().
@@ -312,7 +327,7 @@ func (s *backupHandlers) list(params backups.BackupsListParams,
 func setupBackupHandlers(api *operations.WeaviateAPI,
 	scheduler *ubak.Scheduler, metrics *monitoring.PrometheusMetrics, logger logrus.FieldLogger,
 ) {
-	h := &backupHandlers{scheduler, newBackupRequestsTotal(metrics, logger)}
+	h := &backupHandlers{scheduler, newBackupRequestsTotal(metrics, logger), logger}
 	api.BackupsBackupsCreateHandler = backups.
 		BackupsCreateHandlerFunc(h.createBackup)
 	api.BackupsBackupsCreateStatusHandler = backups.

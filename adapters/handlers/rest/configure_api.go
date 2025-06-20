@@ -526,6 +526,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		SaveLegacySchema:                schemaRepo.SaveLegacySchema,
 		SentryEnabled:                   appState.ServerConfig.Config.Sentry.Enabled,
 		AuthzController:                 appState.AuthzController,
+		RBAC:                            appState.RBAC,
 		DynamicUserController:           appState.APIKey.Dynamic,
 		ReplicaCopier:                   replicaCopier,
 		AuthNConfig:                     appState.ServerConfig.Config.Authentication,
@@ -582,7 +583,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
 
 	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
-		schemaManager, repo, appState.Modules)
+		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
 	internalServer := clusterapi.NewServer(appState)
