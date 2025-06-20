@@ -39,6 +39,7 @@ type Metrics struct {
 	SegmentObjects               *prometheus.GaugeVec
 	SegmentSize                  *prometheus.GaugeVec
 	SegmentCount                 *prometheus.GaugeVec
+	SegmentUnloaded              *prometheus.GaugeVec
 	startupDurations             prometheus.ObserverVec
 	startupDiskIO                prometheus.ObserverVec
 	objectCount                  prometheus.Gauge
@@ -123,6 +124,10 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"shard_name": shardName,
 		}),
 		SegmentCount: promMetrics.LSMSegmentCountByLevel.MustCurryWith(prometheus.Labels{
+			"class_name": className,
+			"shard_name": shardName,
+		}),
+		SegmentUnloaded: promMetrics.LSMSegmentUnloaded.MustCurryWith(prometheus.Labels{
 			"class_name": className,
 			"shard_name": shardName,
 		}),

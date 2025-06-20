@@ -30,43 +30,43 @@ func TestSegmentGroup_BestCompactionPair(t *testing.T) {
 
 	tests := []struct {
 		name         string
-		segments     []*segment
+		segments     []Segment
 		expectedPair []string
 	}{
 		{
 			name: "single segment",
-			segments: []*segment{
-				{size: 1000, path: "segment0", level: 0},
+			segments: []Segment{
+				&segment{size: 1000, path: "segment0", level: 0},
 			},
 			expectedPair: nil,
 		},
 		{
 			name: "two segments, same level",
-			segments: []*segment{
-				{size: 1000, path: "segment0", level: 0},
-				{size: 1000, path: "segment1", level: 0},
+			segments: []Segment{
+				&segment{size: 1000, path: "segment0", level: 0},
+				&segment{size: 1000, path: "segment1", level: 0},
 			},
 			expectedPair: []string{"segment0", "segment1"},
 		},
 		{
 			name: "multiple segments, multiple levels, lowest level is picked",
-			segments: []*segment{
-				{size: 4000, path: "segment0", level: 2},
-				{size: 4000, path: "segment1", level: 2},
-				{size: 2000, path: "segment2", level: 1},
-				{size: 2000, path: "segment3", level: 1},
-				{size: 1000, path: "segment4", level: 0},
-				{size: 1000, path: "segment5", level: 0},
+			segments: []Segment{
+				&segment{size: 4000, path: "segment0", level: 2},
+				&segment{size: 4000, path: "segment1", level: 2},
+				&segment{size: 2000, path: "segment2", level: 1},
+				&segment{size: 2000, path: "segment3", level: 1},
+				&segment{size: 1000, path: "segment4", level: 0},
+				&segment{size: 1000, path: "segment5", level: 0},
 			},
 			expectedPair: []string{"segment4", "segment5"},
 		},
 		{
 			name: "two segments that don't fit the max size, but eliglbe segments of a lower level are present",
-			segments: []*segment{
-				{size: 8000, path: "segment0", level: 3},
-				{size: 8000, path: "segment1", level: 3},
-				{size: 4000, path: "segment2", level: 2},
-				{size: 4000, path: "segment3", level: 2},
+			segments: []Segment{
+				&segment{size: 8000, path: "segment0", level: 3},
+				&segment{size: 8000, path: "segment1", level: 3},
+				&segment{size: 4000, path: "segment2", level: 2},
+				&segment{size: 4000, path: "segment3", level: 2},
 			},
 			expectedPair: []string{"segment2", "segment3"},
 		},
@@ -83,8 +83,8 @@ func TestSegmentGroup_BestCompactionPair(t *testing.T) {
 				assert.Nil(t, pair)
 				assert.Equal(t, uint16(0), level)
 			} else {
-				leftPath := test.segments[pair[0]].path
-				rightPath := test.segments[pair[1]].path
+				leftPath := test.segments[pair[0]].getPath()
+				rightPath := test.segments[pair[1]].getPath()
 				assert.Equal(t, test.expectedPair, []string{leftPath, rightPath})
 			}
 		})
@@ -97,9 +97,9 @@ func TestSegmenGroup_CompactionLargerThanMaxSize(t *testing.T) {
 	// meaning we don't need real segments, it is only metadata that is evaluated
 	// here.
 	sg := &SegmentGroup{
-		segments: []*segment{
-			{size: 8000, path: "segment0", level: 3},
-			{size: 8000, path: "segment1", level: 3},
+		segments: []Segment{
+			&segment{size: 8000, path: "segment0", level: 3},
+			&segment{size: 8000, path: "segment1", level: 3},
 		},
 		maxSegmentSize: maxSegmentSize,
 	}
@@ -2353,7 +2353,7 @@ func runCompactionCandidatesTestCases(t *testing.T, testCases []testCaseCompacti
 			if pair != nil {
 				t.Run("compact", func(t *testing.T) {
 					compactSegments(sg, pair, tc.expectedLevel, compactionResizeFactor)
-					assert.Equal(t, tc.controlPath, sg.segments[pair[0]].path)
+					assert.Equal(t, tc.controlPath, sg.segments[pair[0]].getPath())
 				})
 			}
 		})
@@ -2365,8 +2365,8 @@ func compactSegments(sg *SegmentGroup, pair []int, newLevel uint16, resizeFactor
 	left, right := sg.segments[leftId], sg.segments[rightId]
 
 	seg := &segment{
-		path:             left.path + "+" + right.path,
-		size:             int64(float32(left.size+right.size) * resizeFactor),
+		path:             left.getPath() + "+" + right.getPath(),
+		size:             int64(float32(left.getSize()+right.getSize()) * resizeFactor),
 		level:            newLevel,
 		observeMetaWrite: func(n int64) {},
 	}
@@ -2375,57 +2375,57 @@ func compactSegments(sg *SegmentGroup, pair []int, newLevel uint16, resizeFactor
 	sg.segments = append(sg.segments[:rightId], sg.segments[rightId+1:]...)
 }
 
-func createSegments() []*segment {
-	return []*segment{
-		{path: "seg_01", level: 14, size: 836263427894},
-		{path: "seg_02", level: 13, size: 374869132170},
-		{path: "seg_03", level: 13, size: 208332808374},
-		{path: "seg_04", level: 12, size: 239015897301},
-		{path: "seg_05", level: 12, size: 106610102545},
-		{path: "seg_06", level: 12, size: 23426179335},
-		{path: "seg_07", level: 12, size: 87965523667},
-		{path: "seg_08", level: 12, size: 191582236181},
-		{path: "seg_09", level: 12, size: 210767274757},
-		{path: "seg_10", level: 12, size: 59578965712},
-		{path: "seg_11", level: 12, size: 64190979390},
-		{path: "seg_12", level: 12, size: 82209515753},
-		{path: "seg_13", level: 12, size: 75902833663},
-		{path: "seg_14", level: 12, size: 118868567716},
-		{path: "seg_15", level: 12, size: 127672461922},
-		{path: "seg_16", level: 12, size: 98975345366},
-		{path: "seg_17", level: 12, size: 68258824385},
-		{path: "seg_18", level: 12, size: 100849005187},
-		{path: "seg_19", level: 12, size: 102541173132},
-		{path: "seg_20", level: 12, size: 95981553544},
-		{path: "seg_21", level: 12, size: 159801966562},
-		{path: "seg_22", level: 12, size: 124441347108},
-		{path: "seg_23", level: 12, size: 134382829443},
-		{path: "seg_24", level: 12, size: 120928049419},
-		{path: "seg_25", level: 12, size: 96456793734},
-		{path: "seg_26", level: 12, size: 83607439705},
-		{path: "seg_27", level: 12, size: 96770548809},
-		{path: "seg_28", level: 12, size: 75610476308},
-		{path: "seg_29", level: 12, size: 90640520486},
-		{path: "seg_30", level: 12, size: 70865888540},
-		{path: "seg_31", level: 12, size: 210224834736},
-		{path: "seg_32", level: 12, size: 73153660353},
-		{path: "seg_33", level: 12, size: 76174252244},
-		{path: "seg_34", level: 12, size: 151728889040},
-		{path: "seg_35", level: 12, size: 128444521806},
-		{path: "seg_36", level: 12, size: 117679144581},
-		{path: "seg_37", level: 12, size: 75389068382},
-		{path: "seg_38", level: 12, size: 166442398845},
-		{path: "seg_39", level: 12, size: 131302230624},
-		{path: "seg_40", level: 12, size: 161545213956},
-		{path: "seg_41", level: 12, size: 85106406717},
-		{path: "seg_42", level: 12, size: 121845832221},
-		{path: "seg_43", level: 8, size: 7567704640},
-		{path: "seg_44", level: 7, size: 3025167714},
-		{path: "seg_45", level: 4, size: 372239668},
-		{path: "seg_46", level: 3, size: 176198587},
-		{path: "seg_47", level: 2, size: 92733242},
-		{path: "seg_48", level: 1, size: 45556463},
-		{path: "seg_49", level: 0, size: 24278171},
+func createSegments() []Segment {
+	return []Segment{
+		&segment{path: "seg_01", level: 14, size: 836263427894},
+		&segment{path: "seg_02", level: 13, size: 374869132170},
+		&segment{path: "seg_03", level: 13, size: 208332808374},
+		&segment{path: "seg_04", level: 12, size: 239015897301},
+		&segment{path: "seg_05", level: 12, size: 106610102545},
+		&segment{path: "seg_06", level: 12, size: 23426179335},
+		&segment{path: "seg_07", level: 12, size: 87965523667},
+		&segment{path: "seg_08", level: 12, size: 191582236181},
+		&segment{path: "seg_09", level: 12, size: 210767274757},
+		&segment{path: "seg_10", level: 12, size: 59578965712},
+		&segment{path: "seg_11", level: 12, size: 64190979390},
+		&segment{path: "seg_12", level: 12, size: 82209515753},
+		&segment{path: "seg_13", level: 12, size: 75902833663},
+		&segment{path: "seg_14", level: 12, size: 118868567716},
+		&segment{path: "seg_15", level: 12, size: 127672461922},
+		&segment{path: "seg_16", level: 12, size: 98975345366},
+		&segment{path: "seg_17", level: 12, size: 68258824385},
+		&segment{path: "seg_18", level: 12, size: 100849005187},
+		&segment{path: "seg_19", level: 12, size: 102541173132},
+		&segment{path: "seg_20", level: 12, size: 95981553544},
+		&segment{path: "seg_21", level: 12, size: 159801966562},
+		&segment{path: "seg_22", level: 12, size: 124441347108},
+		&segment{path: "seg_23", level: 12, size: 134382829443},
+		&segment{path: "seg_24", level: 12, size: 120928049419},
+		&segment{path: "seg_25", level: 12, size: 96456793734},
+		&segment{path: "seg_26", level: 12, size: 83607439705},
+		&segment{path: "seg_27", level: 12, size: 96770548809},
+		&segment{path: "seg_28", level: 12, size: 75610476308},
+		&segment{path: "seg_29", level: 12, size: 90640520486},
+		&segment{path: "seg_30", level: 12, size: 70865888540},
+		&segment{path: "seg_31", level: 12, size: 210224834736},
+		&segment{path: "seg_32", level: 12, size: 73153660353},
+		&segment{path: "seg_33", level: 12, size: 76174252244},
+		&segment{path: "seg_34", level: 12, size: 151728889040},
+		&segment{path: "seg_35", level: 12, size: 128444521806},
+		&segment{path: "seg_36", level: 12, size: 117679144581},
+		&segment{path: "seg_37", level: 12, size: 75389068382},
+		&segment{path: "seg_38", level: 12, size: 166442398845},
+		&segment{path: "seg_39", level: 12, size: 131302230624},
+		&segment{path: "seg_40", level: 12, size: 161545213956},
+		&segment{path: "seg_41", level: 12, size: 85106406717},
+		&segment{path: "seg_42", level: 12, size: 121845832221},
+		&segment{path: "seg_43", level: 8, size: 7567704640},
+		&segment{path: "seg_44", level: 7, size: 3025167714},
+		&segment{path: "seg_45", level: 4, size: 372239668},
+		&segment{path: "seg_46", level: 3, size: 176198587},
+		&segment{path: "seg_47", level: 2, size: 92733242},
+		&segment{path: "seg_48", level: 1, size: 45556463},
+		&segment{path: "seg_49", level: 0, size: 24278171},
 	}
 }
 

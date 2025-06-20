@@ -266,7 +266,7 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates, req.ImplicitUpdateRequest); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "update_tenants",
 			"class":  class,
@@ -298,7 +298,7 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates, false); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",

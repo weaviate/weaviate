@@ -339,7 +339,7 @@ func (f *fakeMigrator) NewTenants(ctx context.Context, class *models.Class, crea
 	return args.Error(0)
 }
 
-func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload) error {
+func (f *fakeMigrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*UpdateTenantPayload, implicitUpdate bool) error {
 	args := f.Called(ctx, class, updates)
 	return args.Error(0)
 }

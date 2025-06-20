@@ -30,7 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 )
 
-func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
+func (s *Shard) initNonVector(ctx context.Context, class *models.Class, lazyLoadSegments bool) error {
 	before := time.Now()
 	defer func() {
 		took := time.Since(before)
@@ -82,7 +82,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 
 	// error group is passed, so properties can be initialized in parallel with
 	// the other initializations going on here.
-	s.initProperties(eg, class)
+	s.initProperties(eg, class, lazyLoadSegments)
 
 	err := eg.Wait()
 	if err != nil {
@@ -153,6 +153,7 @@ func (s *Shard) initObjectBucket(ctx context.Context) error {
 		s.segmentCleanupConfig(),
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
+		// dont lazy segment load object bucket - we need it in most (all?) operations
 	}
 
 	if s.metrics != nil && !s.metrics.grouped {
