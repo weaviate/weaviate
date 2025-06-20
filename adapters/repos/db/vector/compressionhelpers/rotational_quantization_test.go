@@ -240,6 +240,43 @@ func TestRQDistancerRandomVectorsWithScaling(t *testing.T) {
 	}
 }
 
+func TestRQCodePointDistribution(t *testing.T) {
+	rng := newRNG(999)
+	n := 100
+	bits := 8
+	codePoints := 1 << bits
+	for range n {
+		inDim := 2 + rng.IntN(1024)
+		rq := compressionhelpers.NewRotationalQuantizer(inDim, rng.Uint64(), bits, distancer.NewDotProductProvider())
+
+		// Encode m random unit vectors and mark the bytes that were used.
+		m := 100
+		byteCount := make([]int, codePoints)
+		for range m {
+			x := randomUnitVector(inDim, rng)
+			var c compressionhelpers.RQCode = rq.Encode(x)
+			codeBytes := c.Bytes()
+			for _, b := range codeBytes {
+				byteCount[b]++
+			}
+		}
+
+		uniformExpectation := float64(m) * float64(rq.OutputDimension()) / float64(codePoints)
+		for i := range byteCount {
+			// The code was designed to guarantee that the min and max are
+			// always included, so they will have an abnormally high count,
+			// especially in low dimensions.
+			if i == 0 || i == (len(byteCount)-1) {
+				continue
+			}
+			errorMsg := fmt.Sprintf("Byte %d was seen %d times (%.3f times its expectation). Input dimension: %d, Output dimension: %d",
+				i, byteCount[i], float64(byteCount[i])/uniformExpectation, inDim, rq.OutputDimension())
+			assert.Greater(t, byteCount[i], 0, errorMsg)
+			assert.Less(t, float64(byteCount[i]), 3.0*uniformExpectation, errorMsg)
+		}
+	}
+}
+
 func BenchmarkRQEncode(b *testing.B) {
 	rng := newRNG(42)
 	dimensions := []int{256, 1024, 1536}

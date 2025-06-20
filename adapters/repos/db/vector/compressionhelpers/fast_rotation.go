@@ -94,10 +94,6 @@ func RestoreFastRotation(outputDim int, rounds int, swaps [][]Swap, signs [][]fl
 	}
 }
 
-func (r *FastRotation) OutputDimension() uint32 {
-	return r.OutputDim
-}
-
 func (r *FastRotation) RotateInPlace(x []float32) {
 	for i := range r.Rounds {
 		// Apply random swaps and signs.

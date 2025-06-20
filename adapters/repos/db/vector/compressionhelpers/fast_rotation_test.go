@@ -153,7 +153,7 @@ func TestFastRotationSmoothensVector(t *testing.T) {
 		rounds := 5
 		r := compressionhelpers.NewFastRotation(dim, rounds, rng.Uint64())
 
-		bound := 5.8 / math.Sqrt(float64(r.OutputDimension()))
+		bound := 5.8 / math.Sqrt(float64(r.OutputDim))
 		for i := range dim {
 			x := make([]float32, dim)
 			x[i] = 1.0
@@ -449,7 +449,7 @@ func BenchmarkFastRotationOutputDistribution(b *testing.B) {
 				var rangeSum float64
 				for b.Loop() {
 					rotation := compressionhelpers.NewFastRotation(inputDim, r, rng.Uint64())
-					d := rotation.OutputDimension()
+					d := rotation.OutputDim
 					for i := range d {
 						v := make([]float32, d)
 						v[i] = 1.0

@@ -83,6 +83,10 @@ func RestoreRotationalQuantizer(inputDim int, seed uint64, bits int, outputDim i
 	return rq, nil
 }
 
+func (rq *RotationalQuantizer) OutputDimension() int {
+	return int(rq.rotation.OutputDim)
+}
+
 func putFloat32(b []byte, pos int, x float32) {
 	binary.BigEndian.PutUint32(b[pos:], math.Float32bits(x))
 }
