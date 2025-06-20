@@ -132,6 +132,7 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 			h.trackMuveraOnce.Do(func() {
 				h.muveraEncoder.LoadMuveraConfig(*state.EncoderMuvera)
 			})
+			h.muvera.Store(true)
 		}
 	}
 
@@ -200,6 +201,44 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 					h.store,
 					h.allocChecker,
 				)
+			}
+			if err != nil {
+				return errors.Wrap(err, "Restoring compressed data.")
+			}
+		} else if state.CompressionRQData != nil {
+			data := state.CompressionRQData
+			if !h.multivector.Load() || h.muvera.Load() {
+				h.trackRQOnce.Do(func() {
+					h.compressor, err = compressionhelpers.RestoreRQCompressor(
+						h.distancerProvider,
+						1e12,
+						h.logger,
+						int(data.InputDim),
+						int(data.Bits),
+						int(data.Rotation.OutputDim),
+						int(data.Rotation.Rounds),
+						data.Rotation.Swaps,
+						data.Rotation.Signs,
+						h.store,
+						h.allocChecker,
+					)
+				})
+			} else {
+				h.trackRQOnce.Do(func() {
+					h.compressor, err = compressionhelpers.RestoreRQMultiCompressor(
+						h.distancerProvider,
+						1e12,
+						h.logger,
+						int(data.InputDim),
+						int(data.Bits),
+						int(data.Rotation.OutputDim),
+						int(data.Rotation.Rounds),
+						data.Rotation.Swaps,
+						data.Rotation.Signs,
+						h.store,
+						h.allocChecker,
+					)
+				})
 			}
 			if err != nil {
 				return errors.Wrap(err, "Restoring compressed data.")
