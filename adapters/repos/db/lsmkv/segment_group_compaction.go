@@ -421,12 +421,12 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 
 	start := time.Now()
 	beforeMaintenanceLock := time.Now()
-	sg.maintenanceLock.Lock()
+	sg.MaintenanceLockLogging("replaceCompactedSegmentsBlocking")
 	if time.Since(beforeMaintenanceLock) > 100*time.Millisecond {
 		sg.logger.WithField("duration", time.Since(beforeMaintenanceLock)).
 			Debug("compaction took more than 100ms to acquire maintenance lock")
 	}
-	defer sg.maintenanceLock.Unlock()
+	defer sg.MaintenanceUnlockLogging("replaceCompactedSegmentsBlocking")
 
 	leftSegment := sg.segments[old1]
 	rightSegment := sg.segments[old2]
