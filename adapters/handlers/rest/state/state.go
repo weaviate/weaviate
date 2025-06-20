@@ -16,6 +16,8 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
@@ -56,6 +58,7 @@ type State struct {
 	Authorizer       authorization.Authorizer
 	AuthzController  authorization.Controller
 	AuthzSnapshotter fsm.Snapshotter
+	RBAC             *rbac.Manager
 
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration

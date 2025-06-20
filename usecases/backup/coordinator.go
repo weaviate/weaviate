@@ -388,15 +388,17 @@ func (c *coordinator) canCommit(ctx context.Context, req *Request) (map[string]s
 			reqChan <- pair{
 				nodeHost{node, host},
 				&Request{
-					Method:      req.Method,
-					ID:          id,
-					Backend:     req.Backend,
-					Classes:     gr.Classes,
-					Duration:    _BookingPeriod,
-					NodeMapping: nodeMapping,
-					Compression: req.Compression,
-					Bucket:      req.Bucket,
-					Path:        req.Path,
+					Method:            req.Method,
+					ID:                id,
+					Backend:           req.Backend,
+					Classes:           gr.Classes,
+					Duration:          _BookingPeriod,
+					NodeMapping:       nodeMapping,
+					Compression:       req.Compression,
+					Bucket:            req.Bucket,
+					Path:              req.Path,
+					UserRestoreOption: req.UserRestoreOption,
+					RbacRestoreOption: req.RbacRestoreOption,
 				},
 			}
 		}
