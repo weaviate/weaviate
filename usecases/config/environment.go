@@ -750,6 +750,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if v := os.Getenv("DISTRIBUTED_TASKS_ENABLED"); v != "" {
+		config.DistributedTasks.Enabled = entcfg.Enabled(v)
+	}
+
 	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
 		config.ReplicaMovementEnabled = entcfg.Enabled(v)
 	}

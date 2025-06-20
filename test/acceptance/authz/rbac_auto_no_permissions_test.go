@@ -74,6 +74,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/replication/replicate/{id}", // for the same reason as backups above
 		"/replication/replicate/{id}/cancel",
 		"/replication/sharding-state",
+		"/tasks",                // tasks is internal endpoint
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
 	}
 
