@@ -900,6 +900,54 @@ func TestConnections_ElementRangeConsistentIndexing(t *testing.T) {
 	assert.Equal(t, len(testData), expectedIndex)
 }
 
+func TestConnections_InsertAtLayer_SchemeGrowth(t *testing.T) {
+	c, err := NewWithMaxLayer(0)
+	require.Nil(t, err)
+
+	expectedConns := make([]uint64, 0)
+
+	// Start with 62 values that fit in SCHEME_2BYTE to test capacity growth
+	for i := uint64(1); i <= 62; i++ {
+		expectedConns = append(expectedConns, i)
+		c.InsertAtLayer(i, 0)
+	}
+	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
+	assert.Equal(t, 62, c.LenAtLayer(0))
+	assert.Equal(t, uint8(SCHEME_2BYTE), unpackScheme(c.layers[0].packed))
+
+	// SCHEME_3BYTE
+	val2 := uint64(1 << 16) // 65536
+	expectedConns = append(expectedConns, val2)
+	c.InsertAtLayer(val2, 0)
+	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
+	assert.Equal(t, 63, c.LenAtLayer(0))
+	assert.Equal(t, uint8(SCHEME_3BYTE), unpackScheme(c.layers[0].packed))
+
+	// SCHEME_4BYTE
+	val3 := uint64(1 << 24) // 16777216
+	expectedConns = append(expectedConns, val3)
+	c.InsertAtLayer(val3, 0)
+	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
+	assert.Equal(t, 64, c.LenAtLayer(0))
+	assert.Equal(t, uint8(SCHEME_4BYTE), unpackScheme(c.layers[0].packed))
+
+	// SCHEME_5BYTE
+	val4 := uint64(1 << 32)
+	expectedConns = append(expectedConns, val4)
+	c.InsertAtLayer(val4, 0)
+	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
+	assert.Equal(t, 65, c.LenAtLayer(0))
+	assert.Equal(t, uint8(SCHEME_5BYTE), unpackScheme(c.layers[0].packed))
+
+	// SCHEME_8BYTE
+	val5 := uint64(1 << 40)
+	expectedConns = append(expectedConns, val5)
+	c.InsertAtLayer(val5, 0)
+	assert.ElementsMatch(t, expectedConns, c.GetLayer(0))
+	assert.Equal(t, 66, c.LenAtLayer(0))
+	assert.Equal(t, uint8(SCHEME_8BYTE), unpackScheme(c.layers[0].packed))
+}
+
 func BenchmarkInsertAtLayer(b *testing.B) {
 	layers := uint8(5)
 
