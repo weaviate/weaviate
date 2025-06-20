@@ -415,7 +415,7 @@ func TestCreateAndLoadSnapshot(t *testing.T) {
 }
 
 func TestCreateSnapshot_NextOne(t *testing.T) {
-	s2008 := 1200 // commitlog of size 1200 makes snapshot of size 2008
+	s1982 := 1200 // commitlog of size 1200 makes snapshot of size s1982
 
 	tests := []struct {
 		name                string
@@ -480,7 +480,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 		// size % of delta files
 		{
 			name:                "too small delta size (required 5%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 90},
+			setup:               []any{"1000.condensed", s1982, "1001", 90},
 			delta:               []any{"1002", 1200},
 			deltaSizePercentage: 5,
 			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
@@ -488,7 +488,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "too small delta size, multiple files (required 5%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 30},
+			setup:               []any{"1000.condensed", s1982, "1001", 30},
 			delta:               []any{"1002.condensed", 30, "1003.condensed", 30, "1004", 1200},
 			deltaSizePercentage: 5,
 			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
@@ -496,7 +496,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "big enough delta size (required 5%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 110},
+			setup:               []any{"1000.condensed", s1982, "1001", 110},
 			delta:               []any{"1002", 1200},
 			deltaSizePercentage: 5,
 			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
@@ -504,7 +504,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "big enough delta size, multiple files (required 5%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 35},
+			setup:               []any{"1000.condensed", s1982, "1001", 35},
 			delta:               []any{"1002.condensed", 35, "1003.condensed", 35, "1004", 1200},
 			deltaSizePercentage: 5,
 			expectedFiles:       []string{"1003.snapshot", "1003.snapshot.checkpoints"},
@@ -512,33 +512,33 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "too small delta size (required 125%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 2490},
-			delta:               []any{"1002", 1200},
+			setup:               []any{"1000.condensed", s1982, "1001", 1500},
+			delta:               []any{"1002", 1100},
 			deltaSizePercentage: 125,
 			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
 			expectedCreated:     false,
 		},
 		{
 			name:                "too small delta size, multiple files (required 125%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 820},
-			delta:               []any{"1002.condensed", 820, "1003.condensed", 820, "1004", 1200},
+			setup:               []any{"1000.condensed", s1982, "1001", 820},
+			delta:               []any{"1002.condensed", 820, "1003.condensed", 750, "1004", 1200},
 			deltaSizePercentage: 125,
 			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
 			expectedCreated:     false,
 		},
 		{
-			name:                "big enough delta size (required 125%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 2510},
+			name:                "big enough delta size (required 110%)",
+			setup:               []any{"1000.condensed", s1982, "1001", 2510},
 			delta:               []any{"1002", 1200},
-			deltaSizePercentage: 125,
+			deltaSizePercentage: 110,
 			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
 			expectedCreated:     true,
 		},
 		{
-			name:                "big enough delta size, multiple files (required 125%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 830},
+			name:                "big enough delta size, multiple files (required 110%)",
+			setup:               []any{"1000.condensed", s1982, "1001", 830},
 			delta:               []any{"1002.condensed", 830, "1003.condensed", 830, "1004", 1200},
-			deltaSizePercentage: 125,
+			deltaSizePercentage: 110,
 			expectedFiles:       []string{"1003.snapshot", "1003.snapshot.checkpoints"},
 			expectedCreated:     true,
 		},
@@ -548,7 +548,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 		// will effectively be the same as size of snaptshot created just from biggest commitlog
 		{
 			name:                "too few delta commitlogs, too small delta size",
-			setup:               []any{"1000.condensed", s2008, "1001", 1010},
+			setup:               []any{"1000.condensed", s1982, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         2,
 			deltaSizePercentage: 75,
@@ -557,7 +557,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "too small delta size",
-			setup:               []any{"1000.condensed", s2008, "1001", 1010},
+			setup:               []any{"1000.condensed", s1982, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         1,
 			deltaSizePercentage: 75,
@@ -566,7 +566,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "too few delta commitlogs",
-			setup:               []any{"1000.condensed", s2008, "1001", 1010},
+			setup:               []any{"1000.condensed", s1982, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         2,
 			deltaSizePercentage: 50,
@@ -575,19 +575,19 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "enough delta commit logs, enough delta size",
-			setup:               []any{"1000.condensed", s2008, "1001", 1010},
+			setup:               []any{"1000.condensed", s1982, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         1,
-			deltaSizePercentage: 50,
+			deltaSizePercentage: 40,
 			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
 			expectedCreated:     true,
 		},
 		{
 			name:                "enough delta commit logs, enough delta size, but oom",
-			setup:               []any{"1000.condensed", s2008, "1001", 1010},
+			setup:               []any{"1000.condensed", s1982, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         1,
-			deltaSizePercentage: 50,
+			deltaSizePercentage: 40,
 			allocCheckerOOM:     true,
 			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
 			expectedCreated:     false,
@@ -621,7 +621,7 @@ func TestCreateSnapshot_NextOne(t *testing.T) {
 }
 
 func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
-	s2008 := 1200 // commitlog of size 1200 makes snapshot of size 2008
+	s1982 := 1200 // commitlog of size 1200 makes snapshot of size 1982
 
 	tests := []struct {
 		name                string
@@ -686,7 +686,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 		// size % of delta files
 		{
 			name:                "too small delta size (required 5%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 90},
+			setup:               []any{"1000.condensed", s1982, "1001", 90},
 			delta:               []any{"1002", 1200},
 			deltaSizePercentage: 5,
 			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
@@ -694,7 +694,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "too small delta size, multiple files (required 5%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 30},
+			setup:               []any{"1000.condensed", s1982, "1001", 30},
 			delta:               []any{"1002.condensed", 30, "1003.condensed", 30, "1004", 1200},
 			deltaSizePercentage: 5,
 			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
@@ -702,7 +702,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "big enough delta size (required 5%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 110},
+			setup:               []any{"1000.condensed", s1982, "1001", 110},
 			delta:               []any{"1002", 1200},
 			deltaSizePercentage: 5,
 			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
@@ -710,7 +710,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "big enough delta size, multiple files (required 5%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 35},
+			setup:               []any{"1000.condensed", s1982, "1001", 35},
 			delta:               []any{"1002.condensed", 35, "1003.condensed", 35, "1004", 1200},
 			deltaSizePercentage: 5,
 			expectedFiles:       []string{"1003.snapshot", "1003.snapshot.checkpoints"},
@@ -718,33 +718,33 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "too small delta size (required 125%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 2490},
-			delta:               []any{"1002", 1200},
+			setup:               []any{"1000.condensed", s1982, "1001", 2450},
+			delta:               []any{"1002", 1100},
 			deltaSizePercentage: 125,
 			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
 			expectedCreated:     false,
 		},
 		{
 			name:                "too small delta size, multiple files (required 125%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 820},
-			delta:               []any{"1002.condensed", 820, "1003.condensed", 820, "1004", 1200},
+			setup:               []any{"1000.condensed", s1982, "1001", 750},
+			delta:               []any{"1002.condensed", 750, "1003.condensed", 750, "1004", 1200},
 			deltaSizePercentage: 125,
 			expectedFiles:       []string{"1000.snapshot", "1000.snapshot.checkpoints"},
 			expectedCreated:     false,
 		},
 		{
-			name:                "big enough delta size (required 125%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 2510},
+			name:                "big enough delta size (required 110%)",
+			setup:               []any{"1000.condensed", s1982, "1001", 2510},
 			delta:               []any{"1002", 1200},
-			deltaSizePercentage: 125,
+			deltaSizePercentage: 110,
 			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
 			expectedCreated:     true,
 		},
 		{
-			name:                "big enough delta size, multiple files (required 125%)",
-			setup:               []any{"1000.condensed", s2008, "1001", 830},
+			name:                "big enough delta size, multiple files (required 110%)",
+			setup:               []any{"1000.condensed", s1982, "1001", 830},
 			delta:               []any{"1002.condensed", 830, "1003.condensed", 830, "1004", 1200},
-			deltaSizePercentage: 125,
+			deltaSizePercentage: 110,
 			expectedFiles:       []string{"1003.snapshot", "1003.snapshot.checkpoints"},
 			expectedCreated:     true,
 		},
@@ -754,7 +754,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 		// will effectively be the same as size of snaptshot created just from biggest commitlog
 		{
 			name:                "too few delta commitlogs, too small delta size",
-			setup:               []any{"1000.condensed", s2008, "1001", 1010},
+			setup:               []any{"1000.condensed", s1982, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         2,
 			deltaSizePercentage: 75,
@@ -763,7 +763,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "too small delta size",
-			setup:               []any{"1000.condensed", s2008, "1001", 1010},
+			setup:               []any{"1000.condensed", s1982, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         1,
 			deltaSizePercentage: 75,
@@ -772,7 +772,7 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "too few delta commitlogs",
-			setup:               []any{"1000.condensed", s2008, "1001", 1010},
+			setup:               []any{"1000.condensed", s1982, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         2,
 			deltaSizePercentage: 50,
@@ -781,19 +781,19 @@ func TestCreateAndLoadSnapshot_NextOne(t *testing.T) {
 		},
 		{
 			name:                "enough delta commit logs, enough delta size",
-			setup:               []any{"1000.condensed", s2008, "1001", 1010},
+			setup:               []any{"1000.condensed", s1982, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         1,
-			deltaSizePercentage: 50,
+			deltaSizePercentage: 40,
 			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
 			expectedCreated:     true,
 		},
 		{
 			name:                "enough delta commit logs, enough delta size, oom is ignored",
-			setup:               []any{"1000.condensed", s2008, "1001", 1010},
+			setup:               []any{"1000.condensed", s1982, "1001", 1010},
 			delta:               []any{"1002", 1000},
 			deltaNumber:         1,
-			deltaSizePercentage: 50,
+			deltaSizePercentage: 40,
 			allocCheckerOOM:     true,
 			expectedFiles:       []string{"1001.snapshot", "1001.snapshot.checkpoints"},
 			expectedCreated:     true,
