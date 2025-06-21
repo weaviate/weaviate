@@ -39,7 +39,7 @@ import (
 // able to find a way to unify the two -- there are subtle differences.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
-	enableChecksumValidation bool, minMMapSize int64, allocChecker memwatch.AllocChecker, metrics *Metrics,
+	enableChecksumValidation bool, minMMapSize int64, allocChecker memwatch.AllocChecker, metrics *Metrics, stratLabel string,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -75,11 +75,21 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	}
 
 	if size > minMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
+		monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
+			"operation": "mmap-compaction",
+			"strategy":  stratLabel,
+		}).Inc()
+
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
 		}
 		contents = contents2
+
+		defer monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
+			"operation": "munmap-compaction",
+			"strategy":  stratLabel,
+		}).Inc()
 
 		defer contents2.Unmap()
 	} else { // read the file into memory if it's small enough and we have enough memory
@@ -129,7 +139,6 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		dataEndPos = invertedHeader.TombstoneOffset
 	}
 
-	stratLabel := header.Strategy.String()
 	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
 		"strategy":  stratLabel,
 		"operation": "compactionMetadata",
