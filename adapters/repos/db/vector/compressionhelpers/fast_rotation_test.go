@@ -480,3 +480,18 @@ func BenchmarkFastRotationOutputDistribution(b *testing.B) {
 		}
 	}
 }
+
+func BenchmarkSortRotatedVector(b *testing.B) {
+	rng := newRNG(42)
+	dimensions := []int{128, 256, 512, 768, 1024, 1536, 2048}
+	for _, dim := range dimensions {
+		b.Run(fmt.Sprintf("slices.sort-d%d", dim), func(b *testing.B) {
+			for b.Loop() {
+				b.StopTimer()
+				x := randomUnitVector(dim, rng)
+				b.StartTimer()
+				slices.Sort(x)
+			}
+		})
+	}
+}
