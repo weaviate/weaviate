@@ -42,15 +42,23 @@ func NewErrGraphQLUser(err error, operation, className string) ErrGraphQLUser {
 }
 
 type ErrRateLimit struct {
-	err error
+	err  error
+	code int
 }
 
 func (e ErrRateLimit) Error() string {
 	return e.err.Error()
 }
 
+func (e ErrRateLimit) Code() int {
+	return e.code
+}
+
 func NewErrRateLimit() ErrRateLimit {
-	return ErrRateLimit{errors.New("429 Too many requests")}
+	return ErrRateLimit{
+		err:  errors.New("Too many requests"),
+		code: 429,
+	}
 }
 
 type ErrLockConnector struct {
