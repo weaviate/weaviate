@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.2"
+    "version": "1.32.0-dev"
   },
   "basePath": "/v1",
   "paths": {
@@ -8303,7 +8303,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.2"
+    "version": "1.32.0-dev"
   },
   "basePath": "/v1",
   "paths": {
