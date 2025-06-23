@@ -151,3 +151,73 @@ func BenchmarkDeserializerPerf(b *testing.B) {
 	commitsPerSecond := float64(commitLogs) * float64(time.Second.Nanoseconds()) / nsPerOp
 	b.ReportMetric(commitsPerSecond, "commits/sec")
 }
+
+func BenchmarkAddLinksAtLevelPerf(b *testing.B) {
+	buf := new(bytes.Buffer)
+	writer := bufio.NewWriter(buf)
+
+	maxNodeID := uint64(1000000)
+	r := rand.New(rand.NewSource(42))
+	const linksPerOperation = 64
+	commitLogs := 1000000 // 1M operations
+	level := uint16(0)    // Always use level 0 for simiplicity
+
+	// Track which nodes have links at level 0
+	nodesWithLinks := make(map[uint64]bool)
+	addLinksCount := 0
+	clearLinksCount := 0
+
+	for i := 0; i < commitLogs; i++ {
+		sourceID := uint64(r.Int63n(int64(maxNodeID)))
+
+		// Check if this node already has links at level 0
+		if nodesWithLinks[sourceID] {
+			// Clear existing links first
+			writer.WriteByte(byte(ClearLinksAtLevel))
+			binary.Write(writer, binary.LittleEndian, sourceID)
+			binary.Write(writer, binary.LittleEndian, level)
+			clearLinksCount++
+			nodesWithLinks[sourceID] = false
+		}
+
+		// Add 64 random links
+		targets := make([]uint64, linksPerOperation)
+		for j := 0; j < linksPerOperation; j++ {
+			targets[j] = uint64(r.Int63n(int64(maxNodeID)))
+		}
+
+		writer.WriteByte(byte(AddLinksAtLevel))
+		binary.Write(writer, binary.LittleEndian, sourceID)
+		binary.Write(writer, binary.LittleEndian, level)
+		binary.Write(writer, binary.LittleEndian, uint16(linksPerOperation))
+		for _, target := range targets {
+			binary.Write(writer, binary.LittleEndian, target)
+		}
+
+		nodesWithLinks[sourceID] = true
+		addLinksCount++
+	}
+	writer.Flush()
+
+	// Create deserializer
+	logger, _ := test.NewNullLogger()
+	deserializer := NewDeserializer(logger)
+
+	b.ResetTimer()
+
+	for i := 0; i < b.N; i++ {
+		reader := bufio.NewReader(bytes.NewReader(buf.Bytes()))
+		_, _, err := deserializer.Do(reader, nil, true)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+
+	b.ReportMetric(float64(commitLogs), "operations/op")
+	b.ReportMetric(float64(addLinksCount), "add_links_operations")
+	b.ReportMetric(float64(clearLinksCount), "clear_links_operations")
+	b.ReportMetric(float64(linksPerOperation), "links_per_operation")
+	nsPerOp := float64(b.Elapsed().Nanoseconds()) / float64(b.N)
+	operationsPerSecond := float64(commitLogs) * float64(time.Second.Nanoseconds()) / nsPerOp
+	b.ReportMetric(operationsPerSecond, "operations/sec")
+}
