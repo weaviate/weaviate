@@ -430,7 +430,7 @@ func (sg *SegmentGroup) makeExistsOn(segments []*segment) existsOnLowerSegmentsF
 
 func (sg *SegmentGroup) add(path string) error {
 	sg.MaintenanceLockLogging("addSegment")
-	defer sg.MaintenanceUnlockLogging("addSegment")
+	defer sg.MaintenanceUnlockLogging("addSegment", time.Now())
 
 	segment, err := newSegment(path, sg.logger,
 		sg.metrics, sg.makeExistsOn(sg.segments),
@@ -475,7 +475,7 @@ func (sg *SegmentGroup) getAndLockSegments() (segments []*segment, release func(
 
 func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
 	sg.CursorLockLogging("addInitializedSegment")
-	defer sg.CursorUnlockLogging("addInitializedSegment")
+	defer sg.CursorUnlockLogging("addInitializedSegment", time.Now())
 
 	if sg.activeCursors > 0 {
 		sg.enqueuedSegments = append(sg.enqueuedSegments, segment)
@@ -483,7 +483,7 @@ func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
 	}
 
 	sg.MaintenanceLockLogging("addInitializedSegment")
-	defer sg.MaintenanceUnlockLogging("addInitializedSegment")
+	defer sg.MaintenanceUnlockLogging("addInitializedSegment", time.Now())
 
 	sg.segments = append(sg.segments, segment)
 	return nil
@@ -699,7 +699,7 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	}
 
 	sg.CursorLockLogging("shutdown")
-	defer sg.CursorUnlockLogging("shutdown")
+	defer sg.CursorUnlockLogging("shutdown", time.Now())
 
 	for _, seg := range sg.enqueuedSegments {
 		seg.close()
@@ -713,7 +713,7 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	// If stop signal can not be read, shutdown will not receive stop result and will not proceed with further execution.
 	// Maintenance lock will then never be released.
 	sg.MaintenanceLockLogging("shutdown")
-	defer sg.MaintenanceUnlockLogging("shutdown")
+	defer sg.MaintenanceUnlockLogging("shutdown", time.Now())
 
 	for _, seg := range sg.segments {
 		if err := seg.close(); err != nil {
@@ -842,8 +842,12 @@ func (sg *SegmentGroup) CursorLockLogging(method string) {
 	}
 }
 
-func (sg *SegmentGroup) CursorUnlockLogging(method string) {
+func (sg *SegmentGroup) CursorUnlockLogging(method string, startTime time.Time) {
 	sg.cursorsLock.Unlock()
+	took := time.Since(startTime)
+	if strings.Contains(sg.dir, "objects") && took > 100*time.Millisecond {
+		sg.logger.Warnf("Unlocked cursorsLock %s %s after %s", sg.dir, method, took)
+	}
 }
 
 func (sg *SegmentGroup) MaintenanceLockLogging(method string) {
@@ -855,6 +859,10 @@ func (sg *SegmentGroup) MaintenanceLockLogging(method string) {
 	}
 }
 
-func (sg *SegmentGroup) MaintenanceUnlockLogging(method string) {
+func (sg *SegmentGroup) MaintenanceUnlockLogging(method string, startTime time.Time) {
 	sg.maintenanceLock.Unlock()
+	took := time.Since(startTime)
+	if strings.Contains(sg.dir, "objects") && took > 100*time.Millisecond {
+		sg.logger.Warnf("Unlocked maintenanceLock %s %s after %s", sg.dir, method, took)
+	}
 }

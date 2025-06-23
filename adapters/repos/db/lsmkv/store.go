@@ -21,6 +21,7 @@ import (
 	"runtime/debug"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -460,7 +461,7 @@ func (s *Store) CreateBucket(ctx context.Context, bucketName string,
 
 func (s *Store) replaceBucket(ctx context.Context, replacementBucket *Bucket, replacementBucketName string, bucket *Bucket, bucketName string) (string, string, string, string, error) {
 	replacementBucket.disk.MaintenanceLockLogging("replaceBucket")
-	defer replacementBucket.disk.MaintenanceUnlockLogging("replaceBucket")
+	defer replacementBucket.disk.MaintenanceUnlockLogging("replaceBucket", time.Now())
 
 	currBucketDir := bucket.dir
 	newBucketDir := bucket.dir + "___del"
