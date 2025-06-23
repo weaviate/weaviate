@@ -652,8 +652,8 @@ func TestDeserializerTotalReadRQ(t *testing.T) {
 		require.Nil(t, err)
 
 		swapSize := 2 * rotation.Rounds * (rotation.OutputDim / 2) * 2
-		signSize := rotation.Rounds * rotation.OutputDim
-		require.Equal(t, int(swapSize+signSize+15), deserializeSize)
+		signSize := 4 * rotation.Rounds * rotation.OutputDim
+		require.Equal(t, int(swapSize+signSize+17), deserializeSize)
 		t.Logf("deserializeSize: %v\n", deserializeSize)
 	})
 }
