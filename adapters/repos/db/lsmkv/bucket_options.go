@@ -61,6 +61,13 @@ func WithWalThreshold(threshold uint64) BucketOption {
 	}
 }
 
+// WithLazySegmentLoading enables that segments are only initialized when they are actually used
+//
+// This option should be used:
+//   - For buckets that are NOT used in every request. For example, the object bucket is accessed for
+//     almost all operations anyway.
+//   - For implicit request only (== requests originating with auto-tenant activation). Explicit activation should
+//     always load all segments.
 func WithLazySegmentLoading(lazyLoading bool) BucketOption {
 	return func(b *Bucket) error {
 		b.lazySegmentLoading = lazyLoading

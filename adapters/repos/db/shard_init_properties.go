@@ -100,7 +100,6 @@ func (s *Shard) createPropertyValueIndex(ctx context.Context, prop *models.Prope
 		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
 		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		lsmkv.WithLazySegmentLoading(lazyLoadSegments),
-
 		s.segmentCleanupConfig(),
 	}
 
