@@ -112,8 +112,9 @@ func (n *neighborFinderConnector) processNode(id uint64) (float32, error) {
 	return dist, nil
 }
 
-func (n *neighborFinderConnector) processRecursively(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top int) error {
-	if top <= 0 {
+// Iterative neighbor traversal with a node limit, renamed for clarity
+func (n *neighborFinderConnector) collectNeighborsWithLimit(from uint64, results *priorityqueue.Queue[any], visited visited.ListSet, level, top, nodeLimit int) error {
+	if top <= 0 || nodeLimit <= 0 {
 		return nil
 	}
 	if err := n.ctx.Err(); err != nil {
@@ -123,70 +124,98 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	n.graph.RLock()
 	nodesLen := uint64(len(n.graph.nodes))
 	n.graph.RUnlock()
-	var pending []uint64
-	// lock the nodes slice
-	n.graph.shardedNodeLocks.RLock(from)
-	if nodesLen < from || n.graph.nodes[from] == nil {
-		n.graph.handleDeletedNode(from, "processRecursively")
-		n.graph.shardedNodeLocks.RUnlock(from)
-		return nil
+
+	type stackItem struct {
+		id      uint64
+		pending bool // true if this node is in the pending list (denyList)
 	}
-	// lock the node itself
-	n.graph.nodes[from].Lock()
-	if level >= len(n.graph.nodes[from].connections) {
-		n.graph.nodes[from].Unlock()
-		n.graph.shardedNodeLocks.RUnlock(from)
-		return nil
-	}
-	connections := make([]uint64, len(n.graph.nodes[from].connections[level]))
-	copy(connections, n.graph.nodes[from].connections[level])
-	n.graph.nodes[from].Unlock()
-	n.graph.shardedNodeLocks.RUnlock(from)
-	for _, id := range connections {
-		if visited.Visited(id) {
-			continue
-		}
-		visited.Visit(id)
-		if n.denyList.Contains(id) {
-			pending = append(pending, id)
-			continue
+
+	stack := []stackItem{{id: from, pending: false}}
+
+	for len(stack) > 0 && nodeLimit > 0 {
+		item := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+
+		if err := n.ctx.Err(); err != nil {
+			return err
 		}
 
-		dist, err := n.processNode(id)
-		if err != nil {
-			var e storobj.ErrNotFound
-			if errors.As(err, &e) {
-				// node was deleted in the meantime
-				continue
-			} else {
-				return err
+		id := item.id
+		pending := item.pending
+
+		if pending {
+			if results.Len() >= top {
+				dist, err := n.processNode(id)
+				if err != nil {
+					var e storobj.ErrNotFound
+					if errors.As(err, &e) {
+						// node was deleted in the meantime
+						continue
+					}
+					return err
+				}
+				if dist > results.Top().Dist {
+					continue
+				}
 			}
+			// Now process as normal
 		}
-		if results.Len() >= top && dist < results.Top().Dist {
-			results.Pop()
-			results.Insert(id, dist)
-		} else if results.Len() < top {
-			results.Insert(id, dist)
+
+		// lock the nodes slice
+		n.graph.shardedNodeLocks.RLock(id)
+		if nodesLen < id || n.graph.nodes[id] == nil {
+			n.graph.handleDeletedNode(id, "collectNeighborsWithLimit")
+			n.graph.shardedNodeLocks.RUnlock(id)
+			continue
 		}
-	}
-	for _, id := range pending {
-		if results.Len() >= top {
-			dist, err := n.processNode(id)
+		// lock the node itself
+		n.graph.nodes[id].Lock()
+		if level >= len(n.graph.nodes[id].connections) {
+			n.graph.nodes[id].Unlock()
+			n.graph.shardedNodeLocks.RUnlock(id)
+			continue
+		}
+		connections := make([]uint64, len(n.graph.nodes[id].connections[level]))
+		copy(connections, n.graph.nodes[id].connections[level])
+		n.graph.nodes[id].Unlock()
+		n.graph.shardedNodeLocks.RUnlock(id)
+
+		nodeLimit-- // decrement for each node processed
+		if nodeLimit <= 0 {
+			break
+		}
+
+		var localPending []uint64
+		for _, connID := range connections {
+			if visited.Visited(connID) {
+				continue
+			}
+			visited.Visit(connID)
+			if n.denyList.Contains(connID) {
+				localPending = append(localPending, connID)
+				continue
+			}
+
+			dist, err := n.processNode(connID)
 			if err != nil {
 				var e storobj.ErrNotFound
 				if errors.As(err, &e) {
 					// node was deleted in the meantime
 					continue
+				} else {
+					return err
 				}
-				return err
 			}
-			if dist > results.Top().Dist {
-				continue
+			if results.Len() >= top && dist < results.Top().Dist {
+				results.Pop()
+				results.Insert(connID, dist)
+			} else if results.Len() < top {
+				results.Insert(connID, dist)
 			}
 		}
-		err := n.processRecursively(id, results, visited, level, top)
-		if err != nil {
-			return err
+		// Add pending nodes to stack for further processing
+		for i := len(localPending) - 1; i >= 0; i-- {
+			stack = append(stack, stackItem{id: localPending[i], pending: true})
 		}
 	}
 	return nil
@@ -202,6 +231,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 
 	if n.tombstoneCleanupNodes {
 		results = n.graph.pools.pqResults.GetMax(n.graph.efConstruction)
+		const defaultTombstoneCleanupNodeLimit = 100000
 
 		n.graph.pools.visitedListsLock.RLock()
 		visited := n.graph.pools.visitedLists.Borrow()
@@ -226,7 +256,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		}
 		for _, id := range pending {
 			visited.Visit(id)
-			err := n.processRecursively(id, results, visited, level, top)
+			err := n.collectNeighborsWithLimit(id, results, visited, level, top, defaultTombstoneCleanupNodeLimit)
 			if err != nil {
 				n.graph.pools.visitedListsLock.RLock()
 				n.graph.pools.visitedLists.Return(visited)
