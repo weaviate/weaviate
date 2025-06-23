@@ -72,9 +72,7 @@ func testGetSchemaWithoutClient(t *testing.T) {
 					},
 					"rq": map[string]interface{}{
 						"enabled":      false,
-						"dataBits":     float64(8),
-						"queryBits":    float64(8),
-						"rescore":      false,
+						"bits":         float64(8),
 						"rescoreLimit": float64(20),
 					},
 					"filterStrategy": "sweeping",
