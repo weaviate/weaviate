@@ -442,20 +442,6 @@ func TestModule_Close(t *testing.T) {
 	assert.NoError(t, err)
 }
 
-// TestModule_Usage tests the usage data generation
-// func TestModule_Usage(t *testing.T) {
-// 	mod := New()
-// 	mod.nodeID = "test-node"
-
-// 	usage, err := mod.usage(context.Background())
-// 	assert.NoError(t, err)
-// 	assert.NotNil(t, usage)
-// 	assert.Equal(t, "test-node", usage.Node)
-// 	assert.Len(t, usage.SingleTenantCollections, 1)
-// 	assert.Equal(t, "test-collection", usage.SingleTenantCollections[0].Name)
-// 	assert.Equal(t, 1, usage.SingleTenantCollections[0].UniqueShardCount)
-// }
-
 // TestModule_Init_MissingConfig tests initialization with missing configuration
 func TestModule_Init_MissingConfig(t *testing.T) {
 	mod := New()
