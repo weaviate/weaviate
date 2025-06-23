@@ -250,35 +250,16 @@ func TestFastRotatedVectorsAreUniformOnSphere(t *testing.T) {
 }
 
 // For testing that the unrolled recursion gives the same result.
-func slowFastWalshHadamardTransform(x []float32) {
+func fastWalshHadamardTransform(x []float32, normalize float32) {
 	if len(x) == 2 {
-		x[0], x[1] = x[0]+x[1], x[0]-x[1]
+		x[0], x[1] = normalize*(x[0]+x[1]), normalize*(x[0]-x[1])
 		return
 	}
 	m := len(x) / 2
-	slowFastWalshHadamardTransform(x[:m])
-	slowFastWalshHadamardTransform(x[m:])
+	fastWalshHadamardTransform(x[:m], normalize)
+	fastWalshHadamardTransform(x[m:], normalize)
 	for i := range m {
 		x[i], x[m+i] = x[i]+x[m+i], x[i]-x[m+i]
-	}
-}
-
-func TestFastWalshHadamardTransform(t *testing.T) {
-	rng := newRNG(7234)
-	dimensions := []int{16, 32, 64, 128, 256, 512, 1024, 2048, 4096}
-	for _, d := range dimensions {
-		x := make([]float32, d)
-		for i := range x {
-			x[i] = 1
-			if rng.Float64() < 0.5 {
-				x[i] = -1
-			}
-		}
-		target := make([]float32, d)
-		copy(target, x)
-		slowFastWalshHadamardTransform(target)
-		compressionhelpers.FastWalshHadamardTransform(x, 1.0)
-		assert.True(t, slices.Equal(x, target))
 	}
 }
 
@@ -296,7 +277,7 @@ func TestFastWalshHadamardTransform64(t *testing.T) {
 		}
 		target := make([]float32, dim)
 		copy(target, x)
-		compressionhelpers.FastWalshHadamardTransform(target, 0.125)
+		fastWalshHadamardTransform(target, 0.125)
 		compressionhelpers.FastWalshHadamardTransform64(x)
 		assert.True(t, slices.Equal(x, target))
 	}
@@ -316,7 +297,7 @@ func TestFastWalshHadamardTransform256(t *testing.T) {
 		}
 		target := make([]float32, 256)
 		copy(target, x)
-		compressionhelpers.FastWalshHadamardTransform(target, 0.0625)
+		fastWalshHadamardTransform(target, 0.0625)
 		compressionhelpers.FastWalshHadamardTransform256(x)
 		assert.True(t, slices.Equal(x, target))
 	}
@@ -325,67 +306,31 @@ func TestFastWalshHadamardTransform256(t *testing.T) {
 func BenchmarkFastRotation(b *testing.B) {
 	rng := newRNG(42)
 	dimensions := []int{128, 256, 512, 768, 1024, 1536, 2048}
-	rounds := []int{3}
+	rounds := []int{3, 5}
 	for _, dim := range dimensions {
 		x := make([]float32, dim)
 		x[0] = 1.0
 		for _, r := range rounds {
 			rotation := compressionhelpers.NewFastRotation(dim, r, rng.Uint64())
-			b.Run(fmt.Sprintf("RotateInPlace-d%d-r%d", dim, r), func(b *testing.B) {
+			b.Run(fmt.Sprintf("Rotate-d%d-r%d", dim, r), func(b *testing.B) {
 				for b.Loop() {
-					rotation.RotateInPlace(x)
+					rotation.Rotate(x)
 				}
 			})
 		}
 	}
 }
 
-func BenchmarkFastWalshHadamardTransform(b *testing.B) {
-	rng := newRNG(42)
-	dimensions := []int{256}
-	for _, dim := range dimensions {
-		x := randomNormalVector(dim, rng)
-		b.Run(fmt.Sprintf("FastWalshHadamardTransform-d%d", dim), func(b *testing.B) {
-			for b.Loop() {
-				compressionhelpers.FastWalshHadamardTransform(x, 1.0)
-			}
-		})
-	}
-}
-
-func BenchmarkFastWalshHadamardTransform64(b *testing.B) {
-	rng := newRNG(42)
-	dim := 64
-	x := randomNormalVector(dim, rng)
-	b.Run(fmt.Sprintf("FastWalshHadamardTransform64-d%d", dim), func(b *testing.B) {
-		for b.Loop() {
-			compressionhelpers.FastWalshHadamardTransform64(x)
-		}
-	})
-}
-
-func BenchmarkFastWalshHadamardTransform256(b *testing.B) {
-	rng := newRNG(42)
-	dim := 256
-	x := randomNormalVector(dim, rng)
-	b.Run(fmt.Sprintf("FastWalshHadamardTransform256-d%d", dim), func(b *testing.B) {
-		for b.Loop() {
-			compressionhelpers.FastWalshHadamardTransform256(x)
-		}
-	})
-}
-
 func BenchmarkFastRotationError(b *testing.B) {
 	rng := newRNG(42)
-	dimensions := []int{64, 128, 256, 512, 1024, 1536, 2048}
-	rounds := []int{5}
-	errorScale := 1e6
+	dimensions := []int{64, 128, 256, 512, 768, 1024, 1536, 2048}
+	rounds := []int{3, 5}
 	for _, dim := range dimensions {
-		x := randomNormalVector(dim, rng)
-		y := randomNormalVector(dim, rng)
+		x := randomUnitVector(dim, rng)
+		y := randomUnitVector(dim, rng)
 		target := dot(x, y)
 		for _, r := range rounds {
-			b.Run(fmt.Sprintf("RotateFloat32UsingFloat64-d%d-r%d", dim, r), func(b *testing.B) {
+			b.Run(fmt.Sprintf("Rotate-d%d-r%d", dim, r), func(b *testing.B) {
 				var errorSum float64
 				var maxError float64
 				for b.Loop() {
@@ -401,6 +346,8 @@ func BenchmarkFastRotationError(b *testing.B) {
 						maxError = err
 					}
 				}
+				// The absolute errors are approximately of size 1e-7.
+				errorScale := 1e7
 				b.ReportMetric(errorScale*errorSum/float64(b.N), "error(avg)")
 				b.ReportMetric(errorScale*maxError, "error(max)")
 			})
@@ -419,63 +366,77 @@ func BenchmarkFastRotationError(b *testing.B) {
 // concentrated around sqrt(d). We can therefore test that (sqrt(d)*Rx)_i
 // behaves like a standard normal distributed variable.
 func BenchmarkFastRotationOutputDistribution(b *testing.B) {
-	type CumulativeProbabilityCount struct {
-		Value       float64
-		Probability float64
-		Count       int
-	}
-	cdf := []CumulativeProbabilityCount{
-		{-3.0, 1.0 - 0.9987, 0},
-		{-2.0, 1.0 - 0.9772, 0},
-		{-1.0, 1.0 - 0.8413, 0},
-		{-0.5, 1.0 - 0.6915, 0},
-		{-0.25, 1.0 - 0.5987, 0},
-		{0.0, 0.5, 0},
-		{0.25, 0.5987, 0},
-		{0.5, 0.6915, 0},
-		{1.0, 0.8413, 0},
-		{2.0, 0.9772, 0},
-		{3.0, 0.9987, 0},
-	}
-
-	rounds := []int{3, 4, 5, 6}
-	inputDimensions := []int{64, 128, 256, 512, 1024}
+	rounds := []int{1, 2, 3, 4, 5}
+	inputDimensions := []int{1536}
 	rng := newRNG(1234)
 
 	for _, inputDim := range inputDimensions {
 		for _, r := range rounds {
 			b.Run(fmt.Sprintf("Rotation-d%d-r%d", inputDim, r), func(b *testing.B) {
-				var deviationSum float64
-				var rangeSum float64
+				type CumulativeProbabilityCount struct {
+					Value       float64
+					Probability float64
+					Count       int
+				}
+				cdf := []CumulativeProbabilityCount{
+					{-3.0, 1.0 - 0.9987, 0},
+					{-2.0, 1.0 - 0.9772, 0},
+					{-1.0, 1.0 - 0.8413, 0},
+					{-0.5, 1.0 - 0.6915, 0},
+					{-0.25, 1.0 - 0.5987, 0},
+					{0.0, 0.5, 0},
+					{0.25, 0.5987, 0},
+					{0.5, 0.6915, 0},
+					{1.0, 0.8413, 0},
+					{2.0, 0.9772, 0},
+					{3.0, 0.9987, 0},
+				}
+
+				var intervalSum float64
+				var intervalMax float64
+				var outDim int
 				for b.Loop() {
 					rotation := compressionhelpers.NewFastRotation(inputDim, r, rng.Uint64())
-					d := rotation.OutputDim
-					for i := range d {
-						v := make([]float32, d)
+					outDim = int(rotation.OutputDim)
+					// We rotate each of the d unit vectors and collect measurements.
+					for i := range outDim {
+						v := make([]float32, outDim)
 						v[i] = 1.0
 						rv := rotation.Rotate(v)
-						for j := range d {
-							z := math.Sqrt(float64(d)) * float64(rv[j])
+						for j := range outDim {
+							z := math.Sqrt(float64(outDim)) * float64(rv[j])
 							for k := range cdf {
 								if z < cdf[k].Value {
 									cdf[k].Count++
 								}
 							}
 						}
-						rangeSum += float64(slices.Max(rv)-slices.Min(rv)) / float64(d)
+						interval := float64(slices.Max(rv) - slices.Min(rv))
+						intervalSum += interval
+						if interval > intervalMax {
+							intervalMax = interval
+						}
 					}
-					n := d * d // Number of measurements.
-					for i := range cdf {
-						p := float64(cdf[i].Count) / float64(n)
-						deviationSum += math.Abs(p - cdf[i].Probability)
-						// Reset for next run.
-						cdf[i].Count = 0
-					}
-					x := make([]float32, d)
-					rotation.Rotate(x)
+
 				}
-				b.ReportMetric(deviationSum/float64(b.N), "deviation")
-				b.ReportMetric(rangeSum/float64(b.N), "range")
+
+				// Report the max deviation from the normal CDF.
+				var maxDeviation float64
+				for i := range cdf {
+					numEntries := outDim * outDim * b.N
+					p := float64(cdf[i].Count) / float64(numEntries)
+					dev := math.Abs(p - cdf[i].Probability)
+					if dev > maxDeviation {
+						maxDeviation = dev
+					}
+				}
+				b.ReportMetric(maxDeviation, "cdf_dev(max)")
+
+				// Report the average and max interval length.
+				numIntervals := outDim * b.N
+				avgInterval := intervalSum / float64(numIntervals)
+				b.ReportMetric(avgInterval, "interval(avg)")
+				b.ReportMetric(intervalMax, "interval(max)")
 			})
 		}
 	}

@@ -94,47 +94,27 @@ func RestoreFastRotation(outputDim int, rounds int, swaps [][]Swap, signs [][]fl
 	}
 }
 
-func (r *FastRotation) RotateInPlace(x []float32) {
-	for i := range r.Rounds {
-		// Apply random swaps and signs.
-		for _, s := range r.Swaps[i] {
-			x[s.I], x[s.J] = r.Signs[i][s.I]*x[s.J], r.Signs[i][s.J]*x[s.I]
-		}
-		// Transform in blocks (of length 256 if possible, otherwise length 64).
-		pos := 0
-		for pos < len(x) {
-			if len(x)-pos >= 256 {
-				FastWalshHadamardTransform256(x[pos:(pos + 256)])
-				pos += 256
-				continue
-			}
-			FastWalshHadamardTransform64(x[pos:(pos + 64)])
-			pos += 64
-		}
-	}
-}
-
 func (r *FastRotation) Rotate(x []float32) []float32 {
 	rx := make([]float32, r.OutputDim)
 	copy(rx, x)
-	r.RotateInPlace(rx)
+	for i := range r.Rounds {
+		// Apply random swaps and signs.
+		for _, s := range r.Swaps[i] {
+			rx[s.I], rx[s.J] = r.Signs[i][s.I]*rx[s.J], r.Signs[i][s.J]*rx[s.I]
+		}
+		// Transform in blocks (of length 256 if possible, otherwise length 64).
+		pos := 0
+		for pos < len(rx) {
+			if len(rx)-pos >= 256 {
+				fastWalshHadamardTransform256(rx[pos:(pos + 256)])
+				pos += 256
+				continue
+			}
+			fastWalshHadamardTransform64(rx[pos:(pos + 64)])
+			pos += 64
+		}
+	}
 	return rx
-}
-
-func FastWalshHadamardTransform(x []float32, normalize float32) {
-	// Unrolling the recursion at d = 4 gives an almost 2x speedup compared to
-	// no unrolling. Unrolling to d = 8 and d = 16 gave a further ~1.1x speedup.
-	// The local access pattern of the recursive approach seems important.
-	if len(x) == 16 {
-		fastWalshHadamardTransform16(x, normalize)
-		return
-	}
-	m := len(x) / 2
-	FastWalshHadamardTransform(x[:m], normalize)
-	FastWalshHadamardTransform(x[m:], normalize)
-	for i := range m {
-		x[i], x[m+i] = x[i]+x[m+i], x[i]-x[m+i]
-	}
 }
 
 func fastWalshHadamardTransform16(x []float32, normalize float32) {
@@ -217,7 +197,7 @@ func fastWalshHadamardTransform16(x []float32, normalize float32) {
 }
 
 // This explicit instantiation is about 10% faster.
-func FastWalshHadamardTransform64(x []float32) {
+func fastWalshHadamardTransform64(x []float32) {
 	const normalize = 0.125
 	fastWalshHadamardTransform16(x[:16], normalize)
 	fastWalshHadamardTransform16(x[16:32], normalize)
@@ -255,7 +235,7 @@ func block64FWHT256(x []float32) {
 	}
 }
 
-func FastWalshHadamardTransform256(x []float32) {
+func fastWalshHadamardTransform256(x []float32) {
 	block64FWHT256(x[0:64])
 	block64FWHT256(x[64:128])
 	for i := range 64 {
