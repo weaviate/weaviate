@@ -65,6 +65,7 @@ import (
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
@@ -591,6 +592,17 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.SchemaManager = schemaManager
+
+	// Initialize usage service after all components are ready
+	if appState.Modules.UsageEnabled() {
+		if usageModule := appState.Modules.GetByName(modusagegcs.Name); usageModule != nil {
+			if usageModuleWithService, ok := usageModule.(modulecapabilities.ModuleWithUsageService); ok {
+				usageService := usage.NewService(schemaManager, repo, appState.Modules)
+				usageModuleWithService.SetUsageService(usageService)
+			}
+		}
+	}
+
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
@@ -1607,7 +1619,7 @@ func registerModules(appState *state.State) error {
 	}
 
 	if _, ok := enabledModules[modusagegcs.Name]; ok {
-		appState.Modules.Register(modusagegcs.New(usage.NewService(appState.SchemaManager, appState.DB, appState.Modules)))
+		appState.Modules.Register(modusagegcs.New())
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modusagegcs.Name).

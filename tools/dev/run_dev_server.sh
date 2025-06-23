@@ -896,7 +896,10 @@ create-gcs-bucket)
       echo "make sure that you ran docker-compose up backup-gcs"
       curl -X POST "http://localhost:9090/storage/v1/b" \
       -H "Content-Type: application/json" \
-      -d '{"name": "weaviate-usage"}'
+      -d '{"name": "weaviate-usage"}'      
+      curl -X POST "http://localhost:9090/storage/v1/b" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "weaviate-backups"}'
       ;;
 
 local-usage-gcs)

@@ -34,19 +34,19 @@ import (
 )
 
 func TestNew(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	assert.NotNil(t, mod)
 	assert.Equal(t, DefaultCollectionInterval, mod.interval)
 	assert.NotNil(t, mod.stopChan)
 }
 
 func TestModule_Name(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	assert.Equal(t, Name, mod.Name())
 }
 
 func TestModule_Type(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	assert.Equal(t, modulecapabilities.Usage, mod.Type())
 }
 
@@ -61,7 +61,7 @@ func TestModule_Init_Success(t *testing.T) {
 	defer os.Chdir(originalDir)
 	os.Chdir(tempDir)
 
-	mod := New(nil)
+	mod := New()
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 
@@ -93,7 +93,7 @@ func TestModule_Init_Success(t *testing.T) {
 }
 
 func TestModule_Init_MissingHostname(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 
@@ -109,7 +109,7 @@ func TestModule_Init_MissingHostname(t *testing.T) {
 }
 
 func TestModule_Init_MissingBucket(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 
@@ -132,7 +132,7 @@ func TestModule_Init_MissingBucket(t *testing.T) {
 }
 
 func TestModule_ConfigBasedIntervalUpdate(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 	mod.logger = logger
@@ -163,7 +163,7 @@ func TestModule_ConfigBasedIntervalUpdate(t *testing.T) {
 }
 
 func TestModule_CollectAndUploadPeriodically_ContextCancellation(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 	mod.logger = logger
@@ -200,7 +200,7 @@ func TestModule_CollectAndUploadPeriodically_ContextCancellation(t *testing.T) {
 }
 
 func TestModule_CollectAndUploadPeriodically_StopSignal(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 	mod.logger = logger
@@ -288,7 +288,7 @@ func TestMetrics_Initialization(t *testing.T) {
 
 // TestModule_VerifyBucketPermissions tests the IAM permission check functionality
 func TestModule_VerifyBucketPermissions(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 	mod.logger = logger
@@ -304,10 +304,11 @@ func TestModule_VerifyBucketPermissions(t *testing.T) {
 // TestModule_CollectUsageData tests the usage data collection functionality
 func TestModule_CollectUsageData(t *testing.T) {
 	expectedNodeID := "test-node"
+	mod := New()
 	usageService := clusterusage.NewMockService(t)
 	usageService.EXPECT().Usage(mock.Anything).
 		Return(&clusterusage.Report{Node: expectedNodeID, SingleTenantCollections: []*clusterusage.CollectionUsage{}}, nil)
-	mod := New(usageService)
+	mod.SetUsageService(usageService)
 	mod.nodeID = expectedNodeID
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
@@ -324,7 +325,7 @@ func TestModule_CollectUsageData(t *testing.T) {
 
 // TestModule_UploadUsageData tests the uploadUsageData function logic
 func TestModule_UploadUsageData(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	mod.nodeID = "test-node"
 	mod.prefix = "test-prefix"
 	mod.bucketName = "test-bucket"
@@ -375,9 +376,10 @@ func TestModule_UploadUsageData(t *testing.T) {
 
 // TestModule_CollectAndUploadUsage tests the combined collect and upload functionality
 func TestModule_CollectAndUploadUsage(t *testing.T) {
+	mod := New()
 	usageService := clusterusage.NewMockService(t)
 	usageService.EXPECT().Usage(mock.Anything).Return(&clusterusage.Report{}, nil)
-	mod := New(usageService)
+	mod.SetUsageService(usageService)
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 	mod.logger = logger
@@ -391,7 +393,7 @@ func TestModule_CollectAndUploadUsage(t *testing.T) {
 
 // TestModule_ConfigurationChanges tests dynamic configuration updates
 func TestModule_ConfigurationChanges(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 	mod.logger = logger
@@ -435,14 +437,14 @@ func TestModule_ConfigurationChanges(t *testing.T) {
 
 // TestModule_Close tests the module close functionality
 func TestModule_Close(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	err := mod.Close()
 	assert.NoError(t, err)
 }
 
 // TestModule_Usage tests the usage data generation
 // func TestModule_Usage(t *testing.T) {
-// 	mod := New(nil)
+// 	mod := New()
 // 	mod.nodeID = "test-node"
 
 // 	usage, err := mod.usage(context.Background())
@@ -456,7 +458,7 @@ func TestModule_Close(t *testing.T) {
 
 // TestModule_Init_MissingConfig tests initialization with missing configuration
 func TestModule_Init_MissingConfig(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 
@@ -476,7 +478,7 @@ func TestModule_Init_MissingConfig(t *testing.T) {
 func TestModule_Metrics_Updates(t *testing.T) {
 	registry := prometheus.NewRegistry()
 	metrics := NewMetrics(registry)
-	mod := New(nil)
+	mod := New()
 	mod.metrics = metrics
 
 	// Test usage data collection updates metrics
@@ -519,9 +521,10 @@ func TestModule_Metrics_Updates(t *testing.T) {
 }
 
 func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
+	mod := New()
 	usageService := clusterusage.NewMockService(t)
 	usageService.EXPECT().Usage(mock.Anything).Return(&clusterusage.Report{}, nil)
-	mod := New(usageService)
+	mod.SetUsageService(usageService)
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 	mod.logger = logger
@@ -587,7 +590,7 @@ func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
 
 // TestModule_ZeroIntervalProtection tests that the module handles zero intervals gracefully
 func TestModule_ZeroIntervalProtection(t *testing.T) {
-	mod := New(nil)
+	mod := New()
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
 	mod.logger = logger

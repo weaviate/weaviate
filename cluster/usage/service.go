@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	backupent "github.com/weaviate/weaviate/entities/backup"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	"github.com/weaviate/weaviate/usecases/modules"
@@ -103,6 +104,9 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 		backups, err := backend.AllBackups(ctx)
 		if err == nil {
 			for _, backup := range backups {
+				if backup.Status != backupent.Success {
+					continue
+				}
 				usage.Backups = append(usage.Backups, &BackupUsage{
 					ID:             backup.ID,
 					CompletionTime: backup.CompletedAt.Format(time.RFC3339),
