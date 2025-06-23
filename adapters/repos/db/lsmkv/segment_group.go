@@ -834,53 +834,27 @@ func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
 }
 
 func (sg *SegmentGroup) CursorLockLogging(method string) {
-	func() {
-		if strings.Contains(sg.dir, "objects") {
-			sg.logger.Warnf("Locking cursorsLock %s %s", sg.dir, method)
-		}
-		startTime := time.Now()
-		sg.cursorsLock.Lock()
-		if strings.Contains(sg.dir, "objects") {
-			sg.logger.Warnf("Locked cursorsLock %s %s after %s", sg.dir, method, time.Since(startTime))
-		}
-	}()
+	startTime := time.Now()
+	sg.cursorsLock.Lock()
+	took := time.Since(startTime)
+	if strings.Contains(sg.dir, "objects") && took > 100*time.Millisecond {
+		sg.logger.Warnf("Locked cursorsLock %s %s after %s", sg.dir, method, took)
+	}
 }
 
 func (sg *SegmentGroup) CursorUnlockLogging(method string) {
-	func() {
-		if strings.Contains(sg.dir, "objects") {
-			sg.logger.Warnf("Unlocking cursorsLock %s %s", sg.dir, method)
-		}
-		startTime := time.Now()
-		sg.cursorsLock.Unlock()
-		if strings.Contains(sg.dir, "objects") {
-			sg.logger.Warnf("Unlocked cursorsLock %s %s after %s", sg.dir, method, time.Since(startTime))
-		}
-	}()
+	sg.cursorsLock.Unlock()
 }
 
 func (sg *SegmentGroup) MaintenanceLockLogging(method string) {
-	func() {
-		if strings.Contains(sg.dir, "objects") {
-			sg.logger.Warnf("Locking maintenanceLock %s %s", sg.dir, method)
-		}
-		startTime := time.Now()
-		sg.maintenanceLock.Lock()
-		if strings.Contains(sg.dir, "objects") {
-			sg.logger.Warnf("Locked maintenanceLock %s %s after %s", sg.dir, method, time.Since(startTime))
-		}
-	}()
+	startTime := time.Now()
+	sg.maintenanceLock.Lock()
+	took := time.Since(startTime)
+	if strings.Contains(sg.dir, "objects") && took > 100*time.Millisecond {
+		sg.logger.Warnf("Locked maintenanceLock %s %s after %s", sg.dir, method, took)
+	}
 }
 
 func (sg *SegmentGroup) MaintenanceUnlockLogging(method string) {
-	func() {
-		if strings.Contains(sg.dir, "objects") {
-			sg.logger.Warnf("Unlocking maintenanceLock %s %s", sg.dir, method)
-		}
-		startTime := time.Now()
-		sg.maintenanceLock.Unlock()
-		if strings.Contains(sg.dir, "objects") {
-			sg.logger.Warnf("Unlocked maintenanceLock %s %s after %s", sg.dir, method, time.Since(startTime))
-		}
-	}()
+	sg.maintenanceLock.Unlock()
 }
