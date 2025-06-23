@@ -58,11 +58,16 @@ type module struct {
 	usageService  clusterusage.Service
 }
 
-func New(usageService clusterusage.Service) *module {
+func New() *module {
 	return &module{
-		interval:     DefaultCollectionInterval,
-		stopChan:     make(chan struct{}),
-		usageService: usageService,
+		interval: DefaultCollectionInterval,
+		stopChan: make(chan struct{}),
+	}
+}
+
+func (m *module) SetUsageService(usageService any) {
+	if service, ok := usageService.(clusterusage.Service); ok {
+		m.usageService = service
 	}
 }
 
