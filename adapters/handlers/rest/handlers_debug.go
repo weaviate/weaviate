@@ -124,6 +124,7 @@ func setupDebugHandlers(appState *state.State) {
 		paths := make(map[string]string)
 		shards := make(map[string]db.ShardLike)
 
+		output := make(map[string]map[string]string, len(paths))
 		// shards will not be force loaded, as we are only getting the name
 		err := idx.ForEachShard(
 			func(shardName string, shard db.ShardLike) error {
@@ -131,6 +132,12 @@ func setupDebugHandlers(appState *state.State) {
 					shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
 					paths[shardName] = shardPath
 					shards[shardName] = shard
+					output[shardName] = map[string]string{
+						"shard":       shardName,
+						"shardStatus": shard.GetStatusNoLoad().String(),
+						"status":      "unknown",
+					}
+
 				}
 				return nil
 			},
@@ -141,14 +148,9 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		migratingShards := make([]string, 0, len(paths))
+		migratingShards := make([]db.ShardLike, 0, len(paths))
 
-		output := make(map[string]map[string]string, len(paths))
 		for i, path := range paths {
-			output[i] = map[string]string{
-				"shard":  i,
-				"status": "unknown",
-			}
 			if path == "" {
 				output[i]["status"] = "shard_not_loaded"
 				output[i]["message"] = "shard not loaded"
@@ -199,7 +201,7 @@ func setupDebugHandlers(appState *state.State) {
 
 			shard := shards[i]
 
-			migratingShards = append(migratingShards, shard.Name())
+			migratingShards = append(migratingShards, shard)
 
 		}
 
@@ -207,16 +209,17 @@ func setupDebugHandlers(appState *state.State) {
 			for _, shard := range migratingShards {
 				err := idx.IncomingReinitShard(
 					context.Background(),
-					shard,
+					shard.Name(),
 				)
 				if err != nil {
 					logger.WithField("shard", shard).Error("failed to reinit shard " + err.Error())
-					http.Error(w, "failed to reinit shard", http.StatusInternalServerError)
-					return
+					output[shard.Name()]["status"] = "error"
+					output[shard.Name()]["message"] = "failed to reinit shard"
+					output[shard.Name()]["error"] = err.Error()
 				}
 				logger.WithField("shard", shard).Info("reinit shard started")
-				output[shard]["status"] = "reinit"
-				output[shard]["message"] = "reinit shard started"
+				output[shard.Name()]["status"] = "reinit"
+				output[shard.Name()]["message"] = "reinit shard started"
 			}
 		}
 
@@ -353,12 +356,19 @@ func setupDebugHandlers(appState *state.State) {
 		}
 		// shard map: shardName -> shardPath
 		paths := make(map[string]string)
+		output := make(map[string]map[string]string, len(paths))
 
 		// shards will not be force loaded, as we are only getting the name
 		err := idx.ForEachShard(
 			func(shardName string, shard db.ShardLike) error {
 				shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
 				paths[shardName] = shardPath
+				output[shardName] = map[string]string{
+					"shard":       shardName,
+					"shardStatus": shard.GetStatusNoLoad().String(),
+					"status":      "unknown",
+				}
+
 				return nil
 			},
 		)
@@ -396,13 +406,7 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		output := make(map[string]map[string]string, len(paths))
-
 		for i, tenant := range tenantMap {
-			output[i] = map[string]string{
-				"shard":  i,
-				"status": "unknown",
-			}
 			path := paths[tenant.Name]
 			if path == "" {
 				output[i]["status"] = "shard_not_loaded"
