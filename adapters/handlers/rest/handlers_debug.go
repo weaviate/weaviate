@@ -81,9 +81,20 @@ func setupDebugHandlers(appState *state.State) {
 		colName := r.URL.Query().Get("collection")
 		forceRestartString := r.URL.Query().Get("reload")
 		delayStartString := r.URL.Query().Get("delayStart")
+		perObjectDelayString := r.URL.Query().Get("delayPerObject")
+		stopAsyncRep := config.Enabled(r.URL.Query().Get("stopAsyncReplication"))
+
+		if stopAsyncRep {
+			appState.ServerConfig.Config.Replication.AsyncReplicationDisabled.SetValue(true)
+			os.Setenv("REINDEX_MAP_TO_BLOCKMAX_STOP_ASYNC_REPLICATION", "true")
+		}
 
 		if delayStartString != "" {
 			os.Setenv("DEBUG_SHARD_INIT_DELAY", delayStartString)
+		}
+
+		if perObjectDelayString != "" {
+			os.Setenv("DEBUG_SHARD_PER_OBJECT_DELAY", perObjectDelayString)
 		}
 
 		rootPath := appState.DB.GetConfig().RootPath
