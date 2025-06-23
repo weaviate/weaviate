@@ -45,14 +45,14 @@ func TestRbacWithOIDC(t *testing.T) {
 		{
 			name: "RBAC with OIDC",
 			image: docker.New().
-				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
+				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
 			nameCollision: false,
 			onlyOIDC:      true,
 		},
 		{
 			name: "RBAC with OIDC and API key",
 			image: docker.New().
-				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").
+				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key"),
 			nameCollision: false,
 		},
@@ -60,7 +60,7 @@ func TestRbacWithOIDC(t *testing.T) {
 			name: "RBAC with OIDC and API key overlapping user names",
 			image: docker.New().
 				WithWeaviate().WithMockOIDC().
-				WithRBAC().WithRbacAdmins("admin-user").
+				WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key").
 				WithApiKey().WithUserApiKey("custom-user", customKey),
 			nameCollision: true,
@@ -68,14 +68,14 @@ func TestRbacWithOIDC(t *testing.T) {
 		{
 			name: "RBAC with OIDC with certificate",
 			image: docker.New().
-				WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacAdmins("admin-user"),
+				WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
 			nameCollision: false,
 			onlyOIDC:      true,
 		},
 		{
 			name: "RBAC with OIDC with certificate and API key",
 			image: docker.New().
-				WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacAdmins("admin-user").
+				WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key"),
 			nameCollision: false,
 		},
@@ -83,7 +83,7 @@ func TestRbacWithOIDC(t *testing.T) {
 			name: "RBAC with OIDC with certificate and API key overlapping user names",
 			image: docker.New().
 				WithWeaviate().WithMockOIDCWithCertificate().
-				WithRBAC().WithRbacAdmins("admin-user").
+				WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key").
 				WithApiKey().WithUserApiKey("custom-user", customKey),
 			nameCollision: true,
@@ -223,11 +223,11 @@ func TestRbacWithOIDCGroups(t *testing.T) {
 	}{
 		{
 			name:  "without certificate",
-			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
 		},
 		{
 			name:  "with certificate",
-			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
 		},
 	}
 	for _, test := range tests {
@@ -290,11 +290,11 @@ func TestRbacWithOIDCRootGroups(t *testing.T) {
 	}{
 		{
 			name:  "without certificate",
-			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
 		},
 		{
 			name:  "with certificate",
-			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
 		},
 	}
 	for _, test := range tests {
@@ -324,7 +324,7 @@ func TestRbacWithOIDCRootGroups(t *testing.T) {
 
 func TestRbacWithOIDCViewerGroups(t *testing.T) {
 	ctx := context.Background()
-	image := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user")
+	image := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user")
 
 	compose, err := image.WithRbacViewerGroups("custom-group").Start(ctx)
 	require.NoError(t, err)
@@ -393,11 +393,11 @@ func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
 	}{
 		{
 			name:  "without certificate",
-			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
 		},
 		{
 			name:  "with certificate",
-			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
 		},
 	}
 	for _, test := range tests {

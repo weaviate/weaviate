@@ -249,6 +249,16 @@ func FromEnv(config *Config) error {
 				config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
 			}
 		}
+
+		readOnlyUsersString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_USERS")
+		if ok {
+			config.Authorization.Rbac.ViewerUsers = strings.Split(readOnlyUsersString, ",")
+		}
+
+		adminUsersString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_ADMIN_USERS")
+		if ok {
+			config.Authorization.Rbac.AdminUsers = strings.Split(adminUsersString, ",")
+		}
 	}
 
 	config.Profiling.Disabled = entcfg.Enabled(os.Getenv("GO_PROFILING_DISABLE"))

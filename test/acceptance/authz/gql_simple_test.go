@@ -43,7 +43,7 @@ func TestAuthZGraphQLSingleTenancy(t *testing.T) {
 		New().
 		WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
-		WithRBAC().WithRbacAdmins(adminUser).
+		WithRBAC().WithRbacRoots(adminUser).
 		WithText2VecContextionary().
 		Start(ctx)
 
@@ -186,7 +186,7 @@ func TestAuthZGraphQLMultiTenancy(t *testing.T) {
 		New().
 		WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
-		WithRBAC().WithRbacAdmins(adminUser).
+		WithRBAC().WithRbacRoots(adminUser).
 		WithText2VecContextionary().
 		Start(ctx)
 

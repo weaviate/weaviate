@@ -61,9 +61,8 @@ func TestActivateNotFound(t *testing.T) {
 
 func TestActivateBadParameters(t *testing.T) {
 	tests := []struct {
-		name          string
-		user          string
-		getUserReturn map[string]*apikey.User
+		name string
+		user string
 	}{
 		{name: "static user", user: "static-user"},
 		{name: "root user", user: "root-user"},
@@ -75,8 +74,8 @@ func TestActivateBadParameters(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
 			authorizer.On("Authorize", principal, authorization.UPDATE, authorization.Users(test.user)[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			if test.getUserReturn != nil {
-				dynUser.On("GetUsers", test.user).Return(test.getUserReturn, nil)
+			if test.user == "static-user" {
+				dynUser.On("GetUsers", test.user).Return(nil, nil)
 			}
 
 			h := dynUserHandler{
