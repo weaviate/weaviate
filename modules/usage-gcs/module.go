@@ -58,11 +58,16 @@ type module struct {
 	usageService  clusterusage.Service
 }
 
-func New(usageService clusterusage.Service) *module {
+func New() *module {
 	return &module{
-		interval:     DefaultCollectionInterval,
-		stopChan:     make(chan struct{}),
-		usageService: usageService,
+		interval: DefaultCollectionInterval,
+		stopChan: make(chan struct{}),
+	}
+}
+
+func (m *module) SetUsageService(usageService any) {
+	if service, ok := usageService.(clusterusage.Service); ok {
+		m.usageService = service
 	}
 }
 
@@ -273,6 +278,8 @@ func (m *module) collectAndUploadUsage(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// set version
+	usage.Version = m.policyVersion
 
 	// Upload the collected data
 	return m.uploadUsageData(ctx, usage)
@@ -414,5 +421,6 @@ func parseUsageConfig(config *config.Config) error {
 
 // verify we implement the modules.ModuleWithClose interface
 var (
-	_ = modulecapabilities.ModuleWithClose(New(nil))
+	_ = modulecapabilities.ModuleWithClose(New())
+	_ = modulecapabilities.ModuleWithUsageService(New())
 )
