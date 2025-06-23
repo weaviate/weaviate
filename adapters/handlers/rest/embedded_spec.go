@@ -4353,6 +4353,25 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "createTime": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time",
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "import": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -4373,6 +4392,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11763,6 +11788,25 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "createTime": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time",
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "import": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -11783,6 +11827,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
