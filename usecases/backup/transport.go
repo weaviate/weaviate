@@ -54,6 +54,9 @@ type Request struct {
 
 	// Additional path prefix override
 	Path string
+
+	RbacRestoreOption string
+	UserRestoreOption string
 }
 
 type CanCommitResponse struct {
