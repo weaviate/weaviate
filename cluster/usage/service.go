@@ -75,13 +75,20 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 				// Get vector usage for each named vector
 				_ = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
 					category, _ := db.GetDimensionCategory(vectorIndexConfig)
+					dimensions, objects := shard.DimensionsUsage(ctx, targetVector)
+					// Get compression ratio from vector index stats
+					var compressionRatio float64
+					if compressionStats, err := vectorIndex.CompressionStats(); err == nil {
+						// TODO log error
+						compressionRatio = compressionStats.CompressionRatio(dimensions)
+					}
+
 					vectorUsage := &VectorUsage{
 						Name:                   targetVector,
 						VectorIndexType:        vectorIndexConfig.IndexType(),
 						Compression:            category.String(),
-						VectorCompressionRatio: 0, // TODO: get from stats stats.CompressionRatio()
+						VectorCompressionRatio: compressionRatio,
 					}
-					dimensions, objects := shard.DimensionsUsage(ctx, targetVector)
 					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &DimensionalityUsage{
 						Dimensionality: dimensions,
 						Count:          objects,
