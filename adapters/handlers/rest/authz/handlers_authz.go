@@ -938,7 +938,7 @@ func (h *authZHandlers) userExistsDeprecated(user string) (bool, error) {
 
 // validateRootGroup validates that enduser do not touch the internal root group
 func (h *authZHandlers) validateRootGroup(name string) error {
-	if slices.Contains(h.rbacconfig.RootGroups, name) || slices.Contains(h.rbacconfig.ViewerRootGroups, name) {
+	if slices.Contains(h.rbacconfig.RootGroups, name) || slices.Contains(h.rbacconfig.ViewerGroups, name) {
 		return fmt.Errorf("cannot assign or revoke from root group %s", name)
 	}
 	return nil

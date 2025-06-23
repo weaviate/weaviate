@@ -540,9 +540,9 @@ func TestRevokeRoleFromGroupForbidden(t *testing.T) {
 				controller: controller,
 				logger:     logger,
 				rbacconfig: rbacconf.Config{
-					RootUsers:        []string{"root-user"},
-					RootGroups:       []string{"root-group"},
-					ViewerRootGroups: []string{"viewer-root-group"},
+					RootUsers:    []string{"root-user"},
+					RootGroups:   []string{"root-group"},
+					ViewerGroups: []string{"viewer-root-group"},
 				},
 			}
 			res := h.revokeRoleFromGroup(tt.params, tt.principal)
