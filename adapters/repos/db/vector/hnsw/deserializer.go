@@ -158,7 +158,7 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		case AddRQ:
 			var totalRead int
 			totalRead, err = d.ReadRQ(fd, out)
-			readThisRound = 14 + totalRead
+			readThisRound = 16 + totalRead
 		case AddMuvera:
 			var totalRead int
 			totalRead, err = d.ReadMuvera(fd, out)
@@ -661,7 +661,7 @@ func (d *Deserializer) ReadRQ(r io.Reader, res *DeserializationResult) (int, err
 	}
 
 	swapSize := 2 * rounds * (outputDim / 2) * 2
-	signSize := rounds * outputDim
+	signSize := 4 * rounds * outputDim
 	totalRead := int(swapSize) + int(signSize)
 
 	swaps := make([][]compressionhelpers.Swap, rounds)
