@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand/v2"
+	"slices"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -275,6 +276,32 @@ func TestRQCodePointDistribution(t *testing.T) {
 			assert.Less(t, float64(byteCount[i]), 3.0*uniformExpectation, errorMsg)
 		}
 	}
+}
+
+func TestRQHandlesAbnormalVectorsGracefully(t *testing.T) {
+	inDim := 97
+	bits := 8
+	rq := compressionhelpers.NewRotationalQuantizer(inDim, 42, bits, distancer.NewDotProductProvider())
+	outDim := rq.OutputDimension()
+	zeroCode := compressionhelpers.ZeroRQCode(outDim)
+
+	var nilVector []float32
+	assert.True(t, slices.Equal(rq.Encode(nilVector), zeroCode))
+
+	lengthZeroVector := make([]float32, 0)
+	assert.True(t, slices.Equal(rq.Encode(lengthZeroVector), zeroCode))
+
+	longVectorOfZeroes := make([]float32, 572)
+	shortVectorOfZeroes := make([]float32, 15)
+	assert.True(t, slices.Equal(rq.Encode(longVectorOfZeroes), zeroCode))
+	assert.True(t, slices.Equal(rq.Encode(shortVectorOfZeroes), zeroCode))
+
+	// Only the first at most outDim entries are used for the encoding, the rest is ignored.
+	x := make([]float32, 243)
+	for i := range x {
+		x[i] = float32(i)
+	}
+	assert.True(t, slices.Equal(rq.Encode(x[:outDim]), rq.Encode(x)))
 }
 
 func BenchmarkRQEncode(b *testing.B) {

@@ -149,6 +149,12 @@ func NewRQCode(d int) RQCode {
 	return make([]byte, d+16)
 }
 
+// The code representing the zero vector.
+// We also return this in case of abnormal input, such as a nil vector.
+func ZeroRQCode(d int) RQCode {
+	return NewRQCode(d)
+}
+
 func (c RQCode) String() string {
 	return fmt.Sprintf("RQCode{Lower: %.4f, Step: %.4f, CodeSum: %.4f, Norm2: %.4f, Bytes[:10]: %v",
 		c.Lower(), c.Step(), c.CodeSum(), c.Norm2(), c.Bytes()[:10])
@@ -165,18 +171,25 @@ func dotProduct(x, y []float32) float32 {
 }
 
 func (rq *RotationalQuantizer) encode(x []float32, bits uint32) []byte {
-	rx := rq.rotation.Rotate(x)
+	outDim := rq.OutputDimension()
+	if len(x) == 0 {
+		return ZeroRQCode(outDim)
+	}
+	if len(x) > outDim {
+		x = x[:outDim]
+	}
 
+	rx := rq.rotation.Rotate(x)
 	var maxCode uint8 = (1 << bits) - 1
 	lower := slices.Min(rx)
 	step := (slices.Max(rx) - lower) / float32(maxCode)
 
-	code := NewRQCode(len(rx))
 	if step <= 0 {
 		// The input was likely the zero vector or indistinguishable from it.
-		return code
+		return ZeroRQCode(outDim)
 	}
 
+	code := NewRQCode(outDim)
 	var codeSum float32
 	for i, v := range rx {
 		c := byte((v-lower)/step + 0.5)
