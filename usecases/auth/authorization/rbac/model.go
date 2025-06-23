@@ -193,7 +193,7 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
-	for _, viewerGroup := range conf.ViewerRootGroups {
+	for _, viewerGroup := range conf.ViewerGroups {
 		if strings.TrimSpace(viewerGroup) == "" {
 			continue
 		}

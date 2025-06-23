@@ -322,6 +322,39 @@ func TestRbacWithOIDCRootGroups(t *testing.T) {
 	}
 }
 
+func TestRbacWithOIDCViewerGroups(t *testing.T) {
+	ctx := context.Background()
+	image := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user")
+
+	compose, err := image.WithRbacViewerGroups("custom-group").Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+	// description for details
+	tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+	tokenCustom, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+
+	className := strings.Replace(t.Name(), "/", "", 1) + "Class"
+	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
+
+	// only viewer rights => custom user can NOT create collection
+	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+	require.Error(t, err)
+	var forbidden *clschema.SchemaObjectsCreateForbidden
+	require.True(t, errors.As(err, &forbidden))
+
+	require.NoError(t, createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenAdmin)))
+
+	// can list collection
+	classes := helper.GetClassAuth(t, className, tokenCustom)
+	require.Equal(t, classes.Class, className)
+}
+
 const AuthCode = "auth"
 
 // This test starts an oidc mock server with the same settings as the containerized one. Helpful if you want to know
