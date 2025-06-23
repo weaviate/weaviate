@@ -311,6 +311,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.MinMMapSize = DefaultPersistenceMinMMapSize
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LAZY_SEGMENTS_DISABLED")) {
+		config.Persistence.LazySegmentsDisabled = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {

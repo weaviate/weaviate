@@ -649,6 +649,7 @@ type IndexConfig struct {
 	QueryMaximumResults                 int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
+	LazySegmentsDisabled                bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int

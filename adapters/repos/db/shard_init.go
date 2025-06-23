@@ -126,6 +126,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
+	if s.index.Config.LazySegmentsDisabled {
+		lazyLoadSegments = false // disable globally
+	}
 	if err := s.initNonVector(ctx, class, lazyLoadSegments); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
