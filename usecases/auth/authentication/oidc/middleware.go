@@ -13,7 +13,12 @@ package oidc
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
+	"io"
+	"net/http"
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -57,7 +62,16 @@ func (c *Client) init() error {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
-	provider, err := oidc.NewProvider(context.Background(), c.config.Issuer)
+	ctx := context.Background()
+	if c.config.Certificate != "" {
+		client, err := c.useCertificate()
+		if err != nil {
+			return fmt.Errorf("could not setup client with custom certificate: %w", err)
+		}
+		ctx = oidc.ClientContext(ctx, client)
+	}
+
+	provider, err := oidc.NewProvider(ctx, c.config.Issuer)
 	if err != nil {
 		return fmt.Errorf("could not setup provider: %w", err)
 	}
@@ -173,4 +187,46 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 	}
 
 	return groups
+}
+
+func (c *Client) useCertificate() (*http.Client, error) {
+	var certificate string
+	if strings.HasPrefix(c.config.Certificate, "http") {
+		resp, err := http.Get(c.config.Certificate)
+		if err != nil {
+			return nil, fmt.Errorf("failed to get certificate from %s: %w", c.config.Certificate, err)
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			return nil, fmt.Errorf("failed to download certificate from %s: http status: %v", c.config.Certificate, resp.StatusCode)
+		}
+		certBytes, err := io.ReadAll(resp.Body)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read certificate from %s: %w", c.config.Certificate, err)
+		}
+		certificate = string(certBytes)
+	} else {
+		certificate = c.config.Certificate
+	}
+
+	certBlock, _ := pem.Decode([]byte(certificate))
+	cert, err := x509.ParseCertificate(certBlock.Bytes)
+	if err != nil {
+		return nil, fmt.Errorf("failed to decode certificate: %w", err)
+	}
+
+	certPool := x509.NewCertPool()
+	certPool.AddCert(cert)
+
+	// Create an HTTP client with self signed certificate
+	client := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{
+				RootCAs:    certPool,
+				MinVersion: tls.VersionTLS12,
+			},
+		},
+	}
+
+	return client, nil
 }
