@@ -76,6 +76,10 @@ func (f *fakeSchemaManager) GetConsistentSchema(principal *models.Principal, con
 	return f.GetSchema(principal)
 }
 
+func (f *fakeSchemaManager) LocalTenantsLookup(ctx context.Context, class string, tenants ...*models.Tenant) ([]*models.Tenant, error) {
+	return tenants, nil
+}
+
 func (f *fakeSchemaManager) ShardOwner(class, shard string) (string, error) { return "", nil }
 
 func (f *fakeSchemaManager) ShardFromUUID(class string, uuid []byte) string { return "" }

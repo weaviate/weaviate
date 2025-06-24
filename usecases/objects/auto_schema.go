@@ -593,7 +593,11 @@ func (m *AutoSchemaManager) addTenants(ctx context.Context, principal *models.Pr
 		return fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
-	if _, err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
+	filteredTenants, err := m.schemaManager.LocalTenantsLookup(ctx, class, tenants...)
+	if err != nil {
+		return fmt.Errorf("could not resolve optimistic tenant status: %w", err)
+	}
+	if _, err := m.schemaManager.AddTenants(ctx, principal, class, filteredTenants); err != nil {
 		return err
 	}
 	return nil

@@ -401,6 +401,23 @@ func (m *Manager) OptimisticTenantStatus(ctx context.Context, class string, tena
 	}, nil
 }
 
+func (m *Manager) LocalTenantsLookup(ctx context.Context, class string, tenants ...*models.Tenant) ([]*models.Tenant, error) {
+	notFoundTenants := make([]*models.Tenant, 0)
+	err := m.schemaReader.Read(class, func(_ *models.Class, ss *sharding.State) error {
+		for _, tenant := range tenants {
+			_, ok := ss.Physical[tenant.Name]
+			if !ok {
+				notFoundTenants = append(notFoundTenants, tenant)
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	return notFoundTenants, nil
+}
+
 func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	status map[string]string,
 ) (map[string]string, error) {
