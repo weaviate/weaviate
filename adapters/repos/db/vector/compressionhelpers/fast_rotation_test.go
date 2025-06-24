@@ -71,7 +71,7 @@ func TestFastRotationPreservesNorm(t *testing.T) {
 	for range n {
 		d := 2 + rng.IntN(2000)
 		r := 1 + rng.IntN(5)
-		rotation := compressionhelpers.NewFastRotation(d, r, rng.Uint64())
+		rotation := compressionhelpers.NewFastRotation(d, r)
 		z := randomNormalVector(d, rng)
 		rz := rotation.Rotate(z)
 		assert.Less(t, math.Abs(norm(rz)-norm(z)), 5e-6)
@@ -84,7 +84,7 @@ func TestFastRotationPreservesDistance(t *testing.T) {
 	for range n {
 		d := 2 + rng.IntN(2000)
 		rounds := 1 + rng.IntN(5)
-		rotation := compressionhelpers.NewFastRotation(d, rounds, rng.Uint64())
+		rotation := compressionhelpers.NewFastRotation(d, rounds)
 		z1 := randomNormalVector(d, rng)
 		z2 := randomNormalVector(d, rng)
 		rz1 := rotation.Rotate(z1)
@@ -99,7 +99,7 @@ func TestFastRotationOutputLength(t *testing.T) {
 	for range n {
 		d := rng.IntN(1000)
 		r := 1 + rng.IntN(5)
-		rotation := compressionhelpers.NewFastRotation(d, r, rng.Uint64())
+		rotation := compressionhelpers.NewFastRotation(d, r)
 		x := make([]float32, d)
 		rx := rotation.Rotate(x)
 		if d < 64 {
@@ -113,7 +113,6 @@ func TestFastRotationOutputLength(t *testing.T) {
 
 // Rotate the standard basis and verify that the rotated vectors are orthogonal.
 func TestFastRotationPreservesOrthogonality(t *testing.T) {
-	rng := newRNG(424242)
 	dimensions := []int{3, 8, 26, 32, 33, 61, 127, 128, 129, 255, 257, 512, 768}
 	for _, d := range dimensions {
 		unitVectors := make([][]float32, d)
@@ -123,7 +122,7 @@ func TestFastRotationPreservesOrthogonality(t *testing.T) {
 			unitVectors[i] = v
 		}
 
-		r := compressionhelpers.NewFastRotation(d, 3, rng.Uint64())
+		r := compressionhelpers.NewFastRotation(d, 3)
 		rotatedVectors := make([][]float32, d)
 		for i := range d {
 			rotatedVectors[i] = r.Rotate(unitVectors[i])
@@ -151,7 +150,7 @@ func TestFastRotationSmoothensVector(t *testing.T) {
 	for range n {
 		dim := 2 + rng.IntN(1000)
 		rounds := 5
-		r := compressionhelpers.NewFastRotation(dim, rounds, rng.Uint64())
+		r := compressionhelpers.NewFastRotation(dim, rounds)
 
 		bound := 5.8 / math.Sqrt(float64(r.OutputDim))
 		for i := range dim {
@@ -203,8 +202,7 @@ func TestFastRotatedEntriesAreNormalizedGaussian(t *testing.T) {
 
 	for _, d := range dimensions {
 		rounds := 5
-		var seed uint64 = 42
-		r := compressionhelpers.NewFastRotation(d, rounds, seed)
+		r := compressionhelpers.NewFastRotation(d, rounds)
 		for i := range d {
 			v := make([]float32, d)
 			v[i] = 1.0
@@ -237,8 +235,8 @@ func TestFastRotatedVectorsAreUniformOnSphere(t *testing.T) {
 	target := 100
 	n := 8 * target
 	var count int
-	for i := range n {
-		r := compressionhelpers.NewFastRotation(d, rounds, uint64(i))
+	for range n {
+		r := compressionhelpers.NewFastRotation(d, rounds)
 		rv := r.Rotate(v)
 		if rv[17] < 0 && rv[32] > 0 && rv[41] < 0 {
 			count++
@@ -304,14 +302,13 @@ func TestFastWalshHadamardTransform256(t *testing.T) {
 }
 
 func BenchmarkFastRotation(b *testing.B) {
-	rng := newRNG(42)
 	dimensions := []int{128, 256, 512, 768, 1024, 1536, 2048}
 	rounds := []int{3, 5}
 	for _, dim := range dimensions {
 		x := make([]float32, dim)
 		x[0] = 1.0
 		for _, r := range rounds {
-			rotation := compressionhelpers.NewFastRotation(dim, r, rng.Uint64())
+			rotation := compressionhelpers.NewFastRotation(dim, r)
 			b.Run(fmt.Sprintf("Rotate-d%d-r%d", dim, r), func(b *testing.B) {
 				for b.Loop() {
 					rotation.Rotate(x)
@@ -335,7 +332,7 @@ func BenchmarkFastRotationError(b *testing.B) {
 				var maxError float64
 				for b.Loop() {
 					b.StopTimer()
-					rotation := compressionhelpers.NewFastRotation(dim, r, rng.Uint64())
+					rotation := compressionhelpers.NewFastRotation(dim, r)
 					b.StartTimer()
 					rx := rotation.Rotate(x)
 					ry := rotation.Rotate(y)
@@ -368,7 +365,6 @@ func BenchmarkFastRotationError(b *testing.B) {
 func BenchmarkFastRotationOutputDistribution(b *testing.B) {
 	rounds := []int{1, 2, 3, 4, 5}
 	inputDimensions := []int{1536}
-	rng := newRNG(1234)
 
 	for _, inputDim := range inputDimensions {
 		for _, r := range rounds {
@@ -396,7 +392,7 @@ func BenchmarkFastRotationOutputDistribution(b *testing.B) {
 				var intervalMax float64
 				var outDim int
 				for b.Loop() {
-					rotation := compressionhelpers.NewFastRotation(inputDim, r, rng.Uint64())
+					rotation := compressionhelpers.NewFastRotation(inputDim, r)
 					outDim = int(rotation.OutputDim)
 					// We rotate each of the d unit vectors and collect measurements.
 					for i := range outDim {

@@ -23,8 +23,8 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
-func defaultRotationalQuantizer(dim int, seed uint64) *compressionhelpers.RotationalQuantizer {
-	return compressionhelpers.NewRotationalQuantizer(dim, seed, 8, distancer.NewCosineDistanceProvider())
+func defaultRotationalQuantizer(dim int) *compressionhelpers.RotationalQuantizer {
+	return compressionhelpers.NewRotationalQuantizer(dim, 8, distancer.NewCosineDistanceProvider())
 }
 
 // Create two d-dimensional unit vectors with a cosine similarity of alpha.
@@ -53,7 +53,7 @@ func TestRQDistanceEstimatesAreIdentical(t *testing.T) {
 		d := 2 + rng.IntN(2000)
 		for _, m := range metrics {
 			bits := 8
-			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, m)
+			rq := compressionhelpers.NewRotationalQuantizer(d, bits, m)
 			q, x := randomUnitVector(d, rng), randomUnitVector(d, rng)
 			cq, cx := rq.Encode(q), rq.Encode(x)
 			distancer := rq.NewDistancer(q)
@@ -76,7 +76,6 @@ func TestRQDistanceEstimate(t *testing.T) {
 
 	dim := 2
 	bits := 8
-	var seed uint64 = 42
 
 	metrics := []distancer.Provider{
 		distancer.NewCosineDistanceProvider(),
@@ -85,7 +84,7 @@ func TestRQDistanceEstimate(t *testing.T) {
 	}
 
 	for _, m := range metrics {
-		rq := compressionhelpers.NewRotationalQuantizer(dim, seed, bits, m)
+		rq := compressionhelpers.NewRotationalQuantizer(dim, bits, m)
 		cq, cx := rq.Encode(q), rq.Encode(x)
 		distancer := rq.NewDistancer(q)
 		distancerEstimate, _ := distancer.Distance(cx)
@@ -111,7 +110,7 @@ func TestRQEncodeRestore(t *testing.T) {
 	rng := newRNG(7542)
 	for range n {
 		d := 2 + rng.IntN(1000)
-		rq := defaultRotationalQuantizer(d, rng.Uint64())
+		rq := defaultRotationalQuantizer(d)
 
 		s := 1000 * rng.Float32()
 		x := randomUniformVector(d, rng)
@@ -153,7 +152,7 @@ func TestRQDistancer(t *testing.T) {
 		q, x := correlatedVectors(d, alpha)
 		for _, m := range metrics {
 			bits := 8
-			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, m)
+			rq := compressionhelpers.NewRotationalQuantizer(d, bits, m)
 			distancer := rq.NewDistancer(q)
 			expected, _ := m.SingleDist(q, x)
 			cx := rq.Encode(x)
@@ -192,7 +191,7 @@ func TestRQEstimationConcentrationBounds(t *testing.T) {
 		eps *= additionalErrorFactor
 
 		q, x := correlatedVectors(d, alpha)
-		rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, distancer.NewDotProductProvider())
+		rq := compressionhelpers.NewRotationalQuantizer(d, bits, distancer.NewDotProductProvider())
 		cx := rq.Encode(x)
 		dist := rq.NewDistancer(q)
 		estimate, _ := dist.Distance(cx)
@@ -227,7 +226,7 @@ func TestRQDistancerRandomVectorsWithScaling(t *testing.T) {
 		scale(x, s2)
 		for _, m := range metrics {
 			bits := 8
-			rq := compressionhelpers.NewRotationalQuantizer(d, rng.Uint64(), bits, m)
+			rq := compressionhelpers.NewRotationalQuantizer(d, bits, m)
 			distancer := rq.NewDistancer(q)
 			cx := rq.Encode(x)
 			target, _ := m.SingleDist(q, x)
@@ -248,7 +247,7 @@ func TestRQCodePointDistribution(t *testing.T) {
 	codePoints := 1 << bits
 	for range n {
 		inDim := 2 + rng.IntN(1024)
-		rq := compressionhelpers.NewRotationalQuantizer(inDim, rng.Uint64(), bits, distancer.NewDotProductProvider())
+		rq := compressionhelpers.NewRotationalQuantizer(inDim, bits, distancer.NewDotProductProvider())
 
 		// Encode m random unit vectors and mark the bytes that were used.
 		m := 100
@@ -281,7 +280,7 @@ func TestRQCodePointDistribution(t *testing.T) {
 func TestRQHandlesAbnormalVectorsGracefully(t *testing.T) {
 	inDim := 97
 	bits := 8
-	rq := compressionhelpers.NewRotationalQuantizer(inDim, 42, bits, distancer.NewDotProductProvider())
+	rq := compressionhelpers.NewRotationalQuantizer(inDim, bits, distancer.NewDotProductProvider())
 	outDim := rq.OutputDimension()
 	zeroCode := compressionhelpers.ZeroRQCode(outDim)
 
@@ -305,11 +304,10 @@ func TestRQHandlesAbnormalVectorsGracefully(t *testing.T) {
 }
 
 func BenchmarkRQEncode(b *testing.B) {
-	rng := newRNG(42)
 	dimensions := []int{256, 1024, 1536}
 
 	for _, dim := range dimensions {
-		quantizer := defaultRotationalQuantizer(dim, rng.Uint64())
+		quantizer := defaultRotationalQuantizer(dim)
 		x := make([]float32, dim)
 		x[0] = 1
 		b.Run(fmt.Sprintf("FastRQEncode-d%d", dim), func(b *testing.B) {
@@ -323,7 +321,6 @@ func BenchmarkRQEncode(b *testing.B) {
 }
 
 func BenchmarkRQDistancer(b *testing.B) {
-	rng := newRNG(42)
 	dimensions := []int{64, 128, 256, 512, 1024, 1536, 2048}
 	metrics := []distancer.Provider{
 		distancer.NewCosineDistanceProvider(),
@@ -334,7 +331,7 @@ func BenchmarkRQDistancer(b *testing.B) {
 		for _, m := range metrics {
 			// Rotational quantization.
 			bits := 8
-			rq := compressionhelpers.NewRotationalQuantizer(dim, rng.Uint64(), bits, m)
+			rq := compressionhelpers.NewRotationalQuantizer(dim, bits, m)
 			q, x := correlatedVectors(dim, 0.5)
 			cx := rq.Encode(x)
 			distancer := rq.NewDistancer(q)

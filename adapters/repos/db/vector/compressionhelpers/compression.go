@@ -641,7 +641,6 @@ func NewRQCompressor(
 	bits int,
 	dim int,
 ) (VectorCompressor, error) {
-
 	quantizer := NewRotationalQuantizer(dim, bits, distance)
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
 	switch bits {
@@ -676,7 +675,6 @@ func RestoreRQCompressor(
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
-
 	quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 	if err != nil {
 		return nil, err
@@ -710,7 +708,6 @@ func NewRQMultiCompressor(
 	bits int,
 	dim int,
 ) (VectorCompressor, error) {
-
 	quantizer := NewRotationalQuantizer(dim, bits, distance)
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
 	switch bits {
@@ -745,7 +742,6 @@ func RestoreRQMultiCompressor(
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
-
 	quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 	if err != nil {
 		return nil, err
