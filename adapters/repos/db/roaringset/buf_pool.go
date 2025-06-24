@@ -146,11 +146,11 @@ func (p *bitmapBufPoolFixed) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap,
 // -----------------------------------------------------------------------------
 
 type bitmapBufPoolRanged struct {
-	ranges []int
-	// poolsFixed []*bitmapBufPoolFixed
-	// poolVar    *bitmapBufPoolVar
-	poolsFixed []*bitmapBufPoolNoop
-	poolVar    *bitmapBufPoolNoop
+	ranges     []int
+	poolsFixed []*bitmapBufPoolFixed
+	poolVar    *bitmapBufPoolVar
+	// poolsFixed []*bitmapBufPoolNoop
+	// poolVar    *bitmapBufPoolNoop
 }
 
 // Creates multiple pools, one for specified range of sizes (given in bytes).
@@ -176,17 +176,17 @@ func NewBitmapBufPoolRanged(ranges ...int) *bitmapBufPoolRanged {
 		slices.Sort(ranges)
 	}
 
-	// poolsFixed := make([]*bitmapBufPoolFixed, len(ranges))
-	// for i := range poolsFixed {
-	// 	poolsFixed[i] = NewBitmapBufPoolFixed(ranges[i])
-	// }
-	// poolVar := NewBitmapBufPoolVar()
-	poolsFixed := make([]*bitmapBufPoolNoop, len(ranges))
+	poolsFixed := make([]*bitmapBufPoolFixed, len(ranges))
 	for i := range poolsFixed {
-		poolsFixed[i] = NewBitmapBufPoolNoop()
-		poolsFixed[i].cap = ranges[i]
+		poolsFixed[i] = NewBitmapBufPoolFixed(ranges[i])
 	}
-	poolVar := NewBitmapBufPoolNoop()
+	poolVar := NewBitmapBufPoolVar()
+	// poolsFixed := make([]*bitmapBufPoolNoop, len(ranges))
+	// for i := range poolsFixed {
+	// 	poolsFixed[i] = NewBitmapBufPoolNoop()
+	// 	poolsFixed[i].cap = ranges[i]
+	// }
+	// poolVar := NewBitmapBufPoolNoop()
 
 	return &bitmapBufPoolRanged{
 		ranges:     ranges,
@@ -198,7 +198,7 @@ func NewBitmapBufPoolRanged(ranges ...int) *bitmapBufPoolRanged {
 func (p *bitmapBufPoolRanged) Get(minCap int) (buf []byte, put func()) {
 	for i, rng := range p.ranges {
 		if minCap <= rng {
-			return p.poolsFixed[i].Get(rng)
+			return p.poolsFixed[i].Get()
 		}
 	}
 	return p.poolVar.Get(minCap)
