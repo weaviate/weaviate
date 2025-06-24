@@ -27,7 +27,6 @@ import (
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
-	"github.com/weaviate/weaviate/usecases/ringbuffer"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -753,17 +752,12 @@ func setupDebugHandlers(appState *state.State) {
 		}
 
 		// Get the ring buffer hook from the logger
-		ringHookInterface := appState.GetLogRingBuffer()
-		if ringHookInterface == nil {
+		ringHook := appState.GetLogRingBuffer()
+		if ringHook == nil {
 			http.Error(w, "log ring buffer not available", http.StatusServiceUnavailable)
 			return
 		}
 
-		ringHook, ok := ringHookInterface.(*ringbuffer.RingBufferHook)
-		if !ok {
-			http.Error(w, "log ring buffer type assertion failed", http.StatusInternalServerError)
-			return
-		}
 
 		// Parse query parameters
 		limitStr := r.URL.Query().Get("limit")
