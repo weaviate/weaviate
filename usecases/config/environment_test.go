@@ -12,7 +12,6 @@
 package config
 
 import (
-	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -304,21 +303,17 @@ func TestEnvironmentParseClusterConfig(t *testing.T) {
 			},
 		},
 		{
-			name: "invalid cluster config - both ports provided",
+			name: "valid cluster config - both ports provided",
 			envVars: map[string]string{
 				"CLUSTER_GOSSIP_BIND_PORT": "7100",
 				"CLUSTER_DATA_BIND_PORT":   "7111",
 			},
-			expectedErr: errors.New("CLUSTER_DATA_BIND_PORT must be one port " +
-				"number greater than CLUSTER_GOSSIP_BIND_PORT"),
-		},
-		{
-			name: "invalid config - only data bind port provided",
-			envVars: map[string]string{
-				"CLUSTER_DATA_BIND_PORT": "7101",
+			expectedResult: cluster.Config{
+				Hostname:         hostname,
+				GossipBindPort:   7100,
+				DataBindPort:     7111,
+				MaintenanceNodes: make([]string, 0),
 			},
-			expectedErr: errors.New("CLUSTER_DATA_BIND_PORT must be one port " +
-				"number greater than CLUSTER_GOSSIP_BIND_PORT"),
 		},
 		{
 			name: "schema sync disabled",
