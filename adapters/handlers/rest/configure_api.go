@@ -454,6 +454,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	setupDebugHandlers(appState)
+	setupLogRingBuffer(appState)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
 	migrator := db.NewMigrator(repo, appState.Logger)
@@ -1681,6 +1682,16 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 		return &http.Client{Transport: clientWithAuth{r: t, basicAuth: authConfig.BasicAuth}}
 	}
 	return &http.Client{Transport: t}
+}
+
+func setupLogRingBuffer(appState *state.State) {
+	// Initialize a ring buffer hook to capture recent log entries for the debug API
+	// Buffer size: 1000 entries, capture all log levels
+	ringHook := NewRingBufferHook(1000, logrus.TraceLevel)
+	appState.Logger.AddHook(ringHook)
+	appState.SetLogRingBuffer(ringHook)
+
+	appState.Logger.WithField("action", "startup").Debug("initialized log ring buffer for debug API")
 }
 
 func setupGoProfiling(config config.Config, logger logrus.FieldLogger) {

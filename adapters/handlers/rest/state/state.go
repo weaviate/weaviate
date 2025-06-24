@@ -92,6 +92,10 @@ type State struct {
 
 	DistributedTaskScheduler *distributedtask.Scheduler
 	Migrator                 *db.Migrator
+
+	// Log ring buffer for debug API
+	logRingBufferMutex sync.RWMutex
+	logRingBuffer      interface{} // Will hold *RingBufferHook
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
@@ -110,4 +114,19 @@ func (s *State) SetGraphQL(gql graphql.GraphQL) {
 	s.gqlMutex.Lock()
 	s.GraphQL = gql
 	s.gqlMutex.Unlock()
+}
+
+// SetLogRingBuffer sets the log ring buffer hook for debug API access
+func (s *State) SetLogRingBuffer(hook interface{}) {
+	s.logRingBufferMutex.Lock()
+	s.logRingBuffer = hook
+	s.logRingBufferMutex.Unlock()
+}
+
+// GetLogRingBuffer returns the log ring buffer hook, or nil if not set
+func (s *State) GetLogRingBuffer() interface{} {
+	s.logRingBufferMutex.RLock()
+	hook := s.logRingBuffer
+	s.logRingBufferMutex.RUnlock()
+	return hook
 }
