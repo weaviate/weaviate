@@ -13,6 +13,7 @@ package generate
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -93,14 +94,27 @@ func (c *fakeClient) getResult(task string) *modulecapabilities.GenerateResponse
 
 func Test_getProperties(t *testing.T) {
 	var provider GenerateProvider
-	result := search.Result{
-		Schema: models.PropertySchema(map[string]interface{}{
-			"missing": nil,
-		}),
-	}
 
-	// Get provider to iterate over a result object with a nil property.
-	require.NotPanics(t, func() {
-		provider.getProperties(result, []string{"missing"}, map[string]schema.DataType{"missing": schema.DataTypeBlob})
-	})
+	for _, tt := range []struct {
+		missing  any
+		dataType schema.DataType
+	}{
+		{nil, schema.DataTypeBlob},
+		{[]string{}, schema.DataTypeTextArray},
+		{nil, schema.DataTypeTextArray},
+	} {
+		t.Run(fmt.Sprintf("%s=%v", tt.dataType, tt.missing), func(t *testing.T) {
+			result := search.Result{
+				Schema: models.PropertySchema(map[string]any{
+					"missing": tt.missing,
+				}),
+			}
+
+			// Get provider to iterate over a result object with a nil property.
+			require.NotPanics(t, func() {
+				provider.getProperties(result, []string{"missing"},
+					map[string]schema.DataType{"missing": tt.dataType})
+			})
+		})
+	}
 }
