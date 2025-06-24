@@ -45,6 +45,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/adapters/handlers/rest"
 )
 
 // State is the only source of application-wide state
@@ -95,7 +96,7 @@ type State struct {
 
 	// Log ring buffer for debug API
 	logRingBufferMutex sync.RWMutex
-	logRingBuffer      interface{} // Will hold *RingBufferHook
+	logRingBuffer      *rest.RingBufferHook // Will hold *RingBufferHook
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

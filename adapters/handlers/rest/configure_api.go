@@ -144,6 +144,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	"github.com/weaviate/weaviate/usecases/ringbuffer"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -1687,7 +1688,7 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 func setupLogRingBuffer(appState *state.State) {
 	// Initialize a ring buffer hook to capture recent log entries for the debug API
 	// Buffer size: 1000 entries, capture all log levels
-	ringHook := NewRingBufferHook(1000, logrus.TraceLevel)
+	ringHook := ringbuffer.NewRingBufferHook(1000, logrus.TraceLevel)
 	appState.Logger.AddHook(ringHook)
 	appState.SetLogRingBuffer(ringHook)
 

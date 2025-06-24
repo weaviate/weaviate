@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/usecases/ringbuffer"
 )
 
 func setupDebugHandlers(appState *state.State) {
@@ -758,7 +759,7 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-		ringHook, ok := ringHookInterface.(*RingBufferHook)
+		ringHook, ok := ringHookInterface.(*ringbuffer.RingBufferHook)
 		if !ok {
 			http.Error(w, "log ring buffer type assertion failed", http.StatusInternalServerError)
 			return
