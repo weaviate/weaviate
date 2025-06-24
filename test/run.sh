@@ -12,6 +12,7 @@ function main() {
   run_acceptance_graphql_tests=false
   run_acceptance_replication_tests=false
   run_acceptance_async_replication_tests=false
+  run_acceptance_objects=false
   only_acceptance=false
   run_module_tests=false
   only_module=false
