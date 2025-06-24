@@ -409,80 +409,83 @@ func prettyPermissionsResources(perm *models.Permission) string {
 	}
 
 	if perm.Backups != nil {
-		res += fmt.Sprintf("[Domain: %s,", authorization.BackupsDomain)
+		s := fmt.Sprintf("Domain: %s,", authorization.BackupsDomain)
 		if perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
-			res += fmt.Sprintf("Collection: %s", *perm.Backups.Collection)
+			s += fmt.Sprintf("Collection: %s", *perm.Backups.Collection)
 		}
-		res += "]"
+		s = strings.TrimSuffix(s, ",")
+		res += fmt.Sprintf("[%s]", s)
 	}
 
 	if perm.Data != nil {
-		res += fmt.Sprintf("[Domain: %s,", authorization.DataDomain)
+		s := fmt.Sprintf("Domain: %s,", authorization.DataDomain)
 		if perm.Data.Collection != nil && *perm.Data.Collection != "" {
-			res += fmt.Sprintf(" Collection: %s,", *perm.Data.Collection)
+			s += fmt.Sprintf(" Collection: %s,", *perm.Data.Collection)
 		}
 		if perm.Data.Tenant != nil && *perm.Data.Tenant != "" {
-			res += fmt.Sprintf(" Tenant: %s,", *perm.Data.Tenant)
+			s += fmt.Sprintf(" Tenant: %s,", *perm.Data.Tenant)
 		}
 		if perm.Data.Object != nil && *perm.Data.Object != "" {
-			res += fmt.Sprintf(" Object: %s,", *perm.Data.Object)
+			s += fmt.Sprintf(" Object: %s", *perm.Data.Object)
 		}
-		res += "]"
+		s = strings.TrimSuffix(s, ",")
+		res += fmt.Sprintf("[%s]", s)
 	}
 
 	if perm.Nodes != nil {
-		res += fmt.Sprintf("[Domain: %s,", authorization.NodesDomain)
+		s := fmt.Sprintf("Domain: %s,", authorization.NodesDomain)
 
 		if perm.Nodes.Verbosity != nil && *perm.Nodes.Verbosity != "" {
-			res += fmt.Sprintf(" Verbosity: %s,", *perm.Nodes.Verbosity)
+			s += fmt.Sprintf(" Verbosity: %s,", *perm.Nodes.Verbosity)
 		}
 		if perm.Nodes.Collection != nil && *perm.Nodes.Collection != "" {
-			res += fmt.Sprintf(" Collection: %s,", *perm.Nodes.Collection)
+			s += fmt.Sprintf(" Collection: %s", *perm.Nodes.Collection)
 		}
-		res += "]"
+		s = strings.TrimSuffix(s, ",")
+		res += fmt.Sprintf("[%s]", s)
 	}
 
 	if perm.Roles != nil {
-		res += fmt.Sprintf("[Domain: %s,", authorization.RolesDomain)
+		s := fmt.Sprintf("Domain: %s,", authorization.RolesDomain)
 		if perm.Roles.Role != nil && *perm.Roles.Role != "" {
-			res += fmt.Sprintf(" Role: %s,", *perm.Roles.Role)
+			s += fmt.Sprintf(" Role: %s,", *perm.Roles.Role)
 		}
-		res += "]"
+		s = strings.TrimSuffix(s, ",")
+		res += fmt.Sprintf("[%s]", s)
 	}
 
 	if perm.Collections != nil {
-		res += fmt.Sprintf("[Domain: %s,", authorization.CollectionsDomain)
+		s := fmt.Sprintf("Domain: %s,", authorization.CollectionsDomain)
 
 		if perm.Collections.Collection != nil && *perm.Collections.Collection != "" {
-			res += fmt.Sprintf(" Collection: %s,", *perm.Collections.Collection)
+			s += fmt.Sprintf(" Collection: %s,", *perm.Collections.Collection)
 		}
-		res += "]"
+		s = strings.TrimSuffix(s, ",")
+		res += fmt.Sprintf("[%s]", s)
 	}
 
 	if perm.Tenants != nil {
-		res += fmt.Sprintf("[Domain: %s,", authorization.TenantsDomain)
+		s := fmt.Sprintf("Domain: %s,", authorization.TenantsDomain)
 
 		if perm.Tenants.Tenant != nil && *perm.Tenants.Tenant != "" {
-			res += fmt.Sprintf(" Collection: %s,", *perm.Tenants.Collection)
-			res += fmt.Sprintf(" Tenant: %s,", *perm.Tenants.Tenant)
+			s += fmt.Sprintf(" Collection: %s,", *perm.Tenants.Collection)
+			s += fmt.Sprintf(" Tenant: %s", *perm.Tenants.Tenant)
 		}
-		res += "]"
+		s = strings.TrimSuffix(s, ",")
+		res += fmt.Sprintf("[%s]", s)
 	}
 
 	if perm.Users != nil {
-		res += fmt.Sprintf("[Domain: %s,", authorization.UsersDomain)
+		s := fmt.Sprintf("Domain: %s,", authorization.UsersDomain)
 
 		if perm.Users.Users != nil {
-			res += fmt.Sprintf(" User: %s,", *perm.Users.Users)
+			s += fmt.Sprintf(" User: %s,", *perm.Users.Users)
 		}
-		res += "]"
+		s = strings.TrimSuffix(s, ",")
+		res += fmt.Sprintf("[%s]", s)
 	}
 
-	if many := strings.Count(res, ","); many == 1 {
-		res = strings.ReplaceAll(res, ",", "")
-		res = strings.TrimSpace(res)
-	}
-	return res
+	return strings.TrimSpace(res)
 }
 
 func prettyStatus(value bool) string {
