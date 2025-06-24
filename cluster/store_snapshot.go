@@ -28,9 +28,14 @@ import (
 // and call sink.Close() when finished or call sink.Cancel() on error.
 func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 	defer sink.Close()
-	schemaSnapshot, err := s.schemaManager.Snapshot()
+	schemaSnapshot, err := s.schemaManager.SchemaSnapshot()
 	if err != nil {
 		return fmt.Errorf("schema snapshot: %w", err)
+	}
+
+	aliasSnapshot, err := s.schemaManager.AliasSnapshot()
+	if err != nil {
+		return fmt.Errorf("alias snapshot: %w", err)
 	}
 
 	rbacSnapshot, err := s.authZManager.Snapshot()
@@ -57,6 +62,7 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 		NodeID:           s.cfg.NodeID,
 		SnapshotID:       sink.ID(),
 		Schema:           schemaSnapshot,
+		Aliases:          aliasSnapshot,
 		RBAC:             rbacSnapshot,
 		DbUsers:          dbUserSnapshot,
 		DistributedTasks: tasksSnapshot,
@@ -127,6 +133,12 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 		}
 
 		st.log.Info("successfully restored schema from snapshot")
+
+		if snap.Aliases != nil {
+			if err := st.schemaManager.RestoreAliases(snap.Aliases); err != nil {
+				return fmt.Errorf("restore aliases from snapshot: %w", err)
+			}
+		}
 
 		if snap.RBAC != nil {
 			if err := st.authZManager.Restore(snap.RBAC); err != nil {

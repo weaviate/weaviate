@@ -190,7 +190,18 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.schemaManager.AddProperty(&cmd, schemaOnly, !catchingUp)
 		}
-
+	case api.ApplyRequest_TYPE_CREATE_ALIAS:
+		f = func() {
+			ret.Error = st.schemaManager.CreateAlias(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLACE_ALIAS:
+		f = func() {
+			ret.Error = st.schemaManager.ReplaceAlias(&cmd)
+		}
+	case api.ApplyRequest_TYPE_DELETE_ALIAS:
+		f = func() {
+			ret.Error = st.schemaManager.DeleteAlias(&cmd)
+		}
 	case api.ApplyRequest_TYPE_UPDATE_SHARD_STATUS:
 		f = func() {
 			ret.Error = st.schemaManager.UpdateShardStatus(&cmd, schemaOnly)
