@@ -292,12 +292,12 @@ func (m *module) collectUsageData(ctx context.Context) (*clusterusage.Report, er
 	}
 
 	// Compute total collections (from usage.SingleTenantCollections) and update gauge.
-	totalCollections := float64(len(usage.SingleTenantCollections))
+	totalCollections := float64(len(usage.Collections))
 	m.metrics.ResourceCount.WithLabelValues("collections").Set(totalCollections)
 
 	// Compute total shards (by summing usage.SingleTenantCollections[i].UniqueShardCount) and update gauge.
 	var totalShards float64
-	for _, coll := range usage.SingleTenantCollections {
+	for _, coll := range usage.Collections {
 		totalShards += float64(coll.UniqueShardCount)
 	}
 	m.metrics.ResourceCount.WithLabelValues("shards").Set(totalShards)

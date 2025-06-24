@@ -44,9 +44,9 @@ func NewService(schemaManager *schema.Manager, db *db.DB, modules *modules.Provi
 func (m *service) Usage(ctx context.Context) (*Report, error) {
 	collections := m.schemaManager.GetSchemaSkipAuth().Objects.Classes
 	usage := &Report{
-		Node:                    m.schemaManager.NodeName(),
-		SingleTenantCollections: make([]*CollectionUsage, 0, len(collections)),
-		Backups:                 make([]*BackupUsage, 0),
+		Node:        m.schemaManager.NodeName(),
+		Collections: make([]*CollectionUsage, 0, len(collections)),
+		Backups:     make([]*BackupUsage, 0),
 	}
 
 	// Collect usage for each collection
@@ -109,7 +109,7 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 			})
 		}
 
-		usage.SingleTenantCollections = append(usage.SingleTenantCollections, collectionUsage)
+		usage.Collections = append(usage.Collections, collectionUsage)
 	}
 
 	// Get backup usage from all enabled backup backends
