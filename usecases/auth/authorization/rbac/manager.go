@@ -408,11 +408,16 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		return ""
 	}
 
-	if perm.Backups != nil && perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
-		res += fmt.Sprintf(" Collection: %s,", *perm.Backups.Collection)
+	if perm.Backups != nil {
+		res += fmt.Sprintf("[Domain: %s,", authorization.BackupsDomain)
+		if perm.Backups.Collection != nil && *perm.Backups.Collection != "" {
+			res += fmt.Sprintf("Collection: %s", *perm.Backups.Collection)
+		}
+		res += "]"
 	}
 
 	if perm.Data != nil {
+		res += fmt.Sprintf("[Domain: %s,", authorization.DataDomain)
 		if perm.Data.Collection != nil && *perm.Data.Collection != "" {
 			res += fmt.Sprintf(" Collection: %s,", *perm.Data.Collection)
 		}
@@ -422,32 +427,55 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		if perm.Data.Object != nil && *perm.Data.Object != "" {
 			res += fmt.Sprintf(" Object: %s,", *perm.Data.Object)
 		}
+		res += "]"
 	}
 
 	if perm.Nodes != nil {
+		res += fmt.Sprintf("[Domain: %s,", authorization.NodesDomain)
+
 		if perm.Nodes.Verbosity != nil && *perm.Nodes.Verbosity != "" {
 			res += fmt.Sprintf(" Verbosity: %s,", *perm.Nodes.Verbosity)
 		}
 		if perm.Nodes.Collection != nil && *perm.Nodes.Collection != "" {
 			res += fmt.Sprintf(" Collection: %s,", *perm.Nodes.Collection)
 		}
+		res += "]"
 	}
 
-	if perm.Roles != nil && perm.Roles.Role != nil && *perm.Roles.Role != "" {
-		res += fmt.Sprintf(" Role: %s,", *perm.Roles.Role)
+	if perm.Roles != nil {
+		res += fmt.Sprintf("[Domain: %s,", authorization.RolesDomain)
+		if perm.Roles.Role != nil && *perm.Roles.Role != "" {
+			res += fmt.Sprintf(" Role: %s,", *perm.Roles.Role)
+		}
+		res += "]"
 	}
 
 	if perm.Collections != nil {
+		res += fmt.Sprintf("[Domain: %s,", authorization.CollectionsDomain)
+
 		if perm.Collections.Collection != nil && *perm.Collections.Collection != "" {
 			res += fmt.Sprintf(" Collection: %s,", *perm.Collections.Collection)
 		}
+		res += "]"
 	}
 
 	if perm.Tenants != nil {
+		res += fmt.Sprintf("[Domain: %s,", authorization.TenantsDomain)
+
 		if perm.Tenants.Tenant != nil && *perm.Tenants.Tenant != "" {
 			res += fmt.Sprintf(" Collection: %s,", *perm.Tenants.Collection)
 			res += fmt.Sprintf(" Tenant: %s,", *perm.Tenants.Tenant)
 		}
+		res += "]"
+	}
+
+	if perm.Users != nil {
+		res += fmt.Sprintf("[Domain: %s,", authorization.UsersDomain)
+
+		if perm.Users.Users != nil {
+			res += fmt.Sprintf(" User: %s,", *perm.Users.Users)
+		}
+		res += "]"
 	}
 
 	if many := strings.Count(res, ","); many == 1 {
