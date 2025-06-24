@@ -96,9 +96,8 @@ type State struct {
 
 	// Log ring buffer for debug API
 	logRingBufferMutex sync.RWMutex
-	logRingBuffer       *ringbuffer.RingBufferHook // Will hold *RingBufferHook
+	logRingBuffer      *ringbuffer.RingBufferHook // Will hold *RingBufferHook
 }
-
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be
 // replaced at runtime. Instead of passing appState.GraphQL to your adapters,
@@ -119,7 +118,7 @@ func (s *State) SetGraphQL(gql graphql.GraphQL) {
 }
 
 // SetLogRingBuffer sets the log ring buffer hook for debug API access
-func (s *State) SetLogRingBuffer(hook  *ringbuffer.RingBufferHook) {
+func (s *State) SetLogRingBuffer(hook *ringbuffer.RingBufferHook) {
 	s.logRingBufferMutex.Lock()
 	s.logRingBuffer = hook
 	s.logRingBufferMutex.Unlock()

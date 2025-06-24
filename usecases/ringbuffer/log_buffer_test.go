@@ -235,10 +235,10 @@ func TestRingBufferFieldsSerialization(t *testing.T) {
 
 	// Log with complex fields
 	logger.WithFields(logrus.Fields{
-		"component":    "backup",
-		"backup_id":    "backup-123",
-		"retry_count":  3,
-		"is_critical":  true,
+		"component":   "backup",
+		"backup_id":   "backup-123",
+		"retry_count": 3,
+		"is_critical": true,
 		"error_codes": []int{404, 500},
 	}).Error("Complex backup error")
 

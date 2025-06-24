@@ -758,7 +758,6 @@ func setupDebugHandlers(appState *state.State) {
 			return
 		}
 
-
 		// Parse query parameters
 		limitStr := r.URL.Query().Get("limit")
 		limit := 100 // default
