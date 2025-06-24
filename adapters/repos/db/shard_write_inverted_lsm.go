@@ -291,6 +291,8 @@ func (s *Shard) resetDimensionsLSM() error {
 		lsmkv.WithPread(s.index.Config.AvoidMMap),
 		lsmkv.WithAllocChecker(s.index.allocChecker),
 		lsmkv.WithMaxSegmentSize(s.index.Config.MaxSegmentSize),
+		lsmkv.WithMinMMapSize(s.index.Config.MinMMapSize),
+		lsmkv.WithMinWalThreshold(s.index.Config.MaxReuseWalSize),
 		s.segmentCleanupConfig(),
 	)
 	if err != nil {

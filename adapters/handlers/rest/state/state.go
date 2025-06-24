@@ -16,13 +16,17 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
+
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/adapters/handlers/graphql"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/types"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	rCluster "github.com/weaviate/weaviate/cluster"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/fsm"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/anonymous"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
@@ -54,6 +58,7 @@ type State struct {
 	Authorizer       authorization.Authorizer
 	AuthzController  authorization.Controller
 	AuthzSnapshotter fsm.Snapshotter
+	RBAC             *rbac.Manager
 
 	ServerConfig          *config.WeaviateConfig
 	LDIntegration         *configRuntime.LDIntegration
@@ -76,14 +81,17 @@ type State struct {
 	BackupManager      *backup.Handler
 	DB                 *db.DB
 	BatchManager       *objects.BatchManager
+	AutoSchemaManager  *objects.AutoSchemaManager
 	ClusterHttpClient  *http.Client
 	ReindexCtxCancel   context.CancelCauseFunc
 	MemWatch           *memwatch.Monitor
 
 	ClusterService *rCluster.Service
 	TenantActivity *tenantactivity.Handler
+	InternalServer types.ClusterServer
 
-	Migrator *db.Migrator
+	DistributedTaskScheduler *distributedtask.Scheduler
+	Migrator                 *db.Migrator
 }
 
 // GetGraphQL is the safe way to retrieve GraphQL from the state as it can be

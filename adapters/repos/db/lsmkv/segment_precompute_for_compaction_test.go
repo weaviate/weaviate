@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 )
 
 func TestPrecomputeForCompaction(t *testing.T) {
@@ -91,7 +92,7 @@ func precomputeSegmentMeta_Replace(ctx context.Context, t *testing.T, opts []Buc
 	err = os.Rename(path.Join(dirName, fname), segmentTmp)
 	require.Nil(t, err)
 
-	fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true, false)
+	fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true, false, 100, memwatch.NewDummyMonitor(), nil, "")
 	require.Nil(t, err)
 
 	// there should be 4 files and they should all have a .tmp suffix:
@@ -148,7 +149,7 @@ func precomputeSegmentMeta_Set(ctx context.Context, t *testing.T, opts []BucketO
 	err = os.Rename(path.Join(dirName, fname), segmentTmp)
 	require.Nil(t, err)
 
-	fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true, false)
+	fileNames, err := preComputeSegmentMeta(segmentTmp, 1, logger, true, true, false, 100, memwatch.NewDummyMonitor(), nil, "")
 	require.Nil(t, err)
 
 	// there should be 2 files and they should all have a .tmp suffix:
@@ -163,14 +164,14 @@ func precomputeSegmentMeta_Set(ctx context.Context, t *testing.T, opts []BucketO
 func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 	t.Run("file without .tmp suffix", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
-		_, err := preComputeSegmentMeta("a-path-without-the-required-suffix", 7, logger, true, true, false)
+		_, err := preComputeSegmentMeta("a-path-without-the-required-suffix", 7, logger, true, true, false, 100, memwatch.NewDummyMonitor(), nil, "")
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "expects a .tmp segment")
 	})
 
 	t.Run("file does not exist", func(t *testing.T) {
 		logger, _ := test.NewNullLogger()
-		_, err := preComputeSegmentMeta("i-dont-exist.tmp", 7, logger, true, true, false)
+		_, err := preComputeSegmentMeta("i-dont-exist.tmp", 7, logger, true, true, false, 100, memwatch.NewDummyMonitor(), nil, "")
 		require.NotNil(t, err)
 		unixErr := "no such file or directory"
 		windowsErr := "The system cannot find the file specified."
@@ -195,7 +196,7 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		err = f.Close()
 		require.Nil(t, err)
 
-		_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true, false)
+		_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true, false, 100, memwatch.NewDummyMonitor(), nil, "")
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "parse header")
 	})
@@ -219,7 +220,7 @@ func TestPrecomputeSegmentMeta_UnhappyPaths(t *testing.T) {
 		err = f.Close()
 		require.Nil(t, err)
 
-		_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true, false)
+		_, err = preComputeSegmentMeta(segmentName, 7, logger, true, true, false, 100, memwatch.NewDummyMonitor(), nil, "")
 		require.NotNil(t, err)
 		assert.Contains(t, err.Error(), "unsupported strategy")
 	})

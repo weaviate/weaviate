@@ -20,11 +20,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/weaviate/weaviate/usecases/build"
-
-	"github.com/weaviate/weaviate/usecases/config"
-
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 
 	"github.com/casbin/casbin/v2"
 	"github.com/casbin/casbin/v2/model"
@@ -32,9 +30,9 @@ import (
 	casbinutil "github.com/casbin/casbin/v2/util"
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
-	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
+	"github.com/weaviate/weaviate/usecases/build"
+	"github.com/weaviate/weaviate/usecases/config"
 )
 
 const DEFAULT_POLICY_VERSION = "1.29.0"
@@ -105,34 +103,57 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 		return nil, errors.Wrapf(err, "create storage path: %v", rbacStorageFilePath)
 	}
 
-	policyVersion, err := getVersion(rbacStoragePath)
-	if err != nil {
-		return nil, err
-	}
-
 	enforcer.SetAdapter(fileadapter.NewAdapter(rbacStorageFilePath))
 
 	if err := enforcer.LoadPolicy(); err != nil {
 		return nil, err
 	}
-	if err := upgradeRolesFrom129(enforcer, policyVersion); err != nil {
+	// parse version string to check if upgrade is needed
+	policyVersion, err := getVersion(rbacStoragePath)
+	if err != nil {
 		return nil, err
 	}
-	if err := upgradeGroupingsFrom129(enforcer, authNconf); err != nil {
+	versionParts := strings.Split(policyVersion, ".")
+	minorVersion, err := strconv.Atoi(versionParts[1])
+	if err != nil {
 		return nil, err
 	}
 
+	if versionParts[0] == "1" && minorVersion < 30 {
+		if err := upgradePoliciesFrom129(enforcer, false); err != nil {
+			return nil, err
+		}
+
+		if err := upgradeGroupingsFrom129(enforcer, authNconf); err != nil {
+			return nil, err
+		}
+	}
 	// docs: https://casbin.org/docs/function/
 	enforcer.AddFunction("weaviateMatcher", WeaviateMatcherFunc)
 
-	// remove preexisting root role including assignments
-	_, err = enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
-	if err != nil {
+	if err := applyPredefinedRoles(enforcer, conf, authNconf); err != nil {
+		return nil, errors.Wrapf(err, "apply env config")
+	}
+
+	// update version after casbin policy has been written
+	if err := writeVersion(rbacStoragePath, build.Version); err != nil {
 		return nil, err
+	}
+
+	return enforcer, nil
+}
+
+// applyPredefinedRoles adds pre-defined roles (admin/viewer/root) and assigns them to the users provided in the
+// local config
+func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.Config, authNconf config.Authentication) error {
+	// remove preexisting root role including assignments
+	_, err := enforcer.RemoveFilteredNamedPolicy("p", 0, conv.PrefixRoleName(authorization.Root))
+	if err != nil {
+		return err
 	}
 	_, err = enforcer.RemoveFilteredGroupingPolicy(1, conv.PrefixRoleName(authorization.Root))
 	if err != nil {
-		return nil, err
+		return err
 	}
 
 	// add pre existing roles
@@ -141,7 +162,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 			continue
 		}
 		if _, err := enforcer.AddNamedPolicy("p", conv.PrefixRoleName(name), "*", verb, "*"); err != nil {
-			return nil, fmt.Errorf("add policy: %w", err)
+			return fmt.Errorf("add policy: %w", err)
 		}
 	}
 
@@ -152,13 +173,13 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 
 		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.RootUsers[i]) {
 			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputDb), conv.PrefixRoleName(authorization.Root)); err != nil {
-				return nil, fmt.Errorf("add role for user: %w", err)
+				return fmt.Errorf("add role for user: %w", err)
 			}
 		}
 
 		if authNconf.OIDC.Enabled {
 			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Root)); err != nil {
-				return nil, fmt.Errorf("add role for user: %w", err)
+				return fmt.Errorf("add role for user: %w", err)
 			}
 		}
 	}
@@ -168,7 +189,7 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 			continue
 		}
 		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(group), conv.PrefixRoleName(authorization.Root)); err != nil {
-			return nil, fmt.Errorf("add role for group %s: %w", group, err)
+			return fmt.Errorf("add role for group %s: %w", group, err)
 		}
 	}
 
@@ -177,20 +198,15 @@ func Init(conf rbacconf.Config, policyPath string, authNconf config.Authenticati
 			continue
 		}
 		if _, err := enforcer.AddRoleForUser(conv.PrefixGroupName(viewerGroup), conv.PrefixRoleName(authorization.Viewer)); err != nil {
-			return nil, fmt.Errorf("add viewer role for group %s: %w", viewerGroup, err)
+			return fmt.Errorf("add viewer role for group %s: %w", viewerGroup, err)
 		}
 	}
 
 	if err := enforcer.SavePolicy(); err != nil {
-		return nil, errors.Wrapf(err, "save policy")
+		return errors.Wrapf(err, "save policy")
 	}
 
-	// update version after casbin policy has been written
-	if err := writeVersion(rbacStoragePath, build.Version); err != nil {
-		return nil, err
-	}
-
-	return enforcer, nil
+	return nil
 }
 
 func WeaviateMatcher(key1 string, key2 string) bool {
@@ -210,48 +226,6 @@ func WeaviateMatcherFunc(args ...interface{}) (interface{}, error) {
 	name2 := args[1].(string)
 
 	return (bool)(WeaviateMatcher(name1, name2)), nil
-}
-
-func upgradeGroupingsFrom129(enforcer *casbin.SyncedCachedEnforcer, authNconf config.Authentication) error {
-	// clear out assignments without namespaces and re-add them with namespaces
-	roles, _ := enforcer.GetAllSubjects()
-	for _, role := range roles {
-		users, err := enforcer.GetUsersForRole(role)
-		if err != nil {
-			return err
-		}
-
-		for _, user := range users {
-			// internal user assignments (for empty roles) need to be converted to from namespaced assignment with user only
-			// other assignments need to be converted to both namespaces
-			if strings.Contains(user, conv.InternalPlaceHolder) {
-				if _, err := enforcer.DeleteRoleForUser(user, role); err != nil {
-					return err
-				}
-
-				if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conv.InternalPlaceHolder, models.UserTypeInputDb), role); err != nil {
-					return err
-				}
-			} else if strings.HasPrefix(user, "user:") {
-				userNoPrefix := strings.TrimPrefix(user, "user:")
-				if _, err := enforcer.DeleteRoleForUser(user, role); err != nil {
-					return err
-				}
-				if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, userNoPrefix) {
-					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, models.UserTypeInputDb), role); err != nil {
-						return err
-					}
-				}
-				if authNconf.OIDC.Enabled {
-					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, models.UserTypeInputOidc), role); err != nil {
-						return err
-					}
-				}
-			}
-		}
-
-	}
-	return nil
 }
 
 func getVersion(path string) (string, error) {
@@ -296,48 +270,4 @@ func writeVersion(path, version string) error {
 	}
 
 	return os.Rename(tempFilename, path+"/version")
-}
-
-func upgradeRolesFrom129(enforcer *casbin.SyncedCachedEnforcer, version string) error {
-	policies, err := enforcer.GetPolicy()
-	if err != nil {
-		return err
-	}
-
-	// parse version string to check if upgrade is needed
-	versionParts := strings.Split(version, ".")
-	minorVersion, err := strconv.Atoi(versionParts[1])
-	if err != nil {
-		return err
-	}
-
-	policiesToAdd := make([][]string, 0, len(policies))
-	for _, policy := range policies {
-		if _, err := enforcer.RemoveFilteredNamedPolicy("p", 0, policy[0]); err != nil {
-			return err
-		}
-
-		if versionParts[0] == "1" && minorVersion < 30 {
-			if policy[3] == authorization.UsersDomain && policy[2] == authorization.UPDATE {
-				policy[2] = authorization.USER_ASSIGN_AND_REVOKE
-			}
-		}
-
-		policiesToAdd = append(policiesToAdd, policy)
-
-	}
-
-	// re-add policy with changed server version, leave out build-in roles
-	for _, policy := range policiesToAdd {
-		roleName := conv.TrimRoleNamePrefix(policy[0])
-		if _, ok := conv.BuiltInPolicies[roleName]; ok {
-			continue
-		}
-
-		if _, err := enforcer.AddNamedPolicy("p", policy[0], policy[1], policy[2], policy[3]); err != nil {
-			return fmt.Errorf("readd policy: %w", err)
-		}
-	}
-
-	return nil
 }

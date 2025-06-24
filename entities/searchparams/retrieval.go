@@ -34,6 +34,8 @@ type KeywordRanking struct {
 	Properties             []string `json:"properties"`
 	Query                  string   `json:"query"`
 	AdditionalExplanations bool     `json:"additionalExplanations"`
+	MinimumOrTokensMatch   int      `json:"minimumOrTokensMatch"`
+	SearchOperator         string   `json:"searchOperator"`
 }
 
 // Indicates whether property should be indexed
@@ -74,7 +76,7 @@ func GetPropertyByName(c *models.Class, propName string) (*models.Property, erro
 			return prop, nil
 		}
 	}
-	return nil, fmt.Errorf("Property %v not found %v", propName, c.Class)
+	return nil, fmt.Errorf("property %v not found %v", propName, c.Class)
 }
 
 func (k *KeywordRanking) ChooseSearchableProperties(class *models.Class) {
@@ -98,18 +100,20 @@ type WeightedSearchResult struct {
 }
 
 type HybridSearch struct {
-	SubSearches      interface{}   `json:"subSearches"`
-	Type             string        `json:"type"`
-	Alpha            float64       `json:"alpha"`
-	Query            string        `json:"query"`
-	Vector           models.Vector `json:"vector"`
-	Properties       []string      `json:"properties"`
-	TargetVectors    []string      `json:"targetVectors"`
-	FusionAlgorithm  int           `json:"fusionalgorithm"`
-	Distance         float32       `json:"distance"`
-	WithDistance     bool          `json:"withDistance"`
-	NearTextParams   *NearTextParams
-	NearVectorParams *NearVector
+	SubSearches          interface{}   `json:"subSearches"`
+	Type                 string        `json:"type"`
+	Alpha                float64       `json:"alpha"`
+	Query                string        `json:"query"`
+	Vector               models.Vector `json:"vector"`
+	Properties           []string      `json:"properties"`
+	TargetVectors        []string      `json:"targetVectors"`
+	FusionAlgorithm      int           `json:"fusionalgorithm"`
+	Distance             float32       `json:"distance"`
+	WithDistance         bool          `json:"withDistance"`
+	MinimumOrTokensMatch int           `json:"minimumOrTokenMatch"`
+	SearchOperator       string        `json:"searchOperator"`
+	NearTextParams       *NearTextParams
+	NearVectorParams     *NearVector
 }
 
 type NearObject struct {

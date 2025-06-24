@@ -27,10 +27,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
-
-	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
-
 	"github.com/KimMachineGun/automemlimit/memlimit"
 	armonmetrics "github.com/armon/go-metrics"
 	armonprometheus "github.com/armon/go-metrics/prometheus"
@@ -51,7 +47,9 @@ import (
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/authz"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/adapters/handlers/rest/db_users"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/operations"
+	replicationHandlers "github.com/weaviate/weaviate/adapters/handlers/rest/replication"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/tenantactivity"
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
@@ -60,6 +58,9 @@ import (
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
+	"github.com/weaviate/weaviate/cluster/distributedtask"
+	"github.com/weaviate/weaviate/cluster/replication/copier"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -116,6 +117,7 @@ import (
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
 	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
+	modt2vmodel2vec "github.com/weaviate/weaviate/modules/text2vec-model2vec"
 	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modtext2vecoctoai "github.com/weaviate/weaviate/modules/text2vec-octoai"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
@@ -123,6 +125,7 @@ import (
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
+	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/build"
@@ -137,7 +140,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/schema"
-	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
@@ -158,7 +160,8 @@ type vectorRepo interface {
 	traverser.VectorSearcher
 	classification.VectorRepo
 	scaler.BackUpper
-	SetSchemaGetter(schemaUC.SchemaGetter)
+	SetSchemaGetter(schema.SchemaGetter)
+	SetRouter(*router.Router)
 	WaitForStartup(ctx context.Context) error
 	Shutdown(ctx context.Context) error
 }
@@ -361,8 +364,10 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	// var vectorMigrator schema.Migrator
 	// var migrator schema.Migrator
 
+	metricsRegisterer := monitoring.NoopRegisterer
 	if appState.ServerConfig.Config.Monitoring.Enabled {
 		promMetrics := monitoring.GetMetrics()
+		metricsRegisterer = promMetrics.Registerer
 		appState.Metrics = promMetrics
 	}
 
@@ -378,16 +383,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MemtablesMaxSizeMB:                  appState.ServerConfig.Config.Persistence.MemtablesMaxSizeMB,
 		MemtablesMinActiveSeconds:           appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
 		MemtablesMaxActiveSeconds:           appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
+		MinMMapSize:                         appState.ServerConfig.Config.Persistence.MinMMapSize,
+		MaxReuseWalSize:                     appState.ServerConfig.Config.Persistence.MaxReuseWalSize,
 		SegmentsCleanupIntervalSeconds:      appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
 		SeparateObjectsCompactions:          appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
 		MaxSegmentSize:                      appState.ServerConfig.Config.Persistence.LSMMaxSegmentSize,
 		CycleManagerRoutinesFactor:          appState.ServerConfig.Config.Persistence.LSMCycleManagerRoutinesFactor,
 		IndexRangeableInMemory:              appState.ServerConfig.Config.Persistence.IndexRangeableInMemory,
-		HNSWMaxLogSize:                      appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
-		HNSWWaitForCachePrefill:             appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
-		HNSWFlatSearchConcurrency:           appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
-		HNSWAcornFilterRatio:                appState.ServerConfig.Config.HNSWAcornFilterRatio,
-		VisitedListPoolMaxSize:              appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
 		RootPath:                            appState.ServerConfig.Config.Persistence.DataPath,
 		QueryLimit:                          appState.ServerConfig.Config.QueryDefaults.Limit,
 		QueryMaximumResults:                 appState.ServerConfig.Config.QueryMaximumResults,
@@ -398,6 +400,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		AvoidMMap:                           appState.ServerConfig.Config.AvoidMmap,
 		DisableLazyLoadShards:               appState.ServerConfig.Config.DisableLazyLoadShards,
 		ForceFullReplicasSearch:             appState.ServerConfig.Config.ForceFullReplicasSearch,
+		TransferInactivityTimeout:           appState.ServerConfig.Config.TransferInactivityTimeout,
 		LSMEnableSegmentsChecksumValidation: appState.ServerConfig.Config.Persistence.LSMEnableSegmentsChecksumValidation,
 		// Pass dummy replication config with minimum factor 1. Otherwise the
 		// setting is not backward-compatible. The user may have created a class
@@ -406,11 +409,25 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		// the required minimum to only apply to newly created classes - not block
 		// loading existing ones.
 		Replication: replication.GlobalConfig{
-			MinimumFactor:              1,
-			AsyncReplicationDisabled:   appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
-			AsyncReplicationDisabledFn: appState.ServerConfig.Config.Replication.AsyncReplicationDisabledFn,
+			MinimumFactor:            1,
+			AsyncReplicationDisabled: appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
 		},
-		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+		MaximumConcurrentShardLoads:                  appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+		HNSWMaxLogSize:                               appState.ServerConfig.Config.Persistence.HNSWMaxLogSize,
+		HNSWDisableSnapshots:                         appState.ServerConfig.Config.Persistence.HNSWDisableSnapshots,
+		HNSWSnapshotIntervalSeconds:                  appState.ServerConfig.Config.Persistence.HNSWSnapshotIntervalSeconds,
+		HNSWSnapshotOnStartup:                        appState.ServerConfig.Config.Persistence.HNSWSnapshotOnStartup,
+		HNSWSnapshotMinDeltaCommitlogsNumber:         appState.ServerConfig.Config.Persistence.HNSWSnapshotMinDeltaCommitlogsNumber,
+		HNSWSnapshotMinDeltaCommitlogsSizePercentage: appState.ServerConfig.Config.Persistence.HNSWSnapshotMinDeltaCommitlogsSizePercentage,
+		HNSWWaitForCachePrefill:                      appState.ServerConfig.Config.HNSWStartupWaitForVectorCache,
+		HNSWFlatSearchConcurrency:                    appState.ServerConfig.Config.HNSWFlatSearchConcurrency,
+		HNSWAcornFilterRatio:                         appState.ServerConfig.Config.HNSWAcornFilterRatio,
+		VisitedListPoolMaxSize:                       appState.ServerConfig.Config.HNSWVisitedListPoolMaxSize,
+		TenantActivityReadLogLevel:                   appState.ServerConfig.Config.TenantActivityReadLogLevel,
+		TenantActivityWriteLogLevel:                  appState.ServerConfig.Config.TenantActivityWriteLogLevel,
+		QuerySlowLogEnabled:                          appState.ServerConfig.Config.QuerySlowLogEnabled,
+		QuerySlowLogThreshold:                        appState.ServerConfig.Config.QuerySlowLogThreshold,
+		InvertedSorterDisabled:                       appState.ServerConfig.Config.InvertedSorterDisabled,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.
@@ -478,37 +495,45 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
+	replicaCopier := copier.New(remoteIndexClient, appState.Cluster, dataPath, appState.DB, appState.Logger)
 	rConfig := rCluster.Config{
-		WorkDir:                filepath.Join(dataPath, config.DefaultRaftDir),
-		NodeID:                 nodeName,
-		Host:                   addrs[0],
-		RaftPort:               appState.ServerConfig.Config.Raft.Port,
-		RPCPort:                appState.ServerConfig.Config.Raft.InternalRPCPort,
-		RaftRPCMessageMaxSize:  appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
-		BootstrapTimeout:       appState.ServerConfig.Config.Raft.BootstrapTimeout,
-		BootstrapExpect:        appState.ServerConfig.Config.Raft.BootstrapExpect,
-		HeartbeatTimeout:       appState.ServerConfig.Config.Raft.HeartbeatTimeout,
-		ElectionTimeout:        appState.ServerConfig.Config.Raft.ElectionTimeout,
-		SnapshotInterval:       appState.ServerConfig.Config.Raft.SnapshotInterval,
-		SnapshotThreshold:      appState.ServerConfig.Config.Raft.SnapshotThreshold,
-		TrailingLogs:           appState.ServerConfig.Config.Raft.TrailingLogs,
-		ConsistencyWaitTimeout: appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
-		MetadataOnlyVoters:     appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
-		EnableOneNodeRecovery:  appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
-		ForceOneNodeRecovery:   appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
-		DB:                     nil,
-		Parser:                 schemaParser,
-		NodeNameToPortMap:      server2port,
-		NodeToAddressResolver:  appState.Cluster,
-		NodeSelector:           appState.Cluster,
-		Logger:                 appState.Logger,
-		IsLocalHost:            appState.ServerConfig.Config.Cluster.Localhost,
-		LoadLegacySchema:       schemaRepo.LoadLegacySchema,
-		SaveLegacySchema:       schemaRepo.SaveLegacySchema,
-		SentryEnabled:          appState.ServerConfig.Config.Sentry.Enabled,
-		AuthzController:        appState.AuthzController,
-		DynamicUserController:  appState.APIKey.Dynamic,
-		AuthNConfig:            appState.ServerConfig.Config.Authentication,
+		WorkDir:                         filepath.Join(dataPath, config.DefaultRaftDir),
+		NodeID:                          nodeName,
+		Host:                            addrs[0],
+		RaftPort:                        appState.ServerConfig.Config.Raft.Port,
+		RPCPort:                         appState.ServerConfig.Config.Raft.InternalRPCPort,
+		RaftRPCMessageMaxSize:           appState.ServerConfig.Config.Raft.RPCMessageMaxSize,
+		BootstrapTimeout:                appState.ServerConfig.Config.Raft.BootstrapTimeout,
+		BootstrapExpect:                 appState.ServerConfig.Config.Raft.BootstrapExpect,
+		HeartbeatTimeout:                appState.ServerConfig.Config.Raft.HeartbeatTimeout,
+		ElectionTimeout:                 appState.ServerConfig.Config.Raft.ElectionTimeout,
+		LeaderLeaseTimeout:              appState.ServerConfig.Config.Raft.LeaderLeaseTimeout,
+		TimeoutsMultiplier:              appState.ServerConfig.Config.Raft.TimeoutsMultiplier,
+		SnapshotInterval:                appState.ServerConfig.Config.Raft.SnapshotInterval,
+		SnapshotThreshold:               appState.ServerConfig.Config.Raft.SnapshotThreshold,
+		TrailingLogs:                    appState.ServerConfig.Config.Raft.TrailingLogs,
+		ConsistencyWaitTimeout:          appState.ServerConfig.Config.Raft.ConsistencyWaitTimeout,
+		MetadataOnlyVoters:              appState.ServerConfig.Config.Raft.MetadataOnlyVoters,
+		EnableOneNodeRecovery:           appState.ServerConfig.Config.Raft.EnableOneNodeRecovery,
+		ForceOneNodeRecovery:            appState.ServerConfig.Config.Raft.ForceOneNodeRecovery,
+		DB:                              nil,
+		Parser:                          schemaParser,
+		NodeNameToPortMap:               server2port,
+		NodeSelector:                    appState.Cluster,
+		Logger:                          appState.Logger,
+		IsLocalHost:                     appState.ServerConfig.Config.Cluster.Localhost,
+		LoadLegacySchema:                schemaRepo.LoadLegacySchema,
+		SaveLegacySchema:                schemaRepo.SaveLegacySchema,
+		SentryEnabled:                   appState.ServerConfig.Config.Sentry.Enabled,
+		AuthzController:                 appState.AuthzController,
+		RBAC:                            appState.RBAC,
+		DynamicUserController:           appState.APIKey.Dynamic,
+		ReplicaCopier:                   replicaCopier,
+		AuthNConfig:                     appState.ServerConfig.Config.Authentication,
+		ReplicationEngineMaxWorkers:     appState.ServerConfig.Config.ReplicationEngineMaxWorkers,
+		DistributedTasks:                appState.ServerConfig.Config.DistributedTasks,
+		ReplicaMovementEnabled:          appState.ServerConfig.Config.ReplicaMovementEnabled,
+		ReplicaMovementMinimumAsyncWait: appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait,
 	}
 	for _, name := range appState.ServerConfig.Config.Raft.Join[:rConfig.BootstrapExpect] {
 		if strings.Contains(name, rConfig.NodeID) {
@@ -535,7 +560,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Logger,
 	)
 
-	schemaManager, err := schemaUC.NewManager(migrator,
+	schemaManager, err := schema.NewManager(migrator,
 		appState.ClusterService.Raft,
 		appState.ClusterService.SchemaReader(),
 		schemaRepo,
@@ -558,12 +583,15 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	appState.RemoteReplicaIncoming = replica.NewRemoteReplicaIncoming(repo, appState.ClusterService.SchemaReader())
 
 	backupManager := backup.NewHandler(appState.Logger, appState.Authorizer,
-		schemaManager, repo, appState.Modules)
+		schemaManager, repo, appState.Modules, appState.RBAC, appState.APIKey.Dynamic)
 	appState.BackupManager = backupManager
 
-	enterrors.GoWrapper(func() { clusterapi.Serve(appState) }, appState.Logger)
+	internalServer := clusterapi.NewServer(appState)
+	appState.InternalServer = internalServer
+	enterrors.GoWrapper(func() { appState.InternalServer.Serve() }, appState.Logger)
 
 	vectorRepo.SetSchemaGetter(schemaManager)
+	vectorRepo.SetRouter(appState.ClusterService.NewRouter(appState.Logger))
 	explorer.SetSchemaGetter(schemaManager)
 	appState.Modules.SetSchemaGetter(schemaManager)
 
@@ -612,9 +640,11 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	// this sleep was used to block GraphQL and give time to RAFT to start.
 	time.Sleep(2 * time.Second)
 
+	appState.AutoSchemaManager = objects.NewAutoSchemaManager(schemaManager, vectorRepo, appState.ServerConfig, appState.Authorizer,
+		appState.Logger, prometheus.DefaultRegisterer)
 	batchManager := objects.NewBatchManager(vectorRepo, appState.Modules,
 		schemaManager, appState.ServerConfig, appState.Logger,
-		appState.Authorizer, appState.Metrics)
+		appState.Authorizer, appState.Metrics, appState.AutoSchemaManager)
 	appState.BatchManager = batchManager
 
 	err = migrator.AdjustFilterablePropSettings(ctx)
@@ -668,6 +698,35 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	// Add recount properties of all the objects in the database, if requested by the user
 	if appState.ServerConfig.Config.RecountPropertiesAtStartup {
 		migrator.RecountProperties(ctx)
+	}
+
+	if appState.ServerConfig.Config.DistributedTasks.Enabled {
+		appState.DistributedTaskScheduler = distributedtask.NewScheduler(distributedtask.SchedulerParams{
+			CompletionRecorder: appState.ClusterService.Raft,
+			TasksLister:        appState.ClusterService.Raft,
+			Providers:          map[string]distributedtask.Provider{},
+			Logger:             appState.Logger,
+			MetricsRegisterer:  metricsRegisterer,
+			LocalNode:          appState.Cluster.LocalName(),
+			TickInterval:       appState.ServerConfig.Config.DistributedTasks.SchedulerTickInterval,
+
+			// Using a single global value for now to keep it simple. If there is a need
+			// this can be changed to provide a value per provider.
+			CompletedTaskTTL: appState.ServerConfig.Config.DistributedTasks.CompletedTaskTTL,
+		})
+		enterrors.GoWrapper(func() {
+			// Do not launch scheduler until the full RAFT state is restored to avoid needlessly starting
+			// and stopping tasks.
+			// Additionally, not-ready RAFT state could lead to lose of local task metadata.
+			<-storeReadyCtx.Done()
+			if !errors.Is(context.Cause(storeReadyCtx), metaStoreReadyErr) {
+				return
+			}
+			if err = appState.DistributedTaskScheduler.Start(ctx); err != nil {
+				appState.Logger.WithError(err).WithField("action", "startup").
+					Error("failed to start distributed task scheduler")
+			}
+		}, appState.Logger)
 	}
 
 	return appState
@@ -774,13 +833,15 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		appState.Authorizer,
 		appState.Logger)
 
+	replicationHandlers.SetupHandlers(appState.ServerConfig.Config.ReplicaMovementEnabled, api, appState.ClusterService.Raft, appState.Metrics, appState.Authorizer, appState.Logger)
+
 	remoteDbUsers := clients.NewRemoteUser(appState.ClusterHttpClient, appState.Cluster)
 	db_users.SetupHandlers(api, appState.ClusterService.Raft, appState.Authorizer, appState.ServerConfig.Config.Authentication, appState.ServerConfig.Config.Authorization, remoteDbUsers, appState.SchemaManager, appState.Logger)
 
 	setupSchemaHandlers(api, appState.SchemaManager, appState.Metrics, appState.Logger)
 	objectsManager := objects.NewManager(appState.SchemaManager, appState.ServerConfig, appState.Logger,
 		appState.Authorizer, appState.DB, appState.Modules,
-		objects.NewMetrics(appState.Metrics), appState.MemWatch)
+		objects.NewMetrics(appState.Metrics), appState.MemWatch, appState.AutoSchemaManager)
 	setupObjectHandlers(api, objectsManager, appState.ServerConfig.Config, appState.Logger,
 		appState.Modules, appState.Metrics)
 	setupObjectBatchHandlers(api, appState.BatchManager, appState.Metrics, appState.Logger)
@@ -792,6 +853,9 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 	backupScheduler := startBackupScheduler(appState)
 	setupBackupHandlers(api, backupScheduler, appState.Metrics, appState.Logger)
 	setupNodesHandlers(api, appState.SchemaManager, appState.DB, appState)
+	if appState.ServerConfig.Config.DistributedTasks.Enabled {
+		setupDistributedTasksHandlers(api, appState.Authorizer, appState.ClusterService.Raft)
+	}
 
 	var grpcInstrument []grpc.ServerOption
 	if appState.ServerConfig.Config.Monitoring.Enabled {
@@ -837,6 +901,10 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 		// stop reindexing on server shutdown
 		appState.ReindexCtxCancel(fmt.Errorf("server shutdown"))
 
+		if appState.DistributedTaskScheduler != nil {
+			appState.DistributedTaskScheduler.Close()
+		}
+
 		// gracefully stop gRPC server
 		grpcServer.GracefulStop()
 
@@ -846,6 +914,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
+
+		if err := appState.InternalServer.Close(ctx); err != nil {
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown").
+				Errorf("failed to gracefully shutdown")
+		}
 
 		if err := appState.ClusterService.Close(ctx); err != nil {
 			appState.Logger.
@@ -953,7 +1028,7 @@ func startupRoutine(ctx context.Context, options *swag.CommandLineOptionsGroup) 
 	if cfg := serverConfig.Config.Raft; cfg.MetadataOnlyVoters {
 		nonStorageNodes = parseVotersNames(cfg)
 	}
-	clusterState, err := cluster.Init(serverConfig.Config.Cluster, dataPath, nonStorageNodes, logger)
+	clusterState, err := cluster.Init(serverConfig.Config.Cluster, serverConfig.Config.Raft.BootstrapExpect, dataPath, nonStorageNodes, logger)
 	if err != nil {
 		logger.WithField("action", "startup").WithError(err).
 			Error("could not init cluster state")
@@ -983,7 +1058,7 @@ func logger() *logrus.Logger {
 	}
 	logLevelStr := os.Getenv("LOG_LEVEL")
 	level, err := logLevelFromString(logLevelStr)
-	if errors.Is(err, logLevelNotRecognized) {
+	if errors.Is(err, errlogLevelNotRecognized) {
 		logger.WithField("log_level_env", logLevelStr).Warn("log level not recognized, defaulting to info")
 		level = logrus.InfoLevel
 	}
@@ -997,7 +1072,7 @@ func registerModules(appState *state.State) error {
 		WithField("action", "startup").
 		Debug("start registering modules")
 
-	appState.Modules = modules.NewProvider(appState.Logger)
+	appState.Modules = modules.NewProvider(appState.Logger, appState.ServerConfig.Config)
 
 	// Default modules
 	defaultVectorizers := []string{
@@ -1073,6 +1148,14 @@ func registerModules(appState *state.State) error {
 		appState.Logger.
 			WithField("action", "startup").
 			WithField("module", modcontextionary.Name).
+			Debug("enabled module")
+	}
+
+	if _, ok := enabledModules[modt2vmodel2vec.Name]; ok {
+		appState.Modules.Register(modt2vmodel2vec.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modt2vmodel2vec.Name).
 			Debug("enabled module")
 	}
 
@@ -1691,12 +1774,30 @@ func (m membership) LeaderID() string {
 	return id
 }
 
+// initRuntimeOverrides assumes, Configs from envs are loaded before
+// initializing runtime overrides.
 func initRuntimeOverrides(appState *state.State) {
 	// Enable runtime config manager
 	if appState.ServerConfig.Config.RuntimeOverrides.Enabled {
+
+		// Runtimeconfig manager takes of keeping the `registered` config values upto date
+		registered := &config.WeaviateRuntimeConfig{}
+		registered.MaximumAllowedCollectionsCount = appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCount
+		registered.AsyncReplicationDisabled = appState.ServerConfig.Config.Replication.AsyncReplicationDisabled
+		registered.AutoschemaEnabled = appState.ServerConfig.Config.AutoSchema.Enabled
+		registered.ReplicaMovementMinimumAsyncWait = appState.ServerConfig.Config.ReplicaMovementMinimumAsyncWait
+		registered.TenantActivityReadLogLevel = appState.ServerConfig.Config.TenantActivityReadLogLevel
+		registered.TenantActivityWriteLogLevel = appState.ServerConfig.Config.TenantActivityWriteLogLevel
+		registered.RevectorizeCheckDisabled = appState.ServerConfig.Config.RevectorizeCheckDisabled
+		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
+		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
+		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
-			config.ParseYaml,
+			config.ParseRuntimeConfig,
+			config.UpdateRuntimeConfig,
+			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
 			prometheus.DefaultRegisterer)
@@ -1715,9 +1816,5 @@ func initRuntimeOverrides(appState *state.State) {
 					Fatal("runtime config manager stopped")
 			}
 		}, appState.Logger)
-		rc := config.NewWeaviateRuntimeConfig(cm)
-		appState.ServerConfig.Config.SchemaHandlerConfig.MaximumAllowedCollectionsCountFn = rc.GetMaximumAllowedCollectionsCount
-		appState.ServerConfig.Config.AutoSchema.EnabledFn = rc.GetAutoSchemaEnabled
-		appState.ServerConfig.Config.Replication.AsyncReplicationDisabledFn = rc.GetAsyncReplicationDisabled
 	}
 }

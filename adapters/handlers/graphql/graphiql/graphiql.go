@@ -49,7 +49,7 @@ func renderGraphiQL(w http.ResponseWriter, r *http.Request) {
 
 	user, password, authOk := r.BasicAuth()
 	if !authOk {
-		http.Error(w, "Not authorized", 401)
+		http.Error(w, "Not authorized", http.StatusUnauthorized)
 		return
 	}
 

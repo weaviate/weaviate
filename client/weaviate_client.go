@@ -26,11 +26,13 @@ import (
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/classifications"
 	"github.com/weaviate/weaviate/client/cluster"
+	"github.com/weaviate/weaviate/client/distributed_tasks"
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/meta"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/operations"
+	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/client/users"
 	"github.com/weaviate/weaviate/client/well_known"
@@ -83,11 +85,13 @@ func New(transport runtime.ClientTransport, formats strfmt.Registry) *Weaviate {
 	cli.Batch = batch.New(transport, formats)
 	cli.Classifications = classifications.New(transport, formats)
 	cli.Cluster = cluster.New(transport, formats)
+	cli.DistributedTasks = distributed_tasks.New(transport, formats)
 	cli.Graphql = graphql.New(transport, formats)
 	cli.Meta = meta.New(transport, formats)
 	cli.Nodes = nodes.New(transport, formats)
 	cli.Objects = objects.New(transport, formats)
 	cli.Operations = operations.New(transport, formats)
+	cli.Replication = replication.New(transport, formats)
 	cli.Schema = schema.New(transport, formats)
 	cli.Users = users.New(transport, formats)
 	cli.WellKnown = well_known.New(transport, formats)
@@ -145,6 +149,8 @@ type Weaviate struct {
 
 	Cluster cluster.ClientService
 
+	DistributedTasks distributed_tasks.ClientService
+
 	Graphql graphql.ClientService
 
 	Meta meta.ClientService
@@ -154,6 +160,8 @@ type Weaviate struct {
 	Objects objects.ClientService
 
 	Operations operations.ClientService
+
+	Replication replication.ClientService
 
 	Schema schema.ClientService
 
@@ -172,11 +180,13 @@ func (c *Weaviate) SetTransport(transport runtime.ClientTransport) {
 	c.Batch.SetTransport(transport)
 	c.Classifications.SetTransport(transport)
 	c.Cluster.SetTransport(transport)
+	c.DistributedTasks.SetTransport(transport)
 	c.Graphql.SetTransport(transport)
 	c.Meta.SetTransport(transport)
 	c.Nodes.SetTransport(transport)
 	c.Objects.SetTransport(transport)
 	c.Operations.SetTransport(transport)
+	c.Replication.SetTransport(transport)
 	c.Schema.SetTransport(transport)
 	c.Users.SetTransport(transport)
 	c.WellKnown.SetTransport(transport)

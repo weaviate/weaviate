@@ -12,7 +12,6 @@
 package lsmkv
 
 import (
-	"bytes"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -20,7 +19,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/weaviate/weaviate/usecases/byteops"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // ErrInvalidChecksum indicates that the read file should not be trusted. For
@@ -113,21 +115,19 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 }
 
 func (s *segment) storeCountNetOnDisk() error {
-	return storeCountNetOnDisk(s.countNetPath(), s.countNetAdditions)
+	return storeCountNetOnDisk(s.countNetPath(), s.countNetAdditions, s.observeMetaWrite)
 }
 
-func storeCountNetOnDisk(path string, value int) error {
-	buf := new(bytes.Buffer)
+func storeCountNetOnDisk(path string, value int, observeWrite diskio.MeteredWriterCallback) error {
+	rw := byteops.NewReadWriter(make([]byte, byteops.Uint64Len+byteops.Uint32Len))
+	rw.MoveBufferPositionForward(byteops.Uint32Len) // leave space for checksum
+	rw.WriteUint64(uint64(value))
 
-	if err := binary.Write(buf, binary.LittleEndian, uint64(value)); err != nil {
-		return fmt.Errorf("write cna to buf: %w", err)
-	}
-
-	return writeWithChecksum(buf.Bytes(), path)
+	return writeWithChecksum(rw, path, observeWrite)
 }
 
 func (s *segment) loadCountNetFromDisk() error {
-	data, err := loadWithChecksum(s.countNetPath(), 12)
+	data, err := loadWithChecksum(s.countNetPath(), 12, s.metrics.ReadObserver("netAdditions"))
 	if err != nil {
 		return err
 	}
@@ -144,7 +144,7 @@ func (s *segment) precomputeCountNetAdditions(updatedCountNetAdditions int) ([]s
 	}
 
 	cnaPath := fmt.Sprintf("%s.tmp", s.countNetPath())
-	if err := storeCountNetOnDisk(cnaPath, updatedCountNetAdditions); err != nil {
+	if err := storeCountNetOnDisk(cnaPath, updatedCountNetAdditions, s.observeMetaWrite); err != nil {
 		return nil, err
 	}
 	return []string{cnaPath}, nil

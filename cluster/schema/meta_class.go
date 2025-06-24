@@ -170,6 +170,30 @@ func (m *metaClass) AddProperty(v uint64, props ...*models.Property) error {
 	return nil
 }
 
+func (m *metaClass) AddReplicaToShard(v uint64, shard string, replica string) error {
+	m.Lock()
+	defer m.Unlock()
+
+	err := m.Sharding.AddReplicaToShard(shard, replica)
+	if err != nil {
+		return err
+	}
+	m.ClassVersion = v
+	return nil
+}
+
+func (m *metaClass) DeleteReplicaFromShard(v uint64, shard string, replica string) error {
+	m.Lock()
+	defer m.Unlock()
+
+	err := m.Sharding.DeleteReplicaFromShard(shard, replica)
+	if err != nil {
+		return err
+	}
+	m.ClassVersion = v
+	return nil
+}
+
 // MergeProps makes sure duplicates are not created by ignoring new props
 // with the same names as old props.
 // If property of nested type is present in both new and old slices,
@@ -262,7 +286,12 @@ func (m *metaClass) DeleteTenants(req *command.DeleteTenantsRequest, v uint64) (
 	count := make(map[string]int)
 
 	for _, name := range req.Tenants {
-		if status, ok := m.Sharding.DeletePartition(name); ok {
+		shardingState := m.Sharding
+		status, ok, err := shardingState.DeletePartition(name)
+		if err != nil {
+			return nil, fmt.Errorf("error while migrating sharding state: %w", err)
+		}
+		if ok {
 			count[status]++
 		}
 	}
@@ -323,7 +352,7 @@ func (m *metaClass) UpdateTenantsProcess(nodeID string, req *command.TenantProce
 	return sc, nil
 }
 
-func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, v uint64) (map[string]int, error) {
+func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsRequest, replicationFSM replicationFSM, v uint64) (map[string]int, error) {
 	m.Lock()
 	defer m.Unlock()
 
@@ -336,6 +365,7 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 	// If the activity status is changed we will deep copy the tenant and update the status
 	missingShards := []string{}
 	writeIndex := 0
+
 	for i, requestTenant := range req.Tenants {
 		oldTenant, ok := m.Sharding.Physical[requestTenant.Name]
 		oldStatus := oldTenant.Status
@@ -367,6 +397,10 @@ func (m *metaClass) UpdateTenants(nodeID string, req *command.UpdateTenantsReque
 			if requestTenant.Status == statusInProgress {
 				continue
 			}
+		}
+
+		if requestTenant.Status == models.TenantActivityStatusCOLD && replicationFSM.HasOngoingReplication(m.Class.Class, requestTenant.Name, nodeID) {
+			continue
 		}
 
 		existedSharedFrozen := oldTenant.ActivityStatus() == models.TenantActivityStatusFROZEN || oldTenant.ActivityStatus() == models.TenantActivityStatusFREEZING

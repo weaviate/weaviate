@@ -15,7 +15,7 @@ import (
 	"fmt"
 	"slices"
 
-	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema/configvalidation"
 	"github.com/weaviate/weaviate/usecases/config"
 
@@ -105,6 +105,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 
 	if bm25 := req.Bm25Search; bm25 != nil {
 		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
+
+		if bm25.SearchOperator != nil {
+			if bm25.SearchOperator.MinimumOrTokensMatch != nil {
+				out.KeywordRanking.MinimumOrTokensMatch = int(*bm25.SearchOperator.MinimumOrTokensMatch)
+			}
+			out.KeywordRanking.SearchOperator = bm25.SearchOperator.Operator.String()
+		}
 	}
 
 	if nv := req.NearVector; nv != nil {
@@ -288,6 +295,13 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			TargetVectors:   targetVectors,
 			Distance:        distance,
 			WithDistance:    withDistance,
+		}
+
+		if hs.Bm25SearchOperator != nil {
+			if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
+				out.HybridSearch.MinimumOrTokensMatch = int(*hs.Bm25SearchOperator.MinimumOrTokensMatch)
+			}
+			out.HybridSearch.SearchOperator = hs.Bm25SearchOperator.Operator.String()
 		}
 
 		if nearVec != nil {
@@ -486,7 +500,7 @@ func extractTargetVectors(req *pb.SearchRequest, class *models.Class) ([]string,
 		combination = &dto.TargetCombination{Type: dto.DefaultTargetCombinationType}
 	}
 
-	if vectorSearch && len(targetVectors) == 0 && !schemachecks.HasLegacyVectorIndex(class) {
+	if vectorSearch && len(targetVectors) == 0 && !modelsext.ClassHasLegacyVectorIndex(class) {
 		if len(class.VectorConfig) > 1 {
 			return nil, nil, false, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 		}

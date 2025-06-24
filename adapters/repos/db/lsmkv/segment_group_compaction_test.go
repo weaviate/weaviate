@@ -2357,11 +2357,6 @@ func runCompactionCandidatesTestCases(t *testing.T, testCases []testCaseCompacti
 				})
 			}
 		})
-
-		for i, seg := range sg.segments {
-			fmt.Printf("[%d]: path [%s] level [%d] size [%d]\n", i, seg.path, seg.level, seg.size)
-		}
-		fmt.Println()
 	}
 }
 
@@ -2370,9 +2365,10 @@ func compactSegments(sg *SegmentGroup, pair []int, newLevel uint16, resizeFactor
 	left, right := sg.segments[leftId], sg.segments[rightId]
 
 	seg := &segment{
-		path:  left.path + "+" + right.path,
-		size:  int64(float32(left.size+right.size) * resizeFactor),
-		level: newLevel,
+		path:             left.path + "+" + right.path,
+		size:             int64(float32(left.size+right.size) * resizeFactor),
+		level:            newLevel,
+		observeMetaWrite: func(n int64) {},
 	}
 
 	sg.segments[leftId] = seg

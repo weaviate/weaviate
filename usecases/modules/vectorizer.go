@@ -19,7 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
-	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/entities/models"
@@ -193,7 +193,8 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				skipRevectorization[i] = true
 				continue
 			}
-			reVectorize, addProps, vector, err := reVectorize(ctx, cfg, vectorizer, obj, class, nil, targetVector, findObjectFn)
+			reVectorize, addProps, vector, err := reVectorize(ctx, cfg, vectorizer, obj,
+				class, nil, targetVector, findObjectFn, p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
 			}
@@ -232,7 +233,9 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				skipRevectorization[i] = true
 				continue
 			}
-			reVectorize, addProps, multiVector, err := reVectorizeMulti(ctx, cfg, vectorizer, obj, class, nil, targetVector, findObjectFn)
+			reVectorize, addProps, multiVector, err := reVectorizeMulti(ctx, cfg,
+				vectorizer, obj, class, nil, targetVector, findObjectFn,
+				p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
 			}
@@ -373,7 +376,9 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 					}
 				}
 			}
-			needsRevectorization, additionalProperties, vector, err := reVectorize(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
+			needsRevectorization, additionalProperties, vector, err := reVectorize(ctx,
+				cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn,
+				p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return fmt.Errorf("cannot revectorize class %q: %w", object.Class, err)
 			}
@@ -401,7 +406,9 @@ func (p *Provider) vectorize(ctx context.Context, object *models.Object, class *
 					}
 				}
 			}
-			needsRevectorization, additionalProperties, multiVector, err := reVectorizeMulti(ctx, cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn)
+			needsRevectorization, additionalProperties, multiVector, err := reVectorizeMulti(ctx,
+				cfg, vectorizer, object, class, targetProperties, targetVector, findObjectFn,
+				p.cfg.RevectorizeCheckDisabled.Get())
 			if err != nil {
 				return fmt.Errorf("cannot revectorize class %q: %w", object.Class, err)
 			}
@@ -526,7 +533,7 @@ func (p *Provider) getModuleConfigs(class *models.Class) (map[string]map[string]
 		modConfigs[name] = modConfig
 	}
 
-	if schemachecks.HasLegacyVectorIndex(class) && class.Vectorizer != config.VectorizerModuleNone {
+	if modelsext.ClassHasLegacyVectorIndex(class) && class.Vectorizer != config.VectorizerModuleNone {
 		if modConfig, ok := class.ModuleConfig.(map[string]interface{}); ok {
 			modConfigs[""] = modConfig
 		} else {

@@ -38,6 +38,11 @@ type Indexer interface {
 	DeleteTenants(class string, tenants []*models.Tenant) error
 	UpdateTenantsProcess(class string, req *api.TenantProcessRequest) error
 	UpdateShardStatus(*api.UpdateShardStatusRequest) error
+	AddReplicaToShard(class, shard, targetNode string) error
+	DeleteReplicaFromShard(class, shard, targetNode string) error
+	LoadShard(class, shard string)     // is a no-op
+	ShutdownShard(class, shard string) // is a no-op
+	DropShard(class, shard string)     // is a no-op
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
 	UpdateIndex(api.UpdateClassRequest) error
 

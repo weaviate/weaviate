@@ -44,6 +44,7 @@ import (
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 )
 
+// TODO amourao: add operator and minimum should match to the tests
 var (
 	classname                = "TestClass"
 	refClass1                = "OtherClass"

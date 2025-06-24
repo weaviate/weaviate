@@ -27,11 +27,13 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -41,6 +43,7 @@ import (
 
 type DB struct {
 	logger            logrus.FieldLogger
+	router            *router.Router
 	schemaGetter      schemaUC.SchemaGetter
 	config            Config
 	indices           map[string]*Index
@@ -112,6 +115,10 @@ func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	db.schemaGetter = sg
+}
+
+func (db *DB) SetRouter(r *router.Router) {
+	db.router = r
 }
 
 func (db *DB) GetScheduler() *queue.Scheduler {
@@ -204,25 +211,40 @@ type Config struct {
 	MemtablesMaxSizeMB                  int
 	MemtablesMinActiveSeconds           int
 	MemtablesMaxActiveSeconds           int
+	MinMMapSize                         int64
+	MaxReuseWalSize                     int64
 	SegmentsCleanupIntervalSeconds      int
 	SeparateObjectsCompactions          bool
 	MaxSegmentSize                      int64
-	HNSWMaxLogSize                      int64
-	HNSWWaitForCachePrefill             bool
-	HNSWFlatSearchConcurrency           int
-	HNSWAcornFilterRatio                float64
-	VisitedListPoolMaxSize              int
 	TrackVectorDimensions               bool
 	ServerVersion                       string
 	GitHash                             string
 	AvoidMMap                           bool
 	DisableLazyLoadShards               bool
 	ForceFullReplicasSearch             bool
+	TransferInactivityTimeout           time.Duration
 	LSMEnableSegmentsChecksumValidation bool
 	Replication                         replication.GlobalConfig
 	MaximumConcurrentShardLoads         int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+
+	HNSWMaxLogSize                               int64
+	HNSWDisableSnapshots                         bool
+	HNSWSnapshotIntervalSeconds                  int
+	HNSWSnapshotOnStartup                        bool
+	HNSWSnapshotMinDeltaCommitlogsNumber         int
+	HNSWSnapshotMinDeltaCommitlogsSizePercentage int
+	HNSWWaitForCachePrefill                      bool
+	HNSWFlatSearchConcurrency                    int
+	HNSWAcornFilterRatio                         float64
+	VisitedListPoolMaxSize                       int
+
+	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
+	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]
+	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
+	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
+	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

@@ -32,8 +32,9 @@ func TestHandler_AddProperty(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 		class := models.Class{
-			Class:      "NewClass",
-			Vectorizer: "none",
+			Class:             "NewClass",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -90,7 +91,8 @@ func TestHandler_AddProperty(t *testing.T) {
 					DataType: schema.DataTypeText.PropString(),
 				},
 			},
-			Vectorizer: "none",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -131,8 +133,9 @@ func TestHandler_AddProperty_Object(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 		class := models.Class{
-			Class:      "NewClass",
-			Vectorizer: "none",
+			Class:             "NewClass",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -165,8 +168,9 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 	ctx := context.Background()
 
 	class := models.Class{
-		Class:      "NewClass",
-		Vectorizer: "none",
+		Class:             "NewClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 
 	type testCase struct {
@@ -247,7 +251,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 				dataType:     dataType,
 				tokenization: "nonExistent",
 				expectedErrContains: []string{
-					"Tokenization 'nonExistent' is not allowed for data type",
+					"tokenization 'nonExistent' is not allowed for data type",
 					dataType.String(),
 				},
 			})
@@ -301,7 +305,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 				dataType:     dataType,
 				tokenization: "nonExistent",
 				expectedErrContains: []string{
-					"Tokenization 'nonExistent' is not allowed for data type",
+					"tokenization 'nonExistent' is not allowed for data type",
 					dataType.String(),
 				},
 			})
@@ -329,7 +333,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 					dataType:     dataType,
 					tokenization: tokenization,
 					expectedErrContains: []string{
-						"Tokenization is not allowed for data type",
+						"tokenization is not allowed for data type",
 						dataType.String(),
 					},
 				})
@@ -347,7 +351,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 				dataType:     dataType,
 				tokenization: "nonExistent",
 				expectedErrContains: []string{
-					"Tokenization is not allowed for data type",
+					"tokenization is not allowed for data type",
 					dataType.String(),
 				},
 			})
@@ -367,7 +371,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 					dataType:     dataType,
 					tokenization: tokenization,
 					expectedErrContains: []string{
-						"Tokenization is not allowed for object/object[] data types",
+						"tokenization is not allowed for object/object[] data types",
 					},
 				})
 			}
@@ -384,7 +388,7 @@ func TestHandler_AddProperty_Tokenization(t *testing.T) {
 				dataType:     dataType,
 				tokenization: "nonExistent",
 				expectedErrContains: []string{
-					"Tokenization is not allowed for object/object[] data types",
+					"tokenization is not allowed for object/object[] data types",
 				},
 			})
 		}
@@ -399,12 +403,14 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 	handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 
 	class := models.Class{
-		Class:      "NewClass",
-		Vectorizer: "none",
+		Class:             "NewClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	refClass := models.Class{
-		Class:      "RefClass",
-		Vectorizer: "none",
+		Class:             "RefClass",
+		Vectorizer:        "none",
+		ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 	}
 	fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(&refClass)
 	fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil).Twice()
@@ -428,7 +434,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 					Tokenization: tokenization,
 				})
 
-			assert.ErrorContains(t, err, "Tokenization is not allowed for reference data type")
+			assert.ErrorContains(t, err, "tokenization is not allowed for reference data type")
 		})
 	}
 
@@ -444,7 +450,7 @@ func TestHandler_AddProperty_Reference_Tokenization(t *testing.T) {
 				Tokenization: "nonExistent",
 			})
 
-		assert.ErrorContains(t, err, "Tokenization is not allowed for reference data type")
+		assert.ErrorContains(t, err, "tokenization is not allowed for reference data type")
 	})
 
 	fakeSchemaManager.AssertNotCalled(t, "AddProperty", mock.Anything, mock.Anything)
@@ -507,7 +513,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 					name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
 					propertyDataType: newFakePrimitivePDT(dataType),
 					tokenization:     tokenization,
-					expectedErrMsg:   fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+					expectedErrMsg:   fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 				})
 			}
 		}
@@ -534,7 +540,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 						name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
 						propertyDataType: newFakePrimitivePDT(dataType),
 						tokenization:     tokenization,
-						expectedErrMsg:   fmt.Sprintf("Tokenization is not allowed for data type '%s'", dataType),
+						expectedErrMsg:   fmt.Sprintf("tokenization is not allowed for data type '%s'", dataType),
 					})
 				}
 			}
@@ -558,7 +564,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 					name:             fmt.Sprintf("%s + '%s'", dataType, tokenization),
 					propertyDataType: newFakeNestedPDT(dataType),
 					tokenization:     tokenization,
-					expectedErrMsg:   "Tokenization is not allowed for object/object[] data types",
+					expectedErrMsg:   "tokenization is not allowed for object/object[] data types",
 				})
 			}
 		}
@@ -581,7 +587,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 				name:             fmt.Sprintf("ref + '%s'", tokenization),
 				propertyDataType: newFakePrimitivePDT(""),
 				tokenization:     tokenization,
-				expectedErrMsg:   "Tokenization is not allowed for reference data type",
+				expectedErrMsg:   "tokenization is not allowed for reference data type",
 			})
 		}
 
@@ -607,7 +613,7 @@ func Test_Validation_PropertyTokenization(t *testing.T) {
 						name:             fmt.Sprintf("%s + %s", dataType, tokenization),
 						propertyDataType: newFakePrimitivePDT(dataType),
 						tokenization:     tokenization,
-						expectedErrMsg:   fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+						expectedErrMsg:   fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 					})
 				}
 			}

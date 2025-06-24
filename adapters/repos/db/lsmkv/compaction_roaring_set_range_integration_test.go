@@ -575,11 +575,12 @@ func compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations(ctx context.C
 				require.NoError(t, err)
 				defer release()
 
-				if segments == 5 {
+				switch segments {
+				case 5:
 					assert.Equal(t, 0, bm.GetCardinality())
-				} else if segments == 6 {
+				case 6:
 					assert.Equal(t, 1, bm.GetCardinality())
-				} else {
+				default:
 					assert.Equal(t, 2, bm.GetCardinality())
 				}
 			})
@@ -600,11 +601,12 @@ func compactionRoaringSetRangeStrategy_FrequentPutDeleteOperations(ctx context.C
 				require.NoError(t, err)
 				defer release()
 
-				if segments == 5 {
+				switch segments {
+				case 5:
 					assert.Equal(t, 0, bm.GetCardinality())
-				} else if segments == 6 {
+				case 6:
 					assert.Equal(t, 1, bm.GetCardinality())
-				} else {
+				default:
 					assert.Equal(t, 2, bm.GetCardinality())
 				}
 			})

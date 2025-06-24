@@ -16,13 +16,16 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/replication/metrics"
+
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+	"github.com/weaviate/weaviate/cluster/fsm"
 
 	"github.com/weaviate/weaviate/cluster/bootstrap"
-	"github.com/weaviate/weaviate/cluster/fsm"
+	"github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/resolver"
 	"github.com/weaviate/weaviate/cluster/rpc"
 	"github.com/weaviate/weaviate/cluster/schema"
@@ -31,21 +34,33 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+const (
+	// TODO: consider exposing these as settings
+	shardReplicationEngineBufferSize = 16
+	fsmOpProducerPollingInterval     = 5 * time.Second
+	replicationEngineShutdownTimeout = 20 * time.Second
+	replicationOperationTimeout      = 24 * time.Hour
+	catchUpInterval                  = 5 * time.Second
+)
+
 // Service class serves as the primary entry point for the Raft layer, managing and coordinating
 // the key functionalities of the distributed consensus protocol.
 type Service struct {
 	*Raft
 
-	raftAddr string
-	config   *Config
+	replicationEngine *replication.ShardReplicationEngine
+	raftAddr          string
+	config            *Config
 
 	rpcClient *rpc.Client
 	rpcServer *rpc.Server
 	logger    *logrus.Logger
 
 	// closing channels
-	closeBootstrapper chan struct{}
-	closeWaitForDB    chan struct{}
+	cancelReplicationEngine context.CancelFunc
+	closeBootstrapper       chan struct{}
+	closeOnFSMCaughtUp      chan struct{}
+	closeWaitForDB          chan struct{}
 }
 
 // New returns a Service configured with cfg. The service will initialize internals gRPC api & clients to other cluster
@@ -58,18 +73,76 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 
 	fsm := NewFSM(cfg, authZController, snapshotter, prometheus.DefaultRegisterer)
 	raft := NewRaft(cfg.NodeSelector, &fsm, client)
-
+	fsmOpProducer := replication.NewFSMOpProducer(
+		cfg.Logger,
+		fsm.replicationManager.GetReplicationFSM(),
+		fsmOpProducerPollingInterval,
+		cfg.NodeSelector.LocalName(),
+	)
+	replicaCopyOpConsumer := replication.NewCopyOpConsumer(
+		cfg.Logger,
+		raft,
+		cfg.ReplicaCopier,
+		cfg.NodeSelector.LocalName(),
+		&backoff.StopBackOff{},
+		replication.NewOpsCache(),
+		replicationOperationTimeout,
+		cfg.ReplicationEngineMaxWorkers,
+		cfg.ReplicaMovementMinimumAsyncWait,
+		metrics.NewReplicationEngineOpsCallbacks(prometheus.DefaultRegisterer),
+		raft.SchemaReader(),
+	)
+	replicationEngine := replication.NewShardReplicationEngine(
+		cfg.Logger,
+		cfg.NodeSelector.LocalName(),
+		fsmOpProducer,
+		replicaCopyOpConsumer,
+		shardReplicationEngineBufferSize,
+		cfg.ReplicationEngineMaxWorkers,
+		replicationEngineShutdownTimeout,
+		metrics.NewReplicationEngineCallbacks(prometheus.DefaultRegisterer),
+	)
 	svr := rpc.NewServer(&fsm, raft, rpcListenAddress, cfg.RaftRPCMessageMaxSize, cfg.SentryEnabled, svrMetrics, cfg.Logger)
 
 	return &Service{
-		Raft:              raft,
-		raftAddr:          raftAdvertisedAddress,
-		config:            &cfg,
-		rpcClient:         client,
-		rpcServer:         svr,
-		logger:            cfg.Logger,
-		closeBootstrapper: make(chan struct{}),
-		closeWaitForDB:    make(chan struct{}),
+		Raft:               raft,
+		replicationEngine:  replicationEngine,
+		raftAddr:           raftAdvertisedAddress,
+		config:             &cfg,
+		rpcClient:          client,
+		rpcServer:          svr,
+		logger:             cfg.Logger,
+		closeBootstrapper:  make(chan struct{}),
+		closeOnFSMCaughtUp: make(chan struct{}),
+		closeWaitForDB:     make(chan struct{}),
+	}
+}
+
+func (c *Service) onFSMCaughtUp(ctx context.Context) {
+	if !c.config.ReplicaMovementEnabled {
+		return
+	}
+
+	ticker := time.NewTicker(catchUpInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-c.closeOnFSMCaughtUp:
+			return
+		case <-ticker.C:
+			if c.Raft.store.FSMHasCaughtUp() {
+				c.logger.Infof("Metadata FSM reported caught up, starting replication engine")
+				engineCtx, engineCancel := context.WithCancel(ctx)
+				c.cancelReplicationEngine = engineCancel
+				enterrors.GoWrapper(func() {
+					// The context is cancelled by the engine itself when it is stopped
+					if err := c.replicationEngine.Start(engineCtx); err != nil {
+						c.logger.WithError(err).Error("replication engine failed to start after FSM caught up")
+					}
+				}, c.logger)
+				return
+			}
+		}
 	}
 }
 
@@ -85,7 +158,6 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("open raft store: %w", err)
 	}
 
-	nodeToAddressResolver := c.config.NodeToAddressResolver
 	hasState, err := raft.HasExistingState(c.Raft.store.logCache, c.Raft.store.logStore, c.Raft.store.snapshotStore)
 	if err != nil {
 		return err
@@ -101,12 +173,12 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 	if hasState {
 		joiner := bootstrap.NewJoiner(c.rpcClient, c.config.NodeID, c.raftAddr, c.config.Voter)
 		err = backoff.Retry(func() error {
-			joinNodes := bootstrap.ResolveRemoteNodes(nodeToAddressResolver, c.config.NodeNameToPortMap)
+			joinNodes := bootstrap.ResolveRemoteNodes(c.config.NodeSelector, c.config.NodeNameToPortMap)
 			_, err := joiner.Do(bootstrapCtx, c.logger, joinNodes)
 			return err
 		}, backoff.WithContext(backoff.NewConstantBackOff(1*time.Second), bootstrapCtx))
 		if err != nil {
-			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value.", err)
+			return fmt.Errorf("could not join raft join list: %w. Weaviate detected this node to have state stored. If the DB is still loading up we will hit this timeout. You can try increasing/setting RAFT_BOOTSTRAP_TIMEOUT env variable to a higher value", err)
 		}
 	} else {
 		bs := bootstrap.NewBootstrapper(
@@ -114,7 +186,7 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 			c.config.NodeID,
 			c.raftAddr,
 			c.config.Voter,
-			nodeToAddressResolver,
+			c.config.NodeSelector,
 			c.Raft.Ready,
 		)
 		if err := bs.Do(
@@ -130,6 +202,9 @@ func (c *Service) Open(ctx context.Context, db schema.Indexer) error {
 		return fmt.Errorf("restore database: %w", err)
 	}
 
+	enterrors.GoWrapper(func() {
+		c.onFSMCaughtUp(ctx)
+	}, c.logger)
 	return nil
 }
 
@@ -139,7 +214,16 @@ func (c *Service) Close(ctx context.Context) error {
 	enterrors.GoWrapper(func() {
 		c.closeBootstrapper <- struct{}{}
 		c.closeWaitForDB <- struct{}{}
+		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
+
+	if c.config.ReplicaMovementEnabled {
+		c.logger.Info("closing replication engine ...")
+		if c.cancelReplicationEngine != nil {
+			c.cancelReplicationEngine()
+		}
+		c.replicationEngine.Stop()
+	}
 
 	c.logger.Info("closing raft FSM store ...")
 	if err := c.Raft.Close(ctx); err != nil {

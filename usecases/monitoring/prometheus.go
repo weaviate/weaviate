@@ -72,6 +72,10 @@ type PrometheusMetrics struct {
 	BackupRestoreFromStorageDurations   *prometheus.SummaryVec
 	BackupRestoreDataTransferred        *prometheus.CounterVec
 	BackupStoreDataTransferred          *prometheus.CounterVec
+	FileIOWrites                        *prometheus.SummaryVec
+	FileIOReads                         *prometheus.SummaryVec
+	MmapOperations                      *prometheus.CounterVec
+	MmapProcMaps                        prometheus.Gauge
 
 	// offload metric
 	QueueSize                        *prometheus.GaugeVec
@@ -377,6 +381,7 @@ func GetMetrics() *PrometheusMetrics {
 
 func newPrometheusMetrics() *PrometheusMetrics {
 	return &PrometheusMetrics{
+		Registerer: prometheus.DefaultRegisterer,
 		BatchTime: promauto.NewHistogramVec(prometheus.HistogramOpts{
 			Name:    "batch_durations_ms",
 			Help:    "Duration in ms of a single batch",
@@ -487,6 +492,22 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_memtable_durations_ms",
 			Help: "Time in ms for a bucket operation to complete",
 		}, []string{"strategy", "class_name", "shard_name", "path", "operation"}),
+		FileIOWrites: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "file_io_writes_total_bytes",
+			Help: "Total number of bytes written to disk",
+		}, []string{"operation", "strategy"}),
+		FileIOReads: promauto.NewSummaryVec(prometheus.SummaryOpts{
+			Name: "file_io_reads_total_bytes",
+			Help: "Total number of bytes read from disk",
+		}, []string{"operation"}),
+		MmapOperations: promauto.NewCounterVec(prometheus.CounterOpts{
+			Name: "mmap_operations_total",
+			Help: "Total number of mmap operations",
+		}, []string{"operation", "strategy"}),
+		MmapProcMaps: promauto.NewGauge(prometheus.GaugeOpts{
+			Name: "mmap_proc_maps",
+			Help: "Number of entries in /proc/self/maps",
+		}),
 
 		// Queue metrics
 		QueueSize: promauto.NewGaugeVec(prometheus.GaugeOpts{

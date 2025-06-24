@@ -30,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
 	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -54,8 +55,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
 		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
 	require.NoError(t, err)
-	handler.schemaConfig.MaximumAllowedCollectionsCount = -1
-	handler.parser.experimentBackwardsCompatibleNamedVectorsEnabled = true
+	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
 }
 
@@ -97,6 +97,23 @@ func (f *fakeDB) AddClass(cmd command.AddClassRequest) error {
 
 func (f *fakeDB) RestoreClassDir(class string) error {
 	return nil
+}
+
+func (f *fakeDB) AddReplicaToShard(class string, shard string, targetNode string) error {
+	return nil
+}
+
+func (f *fakeDB) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
+	return nil
+}
+
+func (f *fakeDB) LoadShard(class string, shard string) {
+}
+
+func (f *fakeDB) DropShard(class string, shard string) {
+}
+
+func (f *fakeDB) ShutdownShard(class string, shard string) {
 }
 
 func (f *fakeDB) UpdateClass(cmd command.UpdateClassRequest) error {
@@ -295,6 +312,21 @@ func (f *fakeMigrator) DropClass(ctx context.Context, className string, hasFroze
 
 func (f *fakeMigrator) AddProperty(ctx context.Context, className string, prop ...*models.Property) error {
 	args := f.Called(ctx, className, prop)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) LoadShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) DropShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
+	return args.Error(0)
+}
+
+func (f *fakeMigrator) ShutdownShard(ctx context.Context, class string, shard string) error {
+	args := f.Called(ctx, class, shard)
 	return args.Error(0)
 }
 

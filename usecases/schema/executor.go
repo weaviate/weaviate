@@ -20,6 +20,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
+	"golang.org/x/exp/slices"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -101,6 +102,59 @@ func (e *executor) AddClass(pl api.AddClassRequest) error {
 		return fmt.Errorf("apply add class: %w", err)
 	}
 	return nil
+}
+
+func (e *executor) AddReplicaToShard(class string, shard string, targetNode string) error {
+	ctx := context.Background()
+	if replicas, err := e.schemaReader.ShardReplicas(class, shard); err != nil {
+		return fmt.Errorf("error reading replicas for collection %s shard %s: %w", class, shard, err)
+	} else if !slices.Contains(replicas, targetNode) {
+		return fmt.Errorf("replica %s does not exists for collection %s shard %s", targetNode, class, shard)
+	}
+	return e.migrator.LoadShard(ctx, class, shard)
+}
+
+func (e *executor) DeleteReplicaFromShard(class string, shard string, targetNode string) error {
+	ctx := context.Background()
+	if replicas, err := e.schemaReader.ShardReplicas(class, shard); err != nil {
+		return fmt.Errorf("error reading replicas for collection %s shard %s: %w", class, shard, err)
+	} else if slices.Contains(replicas, targetNode) {
+		return fmt.Errorf("replica %s exists for collection %s shard %s", targetNode, class, shard)
+	}
+	return e.migrator.DropShard(ctx, class, shard)
+}
+
+func (e *executor) LoadShard(class string, shard string) {
+	ctx := context.Background()
+	if err := e.migrator.LoadShard(ctx, class, shard); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "load_shard",
+			"class":  class,
+			"shard":  shard,
+		}).WithError(err).Warn("migrator")
+	}
+}
+
+func (e *executor) ShutdownShard(class string, shard string) {
+	ctx := context.Background()
+	if err := e.migrator.ShutdownShard(ctx, class, shard); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "shutdown_shard",
+			"class":  class,
+			"shard":  shard,
+		}).WithError(err).Warn("migrator")
+	}
+}
+
+func (e *executor) DropShard(class string, shard string) {
+	ctx := context.Background()
+	if err := e.migrator.DropShard(ctx, class, shard); err != nil {
+		e.logger.WithFields(logrus.Fields{
+			"action": "drop_shard",
+			"class":  class,
+			"shard":  shard,
+		}).WithError(err).Warn("migrator")
+	}
 }
 
 // RestoreClassDir restores classes on the filesystem directly from the temporary class backup stored on disk.

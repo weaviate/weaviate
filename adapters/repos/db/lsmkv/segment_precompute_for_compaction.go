@@ -12,15 +12,20 @@
 package lsmkv
 
 import (
-	"bytes"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
-	"github.com/edsrzf/mmap-go"
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
+	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/mmap"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 // preComputeSegmentMeta has no side-effects for an already running store. As a
@@ -34,7 +39,7 @@ import (
 // able to find a way to unify the two -- there are subtle differences.
 func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	logger logrus.FieldLogger, useBloomFilter bool, calcCountNetAdditions bool,
-	enableChecksumValidation bool,
+	enableChecksumValidation bool, minMMapSize int64, allocChecker memwatch.AllocChecker, metrics *Metrics, stratLabel string,
 ) ([]string, error) {
 	out := []string{path}
 
@@ -57,14 +62,47 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	}
 	size := fileInfo.Size()
 
-	contents, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
-	if err != nil {
-		return nil, fmt.Errorf("mmap file: %w", err)
+	var contents []byte
+	var allocCheckerErr error
+
+	// mmap has some overhead, we can read small files directly to memory
+
+	if size <= minMMapSize { // check if it is a candidate for full reading
+		allocCheckerErr = allocChecker.CheckAlloc(size) // check if we have enough memory
+		if allocCheckerErr != nil {
+			logger.Debugf("memory pressure: cannot fully read segment")
+		}
 	}
 
-	defer contents.Unmap()
+	if size > minMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
+		monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
+			"operation": "mmap-compaction",
+			"strategy":  stratLabel,
+		}).Inc()
 
-	header, err := segmentindex.ParseHeader(bytes.NewReader(contents[:segmentindex.HeaderSize]))
+		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
+		if err != nil {
+			return nil, fmt.Errorf("mmap file: %w", err)
+		}
+		contents = contents2
+
+		defer monitoring.GetMetrics().MmapOperations.With(prometheus.Labels{
+			"operation": "munmap-compaction",
+			"strategy":  stratLabel,
+		}).Inc()
+
+		defer contents2.Unmap()
+	} else { // read the file into memory if it's small enough and we have enough memory
+		meteredF := diskio.NewMeteredReader(file, diskio.MeteredReaderCallback(metrics.ReadObserver("readSegmentFileCompaction")))
+
+		contents, err = io.ReadAll(meteredF)
+		if err != nil {
+			return nil, fmt.Errorf("read file: %w", err)
+		}
+		useBloomFilter = false // we don't read bloom filters if we are below the MMAP threshold so there is no point in precomputing them
+	}
+
+	header, err := segmentindex.ParseHeader(contents[:segmentindex.HeaderSize])
 	if err != nil {
 		return nil, fmt.Errorf("parse header: %w", err)
 	}
@@ -74,6 +112,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	}
 
 	if header.Version >= segmentindex.SegmentV1 && enableChecksumValidation {
+		file.Seek(0, io.SeekStart)
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
 		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
@@ -100,6 +139,11 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		dataEndPos = invertedHeader.TombstoneOffset
 	}
 
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"strategy":  stratLabel,
+		"operation": "compactionMetadata",
+	})
+
 	seg := &segment{
 		level: header.Level,
 		// trim the .tmp suffix to make sure the naming rules for the files we
@@ -124,6 +168,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 		calcCountNetAdditions: calcCountNetAdditions,
 		invertedHeader:        invertedHeader,
 		invertedData:          &segmentInvertedData{},
+		observeMetaWrite:      func(n int64) { observeWrite.Observe(float64(n)) },
 	}
 
 	if seg.secondaryIndexCount > 0 {

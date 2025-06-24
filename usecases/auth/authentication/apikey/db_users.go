@@ -43,11 +43,12 @@ type DBUsers interface {
 	ActivateUser(userId string) error
 	DeactivateUser(userId string, revokeKey bool) error
 	GetUsers(userIds ...string) (map[string]*User, error)
-	RotateKey(userId, secureHash, oldIdentifier, newIdentifier string) error
+	RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error
 	CheckUserIdentifierExists(userIdentifier string) (bool, error)
 }
 
 type User struct {
+	sync.RWMutex
 	Id                 string
 	Active             bool
 	InternalIdentifier string
@@ -58,6 +59,7 @@ type User struct {
 
 type DBUser struct {
 	lock           *sync.RWMutex
+	weakHashLock   *sync.RWMutex
 	data           dbUserdata
 	memoryOnlyData memoryOnlyData
 	path           string
@@ -112,9 +114,11 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 	if snapshot.Data.UserKeyRevoked == nil {
 		snapshot.Data.UserKeyRevoked = make(map[string]struct{})
 	}
+
 	dbUsers := &DBUser{
 		path:           fullpath,
 		lock:           &sync.RWMutex{},
+		weakHashLock:   &sync.RWMutex{},
 		data:           snapshot.Data,
 		memoryOnlyData: memoryOnlyData{WeakKeyStorageById: make(map[string][sha256.Size]byte)},
 	}
@@ -160,9 +164,17 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 	return c.storeToFile()
 }
 
-func (c *DBUser) RotateKey(userId, secureHash, oldIdentifier, newIdentifier string) error {
+func (c *DBUser) RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error {
+	if len(apiKeyFirstLetters) > 3 {
+		return errors.New("api key first letters too long")
+	}
+
 	c.lock.Lock()
 	defer c.lock.Unlock()
+
+	if _, ok := c.data.Users[userId]; !ok {
+		return fmt.Errorf("user %s does not exist", userId)
+	}
 
 	// replay of old raft commands can have these be ""
 	if oldIdentifier != "" && newIdentifier != "" {
@@ -171,6 +183,7 @@ func (c *DBUser) RotateKey(userId, secureHash, oldIdentifier, newIdentifier stri
 		c.data.IdentifierToId[newIdentifier] = userId
 		c.data.Users[userId].InternalIdentifier = newIdentifier
 	}
+	c.data.Users[userId].ApiKeyFirstLetters = apiKeyFirstLetters
 
 	c.data.SecureKeyStorageById[userId] = secureHash
 	delete(c.memoryOnlyData.WeakKeyStorageById, userId)
@@ -244,12 +257,16 @@ func (c *DBUser) CheckUserIdentifierExists(userIdentifier string) (bool, error) 
 }
 
 func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
+	// RLock is fine here, we only want to avoid that c.data.Users is being changed. LastUsed has its own
+	// locking mechanism
 	c.lock.RLock()
 	defer c.lock.RUnlock()
 
 	for userID, lastUsed := range users {
 		if c.data.Users[userID].LastUsedAt.Before(lastUsed) {
+			c.data.Users[userID].Lock()
 			c.data.Users[userID].LastUsedAt = lastUsed
+			c.data.Users[userID].Unlock()
 		}
 	}
 }
@@ -267,7 +284,9 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 	if !ok {
 		return nil, fmt.Errorf("invalid token")
 	}
+	c.weakHashLock.RLock()
 	weakHash, ok := c.memoryOnlyData.WeakKeyStorageById[userId]
+	c.weakHashLock.RUnlock()
 	if ok {
 		// use the secureHash as salt for the computation of the weaker in-memory
 		if err := c.validateWeakHash([]byte(key+secureHash), weakHash); err != nil {
@@ -286,7 +305,12 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		return nil, fmt.Errorf("key is revoked")
 	}
 
-	c.data.Users[userId].LastUsedAt = time.Now()
+	// Last used time does not have to be exact. If we have multiple concurrent requests for the same
+	// user, only recording one of them is good enough
+	if c.data.Users[userId].TryLock() {
+		c.data.Users[userId].LastUsedAt = time.Now()
+		c.data.Users[userId].Unlock()
+	}
 
 	return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
 }
@@ -309,26 +333,47 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 		return fmt.Errorf("invalid token")
 	}
 	token := []byte(key + secureHash)
-	c.memoryOnlyData.WeakKeyStorageById[userId] = sha256.Sum256(token)
+	// avoid concurrent writes to map
+	weakHash := sha256.Sum256(token)
+
+	c.weakHashLock.Lock()
+	c.memoryOnlyData.WeakKeyStorageById[userId] = weakHash
+	c.weakHashLock.Unlock()
 
 	return nil
 }
 
-func (c *DBUser) Snapshot() DBUserSnapshot {
+func (c *DBUser) Snapshot() ([]byte, error) {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	return DBUserSnapshot{Data: c.data, Version: SnapshotVersion}
+	marshal, err := json.Marshal(DBUserSnapshot{Data: c.data, Version: SnapshotVersion})
+	if err != nil {
+		return nil, err
+	}
+	return marshal, nil
 }
 
-func (c *DBUser) Restore(snapshot DBUserSnapshot) error {
+func (c *DBUser) Restore(snapshot []byte) error {
 	c.lock.Lock()
 	defer c.lock.Unlock()
 
-	if snapshot.Version != SnapshotVersion {
+	// don't overwrite with empty snapshot to avoid overwriting recovery from file
+	// with a non-existent db user snapshot when coming from old versions
+	if len(snapshot) == 0 {
+		return nil
+	}
+
+	snapshotRestore := DBUserSnapshot{}
+	err := json.Unmarshal(snapshot, &snapshotRestore)
+	if err != nil {
+		return err
+	}
+
+	if snapshotRestore.Version != SnapshotVersion {
 		return fmt.Errorf("invalid snapshot version")
 	}
-	c.data = snapshot.Data
+	c.data = snapshotRestore.Data
 
 	return nil
 }

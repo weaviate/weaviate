@@ -89,7 +89,7 @@ func (m *Manager) RotateKey(c *cmd.ApplyRequest) error {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}
 
-	return m.dynUser.RotateKey(req.UserId, req.SecureHash, req.OldIdentifier, req.NewIdentifier)
+	return m.dynUser.RotateKey(req.UserId, req.ApiKeyFirstLetters, req.SecureHash, req.OldIdentifier, req.NewIdentifier)
 }
 
 func (m *Manager) GetUsers(req *cmd.QueryRequest) ([]byte, error) {
@@ -135,4 +135,24 @@ func (m *Manager) CheckUserIdentifierExists(req *cmd.QueryRequest) ([]byte, erro
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
 	}
 	return payload, nil
+}
+
+func (m *Manager) Snapshot() ([]byte, error) {
+	if m.dynUser == nil {
+		return nil, nil
+	}
+	return m.dynUser.Snapshot()
+}
+
+func (m *Manager) Restore(snapshot []byte) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	err := m.dynUser.Restore(snapshot)
+	if err != nil {
+		m.logger.Errorf("restored db users from snapshot failed with: %v", err)
+		return err
+	}
+	m.logger.Info("successfully restored dynamic users from snapshot")
+	return nil
 }

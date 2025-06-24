@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
@@ -32,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/cluster/mocks"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
@@ -49,7 +51,8 @@ func Test_AddClass(t *testing.T) {
 				{DataType: []string{"text"}, Name: "textProp"},
 				{DataType: []string{"int"}, Name: "intProp"},
 			},
-			Vectorizer: "none",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -76,6 +79,7 @@ func Test_AddClass(t *testing.T) {
 					},
 				},
 			},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
@@ -104,6 +108,7 @@ func Test_AddClass(t *testing.T) {
 					},
 				},
 			},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 
 		_, _, err := handler.AddClass(ctx, nil, class)
@@ -112,30 +117,30 @@ func Test_AddClass(t *testing.T) {
 
 	t.Run("with empty class name", func(t *testing.T) {
 		handler, _ := newTestHandler(t, &fakeDB{})
-		class := models.Class{}
+		class := models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, "'' is not a valid class name")
 	})
 
 	t.Run("with reserved class name", func(t *testing.T) {
 		handler, _ := newTestHandler(t, &fakeDB{})
-		class := models.Class{Class: config.DefaultRaftDir}
+		class := models.Class{Class: config.DefaultRaftDir, ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
 
-		class = models.Class{Class: "rAFT"}
+		class = models.Class{Class: "rAFT", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
 		_, _, err = handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
 
-		class = models.Class{Class: "rAfT"}
+		class = models.Class{Class: "rAfT", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
 		_, _, err = handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
 
-		class = models.Class{Class: "RaFT"}
+		class = models.Class{Class: "RaFT", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
 		_, _, err = handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
 
-		class = models.Class{Class: "RAFT"}
+		class = models.Class{Class: "RAFT", ReplicationConfig: &models.ReplicationConfig{Factor: 1}}
 		_, _, err = handler.AddClass(ctx, nil, &class)
 		assert.EqualError(t, err, fmt.Sprintf("parse class name: class name `%s` is reserved", config.DefaultRaftDir))
 	})
@@ -143,8 +148,9 @@ func Test_AddClass(t *testing.T) {
 	t.Run("with default params", func(t *testing.T) {
 		handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 		class := models.Class{
-			Class:      "NewClass",
-			Vectorizer: "none",
+			Class:             "NewClass",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 
 		expectedBM25Config := &models.BM25Config{
@@ -180,7 +186,8 @@ func Test_AddClass(t *testing.T) {
 				Bm25:              expectedBM25Config,
 				UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 			},
-			Vectorizer: "none",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 
 		expectedStopwordConfig := &models.StopwordConfig{
@@ -222,9 +229,9 @@ func Test_AddClass(t *testing.T) {
 
 		// These classes are necessary for tests using references
 		classes := map[string]models.Class{
-			"SomeClass":       {Class: "SomeClass", Vectorizer: "none"},
-			"SomeOtherClass":  {Class: "SomeOtherClass", Vectorizer: "none"},
-			"YetAnotherClass": {Class: "YetAnotherClass", Vectorizer: "none"},
+			"SomeClass":       {Class: "SomeClass", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+			"SomeOtherClass":  {Class: "SomeOtherClass", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+			"YetAnotherClass": {Class: "YetAnotherClass", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
 		}
 
 		runTestCases := func(t *testing.T, testCases []testCase) {
@@ -241,7 +248,8 @@ func Test_AddClass(t *testing.T) {
 								Tokenization: tc.tokenization,
 							},
 						},
-						Vectorizer: "none",
+						Vectorizer:        "none",
+						ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 					}
 					classes[class.Class] = *class
 
@@ -289,7 +297,7 @@ func Test_AddClass(t *testing.T) {
 					propName:       propName(dataType, tokenization),
 					dataType:       dataType.PropString(),
 					tokenization:   tokenization,
-					expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+					expectedErrMsg: fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 				})
 			}
 
@@ -316,7 +324,7 @@ func Test_AddClass(t *testing.T) {
 							propName:       propName(dataType, tokenization),
 							dataType:       dataType.PropString(),
 							tokenization:   tokenization,
-							expectedErrMsg: fmt.Sprintf("Tokenization is not allowed for data type '%s'", dataType),
+							expectedErrMsg: fmt.Sprintf("tokenization is not allowed for data type '%s'", dataType),
 						})
 					}
 				}
@@ -344,7 +352,7 @@ func Test_AddClass(t *testing.T) {
 						propName:       fmt.Sprintf("RefProp_%d_%s", i, tokenization),
 						dataType:       dataType,
 						tokenization:   tokenization,
-						expectedErrMsg: "Tokenization is not allowed for reference data type",
+						expectedErrMsg: "tokenization is not allowed for reference data type",
 						callReadOnly:   true,
 					})
 				}
@@ -378,7 +386,7 @@ func Test_AddClass(t *testing.T) {
 							propName:       propName(dataType, tokenization),
 							dataType:       dataType.PropString(),
 							tokenization:   tokenization,
-							expectedErrMsg: fmt.Sprintf("Tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
+							expectedErrMsg: fmt.Sprintf("tokenization '%s' is not allowed for data type '%s'", tokenization, dataType),
 						})
 					}
 				}
@@ -392,8 +400,9 @@ func Test_AddClass(t *testing.T) {
 		handler, _ := newTestHandler(t, &fakeDB{})
 
 		_, _, err := handler.AddClass(ctx, nil, &models.Class{
-			Class:           "NewClass",
-			VectorIndexType: "invalid",
+			Class:             "NewClass",
+			VectorIndexType:   "invalid",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		})
 		assert.EqualError(t, err, `unrecognized or unsupported vectorIndexType "invalid"`)
 
@@ -407,6 +416,7 @@ func Test_AddClass(t *testing.T) {
 					Vectorizer:        map[string]interface{}{"none": map[string]interface{}{}},
 				},
 			},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		})
 		assert.EqualError(t, err, `target vector "custom": unrecognized or unsupported vectorIndexType "invalid"`)
 
@@ -420,6 +430,7 @@ func Test_AddClass(t *testing.T) {
 					Vectorizer:        map[string]interface{}{"invalid": nil},
 				},
 			},
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		})
 		assert.EqualError(t, err, `target vector "custom": vectorizer: invalid vectorizer "invalid"`)
 	})
@@ -470,11 +481,12 @@ func Test_AddClassWithLimits(t *testing.T) {
 				fakeSchemaManager.On("QueryCollectionsCount").Return(tt.existingCount, nil)
 
 				// Set the max collections limit in config
-				handler.schemaConfig.MaximumAllowedCollectionsCount = tt.maxAllowed
+				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(tt.maxAllowed)
 
 				class := &models.Class{
-					Class:      "NewClass",
-					Vectorizer: "none",
+					Class:             "NewClass",
+					Vectorizer:        "none",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				}
 
 				if tt.expectedError == nil {
@@ -531,8 +543,9 @@ func Test_AddClassWithLimits(t *testing.T) {
 				}
 
 				_, _, err := handler.AddClass(ctx, nil, &models.Class{
-					Class:           "NewClass",
-					VectorIndexType: "dynamic",
+					Class:             "NewClass",
+					VectorIndexType:   "dynamic",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				})
 				assertError(err)
 
@@ -544,6 +557,7 @@ func Test_AddClassWithLimits(t *testing.T) {
 							Vectorizer:      map[string]any{"text2vec-contextionary": map[string]any{}},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				})
 				assertError(err)
 			})
@@ -636,16 +650,17 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		}
 
 		class := models.Class{
-			Class:      className,
-			Properties: properties,
-			Vectorizer: "none",
+			Class:             className,
+			Properties:        properties,
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 
 		t.Run("create class with all properties", func(t *testing.T) {
 			fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(nil)
 			fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-			handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+			handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 			_, _, err := handler.AddClass(ctx, nil, &class)
 			require.Nil(t, err)
 		})
@@ -804,9 +819,10 @@ func Test_AddClass_DefaultsAndMigration(t *testing.T) {
 		}
 
 		class := models.Class{
-			Class:      className,
-			Properties: properties,
-			Vectorizer: "none",
+			Class:             className,
+			Properties:        properties,
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 		t.Run("create class with all properties", func(t *testing.T) {
 			handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
@@ -970,8 +986,9 @@ func Test_Validation_ClassNames(t *testing.T) {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 					class := &models.Class{
-						Vectorizer: "none",
-						Class:      test.input,
+						Vectorizer:        "none",
+						Class:             test.input,
+						ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 					}
 
 					if test.valid {
@@ -991,8 +1008,9 @@ func Test_Validation_ClassNames(t *testing.T) {
 				t.Run(test.name+" as thing class", func(t *testing.T) {
 					handler, fakeSchemaManager := newTestHandler(t, &fakeDB{})
 					class := &models.Class{
-						Vectorizer: "none",
-						Class:      test.input,
+						Vectorizer:        "none",
+						Class:             test.input,
+						ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 					}
 
 					if test.valid {
@@ -1090,13 +1108,14 @@ func Test_Validation_PropertyNames(t *testing.T) {
 							DataType: schema.DataTypeText.PropString(),
 							Name:     test.input,
 						}},
+						ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 					}
 
 					if test.valid {
 						fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
 						fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 					}
-					handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+					handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 					_, _, err := handler.AddClass(context.Background(), nil, class)
 					assert.Equal(t, test.valid, err == nil)
 					fakeSchemaManager.AssertExpectations(t)
@@ -1115,6 +1134,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 							DataType: schema.DataTypeText.PropString(),
 							Name:     test.input,
 						}},
+						ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 					}
 
 					if test.valid {
@@ -1144,6 +1164,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 								DataType: schema.DataTypeText.PropString(),
 							},
 						},
+						ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 					}
 
 					fakeSchemaManager.On("AddClass", class, mock.Anything).Return(nil)
@@ -1177,6 +1198,7 @@ func Test_Validation_PropertyNames(t *testing.T) {
 							DataType: schema.DataTypeText.PropString(),
 							Name:     test.input,
 						}},
+						ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 					}
 
 					if test.valid {
@@ -1201,7 +1223,7 @@ func Test_UpdateClass(t *testing.T) {
 		fakeSchemaManager.On("ReadOnlyClass", "WrongClass", mock.Anything).Return(nil)
 		fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(ErrNotFound)
 
-		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{})
+		err := handler.UpdateClass(context.Background(), nil, "WrongClass", &models.Class{ReplicationConfig: &models.ReplicationConfig{Factor: 1}})
 		require.ErrorIs(t, err, ErrNotFound)
 		fakeSchemaManager.AssertExpectations(t)
 	})
@@ -1215,37 +1237,37 @@ func Test_UpdateClass(t *testing.T) {
 		}{
 			{
 				name:    "ChangeName",
-				initial: &models.Class{Class: "InitialName", Vectorizer: "none"},
-				update:  &models.Class{Class: "UpdatedName", Vectorizer: "none"},
+				initial: &models.Class{Class: "InitialName", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update:  &models.Class{Class: "UpdatedName", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
 				expectedError: fmt.Errorf(
 					"class name is immutable: " +
 						"attempted change from \"InitialName\" to \"UpdatedName\""),
 			},
 			{
 				name:    "ModifyVectorizer",
-				initial: &models.Class{Class: "InitialName", Vectorizer: "model1"},
-				update:  &models.Class{Class: "InitialName", Vectorizer: "model2"},
+				initial: &models.Class{Class: "InitialName", Vectorizer: "model1", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update:  &models.Class{Class: "InitialName", Vectorizer: "model2", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
 				expectedError: fmt.Errorf(
 					"vectorizer is immutable: " +
 						"attempted change from \"model1\" to \"model2\""),
 			},
 			{
 				name:    "ModifyVectorIndexType",
-				initial: &models.Class{Class: "InitialName", VectorIndexType: "hnsw", Vectorizer: "none"},
-				update:  &models.Class{Class: "InitialName", VectorIndexType: "flat", Vectorizer: "none"},
+				initial: &models.Class{Class: "InitialName", VectorIndexType: "hnsw", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update:  &models.Class{Class: "InitialName", VectorIndexType: "flat", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
 				expectedError: fmt.Errorf(
 					"vector index type is immutable: " +
 						"attempted change from \"hnsw\" to \"flat\""),
 			},
 			{
 				name:          "UnsupportedVectorIndex",
-				initial:       &models.Class{Class: "InitialName", VectorIndexType: "hnsw", Vectorizer: "none"},
-				update:        &models.Class{Class: "InitialName", VectorIndexType: "lsh", Vectorizer: "none"},
+				initial:       &models.Class{Class: "InitialName", VectorIndexType: "hnsw", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
+				update:        &models.Class{Class: "InitialName", VectorIndexType: "lsh", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
 				expectedError: fmt.Errorf("unsupported vector"),
 			},
 			{
 				name:    "add property to an empty class",
-				initial: &models.Class{Class: "InitialName", Vectorizer: "none"},
+				initial: &models.Class{Class: "InitialName", Vectorizer: "none", ReplicationConfig: &models.ReplicationConfig{Factor: 1}},
 				update: &models.Class{
 					Class:      "InitialName",
 					Vectorizer: "none",
@@ -1254,6 +1276,7 @@ func Test_UpdateClass(t *testing.T) {
 							Name: "newProp",
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: errPropertiesUpdatedInClassUpdate,
 			},
@@ -1272,6 +1295,7 @@ func Test_UpdateClass(t *testing.T) {
 							DataType: schema.DataTypeText.PropString(),
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1286,6 +1310,7 @@ func Test_UpdateClass(t *testing.T) {
 							DataType: schema.DataTypeInt.PropString(),
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: errPropertiesUpdatedInClassUpdate,
 			},
@@ -1304,6 +1329,7 @@ func Test_UpdateClass(t *testing.T) {
 							DataType: schema.DataTypeInt.PropString(),
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1318,6 +1344,7 @@ func Test_UpdateClass(t *testing.T) {
 							DataType: schema.DataTypeText.PropString(),
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: nil,
 			},
@@ -1332,6 +1359,7 @@ func Test_UpdateClass(t *testing.T) {
 							DataType: schema.DataTypeText.PropString(),
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1342,6 +1370,7 @@ func Test_UpdateClass(t *testing.T) {
 							DataType: schema.DataTypeText.PropString(),
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: nil,
 			},
@@ -1356,6 +1385,7 @@ func Test_UpdateClass(t *testing.T) {
 							DataType: schema.DataTypeText.PropString(),
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1366,6 +1396,7 @@ func Test_UpdateClass(t *testing.T) {
 							DataType: schema.DataTypeText.PropString(),
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: fmt.Errorf(
 					"property fields other than description cannot be updated through updating the class. Use the add " +
@@ -1381,6 +1412,7 @@ func Test_UpdateClass(t *testing.T) {
 						CleanupIntervalSeconds: 17,
 						UsingBlockMaxWAND:      config.DefaultUsingBlockMaxWAND,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1393,6 +1425,7 @@ func Test_UpdateClass(t *testing.T) {
 						},
 						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 			},
 			{
@@ -1408,6 +1441,7 @@ func Test_UpdateClass(t *testing.T) {
 						},
 						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1420,6 +1454,7 @@ func Test_UpdateClass(t *testing.T) {
 						},
 						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 			},
 			{
@@ -1434,6 +1469,7 @@ func Test_UpdateClass(t *testing.T) {
 						},
 						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1447,6 +1483,7 @@ func Test_UpdateClass(t *testing.T) {
 						},
 						UsingBlockMaxWAND: config.DefaultUsingBlockMaxWAND,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 			},
 			{
@@ -1459,6 +1496,7 @@ func Test_UpdateClass(t *testing.T) {
 							"my-setting": "some-value",
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1468,6 +1506,7 @@ func Test_UpdateClass(t *testing.T) {
 							"my-setting": "updated-value",
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: fmt.Errorf("can only update generative and reranker module configs"),
 			},
@@ -1481,6 +1520,7 @@ func Test_UpdateClass(t *testing.T) {
 							"my-setting": "some-value",
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1493,6 +1533,7 @@ func Test_UpdateClass(t *testing.T) {
 							"my-setting": "some-value",
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: nil,
 			},
@@ -1512,6 +1553,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1530,6 +1572,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: nil,
 			},
@@ -1549,6 +1592,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1564,6 +1608,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: errors.New(`module "my-module1" configuration cannot be updated`),
 			},
@@ -1583,6 +1628,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1598,6 +1644,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: errors.New(`module "my-module1" configuration was removed`),
 			},
@@ -1609,6 +1656,7 @@ func Test_UpdateClass(t *testing.T) {
 					VectorIndexConfig: map[string]interface{}{
 						"some-setting": "old-value",
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1616,6 +1664,7 @@ func Test_UpdateClass(t *testing.T) {
 					VectorIndexConfig: map[string]interface{}{
 						"some-setting": "new-value",
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: nil,
 			},
@@ -1627,6 +1676,7 @@ func Test_UpdateClass(t *testing.T) {
 					MultiTenancyConfig: &models.MultiTenancyConfig{
 						Enabled: false,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1634,6 +1684,7 @@ func Test_UpdateClass(t *testing.T) {
 					MultiTenancyConfig: &models.MultiTenancyConfig{
 						Enabled: true,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: fmt.Errorf("enabling multi-tenancy for an existing class is not supported"),
 			},
@@ -1645,6 +1696,7 @@ func Test_UpdateClass(t *testing.T) {
 					MultiTenancyConfig: &models.MultiTenancyConfig{
 						Enabled: true,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1652,6 +1704,7 @@ func Test_UpdateClass(t *testing.T) {
 					MultiTenancyConfig: &models.MultiTenancyConfig{
 						Enabled: false,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: fmt.Errorf("disabling multi-tenancy for an existing class is not supported"),
 			},
@@ -1663,6 +1716,7 @@ func Test_UpdateClass(t *testing.T) {
 					MultiTenancyConfig: &models.MultiTenancyConfig{
 						Enabled: true,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1671,6 +1725,7 @@ func Test_UpdateClass(t *testing.T) {
 						Enabled:            true,
 						AutoTenantCreation: true,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: nil,
 			},
@@ -1682,6 +1737,7 @@ func Test_UpdateClass(t *testing.T) {
 					MultiTenancyConfig: &models.MultiTenancyConfig{
 						Enabled: true,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:      "InitialName",
@@ -1690,15 +1746,17 @@ func Test_UpdateClass(t *testing.T) {
 						Enabled:              true,
 						AutoTenantActivation: true,
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: nil,
 			},
 			{
 				name: "adding named vector on a class with legacy index",
 				initial: &models.Class{
-					Class:           "InitialName",
-					Vectorizer:      "text2vec-contextionary",
-					VectorIndexType: hnswT,
+					Class:             "InitialName",
+					Vectorizer:        "text2vec-contextionary",
+					VectorIndexType:   hnswT,
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:           "InitialName",
@@ -1712,6 +1770,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: nil,
 			},
@@ -1727,6 +1786,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class: "InitialName",
@@ -1744,6 +1804,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 			},
 			{
@@ -1758,6 +1819,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:           "InitialName",
@@ -1771,6 +1833,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: fmt.Errorf("vectorizer is immutable"),
 			},
@@ -1792,6 +1855,7 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class: "InitialName",
@@ -1803,42 +1867,47 @@ func Test_UpdateClass(t *testing.T) {
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: fmt.Errorf(`missing config for vector "second"`),
 			},
 			{
 				name: "removing existing legacy vector",
 				initial: &models.Class{
-					Class:           "InitialName",
-					Vectorizer:      "text2vec-contextionary",
-					VectorIndexType: hnswT,
+					Class:             "InitialName",
+					Vectorizer:        "text2vec-contextionary",
+					VectorIndexType:   hnswT,
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
-					Class: "InitialName",
+					Class:             "InitialName",
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				expectedError: fmt.Errorf("vectorizer is immutable"),
 			},
 			{
 				name: "adding named vector with reserved named on a collection with legacy index",
 				initial: &models.Class{
-					Class:           "InitialName",
-					Vectorizer:      "text2vec-contextionary",
-					VectorIndexType: hnswT,
+					Class:             "InitialName",
+					Vectorizer:        "text2vec-contextionary",
+					VectorIndexType:   hnswT,
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
 				update: &models.Class{
 					Class:           "InitialName",
 					Vectorizer:      "text2vec-contextionary",
 					VectorIndexType: hnswT,
 					VectorConfig: map[string]models.VectorConfig{
-						schema.DefaultNamedVectorName: {
+						modelsext.DefaultNamedVectorName: {
 							VectorIndexType: hnswT,
 							Vectorizer: map[string]interface{}{
 								"text2vec-contextionary": map[string]interface{}{},
 							},
 						},
 					},
+					ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 				},
-				expectedError: fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", schema.DefaultNamedVectorName),
+				expectedError: fmt.Errorf("vector named %s cannot be created when collection level vector index is configured", modelsext.DefaultNamedVectorName),
 			},
 		}
 
@@ -1854,10 +1923,11 @@ func Test_UpdateClass(t *testing.T) {
 				fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
 				fakeSchemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
 				fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
+				fakeSchemaManager.On("QueryShardingState", mock.Anything).Return(nil, nil)
 				if len(test.initial.Properties) > 0 {
 					fakeSchemaManager.On("ReadOnlyClass", test.initial.Class, mock.Anything).Return(test.initial)
 				}
-				handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+				handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 				_, _, err := handler.AddClass(ctx, nil, test.initial)
 				assert.Nil(t, err)
 				store.AddClass(test.initial)
@@ -2140,11 +2210,12 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: true},
 			Class:              "NewClass",
 			Vectorizer:         "none",
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.False(t, schema.AutoTenantCreationEnabled(c))
@@ -2159,13 +2230,14 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 				AutoTenantCreation:   true,
 				AutoTenantActivation: true,
 			},
-			Class:      "NewClass",
-			Vectorizer: "none",
+			Class:             "NewClass",
+			Vectorizer:        "none",
+			ReplicationConfig: &models.ReplicationConfig{Factor: 1},
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		c, _, err := handler.AddClass(ctx, nil, &class)
 		require.Nil(t, err)
 		assert.True(t, schema.AutoTenantCreationEnabled(c))
@@ -2178,11 +2250,12 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false, AutoTenantCreation: true},
 			Class:              "NewClass",
 			Vectorizer:         "none",
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})
@@ -2193,11 +2266,12 @@ func Test_AddClass_MultiTenancy(t *testing.T) {
 			MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false, AutoTenantActivation: true},
 			Class:              "NewClass",
 			Vectorizer:         "none",
+			ReplicationConfig:  &models.ReplicationConfig{Factor: 1},
 		}
 
 		fakeSchemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
 		fakeSchemaManager.On("QueryCollectionsCount").Return(0, nil)
-		handler.schemaConfig.MaximumAllowedCollectionsCount = -1
+		handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 		_, _, err := handler.AddClass(ctx, nil, &class)
 		require.NotNil(t, err)
 	})
@@ -2261,50 +2335,4 @@ func Test_SetClassDefaults(t *testing.T) {
 			assert.Equal(t, tt.expectedFactor, tt.class.ReplicationConfig.Factor)
 		})
 	}
-}
-
-func TestExperimentBackwardsCompatibleNamedVectorsGuard(t *testing.T) {
-	var (
-		className              = "TestClass"
-		ctx                    = context.Background()
-		handler, schemaManager = newTestHandler(t, &fakeDB{})
-	)
-	handler.parser.experimentBackwardsCompatibleNamedVectorsEnabled = false
-
-	t.Run("updating class with named vectors", func(t *testing.T) {
-		store := NewFakeStore()
-
-		schemaManager.On("AddClass", mock.Anything, mock.Anything).Return(nil)
-		schemaManager.On("QueryCollectionsCount").Return(0, nil)
-
-		class := &models.Class{
-			Class:           className,
-			VectorIndexType: "hnsw",
-			Vectorizer:      "text2vec-contextionary",
-		}
-		_, _, err := handler.AddClass(ctx, nil, class)
-		require.NoError(t, err)
-		store.AddClass(class)
-
-		schemaManager.On("UpdateClass", mock.Anything, mock.Anything).Return(nil)
-		schemaManager.On("ReadOnlyClass", mock.Anything, mock.Anything).Return(class)
-
-		updatedClass := &models.Class{
-			Class:           className,
-			VectorIndexType: "hnsw",
-			Vectorizer:      "text2vec-contextionary",
-			VectorConfig: map[string]models.VectorConfig{
-				"vec1": {
-					VectorIndexType: hnswT,
-					Vectorizer:      map[string]any{"text2vec-contextionary": map[string]any{}},
-				},
-			},
-		}
-
-		err = handler.UpdateClass(ctx, nil, className, updatedClass)
-		require.NoError(t, err)
-
-		err = store.UpdateClass(updatedClass)
-		require.ErrorContains(t, err, `additional config for vector "vec1"`)
-	})
 }

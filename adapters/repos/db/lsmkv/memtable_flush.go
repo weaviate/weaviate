@@ -15,12 +15,42 @@ import (
 	"bufio"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strings"
+
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
+	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-func (m *Memtable) flush() error {
+func (m *Memtable) flushWAL() error {
+	if err := m.commitlog.close(); err != nil {
+		return err
+	}
+
+	if m.Size() == 0 {
+		// this is an empty memtable, nothing to do
+		// however, we still have to cleanup the commit log, otherwise we will
+		// attempt to recover from it on the next cycle
+		if err := m.commitlog.delete(); err != nil {
+			return errors.Wrap(err, "delete commit log file")
+		}
+		return nil
+	}
+
+	// fsync parent directory
+	err := diskio.Fsync(filepath.Dir(m.path))
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func (m *Memtable) flush() (rerr error) {
 	// close the commit log first, this also forces it to be fsynced. If
 	// something fails there, don't proceed with flushing. The commit log will
 	// only be deleted at the very end, if the flush was successful
@@ -41,11 +71,26 @@ func (m *Memtable) flush() error {
 		return nil
 	}
 
-	f, err := os.OpenFile(m.path+".db", os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
+	tmpSegmentPath := m.path + ".db.tmp"
+
+	f, err := os.OpenFile(tmpSegmentPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 	if err != nil {
 		return err
 	}
-	bufw := bufio.NewWriter(f)
+	defer func() {
+		if rerr != nil {
+			f.Close()
+			os.Remove(tmpSegmentPath)
+		}
+	}()
+
+	observeWrite := m.metrics.writeMemtable
+	cb := func(written int64) {
+		observeWrite(written)
+	}
+	meteredF := diskio.NewMeteredWriter(f, cb)
+
+	bufw := bufio.NewWriter(meteredF)
 	segmentFile := segmentindex.NewSegmentFile(
 		segmentindex.WithBufferedWriter(bufw),
 		segmentindex.WithChecksumsDisabled(!m.enableChecksumValidation),
@@ -93,6 +138,10 @@ func (m *Memtable) flush() error {
 			Keys:                keys,
 			SecondaryIndexCount: m.secondaryIndices,
 			ScratchSpacePath:    m.path + ".scratch.d",
+			ObserveWrite: monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+				"strategy":  m.strategy,
+				"operation": "writeIndices",
+			}),
 		}
 
 		// TODO: Currently no checksum validation support for StrategyInverted.
@@ -116,6 +165,10 @@ func (m *Memtable) flush() error {
 		if _, err := segmentFile.WriteChecksum(); err != nil {
 			return err
 		}
+	} else {
+		if err := bufw.Flush(); err != nil {
+			return err
+		}
 	}
 
 	if err := f.Sync(); err != nil {
@@ -123,6 +176,17 @@ func (m *Memtable) flush() error {
 	}
 
 	if err := f.Close(); err != nil {
+		return err
+	}
+
+	err = os.Rename(tmpSegmentPath, strings.TrimSuffix(tmpSegmentPath, ".tmp"))
+	if err != nil {
+		return err
+	}
+
+	// fsync parent directory
+	err = diskio.Fsync(filepath.Dir(m.path))
+	if err != nil {
 		return err
 	}
 

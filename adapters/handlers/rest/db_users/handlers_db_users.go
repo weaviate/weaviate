@@ -370,7 +370,7 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.dbUsers.RotateKey(params.UserID, hash, oldUserIdentifier, newUserIdentifier); err != nil {
+	if err := h.dbUsers.RotateKey(params.UserID, apiKey[:3], hash, oldUserIdentifier, newUserIdentifier); err != nil {
 		return users.NewRotateUserAPIKeyInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("rotate key: %w", err)))
 	}
 
@@ -568,7 +568,6 @@ func (h *dynUserHandler) isRequestFromRootUser(principal *models.Principal) bool
 	if principal == nil {
 		return false
 	}
-
 	for _, groupName := range principal.Groups {
 		if slices.Contains(h.rbacConfig.RootGroups, groupName) {
 			return true

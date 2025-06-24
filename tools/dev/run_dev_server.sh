@@ -49,10 +49,12 @@ case $CONFIG in
   ;;
 
   local-single-node)
+      CONTEXTIONARY_URL=localhost:9999 \
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       PERSISTENCE_DATA_PATH="./data-weaviate-0" \
       BACKUP_FILESYSTEM_PATH="${PWD}/backups-weaviate-0" \
-      ENABLE_MODULES="backup-filesystem" \
+      DEFAULT_VECTORIZER_MODULE=text2vec-contextionary \
+      ENABLE_MODULES="text2vec-contextionary,backup-filesystem" \
       PROMETHEUS_MONITORING_PORT="2112" \
       PROMETHEUS_MONITORING_METRIC_NAMESPACE="weaviate" \
       CLUSTER_IN_LOCALHOST=true \
@@ -599,6 +601,9 @@ case $CONFIG in
       AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
       CLUSTER_IN_LOCALHOST=true \
       DEFAULT_VECTORIZER_MODULE=none \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=5s \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -974,6 +979,19 @@ case $CONFIG in
       CLUSTER_GOSSIP_BIND_PORT="7100" \
       CLUSTER_DATA_BIND_PORT="7101" \
       RAFT_BOOTSTRAP_EXPECT=1 \
+      go_run ./cmd/weaviate-server \
+        --scheme http \
+        --host "127.0.0.1" \
+        --port 8080 \
+        --read-timeout=600s \
+        --write-timeout=600s
+    ;;
+  local-model2vec)
+      CONTEXTIONARY_URL=localhost:9999 \
+      AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED=true \
+      DEFAULT_VECTORIZER_MODULE=text2vec-model2vec \
+      MODEL2VEC_INFERENCE_API="http://localhost:8012" \
+      ENABLE_MODULES="text2vec-model2vec" \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \

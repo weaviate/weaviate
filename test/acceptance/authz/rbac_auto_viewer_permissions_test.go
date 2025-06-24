@@ -62,6 +62,8 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		"/backups/{backend}", // we ignore backup because there is multiple endpoints doesn't need authZ and many validations
 		"/backups/{backend}/{id}",
 		"/backups/{backend}/{id}/restore",
+		"/replication/replicate/{id}", // for the same reason as backups above
+		"/replication/replicate/{id}/cancel",
 		"/authz/roles/{id}/has-permission", // must be a POST rather than GET or HEAD due to need of body. but viewer can access it due to its permissions
 	}
 
@@ -69,6 +71,7 @@ func TestAuthzAllEndpointsViewerDynamically(t *testing.T) {
 		url := fmt.Sprintf("http://%s/v1%s", compose.GetWeaviate().URI(), endpoint.path)
 		url = strings.ReplaceAll(url, "/objects/{className}/{id}", fmt.Sprintf("/objects/%s/%s", className, UUID1.String()))
 		url = strings.ReplaceAll(url, "/objects/{id}", fmt.Sprintf("/objects/%s", UUID1.String()))
+		url = strings.ReplaceAll(url, "/replication/replicate/{id}", fmt.Sprintf("/replication/replicate/%s", UUID1.String()))
 		url = strings.ReplaceAll(url, "{className}", className)
 		url = strings.ReplaceAll(url, "{tenantName}", "Tenant1")
 		url = strings.ReplaceAll(url, "{shardName}", "Shard1")

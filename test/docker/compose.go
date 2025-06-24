@@ -54,6 +54,8 @@ import (
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
 	modhuggingface "github.com/weaviate/weaviate/modules/text2vec-huggingface"
 	modjinaai "github.com/weaviate/weaviate/modules/text2vec-jinaai"
+	modmistral "github.com/weaviate/weaviate/modules/text2vec-mistral"
+	modmodel2vec "github.com/weaviate/weaviate/modules/text2vec-model2vec"
 	modnvidia "github.com/weaviate/weaviate/modules/text2vec-nvidia"
 	modollama "github.com/weaviate/weaviate/modules/text2vec-ollama"
 	modopenai "github.com/weaviate/weaviate/modules/text2vec-openai"
@@ -80,8 +82,12 @@ const (
 	envTestImg2VecNeuralImage = "TEST_IMG2VEC_NEURAL_IMAGE"
 	// envTestRerankerTransformersImage adds ability to pass a custom image to module tests
 	envTestRerankerTransformersImage = "TEST_RERANKER_TRANSFORMERS_IMAGE"
+	// envTestText2vecModel2VecImage adds ability to pass a custom image to module tests
+	envTestText2vecModel2VecImage = "TEST_TEXT2VEC_MODEL2VEC_IMAGE"
 	// envTestMockOIDCImage adds ability to pass a custom image to module tests
 	envTestMockOIDCImage = "TEST_MOCKOIDC_IMAGE"
+	// envTestMockOIDCHelperImage adds ability to pass a custom image to module tests
+	envTestMockOIDCHelperImage = "TEST_MOCKOIDC_HELPER_IMAGE"
 )
 
 const (
@@ -104,6 +110,7 @@ type Compose struct {
 	withBackendAzure           bool
 	withBackendAzureContainer  string
 	withTransformers           bool
+	withModel2Vec              bool
 	withContextionary          bool
 	withQnATransformers        bool
 	withWeaviateExposeGRPCPort bool
@@ -135,6 +142,7 @@ type Compose struct {
 	withOllamaGenerative           bool
 	withAutoschema                 bool
 	withMockOIDC                   bool
+	withMockOIDCWithCertificate    bool
 	weaviateEnvs                   map[string]string
 	removeEnvs                     map[string]struct{}
 }
@@ -317,7 +325,8 @@ func (d *Compose) WithText2VecAWS(accessKey, secretKey, sessionToken string) *Co
 	return d
 }
 
-func (d *Compose) WithText2VecHuggingFace() *Compose {
+func (d *Compose) WithText2VecHuggingFace(apiKey string) *Compose {
+	d.weaviateEnvs["HUGGINGFACE_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modhuggingface.Name)
 	return d
 }
@@ -368,6 +377,19 @@ func (d *Compose) WithRerankerNvidia(apiKey string) *Compose {
 func (d *Compose) WithText2VecNvidia(apiKey string) *Compose {
 	d.weaviateEnvs["NVIDIA_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modnvidia.Name)
+	return d
+}
+
+func (d *Compose) WithText2VecModel2Vec() *Compose {
+	d.withModel2Vec = true
+	d.enableModules = append(d.enableModules, modmodel2vec.Name)
+	d.defaultVectorizerModule = Text2VecModel2Vec
+	return d
+}
+
+func (d *Compose) WithText2VecMistral(apiKey string) *Compose {
+	d.weaviateEnvs["MISTRAL_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmistral.Name)
 	return d
 }
 
@@ -502,6 +524,11 @@ func (d *Compose) WithMockOIDC() *Compose {
 	return d
 }
 
+func (d *Compose) WithMockOIDCWithCertificate() *Compose {
+	d.withMockOIDCWithCertificate = true
+	return d
+}
+
 func (d *Compose) WithApiKey() *Compose {
 	d.withWeaviateApiKey = true
 	return d
@@ -631,6 +658,17 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 	if d.withBackendFilesystem {
 		envSettings["BACKUP_FILESYSTEM_PATH"] = "/tmp/backups"
 	}
+	if d.withModel2Vec {
+		image := os.Getenv(envTestText2vecModel2VecImage)
+		container, err := startT2VModel2Vec(ctx, networkName, image)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", Text2VecModel2Vec)
+		}
+		for k, v := range container.envSettings {
+			envSettings[k] = v
+		}
+		containers = append(containers, container)
+	}
 	if d.withTransformers {
 		image := os.Getenv(envTestText2vecTransformersImage)
 		container, err := startT2VTransformers(ctx, networkName, image)
@@ -742,16 +780,34 @@ func (d *Compose) Start(ctx context.Context) (*DockerCompose, error) {
 		}
 		containers = append(containers, container)
 	}
-	if d.withMockOIDC {
+	if d.withMockOIDC || d.withMockOIDCWithCertificate {
+		var certificate, certificateKey string
+		if d.withMockOIDCWithCertificate {
+			// Generate certifcate and certificate's private key
+			certificate, certificateKey, err = GenerateCertificateAndKey(MockOIDC)
+			if err != nil {
+				return nil, errors.Wrapf(err, "cannot generate mock certificates for %s", MockOIDC)
+			}
+		}
 		image := os.Getenv(envTestMockOIDCImage)
-		container, err := startMockOIDC(ctx, networkName, image)
+		container, err := startMockOIDC(ctx, networkName, image, certificate, certificateKey)
 		if err != nil {
 			return nil, errors.Wrapf(err, "start %s", MockOIDC)
 		}
 		for k, v := range container.envSettings {
+			if k == "AUTHENTICATION_OIDC_CERTIFICATE" && envSettings[k] != "" {
+				// allow to pass some other certificate using WithWeaviateEnv method
+				continue
+			}
 			envSettings[k] = v
 		}
 		containers = append(containers, container)
+		helperImage := os.Getenv(envTestMockOIDCHelperImage)
+		helperContainer, err := startMockOIDCHelper(ctx, networkName, helperImage, certificate)
+		if err != nil {
+			return nil, errors.Wrapf(err, "start %s", MockOIDCHelper)
+		}
+		containers = append(containers, helperContainer)
 	}
 
 	if d.withWeaviateCluster {

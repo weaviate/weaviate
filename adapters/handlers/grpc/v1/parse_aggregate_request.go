@@ -19,8 +19,8 @@ import (
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/schema"
-	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
 	"github.com/weaviate/weaviate/entities/searchparams"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -289,6 +289,13 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 				WithDistance:    withDistance,
 			}
 
+			if hs.Bm25SearchOperator != nil {
+				if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
+					params.Hybrid.MinimumOrTokensMatch = int(*hs.Bm25SearchOperator.MinimumOrTokensMatch)
+				}
+				params.Hybrid.SearchOperator = hs.Bm25SearchOperator.Operator.String()
+			}
+
 			if nearVec != nil {
 				params.Hybrid.NearVectorParams, _, err = parseNearVec(nearVec, targetVectors, class, nil)
 				if err != nil {
@@ -510,7 +517,7 @@ func extractTargetVectorsForAggregate(req *pb.AggregateRequest, class *models.Cl
 		combination = &dto.TargetCombination{Type: dto.DefaultTargetCombinationType}
 	}
 
-	if vectorSearch && len(targetVectors) == 0 && !schemachecks.HasLegacyVectorIndex(class) {
+	if vectorSearch && len(targetVectors) == 0 && !modelsext.ClassHasLegacyVectorIndex(class) {
 		if len(class.VectorConfig) > 1 {
 			return nil, nil, false, fmt.Errorf("class %s has multiple vectors, but no target vectors were provided", class.Class)
 		} else if len(class.VectorConfig) == 1 {

@@ -585,6 +585,10 @@ func (ko *Object) asVectors(vectors map[string][]float32, multiVectors map[strin
 	return nil
 }
 
+func (ko *Object) GetVectors() models.Vectors {
+	return ko.asVectors(ko.Vectors, ko.MultiVectors)
+}
+
 func (ko *Object) SearchResultWithDist(addl additional.Properties, dist float32) search.Result {
 	res := ko.SearchResult(addl, "")
 	res.Dist = dist
@@ -1195,7 +1199,7 @@ func unmarshalTargetVectors(rw *byteops.ReadWriter) (map[string][]float32, error
 		if len(targetVectorsOffsets) > 0 {
 			var tvOffsets map[string]uint32
 			if err := msgpack.Unmarshal(targetVectorsOffsets, &tvOffsets); err != nil {
-				return nil, fmt.Errorf("Could not unmarshal target vectors offset: %w", err)
+				return nil, fmt.Errorf("could not unmarshal target vectors offset: %w", err)
 			}
 
 			targetVectors := map[string][]float32{}

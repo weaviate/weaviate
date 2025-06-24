@@ -246,7 +246,7 @@ func (s *segmentCursorReplace) firstWithAllKeys() (n segmentReplaceNode, err err
 }
 
 func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentReplaceNode, error) {
-	r, err := s.segment.newNodeReader(offset)
+	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
 	if err != nil {
 		return segmentReplaceNode{}, err
 	}
@@ -258,11 +258,11 @@ func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentRepla
 }
 
 func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byte) error {
-	if s.segment.mmapContents {
+	if s.segment.readFromMemory {
 		return s.parse(buf)
 	}
 
-	r, err := s.segment.newNodeReader(offset)
+	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
 	if err != nil {
 		return err
 	}

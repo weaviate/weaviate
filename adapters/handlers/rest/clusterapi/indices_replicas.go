@@ -25,6 +25,7 @@ import (
 
 	"github.com/go-openapi/strfmt"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -50,16 +51,16 @@ type replicator interface {
 	CommitReplication(indexName, shardName, requestID string) interface{}
 	AbortReplication(indexName, shardName, requestID string) interface{}
 	OverwriteObjects(ctx context.Context, index, shard string,
-		vobjects []*objects.VObject) ([]replica.RepairResponse, error)
+		vobjects []*objects.VObject) ([]types.RepairResponse, error)
 	// Read endpoints
 	FetchObject(ctx context.Context, indexName,
-		shardName string, id strfmt.UUID) (objects.Replica, error)
+		shardName string, id strfmt.UUID) (replica.Replica, error)
 	FetchObjects(ctx context.Context, class,
-		shardName string, ids []strfmt.UUID) ([]objects.Replica, error)
+		shardName string, ids []strfmt.UUID) ([]replica.Replica, error)
 	DigestObjects(ctx context.Context, class, shardName string,
-		ids []strfmt.UUID) (result []replica.RepairResponse, err error)
+		ids []strfmt.UUID) (result []types.RepairResponse, err error)
 	DigestObjectsInRange(ctx context.Context, class, shardName string,
-		initialUUID, finalUUID strfmt.UUID, limit int) (result []replica.RepairResponse, err error)
+		initialUUID, finalUUID strfmt.UUID, limit int) (result []types.RepairResponse, err error)
 	HashTreeLevel(ctx context.Context, index, shard string,
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
@@ -741,7 +742,7 @@ func (i *replicatedIndices) getObject() http.Handler {
 		defer r.Body.Close()
 
 		var (
-			resp objects.Replica
+			resp replica.Replica
 			err  error
 		)
 
@@ -813,7 +814,7 @@ func (i *replicatedIndices) getObjectsMulti() http.Handler {
 			return
 		}
 
-		b, err := objects.Replicas(resp).MarshalBinary()
+		b, err := replica.Replicas(resp).MarshalBinary()
 		if err != nil {
 			http.Error(w, fmt.Sprintf("unmarshal resp: %+v, error: %v", resp, err),
 				http.StatusInternalServerError)

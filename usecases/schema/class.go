@@ -21,7 +21,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
-	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/stopwords"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -34,7 +34,6 @@ import (
 	"github.com/weaviate/weaviate/entities/versioned"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
@@ -134,7 +133,7 @@ func (h *Handler) AddClass(ctx context.Context, principal *models.Principal,
 		h.logger.WithField("error", err).Error("could not query the collections count")
 	}
 
-	limit := runtime.GetOverrides(h.schemaConfig.MaximumAllowedCollectionsCount, h.schemaConfig.MaximumAllowedCollectionsCountFn)
+	limit := h.schemaConfig.MaximumAllowedCollectionsCount.Get()
 
 	if limit != config.DefaultMaximumAllowedCollectionsCount && existingCollectionsCount >= limit {
 		return nil, 0, fmt.Errorf(
@@ -208,6 +207,10 @@ func (h *Handler) RestoreClass(ctx context.Context, d *backup.ClassDescriptor, m
 	}
 
 	shardingState.MigrateFromOldFormat()
+	err = shardingState.MigrateShardingStateReplicationFactor()
+	if err != nil {
+		return fmt.Errorf("error while migrating replication factor: %w", err)
+	}
 	shardingState.ApplyNodeMapping(m)
 	_, err = h.schemaManager.RestoreClass(ctx, class, &shardingState)
 	return err
@@ -222,8 +225,11 @@ func (h *Handler) DeleteClass(ctx context.Context, principal *models.Principal, 
 
 	class = schema.UppercaseClassName(class)
 
-	_, err = h.schemaManager.DeleteClass(ctx, class)
-	return err
+	if _, err = h.schemaManager.DeleteClass(ctx, class); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func (h *Handler) UpdateClass(ctx context.Context, principal *models.Principal,
@@ -331,7 +337,7 @@ func (h *Handler) setClassDefaults(class *models.Class, globalCfg replication.Gl
 	// set legacy vector index defaults only when:
 	// 	- no target vectors are configured
 	//  - OR, there are target vectors configured AND there is a legacy vector configured
-	if !hasTargetVectors(class) || schemachecks.HasLegacyVectorIndex(class) {
+	if !hasTargetVectors(class) || modelsext.ClassHasLegacyVectorIndex(class) {
 		if class.Vectorizer == "" {
 			class.Vectorizer = h.config.DefaultVectorizerModule
 		}
@@ -639,7 +645,7 @@ func setInvertedConfigDefaults(class *models.Class) {
 func (h *Handler) validateCanAddClass(ctx context.Context, class *models.Class, classGetterWithAuth func(string) (*models.Class, error),
 	relaxCrossRefValidation bool,
 ) error {
-	if schemachecks.HasLegacyVectorIndex(class) && len(class.VectorConfig) > 0 {
+	if modelsext.ClassHasLegacyVectorIndex(class) && len(class.VectorConfig) > 0 {
 		return fmt.Errorf("creating a class with both a class level vector index and named vectors is forbidden")
 	}
 
@@ -719,9 +725,9 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 			if tokenization == "" {
 				return nil
 			}
-			return fmt.Errorf("Tokenization is not allowed for data type '%s'", primitiveDataType)
+			return fmt.Errorf("tokenization is not allowed for data type '%s'", primitiveDataType)
 		}
-		return fmt.Errorf("Tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
+		return fmt.Errorf("tokenization '%s' is not allowed for data type '%s'", tokenization, primitiveDataType)
 	}
 
 	if tokenization == "" {
@@ -729,9 +735,9 @@ func (h *Handler) validatePropertyTokenization(tokenization string, propertyData
 	}
 
 	if propertyDataType.IsNested() {
-		return fmt.Errorf("Tokenization is not allowed for object/object[] data types")
+		return fmt.Errorf("tokenization is not allowed for object/object[] data types")
 	}
-	return fmt.Errorf("Tokenization is not allowed for reference data type")
+	return fmt.Errorf("tokenization is not allowed for reference data type")
 }
 
 func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
@@ -776,7 +782,7 @@ func (h *Handler) validatePropertyIndexing(prop *models.Property) error {
 }
 
 func (h *Handler) validateVectorSettings(class *models.Class) error {
-	if schemachecks.HasLegacyVectorIndex(class) {
+	if modelsext.ClassHasLegacyVectorIndex(class) {
 		if err := h.validateVectorIndexType(class.VectorIndexType); err != nil {
 			return err
 		}
@@ -924,8 +930,4 @@ func validateLegacyVectorIndexConfigImmutableFields(initial, updated *models.Cla
 			accessor: func(c *models.Class) string { return c.VectorIndexType },
 		},
 	}...)
-}
-
-func experimentBackwardsCompatibleNamedVectorsEnabled() bool {
-	return entcfg.Enabled(os.Getenv("EXPERIMENTAL_BACKWARDS_COMPATIBLE_NAMED_VECTORS"))
 }

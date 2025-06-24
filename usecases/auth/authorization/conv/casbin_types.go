@@ -25,8 +25,6 @@ const (
 	// https://casbin.org/docs/rbac/#how-to-distinguish-role-from-user
 	// ROLE_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
 	ROLE_NAME_PREFIX = "role" + PREFIX_SEPARATOR
-	// USER_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
-	USER_NAME_PREFIX = "user:"
 	// GROUP_NAME_PREFIX to prefix role to help casbin to distinguish on Enforcing
 	GROUP_NAME_PREFIX = "group" + PREFIX_SEPARATOR
 	PREFIX_SEPARATOR  = ":"
@@ -76,6 +74,7 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/.*$`, authorization.SchemaDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+$`, authorization.ReplicateDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -142,6 +141,19 @@ func CasbinSchema(collection, shard string) string {
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
 	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.SchemaDomain, collection, shard)
+}
+
+func CasbinReplicate(collection, shard string) string {
+	collection = schema.UppercaseClassesNames(collection)[0]
+	if collection == "" {
+		collection = "*"
+	}
+	if shard == "" {
+		shard = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	shard = strings.ReplaceAll(shard, "*", ".*")
+	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.ReplicateDomain, collection, shard)
 }
 
 func CasbinData(collection, shard, object string) string {
@@ -279,6 +291,18 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			}
 		}
 		resource = CasbinNodes(verbosity, collection)
+	case authorization.ReplicateDomain:
+		collection := "*"
+		shard := "*"
+		if permission.Replicate != nil {
+			if permission.Replicate.Collection != nil {
+				collection = schema.UppercaseClassName(*permission.Replicate.Collection)
+			}
+			if permission.Replicate.Shard != nil {
+				shard = *permission.Replicate.Shard
+			}
+		}
+		resource = CasbinReplicate(collection, shard)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 
@@ -381,6 +405,11 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Users = &models.PermissionUsers{
 			Users: &splits[1],
 		}
+	case authorization.ReplicateDomain:
+		permission.Replicate = &models.PermissionReplicate{
+			Collection: &splits[2],
+			Shard:      &splits[4],
+		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
@@ -389,6 +418,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Collections = authorization.AllCollections
 		permission.Tenants = authorization.AllTenants
 		permission.Users = authorization.AllUsers
+		permission.Replicate = authorization.AllReplicate
 	case authorization.ClusterDomain:
 		// do nothing
 	default:
@@ -414,13 +444,6 @@ func validResource(input string) bool {
 
 func validVerb(input string) bool {
 	return regexp.MustCompile(VALID_VERBS).MatchString(input)
-}
-
-func PrefixUserName(name string) string {
-	if strings.HasPrefix(name, USER_NAME_PREFIX) {
-		return name
-	}
-	return fmt.Sprintf("%s%s", USER_NAME_PREFIX, name)
 }
 
 func PrefixRoleName(name string) string {

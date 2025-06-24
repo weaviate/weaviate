@@ -68,6 +68,12 @@ func Test_DynamicUserConfig(t *testing.T) {
 					Multivector: hnsw.MultivectorConfig{
 						Enabled:     hnsw.DefaultMultivectorEnabled,
 						Aggregation: hnsw.DefaultMultivectorAggregation,
+						MuveraConfig: hnsw.MuveraConfig{
+							Enabled:      hnsw.DefaultMultivectorMuveraEnabled,
+							KSim:         hnsw.DefaultMultivectorKSim,
+							DProjections: hnsw.DefaultMultivectorDProjections,
+							Repetitions:  hnsw.DefaultMultivectorRepetitions,
+						},
 					},
 				},
 				FlatUC: flat.UserConfig{
@@ -130,6 +136,12 @@ func Test_DynamicUserConfig(t *testing.T) {
 					Multivector: hnsw.MultivectorConfig{
 						Enabled:     hnsw.DefaultMultivectorEnabled,
 						Aggregation: hnsw.DefaultMultivectorAggregation,
+						MuveraConfig: hnsw.MuveraConfig{
+							Enabled:      hnsw.DefaultMultivectorMuveraEnabled,
+							KSim:         hnsw.DefaultMultivectorKSim,
+							DProjections: hnsw.DefaultMultivectorDProjections,
+							Repetitions:  hnsw.DefaultMultivectorRepetitions,
+						},
 					},
 				},
 				FlatUC: flat.UserConfig{
@@ -212,6 +224,12 @@ func Test_DynamicUserConfig(t *testing.T) {
 					Multivector: hnsw.MultivectorConfig{
 						Enabled:     hnsw.DefaultMultivectorEnabled,
 						Aggregation: hnsw.DefaultMultivectorAggregation,
+						MuveraConfig: hnsw.MuveraConfig{
+							Enabled:      hnsw.DefaultMultivectorMuveraEnabled,
+							KSim:         hnsw.DefaultMultivectorKSim,
+							DProjections: hnsw.DefaultMultivectorDProjections,
+							Repetitions:  hnsw.DefaultMultivectorRepetitions,
+						},
 					},
 				},
 				FlatUC: flat.UserConfig{
@@ -294,6 +312,12 @@ func Test_DynamicUserConfig(t *testing.T) {
 					Multivector: hnsw.MultivectorConfig{
 						Enabled:     hnsw.DefaultMultivectorEnabled,
 						Aggregation: hnsw.DefaultMultivectorAggregation,
+						MuveraConfig: hnsw.MuveraConfig{
+							Enabled:      hnsw.DefaultMultivectorMuveraEnabled,
+							KSim:         hnsw.DefaultMultivectorKSim,
+							DProjections: hnsw.DefaultMultivectorDProjections,
+							Repetitions:  hnsw.DefaultMultivectorRepetitions,
+						},
 					},
 				},
 				FlatUC: flat.UserConfig{

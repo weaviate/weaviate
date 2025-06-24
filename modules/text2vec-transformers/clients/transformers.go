@@ -12,126 +12,40 @@
 package clients
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
-	"fmt"
-	"io"
-	"net/http"
 	"time"
 
-	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/transformers"
 )
 
 type vectorizer struct {
 	originPassage string
 	originQuery   string
-	httpClient    *http.Client
+	client        *transformers.Client
+	urlBuilder    *transformers.URLBuilder
 	logger        logrus.FieldLogger
 }
 
 func New(originPassage, originQuery string, timeout time.Duration, logger logrus.FieldLogger) *vectorizer {
+	urlBuilder := transformers.NewURLBuilder(originPassage, originQuery)
 	return &vectorizer{
 		originPassage: originPassage,
 		originQuery:   originQuery,
-		httpClient: &http.Client{
-			Timeout: timeout,
-		},
-		logger: logger,
+		urlBuilder:    urlBuilder,
+		client:        transformers.New(urlBuilder, timeout, logger),
+		logger:        logger,
 	}
 }
 
 func (v *vectorizer) VectorizeObject(ctx context.Context, input string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config, v.urlPassage)
+	config transformers.VectorizationConfig,
+) (*transformers.VectorizationResult, error) {
+	return v.client.VectorizeObject(ctx, input, config)
 }
 
 func (v *vectorizer) VectorizeQuery(ctx context.Context, input string,
-	config ent.VectorizationConfig,
-) (*ent.VectorizationResult, error) {
-	return v.vectorize(ctx, input, config, v.urlQuery)
-}
-
-func (v *vectorizer) vectorize(ctx context.Context, input string,
-	config ent.VectorizationConfig, url func(string, ent.VectorizationConfig) string,
-) (*ent.VectorizationResult, error) {
-	body, err := json.Marshal(vecRequest{
-		Text: input,
-		Config: vecRequestConfig{
-			PoolingStrategy: config.PoolingStrategy,
-		},
-	})
-	if err != nil {
-		return nil, errors.Wrapf(err, "marshal body")
-	}
-
-	req, err := http.NewRequestWithContext(ctx, "POST", url("/vectors", config),
-		bytes.NewReader(body))
-	if err != nil {
-		return nil, errors.Wrap(err, "create POST request")
-	}
-
-	res, err := v.httpClient.Do(req)
-	if err != nil {
-		return nil, errors.Wrap(err, "send POST request")
-	}
-	defer res.Body.Close()
-
-	bodyBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "read response body")
-	}
-
-	var resBody vecRequest
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, fmt.Sprintf("unmarshal response body. Got: %v", string(bodyBytes)))
-	}
-
-	if res.StatusCode > 399 {
-		return nil, errors.Errorf("fail with status %d: %s", res.StatusCode,
-			resBody.Error)
-	}
-
-	return &ent.VectorizationResult{
-		Text:       resBody.Text,
-		Dimensions: resBody.Dims,
-		Vector:     resBody.Vector,
-	}, nil
-}
-
-func (v *vectorizer) urlPassage(path string, config ent.VectorizationConfig) string {
-	baseURL := v.originPassage
-	if config.PassageInferenceURL != "" {
-		baseURL = config.PassageInferenceURL
-	}
-	if config.InferenceURL != "" {
-		baseURL = config.InferenceURL
-	}
-	return fmt.Sprintf("%s%s", baseURL, path)
-}
-
-func (v *vectorizer) urlQuery(path string, config ent.VectorizationConfig) string {
-	baseURL := v.originQuery
-	if config.QueryInferenceURL != "" {
-		baseURL = config.QueryInferenceURL
-	}
-	if config.InferenceURL != "" {
-		baseURL = config.InferenceURL
-	}
-	return fmt.Sprintf("%s%s", baseURL, path)
-}
-
-type vecRequest struct {
-	Text   string           `json:"text"`
-	Dims   int              `json:"dims"`
-	Vector []float32        `json:"vector"`
-	Error  string           `json:"error"`
-	Config vecRequestConfig `json:"config"`
-}
-
-type vecRequestConfig struct {
-	PoolingStrategy string `json:"pooling_strategy"`
+	config transformers.VectorizationConfig,
+) (*transformers.VectorizationResult, error) {
+	return v.client.VectorizeQuery(ctx, input, config)
 }

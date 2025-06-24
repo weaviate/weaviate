@@ -12,33 +12,29 @@
 package clients
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
 	"strings"
 	"sync"
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/clients/transformers"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/modules/text2vec-transformers/ent"
 )
 
-func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
+func (v *vectorizer) MetaInfo() (map[string]any, error) {
 	type nameMetaErr struct {
 		name string
-		meta map[string]interface{}
+		meta map[string]any
 		err  error
 	}
 
 	endpoints := map[string]string{}
 	if v.originPassage != v.originQuery {
-		endpoints["passage"] = v.urlPassage("/meta", ent.VectorizationConfig{})
-		endpoints["query"] = v.urlQuery("/meta", ent.VectorizationConfig{})
+		endpoints["passage"] = v.urlBuilder.GetPassageURL("/meta", transformers.VectorizationConfig{})
+		endpoints["query"] = v.urlBuilder.GetQueryURL("/meta", transformers.VectorizationConfig{})
 	} else {
-		endpoints[""] = v.urlPassage("/meta", ent.VectorizationConfig{})
+		endpoints[""] = v.urlBuilder.GetPassageURL("/meta", transformers.VectorizationConfig{})
 	}
 
 	var wg sync.WaitGroup
@@ -48,7 +44,7 @@ func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 		wg.Add(1)
 		enterrors.GoWrapper(func() {
 			defer wg.Done()
-			meta, err := v.metaInfo(endpoint)
+			meta, err := v.client.MetaInfo(endpoint)
 			ch <- nameMetaErr{serviceName, meta, err}
 		}, v.logger)
 	}
@@ -75,35 +71,8 @@ func (v *vectorizer) MetaInfo() (map[string]interface{}, error) {
 	}
 	if len(metas) == 1 {
 		for _, meta := range metas {
-			return meta.(map[string]interface{}), nil
+			return meta.(map[string]any), nil
 		}
 	}
 	return metas, nil
-}
-
-func (v *vectorizer) metaInfo(endpoint string) (map[string]interface{}, error) {
-	req, err := http.NewRequestWithContext(context.Background(), "GET", endpoint, nil)
-	if err != nil {
-		return nil, errors.Wrap(err, "create GET meta request")
-	}
-
-	res, err := v.httpClient.Do(req)
-	if err != nil {
-		return nil, errors.Wrap(err, "send GET meta request")
-	}
-	defer res.Body.Close()
-	if !(res.StatusCode >= http.StatusOK && res.StatusCode < http.StatusMultipleChoices) {
-		return nil, errors.Errorf("unexpected status code '%d' of meta request", res.StatusCode)
-	}
-
-	bodyBytes, err := io.ReadAll(res.Body)
-	if err != nil {
-		return nil, errors.Wrap(err, "read meta response body")
-	}
-
-	var resBody map[string]interface{}
-	if err := json.Unmarshal(bodyBytes, &resBody); err != nil {
-		return nil, errors.Wrap(err, "unmarshal meta response body")
-	}
-	return resBody, nil
 }

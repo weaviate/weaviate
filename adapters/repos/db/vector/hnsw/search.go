@@ -96,6 +96,20 @@ func (h *hnsw) SearchByMultiVector(ctx context.Context, vectors [][]float32, k i
 		return nil, nil, errors.New("multivector search is not enabled")
 	}
 
+	if h.muvera.Load() {
+		muvera_query := h.muveraEncoder.EncodeQuery(vectors)
+		overfetch := 2
+		docIDs, _, err := h.SearchByVector(ctx, muvera_query, overfetch*k, allowList)
+		if err != nil {
+			return nil, nil, err
+		}
+		candidateSet := make(map[uint64]struct{})
+		for _, docID := range docIDs {
+			candidateSet[docID] = struct{}{}
+		}
+		return h.computeLateInteraction(vectors, k, candidateSet)
+	}
+
 	h.compressActionLock.RLock()
 	defer h.compressActionLock.RUnlock()
 
@@ -215,6 +229,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 	h.insertViableEntrypointsAsCandidatesAndResults(entrypoints, candidates,
 		results, level, visited, allowList)
 
+	isMultivec := h.multivector.Load()
 	var worstResultDistance float32
 	var err error
 	if h.compressed.Load() {
@@ -325,11 +340,21 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 						continue
 					}
 					if !visitedExp.Visited(nodeId) {
-						if allowList.Contains(nodeId) {
-							connectionsReusable[realLen] = nodeId
-							realLen++
-							visitedExp.Visit(nodeId)
-							continue
+						if !isMultivec {
+							if allowList.Contains(nodeId) {
+								connectionsReusable[realLen] = nodeId
+								realLen++
+								visitedExp.Visit(nodeId)
+								continue
+							}
+						} else {
+							docID, _ := h.cache.GetKeys(nodeId)
+							if allowList.Contains(docID) {
+								connectionsReusable[realLen] = nodeId
+								realLen++
+								visitedExp.Visit(nodeId)
+								continue
+							}
 						}
 					} else {
 						continue
@@ -356,13 +381,25 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 							break
 						}
 
-						if allowList.Contains(expId) {
-							visitedExp.Visit(expId)
-							connectionsReusable[realLen] = expId
-							realLen++
-						} else if hop < maxHops {
-							visitedExp.Visit(expId)
-							pendingNextRound = append(pendingNextRound, expId)
+						if !isMultivec {
+							if allowList.Contains(expId) {
+								visitedExp.Visit(expId)
+								connectionsReusable[realLen] = expId
+								realLen++
+							} else if hop < maxHops {
+								visitedExp.Visit(expId)
+								pendingNextRound = append(pendingNextRound, expId)
+							}
+						} else {
+							docID, _ := h.cache.GetKeys(expId)
+							if allowList.Contains(docID) {
+								visitedExp.Visit(expId)
+								connectionsReusable[realLen] = expId
+								realLen++
+							} else if hop < maxHops {
+								visitedExp.Visit(expId)
+								pendingNextRound = append(pendingNextRound, expId)
+							}
 						}
 					}
 				}
@@ -383,7 +420,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			visited.Visit(neighborID)
 
 			if strategy == RRE && level == 0 {
-				if !allowList.Contains(neighborID) {
+				if isMultivec {
+					docID, _ := h.cache.GetKeys(neighborID)
+					if !allowList.Contains(docID) {
+						continue
+					}
+				} else if !allowList.Contains(neighborID) {
 					continue
 				}
 			}
@@ -415,7 +457,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					// have an allow list (i.e. the user has probably set some sort of a
 					// filter restricting this search further. As a result we have to
 					// ignore items not on the list
-					if !allowList.Contains(neighborID) {
+					if isMultivec {
+						docID, _ := h.cache.GetKeys(neighborID)
+						if !allowList.Contains(docID) {
+							continue
+						}
+					} else if !allowList.Contains(neighborID) {
 						continue
 					}
 				}
@@ -464,6 +511,7 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 	entrypoints, candidates, results *priorityqueue.Queue[any], level int,
 	visitedList visited.ListSet, allowList helpers.AllowList,
 ) {
+	isMultivec := h.multivector.Load()
 	for entrypoints.Len() > 0 {
 		ep := entrypoints.Pop()
 		visitedList.Visit(ep.ID)
@@ -473,7 +521,12 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			// have an allow list (i.e. the user has probably set some sort of a
 			// filter restricting this search further. As a result we have to
 			// ignore items not on the list
-			if !allowList.Contains(ep.ID) {
+			if isMultivec {
+				docID, _ := h.cache.GetKeys(ep.ID)
+				if !allowList.Contains(docID) {
+					continue
+				}
+			} else if !allowList.Contains(ep.ID) {
 				continue
 			}
 		}
@@ -547,7 +600,7 @@ func (h *hnsw) distanceFromBytesToFloatNode(concreteDistancer compressionhelpers
 	defer h.pools.tempVectors.Put(slice)
 	var vec []float32
 	var err error
-	if !h.multivector.Load() {
+	if h.muvera.Load() || !h.multivector.Load() {
 		vec, err = h.TempVectorForIDThunk(context.Background(), nodeID, slice)
 	} else {
 		docID, relativeID := h.cache.GetKeys(nodeID)
@@ -690,6 +743,7 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 	entryPointNode := h.nodes[entryPointID]
 	h.shardedNodeLocks.RUnlock(entryPointID)
 	useAcorn := h.acornEnabled(allowList)
+	isMultivec := h.multivector.Load()
 	if useAcorn {
 		if entryPointNode == nil {
 			strategy = RRE
@@ -700,6 +754,9 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 				strategy = ACORN
 			} else {
 				for _, id := range entryPointNode.connections[0] {
+					if isMultivec {
+						id, _ = h.cache.GetKeys(id)
+					}
 					if allowList.Contains(id) {
 						counter++
 					}
@@ -720,8 +777,16 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		it := allowList.Iterator()
 		idx, ok := it.Next()
 		h.shardedNodeLocks.RLockAll()
-		for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
-			idx, ok = it.Next()
+		if !isMultivec {
+			for ok && h.nodes[idx] == nil && h.hasTombstone(idx) {
+				idx, ok = it.Next()
+			}
+		} else {
+			_, exists := h.docIDVectors[idx]
+			for ok && !exists {
+				idx, ok = it.Next()
+				_, exists = h.docIDVectors[idx]
+			}
 		}
 		h.shardedNodeLocks.RUnlockAll()
 
@@ -828,11 +893,19 @@ func (h *hnsw) computeScore(searchVecs [][]float32, docID uint64) (float32, erro
 		}
 		h.pools.tempVectors.Put(slice)
 	} else {
-		var errs []error
-		docVecs, errs = h.multiVectorForID(context.TODO(), vecIDs)
-		for _, err := range errs {
+		if !h.muvera.Load() {
+			var errs []error
+			docVecs, errs = h.multiVectorForID(context.Background(), vecIDs)
+			for _, err := range errs {
+				if err != nil {
+					return 0.0, errors.Wrap(err, "get vector for docID")
+				}
+			}
+		} else {
+			var err error
+			docVecs, err = h.cache.GetDoc(context.Background(), docID)
 			if err != nil {
-				return 0.0, errors.Wrap(err, "get vector for docID")
+				return 0.0, errors.Wrap(err, "get muvera vector for docID")
 			}
 		}
 	}

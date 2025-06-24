@@ -26,6 +26,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/search"
@@ -50,8 +51,8 @@ func NewReplicationClient(httpClient *http.Client) replica.Client {
 func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 	shard string, id strfmt.UUID, selectProps search.SelectProperties,
 	additional additional.Properties, numRetries int,
-) (objects.Replica, error) {
-	resp := objects.Replica{}
+) (replica.Replica, error) {
+	resp := replica.Replica{}
 	req, err := newHttpReplicaRequest(ctx, http.MethodGet, host, index, shard, "", id.String(), nil, 0)
 	if err != nil {
 		return resp, fmt.Errorf("create http request: %w", err)
@@ -62,8 +63,8 @@ func (c *replicationClient) FetchObject(ctx context.Context, host, index,
 
 func (c *replicationClient) DigestObjects(ctx context.Context,
 	host, index, shard string, ids []strfmt.UUID, numRetries int,
-) (result []replica.RepairResponse, err error) {
-	var resp []replica.RepairResponse
+) (result []types.RepairResponse, err error) {
+	var resp []types.RepairResponse
 	body, err := json.Marshal(ids)
 	if err != nil {
 		return nil, fmt.Errorf("marshal digest objects input: %w", err)
@@ -80,7 +81,7 @@ func (c *replicationClient) DigestObjects(ctx context.Context,
 
 func (c *replicationClient) DigestObjectsInRange(ctx context.Context,
 	host, index, shard string, initialUUID, finalUUID strfmt.UUID, limit int,
-) (result []replica.RepairResponse, err error) {
+) (result []types.RepairResponse, err error) {
 	body, err := json.Marshal(replica.DigestObjectsInRangeReq{
 		InitialUUID: initialUUID,
 		FinalUUID:   finalUUID,
@@ -122,8 +123,8 @@ func (c *replicationClient) HashTreeLevel(ctx context.Context,
 
 func (c *replicationClient) OverwriteObjects(ctx context.Context,
 	host, index, shard string, vobjects []*objects.VObject,
-) ([]replica.RepairResponse, error) {
-	var resp []replica.RepairResponse
+) ([]types.RepairResponse, error) {
+	var resp []types.RepairResponse
 	body, err := clusterapi.IndicesPayloads.VersionedObjectList.Marshal(vobjects)
 	if err != nil {
 		return nil, fmt.Errorf("encode request: %w", err)
@@ -140,8 +141,8 @@ func (c *replicationClient) OverwriteObjects(ctx context.Context,
 
 func (c *replicationClient) FetchObjects(ctx context.Context, host,
 	index, shard string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
-	resp := make(objects.Replicas, len(ids))
+) ([]replica.Replica, error) {
+	resp := make(replica.Replicas, len(ids))
 	idsBytes, err := json.Marshal(ids)
 	if err != nil {
 		return nil, fmt.Errorf("marshal ids: %w", err)

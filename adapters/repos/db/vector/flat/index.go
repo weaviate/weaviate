@@ -24,6 +24,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 
@@ -102,7 +104,7 @@ func New(cfg Config, uc flatent.UserConfig, store *lsmkv.Store) (*flat, error) {
 		store:                store,
 		concurrentCacheReads: runtime.GOMAXPROCS(0) * 2,
 	}
-	if err := index.initBuckets(context.Background()); err != nil {
+	if err := index.initBuckets(context.Background(), cfg.MinMMapSize, cfg.MaxWalReuseSize, cfg.AllocChecker); err != nil {
 		return nil, fmt.Errorf("init flat index buckets: %w", err)
 	}
 
@@ -206,7 +208,7 @@ func (index *flat) getCompressedBucketName() string {
 	return helpers.VectorsCompressedBucketLSM
 }
 
-func (index *flat) initBuckets(ctx context.Context) error {
+func (index *flat) initBuckets(ctx context.Context, minMMapSize int64, minWalThreshold int64, allocchecker memwatch.AllocChecker) error {
 	// TODO: Forced compaction should not stay an all or nothing option.
 	//       This is only a temporary measure until dynamic compaction
 	//       behavior is implemented.
@@ -216,6 +218,9 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		lsmkv.WithForceCompaction(forceCompaction),
 		lsmkv.WithUseBloomFilter(false),
 		lsmkv.WithCalcCountNetAdditions(false),
+		lsmkv.WithMinMMapSize(minMMapSize),
+		lsmkv.WithMinWalThreshold(minWalThreshold),
+		lsmkv.WithAllocChecker(allocchecker),
 
 		// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
 		// was simply missing. Now we want to explicitly set it to false for
@@ -227,13 +232,16 @@ func (index *flat) initBuckets(ctx context.Context) error {
 		// should update this to pass the global setting.
 		lsmkv.WithPread(false),
 	); err != nil {
-		return fmt.Errorf("Create or load flat vectors bucket: %w", err)
+		return fmt.Errorf("create or load flat vectors bucket: %w", err)
 	}
 	if index.isBQ() {
 		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
 			lsmkv.WithForceCompaction(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
 			lsmkv.WithCalcCountNetAdditions(false),
+			lsmkv.WithMinMMapSize(minMMapSize),
+			lsmkv.WithMinWalThreshold(minWalThreshold),
+			lsmkv.WithAllocChecker(allocchecker),
 
 			// Pread=false flag introduced around ~v1.25.9. Before that, the pread flag
 			// was simply missing. Now we want to explicitly set it to false for
@@ -245,7 +253,7 @@ func (index *flat) initBuckets(ctx context.Context) error {
 			// should update this to pass the global setting.
 			lsmkv.WithPread(false),
 		); err != nil {
-			return fmt.Errorf("Create or load flat compressed vectors bucket: %w", err)
+			return fmt.Errorf("create or load flat compressed vectors bucket: %w", err)
 		}
 	}
 	return nil

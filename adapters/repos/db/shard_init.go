@@ -52,14 +52,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		promMetrics: promMetrics,
 		metrics: NewMetrics(index.logger, promMetrics,
 			string(index.Config.ClassName), shardName),
-		slowQueryReporter:     helpers.NewSlowQueryReporterFromEnv(index.logger),
+		slowQueryReporter: helpers.NewSlowQueryReporter(index.Config.QuerySlowLogEnabled,
+			index.Config.QuerySlowLogThreshold, index.logger),
 		stopDimensionTracking: make(chan struct{}),
 		replicationMap:        pendingReplicaTasks{Tasks: make(map[string]replicaTask, 32)},
 		centralJobQueue:       jobQueueCh,
 		scheduler:             scheduler,
 		indexCheckpoints:      indexCheckpoints,
 
-		shut:         false,
 		shutdownLock: new(sync.RWMutex),
 
 		status:                          ShardStatus{Status: storagestate.StatusLoading},
@@ -104,7 +104,8 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		index.metrics.ObserveUpdateShardStatus(s.status.Status.String(), time.Since(start))
 	}()
 
-	s.activityTracker.Store(1) // initial state
+	s.activityTrackerRead.Store(1)  // initial state
+	s.activityTrackerWrite.Store(1) // initial state
 	s.initCycleCallbacks()
 
 	s.docIdLock = make([]sync.Mutex, IdLockPoolSize)
@@ -112,10 +113,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	defer index.metrics.ShardStartup(start)
 
 	_, err = os.Stat(s.path())
-	exists := false
-	if err == nil {
-		exists = true
-	}
+	exists := err == nil
 
 	if err := os.MkdirAll(s.path(), os.ModePerm); err != nil {
 		return nil, err

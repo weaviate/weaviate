@@ -27,3 +27,15 @@ type ReplicationProperties struct {
 	// fulfill the request
 	NodeName string
 }
+
+type AsyncReplicationTargetNodeOverride struct {
+	CollectionID   string
+	ShardID        string
+	SourceNode     string
+	TargetNode     string
+	UpperTimeBound int64
+}
+
+func (left *AsyncReplicationTargetNodeOverride) Equal(right *AsyncReplicationTargetNodeOverride) bool {
+	return left.SourceNode == right.SourceNode && left.TargetNode == right.TargetNode && left.CollectionID == right.CollectionID && left.ShardID == right.ShardID
+}

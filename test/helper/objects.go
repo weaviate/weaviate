@@ -19,16 +19,16 @@ import (
 	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
-	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
+	"github.com/weaviate/weaviate/entities/modelsext"
 
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/meta"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema/crossref"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
-	"github.com/weaviate/weaviate/usecases/replica"
 )
 
 func SetupClient(uri string) {
@@ -56,7 +56,7 @@ func CreateClass(t *testing.T, class *models.Class) {
 
 	// if the schema has mixed vectors, we have to create it in two steps as single step creation is forbidden
 	var capturedVectorConfig map[string]models.VectorConfig
-	if schemachecks.HasLegacyVectorIndex(class) && class.VectorConfig != nil {
+	if modelsext.ClassHasLegacyVectorIndex(class) && class.VectorConfig != nil {
 		capturedVectorConfig = class.VectorConfig
 		class.VectorConfig = nil
 	}
@@ -139,7 +139,7 @@ func CreateObjectWithResponse(t *testing.T, object *models.Object) (*models.Obje
 	return resp.Payload, nil
 }
 
-func CreateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) error {
+func CreateObjectCL(t *testing.T, object *models.Object, cl types.ConsistencyLevel) error {
 	t.Helper()
 	cls := string(cl)
 	params := objects.NewObjectsCreateParams().WithBody(object).WithConsistencyLevel(&cls)
@@ -170,7 +170,7 @@ func CreateObjectsBatchAuth(t *testing.T, objects []*models.Object, key string) 
 	CheckObjectsBatchResponse(t, resp.Payload, err)
 }
 
-func CreateObjectsBatchCL(t *testing.T, objects []*models.Object, cl replica.ConsistencyLevel) {
+func CreateObjectsBatchCL(t *testing.T, objects []*models.Object, cl types.ConsistencyLevel) {
 	cls := string(cl)
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{
@@ -200,7 +200,7 @@ func UpdateObject(t *testing.T, object *models.Object) error {
 	return err
 }
 
-func UpdateObjectCL(t *testing.T, object *models.Object, cl replica.ConsistencyLevel) error {
+func UpdateObjectCL(t *testing.T, object *models.Object, cl types.ConsistencyLevel) error {
 	t.Helper()
 	cls := string(cl)
 	params := objects.NewObjectsClassPutParams().WithClassName(object.Class).
@@ -247,7 +247,7 @@ func DeleteObject(t *testing.T, object *models.Object) {
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func DeleteObjectCL(t *testing.T, class string, id strfmt.UUID, cl replica.ConsistencyLevel) {
+func DeleteObjectCL(t *testing.T, class string, id strfmt.UUID, cl types.ConsistencyLevel) {
 	cls := string(cl)
 	params := objects.NewObjectsClassDeleteParams().
 		WithClassName(class).WithID(id).WithConsistencyLevel(&cls)
@@ -255,7 +255,7 @@ func DeleteObjectCL(t *testing.T, class string, id strfmt.UUID, cl replica.Consi
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete, cl replica.ConsistencyLevel) {
+func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete, cl types.ConsistencyLevel) {
 	t.Helper()
 	cls := string(cl)
 	params := batch.NewBatchObjectsDeleteParams().WithBody(body).WithConsistencyLevel(&cls)
@@ -277,7 +277,7 @@ func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
 }
 
 func DeleteTenantObjectsBatchCL(t *testing.T, body *models.BatchDelete,
-	tenant string, cl replica.ConsistencyLevel,
+	tenant string, cl types.ConsistencyLevel,
 ) (*models.BatchDeleteResponse, error) {
 	cls := string(cl)
 	params := batch.NewBatchObjectsDeleteParams().

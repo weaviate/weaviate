@@ -17,6 +17,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	cmd "github.com/weaviate/weaviate/cluster/proto/api"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
@@ -75,6 +76,14 @@ func (s *Raft) SchemaReader() schema.SchemaReader {
 	return s.store.SchemaReader()
 }
 
+func (s *Raft) NewRouter(logger *logrus.Logger) *router.Router {
+	return router.New(logger, s.store.cfg.NodeSelector, s.store.SchemaReader(), s.store.replicationManager.GetReplicationFSM())
+}
+
 func (s *Raft) WaitUntilDBRestored(ctx context.Context, period time.Duration, close chan struct{}) error {
 	return s.store.WaitToRestoreDB(ctx, period, close)
+}
+
+func (s *Raft) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
+	return s.store.WaitForAppliedIndex(ctx, time.Millisecond*50, schemaVersion)
 }

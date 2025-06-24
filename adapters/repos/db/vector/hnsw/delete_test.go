@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus/testutil"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 func TempVectorForIDThunk(vectors [][]float32) func(context.Context, uint64, *common.VectorSlice) ([]float32, error) {
@@ -1255,6 +1257,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	}, ent.UserConfig{
 		MaxConnections: 30,
 		EFConstruction: 128,
+		EF:             36,
 
 		// The actual size does not matter for this test, but if it defaults to
 		// zero it will constantly think it's full and needs to be deleted - even
@@ -1349,7 +1352,7 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 
 	t.Run("verify that the results are correct", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 50, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -1449,7 +1452,7 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 
 	t.Run("verify that the results are correct", func(t *testing.T) {
 		position := 3
-		res, _, err := index.knnSearchByVector(ctx, testVectors[position], 50, 36, nil)
+		res, _, err := index.SearchByVector(ctx, testVectors[position], 50, nil)
 		require.Nil(t, err)
 		assert.Equal(t, expectedResults, res)
 	})
@@ -1961,4 +1964,108 @@ func Test_ResetNodesDuringTombstoneCleanup(t *testing.T) {
 
 	// Wait for both operations to complete
 	wg.Wait()
+}
+
+func Test_DeleteTombstoneMetrics(t *testing.T) {
+	vectors := vectorsForDeleteTest()
+	ctx := context.Background()
+	var vectorIndex *hnsw
+
+	store := testinghelpers.NewDummyStore(t)
+	defer store.Shutdown(context.Background())
+
+	metrics := monitoring.GetMetrics()
+
+	t.Run("import the test vectors", func(t *testing.T) {
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+			PrometheusMetrics:    metrics,
+		}, ent.UserConfig{
+			MaxConnections:        30,
+			EFConstruction:        64,
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+
+		for i, vec := range vectors {
+			err := vectorIndex.Add(ctx, uint64(i), vec)
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("deleting every even element", func(t *testing.T) {
+		for i := range vectors {
+			if i%2 != 0 {
+				continue
+			}
+
+			err := vectorIndex.Delete(uint64(i))
+			require.Nil(t, err)
+		}
+	})
+
+	t.Run("verify tombstones metric is updated correctly", func(t *testing.T) {
+		metric, err := metrics.VectorIndexTombstones.GetMetricWithLabelValues("", "")
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, float64(len(vectors)/2+1), metricValue, "dimensions should match expected value")
+	})
+
+	t.Run("restart index without tombstone cleanup", func(t *testing.T) {
+		err := vectorIndex.Flush()
+		require.Nil(t, err)
+		err = vectorIndex.Shutdown(context.TODO())
+		require.Nil(t, err)
+		index, err := New(Config{
+			RootPath:              "doesnt-matter-as-committlogger-is-mocked-out",
+			ID:                    "delete-test",
+			MakeCommitLoggerThunk: MakeNoopCommitLogger,
+			DistanceProvider:      distancer.NewCosineDistanceProvider(),
+			VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+				return vectors[int(id)], nil
+			},
+			TempVectorForIDThunk: TempVectorForIDThunk(vectors),
+		}, ent.UserConfig{
+			MaxConnections:        30,
+			EFConstruction:        64,
+			VectorCacheMaxObjects: 100000,
+		}, cyclemanager.NewCallbackGroupNoop(), store)
+		require.Nil(t, err)
+		vectorIndex = index
+	})
+
+	t.Run("verify tombstone metric is correct after restart", func(t *testing.T) {
+		metric, err := metrics.VectorIndexTombstones.GetMetricWithLabelValues("", "")
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, float64(len(vectors)/2+1), metricValue, "dimensions should match expected value")
+	})
+
+	t.Run("running the cleanup", func(t *testing.T) {
+		err := vectorIndex.CleanUpTombstonedNodes(neverStop)
+		require.Nil(t, err)
+	})
+
+	t.Run("verify the graph no longer has any tombstones", func(t *testing.T) {
+		assert.Len(t, vectorIndex.tombstones, 0)
+	})
+
+	t.Run("verify tombstone metric is zero", func(t *testing.T) {
+		metric, err := metrics.VectorIndexTombstones.GetMetricWithLabelValues("n/a", "n/a")
+		require.Nil(t, err)
+		metricValue := testutil.ToFloat64(metric)
+		require.Equal(t, float64(0), metricValue, "dimensions should match expected value")
+	})
+
+	t.Run("destroy the index", func(t *testing.T) {
+		require.Nil(t, vectorIndex.Drop(context.Background()))
+	})
 }

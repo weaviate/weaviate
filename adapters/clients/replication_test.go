@@ -23,6 +23,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -52,6 +53,7 @@ type fakeServer struct {
 }
 
 func newFakeReplicationServer(t *testing.T, method, path string, schemaVersion uint64) *fakeServer {
+	t.Helper()
 	return &fakeServer{
 		method:                method,
 		path:                  path,
@@ -62,6 +64,7 @@ func newFakeReplicationServer(t *testing.T, method, path string, schemaVersion u
 }
 
 func (f *fakeServer) server(t *testing.T) *httptest.Server {
+	t.Helper()
 	handler := func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != f.method {
 			t.Errorf("method want %s got %s", f.method, r.Method)
@@ -423,7 +426,7 @@ func TestReplicationCommit(t *testing.T) {
 func TestReplicationFetchObject(t *testing.T) {
 	t.Parallel()
 
-	expected := objects.Replica{
+	expected := replica.Replica{
 		ID: UUID1,
 		Object: &storobj.Object{
 			MarshallerVersion: 1,
@@ -454,7 +457,7 @@ func TestReplicationFetchObject(t *testing.T) {
 
 func TestReplicationFetchObjects(t *testing.T) {
 	t.Parallel()
-	expected := objects.Replicas{
+	expected := replica.Replicas{
 		{
 			ID: UUID1,
 			Object: &storobj.Object{
@@ -506,7 +509,7 @@ func TestReplicationDigestObjects(t *testing.T) {
 	t.Parallel()
 
 	now := time.Now()
-	expected := []replica.RepairResponse{
+	expected := []types.RepairResponse{
 		{
 			ID:         UUID1.String(),
 			UpdateTime: now.UnixMilli(),
@@ -562,7 +565,7 @@ func TestReplicationOverwriteObjects(t *testing.T) {
 			Version:         0,
 		},
 	}
-	expected := []replica.RepairResponse{
+	expected := []types.RepairResponse{
 		{
 			ID:         UUID1.String(),
 			Version:    1,

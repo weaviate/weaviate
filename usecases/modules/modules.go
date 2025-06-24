@@ -18,18 +18,18 @@ import (
 	"slices"
 	"sync"
 
-	"github.com/weaviate/weaviate/entities/dto"
-	schemachecks "github.com/weaviate/weaviate/entities/schema/checks"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modelsext"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
+	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
 
@@ -49,18 +49,20 @@ type Provider struct {
 	hasMultipleVectorizers    bool
 	targetVectorNameValidator *regexp.Regexp
 	logger                    logrus.FieldLogger
+	cfg                       config.Config
 }
 
 type schemaGetter interface {
 	ReadOnlyClass(name string) *models.Class
 }
 
-func NewProvider(logger logrus.FieldLogger) *Provider {
+func NewProvider(logger logrus.FieldLogger, cfg config.Config) *Provider {
 	return &Provider{
 		registered:                map[string]modulecapabilities.Module{},
 		altNames:                  map[string]string{},
 		targetVectorNameValidator: regexp.MustCompile(`^` + schema.TargetVectorNameRegex + `$`),
 		logger:                    logger,
+		cfg:                       cfg,
 	}
 }
 
@@ -927,7 +929,7 @@ func (p *Provider) getTargetVector(class *models.Class, params interface{}) ([]s
 		return nearParam.GetTargetVectors(), nil
 	}
 	if class != nil {
-		if schemachecks.HasLegacyVectorIndex(class) {
+		if modelsext.ClassHasLegacyVectorIndex(class) {
 			return []string{""}, nil
 		}
 

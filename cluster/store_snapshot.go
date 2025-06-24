@@ -37,11 +37,30 @@ func (s *Store) Persist(sink raft.SnapshotSink) (err error) {
 	if err != nil {
 		return fmt.Errorf("rbac snapshot: %w", err)
 	}
+
+	dbUserSnapshot, err := s.dynUserManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("db user snapshot: %w", err)
+	}
+
+	tasksSnapshot, err := s.distributedTasksManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("tasks snapshot: %w", err)
+	}
+
+	replicationSnapshot, err := s.replicationManager.Snapshot()
+	if err != nil {
+		return fmt.Errorf("replication snapshot: %w", err)
+	}
+
 	snap := fsm.Snapshot{
-		NodeID:     s.cfg.NodeID,
-		SnapshotID: sink.ID(),
-		Schema:     schemaSnapshot,
-		RBAC:       rbacSnapshot,
+		NodeID:           s.cfg.NodeID,
+		SnapshotID:       sink.ID(),
+		Schema:           schemaSnapshot,
+		RBAC:             rbacSnapshot,
+		DbUsers:          dbUserSnapshot,
+		DistributedTasks: tasksSnapshot,
+		ReplicationOps:   replicationSnapshot,
 	}
 	if err := json.NewEncoder(sink).Encode(&snap); err != nil {
 		return fmt.Errorf("encode: %w", err)
@@ -109,9 +128,32 @@ func (st *Store) Restore(rc io.ReadCloser) error {
 
 		st.log.Info("successfully restored schema from snapshot")
 
-		if err := st.authZManager.Restore(snap.RBAC); err != nil {
-			st.log.WithError(err).Error("restoring rbac from snapshot")
-			return fmt.Errorf("restore rbac from snapshot: %w", err)
+		if snap.RBAC != nil {
+			if err := st.authZManager.Restore(snap.RBAC); err != nil {
+				st.log.WithError(err).Error("restoring rbac from snapshot")
+				return fmt.Errorf("restore rbac from snapshot: %w", err)
+			}
+		}
+
+		if snap.DistributedTasks != nil {
+			if err := st.distributedTasksManager.Restore(snap.DistributedTasks); err != nil {
+				st.log.WithError(err).Error("restoring distributed tasks from snapshot")
+				return fmt.Errorf("restore distributed tasks from snapshot: %w", err)
+			}
+		}
+
+		if snap.ReplicationOps != nil {
+			if err := st.replicationManager.Restore(snap.ReplicationOps); err != nil {
+				st.log.WithError(err).Error("restoring replication ops from snapshot")
+				return fmt.Errorf("restore replication ops from snapshot: %w", err)
+			}
+		}
+
+		if snap.DbUsers != nil {
+			if err := st.dynUserManager.Restore(snap.DbUsers); err != nil {
+				st.log.WithError(err).Error("restoring db user from snapshot")
+				return fmt.Errorf("restore db user from snapshot: %w", err)
+			}
 		}
 
 		if st.cfg.MetadataOnlyVoters {

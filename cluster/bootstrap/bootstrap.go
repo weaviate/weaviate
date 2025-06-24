@@ -33,7 +33,7 @@ type PeerJoiner interface {
 // Bootstrapper is used to bootstrap this node by attempting to join it to a RAFT cluster.
 type Bootstrapper struct {
 	peerJoiner   PeerJoiner
-	addrResolver resolver.NodeToAddress
+	addrResolver resolver.ClusterStateReader
 	isStoreReady func() bool
 
 	localRaftAddr string
@@ -45,7 +45,7 @@ type Bootstrapper struct {
 }
 
 // NewBootstrapper constructs a new bootsrapper
-func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, voter bool, r resolver.NodeToAddress, isStoreReady func() bool) *Bootstrapper {
+func NewBootstrapper(peerJoiner PeerJoiner, raftID string, raftAddr string, voter bool, r resolver.ClusterStateReader, isStoreReady func() bool) *Bootstrapper {
 	return &Bootstrapper{
 		peerJoiner:    peerJoiner,
 		addrResolver:  r,
@@ -150,7 +150,7 @@ func (b *Bootstrapper) notify(ctx context.Context, remoteNodes map[string]string
 
 // ResolveRemoteNodes returns a list of remoteNodes addresses resolved using addrResolver. The nodes id used are
 // taken from serverPortMap keys and ports from the values
-func ResolveRemoteNodes(addrResolver resolver.NodeToAddress, serverPortMap map[string]int) map[string]string {
+func ResolveRemoteNodes(addrResolver resolver.ClusterStateReader, serverPortMap map[string]int) map[string]string {
 	candidates := make(map[string]string, len(serverPortMap))
 	for name, raftPort := range serverPortMap {
 		if addr := addrResolver.NodeAddress(name); addr != "" {

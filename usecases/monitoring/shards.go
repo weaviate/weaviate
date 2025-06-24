@@ -38,7 +38,7 @@ func (pm *PrometheusMetrics) StartUnloadingShard() {
 	}
 
 	pm.ShardsLoaded.Dec()
-	pm.ShardsUnloaded.Inc()
+	pm.ShardsUnloading.Inc()
 }
 
 // Move the shard from in progress to unloaded
