@@ -78,7 +78,8 @@ func (c *MemoryCondensor) Do(fileName string) error {
 		}
 	}
 
-	for _, node := range res.Nodes {
+	for i := len(res.Nodes) - 1; i >= 0; i-- {
+		node := res.Nodes[i]
 		if node == nil {
 			// nil nodes occur when we've grown, but not inserted anything yet
 			continue

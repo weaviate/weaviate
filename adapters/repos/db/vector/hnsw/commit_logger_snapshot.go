@@ -488,7 +488,7 @@ func loadCommitLoggerState(logger logrus.FieldLogger, fileNames []string, state 
 				fdMetered = diskio.NewMeteredReader(fd,
 					metrics.TrackStartupReadCommitlogDiskIO)
 			}
-			fdBuf := bufio.NewReaderSize(fdMetered, 256*1024)
+			fdBuf := bufio.NewReaderSize(fdMetered, 512*1024)
 
 			var valid int
 			state, valid, err = NewDeserializer(logger).Do(fdBuf, state, false)
