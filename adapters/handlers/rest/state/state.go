@@ -45,7 +45,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/traverser"
-	"github.com/weaviate/weaviate/adapters/handlers/rest"
 )
 
 // State is the only source of application-wide state
