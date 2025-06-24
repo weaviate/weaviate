@@ -364,7 +364,7 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 }
 
 func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
-	_, writeReplicas, _, err := r.getReadWriteReplicasLocation(r.collection, params.Shard)
+	_, writeReplicas, additionalWriteReplicas, err := r.getReadWriteReplicasLocation(r.collection, params.Shard)
 	if err != nil {
 		return types.WriteRoutingPlan{}, fmt.Errorf("error while getting read replicas for collection %s shard %s: %w", r.collection, params.Shard, err)
 	}
@@ -380,6 +380,9 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 		Shard: params.Shard,
 		ReplicaSet: types.ReplicaSet{
 			Replicas: sortedWriteReplicas,
+		},
+		AdditionalReplicaSet: types.ReplicaSet{
+			Replicas: additionalWriteReplicas.Replicas,
 		},
 		ConsistencyLevel: params.ConsistencyLevel,
 	}
@@ -523,7 +526,13 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 }
 
 func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
-	_, writeReplicas, _, err := r.getReadWriteReplicasLocation(r.collection, params.Shard)
+	// Multi-tenant routing requires a specific tenant shard target to enforce isolation of tenants to specific shards.
+	// Unlike single-tenant collections, broadcast writes (empty shard) are prohibited to prevent
+	// cross-tenant data leakage. Each tenant maps to exactly one shard using the tenant name as key.
+	if params.Shard == "" {
+		return types.WriteRoutingPlan{}, fmt.Errorf("error while creating routing plan for collection %q", r.collection)
+	}
+	_, writeReplicas, additionalWriteReplicas, err := r.getReadWriteReplicasLocation(r.collection, params.Shard)
 	if err != nil {
 		return types.WriteRoutingPlan{}, fmt.Errorf("error while getting write replicas for collection %s shard %s: %w", r.collection, params.Shard, err)
 	}
@@ -539,6 +548,9 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 		Shard: params.Shard,
 		ReplicaSet: types.ReplicaSet{
 			Replicas: orderedReplicas,
+		},
+		AdditionalReplicaSet: types.ReplicaSet{
+			Replicas: additionalWriteReplicas.Replicas,
 		},
 		ConsistencyLevel: params.ConsistencyLevel,
 	}
