@@ -1023,7 +1023,7 @@ func (t *ShardReindexTask_MapToBlockmax) calcPropLenInverted(items []inverted.Co
 }
 
 func (t *ShardReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, strategy string,
-	disableCompaction, keepTombstones bool, memtableOptFactor int,
+	keepLevelCompaction, keepTombstones bool, memtableOptFactor int,
 ) []lsmkv.BucketOption {
 	index := shard.Index()
 
@@ -1040,8 +1040,8 @@ func (t *ShardReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, strategy
 		lsmkv.WithMaxSegmentSize(index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(index.Config.LSMEnableSegmentsChecksumValidation),
 		lsmkv.WithStrategy(strategy),
-		lsmkv.WithDisableCompaction(disableCompaction),
 		lsmkv.WithKeepTombstones(keepTombstones),
+		lsmkv.WithKeepLevelCompaction(keepLevelCompaction),
 	}
 
 	if strategy == lsmkv.StrategyMapCollection && shard.Versioner().Version() < 2 {

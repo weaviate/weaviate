@@ -80,6 +80,8 @@ type SegmentGroup struct {
 	enableChecksumValidation bool
 	MinMMapSize              int64
 
+	keepLevelCompaction bool
+
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
 
@@ -108,6 +110,7 @@ type sgConfig struct {
 	keepSegmentsInMemory     bool
 	MinMMapSize              int64
 	bm25config               *models.BM25Config
+	keepLevelCompaction      bool
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -136,6 +139,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		maxSegmentSize:           cfg.maxSegmentSize,
 		cleanupInterval:          cfg.cleanupInterval,
 		enableChecksumValidation: cfg.enableChecksumValidation,
+		keepLevelCompaction:      cfg.keepLevelCompaction,
 		allocChecker:             allocChecker,
 		lastCompactionCall:       now,
 		lastCleanupCall:          now,
