@@ -72,7 +72,7 @@ func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schem
 	return f.GetSchemaResponse, f.GetschemaErr
 }
 
-func (f *fakeSchemaManager) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+func (f *fakeSchemaManager) GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error) {
 	return f.GetSchema(principal)
 }
 

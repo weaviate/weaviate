@@ -224,6 +224,10 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) || entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_ENABLED")) {
 		config.Authorization.Rbac.Enabled = true
 
+		if entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_IP_IN_AUDIT_LOG_DISABLED")) {
+			config.Authorization.Rbac.IpInAuditDisabled = true
+		}
+
 		adminsString, ok := os.LookupEnv("AUTHORIZATION_RBAC_ROOT_USERS")
 		if ok {
 			config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
