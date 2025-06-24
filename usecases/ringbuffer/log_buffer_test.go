@@ -76,7 +76,7 @@ func TestRingBufferFiltering(t *testing.T) {
 func TestRingBufferLevels(t *testing.T) {
 	hook := NewRingBufferHook(10, logrus.InfoLevel)
 	levels := hook.Levels()
-	
+
 	// Should include all levels from Fatal to Info
 	expectedLevels := []logrus.Level{
 		logrus.FatalLevel,
@@ -84,6 +84,6 @@ func TestRingBufferLevels(t *testing.T) {
 		logrus.WarnLevel,
 		logrus.InfoLevel,
 	}
-	
+
 	assert.Equal(t, expectedLevels, levels)
 }

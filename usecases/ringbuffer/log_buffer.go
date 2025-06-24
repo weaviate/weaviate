@@ -20,10 +20,10 @@ import (
 
 // LogEntry represents a captured log entry
 type LogEntry struct {
-	Timestamp time.Time                `json:"timestamp"`
-	Level     string                   `json:"level"`
-	Message   string                   `json:"message"`
-	Fields    map[string]interface{}   `json:"fields,omitempty"`
+	Timestamp time.Time              `json:"timestamp"`
+	Level     string                 `json:"level"`
+	Message   string                 `json:"message"`
+	Fields    map[string]interface{} `json:"fields,omitempty"`
 }
 
 // RingBufferHook is a logrus hook that captures log entries in a ring buffer

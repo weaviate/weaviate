@@ -812,9 +812,9 @@ func setupDebugHandlers(appState *state.State) {
 
 		// Create response
 		response := map[string]interface{}{
-			"logs":       logs,
-			"count":      len(logs),
-			"timestamp":  time.Now(),
+			"logs":      logs,
+			"count":     len(logs),
+			"timestamp": time.Now(),
 			"filters": map[string]interface{}{
 				"limit":     limit,
 				"level":     levelStr,
