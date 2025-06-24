@@ -142,7 +142,6 @@ func (h *hnsw) Upgrade(callback func()) error {
 	h.logger.WithField("action", "compress").Info("switching to compressed vectors")
 
 	err := ent.ValidatePQConfig(h.pqConfig)
-
 	if err != nil {
 		callback()
 		return err
