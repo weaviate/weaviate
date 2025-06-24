@@ -1903,18 +1903,18 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 	return float64(propLengthSum) / float64(propLengthCount), nil
 }
 
-// DiskSize returns the total size from the disk segment group (cold path)
-func (b *Bucket) DiskSize() int64 {
+// DiskObjectCount returns the object count from the disk segment group (cold path)
+func (b *Bucket) DiskObjectCount() int {
 	if b.disk != nil {
-		return b.disk.Size()
+		return b.disk.count()
 	}
 	return 0
 }
 
-// MetadataSize returns the total size of metadata files (.bloom and .cna) from segments in memory
-func (b *Bucket) MetadataSize() int64 {
-	if b.disk == nil {
-		return 0
+// DiskPayloadSize returns the total payload size from the disk segment group (cold path)
+func (b *Bucket) DiskPayloadSize() int64 {
+	if b.disk != nil {
+		return b.disk.payloadSize()
 	}
-	return b.disk.MetadataSize()
+	return 0
 }
