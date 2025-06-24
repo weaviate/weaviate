@@ -84,7 +84,11 @@ func New(clientFactory FileReplicationServiceClientFactory, remoteIndex types.Re
 // CopyReplicaFiles copies a shard replica from the source node to this node.
 func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName, shardName string, schemaVersion uint64) error {
 	sourceNodeAddress := c.nodeSelector.NodeAddress(srcNodeId)
-	sourceNodeGRPCPort := c.nodeSelector.NodeGRPCPort(srcNodeId)
+
+	sourceNodeGRPCPort, err := c.nodeSelector.NodeGRPCPort(srcNodeId)
+	if err != nil {
+		return fmt.Errorf("failed to get gRPC port for source node: %w", err)
+	}
 
 	client, err := c.clientFactory(ctx, fmt.Sprintf("%s:%d", sourceNodeAddress, sourceNodeGRPCPort))
 	if err != nil {
