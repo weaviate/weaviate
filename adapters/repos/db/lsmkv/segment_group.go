@@ -708,46 +708,16 @@ func (sg *SegmentGroup) count() int {
 	return count
 }
 
-func (sg *SegmentGroup) Size() int64 {
+func (sg *SegmentGroup) payloadSize() int64 {
 	segments, release := sg.getAndLockSegments()
 	defer release()
 
 	totalSize := int64(0)
 	for _, seg := range segments {
-		totalSize += int64(seg.Size())
+		totalSize += int64(seg.PayloadSize())
 	}
 
 	return totalSize
-}
-
-// MetadataSize returns the total size of metadata files (.bloom and .cna) from segments in memory
-func (sg *SegmentGroup) MetadataSize() int64 {
-	segments, release := sg.getAndLockSegments()
-	defer release()
-
-	var totalSize, cnaCount int64
-	for _, segment := range segments {
-		// Count bloom filters in memory
-		if seg := segment.getSegment(); seg != nil {
-			if seg.bloomFilter != nil {
-				totalSize += int64(getBloomFilterSize(seg.bloomFilter))
-			}
-			// Count secondary bloom filters
-			for _, bf := range seg.secondaryBloomFilters {
-				if bf != nil {
-					totalSize += int64(getBloomFilterSize(bf))
-				}
-			}
-		}
-
-		// Count .cna files (12 bytes each)
-		if segment.countNetPath() != "" {
-			cnaCount++
-		}
-	}
-
-	// .cna files: uint64 count (8 bytes) + uint32 checksum (4 bytes) = 12 bytes
-	return totalSize + 12*cnaCount
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {

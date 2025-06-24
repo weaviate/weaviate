@@ -419,12 +419,37 @@ func (s *Shard) ObjectCountAsync() int {
 }
 
 func (s *Shard) ObjectStorageSize(ctx context.Context) int64 {
+	// Check if tenant is active (hot)
+	if s.GetStatusNoLoad() == storagestate.StatusReady {
+		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+		if bucket == nil {
+			return 0
+		}
+		// In-memory: sum object sizes
+		totalSize := int64(0)
+		err := bucket.IterateObjects(ctx, func(obj *storobj.Object) error {
+			bin, err := obj.MarshalBinary()
+			if err != nil {
+				return err
+			}
+			totalSize += int64(len(bin))
+			return nil
+		})
+		if err != nil {
+			return 0
+		}
+		return totalSize
+	}
+
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return 0
 	}
 
-	return bucket.DiskSize() + bucket.MetadataSize()
+	return bucket.DiskPayloadSize()
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
