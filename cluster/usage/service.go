@@ -66,12 +66,18 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 			// TODO: this will load all shards into memory, which is not efficient
 			// we shall collect usage for each shard without loading them into memory
 			index.ForEachShard(func(name string, shard db.ShardLike) error {
+				// skip non-local shards
+				if !shardingState.IsLocalShard(name) {
+					return nil
+				}
+
 				shardUsage := &ShardUsage{
 					Name:                name,
-					ObjectsCount:        shard.ObjectCount(),
-					ObjectsStorageBytes: shard.ObjectStorageSize(),
+					ObjectsCount:        shard.ObjectCountAsync(),
+					ObjectsStorageBytes: shard.ObjectStorageSize(ctx),
 					NamedVectors:        make([]*VectorUsage, 0),
 				}
+
 				// Get vector usage for each named vector
 				_ = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
 					category, _ := db.GetDimensionCategory(vectorIndexConfig)
