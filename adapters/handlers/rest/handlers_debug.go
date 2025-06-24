@@ -23,6 +23,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
+	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -30,6 +31,75 @@ import (
 
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
+
+	http.HandleFunc(
+		"/debug/async-replication/add-target-override",
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			collectionName := r.URL.Query().Get("collection")
+			if collectionName == "" {
+				http.Error(w, "collection is required", http.StatusBadRequest)
+				return
+			}
+			shardStr := r.URL.Query().Get("shard")
+			if shardStr == "" {
+				http.Error(w, "shardNames is required", http.StatusBadRequest)
+				return
+			}
+			targetNode := r.URL.Query().Get("targetNode")
+			if targetNode == "" {
+				http.Error(w, "targetNode is required", http.StatusBadRequest)
+				return
+			}
+			upperTimeBoundStr := r.URL.Query().Get("upperTimeBound")
+			upperTimeBound := time.Now().UnixMilli()
+			if upperTimeBoundStr != "" {
+				var err error
+				upperTimeBound, err = strconv.ParseInt(upperTimeBoundStr, 10, 64)
+				if err != nil {
+					http.Error(w, "upperTimeBound has invalid format", http.StatusBadRequest)
+					return
+				}
+			}
+
+			timeoutStr := r.URL.Query().Get("timeout")
+			timeoutDuration := time.Hour
+			var err error
+			if timeoutStr != "" {
+				timeoutDuration, err = time.ParseDuration(timeoutStr)
+				if err != nil {
+					http.Error(w, "timeout duration has invalid format", http.StatusBadRequest)
+					return
+				}
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), timeoutDuration)
+			defer cancel()
+
+			idx := appState.DB.GetIndex(schema.ClassName(collectionName))
+			if idx == nil {
+				logger.WithField("collection", collectionName).Error("collection not found")
+				http.Error(w, "collection not found", http.StatusNotFound)
+				return
+			}
+			idx.IncomingAddAsyncReplicationTargetNode(
+				ctx,
+				shardStr,
+				additional.AsyncReplicationTargetNodeOverride{
+					CollectionID:   collectionName,
+					ShardID:        shardStr,
+					SourceNode:     appState.Cluster.LocalName(),
+					TargetNode:     targetNode,
+					UpperTimeBound: upperTimeBound,
+				},
+			)
+			if err != nil {
+				logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardStr).
+					Error("failed to add async replication target node")
+				http.Error(w, "failed to add async replication target node", http.StatusInternalServerError)
+				return
+			}
+			w.WriteHeader(http.StatusAccepted)
+		}),
+	)
 
 	http.HandleFunc(
 		"/debug/async-replication/remove-target-overrides",
