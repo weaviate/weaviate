@@ -12,6 +12,8 @@
 package hnsw
 
 import (
+	"errors"
+
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 )
 
@@ -25,6 +27,17 @@ type RQConfig struct {
 	Enabled      bool  `json:"enabled"`
 	Bits         int16 `json:"bits"`
 	RescoreLimit int   `json:"rescoreLimit"`
+}
+
+func ValidateRQConfig(cfg RQConfig) error {
+	if !cfg.Enabled {
+		return nil
+	}
+	if cfg.Bits != 8 {
+		return errors.New("RQ bits must be 8")
+	}
+
+	return nil
 }
 
 func parseRQMap(in map[string]interface{}, rq *RQConfig) error {
