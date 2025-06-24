@@ -641,9 +641,8 @@ func NewRQCompressor(
 	bits int,
 	dim int,
 ) (VectorCompressor, error) {
-	seed := uint64(0x535ab5105169b1df)
 
-	quantizer := NewRotationalQuantizer(dim, seed, bits, distance)
+	quantizer := NewRotationalQuantizer(dim, bits, distance)
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
 	switch bits {
 	case 8:
@@ -677,9 +676,8 @@ func RestoreRQCompressor(
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
-	seed := uint64(0x535ab5105169b1df)
 
-	quantizer, err := RestoreRotationalQuantizer(dimensions, seed, bits, outputDim, rounds, swaps, signs, distance)
+	quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 	if err != nil {
 		return nil, err
 	}
@@ -712,9 +710,8 @@ func NewRQMultiCompressor(
 	bits int,
 	dim int,
 ) (VectorCompressor, error) {
-	seed := uint64(0x535ab5105169b1df)
 
-	quantizer := NewRotationalQuantizer(dim, seed, bits, distance)
+	quantizer := NewRotationalQuantizer(dim, bits, distance)
 	var rqVectorsCompressor *quantizedVectorsCompressor[byte]
 	switch bits {
 	case 8:
@@ -748,9 +745,8 @@ func RestoreRQMultiCompressor(
 	store *lsmkv.Store,
 	allocChecker memwatch.AllocChecker,
 ) (VectorCompressor, error) {
-	seed := uint64(0x535ab5105169b1df)
 
-	quantizer, err := RestoreRotationalQuantizer(dimensions, seed, bits, outputDim, rounds, swaps, signs, distance)
+	quantizer, err := RestoreRotationalQuantizer(dimensions, bits, outputDim, rounds, swaps, signs, distance)
 	if err != nil {
 		return nil, err
 	}

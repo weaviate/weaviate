@@ -49,12 +49,12 @@ func distancerIndicatorsAndError(distancer distancer.Provider) (float32, float32
 	return cos, l2, nil
 }
 
-func NewRotationalQuantizer(inputDim int, seed uint64, bits int, distancer distancer.Provider) *RotationalQuantizer {
+func NewRotationalQuantizer(inputDim int, bits int, distancer distancer.Provider) *RotationalQuantizer {
 	// Using three rounds offers a nice trade-off between performance and
 	// quality. If we use only two rounds we see that the encoding becomes
 	// biased in some of the unit tests.
 	rotationRounds := 3
-	rotation := NewFastRotation(inputDim, rotationRounds, seed)
+	rotation := NewFastRotation(inputDim, rotationRounds)
 	cos, l2, err := distancerIndicatorsAndError(distancer)
 	rq := &RotationalQuantizer{
 		inputDim:  uint32(inputDim),
@@ -69,7 +69,7 @@ func NewRotationalQuantizer(inputDim int, seed uint64, bits int, distancer dista
 	return rq
 }
 
-func RestoreRotationalQuantizer(inputDim int, seed uint64, bits int, outputDim int, rounds int, swaps [][]Swap, signs [][]float32, distancer distancer.Provider) (*RotationalQuantizer, error) {
+func RestoreRotationalQuantizer(inputDim int, bits int, outputDim int, rounds int, swaps [][]Swap, signs [][]float32, distancer distancer.Provider) (*RotationalQuantizer, error) {
 	cos, l2, err := distancerIndicatorsAndError(distancer)
 	rq := &RotationalQuantizer{
 		inputDim:  uint32(inputDim),

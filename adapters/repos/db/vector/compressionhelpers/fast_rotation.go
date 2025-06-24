@@ -23,6 +23,10 @@ type FastRotation struct {
 	Signs     [][]float32 // Random signs to apply each round prior to transforming. We store these as float32 values for performance reasons, to avoid casts.
 }
 
+const (
+	DefaultFastRotationseed = uint64(0x535ab5105169b1df)
+)
+
 func randomSigns(dim int, rng *rand.Rand) []float32 {
 	signs := make([]float32, dim)
 	for i := range signs {
@@ -65,12 +69,12 @@ func randomSwaps(n int, rng *rand.Rand) []Swap {
 	return swaps
 }
 
-func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
+func NewFastRotation(inputDim int, rounds int) *FastRotation {
 	outputDim := 64
 	for outputDim < inputDim {
 		outputDim += 64
 	}
-	rng := rand.New(rand.NewPCG(seed, 0x385ab5285169b1ac))
+	rng := rand.New(rand.NewPCG(DefaultFastRotationseed, 0x385ab5285169b1ac))
 	swaps := make([][]Swap, rounds)
 	signs := make([][]float32, rounds)
 	for i := range rounds {
