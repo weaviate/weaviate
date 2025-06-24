@@ -128,9 +128,9 @@ func (c *Connections) GrowLayersTo(newLayers uint8) {
 		return
 	}
 
-	for c.layerCount < targetCount {
-		c.AddLayer()
-	}
+	c.layers = make([]LayerData, targetCount)
+	copy(c.layers, c.layers[:c.layerCount])
+	c.layerCount += targetCount - c.layerCount
 }
 
 // determineOptimalScheme analyzes values to pick the most efficient encoding
