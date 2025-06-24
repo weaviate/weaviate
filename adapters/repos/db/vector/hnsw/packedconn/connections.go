@@ -128,9 +128,16 @@ func (c *Connections) GrowLayersTo(newLayers uint8) {
 		return
 	}
 
-	c.layers = make([]LayerData, targetCount)
-	copy(c.layers, c.layers[:c.layerCount])
-	c.layerCount += targetCount - c.layerCount
+	// Optimize for the common case: 1 layer
+	if c.layerCount == 0 && targetCount == 1 {
+		c.layers = make([]LayerData, 1)
+		c.layerCount = 1
+		return
+	}
+
+	for c.layerCount < targetCount {
+		c.AddLayer()
+	}
 }
 
 // determineOptimalScheme analyzes values to pick the most efficient encoding
@@ -652,4 +659,11 @@ func (iter *LayerElementIterator) HasElements() bool {
 
 func (iter *LayerElementIterator) Count() int {
 	return iter.maxIndex
+}
+
+func (c *Connections) ClearLayer(layer uint8) {
+	if layer < c.layerCount {
+		c.layers[layer].data = c.layers[layer].data[:0]
+		c.layers[layer].packed = 0
+	}
 }
