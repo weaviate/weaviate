@@ -66,13 +66,21 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	// mmap has some overhead, we can read small files directly to memory
 
 	if size <= minMMapSize { // check if it is a candidate for full reading
-		allocCheckerErr = allocChecker.CheckAlloc(size) // check if we have enough memory
-		if allocCheckerErr != nil {
-			logger.Debugf("memory pressure: cannot fully read segment")
+		if allocChecker == nil {
+			logger.WithFields(logrus.Fields{
+				"path":        path,
+				"size":        size,
+				"minMMapSize": minMMapSize,
+			}).Info("allocChecker is nil, skipping memory pressure check for precompute segment")
+		} else {
+			allocCheckerErr = allocChecker.CheckAlloc(size) // check if we have enough memory
+			if allocCheckerErr != nil {
+				logger.Debugf("memory pressure: cannot fully read segment")
+			}
 		}
 	}
-
-	if size > minMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
+	// mmap the file if it's too large or if we could not check for memory pressure or if we have memory pressure
+	if size > minMMapSize || allocChecker == nil || allocCheckerErr != nil {
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)

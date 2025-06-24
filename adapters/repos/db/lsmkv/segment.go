@@ -137,13 +137,22 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	var allocCheckerErr error
 
 	if size <= cfg.MinMMapSize { // check if it is a candidate for full reading
-		allocCheckerErr = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
-		if allocCheckerErr != nil {
-			logger.Debugf("memory pressure: cannot fully read segment")
+		if cfg.allocChecker == nil {
+			logger.WithFields(logrus.Fields{
+				"path":        path,
+				"size":        size,
+				"minMMapSize": cfg.MinMMapSize,
+			}).Info("allocChecker is nil, skipping memory pressure check for new segment")
+		} else {
+			allocCheckerErr = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
+			if allocCheckerErr != nil {
+				logger.Debugf("memory pressure: cannot fully read segment")
+			}
 		}
 	}
 
-	if size > cfg.MinMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
+	// mmap the file if it's too large or if we could not check for memory pressure or if we have memory pressure
+	if size > cfg.MinMMapSize || cfg.allocChecker == nil || allocCheckerErr != nil {
 		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
