@@ -257,9 +257,7 @@ func (r *singleTenantRouter) getReadWriteReplicasLocation(collection string, sha
 		allAdditionalWriteReplicas = append(allAdditionalWriteReplicas, additional...)
 	}
 
-	return types.ReplicaSet{Replicas: deduplicate(allReadReplicas)},
-		types.ReplicaSet{Replicas: deduplicate(allWriteReplicas)},
-		types.ReplicaSet{Replicas: deduplicate(allAdditionalWriteReplicas)}, nil
+	return types.ReplicaSet{Replicas: allReadReplicas}, types.ReplicaSet{Replicas: allWriteReplicas}, types.ReplicaSet{Replicas: allAdditionalWriteReplicas}, nil
 }
 
 // targetShards returns either all shards or a single one, depending on input.
@@ -428,9 +426,7 @@ func (r *multiTenantRouter) getReadWriteReplicasLocation(collection string, shar
 	writeReplicas := buildReplicas(writeNodeNames, shard, r.nodeSelector.NodeHostname)
 	additionalWriteReplicas := buildReplicas(additionalWriteNodeNames, shard, r.nodeSelector.NodeHostname)
 
-	return types.ReplicaSet{Replicas: deduplicate(readReplicas)},
-		types.ReplicaSet{Replicas: deduplicate(writeReplicas)},
-		types.ReplicaSet{Replicas: deduplicate(additionalWriteReplicas)}, nil
+	return types.ReplicaSet{Replicas: readReplicas}, types.ReplicaSet{Replicas: writeReplicas}, types.ReplicaSet{Replicas: additionalWriteReplicas}, nil
 }
 
 func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeName string) (string, bool)) []types.Replica {
@@ -587,24 +583,4 @@ func sort(replicas []types.Replica, directCandidate string, localNodeName string
 
 	orderedReplicas = append(orderedReplicas, otherReplicas...)
 	return orderedReplicas
-}
-
-// deduplicate returns a new slice containing unique replicas based on NodeName and ShardName.
-// The order of elements in the input slice is preserved.
-func deduplicate(replicas []types.Replica) []types.Replica {
-	if len(replicas) <= 1 {
-		return replicas
-	}
-
-	seen := make(map[string]bool, len(replicas))
-	result := make([]types.Replica, 0, len(replicas))
-
-	for _, replica := range replicas {
-		key := replica.NodeName + ":" + replica.ShardName
-		if _, exists := seen[key]; !exists {
-			seen[key] = true
-			result = append(result, replica)
-		}
-	}
-	return result
 }
