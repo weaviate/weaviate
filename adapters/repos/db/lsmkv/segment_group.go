@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
@@ -688,6 +689,18 @@ func (sg *SegmentGroup) count() int {
 	}
 
 	return count
+}
+
+func (sg *SegmentGroup) payloadSize() int64 {
+	segments, release := sg.getAndLockSegments()
+	defer release()
+
+	totalSize := int64(0)
+	for _, seg := range segments {
+		totalSize += int64(seg.PayloadSize())
+	}
+
+	return totalSize
 }
 
 func (sg *SegmentGroup) shutdown(ctx context.Context) error {

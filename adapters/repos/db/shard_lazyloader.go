@@ -22,6 +22,7 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -31,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -205,9 +207,36 @@ func (l *LazyLoadShard) ObjectCountAsync() int {
 	return l.shard.ObjectCountAsync()
 }
 
-func (s *LazyLoadShard) ObjectStorageSize() int64 {
-	// TODO-usage: implement this storage bytes
-	return 0
+func (s *LazyLoadShard) ObjectStorageSize(ctx context.Context) int64 {
+	s.mutex.Lock()
+	if s.loaded {
+		s.mutex.Unlock()
+		return s.shard.ObjectStorageSize(ctx)
+	}
+	s.mutex.Unlock()
+
+	// Cold path: work directly with LSMKV store without loading the shard
+	// This avoids force-loading the tenant into memory
+
+	// Get the LSM store path for this shard
+	storePath := s.pathLSM()
+
+	// Create a temporary store to access the objects bucket
+	// Create lsmkv metrics for this temporary store
+	lsmkvMetrics := lsmkv.NewMetrics(s.shardOpts.promMetrics, s.shardOpts.index.Config.ClassName.String(), s.shardOpts.name)
+	store, err := lsmkv.New(storePath, s.shardOpts.index.path(), s.shardOpts.index.logger, lsmkvMetrics,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	if err != nil {
+		return 0
+	}
+	defer store.Shutdown(ctx)
+
+	bucket := store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return 0
+	}
+
+	return bucket.DiskPayloadSize()
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
