@@ -147,34 +147,34 @@ func FromEnv(config *Config) error {
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
-		config.Authentication.OIDC.Enabled = true
+		config.Authentication.OIDC.Enabled = runtime.NewDynamicValue(true)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
-			config.Authentication.OIDC.SkipClientIDCheck = true
+			config.Authentication.OIDC.SkipClientIDCheck = runtime.NewDynamicValue(true)
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
-			config.Authentication.OIDC.Issuer = v
+			config.Authentication.OIDC.Issuer = runtime.NewDynamicValue(v)
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_CLIENT_ID"); v != "" {
-			config.Authentication.OIDC.ClientID = v
+			config.Authentication.OIDC.ClientID = runtime.NewDynamicValue(v)
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_SCOPES"); v != "" {
-			config.Authentication.OIDC.Scopes = strings.Split(v, ",")
+			config.Authentication.OIDC.Scopes = runtime.NewDynamicValue(strings.Split(v, ","))
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_USERNAME_CLAIM"); v != "" {
-			config.Authentication.OIDC.UsernameClaim = v
+			config.Authentication.OIDC.UsernameClaim = runtime.NewDynamicValue(v)
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
-			config.Authentication.OIDC.GroupsClaim = v
+			config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(v)
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
-			config.Authentication.OIDC.Certificate = v
+			config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(v)
 		}
 	}
 

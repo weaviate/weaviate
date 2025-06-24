@@ -30,7 +30,7 @@ import (
 // Client handles the OIDC setup at startup and provides a middleware to be
 // used with the goswagger API
 type Client struct {
-	config   config.OIDC
+	Config   config.OIDC
 	provider *oidc.Provider
 	verifier *oidc.IDTokenVerifier
 }
@@ -40,30 +40,30 @@ type Client struct {
 // API
 func New(cfg config.Config) (*Client, error) {
 	client := &Client{
-		config: cfg.Authentication.OIDC,
+		Config: cfg.Authentication.OIDC,
 	}
 
-	if !client.config.Enabled {
+	if !client.Config.Enabled.Get() {
 		// if oidc is not enabled, we are done, no need to setup an actual client.
 		// The "disabled" client is however still valuable to deny any requests
 		// coming in with an OAuth token set.
 		return client, nil
 	}
 
-	if err := client.init(); err != nil {
+	if err := client.Init(); err != nil {
 		return nil, fmt.Errorf("oidc init: %w", err)
 	}
 
 	return client, nil
 }
 
-func (c *Client) init() error {
+func (c *Client) Init() error {
 	if err := c.validateConfig(); err != nil {
 		return fmt.Errorf("invalid config: %w", err)
 	}
 
 	ctx := context.Background()
-	if c.config.Certificate != "" {
+	if c.Config.Certificate.Get() != "" {
 		client, err := c.useCertificate()
 		if err != nil {
 			return fmt.Errorf("could not setup client with custom certificate: %w", err)
@@ -71,7 +71,7 @@ func (c *Client) init() error {
 		ctx = oidc.ClientContext(ctx, client)
 	}
 
-	provider, err := oidc.NewProvider(ctx, c.config.Issuer)
+	provider, err := oidc.NewProvider(ctx, c.Config.Issuer.Get())
 	if err != nil {
 		return fmt.Errorf("could not setup provider: %w", err)
 	}
@@ -80,8 +80,8 @@ func (c *Client) init() error {
 	// oauth2
 
 	verifier := provider.Verifier(&oidc.Config{
-		ClientID:          c.config.ClientID,
-		SkipClientIDCheck: c.config.SkipClientIDCheck,
+		ClientID:          c.Config.ClientID.Get(),
+		SkipClientIDCheck: c.Config.SkipClientIDCheck.Get(),
 	})
 	c.verifier = verifier
 
@@ -91,15 +91,15 @@ func (c *Client) init() error {
 func (c *Client) validateConfig() error {
 	var msgs []string
 
-	if c.config.Issuer == "" {
+	if c.Config.Issuer.Get() == "" {
 		msgs = append(msgs, "missing required field 'issuer'")
 	}
 
-	if c.config.UsernameClaim == "" {
+	if c.Config.UsernameClaim.Get() == "" {
 		msgs = append(msgs, "missing required field 'username_claim'")
 	}
 
-	if !c.config.SkipClientIDCheck && c.config.ClientID == "" {
+	if !c.Config.SkipClientIDCheck.Get() && c.Config.ClientID.Get() == "" {
 		msgs = append(msgs, "missing required field 'client_id': "+
 			"either set a client_id or explicitly disable the check with 'skip_client_id_check: true'")
 	}
@@ -113,7 +113,7 @@ func (c *Client) validateConfig() error {
 
 // ValidateAndExtract can be used as a middleware for go-swagger
 func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
-	if !c.config.Enabled {
+	if !c.Config.Enabled.Get() {
 		return nil, errors.New(401, "oidc auth is not configured, please try another auth scheme or set up weaviate with OIDC configured")
 	}
 
@@ -151,14 +151,14 @@ func (c *Client) extractClaims(token *oidc.IDToken) (map[string]interface{}, err
 }
 
 func (c *Client) extractUsername(claims map[string]interface{}) (string, error) {
-	usernameUntyped, ok := claims[c.config.UsernameClaim]
+	usernameUntyped, ok := claims[c.Config.UsernameClaim.Get()]
 	if !ok {
-		return "", fmt.Errorf("token doesn't contain required claim '%s'", c.config.UsernameClaim)
+		return "", fmt.Errorf("token doesn't contain required claim '%s'", c.Config.UsernameClaim)
 	}
 
 	username, ok := usernameUntyped.(string)
 	if !ok {
-		return "", fmt.Errorf("claim '%s' is not a string, but %T", c.config.UsernameClaim, usernameUntyped)
+		return "", fmt.Errorf("claim '%s' is not a string, but %T", c.Config.UsernameClaim, usernameUntyped)
 	}
 
 	return username, nil
@@ -170,7 +170,7 @@ func (c *Client) extractUsername(claims map[string]interface{}) (string, error) 
 func (c *Client) extractGroups(claims map[string]interface{}) []string {
 	var groups []string
 
-	groupsUntyped, ok := claims[c.config.GroupsClaim]
+	groupsUntyped, ok := claims[c.Config.GroupsClaim.Get()]
 	if !ok {
 		return groups
 	}
@@ -191,22 +191,22 @@ func (c *Client) extractGroups(claims map[string]interface{}) []string {
 
 func (c *Client) useCertificate() (*http.Client, error) {
 	var certificate string
-	if strings.HasPrefix(c.config.Certificate, "http") {
-		resp, err := http.Get(c.config.Certificate)
+	if strings.HasPrefix(c.Config.Certificate.Get(), "http") {
+		resp, err := http.Get(c.Config.Certificate.Get())
 		if err != nil {
-			return nil, fmt.Errorf("failed to get certificate from %s: %w", c.config.Certificate, err)
+			return nil, fmt.Errorf("failed to get certificate from %s: %w", c.Config.Certificate, err)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("failed to download certificate from %s: http status: %v", c.config.Certificate, resp.StatusCode)
+			return nil, fmt.Errorf("failed to download certificate from %s: http status: %v", c.Config.Certificate, resp.StatusCode)
 		}
 		certBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read certificate from %s: %w", c.config.Certificate, err)
+			return nil, fmt.Errorf("failed to read certificate from %s: %w", c.Config.Certificate, err)
 		}
 		certificate = string(certBytes)
 	} else {
-		certificate = c.config.Certificate
+		certificate = c.Config.Certificate.Get()
 	}
 
 	certBlock, _ := pem.Decode([]byte(certificate))

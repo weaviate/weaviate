@@ -27,7 +27,7 @@ type TokenFunc func(token string, scopes []string) (*models.Principal, error)
 func New(config config.Authentication,
 	apikey authValidator, oidc authValidator,
 ) TokenFunc {
-	if config.AnyApiKeyAvailable() && config.OIDC.Enabled {
+	if config.AnyApiKeyAvailable() && config.OIDC.Enabled.Get() {
 		return pickAuthSchemeDynamically(apikey, oidc)
 	}
 

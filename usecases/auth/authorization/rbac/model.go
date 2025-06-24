@@ -177,7 +177,7 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 			}
 		}
 
-		if authNconf.OIDC.Enabled {
+		if authNconf.OIDC.Enabled.Get() {
 			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.RootUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Root)); err != nil {
 				return fmt.Errorf("add role for user: %w", err)
 			}
