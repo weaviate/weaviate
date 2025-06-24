@@ -24,7 +24,7 @@ type FastRotation struct {
 }
 
 const (
-	DefaultFastRotationseed = uint64(0x535ab5105169b1df)
+	DefaultFastRotationSeed = uint64(0x535ab5105169b1df)
 )
 
 func randomSigns(dim int, rng *rand.Rand) []float32 {
@@ -69,12 +69,12 @@ func randomSwaps(n int, rng *rand.Rand) []Swap {
 	return swaps
 }
 
-func NewFastRotation(inputDim int, rounds int) *FastRotation {
+func NewFastRotation(inputDim int, rounds int, seed uint64) *FastRotation {
 	outputDim := 64
 	for outputDim < inputDim {
 		outputDim += 64
 	}
-	rng := rand.New(rand.NewPCG(DefaultFastRotationseed, 0x385ab5285169b1ac))
+	rng := rand.New(rand.NewPCG(seed, 0x385ab5285169b1ac))
 	swaps := make([][]Swap, rounds)
 	signs := make([][]float32, rounds)
 	for i := range rounds {
