@@ -192,6 +192,10 @@ type Config struct {
 	QuerySlowLogEnabled   *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
 	QuerySlowLogThreshold *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 
+	// NodeStatusTimeout is the maximum time to wait for node status responses
+	// before marking nodes as timed out.
+	NodeStatusTimeout time.Duration `json:"node_status_timeout" yaml:"node_status_timeout"`
+
 	// InvertedSorterDisabled forces the "objects bucket" strategy and doesn't
 	// not consider inverted sorting, even when the query planner thinks this is
 	// the better option.

@@ -121,8 +121,14 @@ func (n *nodesHandlers) handleGetNodesError(err error) middleware.Responder {
 func setupNodesHandlers(api *operations.WeaviateAPI,
 	schemaManger *schemaUC.Manager, repo *db.DB, appState *state.State,
 ) {
-	nodesManager := nodesUC.NewManager(appState.Logger, appState.Authorizer,
-		repo, schemaManger, appState.ServerConfig.Config.Authorization.Rbac)
+	nodesManager := nodesUC.NewManager(
+		appState.Logger,
+		appState.Authorizer,
+		repo,
+		schemaManger,
+		appState.ServerConfig.Config.Authorization.Rbac,
+		appState.ServerConfig.Config.NodeStatusTimeout,
+	)
 
 	h := &nodesHandlers{nodesManager, newNodesRequestsTotal(appState.Metrics, appState.Logger)}
 	api.NodesNodesGetHandler = nodes.

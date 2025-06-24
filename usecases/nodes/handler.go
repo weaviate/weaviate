@@ -15,18 +15,17 @@ import (
 	"context"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
-
-	"github.com/weaviate/weaviate/entities/verbosity"
-
-	"github.com/sirupsen/logrus"
-	"github.com/weaviate/weaviate/entities/models"
-	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
 
-const GetNodeStatusTimeout = 30 * time.Second
+const DefaultGetNodeStatusTimeout = 30 * time.Second
 
 type db interface {
 	GetNodeStatus(ctx context.Context, className, verbosity string) ([]*models.NodeStatus, error)
@@ -39,12 +38,13 @@ type Manager struct {
 	db            db
 	schemaManager *schemaUC.Manager
 	rbacconfig    rbacconf.Config
+	timeout       time.Duration
 }
 
 func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
-	db db, schemaManager *schemaUC.Manager, rbacconfig rbacconf.Config,
+	db db, schemaManager *schemaUC.Manager, rbacconfig rbacconf.Config, timeout time.Duration,
 ) *Manager {
-	return &Manager{logger, authorizer, db, schemaManager, rbacconfig}
+	return &Manager{logger, authorizer, db, schemaManager, rbacconfig, timeout}
 }
 
 // GetNodeStatus aggregates the status across all nodes. It will try for a
@@ -52,7 +52,7 @@ func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
 func (m *Manager) GetNodeStatus(ctx context.Context,
 	principal *models.Principal, className string, verbosityString string,
 ) ([]*models.NodeStatus, error) {
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
 	// filter output after getting results if info about all shards is requested
@@ -91,7 +91,7 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 func (m *Manager) GetNodeStatistics(ctx context.Context,
 	principal *models.Principal,
 ) ([]*models.Statistics, error) {
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, m.timeout)
 	defer cancel()
 
 	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Cluster()); err != nil {

@@ -43,6 +43,7 @@ const (
 	DefaultHNSWAcornFilterRatio = 0.4
 
 	DefaultRuntimeOverridesLoadInterval = 2 * time.Minute
+	DefaultGetStatusTimeout             = 30 * time.Second
 )
 
 // FromEnv takes a *Config as it will respect initial config that has been
@@ -714,6 +715,16 @@ func FromEnv(config *Config) error {
 		querySlowLogThreshold = threshold
 	}
 	config.QuerySlowLogThreshold = runtime.NewDynamicValue(querySlowLogThreshold)
+
+	// Parse node status timeout
+	config.NodeStatusTimeout = DefaultGetStatusTimeout
+	if v := os.Getenv("NODE_STATUS_TIMEOUT"); v != "" {
+		timeout, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse NODE_STATUS_TIMEOUT as time.Duration: %w", err)
+		}
+		config.NodeStatusTimeout = timeout
+	}
 
 	invertedSorterDisabled := false
 	if v := os.Getenv("INVERTED_SORTER_DISABLED"); v != "" {
