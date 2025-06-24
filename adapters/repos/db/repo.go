@@ -20,7 +20,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	replication2 "github.com/weaviate/weaviate/cluster/replication"
+	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 
 	"github.com/weaviate/weaviate/cluster/replication/types"
@@ -414,6 +414,6 @@ func (db *DB) SetSchemaReader(schemaReader clusterSchema.SchemaReader) {
 	db.schemaReader = schemaReader
 }
 
-func (db *DB) SetReplicationFSM(replicationFsm *replication2.ShardReplicationFSM) {
+func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicationFSM) {
 	db.replicationFSM = replicationFsm
 }
