@@ -217,7 +217,7 @@ func (s *LazyLoadShard) ObjectStorageSize(ctx context.Context) int64 {
 	}
 	s.mutex.Unlock()
 
-	// Cold path: work directly with LSMKV store without loading the shard
+	// not ready path: work directly with LSMKV store without loading the shard
 	// This avoids force-loading the tenant into memory
 
 	// Get the LSM store path for this shard

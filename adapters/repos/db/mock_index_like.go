@@ -32,12 +32,12 @@ func (_m *MockIndexLike) EXPECT() *MockIndexLike_Expecter {
 	return &MockIndexLike_Expecter{mock: &_m.Mock}
 }
 
-// CalculateUnloadedObjectsMetrics provides a mock function with given fields: ctx, tenantName
-func (_m *MockIndexLike) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (int64, int64) {
+// CalculateColdTenantMetrics provides a mock function with given fields: ctx, tenantName
+func (_m *MockIndexLike) CalculateColdTenantMetrics(ctx context.Context, tenantName string) (int64, int64) {
 	ret := _m.Called(ctx, tenantName)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CalculateUnloadedObjectsMetrics")
+		panic("no return value specified for CalculateColdTenantMetrics")
 	}
 
 	var r0 int64
@@ -60,31 +60,31 @@ func (_m *MockIndexLike) CalculateUnloadedObjectsMetrics(ctx context.Context, te
 	return r0, r1
 }
 
-// MockIndexLike_CalculateUnloadedObjectsMetrics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CalculateUnloadedObjectsMetrics'
-type MockIndexLike_CalculateUnloadedObjectsMetrics_Call struct {
+// MockIndexLike_CalculateColdTenantMetrics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CalculateColdTenantMetrics'
+type MockIndexLike_CalculateColdTenantMetrics_Call struct {
 	*mock.Call
 }
 
-// CalculateUnloadedObjectsMetrics is a helper method to define mock.On call
+// CalculateColdTenantMetrics is a helper method to define mock.On call
 //   - ctx context.Context
 //   - tenantName string
-func (_e *MockIndexLike_Expecter) CalculateUnloadedObjectsMetrics(ctx interface{}, tenantName interface{}) *MockIndexLike_CalculateUnloadedObjectsMetrics_Call {
-	return &MockIndexLike_CalculateUnloadedObjectsMetrics_Call{Call: _e.mock.On("CalculateUnloadedObjectsMetrics", ctx, tenantName)}
+func (_e *MockIndexLike_Expecter) CalculateColdTenantMetrics(ctx interface{}, tenantName interface{}) *MockIndexLike_CalculateColdTenantMetrics_Call {
+	return &MockIndexLike_CalculateColdTenantMetrics_Call{Call: _e.mock.On("CalculateColdTenantMetrics", ctx, tenantName)}
 }
 
-func (_c *MockIndexLike_CalculateUnloadedObjectsMetrics_Call) Run(run func(ctx context.Context, tenantName string)) *MockIndexLike_CalculateUnloadedObjectsMetrics_Call {
+func (_c *MockIndexLike_CalculateColdTenantMetrics_Call) Run(run func(ctx context.Context, tenantName string)) *MockIndexLike_CalculateColdTenantMetrics_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockIndexLike_CalculateUnloadedObjectsMetrics_Call) Return(objectCount int64, storageSize int64) *MockIndexLike_CalculateUnloadedObjectsMetrics_Call {
+func (_c *MockIndexLike_CalculateColdTenantMetrics_Call) Return(objectCount int64, storageSize int64) *MockIndexLike_CalculateColdTenantMetrics_Call {
 	_c.Call.Return(objectCount, storageSize)
 	return _c
 }
 
-func (_c *MockIndexLike_CalculateUnloadedObjectsMetrics_Call) RunAndReturn(run func(context.Context, string) (int64, int64)) *MockIndexLike_CalculateUnloadedObjectsMetrics_Call {
+func (_c *MockIndexLike_CalculateColdTenantMetrics_Call) RunAndReturn(run func(context.Context, string) (int64, int64)) *MockIndexLike_CalculateColdTenantMetrics_Call {
 	_c.Call.Return(run)
 	return _c
 }
