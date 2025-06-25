@@ -162,6 +162,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					s.index.logger, s.cycleCallbacks.vectorCommitLoggerCallbacks)
 			},
 			TombstoneCallbacks: s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			AllocChecker:       s.index.allocChecker,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
