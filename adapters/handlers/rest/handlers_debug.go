@@ -25,6 +25,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/config"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -743,90 +744,92 @@ func setupDebugHandlers(appState *state.State) {
 		}
 	}))
 
-	// Debug endpoint to retrieve recent logs from the ring buffer
-	// Call via: curl "localhost:6060/debug/logs?limit=100&level=error&component=backup&since=5m"
-	http.HandleFunc("/debug/logs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet {
-			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
-			return
-		}
-
-		// Get the ring buffer hook from the logger
-		ringHook := appState.GetLogRingBuffer()
-		if ringHook == nil {
-			http.Error(w, "log ring buffer not available", http.StatusServiceUnavailable)
-			return
-		}
-
-		// Parse query parameters
-		limitStr := r.URL.Query().Get("limit")
-		limit := 100 // default
-		if limitStr != "" {
-			if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
-				limit = parsed
+	if entcfg.EnvEnabled("DEBUG_LOGS_IN_API_ENABLED") {
+		// Debug endpoint to retrieve recent logs from the ring buffer
+		// Call via: curl "localhost:6060/debug/logs?limit=100&level=error&component=backup&since=5m"
+		http.HandleFunc("/debug/logs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+				return
 			}
-		}
 
-		levelStr := r.URL.Query().Get("level")
-		minLevel := logrus.InfoLevel // default
-		if levelStr != "" {
-			if parsed, err := logrus.ParseLevel(levelStr); err == nil {
-				minLevel = parsed
+			// Get the ring buffer hook from the logger
+			ringHook := appState.GetLogRingBuffer()
+			if ringHook == nil {
+				http.Error(w, "log ring buffer not available", http.StatusServiceUnavailable)
+				return
 			}
-		}
 
-		component := r.URL.Query().Get("component")
-
-		sinceStr := r.URL.Query().Get("since")
-		var sinceTime time.Time
-		if sinceStr != "" {
-			if duration, err := time.ParseDuration(sinceStr); err == nil {
-				sinceTime = time.Now().Add(-duration)
-			} else if parsed, err := time.Parse(time.RFC3339, sinceStr); err == nil {
-				sinceTime = parsed
+			// Parse query parameters
+			limitStr := r.URL.Query().Get("limit")
+			limit := 100 // default
+			if limitStr != "" {
+				if parsed, err := strconv.Atoi(limitStr); err == nil && parsed > 0 {
+					limit = parsed
+				}
 			}
-		}
 
-		// Get logs from ring buffer
-		logs := ringHook.GetLogs(limit)
+			levelStr := r.URL.Query().Get("level")
+			minLevel := logrus.InfoLevel // default
+			if levelStr != "" {
+				if parsed, err := logrus.ParseLevel(levelStr); err == nil {
+					minLevel = parsed
+				}
+			}
 
-		// Apply filters
-		if !sinceTime.IsZero() {
-			logs = ringHook.FilterByTimeRange(logs, sinceTime)
-		}
+			component := r.URL.Query().Get("component")
 
-		if levelStr != "" {
-			logs = ringHook.FilterByLevel(logs, minLevel)
-		}
+			sinceStr := r.URL.Query().Get("since")
+			var sinceTime time.Time
+			if sinceStr != "" {
+				if duration, err := time.ParseDuration(sinceStr); err == nil {
+					sinceTime = time.Now().Add(-duration)
+				} else if parsed, err := time.Parse(time.RFC3339, sinceStr); err == nil {
+					sinceTime = parsed
+				}
+			}
 
-		if component != "" {
-			logs = ringHook.FilterByComponent(logs, component)
-		}
+			// Get logs from ring buffer
+			logs := ringHook.GetLogs(limit)
 
-		// Create response
-		response := map[string]interface{}{
-			"logs":      logs,
-			"count":     len(logs),
-			"timestamp": time.Now(),
-			"filters": map[string]interface{}{
-				"limit":     limit,
-				"level":     levelStr,
-				"component": component,
-				"since":     sinceStr,
-			},
-		}
+			// Apply filters
+			if !sinceTime.IsZero() {
+				logs = ringHook.FilterByTimeRange(logs, sinceTime)
+			}
 
-		jsonBytes, err := json.Marshal(response)
-		if err != nil {
-			logger.WithError(err).Error("marshal failed on logs")
-			http.Error(w, err.Error(), http.StatusBadRequest)
-			return
-		}
+			if levelStr != "" {
+				logs = ringHook.FilterByLevel(logs, minLevel)
+			}
 
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		w.Write(jsonBytes)
-	}))
+			if component != "" {
+				logs = ringHook.FilterByComponent(logs, component)
+			}
+
+			// Create response
+			response := map[string]interface{}{
+				"logs":      logs,
+				"count":     len(logs),
+				"timestamp": time.Now(),
+				"filters": map[string]interface{}{
+					"limit":     limit,
+					"level":     levelStr,
+					"component": component,
+					"since":     sinceStr,
+				},
+			}
+
+			jsonBytes, err := json.Marshal(response)
+			if err != nil {
+				logger.WithError(err).Error("marshal failed on logs")
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
+
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusOK)
+			w.Write(jsonBytes)
+		}))
+	}
 }
 
 type MaintenanceMode struct {

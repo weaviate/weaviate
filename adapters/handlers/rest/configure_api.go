@@ -1690,7 +1690,9 @@ func setupLogRingBuffer(appState *state.State) {
 	// Buffer size: 1000 entries, capture all log levels
 	ringHook := ringbuffer.NewRingBufferHook(1000, logrus.TraceLevel)
 	appState.Logger.AddHook(ringHook)
-	appState.SetLogRingBuffer(ringHook)
+	if entcfg.EnvEnabled("DEBUG_LOGS_IN_API_ENABLED") {
+		appState.SetLogRingBuffer(ringHook)
+	}
 
 	appState.Logger.WithField("action", "startup").Debug("initialized log ring buffer for debug API")
 }
