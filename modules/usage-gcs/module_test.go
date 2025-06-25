@@ -237,7 +237,7 @@ func TestModule_CollectAndUploadPeriodically_StopSignal(t *testing.T) {
 func TestUsageResponse_Marshaling(t *testing.T) {
 	u := &clusterusage.Report{
 		Node: "test-node",
-		SingleTenantCollections: []*clusterusage.CollectionUsage{
+		Collections: []*clusterusage.CollectionUsage{
 			{
 				Name:              "test-collection",
 				ReplicationFactor: 3,
@@ -270,7 +270,7 @@ func TestUsageResponse_Marshaling(t *testing.T) {
 	err = json.Unmarshal(data, &unmarshaledUsage)
 	assert.NoError(t, err)
 	assert.Equal(t, u.Node, unmarshaledUsage.Node)
-	assert.Len(t, unmarshaledUsage.SingleTenantCollections, 1)
+	assert.Len(t, unmarshaledUsage.Collections, 1)
 	assert.Len(t, unmarshaledUsage.Backups, 1)
 }
 
@@ -307,7 +307,7 @@ func TestModule_CollectUsageData(t *testing.T) {
 	mod := New()
 	usageService := clusterusage.NewMockService(t)
 	usageService.EXPECT().Usage(mock.Anything).
-		Return(&clusterusage.Report{Node: expectedNodeID, SingleTenantCollections: []*clusterusage.CollectionUsage{}}, nil)
+		Return(&clusterusage.Report{Node: expectedNodeID, Collections: []*clusterusage.CollectionUsage{}}, nil)
 	mod.SetUsageService(usageService)
 	mod.nodeID = expectedNodeID
 	logger := logrus.New()
@@ -333,7 +333,7 @@ func TestModule_UploadUsageData(t *testing.T) {
 
 	u := &clusterusage.Report{
 		Node: "test-node",
-		SingleTenantCollections: []*clusterusage.CollectionUsage{
+		Collections: []*clusterusage.CollectionUsage{
 			{
 				Name:             "test-collection",
 				UniqueShardCount: 1,
@@ -356,7 +356,7 @@ func TestModule_UploadUsageData(t *testing.T) {
 	err = json.Unmarshal(data, &unmarshaled)
 	assert.NoError(t, err)
 	assert.Equal(t, u.Node, unmarshaled.Node)
-	assert.Len(t, unmarshaled.SingleTenantCollections, 1)
+	assert.Len(t, unmarshaled.Collections, 1)
 
 	// Test 3: Verify filename generation logic
 	now := time.Now().UTC()
@@ -470,7 +470,7 @@ func TestModule_Metrics_Updates(t *testing.T) {
 	// Test usage data collection updates metrics
 	usage := &clusterusage.Report{
 		Node: "test-node",
-		SingleTenantCollections: []*clusterusage.CollectionUsage{
+		Collections: []*clusterusage.CollectionUsage{
 			{
 				Name:             "test-collection",
 				UniqueShardCount: 5,
@@ -488,11 +488,11 @@ func TestModule_Metrics_Updates(t *testing.T) {
 	}
 
 	// Simulate metrics updates
-	totalCollections := float64(len(usage.SingleTenantCollections))
+	totalCollections := float64(len(usage.Collections))
 	metrics.ResourceCount.WithLabelValues("collections").Set(totalCollections)
 
 	var totalShards float64
-	for _, coll := range usage.SingleTenantCollections {
+	for _, coll := range usage.Collections {
 		totalShards += float64(coll.UniqueShardCount)
 	}
 	metrics.ResourceCount.WithLabelValues("shards").Set(totalShards)
