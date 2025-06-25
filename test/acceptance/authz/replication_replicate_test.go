@@ -47,7 +47,7 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 		WithRBAC().
 		WithApiKey().
 		WithUserApiKey(adminUser, adminKey).
-		WithRbacAdmins(adminUser).
+		WithRbacRoots(adminUser).
 		WithUserApiKey(customUser, customKey).
 		Start(ctx)
 	require.Nil(t, err)

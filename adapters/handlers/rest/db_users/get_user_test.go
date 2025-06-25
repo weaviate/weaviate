@@ -19,6 +19,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/usecases/schema"
@@ -36,16 +38,18 @@ import (
 
 func TestSuccessGetUser(t *testing.T) {
 	tests := []struct {
-		name        string
-		userId      string
-		isRoot      bool
-		addLastUsed bool
-		userType    models.UserTypeOutput
+		name         string
+		userId       string
+		isRoot       bool
+		addLastUsed  bool
+		importStatic bool
+		userType     models.UserTypeOutput
 	}{
 		{name: "dynamic user - non-root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: false},
 		{name: "dynamic user - root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: true},
 		{name: "dynamic user with last used - root", userId: "dynamic", userType: models.UserTypeOutputDbUser, isRoot: true, addLastUsed: true},
 		{name: "static user", userId: "static", userType: models.UserTypeOutputDbEnvUser, isRoot: true},
+		{name: "dynamic user after import - root", userId: "static", userType: models.UserTypeOutputDbUser, isRoot: true, importStatic: true},
 	}
 
 	for _, test := range tests {
@@ -56,11 +60,13 @@ func TestSuccessGetUser(t *testing.T) {
 			}
 			principal := &models.Principal{Username: username}
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", principal, authorization.READ, authorization.Users(test.userId)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(test.userId)[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			schemaGetter := schema.NewMockSchemaGetter(t)
 			if test.userType == models.UserTypeOutputDbUser {
 				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{test.userId: {Id: test.userId, ApiKeyFirstLetters: "abc"}}, nil)
+			} else {
+				dynUser.On("GetUsers", test.userId).Return(map[string]*apikey.User{}, nil)
 			}
 			dynUser.On("GetRolesForUser", test.userId, models.UserTypeInputDb).Return(
 				map[string][]authorization.Policy{"role": {}}, nil)
@@ -77,7 +83,7 @@ func TestSuccessGetUser(t *testing.T) {
 				nodesGetter: schemaGetter,
 			}
 
-			res := h.getUser(users.GetUserInfoParams{UserID: test.userId, IncludeLastUsedTime: &test.addLastUsed}, principal)
+			res := h.getUser(users.GetUserInfoParams{UserID: test.userId, IncludeLastUsedTime: &test.addLastUsed, HTTPRequest: req}, principal)
 			parsed, ok := res.(*users.GetUserInfoOK)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
@@ -115,7 +121,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			principal := &models.Principal{Username: "non-root"}
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", principal, authorization.READ, authorization.Users(userId)[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(userId)[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			schemaGetter := schema.NewMockSchemaGetter(t)
 
@@ -142,7 +148,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 				remoteUser:  remote,
 			}
 
-			res := h.getUser(users.GetUserInfoParams{UserID: userId, IncludeLastUsedTime: &truep}, principal)
+			res := h.getUser(users.GetUserInfoParams{UserID: userId, IncludeLastUsedTime: &truep, HTTPRequest: req}, principal)
 			parsed, ok := res.(*users.GetUserInfoOK)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
@@ -156,7 +162,7 @@ func TestSuccessGetUserMultiNode(t *testing.T) {
 func TestNotFound(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("static")[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("static")[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "static").Return(map[string]*apikey.User{}, nil)
 
@@ -167,7 +173,7 @@ func TestNotFound(t *testing.T) {
 		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{"static"}, AllowedKeys: []string{"static"}},
 	}
 
-	res := h.getUser(users.GetUserInfoParams{UserID: "static"}, principal)
+	res := h.getUser(users.GetUserInfoParams{UserID: "static", HTTPRequest: req}, principal)
 	_, ok := res.(*users.GetUserInfoNotFound)
 	assert.True(t, ok)
 }
@@ -175,7 +181,7 @@ func TestNotFound(t *testing.T) {
 func TestNotFoundStatic(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{}, nil)
 
@@ -184,7 +190,7 @@ func TestNotFoundStatic(t *testing.T) {
 		authorizer: authorizer, dbUserEnabled: true,
 	}
 
-	res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)
+	res := h.getUser(users.GetUserInfoParams{UserID: "user", HTTPRequest: req}, principal)
 	_, ok := res.(*users.GetUserInfoNotFound)
 	assert.True(t, ok)
 }
@@ -204,7 +210,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(tt.GetUserReturnValue, tt.GetUserReturnErr)
 			if tt.GetUserReturnErr == nil {
@@ -215,7 +221,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 				dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true,
 			}
 
-			res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)
+			res := h.getUser(users.GetUserInfoParams{UserID: "user", HTTPRequest: req}, principal)
 			parsed, ok := res.(*users.GetUserInfoInternalServerError)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
@@ -226,7 +232,7 @@ func TestGetUserInternalServerError(t *testing.T) {
 func TestListForbidden(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(errors.New("some error"))
+	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("user")[0]).Return(errors.New("some error"))
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 
@@ -235,7 +241,7 @@ func TestListForbidden(t *testing.T) {
 		authorizer: authorizer, dbUserEnabled: true,
 	}
 
-	res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)
+	res := h.getUser(users.GetUserInfoParams{UserID: "user", HTTPRequest: req}, principal)
 	_, ok := res.(*users.GetUserInfoForbidden)
 	assert.True(t, ok)
 }
@@ -243,7 +249,7 @@ func TestListForbidden(t *testing.T) {
 func TestGetNoDynamic(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:       NewMockDbUserAndRolesGetter(t),
@@ -251,7 +257,7 @@ func TestGetNoDynamic(t *testing.T) {
 		dbUserEnabled: false,
 	}
 
-	res := h.getUser(users.GetUserInfoParams{UserID: "user"}, principal)
+	res := h.getUser(users.GetUserInfoParams{UserID: "user", HTTPRequest: req}, principal)
 	_, ok := res.(*users.GetUserInfoUnprocessableEntity)
 	assert.True(t, ok)
 }
@@ -262,14 +268,14 @@ func TestGetUserWithNoPrincipal(t *testing.T) {
 		userID    = "static"
 	)
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users(userID)[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", userID).Return(map[string]*apikey.User{userID: {Id: userID, ApiKeyFirstLetters: "abc"}}, nil)
 	dynUser.On("GetRolesForUser", userID, models.UserTypeInputDb).Return(map[string][]authorization.Policy{"role": {}}, nil)
 
 	h := dynUserHandler{dbUsers: dynUser, authorizer: authorizer, dbUserEnabled: true}
 
-	res := h.getUser(users.GetUserInfoParams{UserID: "static"}, principal)
+	res := h.getUser(users.GetUserInfoParams{UserID: "static", HTTPRequest: req}, principal)
 	parsed, ok := res.(*users.GetUserInfoOK)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
