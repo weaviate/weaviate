@@ -209,6 +209,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 			HNSWSnapshotOnStartup: s.index.Config.HNSWSnapshotOnStartup,
 			MinMMapSize:           s.index.Config.MinMMapSize,
 			MaxWalReuseSize:       s.index.Config.MaxReuseWalSize,
+			AllocChecker:          s.index.allocChecker,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())

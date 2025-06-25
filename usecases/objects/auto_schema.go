@@ -593,8 +593,15 @@ func (m *AutoSchemaManager) addTenants(ctx context.Context, principal *models.Pr
 		return fmt.Errorf(
 			"tenants must be included for multitenant-enabled class %q", class)
 	}
-	if _, err := m.schemaManager.AddTenants(ctx, principal, class, tenants); err != nil {
+	version, err := m.schemaManager.AddTenants(ctx, principal, class, tenants)
+	if err != nil {
 		return err
 	}
+
+	err = m.schemaManager.WaitForUpdate(ctx, version)
+	if err != nil {
+		return fmt.Errorf("could not wait for update: %w", err)
+	}
+
 	return nil
 }
