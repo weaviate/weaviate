@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -38,6 +39,7 @@ type Config struct {
 	DistanceProvider      distancer.Provider
 	MakeCommitLoggerThunk hnsw.MakeCommitLogger
 	TombstoneCallbacks    cyclemanager.CycleCallbackGroup
+	AllocChecker          memwatch.AllocChecker
 }
 
 func (c Config) Validate() error {
