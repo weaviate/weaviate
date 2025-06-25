@@ -34,8 +34,9 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}
 
 	collection := schema.UppercaseClassName(*params.Body.CollectionID)
+	ctx := params.HTTPRequest.Context()
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Replications(collection, *params.Body.ShardID)); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Replications(collection, *params.Body.ShardID)); err != nil {
 		return replication.NewReplicateForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -71,9 +72,11 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 }
 
 func (h *replicationHandler) getReplicationDetailsByReplicationId(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+
 	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.HTTPRequest.Context(), params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
-		if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Replications("*", "*")); err != nil {
+		if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications("*", "*")); err != nil {
 			return replication.NewReplicationDetailsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
 		return h.handleOperationNotFoundError(params.ID, err)
@@ -81,7 +84,7 @@ func (h *replicationHandler) getReplicationDetailsByReplicationId(params replica
 		return h.handleInternalServerError(params.ID, err)
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Replications(response.Collection, response.ShardId)); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications(response.Collection, response.ShardId)); err != nil {
 		return replication.NewReplicationDetailsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -163,18 +166,20 @@ func (h *replicationHandler) handleInternalServerError(id strfmt.UUID, err error
 }
 
 func (h *replicationHandler) deleteReplication(params replication.DeleteReplicationParams, principal *models.Principal) middleware.Responder {
-	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.HTTPRequest.Context(), params.ID)
+	ctx := params.HTTPRequest.Context()
+
+	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(ctx, params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
 		return replication.NewDeleteReplicationNoContent()
 	} else if err != nil {
 		return replication.NewDeleteReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Replications(response.Collection, response.ShardId)); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Replications(response.Collection, response.ShardId)); err != nil {
 		return replication.NewDeleteReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.replicationManager.DeleteReplication(params.HTTPRequest.Context(), params.ID); err != nil {
+	if err := h.replicationManager.DeleteReplication(ctx, params.ID); err != nil {
 		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
 			return replication.NewDeleteReplicationNoContent()
 		}
@@ -194,11 +199,12 @@ func (h *replicationHandler) deleteReplication(params replication.DeleteReplicat
 }
 
 func (h *replicationHandler) deleteAllReplications(params replication.DeleteAllReplicationsParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
+	ctx := params.HTTPRequest.Context()
+	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
 		return replication.NewDeleteAllReplicationsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.replicationManager.DeleteAllReplications(params.HTTPRequest.Context()); err != nil {
+	if err := h.replicationManager.DeleteAllReplications(ctx); err != nil {
 		return replication.NewDeleteAllReplicationsInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -211,7 +217,9 @@ func (h *replicationHandler) deleteAllReplications(params replication.DeleteAllR
 }
 
 func (h *replicationHandler) forceDeleteReplications(params replication.ForceDeleteReplicationsParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Replications("*", "*")); err != nil {
 		return replication.NewForceDeleteReplicationsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -306,18 +314,20 @@ func (h *replicationHandler) forceDeleteReplications(params replication.ForceDel
 }
 
 func (h *replicationHandler) cancelReplication(params replication.CancelReplicationParams, principal *models.Principal) middleware.Responder {
-	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.HTTPRequest.Context(), params.ID)
+	ctx := params.HTTPRequest.Context()
+
+	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(ctx, params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
 		return replication.NewCancelReplicationNoContent()
 	} else if err != nil {
 		return replication.NewCancelReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Replications(response.Collection, response.ShardId)); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Replications(response.Collection, response.ShardId)); err != nil {
 		return replication.NewCancelReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.replicationManager.CancelReplication(params.HTTPRequest.Context(), params.ID); err != nil {
+	if err := h.replicationManager.CancelReplication(ctx, params.ID); err != nil {
 		if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
 			return replication.NewCancelReplicationNoContent()
 		}
@@ -337,7 +347,9 @@ func (h *replicationHandler) cancelReplication(params replication.CancelReplicat
 }
 
 func (h *replicationHandler) listReplication(params replication.ListReplicationParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Replications("*", "*")); err != nil {
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications("*", "*")); err != nil {
 		return replication.NewListReplicationForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -391,6 +403,7 @@ func (h *replicationHandler) generateShardingStateResponse(collection string, sh
 }
 
 func (h *replicationHandler) getCollectionShardingState(params replication.GetCollectionShardingStateParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
 	if params.Collection == nil {
 		return replication.NewGetCollectionShardingStateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("collection is required")))
 	}
@@ -401,7 +414,7 @@ func (h *replicationHandler) getCollectionShardingState(params replication.GetCo
 		shard = *params.Shard
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.READ, collection, shard); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, collection, shard); err != nil {
 		return replication.NewGetCollectionShardingStateForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 

@@ -36,7 +36,7 @@ func TestBackupAndRestoreDynamicUsers(t *testing.T) {
 		New().
 		WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).
-		WithRBAC().WithRbacAdmins(adminUser).
+		WithRBAC().WithRbacRoots(adminUser).
 		WithBackendFilesystem().WithDbUsers().
 		Start(ctx)
 	require.Nil(t, err)

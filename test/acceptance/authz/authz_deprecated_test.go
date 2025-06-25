@@ -36,7 +36,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 
 	// enable OIDC to be able to assign to db and oidc separately
 	compose, err := docker.New().
-		WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins(adminUser).
+		WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots(adminUser).
 		WithApiKey().WithUserApiKey(customUser, customKey).WithUserApiKey(adminUser, adminKey).
 		Start(ctx)
 	require.NoError(t, err)

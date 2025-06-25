@@ -626,15 +626,15 @@ func getFakeModulesProvider() ModulesProvider {
 
 type fakeAuthorizer struct{}
 
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
+func (f *fakeAuthorizer) Authorize(ctx context.Context, principal *models.Principal, action string, resource ...string) error {
 	return nil
 }
 
-func (f *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, action string, resource ...string) error {
+func (f *fakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, action string, resource ...string) error {
 	return nil
 }
 
-func (f *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, action string, resources ...string) ([]string, error) {
+func (f *fakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, action string, resources ...string) ([]string, error) {
 	return resources, nil
 }
 

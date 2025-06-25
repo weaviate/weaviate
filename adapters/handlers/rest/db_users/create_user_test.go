@@ -50,7 +50,7 @@ func TestCreateUnprocessableEntity(t *testing.T) {
 				authorizer: authorizer, dbUserEnabled: true,
 			}
 
-			res := h.createUser(users.CreateUserParams{UserID: tt.userId}, principal)
+			res := h.createUser(users.CreateUserParams{UserID: tt.userId, HTTPRequest: req}, principal)
 			parsed, ok := res.(*users.CreateUserUnprocessableEntity)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
@@ -76,7 +76,7 @@ func TestCreateInternalServerError(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers", "user").Return(nil, tt.GetUserReturn)
@@ -92,7 +92,7 @@ func TestCreateInternalServerError(t *testing.T) {
 				authorizer: authorizer, dbUserEnabled: true,
 			}
 
-			res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
+			res := h.createUser(users.CreateUserParams{UserID: "user", HTTPRequest: req}, principal)
 			parsed, ok := res.(*users.CreateUserInternalServerError)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
@@ -115,7 +115,7 @@ func TestCreateConflict(t *testing.T) {
 
 			authorizer := authorization.NewMockAuthorizer(t)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 			if !tt.rbacConf.Enabled {
 				dynUser.On("GetUsers", "user").Return(map[string]*apikey.User{"user": {}}, nil)
 			}
@@ -127,7 +127,7 @@ func TestCreateConflict(t *testing.T) {
 				dbUserEnabled:        true,
 			}
 
-			res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
+			res := h.createUser(users.CreateUserParams{UserID: "user", HTTPRequest: req}, principal)
 			parsed, ok := res.(*users.CreateUserConflict)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
@@ -139,7 +139,7 @@ func TestCreateSuccess(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
 	user := "user@weaviate.io"
-	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers", user).Return(map[string]*apikey.User{}, nil)
@@ -151,8 +151,53 @@ func TestCreateSuccess(t *testing.T) {
 		authorizer: authorizer, dbUserEnabled: true,
 	}
 
-	res := h.createUser(users.CreateUserParams{UserID: user}, principal)
+	res := h.createUser(users.CreateUserParams{UserID: user, HTTPRequest: req}, principal)
 	parsed, ok := res.(*users.CreateUserCreated)
+	assert.True(t, ok)
+	assert.NotNil(t, parsed)
+}
+
+func TestCreateSuccessWithKey(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authorization.NewMockAuthorizer(t)
+	user := "user@weaviate.io"
+	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
+
+	dynUser := NewMockDbUserAndRolesGetter(t)
+	dynUser.On("CreateUserWithKey", user, mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+
+	h := dynUserHandler{
+		dbUsers:              dynUser,
+		authorizer:           authorizer,
+		dbUserEnabled:        true,
+		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{user}, AllowedKeys: []string{"key"}},
+	}
+	tp := true
+
+	res := h.createUser(users.CreateUserParams{UserID: user, HTTPRequest: req, Body: users.CreateUserBody{Import: &tp}}, principal)
+	parsed, ok := res.(*users.CreateUserCreated)
+	assert.True(t, ok)
+	assert.NotNil(t, parsed)
+	assert.Equal(t, *parsed.Payload.Apikey, "key")
+}
+
+func TestCreateNotFoundWithKey(t *testing.T) {
+	principal := &models.Principal{}
+	authorizer := authorization.NewMockAuthorizer(t)
+	user := "user@weaviate.io"
+	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users(user)[0]).Return(nil)
+
+	dynUser := NewMockDbUserAndRolesGetter(t)
+	h := dynUserHandler{
+		dbUsers:              dynUser,
+		authorizer:           authorizer,
+		dbUserEnabled:        true,
+		staticApiKeysConfigs: config.StaticAPIKey{Enabled: true, Users: []string{user + "false"}, AllowedKeys: []string{"key"}},
+	}
+	tp := true
+
+	res := h.createUser(users.CreateUserParams{UserID: user, HTTPRequest: req, Body: users.CreateUserBody{Import: &tp}}, principal)
+	parsed, ok := res.(*users.CreateUserNotFound)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
 }
@@ -160,7 +205,7 @@ func TestCreateSuccess(t *testing.T) {
 func TestCreateForbidden(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(errors.New("some error"))
+	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users("user")[0]).Return(errors.New("some error"))
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 
@@ -169,7 +214,7 @@ func TestCreateForbidden(t *testing.T) {
 		authorizer: authorizer, dbUserEnabled: true,
 	}
 
-	res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
+	res := h.createUser(users.CreateUserParams{UserID: "user", HTTPRequest: req}, principal)
 	_, ok := res.(*users.CreateUserForbidden)
 	assert.True(t, ok)
 }
@@ -177,7 +222,7 @@ func TestCreateForbidden(t *testing.T) {
 func TestCreateUnprocessableEntityCreatingRootUser(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user-root")[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users("user-root")[0]).Return(nil)
 
 	dynUser := NewMockDbUserAndRolesGetter(t)
 
@@ -187,7 +232,7 @@ func TestCreateUnprocessableEntityCreatingRootUser(t *testing.T) {
 		rbacConfig: rbacconf.Config{RootUsers: []string{"user-root"}}, dbUserEnabled: true,
 	}
 
-	res := h.createUser(users.CreateUserParams{UserID: "user-root"}, principal)
+	res := h.createUser(users.CreateUserParams{UserID: "user-root", HTTPRequest: req}, principal)
 	_, ok := res.(*users.CreateUserUnprocessableEntity)
 	assert.True(t, ok)
 }
@@ -207,7 +252,7 @@ func TestCreateUnprocessableEntityCreatingAdminlistUser(t *testing.T) {
 
 			authorizer := authorization.NewMockAuthorizer(t)
 			dynUser := NewMockDbUserAndRolesGetter(t)
-			authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 
 			h := dynUserHandler{
 				dbUsers:         dynUser,
@@ -216,7 +261,7 @@ func TestCreateUnprocessableEntityCreatingAdminlistUser(t *testing.T) {
 				dbUserEnabled:   true,
 			}
 
-			res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
+			res := h.createUser(users.CreateUserParams{UserID: "user", HTTPRequest: req}, principal)
 			parsed, ok := res.(*users.CreateUserUnprocessableEntity)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
@@ -227,7 +272,7 @@ func TestCreateUnprocessableEntityCreatingAdminlistUser(t *testing.T) {
 func TestCreateNoDynamic(t *testing.T) {
 	principal := &models.Principal{}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, principal, authorization.CREATE, authorization.Users("user")[0]).Return(nil)
 
 	h := dynUserHandler{
 		dbUsers:       NewMockDbUserAndRolesGetter(t),
@@ -235,7 +280,7 @@ func TestCreateNoDynamic(t *testing.T) {
 		dbUserEnabled: false,
 	}
 
-	res := h.createUser(users.CreateUserParams{UserID: "user"}, principal)
+	res := h.createUser(users.CreateUserParams{UserID: "user", HTTPRequest: req}, principal)
 	_, ok := res.(*users.CreateUserUnprocessableEntity)
 	assert.True(t, ok)
 }
