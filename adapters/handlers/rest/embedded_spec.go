@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.1"
+    "version": "1.31.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -4904,6 +4904,25 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "createTime": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time",
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "import": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -4924,6 +4943,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7622,6 +7647,24 @@ func init() {
         "Path": {
           "description": "Path within the bucket",
           "type": "string"
+        },
+        "rolesOptions": {
+          "description": "How roles should be restored",
+          "type": "string",
+          "default": "noRestore",
+          "enum": [
+            "noRestore",
+            "all"
+          ]
+        },
+        "usersOptions": {
+          "description": "How users should be restored",
+          "type": "string",
+          "default": "noRestore",
+          "enum": [
+            "noRestore",
+            "all"
+          ]
         }
       }
     },
@@ -8285,7 +8328,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.1"
+    "version": "1.31.2"
   },
   "basePath": "/v1",
   "paths": {
@@ -13251,6 +13294,25 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "createTime": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time",
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "import": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -13271,6 +13333,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -16288,6 +16356,24 @@ func init() {
         "Path": {
           "description": "Path within the bucket",
           "type": "string"
+        },
+        "rolesOptions": {
+          "description": "How roles should be restored",
+          "type": "string",
+          "default": "noRestore",
+          "enum": [
+            "noRestore",
+            "all"
+          ]
+        },
+        "usersOptions": {
+          "description": "How users should be restored",
+          "type": "string",
+          "default": "noRestore",
+          "enum": [
+            "noRestore",
+            "all"
+          ]
         }
       }
     },

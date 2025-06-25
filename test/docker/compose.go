@@ -128,8 +128,9 @@ type Compose struct {
 	weaviateAdminlistReadOnlyUsers []string
 	withWeaviateDbUsers            bool
 	withWeaviateRbac               bool
-	weaviateRbacAdmins             []string
+	weaviateRbacRoots              []string
 	weaviateRbacRootGroups         []string
+	weaviateRbacViewerGroups       []string
 	weaviateRbacViewers            []string
 	withSUMTransformers            bool
 	withCentroid                   bool
@@ -555,11 +556,11 @@ func (d *Compose) WithDbUsers() *Compose {
 	return d
 }
 
-func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
+func (d *Compose) WithRbacRoots(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
-	d.weaviateRbacAdmins = append(d.weaviateRbacAdmins, usernames...)
+	d.weaviateRbacRoots = append(d.weaviateRbacRoots, usernames...)
 	return d
 }
 
@@ -568,6 +569,14 @@ func (d *Compose) WithRbacRootGroups(groups ...string) *Compose {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
 	d.weaviateRbacRootGroups = append(d.weaviateRbacRootGroups, groups...)
+	return d
+}
+
+func (d *Compose) WithRbacViewerGroups(groups ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacViewerGroups = append(d.weaviateRbacViewerGroups, groups...)
 	return d
 }
 
@@ -926,8 +935,8 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHORIZATION_RBAC_ENABLED"] = "true"
 		settings["AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"] = "false" // incompatible
 
-		if len(d.weaviateRbacAdmins) > 0 {
-			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
+		if len(d.weaviateRbacRoots) > 0 {
+			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacRoots, ",")
 		}
 		if len(d.weaviateRbacViewers) > 0 {
 			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
@@ -936,6 +945,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		if len(d.weaviateRbacRootGroups) > 0 {
 			settings["AUTHORIZATION_RBAC_ROOT_GROUPS"] = strings.Join(d.weaviateRbacRootGroups, ",")
 		}
+		if len(d.weaviateRbacViewerGroups) > 0 {
+			settings["AUTHORIZATION_RBAC_READONLY_GROUPS"] = strings.Join(d.weaviateRbacViewerGroups, ",")
+		}
+
 	}
 
 	if d.withWeaviateDbUsers {

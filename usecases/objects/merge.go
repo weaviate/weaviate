@@ -51,7 +51,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 	cls, id := updates.Class, updates.ID
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 

@@ -74,7 +74,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		class = params.Class
 	}
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData(class)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsData(class)...); err != nil {
 		return nil, &Error{err.Error(), StatusForbidden, err}
 	}
 
@@ -87,6 +87,7 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	}
 
 	filteredQuery := filter.New[*QueryInput](m.authorizer, m.config.Config.Authorization.Rbac).Filter(
+		ctx,
 		m.logger,
 		principal,
 		[]*QueryInput{q},

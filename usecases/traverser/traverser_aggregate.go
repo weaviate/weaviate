@@ -31,7 +31,7 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 	inspector := newTypeInspector(t.schemaGetter.ReadOnlyClass)
 
 	// validate here, because filters can contain references that need to be authorized
-	if err := t.validateFilters(principal, params.Filters); err != nil {
+	if err := t.validateFilters(ctx, principal, params.Filters); err != nil {
 		return nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 

@@ -127,7 +127,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Backups(classes...)...); err != nil {
+	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(classes...)...); err != nil {
 		return nil, err
 	}
 
@@ -181,7 +181,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Backups(meta.Classes()...)...); err != nil {
+	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(meta.Classes()...)...); err != nil {
 		return nil, err
 	}
 
@@ -198,13 +198,15 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	}
 
 	rReq := Request{
-		Method:      OpRestore,
-		ID:          req.ID,
-		Backend:     req.Backend,
-		Compression: req.Compression,
-		Classes:     meta.Classes(),
-		Bucket:      req.Bucket,
-		Path:        req.Path,
+		Method:            OpRestore,
+		ID:                req.ID,
+		Backend:           req.Backend,
+		Compression:       req.Compression,
+		Classes:           meta.Classes(),
+		Bucket:            req.Bucket,
+		Path:              req.Path,
+		UserRestoreOption: req.UserRestoreOption,
+		RbacRestoreOption: req.RbacRestoreOption,
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {
@@ -278,7 +280,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 
 	meta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
 	if meta != nil {
-		if err := s.authorizer.Authorize(principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
 			return err
 		}
 		// if existed meta and not in the next cases shall be cancellable
