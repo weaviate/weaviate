@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,7 +36,7 @@ func TestDeprecatedEndpoints(t *testing.T) {
 
 	// enable OIDC to be able to assign to db and oidc separately
 	compose, err := docker.New().
-		WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins(adminUser).
+		WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots(adminUser).
 		WithApiKey().WithUserApiKey(customUser, customKey).WithUserApiKey(adminUser, adminKey).
 		Start(ctx)
 	require.NoError(t, err)

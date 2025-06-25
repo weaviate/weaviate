@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -107,6 +107,7 @@ type hnsw struct {
 	multiVectorForID          common.MultiVectorForID
 	trackDimensionsOnce       sync.Once
 	trackMuveraOnce           sync.Once
+	trackRQOnce               sync.Once
 	dims                      int32
 
 	cache               cache.Cache[float32]
@@ -172,6 +173,8 @@ type hnsw struct {
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
+	rqConfig   ent.RQConfig
+	rqActive   bool
 	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
 	// rescore sequentially, as that would take very long. This setting allows us
 	// to define the rescoring concurrency.
@@ -218,6 +221,7 @@ type CommitLogger interface {
 	SwitchCommitLogs(bool) error
 	AddPQCompression(compressionhelpers.PQData) error
 	AddSQCompression(compressionhelpers.SQData) error
+	AddRQCompression(compressionhelpers.RQData) error
 	AddMuvera(multivector.MuveraData) error
 	InitMaintenance()
 
@@ -333,6 +337,7 @@ func New(cfg Config, uc ent.UserConfig,
 		pqConfig:                  uc.PQ,
 		bqConfig:                  uc.BQ,
 		sqConfig:                  uc.SQ,
+		rqConfig:                  uc.RQ,
 		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
 
@@ -365,6 +370,10 @@ func New(cfg Config, uc ent.UserConfig,
 		index.compressed.Store(true)
 		index.cache.Drop()
 		index.cache = nil
+	}
+
+	if uc.RQ.Enabled {
+		index.rqActive = true
 	}
 
 	if uc.Multivector.Enabled {
@@ -811,6 +820,9 @@ func (h *hnsw) ShouldUpgrade() (bool, int) {
 	if h.sqConfig.Enabled {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
 	}
+	if h.rqConfig.Enabled {
+		return h.rqConfig.Enabled, 1
+	}
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
 }
 
@@ -818,6 +830,9 @@ func (h *hnsw) ShouldCompressFromConfig(config config.VectorIndexConfig) (bool, 
 	hnswConfig := config.(ent.UserConfig)
 	if hnswConfig.SQ.Enabled {
 		return hnswConfig.SQ.Enabled, hnswConfig.SQ.TrainingLimit
+	}
+	if hnswConfig.RQ.Enabled {
+		return hnswConfig.RQ.Enabled, 1
 	}
 	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
 }

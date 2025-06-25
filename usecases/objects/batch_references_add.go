@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -73,7 +73,7 @@ func (b *BatchManager) AddReferences(ctx context.Context, principal *models.Prin
 		pathsData = append(pathsData, authorization.ShardsData(val.Class, val.Shard)...)
 	}
 
-	if err := b.authorizer.Authorize(principal, authorization.UPDATE, pathsData...); err != nil {
+	if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, pathsData...); err != nil {
 		return nil, err
 	}
 
@@ -123,7 +123,7 @@ func (b *BatchManager) addReferences(ctx context.Context, principal *models.Prin
 
 	// target object is checked for existence - this is currently ONLY done with tenants enabled, but we should require
 	// the permission for everything, to not complicate things too much
-	if err := b.authorizer.Authorize(principal, authorization.READ, shardsDataPaths...); err != nil {
+	if err := b.authorizer.Authorize(ctx, principal, authorization.READ, shardsDataPaths...); err != nil {
 		return nil, err
 	}
 

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -130,12 +130,12 @@ type NeighborRef struct {
 	Distances NeighborRefDistances
 }
 
-func (c *Classifier) classGetterWithAuthzFunc(principal *models.Principal) func(string) (*models.Class, error) {
+func (c *Classifier) classGetterWithAuthzFunc(ctx context.Context, principal *models.Principal) func(string) (*models.Class, error) {
 	authorizedCollections := map[string]*models.Class{}
 	return func(name string) (*models.Class, error) {
 		class, ok := authorizedCollections[name]
 		if !ok {
-			if err := c.authorizer.Authorize(principal, authorization.READ, authorization.Collections(name)...); err != nil {
+			if err := c.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Collections(name)...); err != nil {
 				return nil, err
 			}
 			class = c.schemaGetter.ReadOnlyClass(name)
@@ -149,7 +149,7 @@ func (c *Classifier) classGetterWithAuthzFunc(principal *models.Principal) func(
 }
 
 func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, params models.Classification) (*models.Classification, error) {
-	err := c.authorizer.Authorize(principal, authorization.UPDATE, authorization.CollectionsMetadata(params.Class)...)
+	err := c.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(params.Class)...)
 	if err != nil {
 		return nil, err
 	}
@@ -159,7 +159,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 		return nil, err
 	}
 
-	err = NewValidator(c.classGetterWithAuthzFunc(principal), params).Do()
+	err = NewValidator(c.classGetterWithAuthzFunc(ctx, principal), params).Do()
 	if err != nil {
 		return nil, err
 	}
@@ -178,7 +178,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 	}
 
 	// asynchronously trigger the classification
-	filters, err := c.extractFilters(principal, params)
+	filters, err := c.extractFilters(ctx, principal, params)
 	if err != nil {
 		return nil, err
 	}
@@ -188,7 +188,7 @@ func (c *Classifier) Schedule(ctx context.Context, principal *models.Principal, 
 	return &params, nil
 }
 
-func (c *Classifier) extractFilters(principal *models.Principal, params models.Classification) (Filters, error) {
+func (c *Classifier) extractFilters(ctx context.Context, principal *models.Principal, params models.Classification) (Filters, error) {
 	if params.Filters == nil {
 		return classificationFilters{}, nil
 	}
@@ -214,28 +214,28 @@ func (c *Classifier) extractFilters(principal *models.Principal, params models.C
 		target:      target,
 	}
 
-	if err = c.validateFilters(principal, &params, &filters); err != nil {
+	if err = c.validateFilters(ctx, principal, &params, &filters); err != nil {
 		return nil, err
 	}
 
 	return filters, nil
 }
 
-func (c *Classifier) validateFilters(principal *models.Principal, params *models.Classification, filters *classificationFilters) (err error) {
+func (c *Classifier) validateFilters(ctx context.Context, principal *models.Principal, params *models.Classification, filters *classificationFilters) (err error) {
 	if params.Type == TypeKNN {
-		if err = c.validateFilter(principal, filters.Source()); err != nil {
+		if err = c.validateFilter(ctx, principal, filters.Source()); err != nil {
 			return fmt.Errorf("invalid sourceWhere: %w", err)
 		}
-		if err = c.validateFilter(principal, filters.TrainingSet()); err != nil {
+		if err = c.validateFilter(ctx, principal, filters.TrainingSet()); err != nil {
 			return fmt.Errorf("invalid trainingSetWhere: %w", err)
 		}
 	}
 
 	if params.Type == TypeContextual || params.Type == TypeZeroShot {
-		if err = c.validateFilter(principal, filters.Source()); err != nil {
+		if err = c.validateFilter(ctx, principal, filters.Source()); err != nil {
 			return fmt.Errorf("invalid sourceWhere: %w", err)
 		}
-		if err = c.validateFilter(principal, filters.Target()); err != nil {
+		if err = c.validateFilter(ctx, principal, filters.Target()); err != nil {
 			return fmt.Errorf("invalid targetWhere: %w", err)
 		}
 	}
@@ -243,12 +243,12 @@ func (c *Classifier) validateFilters(principal *models.Principal, params *models
 	return
 }
 
-func (c *Classifier) validateFilter(principal *models.Principal, filter *libfilters.LocalFilter) error {
+func (c *Classifier) validateFilter(ctx context.Context, principal *models.Principal, filter *libfilters.LocalFilter) error {
 	if filter == nil {
 		return nil
 	}
 	f := func(name string) (*models.Class, error) {
-		if err := c.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
+		if err := c.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(name)...); err != nil {
 			return nil, err
 		}
 		class := c.schemaGetter.ReadOnlyClass(name)
@@ -279,7 +279,7 @@ func (c *Classifier) Get(ctx context.Context, principal *models.Principal, id st
 	if classification == nil {
 		return nil, nil
 	}
-	if err := c.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata(classification.Class)...); err != nil {
+	if err := c.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsMetadata(classification.Class)...); err != nil {
 		return nil, err
 	}
 	return classification, nil

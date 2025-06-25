@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -102,6 +102,24 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 
 	if err != nil {
 		return err
+	}
+
+	if h.rqConfig.Enabled && h.rqActive {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.NewRQCompressor(
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
+
+			if err == nil {
+				h.compressed.Store(true)
+				h.cache.Drop()
+				h.cache = nil
+				h.compressor.PersistCompression(h.commitLog)
+			}
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	levels := make([]int, len(ids))
@@ -212,6 +230,38 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		}
 	})
 
+	if err != nil {
+		return err
+	}
+	if h.rqConfig.Enabled && h.rqActive {
+		h.trackRQOnce.Do(func() {
+			h.compressor, err = compressionhelpers.NewRQMultiCompressor(
+				h.distancerProvider, 1e12, h.logger, h.store,
+				h.allocChecker, int(h.rqConfig.Bits), int(h.dims))
+
+			if err == nil {
+				h.Lock()
+				data := h.cache.All()
+				h.compressor.GrowCache(h.vecIDcounter)
+				compressionhelpers.Concurrently(h.logger, uint64(len(data)),
+					func(index uint64) {
+						if len(data[index]) == 0 {
+							return
+						}
+						docID, relativeID := h.cache.GetKeys(index)
+						h.compressor.PreloadPassage(index, docID, relativeID, data[index])
+					})
+				h.compressed.Store(true)
+				h.cache.Drop()
+				h.cache = nil
+				h.compressor.PersistCompression(h.commitLog)
+				h.Unlock()
+			}
+		})
+		if err != nil {
+			return err
+		}
+	}
 	if err != nil {
 		return err
 	}

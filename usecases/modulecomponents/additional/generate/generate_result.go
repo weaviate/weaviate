@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -145,6 +145,12 @@ func (p *GenerateProvider) getProperties(result search.Result,
 		if len(properties) > 0 && !p.containsProperty(property, properties) {
 			continue
 		}
+
+		// Nil property is not useful as an input to a generative model.
+		if value == nil {
+			continue
+		}
+
 		if dt, ok := propertyDataTypes[property]; ok {
 			switch dt {
 			// todo: add rest of types
