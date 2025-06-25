@@ -47,7 +47,7 @@ func NewObjectsClassGet(ctx *middleware.Context, handler ObjectsClassGetHandler)
 
 Get a specific Object based on its class and UUID. Also available as Websocket bus.
 
-Get a data object based on its collection and UUID. Also available as Websocket bus.
+Get a data object based on its collection and UUID.
 */
 type ObjectsClassGet struct {
 	Context *middleware.Context

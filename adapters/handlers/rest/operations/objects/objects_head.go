@@ -47,7 +47,7 @@ func NewObjectsHead(ctx *middleware.Context, handler ObjectsHeadHandler) *Object
 
 Checks Object's existence based on its UUID.
 
-Checks if an object exists in the system based on its UUID.
+Checks if an object exists in the system based on its UUID. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
 */
 type ObjectsHead struct {
 	Context *middleware.Context

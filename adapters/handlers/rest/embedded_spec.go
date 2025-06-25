@@ -2328,7 +2328,7 @@ func init() {
     },
     "/objects/{className}/{id}": {
       "get": {
-        "description": "Get a data object based on its collection and UUID. Also available as Websocket bus.",
+        "description": "Get a data object based on its collection and UUID.",
         "tags": [
           "objects"
         ],
@@ -2868,7 +2868,7 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "summary": "Delete a single reference from the list of references.",
         "operationId": "objects.class.references.delete",
         "parameters": [
           {
@@ -2955,11 +2955,11 @@ func init() {
     },
     "/objects/{id}": {
       "get": {
-        "description": "Get a specific object based on its UUID. Also available as Websocket bus.",
+        "description": "Get a specific object based on its UUID. Also available as Websocket bus. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
-        "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
+        "summary": "Get a specific Object based on its UUID.",
         "operationId": "objects.get",
         "deprecated": true,
         "parameters": [
@@ -3014,7 +3014,7 @@ func init() {
         ]
       },
       "put": {
-        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -3081,7 +3081,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes an object from the database based on its UUID.",
+        "description": "Deletes an object from the database based on its UUID. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -3134,7 +3134,7 @@ func init() {
         ]
       },
       "head": {
-        "description": "Checks if an object exists in the system based on its UUID.",
+        "description": "Checks if an object exists in the system based on its UUID. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -3181,7 +3181,7 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -3250,7 +3250,7 @@ func init() {
     },
     "/objects/{id}/references/{propertyName}": {
       "put": {
-        "description": "Replace all references in cross-reference property of an object.",
+        "description": "Replace all references in cross-reference property of an object. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}/references/{propertyName}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -3318,7 +3318,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a cross-reference.",
+        "description": "Add a cross-reference. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}/references/{propertyName}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -3386,11 +3386,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "description": "Delete the single reference that is given in the body from the list of references that this property has. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}/references/{propertyName}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "summary": "Delete a single reference from the list of references.",
         "operationId": "objects.references.delete",
         "deprecated": true,
         "parameters": [
@@ -10646,7 +10646,7 @@ func init() {
     },
     "/objects/{className}/{id}": {
       "get": {
-        "description": "Get a data object based on its collection and UUID. Also available as Websocket bus.",
+        "description": "Get a data object based on its collection and UUID.",
         "tags": [
           "objects"
         ],
@@ -11228,7 +11228,7 @@ func init() {
         "tags": [
           "objects"
         ],
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "summary": "Delete a single reference from the list of references.",
         "operationId": "objects.class.references.delete",
         "parameters": [
           {
@@ -11321,11 +11321,11 @@ func init() {
     },
     "/objects/{id}": {
       "get": {
-        "description": "Get a specific object based on its UUID. Also available as Websocket bus.",
+        "description": "Get a specific object based on its UUID. Also available as Websocket bus. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
-        "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
+        "summary": "Get a specific Object based on its UUID.",
         "operationId": "objects.get",
         "deprecated": true,
         "parameters": [
@@ -11383,7 +11383,7 @@ func init() {
         ]
       },
       "put": {
-        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -11453,7 +11453,7 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Deletes an object from the database based on its UUID.",
+        "description": "Deletes an object from the database based on its UUID. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -11512,7 +11512,7 @@ func init() {
         ]
       },
       "head": {
-        "description": "Checks if an object exists in the system based on its UUID.",
+        "description": "Checks if an object exists in the system based on its UUID. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -11559,7 +11559,7 @@ func init() {
         ]
       },
       "patch": {
-        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -11631,7 +11631,7 @@ func init() {
     },
     "/objects/{id}/references/{propertyName}": {
       "put": {
-        "description": "Replace all references in cross-reference property of an object.",
+        "description": "Replace all references in cross-reference property of an object. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}/references/{propertyName}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -11702,7 +11702,7 @@ func init() {
         ]
       },
       "post": {
-        "description": "Add a cross-reference.",
+        "description": "Add a cross-reference. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}/references/{propertyName}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
@@ -11773,11 +11773,11 @@ func init() {
         ]
       },
       "delete": {
-        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "description": "Delete the single reference that is given in the body from the list of references that this property has. \u003cbr/\u003e\u003cbr/\u003e**Note**: This endpoint is deprecated and will be removed in a future version. Use the ` + "`" + `/objects/{className}/{id}/references/{propertyName}` + "`" + ` endpoint instead.",
         "tags": [
           "objects"
         ],
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "summary": "Delete a single reference from the list of references.",
         "operationId": "objects.references.delete",
         "deprecated": true,
         "parameters": [
