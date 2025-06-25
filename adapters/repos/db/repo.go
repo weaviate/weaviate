@@ -140,8 +140,17 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
 
+// IndexGetter interface defines the methods that the service uses from db.IndexGetter
+// This allows for better testability by using interfaces instead of concrete types
 type IndexGetter interface {
-	GetIndex(className schema.ClassName) *Index
+	GetIndexLike(className schema.ClassName) IndexLike
+}
+
+// IndexLike interface defines the methods that the service uses from db.Index
+// This allows for better testability by using interfaces instead of concrete types
+type IndexLike interface {
+	ForEachShard(f func(name string, shard ShardLike) error) error
+	CalculateColdTenantMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64)
 }
 
 func New(logger logrus.FieldLogger, config Config,
