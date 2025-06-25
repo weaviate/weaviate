@@ -34,6 +34,10 @@ func (n *NoopCommitLogger) AddSQCompression(data compressionhelpers.SQData) erro
 	return nil
 }
 
+func (n *NoopCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
+	return nil
+}
+
 func (n *NoopCommitLogger) AddMuvera(data multivector.MuveraData) error {
 	return nil
 }

@@ -11,7 +11,9 @@
 
 package compressionhelpers
 
-import "encoding/binary"
+import (
+	"encoding/binary"
+)
 
 type quantizerDistancer[T byte | uint64] interface {
 	Distance(x []T) (float32, error)
