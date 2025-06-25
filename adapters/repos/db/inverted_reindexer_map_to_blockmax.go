@@ -517,11 +517,19 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	breakCh <- false
 	finished := false
 
-	err = store.PauseCompaction(ctx)
+	/*
+		err = store.PauseCompaction(ctx)
+		if err != nil {
+			return zerotime, false, err
+		}
+		defer store.ResumeCompaction(ctx)
+	*/
+
+	err = store.PauseObjectBucketCompaction(ctx)
 	if err != nil {
 		return zerotime, false, err
 	}
-	defer store.ResumeCompaction(ctx)
+	defer store.ResumeObjectBucketCompaction(ctx)
 
 	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
 		propExtraction, reindexStarted, breakCh)
