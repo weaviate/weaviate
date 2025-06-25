@@ -245,9 +245,10 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 
 	var hotShard, coldShard *ShardUsage
 	for _, shard := range collection.Shards {
-		if shard.Name == hotTenant {
+		switch shard.Name {
+		case hotTenant:
 			hotShard = shard
-		} else if shard.Name == coldTenant {
+		case coldTenant:
 			coldShard = shard
 		}
 	}
