@@ -41,15 +41,15 @@ type fakeModulesProvider struct{}
 
 type fakeAuthorizer struct{}
 
-func (a *fakeAuthorizer) Authorize(principal *models.Principal, verb string, resource ...string) error {
+func (a *fakeAuthorizer) Authorize(ctx context.Context, principal *models.Principal, verb string, resource ...string) error {
 	return nil
 }
 
-func (a *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, verb string, resource ...string) error {
+func (a *fakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, verb string, resource ...string) error {
 	return nil
 }
 
-func (a *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, verb string, resources ...string) ([]string, error) {
+func (a *fakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, verb string, resources ...string) ([]string, error) {
 	return resources, nil
 }
 
