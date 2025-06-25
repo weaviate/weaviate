@@ -60,7 +60,7 @@ func setupGraphQLHandlers(
 	api.GraphqlGraphqlPostHandler = graphql.GraphqlPostHandlerFunc(func(params graphql.GraphqlPostParams, principal *models.Principal) middleware.Responder {
 		// All requests to the graphQL API need at least permissions to read the schema. Request might have further
 		// authorization requirements.
-		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.CollectionsMetadata()...)
+		err := m.Authorizer.Authorize(params.HTTPRequest.Context(), principal, authorization.READ, authorization.CollectionsMetadata()...)
 		if err != nil {
 			metricRequestsTotal.logUserError()
 			switch {
@@ -155,7 +155,7 @@ func setupGraphQLHandlers(
 
 	api.GraphqlGraphqlBatchHandler = graphql.GraphqlBatchHandlerFunc(func(params graphql.GraphqlBatchParams, principal *models.Principal) middleware.Responder {
 		// this is barely used (if at all) - so require read access to all collections for data and metadata
-		err := m.Authorizer.Authorize(principal, authorization.READ, authorization.Collections()...)
+		err := m.Authorizer.Authorize(params.HTTPRequest.Context(), principal, authorization.READ, authorization.Collections()...)
 		if err != nil {
 			return graphql.NewGraphqlBatchForbidden().WithPayload(errPayloadFromSingleErr(err))
 		}

@@ -37,7 +37,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	className := schema.UppercaseClassName(updates.Class)
 	updates.Class = className
 
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
 		return nil, err
 	}
 
