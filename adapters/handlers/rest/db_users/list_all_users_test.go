@@ -59,7 +59,7 @@ func TestSuccessListAll(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, tt.principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			dynUser.On("GetUsers").Return(map[string]*apikey.User{dbUser: {Id: dbUser}}, nil)
 			dynUser.On("GetRolesForUser", dbUser, models.UserTypeInputDb).Return(
@@ -77,7 +77,7 @@ func TestSuccessListAll(t *testing.T) {
 				dbUserEnabled:        true,
 			}
 
-			res := h.listUsers(users.ListAllUsersParams{}, tt.principal)
+			res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, tt.principal)
 			parsed, ok := res.(*users.ListAllUsersOK)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
@@ -94,7 +94,7 @@ func TestSuccessListAll(t *testing.T) {
 func TestSuccessListAllAfterImport(t *testing.T) {
 	exStaticUser := "static"
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", &models.Principal{Username: "root"}, authorization.READ, authorization.Users()[0]).Return(nil)
+	authorizer.On("Authorize", mock.Anything, &models.Principal{Username: "root"}, authorization.READ, authorization.Users()[0]).Return(nil)
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers").Return(map[string]*apikey.User{exStaticUser: {Id: exStaticUser, Active: true}}, nil)
 	dynUser.On("GetRolesForUser", exStaticUser, models.UserTypeInputDb).Return(
@@ -108,7 +108,7 @@ func TestSuccessListAllAfterImport(t *testing.T) {
 		dbUserEnabled:        true,
 	}
 
-	res := h.listUsers(users.ListAllUsersParams{}, &models.Principal{Username: "root"})
+	res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, &models.Principal{Username: "root"})
 	parsed, ok := res.(*users.ListAllUsersOK)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
@@ -189,7 +189,7 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			principal := &models.Principal{Username: "non-root"}
 			authorizer := authorization.NewMockAuthorizer(t)
-			authorizer.On("Authorize", principal, authorization.READ, authorization.Users()[0]).Return(nil)
+			authorizer.On("Authorize", mock.Anything, principal, authorization.READ, authorization.Users()[0]).Return(nil)
 			dynUser := NewMockDbUserAndRolesGetter(t)
 			schemaGetter := schema.NewMockSchemaGetter(t)
 
@@ -223,7 +223,7 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 				remoteUser:  remote,
 			}
 
-			res := h.listUsers(users.ListAllUsersParams{IncludeLastUsedTime: &trueptr}, principal)
+			res := h.listUsers(users.ListAllUsersParams{IncludeLastUsedTime: &trueptr, HTTPRequest: req}, principal)
 			parsed, ok := res.(*users.ListAllUsersOK)
 			assert.True(t, ok)
 			assert.NotNil(t, parsed)
@@ -239,7 +239,7 @@ func TestSuccessListAllUserMultiNode(t *testing.T) {
 func TestSuccessListForbidden(t *testing.T) {
 	principal := &models.Principal{Username: "not-root"}
 	authorizer := authorization.NewMockAuthorizer(t)
-	authorizer.On("Authorize", principal, authorization.READ, mock.Anything).Return(errors.New("some error"))
+	authorizer.On("Authorize", mock.Anything, principal, authorization.READ, mock.Anything).Return(errors.New("some error"))
 	dynUser := NewMockDbUserAndRolesGetter(t)
 	dynUser.On("GetUsers").Return(map[string]*apikey.User{"test": {Id: "test"}}, nil)
 
@@ -252,7 +252,7 @@ func TestSuccessListForbidden(t *testing.T) {
 	}
 
 	// no authorization for anything => response will be empty
-	res := h.listUsers(users.ListAllUsersParams{}, principal)
+	res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, principal)
 	parsed, ok := res.(*users.ListAllUsersOK)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)
@@ -269,7 +269,7 @@ func TestListNoDynamic(t *testing.T) {
 		dbUserEnabled: false,
 	}
 
-	res := h.listUsers(users.ListAllUsersParams{}, principal)
+	res := h.listUsers(users.ListAllUsersParams{HTTPRequest: req}, principal)
 	parsed, ok := res.(*users.ListAllUsersOK)
 	assert.True(t, ok)
 	assert.NotNil(t, parsed)

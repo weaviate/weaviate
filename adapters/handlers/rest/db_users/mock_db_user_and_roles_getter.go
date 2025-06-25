@@ -189,7 +189,7 @@ func (_c *MockDbUserAndRolesGetter_CreateUser_Call) RunAndReturn(run func(string
 	return _c
 }
 
-// CreateUserFromApiKey provides a mock function with given fields: userId, apiKeyFirstLetters, weakHash, createdAt
+// CreateUserWithKey provides a mock function with given fields: userId, apiKeyFirstLetters, weakHash, createdAt
 func (_m *MockDbUserAndRolesGetter) CreateUserWithKey(userId string, apiKeyFirstLetters string, weakHash [32]byte, createdAt time.Time) error {
 	ret := _m.Called(userId, apiKeyFirstLetters, weakHash, createdAt)
 
@@ -207,33 +207,33 @@ func (_m *MockDbUserAndRolesGetter) CreateUserWithKey(userId string, apiKeyFirst
 	return r0
 }
 
-// MockDbUserAndRolesGetter_CreateUserFromApiKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateUserWithKey'
-type MockDbUserAndRolesGetter_CreateUserFromApiKey_Call struct {
+// MockDbUserAndRolesGetter_CreateUserWithKey_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CreateUserWithKey'
+type MockDbUserAndRolesGetter_CreateUserWithKey_Call struct {
 	*mock.Call
 }
 
-// CreateUserFromApiKey is a helper method to define mock.On call
+// CreateUserWithKey is a helper method to define mock.On call
 //   - userId string
 //   - apiKeyFirstLetters string
 //   - weakHash [32]byte
 //   - createdAt time.Time
-func (_e *MockDbUserAndRolesGetter_Expecter) CreateUserFromApiKey(userId interface{}, apiKeyFirstLetters interface{}, weakHash interface{}, createdAt interface{}) *MockDbUserAndRolesGetter_CreateUserFromApiKey_Call {
-	return &MockDbUserAndRolesGetter_CreateUserFromApiKey_Call{Call: _e.mock.On("CreateUserWithKey", userId, apiKeyFirstLetters, weakHash, createdAt)}
+func (_e *MockDbUserAndRolesGetter_Expecter) CreateUserWithKey(userId interface{}, apiKeyFirstLetters interface{}, weakHash interface{}, createdAt interface{}) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
+	return &MockDbUserAndRolesGetter_CreateUserWithKey_Call{Call: _e.mock.On("CreateUserWithKey", userId, apiKeyFirstLetters, weakHash, createdAt)}
 }
 
-func (_c *MockDbUserAndRolesGetter_CreateUserFromApiKey_Call) Run(run func(userId string, apiKeyFirstLetters string, weakHash [32]byte, createdAt time.Time)) *MockDbUserAndRolesGetter_CreateUserFromApiKey_Call {
+func (_c *MockDbUserAndRolesGetter_CreateUserWithKey_Call) Run(run func(userId string, apiKeyFirstLetters string, weakHash [32]byte, createdAt time.Time)) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(string), args[1].(string), args[2].([32]byte), args[3].(time.Time))
 	})
 	return _c
 }
 
-func (_c *MockDbUserAndRolesGetter_CreateUserFromApiKey_Call) Return(_a0 error) *MockDbUserAndRolesGetter_CreateUserFromApiKey_Call {
+func (_c *MockDbUserAndRolesGetter_CreateUserWithKey_Call) Return(_a0 error) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockDbUserAndRolesGetter_CreateUserFromApiKey_Call) RunAndReturn(run func(string, string, [32]byte, time.Time) error) *MockDbUserAndRolesGetter_CreateUserFromApiKey_Call {
+func (_c *MockDbUserAndRolesGetter_CreateUserWithKey_Call) RunAndReturn(run func(string, string, [32]byte, time.Time) error) *MockDbUserAndRolesGetter_CreateUserWithKey_Call {
 	_c.Call.Return(run)
 	return _c
 }

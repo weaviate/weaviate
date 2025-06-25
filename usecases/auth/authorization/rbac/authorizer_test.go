@@ -12,6 +12,7 @@
 package rbac
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -190,7 +191,7 @@ func TestAuthorize(t *testing.T) {
 			}
 
 			// Execute
-			err = m.authorize(tt.principal, tt.verb, tt.skipAudit, tt.resources...)
+			err = m.authorize(context.Background(), tt.principal, tt.verb, tt.skipAudit, tt.resources...)
 
 			// Assert error conditions
 			if tt.wantErr {
@@ -391,7 +392,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			}
 
 			// Execute
-			got, err := m.FilterAuthorizedResources(tt.principal, tt.verb, tt.resources...)
+			got, err := m.FilterAuthorizedResources(context.Background(), tt.principal, tt.verb, tt.resources...)
 
 			// Assert
 			if tt.wantErr {
@@ -428,7 +429,7 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call the function
-	allowedResources, err := m.FilterAuthorizedResources(principal, authorization.READ, testResources...)
+	allowedResources, err := m.FilterAuthorizedResources(context.Background(), principal, authorization.READ, testResources...)
 	require.NoError(t, err)
 
 	// Verify logging

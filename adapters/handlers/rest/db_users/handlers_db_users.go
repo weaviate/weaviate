@@ -90,6 +90,8 @@ func SetupHandlers(
 }
 
 func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+
 	isRootUser := h.isRequestFromRootUser(principal)
 
 	if !h.dbUserEnabled {
@@ -108,6 +110,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 
 	resourceFilter := filter.New[*apikey.User](h.authorizer, h.rbacConfig)
 	filteredUsers := resourceFilter.Filter(
+		ctx,
 		h.logger,
 		principal,
 		allUsers,
@@ -188,7 +191,9 @@ func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id,
 }
 
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
 		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -305,11 +310,13 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 }
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+
 	if err := validateUserName(params.UserID); err != nil {
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Users(params.UserID)...); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -377,7 +384,9 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 }
 
 func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -439,7 +448,9 @@ func (h *dynUserHandler) getApiKey() (string, string, string, error) {
 }
 
 func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Users(params.UserID)...); err != nil {
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewDeleteUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -481,7 +492,9 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 }
 
 func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewDeactivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -526,7 +539,8 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 }
 
 func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+	ctx := params.HTTPRequest.Context()
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
