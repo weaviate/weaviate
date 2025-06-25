@@ -106,6 +106,7 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	}
 
 	m.logger = params.GetLogger()
+	m.logger = m.logger.WithField("component", Name)
 	m.metrics = NewMetrics(params.GetMetricsRegisterer())
 
 	options := []option.ClientOption{}
