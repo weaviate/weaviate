@@ -1656,6 +1656,8 @@ func (t *fileMapToBlockmaxReindexTracker) GetStatusStrings() (status string, mes
 		message = "reindexing not started"
 		return
 	}
+	message = "reindexing started"
+
 	if !t.HasProps() {
 		status = "computing properties"
 		message = "computing properties to reindex"
