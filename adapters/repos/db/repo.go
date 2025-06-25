@@ -20,11 +20,10 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/entities/storobj"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/cluster/router"
@@ -32,6 +31,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -138,6 +138,10 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
+
+type IndexGetter interface {
+	GetIndex(className schema.ClassName) *Index
+}
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,

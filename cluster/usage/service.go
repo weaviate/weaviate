@@ -17,9 +17,10 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	backupent "github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/models"
 	entschema "github.com/weaviate/weaviate/entities/schema"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
-	"github.com/weaviate/weaviate/usecases/modules"
+	"github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/schema"
 )
 
@@ -28,16 +29,16 @@ type Service interface {
 }
 
 type service struct {
-	schemaManager *schema.Manager
-	db            *db.DB
-	modules       *modules.Provider
+	schemaManager schema.SchemaGetter
+	db            db.IndexGetter
+	backups       backup.BackupBackendProvider
 }
 
-func NewService(schemaManager *schema.Manager, db *db.DB, modules *modules.Provider) Service {
+func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups backup.BackupBackendProvider) Service {
 	return &service{
 		schemaManager: schemaManager,
 		db:            db,
-		modules:       modules,
+		backups:       backups,
 	}
 }
 
@@ -63,8 +64,29 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 		// Get shard usage
 		index := m.db.GetIndex(entschema.ClassName(collection.Class))
 		if index != nil {
-			// TODO: this will load all shards into memory, which is not efficient
-			// we shall collect usage for each shard without loading them into memory
+			// First, collect cold tenants from sharding state
+			coldTenants := make(map[string]*ShardUsage)
+			for tenantName, physical := range shardingState.Physical {
+				// skip non-local shards
+				if !shardingState.IsLocalShard(tenantName) {
+					continue
+				}
+
+				// Only process COLD tenants here
+				if physical.ActivityStatus() == models.TenantActivityStatusCOLD {
+					// Cold tenant: calculate from disk without loading
+					objectCount, storageSize := index.CalculateColdTenantMetrics(ctx, tenantName)
+					shardUsage := &ShardUsage{
+						Name:                tenantName,
+						ObjectsCount:        int(objectCount),
+						ObjectsStorageBytes: storageSize,
+						NamedVectors:        make([]*VectorUsage, 0), // Empty for cold tenants
+					}
+					coldTenants[tenantName] = shardUsage
+				}
+			}
+
+			// Then, collect hot tenants from loaded shards
 			index.ForEachShard(func(name string, shard db.ShardLike) error {
 				// skip non-local shards
 				if !shardingState.IsLocalShard(name) {
@@ -107,13 +129,18 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 				collectionUsage.Shards = append(collectionUsage.Shards, shardUsage)
 				return nil
 			})
+
+			// Add cold tenants to the collection
+			for _, coldShard := range coldTenants {
+				collectionUsage.Shards = append(collectionUsage.Shards, coldShard)
+			}
 		}
 
 		usage.SingleTenantCollections = append(usage.SingleTenantCollections, collectionUsage)
 	}
 
 	// Get backup usage from all enabled backup backends
-	for _, backend := range m.modules.EnabledBackupBackends() {
+	for _, backend := range m.backups.EnabledBackupBackends() {
 		backups, err := backend.AllBackups(ctx)
 		if err == nil {
 			for _, backup := range backups {
