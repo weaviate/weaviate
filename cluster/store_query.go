@@ -46,6 +46,16 @@ func (st *Store) Query(req *cmd.QueryRequest) (*cmd.QueryResponse, error) {
 		if err != nil {
 			return &cmd.QueryResponse{}, fmt.Errorf("could not get tenants: %w", err)
 		}
+	case cmd.QueryRequest_TYPE_RESOLVE_ALIAS:
+		payload, err = st.schemaManager.ResolveAlias(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not resolve alias: %w", err)
+		}
+	case cmd.QueryRequest_TYPE_GET_ALIASES:
+		payload, err = st.schemaManager.GetAliases(req)
+		if err != nil {
+			return &cmd.QueryResponse{}, fmt.Errorf("could not get aliases: %w", err)
+		}
 	case cmd.QueryRequest_TYPE_GET_SHARD_OWNER:
 		payload, err = st.schemaManager.QueryShardOwner(req)
 		if err != nil {
