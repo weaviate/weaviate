@@ -73,7 +73,7 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 				// Only process COLD tenants here
 				if physical.ActivityStatus() == models.TenantActivityStatusCOLD {
 					// Cold tenant: calculate from disk without loading
-					objectCount, storageSize := index.CalculateUnloadedObjectsMetrics(ctx, tenantName)
+					objectCount, storageSize := index.CalculateColdTenantMetrics(ctx, tenantName)
 					shardUsage := &ShardUsage{
 						Name:                tenantName,
 						ObjectsCount:        int(objectCount),
