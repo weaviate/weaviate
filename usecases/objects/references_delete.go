@@ -49,10 +49,10 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	input.Class = schema.UppercaseClassName(input.Class)
 
 	// We are fetching the existing object and get to know if the UUID exists
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
@@ -60,7 +60,7 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 	// we need to know which collection an object belongs to, so for the deprecated case we first need to fetch the
 	// object from any collection, to then know its collection to check for the correct permissions after wards
 	if deprecatedEndpoint {
-		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData()...); err != nil {
+		if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsData()...); err != nil {
 			return &Error{err.Error(), StatusForbidden, err}
 		}
 		res, err := m.getObjectFromRepo(ctx, input.Class, input.ID, additional.Properties{}, nil, tenant)

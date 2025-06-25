@@ -470,14 +470,14 @@ func (f *fakeBackupBackend) reset() {
 
 type fakeAuthorizer struct{}
 
-func (f *fakeAuthorizer) Authorize(_ *models.Principal, _ string, _ ...string) error {
+func (f *fakeAuthorizer) Authorize(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
 
-func (f *fakeAuthorizer) AuthorizeSilent(_ *models.Principal, _ string, _ ...string) error {
+func (f *fakeAuthorizer) AuthorizeSilent(ctx context.Context, _ *models.Principal, _ string, _ ...string) error {
 	return nil
 }
 
-func (f *fakeAuthorizer) FilterAuthorizedResources(_ *models.Principal, _ string, resources ...string) ([]string, error) {
+func (f *fakeAuthorizer) FilterAuthorizedResources(ctx context.Context, _ *models.Principal, _ string, resources ...string) ([]string, error) {
 	return resources, nil
 }

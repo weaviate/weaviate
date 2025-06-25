@@ -16,7 +16,11 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"strings"
 	"time"
+
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/peer"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_sentry "github.com/johnbellone/grpc-middleware-sentry"
@@ -73,6 +77,8 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Se
 	if state.Metrics != nil {
 		interceptors = append(interceptors, makeMetricsInterceptor(state.Logger, state.Metrics))
 	}
+
+	interceptors = append(interceptors, makeIPInterceptor())
 
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
@@ -147,6 +153,53 @@ func makeAuthInterceptor() grpc.UnaryServerInterceptor {
 
 		return resp, err
 	}
+}
+
+func makeIPInterceptor() grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (interface{}, error) {
+		clientIP := getRealClientIP(ctx)
+
+		// Add IP to context
+		ctx = context.WithValue(ctx, "sourceIp", clientIP)
+
+		return handler(ctx, req)
+	}
+}
+
+func getRealClientIP(ctx context.Context) string {
+	// First, check for forwarded headers in metadata
+	md, ok := metadata.FromIncomingContext(ctx)
+	if ok {
+		if xRealIP := md.Get("x-real-ip"); len(xRealIP) > 0 {
+			return xRealIP[0]
+		}
+
+		if xForwardedFor := md.Get("x-forwarded-for"); len(xForwardedFor) > 0 {
+			// X-Forwarded-For can contain multiple IPs, take the first one
+			ips := strings.Split(xForwardedFor[0], ",")
+			if len(ips) > 0 {
+				return strings.TrimSpace(ips[0])
+			}
+		}
+	}
+
+	// Fall back to peer address
+	if p, ok := peer.FromContext(ctx); ok {
+		host, _, err := net.SplitHostPort(p.Addr.String())
+		if err != nil {
+			return convertIP6ToIP4Loopback(p.Addr.String())
+		}
+		return convertIP6ToIP4Loopback(host)
+	}
+
+	return "unknown"
+}
+
+func convertIP6ToIP4Loopback(ip string) string {
+	if ip == "::1" {
+		return "127.0.0.1" // Convert IPv6 loopback to IPv4
+	}
+	return ip
 }
 
 func StartAndListen(s *grpc.Server, state *state.State) error {

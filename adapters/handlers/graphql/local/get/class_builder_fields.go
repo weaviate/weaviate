@@ -347,7 +347,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		tenant = tk.(string)
 	}
 
-	if err := r.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(className, tenant)...); err != nil {
+	if err := r.authorizer.Authorize(p.Context, principal, authorization.READ, authorization.ShardsData(className, tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -375,7 +375,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 	}
 	allPropsToAuthorize := append(properties, groupByProperties...)
 	for _, property := range allPropsToAuthorize {
-		if err := common_filters.AuthorizeProperty(r.authorizer, &property, principal); err != nil {
+		if err := common_filters.AuthorizeProperty(p.Context, r.authorizer, &property, principal); err != nil {
 			return nil, err
 		}
 	}
@@ -390,7 +390,7 @@ func (r *resolver) resolveGet(p graphql.ResolveParams, className string) (interf
 		return nil, fmt.Errorf("could not extract filters: %w", err)
 	}
 	if filters != nil {
-		if err = common_filters.AuthorizeFilters(r.authorizer, filters.Root, principal); err != nil {
+		if err = common_filters.AuthorizeFilters(p.Context, r.authorizer, filters.Root, principal); err != nil {
 			return nil, err
 		}
 	}
