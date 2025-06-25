@@ -49,12 +49,6 @@ type WeaviateRuntimeConfig struct {
 	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"exp_oidc_certificate" json:"exp_oidc_certificate"`
 }
 
-// experimental hooks and configs.
-// NOTE: There are not meant to be used by users long-term. Anything added in experiment is subject to change
-type ExperiementConfig struct {
-	hooks map[string]func() error
-}
-
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
 func ParseRuntimeConfig(buf []byte) (*WeaviateRuntimeConfig, error) {
 	var conf WeaviateRuntimeConfig
@@ -225,22 +219,20 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 		}).Infof("runtime overrides: config '%v' changed from '%v' to '%v'", v.field, v.oldV, v.newV)
 	}
 
-	if hooks != nil {
-		for match, f := range hooks {
-			if matchUpdatedFields(match, logRecords) {
-				err := f()
-				if err != nil {
-					log.WithFields(logrus.Fields{
-						"action": "runtime_overrides_hooks",
-						"match":  match,
-					}).Errorf("error calling runtime hooks for match %s, %v", match, err)
-					continue
-				}
+	for match, f := range hooks {
+		if matchUpdatedFields(match, logRecords) {
+			err := f()
+			if err != nil {
 				log.WithFields(logrus.Fields{
 					"action": "runtime_overrides_hooks",
 					"match":  match,
-				}).Infof("runtime overrides: hook ran for matching '%v' pattern", match)
+				}).Errorf("error calling runtime hooks for match %s, %v", match, err)
+				continue
 			}
+			log.WithFields(logrus.Fields{
+				"action": "runtime_overrides_hooks",
+				"match":  match,
+			}).Infof("runtime overrides: hook ran for matching '%v' pattern", match)
 		}
 	}
 }
