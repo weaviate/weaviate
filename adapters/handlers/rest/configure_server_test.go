@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package rest
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -26,7 +27,7 @@ func Test_DummyAuthorizer(t *testing.T) {
 		authorizer := authorization.DummyAuthorizer{}
 
 		t.Run("any request is allowed", func(t *testing.T) {
-			err := authorizer.Authorize(nil, "delete", "the/world")
+			err := authorizer.Authorize(context.Background(), nil, "delete", "the/world")
 			assert.Nil(t, err)
 		})
 	})
@@ -45,12 +46,12 @@ func Test_AdminListAuthorizer(t *testing.T) {
 
 		authorizer := adminlist.New(cfg.Authorization.AdminList)
 		t.Run("admin requests are allowed", func(t *testing.T) {
-			err := authorizer.Authorize(&models.Principal{Username: "user1"}, "delete", "the/world")
+			err := authorizer.Authorize(context.Background(), &models.Principal{Username: "user1"}, "delete", "the/world")
 			assert.Nil(t, err)
 		})
 
 		t.Run("non admin requests are allowed", func(t *testing.T) {
-			err := authorizer.Authorize(&models.Principal{Username: "user2"}, "delete", "the/world")
+			err := authorizer.Authorize(context.Background(), &models.Principal{Username: "user2"}, "delete", "the/world")
 			assert.NotNil(t, err)
 		})
 	})

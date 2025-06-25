@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,8 +20,10 @@ import (
 	"net/http"
 
 	"github.com/go-openapi/errors"
+	"github.com/go-openapi/runtime"
 	"github.com/go-openapi/runtime/middleware"
 	"github.com/go-openapi/strfmt"
+	"github.com/go-openapi/validate"
 )
 
 // NewCreateUserParams creates a new CreateUserParams object
@@ -41,6 +43,10 @@ type CreateUserParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
+	/*
+	  In: body
+	*/
+	Body CreateUserBody
 	/*user id
 	  Required: true
 	  In: path
@@ -56,6 +62,28 @@ func (o *CreateUserParams) BindRequest(r *http.Request, route *middleware.Matche
 	var res []error
 
 	o.HTTPRequest = r
+
+	if runtime.HasBody(r) {
+		defer r.Body.Close()
+		var body CreateUserBody
+		if err := route.Consumer.Consume(r.Body, &body); err != nil {
+			res = append(res, errors.NewParseError("body", "body", "", err))
+		} else {
+			// validate body object
+			if err := body.Validate(route.Formats); err != nil {
+				res = append(res, err)
+			}
+
+			ctx := validate.WithOperationRequest(r.Context())
+			if err := body.ContextValidate(ctx, route.Formats); err != nil {
+				res = append(res, err)
+			}
+
+			if len(res) == 0 {
+				o.Body = body
+			}
+		}
+	}
 
 	rUserID, rhkUserID, _ := route.Params.GetOK("user_id")
 	if err := o.bindUserID(rUserID, rhkUserID, route.Formats); err != nil {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,7 +51,7 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		return &Error{"bad request", StatusBadRequest, err}
 	}
 	cls, id := updates.Class, updates.ID
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 

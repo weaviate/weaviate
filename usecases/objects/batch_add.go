@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,11 +52,11 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 		knownClasses[className] = vClass[className]
 
-		if err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 
-		if err := b.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 	}

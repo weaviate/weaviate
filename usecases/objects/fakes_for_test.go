@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package objects
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 
@@ -72,7 +71,7 @@ func (f *fakeSchemaManager) GetSchema(principal *models.Principal) (schema.Schem
 	return f.GetSchemaResponse, f.GetschemaErr
 }
 
-func (f *fakeSchemaManager) GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error) {
+func (f *fakeSchemaManager) GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error) {
 	return f.GetSchema(principal)
 }
 
@@ -521,10 +520,6 @@ func (m *nearCustomTextModule) Name() string {
 }
 
 func (m *nearCustomTextModule) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *nearCustomTextModule) RootHandler() http.Handler {
 	return nil
 }
 

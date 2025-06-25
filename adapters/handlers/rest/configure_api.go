@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -124,6 +124,7 @@ import (
 	modtransformers "github.com/weaviate/weaviate/modules/text2vec-transformers"
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
+	modusagegcs "github.com/weaviate/weaviate/modules/usage-gcs"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -213,6 +214,33 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	config.ServerVersion = build.Version
 
 	appState := startupRoutine(ctx, options)
+
+	// this is before initRuntimeOverrides to be able to init module configs
+	// as runtime overrides are applied after initModules
+	if err := registerModules(appState); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't load")
+	}
+
+	// while we accept an overall longer startup, e.g. due to a recovery, we
+	// still want to limit the module startup context, as that's mostly service
+	// discovery / dependency checking
+	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
+	defer cancel()
+
+	if err := initModules(moduleCtx, appState); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("modules didn't initialize")
+	}
+	// now that modules are loaded we can run the remaining config validation
+	// which is module dependent
+	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
+		appState.Logger.
+			WithField("action", "startup").WithError(err).
+			Fatal("invalid config")
+	}
 
 	// initializing at the top to reflect the config changes before we pass on to different components.
 	initRuntimeOverrides(appState)
@@ -339,21 +367,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	limitResources(appState)
-
-	err := registerModules(appState)
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't load")
-	}
-
-	// now that modules are loaded we can run the remaining config validation
-	// which is module dependent
-	if err := appState.ServerConfig.Config.ValidateModules(appState.Modules); err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("invalid config")
-	}
 
 	appState.ClusterHttpClient = reasonableHttpClient(appState.ServerConfig.Config.Cluster.AuthConfig)
 	appState.MemWatch = memwatch.NewMonitor(memwatch.LiveHeapReader, debug.SetMemoryLimit, 0.97)
@@ -604,19 +617,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	updateSchemaCallback := makeUpdateSchemaCall(appState)
 	executor.RegisterSchemaUpdateCallback(updateSchemaCallback)
-
-	// while we accept an overall longer startup, e.g. due to a recovery, we
-	// still want to limit the module startup context, as that's mostly service
-	// discovery / dependency checking
-	moduleCtx, cancel := context.WithTimeout(ctx, 120*time.Second)
-	defer cancel()
-
-	err = initModules(moduleCtx, appState)
-	if err != nil {
-		appState.Logger.
-			WithField("action", "startup").WithError(err).
-			Fatal("modules didn't initialize")
-	}
 
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(context.Background())
@@ -935,6 +935,13 @@ func configureAPI(api *operations.WeaviateAPI) http.Handler {
 			appState.Logger.
 				WithError(err).
 				WithField("action", "shutdown db users").
+				Errorf("failed to gracefully shutdown")
+		}
+
+		if err := appState.Modules.Close(); err != nil {
+			appState.Logger.
+				WithError(err).
+				WithField("action", "shutdown modules").
 				Errorf("failed to gracefully shutdown")
 		}
 	}
@@ -1607,6 +1614,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modusagegcs.Name]; ok {
+		appState.Modules.Register(modusagegcs.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modusagegcs.Name).
+			Debug("enabled module")
+	}
+
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("completed registering modules")
@@ -1624,7 +1639,7 @@ func initModules(ctx context.Context, appState *state.State) error {
 	// TODO: gh-1481 don't pass entire appState in, but only what's needed. Probably only
 	// config?
 	moduleParams := moduletools.NewInitParams(storageProvider, appState,
-		appState.ServerConfig.Config, appState.Logger)
+		&appState.ServerConfig.Config, appState.Logger, prometheus.DefaultRegisterer)
 
 	appState.Logger.
 		WithField("action", "startup").
@@ -1794,6 +1809,14 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.QuerySlowLogEnabled = appState.ServerConfig.Config.QuerySlowLogEnabled
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
+
+		if appState.Modules.UsageEnabled() {
+			registered.UsageGCSBucket = appState.ServerConfig.Config.Usage.GCSBucket
+			registered.UsageGCSPrefix = appState.ServerConfig.Config.Usage.GCSPrefix
+			registered.UsageGCSAuth = appState.ServerConfig.Config.Usage.GCSAuth
+			registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
+			registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
+		}
 
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,

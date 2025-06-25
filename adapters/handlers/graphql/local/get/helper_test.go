@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,7 +14,6 @@ package get
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"sort"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -203,10 +202,6 @@ func (m *nearCustomTextModule) Name() string {
 }
 
 func (m *nearCustomTextModule) Init(params moduletools.ModuleInitParams) error {
-	return nil
-}
-
-func (m *nearCustomTextModule) RootHandler() http.Handler {
 	return nil
 }
 
@@ -631,15 +626,15 @@ func getFakeModulesProvider() ModulesProvider {
 
 type fakeAuthorizer struct{}
 
-func (f *fakeAuthorizer) Authorize(principal *models.Principal, action string, resource ...string) error {
+func (f *fakeAuthorizer) Authorize(ctx context.Context, principal *models.Principal, action string, resource ...string) error {
 	return nil
 }
 
-func (f *fakeAuthorizer) AuthorizeSilent(principal *models.Principal, action string, resource ...string) error {
+func (f *fakeAuthorizer) AuthorizeSilent(ctx context.Context, principal *models.Principal, action string, resource ...string) error {
 	return nil
 }
 
-func (f *fakeAuthorizer) FilterAuthorizedResources(principal *models.Principal, action string, resources ...string) ([]string, error) {
+func (f *fakeAuthorizer) FilterAuthorizedResources(ctx context.Context, principal *models.Principal, action string, resources ...string) ([]string, error) {
 	return resources, nil
 }
 

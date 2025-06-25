@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -41,7 +41,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	className := schema.UppercaseClassName(object.Class)
 	object.Class = className
 
-	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
 		return nil, err
 	}
 

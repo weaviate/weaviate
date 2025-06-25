@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,7 +47,7 @@ func NewObjectsUpdate(ctx *middleware.Context, handler ObjectsUpdateHandler) *Ob
 
 Update an Object based on its UUID.
 
-Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.
+Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
 */
 type ObjectsUpdate struct {
 	Context *middleware.Context

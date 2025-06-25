@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,6 @@ package modgenerativexai
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -68,11 +67,6 @@ func (m *GenerativeXaiModule) initAdditional(ctx context.Context, timeout time.D
 	m.generative = client
 	m.additionalPropertiesProvider = parameters.AdditionalGenerativeParameters(m.generative)
 
-	return nil
-}
-
-func (m *GenerativeXaiModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

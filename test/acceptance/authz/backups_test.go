@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,7 +45,7 @@ func TestAuthZBackupsManageJourney(t *testing.T) {
 		New().
 		WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).WithUserApiKey(viewerUser, viewerKey).
-		WithRBAC().WithRbacAdmins(adminUser).WithRbacViewers(viewerUser).
+		WithRBAC().WithRbacRoots(adminUser).WithRbacViewers(viewerUser).
 		WithBackendFilesystem().
 		Start(ctx)
 	require.Nil(t, err)

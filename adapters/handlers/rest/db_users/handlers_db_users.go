@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,6 +13,7 @@ package db_users
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"regexp"
@@ -89,6 +90,8 @@ func SetupHandlers(
 }
 
 func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+
 	isRootUser := h.isRequestFromRootUser(principal)
 
 	if !h.dbUserEnabled {
@@ -107,6 +110,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 
 	resourceFilter := filter.New[*apikey.User](h.authorizer, h.rbacConfig)
 	filteredUsers := resourceFilter.Filter(
+		ctx,
 		h.logger,
 		principal,
 		allUsers,
@@ -121,6 +125,7 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		usersWithTime = h.getLastUsed(filteredUsers)
 	}
 
+	allDynamicUsers := map[string]struct{}{}
 	response := make([]*models.DBUserInfo, 0, len(filteredUsers))
 	for _, dbUser := range filteredUsers {
 		apiKeyFirstLetter := ""
@@ -135,10 +140,17 @@ func (h *dynUserHandler) listUsers(params users.ListAllUsersParams, principal *m
 		if err != nil {
 			return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
+		if isRootUser {
+			allDynamicUsers[dbUser.Id] = struct{}{}
+		}
 	}
 
 	if isRootUser {
 		for _, staticUser := range h.staticApiKeysConfigs.Users {
+			if _, ok := allDynamicUsers[staticUser]; ok {
+				// don't overwrite dynamic users with the same name. Can happen after import
+				continue
+			}
 			response, err = h.addToListAllResponse(response, staticUser, string(models.UserTypeOutputDbEnvUser), true, "", nil, nil)
 			if err != nil {
 				return users.NewListAllUsersInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -179,7 +191,9 @@ func (h *dynUserHandler) addToListAllResponse(response []*models.DBUserInfo, id,
 }
 
 func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Users(params.UserID)...); err != nil {
 		return users.NewGetUserInfoForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -189,19 +203,16 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 
 	// also check for existing static users if request comes from root
 	isRootUser := h.isRequestFromRootUser(principal)
-	isStaticUser := isRootUser && h.staticUserExists(params.UserID)
 
 	active := true
 	response := &models.DBUserInfo{UserID: &params.UserID, Active: &active}
-	if !isStaticUser {
-		existingDbUsers, err := h.dbUsers.GetUsers(params.UserID)
-		if err != nil {
-			return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
-		}
 
-		if len(existingDbUsers) == 0 {
-			return users.NewGetUserInfoNotFound()
-		}
+	existingDbUsers, err := h.dbUsers.GetUsers(params.UserID)
+	if err != nil {
+		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("checking user existence: %w", err)))
+	}
+	var userType string
+	if len(existingDbUsers) > 0 {
 		user := existingDbUsers[params.UserID]
 		response.Active = &user.Active
 		response.CreatedAt = strfmt.DateTime(user.CreatedAt)
@@ -213,24 +224,24 @@ func (h *dynUserHandler) getUser(params users.GetUserInfoParams, principal *mode
 			usersWithTime := h.getLastUsed([]*apikey.User{user})
 			response.LastUsedAt = strfmt.DateTime(usersWithTime[params.UserID])
 		}
+		userType = string(models.UserTypeOutputDbUser)
+	} else if isRootUser && h.staticUserExists(params.UserID) {
+		userType = string(models.UserTypeOutputDbEnvUser)
+	} else {
+		return users.NewGetUserInfoNotFound()
 	}
+	response.DbUserType = &userType
 
-	existedRoles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
+	existingRoles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
 	if err != nil {
 		return users.NewGetUserInfoInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("get roles: %w", err)))
 	}
 
-	roles := make([]string, 0, len(existedRoles))
-	for roleName := range existedRoles {
+	roles := make([]string, 0, len(existingRoles))
+	for roleName := range existingRoles {
 		roles = append(roles, roleName)
 	}
 	response.Roles = roles
-
-	userType := string(models.UserTypeOutputDbUser)
-	if isStaticUser {
-		userType = string(models.UserTypeOutputDbEnvUser)
-	}
-	response.DbUserType = &userType
 
 	return users.NewGetUserInfoOK().WithPayload(response)
 }
@@ -299,16 +310,46 @@ func (h *dynUserHandler) getLastUsed(users []*apikey.User) map[string]time.Time 
 }
 
 func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *models.Principal) middleware.Responder {
+	ctx := params.HTTPRequest.Context()
+
 	if err := validateUserName(params.UserID); err != nil {
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	if err := h.authorizer.Authorize(principal, authorization.CREATE, authorization.Users(params.UserID)...); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewCreateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if !h.dbUserEnabled {
 		return users.NewCreateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
+	}
+
+	if params.Body.Import != nil && *params.Body.Import {
+		if !h.principalIsRootUser(principal.Username) {
+			return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("only root users can import static api keys")))
+		}
+
+		if !h.staticUserExists(params.UserID) {
+			return users.NewCreateUserNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("static user %v does not exist", params.UserID)))
+		}
+
+		var apiKey string
+		for i, user := range h.staticApiKeysConfigs.Users {
+			if user == params.UserID {
+				apiKey = h.staticApiKeysConfigs.AllowedKeys[i]
+			}
+		}
+
+		createdAt := time.Now()
+		if !time.Time(params.Body.CreateTime).IsZero() {
+			createdAt = time.Time(params.Body.CreateTime).UTC()
+		}
+
+		if err := h.dbUsers.CreateUserWithKey(params.UserID, apiKey[:3], sha256.Sum256([]byte(apiKey)), createdAt); err != nil {
+			return users.NewCreateUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("creating user: %w", err)))
+		}
+
+		return users.NewCreateUserCreated().WithPayload(&models.UserAPIKey{Apikey: &apiKey})
 	}
 
 	if h.staticUserExists(params.UserID) {
@@ -343,16 +384,14 @@ func (h *dynUserHandler) createUser(params users.CreateUserParams, principal *mo
 }
 
 func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewRotateUserAPIKeyForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if !h.dbUserEnabled {
 		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
-	}
-
-	if h.staticUserExists(params.UserID) {
-		return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
 	}
 
 	existingUser, err := h.dbUsers.GetUsers(params.UserID)
@@ -361,8 +400,12 @@ func (h *dynUserHandler) rotateKey(params users.RotateUserAPIKeyParams, principa
 	}
 
 	if len(existingUser) == 0 {
+		if h.staticUserExists(params.UserID) {
+			return users.NewRotateUserAPIKeyUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
+		}
 		return users.NewRotateUserAPIKeyNotFound()
 	}
+
 	oldUserIdentifier := existingUser[params.UserID].InternalIdentifier
 
 	apiKey, hash, newUserIdentifier, err := h.getApiKey()
@@ -405,16 +448,14 @@ func (h *dynUserHandler) getApiKey() (string, string, string, error) {
 }
 
 func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.DELETE, authorization.Users(params.UserID)...); err != nil {
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewDeleteUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if !h.dbUserEnabled {
 		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
-	}
-
-	if h.staticUserExists(params.UserID) {
-		return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
 	}
 
 	if h.isRootUser(params.UserID) {
@@ -425,6 +466,9 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 		return users.NewDeleteUserInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 	if len(existingUsers) == 0 {
+		if h.staticUserExists(params.UserID) {
+			return users.NewDeleteUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
+		}
 		return users.NewDeleteUserNotFound()
 	}
 	roles, err := h.dbUsers.GetRolesForUser(params.UserID, models.UserTypeInputDb)
@@ -448,7 +492,9 @@ func (h *dynUserHandler) deleteUser(params users.DeleteUserParams, principal *mo
 }
 
 func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+	ctx := params.HTTPRequest.Context()
+
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewDeactivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -458,10 +504,6 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 
 	if params.UserID == principal.Username {
 		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' cannot self-deactivate", params.UserID)))
-	}
-
-	if h.staticUserExists(params.UserID) {
-		return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
 	}
 
 	if h.isRootUser(params.UserID) {
@@ -474,6 +516,9 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 	}
 
 	if len(existingUser) == 0 {
+		if h.staticUserExists(params.UserID) {
+			return users.NewDeactivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
+		}
 		return users.NewDeactivateUserNotFound()
 	}
 
@@ -494,16 +539,13 @@ func (h *dynUserHandler) deactivateUser(params users.DeactivateUserParams, princ
 }
 
 func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal *models.Principal) middleware.Responder {
-	if err := h.authorizer.Authorize(principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
+	ctx := params.HTTPRequest.Context()
+	if err := h.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Users(params.UserID)...); err != nil {
 		return users.NewActivateUserForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
 	if !h.dbUserEnabled {
 		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(errors.New("db user management is not enabled")))
-	}
-
-	if h.staticUserExists(params.UserID) {
-		return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
 	}
 
 	if h.isRootUser(params.UserID) {
@@ -516,6 +558,9 @@ func (h *dynUserHandler) activateUser(params users.ActivateUserParams, principal
 	}
 
 	if len(existingUser) == 0 {
+		if h.staticUserExists(params.UserID) {
+			return users.NewActivateUserUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("user '%v' is static user", params.UserID)))
+		}
 		return users.NewActivateUserNotFound()
 	}
 
@@ -536,6 +581,18 @@ func (h *dynUserHandler) staticUserExists(newUser string) bool {
 			if staticUser == newUser {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func (h *dynUserHandler) principalIsRootUser(name string) bool {
+	if !h.rbacConfig.Enabled && !h.adminListConfig.Enabled {
+		return true
+	}
+	for i := range h.rbacConfig.RootUsers {
+		if h.rbacConfig.RootUsers[i] == name {
+			return true
 		}
 	}
 	return false

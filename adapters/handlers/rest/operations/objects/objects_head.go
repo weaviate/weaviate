@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,7 +47,7 @@ func NewObjectsHead(ctx *middleware.Context, handler ObjectsHeadHandler) *Object
 
 Checks Object's existence based on its UUID.
 
-Checks if an object exists in the system based on its UUID.
+Checks if an object exists in the system based on its UUID. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
 */
 type ObjectsHead struct {
 	Context *middleware.Context

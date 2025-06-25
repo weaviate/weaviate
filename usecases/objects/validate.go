@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,7 +33,7 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	className := schema.UppercaseClassName(obj.Class)
 	obj.Class = className
 
-	err := m.authorizer.Authorize(principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))
+	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))
 	if err != nil {
 		return err
 	}

@@ -6,3 +6,7 @@ tenant_activity_write_log_level: info
 query_slow_log_enabled: true
 query_slow_log_threshold: 100ms
 inverted_sorter_disabled: false
+# for usage module if enabled make sure that usage-gcs module is enabled
+# usage_scrape_interval: 1s
+# usage_gcs_bucket: weaviate-usage
+# usage_gcs_prefix: billing

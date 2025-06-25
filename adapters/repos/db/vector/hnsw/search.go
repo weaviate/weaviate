@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -158,6 +158,11 @@ func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float
 }
 
 func (h *hnsw) shouldRescore() bool {
+	if h.compressed.Load() {
+		if (h.sqConfig.Enabled && h.sqConfig.RescoreLimit == 0) || (h.rqConfig.Enabled && h.rqConfig.RescoreLimit == 0) {
+			return false
+		}
+	}
 	return h.compressed.Load() && !h.doNotRescore
 }
 
@@ -975,6 +980,11 @@ func (h *hnsw) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVe
 func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) error {
 	if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
 		for res.Len() > h.sqConfig.RescoreLimit {
+			res.Pop()
+		}
+	}
+	if h.rqConfig.Enabled && h.rqConfig.RescoreLimit >= k {
+		for res.Len() > h.rqConfig.RescoreLimit {
 			res.Pop()
 		}
 	}

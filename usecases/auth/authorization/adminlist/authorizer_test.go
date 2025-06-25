@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,6 +12,7 @@
 package adminlist
 
 import (
+	"context"
 	"errors"
 	"testing"
 
@@ -32,7 +33,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "R", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "R", "things")
 
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
@@ -46,7 +47,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			principal := (*models.Principal)(nil)
-			err := New(cfg).Authorize(principal, "R", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "R", "things")
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
 			assert.Contains(t, err.Error(), "anonymous")
@@ -64,7 +65,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "R", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "R", "things")
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
 			assert.Contains(t, err.Error(), "johndoe")
@@ -83,7 +84,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "R", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "R", "things")
 			assert.Nil(t, err)
 		})
 
@@ -100,7 +101,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "R", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "R", "things")
 			assert.Nil(t, err)
 		})
 
@@ -113,7 +114,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			principal := (*models.Principal)(nil)
-			err := New(cfg).Authorize(principal, "R", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "R", "things")
 			assert.Nil(t, err)
 		})
 	})
@@ -132,7 +133,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				"posse",
 			},
 		}
-		err := New(cfg).Authorize(principal, "R", "things")
+		err := New(cfg).Authorize(context.Background(), principal, "R", "things")
 		assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 		assert.Contains(t, err.Error(), "forbidden")
 		assert.Contains(t, err.Error(), "posse")
@@ -154,7 +155,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				"posse",
 			},
 		}
-		err := New(cfg).Authorize(principal, "R", "things")
+		err := New(cfg).Authorize(context.Background(), principal, "R", "things")
 		assert.Nil(t, err)
 	})
 
@@ -174,7 +175,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			},
 		}
 
-		err := New(cfg).Authorize(principal, "R", "things")
+		err := New(cfg).Authorize(context.Background(), principal, "R", "things")
 		assert.Nil(t, err)
 	})
 
@@ -197,7 +198,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			},
 		}
 
-		err := New(cfg).Authorize(principal, "R", "things")
+		err := New(cfg).Authorize(context.Background(), principal, "R", "things")
 		assert.Nil(t, err)
 	})
 
@@ -220,7 +221,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			},
 		}
 
-		err := New(cfg).Authorize(principal, "R", "things")
+		err := New(cfg).Authorize(context.Background(), principal, "R", "things")
 		assert.Nil(t, err)
 	})
 
@@ -232,7 +233,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			principal := (*models.Principal)(nil)
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
 			assert.Contains(t, err.Error(), "anonymous")
@@ -248,7 +249,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
 			assert.Contains(t, err.Error(), "johndoe")
@@ -266,7 +267,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
 			assert.Contains(t, err.Error(), "johndoe")
@@ -284,7 +285,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "",
 			}
 
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
 		})
@@ -302,7 +303,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.Nil(t, err)
 		})
 
@@ -319,7 +320,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 			}
 
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
 			assert.Contains(t, err.Error(), "johndoe")
@@ -335,7 +336,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 			}
 
 			principal := (*models.Principal)(nil)
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
 			assert.Contains(t, err.Error(), "anonymous")
@@ -355,7 +356,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 					"posse",
 				},
 			}
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
 			assert.Contains(t, err.Error(), "posse")
@@ -374,7 +375,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				Username: "johndoe",
 				Groups:   []string{},
 			}
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
 			assert.Contains(t, err.Error(), "johndoe")
@@ -395,7 +396,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 					"band",
 				},
 			}
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.Nil(t, err)
 		})
 
@@ -415,7 +416,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				},
 			}
 
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.True(t, errors.As(err, &authZErrors.Forbidden{}))
 			assert.Contains(t, err.Error(), "forbidden")
 			assert.Contains(t, err.Error(), "johndoe")
@@ -441,7 +442,7 @@ func Test_AdminList_Authorizer(t *testing.T) {
 				},
 			}
 
-			err := New(cfg).Authorize(principal, "create", "things")
+			err := New(cfg).Authorize(context.Background(), principal, "create", "things")
 			assert.Nil(t, err)
 		})
 	})

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -55,7 +55,7 @@ func TestHandler_ListTasks(t *testing.T) {
 		h = NewHandler(authorizer, lister)
 	)
 
-	authorizer.EXPECT().Authorize(mock.Anything, authorization.READ, authorization.Cluster()).Return(nil)
+	authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).Return(nil)
 
 	tasks, err := h.ListTasks(context.Background(), &models.Principal{})
 	require.NoError(t, err)
