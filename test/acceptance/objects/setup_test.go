@@ -16,6 +16,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/weaviate/weaviate/test/docker"
 
@@ -84,6 +85,55 @@ func TestObjects_AsyncIndexing(t *testing.T) {
 
 	testObjects(t)
 	asyncTestObjects(t)
+}
+
+// Tests for allocChecker nil error on dynamic indexes during shard load
+func TestObjects_AsyncIndexing_LoadShard(t *testing.T) {
+	ctx := context.Background()
+	compose, err := docker.New().
+		WithWeaviate().
+		WithWeaviateEnv("ASYNC_INDEXING", "true").
+		WithWeaviateEnv("PERSISTENCE_MIN_MMAP_SIZE", "20MB").
+		Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+
+	defer helper.SetupClient(fmt.Sprintf("%s:%s", helper.ServerHost, helper.ServerPort))
+	helper.SetupClient(compose.GetWeaviate().URI())
+
+	className := "Dynamic"
+	createObjectClass(t, &models.Class{
+		Class:           className,
+		Vectorizer:      "none",
+		VectorIndexType: "dynamic",
+		MultiTenancyConfig: &models.MultiTenancyConfig{
+			Enabled: true,
+		},
+		Properties: []*models.Property{
+			{
+				Name:     "description",
+				DataType: []string{"text"},
+			},
+		},
+	})
+
+	tenantName := "tenant0"
+	helper.CreateTenants(t, className, []*models.Tenant{{Name: tenantName, ActivityStatus: "ACTIVE"}})
+
+	for i := 0; i < 1000; i++ {
+		helper.AssertCreateObjectTenantVector(t, className, map[string]interface{}{
+			"description": fmt.Sprintf("Test string %d", i),
+		}, tenantName, []float32{0.0, 0.1})
+	}
+	time.Sleep(3 * time.Second)
+	helper.UpdateTenants(t, className, []*models.Tenant{{Name: tenantName, ActivityStatus: "INACTIVE"}})
+
+	time.Sleep(3 * time.Second)
+	helper.UpdateTenants(t, className, []*models.Tenant{{Name: tenantName, ActivityStatus: "ACTIVE"}})
+
+	deleteObjectClass(t, className)
 }
 
 func TestObjects_SyncIndexing(t *testing.T) {
