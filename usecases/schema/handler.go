@@ -136,7 +136,6 @@ type Handler struct {
 	clusterState            clusterState
 	configParser            VectorConfigParser
 	invertedConfigValidator InvertedConfigValidator
-	scaleOut                scaleOut
 	parser                  Parser
 	classGetter             *ClassGetter
 
@@ -153,7 +152,6 @@ func NewHandler(
 	configParser VectorConfigParser, vectorizerValidator VectorizerValidator,
 	invertedConfigValidator InvertedConfigValidator,
 	moduleConfig ModuleConfig, clusterState clusterState,
-	scaleoutManager scaleOut,
 	cloud modulecapabilities.OffloadCloud,
 	parser Parser, classGetter *ClassGetter,
 ) (Handler, error) {
@@ -171,15 +169,11 @@ func NewHandler(
 		invertedConfigValidator: invertedConfigValidator,
 		moduleConfig:            moduleConfig,
 		clusterState:            clusterState,
-		scaleOut:                scaleoutManager,
 		cloud:                   cloud,
 		classGetter:             classGetter,
 
 		asyncIndexingEnabled: entcfg.Enabled(os.Getenv("ASYNC_INDEXING")),
 	}
-
-	handler.scaleOut.SetSchemaReader(schemaReader)
-
 	return handler, nil
 }
 

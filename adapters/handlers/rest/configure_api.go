@@ -138,7 +138,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
-	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/schema"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
@@ -159,7 +158,6 @@ type vectorRepo interface {
 	objects.BatchVectorRepo
 	traverser.VectorSearcher
 	classification.VectorRepo
-	scaler.BackUpper
 	SetSchemaGetter(schema.SchemaGetter)
 	SetRouter(*router.Router)
 	WaitForStartup(ctx context.Context) error
@@ -481,10 +479,6 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		appState.Cluster, localClassifierRepo, appState.Logger)
 	appState.ClassificationRepo = classifierRepo
 
-	scaler := scaler.New(appState.Cluster, vectorRepo,
-		remoteIndexClient, appState.Logger, appState.ServerConfig.Config.Persistence.DataPath)
-	appState.Scaler = scaler
-
 	server2port, err := parseNode2Port(appState)
 	if len(server2port) == 0 || err != nil {
 		appState.Logger.
@@ -572,7 +566,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		schemaRepo,
 		appState.Logger, appState.Authorizer, &appState.ServerConfig.Config.SchemaHandlerConfig, appState.ServerConfig.Config,
 		vectorIndex.ParseAndValidateConfig, appState.Modules, inverted.ValidateConfig,
-		appState.Modules, appState.Cluster, scaler,
+		appState.Modules, appState.Cluster,
 		offloadmod, *schemaParser,
 		collectionRetrievalStrategyConfigFlag,
 	)
