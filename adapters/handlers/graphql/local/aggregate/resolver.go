@@ -78,7 +78,7 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 		tenant = tk.(string)
 	}
 
-	if err := authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(className.String(), tenant)...); err != nil {
+	if err := authorizer.Authorize(p.Context, principal, authorization.READ, authorization.ShardsData(className.String(), tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -116,7 +116,7 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 		return nil, fmt.Errorf("could not extract filters: %w", err)
 	}
 	if filters != nil {
-		if err := common_filters.AuthorizeFilters(authorizer, filters.Root, principal); err != nil {
+		if err := common_filters.AuthorizeFilters(p.Context, authorizer, filters.Root, principal); err != nil {
 			return nil, err
 		}
 	}

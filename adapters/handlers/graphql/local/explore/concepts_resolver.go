@@ -81,7 +81,7 @@ func (r *resolver) resolve(p graphql.ResolveParams) (interface{}, error) {
 func (r *resolver) resolveExplore(p graphql.ResolveParams) (interface{}, error) {
 	principal := restCtx.GetPrincipalFromContext(p.Context)
 
-	err := r.authorizer.Authorize(principal, authorization.READ, authorization.CollectionsData()...)
+	err := r.authorizer.Authorize(p.Context, principal, authorization.READ, authorization.CollectionsData()...)
 	if err != nil {
 		return nil, err
 	}

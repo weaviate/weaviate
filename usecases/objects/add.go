@@ -41,7 +41,7 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	className := schema.UppercaseClassName(object.Class)
 	object.Class = className
 
-	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
 		return nil, err
 	}
 
