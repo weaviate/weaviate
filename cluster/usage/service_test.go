@@ -113,9 +113,9 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, nodeName, result.Node)
-	assert.Len(t, result.SingleTenantCollections, 1)
+	assert.Len(t, result.Collections, 1)
 
-	collection := result.SingleTenantCollections[0]
+	collection := result.Collections[0]
 	assert.Equal(t, className, collection.Name)
 	assert.Equal(t, replication, collection.ReplicationFactor)
 	assert.Equal(t, uniqueShards, collection.UniqueShardCount)
@@ -235,9 +235,9 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, nodeName, result.Node)
-	assert.Len(t, result.SingleTenantCollections, 1)
+	assert.Len(t, result.Collections, 1)
 
-	collection := result.SingleTenantCollections[0]
+	collection := result.Collections[0]
 	assert.Equal(t, className, collection.Name)
 	assert.Equal(t, replication, collection.ReplicationFactor)
 	assert.Equal(t, uniqueShards, collection.UniqueShardCount)
@@ -336,7 +336,7 @@ func TestService_Usage_WithBackups(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, nodeName, result.Node)
-	assert.Len(t, result.SingleTenantCollections, 0)
+	assert.Len(t, result.Collections, 0)
 	assert.Len(t, result.Backups, 1)
 
 	backup := result.Backups[0]
@@ -454,9 +454,9 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, nodeName, result.Node)
-	assert.Len(t, result.SingleTenantCollections, 1)
+	assert.Len(t, result.Collections, 1)
 
-	collection := result.SingleTenantCollections[0]
+	collection := result.Collections[0]
 	assert.Equal(t, className, collection.Name)
 	assert.Len(t, collection.Shards, 1)
 
@@ -523,7 +523,7 @@ func TestService_Usage_EmptyCollections(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, nodeName, result.Node)
-	assert.Len(t, result.SingleTenantCollections, 0)
+	assert.Len(t, result.Collections, 0)
 	assert.Len(t, result.Backups, 0)
 
 	mockSchema.AssertExpectations(t)
@@ -557,7 +557,7 @@ func TestService_Usage_BackupError(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, nodeName, result.Node)
-	assert.Len(t, result.SingleTenantCollections, 0)
+	assert.Len(t, result.Collections, 0)
 	assert.Len(t, result.Backups, 0)
 
 	mockSchema.AssertExpectations(t)
@@ -641,9 +641,9 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, nodeName, result.Node)
-	assert.Len(t, result.SingleTenantCollections, 1)
+	assert.Len(t, result.Collections, 1)
 
-	collection := result.SingleTenantCollections[0]
+	collection := result.Collections[0]
 	assert.Len(t, collection.Shards, 1)
 
 	shard := collection.Shards[0]
@@ -740,9 +740,9 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.Equal(t, nodeName, result.Node)
-	assert.Len(t, result.SingleTenantCollections, 1)
+	assert.Len(t, result.Collections, 1)
 
-	collection := result.SingleTenantCollections[0]
+	collection := result.Collections[0]
 	assert.Equal(t, className, collection.Name)
 	assert.Len(t, collection.Shards, 1)
 
