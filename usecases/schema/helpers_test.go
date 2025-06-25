@@ -32,9 +32,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/fakes"
-	"github.com/weaviate/weaviate/usecases/scaler"
 	"github.com/weaviate/weaviate/usecases/sharding"
-	shardingConfig "github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
 func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSchemaManager) {
@@ -53,7 +51,7 @@ func newTestHandler(t *testing.T, db clusterSchema.Indexer) (*Handler, *fakeSche
 	handler, err := NewHandler(
 		schemaManager, schemaManager, fakeValidator, logger, mocks.NewMockAuthorizer(),
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
+		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil)
 	require.NoError(t, err)
 	handler.schemaConfig.MaximumAllowedCollectionsCount = runtime.NewDynamicValue(-1)
 	return &handler, schemaManager
@@ -74,7 +72,7 @@ func newTestHandlerWithCustomAuthorizer(t *testing.T, db clusterSchema.Indexer, 
 	handler, err := NewHandler(
 		metaHandler, metaHandler, fakeValidator, logger, authorizer,
 		&cfg.SchemaHandlerConfig, cfg, dummyParseVectorConfig, vectorizerValidator, dummyValidateInvertedConfig,
-		&fakeModuleConfig{}, fakeClusterState, &fakeScaleOutManager{}, nil, *schemaParser, nil)
+		&fakeModuleConfig{}, fakeClusterState, nil, *schemaParser, nil)
 	require.Nil(t, err)
 	return &handler, metaHandler
 }
@@ -163,17 +161,6 @@ func (f *fakeDB) GetShardsStatus(class, tenant string) (models.ShardStatusList, 
 
 func (f *fakeDB) TriggerSchemaUpdateCallbacks() {
 	f.Called()
-}
-
-type fakeScaleOutManager struct{}
-
-func (f *fakeScaleOutManager) Scale(ctx context.Context,
-	className string, updated shardingConfig.Config, _, _ int64,
-) (*sharding.State, error) {
-	return nil, nil
-}
-
-func (f *fakeScaleOutManager) SetSchemaReader(sr scaler.SchemaReader) {
 }
 
 type fakeValidator struct{}
