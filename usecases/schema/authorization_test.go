@@ -124,6 +124,30 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
+		{
+			methodName:        "AddAlias",
+			additionalArgs:    []interface{}{&models.Alias{Class: "classname"}},
+			expectedVerb:      authorization.CREATE,
+			expectedResources: authorization.CollectionsMetadata("Classname"),
+		},
+		{
+			methodName:        "UpdateAlias",
+			additionalArgs:    []interface{}{"aliasName", "class"},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.CollectionsMetadata("class"),
+		},
+		{
+			methodName:        "DeleteAlias",
+			additionalArgs:    []interface{}{"aliasName"},
+			expectedVerb:      authorization.DELETE,
+			expectedResources: authorization.CollectionsMetadata("aliasName"),
+		},
+		{
+			methodName:        "GetAliases",
+			additionalArgs:    []interface{}{ptrStr("alias"), ptrStr("class")},
+			expectedVerb:      authorization.READ,
+			expectedResources: nil,
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
@@ -212,4 +236,8 @@ func allExportedMethods(subject interface{}) []string {
 	}
 
 	return methods
+}
+
+func ptrStr(in string) *string {
+	return &in
 }

@@ -80,6 +80,21 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		AuthzAddPermissionsHandler: authz.AddPermissionsHandlerFunc(func(params authz.AddPermissionsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AddPermissions has not yet been implemented")
 		}),
+		SchemaAliasesCreateHandler: schema.AliasesCreateHandlerFunc(func(params schema.AliasesCreateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesCreate has not yet been implemented")
+		}),
+		SchemaAliasesDeleteHandler: schema.AliasesDeleteHandlerFunc(func(params schema.AliasesDeleteParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesDelete has not yet been implemented")
+		}),
+		SchemaAliasesGetHandler: schema.AliasesGetHandlerFunc(func(params schema.AliasesGetParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesGet has not yet been implemented")
+		}),
+		SchemaAliasesGetAliasHandler: schema.AliasesGetAliasHandlerFunc(func(params schema.AliasesGetAliasParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesGetAlias has not yet been implemented")
+		}),
+		SchemaAliasesUpdateHandler: schema.AliasesUpdateHandlerFunc(func(params schema.AliasesUpdateParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation schema.AliasesUpdate has not yet been implemented")
+		}),
 		AuthzAssignRoleToGroupHandler: authz.AssignRoleToGroupHandlerFunc(func(params authz.AssignRoleToGroupParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation authz.AssignRoleToGroup has not yet been implemented")
 		}),
@@ -402,6 +417,16 @@ type WeaviateAPI struct {
 	UsersActivateUserHandler users.ActivateUserHandler
 	// AuthzAddPermissionsHandler sets the operation handler for the add permissions operation
 	AuthzAddPermissionsHandler authz.AddPermissionsHandler
+	// SchemaAliasesCreateHandler sets the operation handler for the aliases create operation
+	SchemaAliasesCreateHandler schema.AliasesCreateHandler
+	// SchemaAliasesDeleteHandler sets the operation handler for the aliases delete operation
+	SchemaAliasesDeleteHandler schema.AliasesDeleteHandler
+	// SchemaAliasesGetHandler sets the operation handler for the aliases get operation
+	SchemaAliasesGetHandler schema.AliasesGetHandler
+	// SchemaAliasesGetAliasHandler sets the operation handler for the aliases get alias operation
+	SchemaAliasesGetAliasHandler schema.AliasesGetAliasHandler
+	// SchemaAliasesUpdateHandler sets the operation handler for the aliases update operation
+	SchemaAliasesUpdateHandler schema.AliasesUpdateHandler
 	// AuthzAssignRoleToGroupHandler sets the operation handler for the assign role to group operation
 	AuthzAssignRoleToGroupHandler authz.AssignRoleToGroupHandler
 	// AuthzAssignRoleToUserHandler sets the operation handler for the assign role to user operation
@@ -660,6 +685,21 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.AuthzAddPermissionsHandler == nil {
 		unregistered = append(unregistered, "authz.AddPermissionsHandler")
+	}
+	if o.SchemaAliasesCreateHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesCreateHandler")
+	}
+	if o.SchemaAliasesDeleteHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesDeleteHandler")
+	}
+	if o.SchemaAliasesGetHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesGetHandler")
+	}
+	if o.SchemaAliasesGetAliasHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesGetAliasHandler")
+	}
+	if o.SchemaAliasesUpdateHandler == nil {
+		unregistered = append(unregistered, "schema.AliasesUpdateHandler")
 	}
 	if o.AuthzAssignRoleToGroupHandler == nil {
 		unregistered = append(unregistered, "authz.AssignRoleToGroupHandler")
@@ -1022,6 +1062,26 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/authz/roles/{id}/add-permissions"] = authz.NewAddPermissions(o.context, o.AuthzAddPermissionsHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/aliases"] = schema.NewAliasesCreate(o.context, o.SchemaAliasesCreateHandler)
+	if o.handlers["DELETE"] == nil {
+		o.handlers["DELETE"] = make(map[string]http.Handler)
+	}
+	o.handlers["DELETE"]["/aliases/{aliasName}"] = schema.NewAliasesDelete(o.context, o.SchemaAliasesDeleteHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/aliases"] = schema.NewAliasesGet(o.context, o.SchemaAliasesGetHandler)
+	if o.handlers["GET"] == nil {
+		o.handlers["GET"] = make(map[string]http.Handler)
+	}
+	o.handlers["GET"]["/aliases/{aliasName}"] = schema.NewAliasesGetAlias(o.context, o.SchemaAliasesGetAliasHandler)
+	if o.handlers["PUT"] == nil {
+		o.handlers["PUT"] = make(map[string]http.Handler)
+	}
+	o.handlers["PUT"]["/aliases/{aliasName}"] = schema.NewAliasesUpdate(o.context, o.SchemaAliasesUpdateHandler)
 	if o.handlers["POST"] == nil {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}

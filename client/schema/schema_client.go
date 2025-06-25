@@ -41,6 +41,16 @@ type ClientOption func(*runtime.ClientOperation)
 
 // ClientService is the interface for Client methods
 type ClientService interface {
+	AliasesCreate(params *AliasesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesCreateOK, error)
+
+	AliasesDelete(params *AliasesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesDeleteOK, error)
+
+	AliasesGet(params *AliasesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesGetOK, error)
+
+	AliasesGetAlias(params *AliasesGetAliasParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesGetAliasOK, error)
+
+	AliasesUpdate(params *AliasesUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesUpdateOK, error)
+
 	SchemaDump(params *SchemaDumpParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaDumpOK, error)
 
 	SchemaObjectsCreate(params *SchemaObjectsCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*SchemaObjectsCreateOK, error)
@@ -70,6 +80,209 @@ type ClientService interface {
 	TenantsUpdate(params *TenantsUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*TenantsUpdateOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
+}
+
+/*
+AliasesCreate creates a new alias
+
+Create a new alias for a collection
+*/
+func (a *Client) AliasesCreate(params *AliasesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesCreateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAliasesCreateParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "aliases.create",
+		Method:             "POST",
+		PathPattern:        "/aliases",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AliasesCreateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AliasesCreateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for aliases.create: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+AliasesDelete delete alias from a specific class (collection).
+*/
+func (a *Client) AliasesDelete(params *AliasesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesDeleteOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAliasesDeleteParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "aliases.delete",
+		Method:             "DELETE",
+		PathPattern:        "/aliases/{aliasName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AliasesDeleteReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AliasesDeleteOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for aliases.delete: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+AliasesGet gets aliases
+
+get all aliases or filtered by a class (collection)
+*/
+func (a *Client) AliasesGet(params *AliasesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesGetOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAliasesGetParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "aliases.get",
+		Method:             "GET",
+		PathPattern:        "/aliases",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AliasesGetReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AliasesGetOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for aliases.get: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+AliasesGetAlias gets aliases
+
+get all aliases or filtered by a class (collection)
+*/
+func (a *Client) AliasesGetAlias(params *AliasesGetAliasParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesGetAliasOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAliasesGetAliasParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "aliases.get.alias",
+		Method:             "GET",
+		PathPattern:        "/aliases/{aliasName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AliasesGetAliasReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AliasesGetAliasOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for aliases.get.alias: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+AliasesUpdate updates an alias
+
+Replace alias of a specific class (collection) to other class
+*/
+func (a *Client) AliasesUpdate(params *AliasesUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesUpdateOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewAliasesUpdateParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "aliases.update",
+		Method:             "PUT",
+		PathPattern:        "/aliases/{aliasName}",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &AliasesUpdateReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*AliasesUpdateOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for aliases.update: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
 }
 
 /*

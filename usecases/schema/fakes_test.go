@@ -270,6 +270,26 @@ func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uin
 	return nil
 }
 
+func (f *fakeSchemaManager) CreateAlias(ctx context.Context, alias string, class *models.Class) (uint64, error) {
+	args := f.Called(ctx, alias, class)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) ReplaceAlias(ctx context.Context, alias *models.Alias, newClass *models.Class) (uint64, error) {
+	args := f.Called(ctx, alias, newClass)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) DeleteAlias(ctx context.Context, alias string) (uint64, error) {
+	args := f.Called(ctx, alias)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) GetAliases(ctx context.Context, alias *string, class *models.Class) ([]*models.Alias, error) {
+	args := f.Called(ctx, alias, class)
+	return args.Get(0).([]*models.Alias), args.Error(1)
+}
+
 type fakeStore struct {
 	collections map[string]*models.Class
 	parser      Parser
