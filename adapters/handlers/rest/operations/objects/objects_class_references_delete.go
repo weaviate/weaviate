@@ -45,7 +45,7 @@ func NewObjectsClassReferencesDelete(ctx *middleware.Context, handler ObjectsCla
 /*
 	ObjectsClassReferencesDelete swagger:route DELETE /objects/{className}/{id}/references/{propertyName} objects objectsClassReferencesDelete
 
-Delete the single reference that is given in the body from the list of references that this property has.
+Delete a single reference from the list of references.
 
 Delete the single reference that is given in the body from the list of references that this property has.
 */

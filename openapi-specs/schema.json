@@ -3417,7 +3417,7 @@
         "description": "Retrieves a list of currently registered replication operations, optionally filtered by collection, shard, or node ID.",
         "operationId": "listReplication",
         "x-serviceIds": [
-          "weaviate.replication.replicate.details" 
+          "weaviate.replication.replicate.details"
         ],
         "tags": [
           "replication"
@@ -3613,7 +3613,7 @@
             }
           },
           "404": {
-            "description": "Collection or shard not found.", 
+            "description": "Collection or shard not found.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3792,6 +3792,26 @@
             "name": "user_id",
             "required": true,
             "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "import": {
+                  "type":"boolean",
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
+                  "default": false
+                },
+                "createTime": {
+                  "type":"string",
+                  "format": "date-time",
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time"
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -3812,6 +3832,12 @@
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5182,7 +5208,7 @@
     },
     "/objects/{id}": {
       "delete": {
-        "description": "Deletes an object from the database based on its UUID.",
+        "description": "Deletes an object from the database based on its UUID. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5235,7 +5261,7 @@
         "deprecated": true
       },
       "get": {
-        "description": "Get a specific object based on its UUID. Also available as Websocket bus.",
+        "description": "Get a specific object based on its UUID. Also available as Websocket bus. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.get",
         "x-serviceIds": [
           "weaviate.local.query"
@@ -5285,7 +5311,7 @@
             }
           }
         },
-        "summary": "Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.",
+        "summary": "Get a specific Object based on its UUID.",
         "tags": [
           "objects"
         ],
@@ -5294,7 +5320,7 @@
         "deprecated": true
       },
       "patch": {
-        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Update an object based on its UUID (using patch semantics). This method supports json-merge style patch semantics (RFC 7396). Provided meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.patch",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5362,7 +5388,7 @@
         "deprecated": true
       },
       "put": {
-        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called.",
+        "description": "Updates an object based on its UUID. Given meta-data and schema values are validated. LastUpdateTime is set to the time this function is called. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.update",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5429,7 +5455,7 @@
         "deprecated": true
       },
       "head": {
-        "description": "Checks if an object exists in the system based on its UUID.",
+        "description": "Checks if an object exists in the system based on its UUID. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.",
         "operationId": "objects.head",
         "x-serviceIds": [
           "weaviate.objects.check"
@@ -5478,7 +5504,7 @@
     },
     "/objects/{className}/{id}": {
       "get": {
-        "description": "Get a data object based on its collection and UUID. Also available as Websocket bus.",
+        "description": "Get a data object based on its collection and UUID.",
         "operationId": "objects.class.get",
         "x-serviceIds": [
           "weaviate.local.query"
@@ -5843,7 +5869,7 @@
     },
     "/objects/{id}/references/{propertyName}": {
       "post": {
-        "description": "Add a cross-reference.",
+        "description": "Add a cross-reference. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.",
         "operationId": "objects.references.create",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5911,7 +5937,7 @@
         "deprecated": true
       },
       "put": {
-        "description": "Replace all references in cross-reference property of an object.",
+        "description": "Replace all references in cross-reference property of an object. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.",
         "operationId": "objects.references.update",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -5979,7 +6005,7 @@
         "deprecated": true
       },
       "delete": {
-        "description": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "description": "Delete the single reference that is given in the body from the list of references that this property has. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}/references/{propertyName}` endpoint instead.",
         "operationId": "objects.references.delete",
         "x-serviceIds": [
           "weaviate.local.manipulate"
@@ -6038,7 +6064,7 @@
             }
           }
         },
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "summary": "Delete a single reference from the list of references.",
         "tags": [
           "objects"
         ],
@@ -6302,7 +6328,7 @@
             }
           }
         },
-        "summary": "Delete the single reference that is given in the body from the list of references that this property has.",
+        "summary": "Delete a single reference from the list of references.",
         "tags": [
           "objects"
         ],

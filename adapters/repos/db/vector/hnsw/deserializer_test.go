@@ -574,3 +574,86 @@ func TestDeserializerTotalReadMUVERA(t *testing.T) {
 		t.Logf("deserializeSize: %v\n", deserializeSize)
 	})
 }
+
+func TestDeserializerTotalReadRQ(t *testing.T) {
+	rootPath := t.TempDir()
+	ctx := context.Background()
+
+	logger, _ := test.NewNullLogger()
+	commitLogger, err := NewCommitLogger(rootPath, "tmpLogger", logger,
+		cyclemanager.NewCallbackGroupNoop())
+	require.Nil(t, err)
+
+	dimension := uint32(10)
+	bits := uint32(8)
+	rotation := compressionhelpers.FastRotation{
+		OutputDim: 4,
+		Rounds:    5,
+		Swaps: [][]compressionhelpers.Swap{
+			{
+				{I: 0, J: 2},
+				{I: 1, J: 3},
+			},
+			{
+				{I: 4, J: 6},
+				{I: 5, J: 7},
+			},
+			{
+				{I: 8, J: 10},
+				{I: 9, J: 11},
+			},
+			{
+				{I: 12, J: 14},
+				{I: 13, J: 15},
+			},
+			{
+				{I: 16, J: 18},
+				{I: 17, J: 19},
+			},
+		},
+		Signs: [][]float32{
+			{1, -1, 1, -1},
+			{1, -1, 1, -1},
+			{1, -1, 1, -1},
+			{1, -1, 1, -1},
+			{1, -1, 1, -1},
+		},
+	}
+	t.Run("add rotational quantization data to the first log", func(t *testing.T) {
+		rqData := compressionhelpers.RQData{
+			InputDim: dimension,
+			Bits:     bits,
+			Rotation: rotation,
+		}
+
+		err = commitLogger.AddRQCompression(rqData)
+		require.Nil(t, err)
+		require.Nil(t, commitLogger.Flush())
+		require.Nil(t, commitLogger.Shutdown(ctx))
+	})
+
+	t.Run("deserialize the first log", func(t *testing.T) {
+		nullLogger, _ := test.NewNullLogger()
+		commitLoggerPath := rootPath + "/tmpLogger.hnsw.commitlog.d"
+
+		fileName, found, err := getCurrentCommitLogFileName(commitLoggerPath)
+		require.Nil(t, err)
+		require.True(t, found)
+
+		t.Logf("name: %v\n", fileName)
+
+		fd, err := os.Open(commitLoggerPath + "/" + fileName)
+		require.Nil(t, err)
+
+		defer fd.Close()
+		fdBuf := bufio.NewReaderSize(fd, 256*1024)
+
+		_, deserializeSize, err := NewDeserializer(nullLogger).Do(fdBuf, nil, true)
+		require.Nil(t, err)
+
+		swapSize := 2 * rotation.Rounds * (rotation.OutputDim / 2) * 2
+		signSize := 4 * rotation.Rounds * rotation.OutputDim
+		require.Equal(t, int(swapSize+signSize+17), deserializeSize)
+		t.Logf("deserializeSize: %v\n", deserializeSize)
+	})
+}
