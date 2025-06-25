@@ -77,6 +77,11 @@ func (dv *DynamicValue[T]) Reset() {
 
 // Set is used by the config manager to update the dynamic value.
 func (dv *DynamicValue[T]) SetValue(val T) {
+	// log this at the high level, that someone is trying to set unitilized runtime value
+	if dv == nil {
+		return
+	}
+
 	dv.mu.Lock()
 	defer dv.mu.Unlock()
 

@@ -39,7 +39,7 @@ type WeaviateRuntimeConfig struct {
 	InvertedSorterDisabled         *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
 	// Experimental configs. Will be removed in the future.
-	OIDCEnabled           *runtime.DynamicValue[bool]     `json:"exp_oidc_enabled" yaml:"exp_oidc_enabled"`
+	// OIDCEnabled           *runtime.DynamicValue[bool]     `json:"exp_oidc_enabled" yaml:"exp_oidc_enabled"`
 	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
 	OIDCClientID          *runtime.DynamicValue[string]   `json:"exp_oidc_client_id" yaml:"exp_oidc_client_id"`
 	OIDCSkipClientIDCheck *runtime.DynamicValue[bool]     `yaml:"exp_oidc_skip_client_id_check" json:"exp_oidc_skip_client_id_check"`
@@ -195,11 +195,21 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 				sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
+		case *runtime.DynamicValue[[]string]:
+			r.oldV = sv.Get()
+			if pf.IsNil() {
+				// Means the config is removed
+				sv.Reset()
+			} else {
+				p := pi.(*runtime.DynamicValue[[]string])
+				sv.SetValue(p.Get())
+			}
+			r.newV = sv.Get()
 		default:
 			panic(fmt.Sprintf("not recognized type: %#v, %#v", pi, si))
 		}
 
-		if r.newV != r.oldV {
+		if !reflect.DeepEqual(r.newV, r.oldV) {
 			logRecords = append(logRecords, r)
 		}
 
@@ -223,8 +233,13 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, h
 					log.WithFields(logrus.Fields{
 						"action": "runtime_overrides_hooks",
 						"match":  match,
-					}).Info(fmt.Errorf("error calling runtime hooks for match %s, %v", match, err))
+					}).Errorf("error calling runtime hooks for match %s, %v", match, err)
+					continue
 				}
+				log.WithFields(logrus.Fields{
+					"action": "runtime_overrides_hooks",
+					"match":  match,
+				}).Infof("runtime overrides: hook ran for matching '%v' pattern", match)
 			}
 		}
 	}

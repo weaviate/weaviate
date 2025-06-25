@@ -1726,17 +1726,19 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.QuerySlowLogThreshold = appState.ServerConfig.Config.QuerySlowLogThreshold
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 
-		registered.OIDCEnabled = appState.OIDC.Config.Enabled
-		registered.OIDCIssuer = appState.OIDC.Config.Issuer
-		registered.OIDCClientID = appState.OIDC.Config.ClientID
-		registered.OIDCSkipClientIDCheck = appState.OIDC.Config.SkipClientIDCheck
-		registered.OIDCUsernameClaim = appState.OIDC.Config.UsernameClaim
-		registered.OIDCGroupsClaim = appState.OIDC.Config.GroupsClaim
-		registered.OIDCScopes = appState.OIDC.Config.Scopes
-		registered.OIDCCertificate = appState.OIDC.Config.Certificate
+		hooks := make(map[string]func() error)
 
-		hooks := map[string]func() error{
-			"OIDC": appState.OIDC.Init,
+		if appState.OIDC.Config.Enabled.Get() {
+			registered.OIDCIssuer = appState.OIDC.Config.Issuer
+			registered.OIDCClientID = appState.OIDC.Config.ClientID
+			registered.OIDCSkipClientIDCheck = appState.OIDC.Config.SkipClientIDCheck
+			registered.OIDCUsernameClaim = appState.OIDC.Config.UsernameClaim
+			registered.OIDCGroupsClaim = appState.OIDC.Config.GroupsClaim
+			registered.OIDCScopes = appState.OIDC.Config.Scopes
+			registered.OIDCCertificate = appState.OIDC.Config.Certificate
+
+			hooks["OIDC"] = appState.OIDC.Init
+			appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
 		}
 
 		cm, err := configRuntime.NewConfigManager(
