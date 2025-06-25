@@ -21,7 +21,7 @@ import (
 	"strings"
 	"time"
 
-	//"github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/config"
@@ -743,8 +743,7 @@ func setupDebugHandlers(appState *state.State) {
 		}
 	}))
 
-
-	/*
+	
 	// Debug endpoint to retrieve recent logs from the ring buffer
 	// Call via: curl "localhost:6060/debug/logs?limit=100&level=error&component=backup&since=5m"
 	http.HandleFunc("/debug/logs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -829,7 +828,6 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusOK)
 		w.Write(jsonBytes)
 	}))
-	*/
 }
 
 type MaintenanceMode struct {
