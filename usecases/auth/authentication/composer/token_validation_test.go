@@ -19,6 +19,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func Test_TokenAuthComposer(t *testing.T) {
@@ -37,7 +38,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 			name: "everything disabled - pass to oidc provider (backward compat)",
 			config: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled: false,
+					Enabled: runtime.NewDynamicValue[bool](false),
 				},
 				APIKey: config.StaticAPIKey{
 					Enabled: false,
@@ -56,7 +57,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 			name: "everything disabled - pass to oidc provider fail",
 			config: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled: false,
+					Enabled: runtime.NewDynamicValue[bool](false),
 				},
 				APIKey: config.StaticAPIKey{
 					Enabled: false,
@@ -76,7 +77,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 			name: "only oidc enabled, returns success",
 			config: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue[bool](true),
 				},
 				APIKey: config.StaticAPIKey{
 					Enabled: false,
@@ -95,7 +96,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 			name: "only oidc enabled, returns no success",
 			config: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue[bool](true),
 				},
 				APIKey: config.StaticAPIKey{
 					Enabled: false,
@@ -115,7 +116,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 			name: "only apiKey enabled, returns success",
 			config: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled: false,
+					Enabled: runtime.NewDynamicValue[bool](false),
 				},
 				APIKey: config.StaticAPIKey{
 					Enabled: true,
@@ -134,7 +135,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 			name: "only apiKey enabled, returns no success",
 			config: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled: false,
+					Enabled: runtime.NewDynamicValue[bool](false),
 				},
 				APIKey: config.StaticAPIKey{
 					Enabled: true,
@@ -154,7 +155,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 			name: "both an enabled, with an 'obvious' api key",
 			config: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue[bool](true),
 				},
 				APIKey: config.StaticAPIKey{
 					Enabled: true,
@@ -174,7 +175,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 			name: "both an enabled, empty token",
 			config: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue[bool](true),
 				},
 				APIKey: config.StaticAPIKey{
 					Enabled: true,
@@ -194,7 +195,7 @@ func Test_TokenAuthComposer(t *testing.T) {
 			name: "both an enabled, jwt token",
 			config: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled: true,
+					Enabled: runtime.NewDynamicValue[bool](true),
 				},
 				APIKey: config.StaticAPIKey{
 					Enabled: true,

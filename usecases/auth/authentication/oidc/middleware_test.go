@@ -22,13 +22,14 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func Test_Middleware_NotConfigured(t *testing.T) {
 	cfg := config.Config{
 		Authentication: config.Authentication{
 			OIDC: config.OIDC{
-				Enabled: false,
+				Enabled: runtime.NewDynamicValue(false),
 			},
 		},
 	}
@@ -46,7 +47,7 @@ func Test_Middleware_IncompleteConfiguration(t *testing.T) {
 	cfg := config.Config{
 		Authentication: config.Authentication{
 			OIDC: config.OIDC{
-				Enabled: true,
+				Enabled: runtime.NewDynamicValue(true),
 			},
 		},
 	}
@@ -71,11 +72,11 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled:           true,
-					Issuer:            server.URL,
-					ClientID:          "best_client",
-					SkipClientIDCheck: false,
-					UsernameClaim:     "sub",
+					Enabled:           runtime.NewDynamicValue(true),
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("sub"),
 				},
 			},
 		}
@@ -96,12 +97,12 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled:           true,
-					Issuer:            server.URL,
-					ClientID:          "best_client",
-					SkipClientIDCheck: false,
-					UsernameClaim:     "email",
-					GroupsClaim:       "groups",
+					Enabled:           runtime.NewDynamicValue(true),
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("email"),
+					GroupsClaim:       runtime.NewDynamicValue("groups"),
 				},
 			},
 		}
@@ -122,12 +123,12 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled:           true,
-					Issuer:            server.URL,
-					ClientID:          "best_client",
-					SkipClientIDCheck: false,
-					UsernameClaim:     "sub",
-					GroupsClaim:       "groups",
+					Enabled:           runtime.NewDynamicValue(true),
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("sub"),
+					GroupsClaim:       runtime.NewDynamicValue("groups"),
 				},
 			},
 		}
@@ -182,13 +183,13 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled:     true,
-					Certificate: certificate,
+					Enabled:     runtime.NewDynamicValue(true),
+					Certificate: runtime.NewDynamicValue(certificate),
 				},
 			},
 		}
 		client := &Client{
-			config: cfg.Authentication.OIDC,
+			Config: cfg.Authentication.OIDC,
 		}
 		return client
 	}

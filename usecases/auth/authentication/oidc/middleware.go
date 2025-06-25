@@ -153,12 +153,12 @@ func (c *Client) extractClaims(token *oidc.IDToken) (map[string]interface{}, err
 func (c *Client) extractUsername(claims map[string]interface{}) (string, error) {
 	usernameUntyped, ok := claims[c.Config.UsernameClaim.Get()]
 	if !ok {
-		return "", fmt.Errorf("token doesn't contain required claim '%s'", c.Config.UsernameClaim)
+		return "", fmt.Errorf("token doesn't contain required claim '%s'", c.Config.UsernameClaim.Get())
 	}
 
 	username, ok := usernameUntyped.(string)
 	if !ok {
-		return "", fmt.Errorf("claim '%s' is not a string, but %T", c.Config.UsernameClaim, usernameUntyped)
+		return "", fmt.Errorf("claim '%s' is not a string, but %T", c.Config.UsernameClaim.Get(), usernameUntyped)
 	}
 
 	return username, nil
@@ -194,15 +194,15 @@ func (c *Client) useCertificate() (*http.Client, error) {
 	if strings.HasPrefix(c.Config.Certificate.Get(), "http") {
 		resp, err := http.Get(c.Config.Certificate.Get())
 		if err != nil {
-			return nil, fmt.Errorf("failed to get certificate from %s: %w", c.Config.Certificate, err)
+			return nil, fmt.Errorf("failed to get certificate from %s: %w", c.Config.Certificate.Get(), err)
 		}
 		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusOK {
-			return nil, fmt.Errorf("failed to download certificate from %s: http status: %v", c.Config.Certificate, resp.StatusCode)
+			return nil, fmt.Errorf("failed to download certificate from %s: http status: %v", c.Config.Certificate.Get(), resp.StatusCode)
 		}
 		certBytes, err := io.ReadAll(resp.Body)
 		if err != nil {
-			return nil, fmt.Errorf("failed to read certificate from %s: %w", c.Config.Certificate, err)
+			return nil, fmt.Errorf("failed to read certificate from %s: %w", c.Config.Certificate.Get(), err)
 		}
 		certificate = string(certBytes)
 	} else {
