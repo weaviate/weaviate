@@ -52,8 +52,6 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 
 	// Collect usage for each collection
 	for _, collection := range collections {
-		vectorIndexConfig := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig)
-		// vectorIndexConfig := collection.VectorConfig.
 		shardingState := m.schemaManager.CopyShardingState(collection.Class)
 		collectionUsage := &CollectionUsage{
 			Name:              collection.Class,
@@ -62,7 +60,7 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 			Shards:            make([]*ShardUsage, 0),
 		}
 		// Get shard usage
-		index := m.db.GetIndex(entschema.ClassName(collection.Class))
+		index := m.db.GetIndexLike(entschema.ClassName(collection.Class))
 		if index != nil {
 			// First, collect cold tenants from sharding state
 			coldTenants := make(map[string]*ShardUsage)
@@ -102,7 +100,13 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 
 				// Get vector usage for each named vector
 				_ = shard.ForEachVectorIndex(func(targetVector string, vectorIndex db.VectorIndex) error {
-					category, _ := db.GetDimensionCategory(vectorIndexConfig)
+					category := db.DimensionCategoryStandard // Default category
+					indexType := ""
+					if vectorIndexConfig, ok := collection.VectorIndexConfig.(schemaConfig.VectorIndexConfig); ok {
+						category, _ = db.GetDimensionCategory(vectorIndexConfig)
+						indexType = vectorIndexConfig.IndexType()
+					}
+
 					dimensions, objects := shard.DimensionsUsage(ctx, targetVector)
 					// Get compression ratio from vector index stats
 					var compressionRatio float64
@@ -113,10 +117,11 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 
 					vectorUsage := &VectorUsage{
 						Name:                   targetVector,
-						VectorIndexType:        vectorIndexConfig.IndexType(),
 						Compression:            category.String(),
+						VectorIndexType:        indexType,
 						VectorCompressionRatio: compressionRatio,
 					}
+
 					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &DimensionalityUsage{
 						Dimensionality: dimensions,
 						Count:          objects,
