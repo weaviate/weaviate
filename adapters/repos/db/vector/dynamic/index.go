@@ -146,6 +146,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		MinMMapSize:      cfg.MinMMapSize,
 		MaxWalReuseSize:  cfg.MaxWalReuseSize,
 		LazyLoadSegments: cfg.LazyLoadSegments,
+		AllocChecker:     cfg.AllocChecker,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
