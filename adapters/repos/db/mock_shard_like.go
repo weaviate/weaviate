@@ -3783,14 +3783,14 @@ func (_c *MockShardLike_hasGeoIndex_Call) RunAndReturn(run func() bool) *MockSha
 	return _c
 }
 
-// initPropertyBuckets provides a mock function with given fields: ctx, eg, props
-func (_m *MockShardLike) initPropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, props ...*models.Property) {
+// initPropertyBuckets provides a mock function with given fields: ctx, eg, lazyLoadSegments, props
+func (_m *MockShardLike) initPropertyBuckets(ctx context.Context, eg *errors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property) {
 	_va := make([]interface{}, len(props))
 	for _i := range props {
 		_va[_i] = props[_i]
 	}
 	var _ca []interface{}
-	_ca = append(_ca, ctx, eg)
+	_ca = append(_ca, ctx, eg, lazyLoadSegments)
 	_ca = append(_ca, _va...)
 	_m.Called(_ca...)
 }
@@ -3803,21 +3803,22 @@ type MockShardLike_initPropertyBuckets_Call struct {
 // initPropertyBuckets is a helper method to define mock.On call
 //   - ctx context.Context
 //   - eg *errors.ErrorGroupWrapper
+//   - lazyLoadSegments bool
 //   - props ...*models.Property
-func (_e *MockShardLike_Expecter) initPropertyBuckets(ctx interface{}, eg interface{}, props ...interface{}) *MockShardLike_initPropertyBuckets_Call {
+func (_e *MockShardLike_Expecter) initPropertyBuckets(ctx interface{}, eg interface{}, lazyLoadSegments interface{}, props ...interface{}) *MockShardLike_initPropertyBuckets_Call {
 	return &MockShardLike_initPropertyBuckets_Call{Call: _e.mock.On("initPropertyBuckets",
-		append([]interface{}{ctx, eg}, props...)...)}
+		append([]interface{}{ctx, eg, lazyLoadSegments}, props...)...)}
 }
 
-func (_c *MockShardLike_initPropertyBuckets_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, props ...*models.Property)) *MockShardLike_initPropertyBuckets_Call {
+func (_c *MockShardLike_initPropertyBuckets_Call) Run(run func(ctx context.Context, eg *errors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)) *MockShardLike_initPropertyBuckets_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		variadicArgs := make([]*models.Property, len(args)-2)
-		for i, a := range args[2:] {
+		variadicArgs := make([]*models.Property, len(args)-3)
+		for i, a := range args[3:] {
 			if a != nil {
 				variadicArgs[i] = a.(*models.Property)
 			}
 		}
-		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), variadicArgs...)
+		run(args[0].(context.Context), args[1].(*errors.ErrorGroupWrapper), args[2].(bool), variadicArgs...)
 	})
 	return _c
 }
@@ -3827,7 +3828,7 @@ func (_c *MockShardLike_initPropertyBuckets_Call) Return() *MockShardLike_initPr
 	return _c
 }
 
-func (_c *MockShardLike_initPropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, ...*models.Property)) *MockShardLike_initPropertyBuckets_Call {
+func (_c *MockShardLike_initPropertyBuckets_Call) RunAndReturn(run func(context.Context, *errors.ErrorGroupWrapper, bool, ...*models.Property)) *MockShardLike_initPropertyBuckets_Call {
 	_c.Run(run)
 	return _c
 }
