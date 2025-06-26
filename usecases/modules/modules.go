@@ -1141,9 +1141,7 @@ func (p *Provider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
 }
 
 func (p *Provider) UsageEnabled() bool {
-	// TODO: used as string here to avoid circular dependency
-	// need to find a better way to do this may be GetAll instead of GetByName
-	if module := p.GetByName("usage-gcs"); module != nil {
+	for _, module := range p.GetAll() {
 		if module.Type() == modulecapabilities.Usage {
 			return true
 		}
