@@ -2995,8 +2995,8 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 // CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) int64 {
 	// Obtain a lock that prevents tenant activation
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.shardCreateLocks.Lock(tenantName)
+	defer i.shardCreateLocks.Unlock(tenantName)
 
 	// Locate the tenant on disk
 	shardPath := shardPathLSM(i.path(), tenantName)
