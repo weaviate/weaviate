@@ -20,6 +20,13 @@ import (
 	"sync/atomic"
 	"time"
 
+	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+
+	"github.com/weaviate/weaviate/cluster/replication/types"
+
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/weaviate/weaviate/entities/storobj"
 
 	"github.com/cenkalti/backoff/v4"
@@ -27,7 +34,6 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
-	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -43,7 +49,6 @@ import (
 
 type DB struct {
 	logger            logrus.FieldLogger
-	router            *router.Router
 	schemaGetter      schemaUC.SchemaGetter
 	config            Config
 	indices           map[string]*Index
@@ -57,6 +62,9 @@ type DB struct {
 	startupComplete   atomic.Bool
 	resourceScanState *resourceScanState
 	memMonitor        *memwatch.Monitor
+	nodeSelector      cluster.NodeSelector
+	schemaReader      schemaUC.SchemaReader
+	replicationFSM    types.ReplicationFSMReader
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -115,10 +123,6 @@ func (db *DB) GetRemoteIndex() sharding.RemoteIndexClient {
 
 func (db *DB) SetSchemaGetter(sg schemaUC.SchemaGetter) {
 	db.schemaGetter = sg
-}
-
-func (db *DB) SetRouter(r *router.Router) {
-	db.router = r
 }
 
 func (db *DB) GetScheduler() *queue.Scheduler {
@@ -401,4 +405,16 @@ func (db *DB) batchWorker(first bool) {
 func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB {
 	db.reindexer = reindexer
 	return db
+}
+
+func (db *DB) SetNodeSelector(nodeSelector cluster.NodeSelector) {
+	db.nodeSelector = nodeSelector
+}
+
+func (db *DB) SetSchemaReader(schemaReader clusterSchema.SchemaReader) {
+	db.schemaReader = schemaReader
+}
+
+func (db *DB) SetReplicationFSM(replicationFsm *clusterReplication.ShardReplicationFSM) {
+	db.replicationFSM = replicationFsm
 }

@@ -18,11 +18,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/schema"
+
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/sharding/config"
-
-	"github.com/weaviate/weaviate/usecases/schema"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
@@ -740,7 +740,7 @@ func (f *fakeFactory) AddShard(shard string, nodes []string) {
 	f.Shard2replicas[shard] = nodes
 }
 
-func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
+func (f *fakeFactory) newRouter(thisNode string) clusterRouter.Router {
 	nodes := make([]string, 0, len(f.Nodes))
 	for _, n := range f.Nodes {
 		if n == thisNode {
@@ -751,7 +751,8 @@ func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
 	}
 	clusterState := clusterMocks.NewMockNodeSelector(nodes...)
 	schemaGetterMock := schema.NewMockSchemaGetter(f.t)
-	schemaGetterMock.On("CopyShardingState", mock.Anything).Return(func(class string) *sharding.State {
+	schemaReaderMock := schemaTypes.NewMockSchemaReader(f.t)
+	schemaReaderMock.On("CopyShardingState", mock.Anything).Return(func(class string) *sharding.State {
 		state := &sharding.State{
 			IndexID:             "idx-123",
 			Config:              config.Config{},
@@ -770,7 +771,6 @@ func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
 
 		return state
 	}).Maybe()
-	schemaReaderMock := schemaTypes.NewMockSchemaReader(f.t)
 	schemaReaderMock.On("ShardReplicas", mock.Anything, mock.Anything).Return(func(class string, shard string) ([]string, error) {
 		v, ok := f.Shard2replicas[shard]
 		if !ok {
@@ -785,8 +785,7 @@ func (f *fakeFactory) newRouter(thisNode string) *clusterRouter.Router {
 	replicationFsmMock.On("FilterOneShardReplicasWrite", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
 		return shardReplicasLocation, []string{}
 	}).Maybe()
-	router := clusterRouter.New(f.log, clusterState, schemaReaderMock, replicationFsmMock)
-	return router
+	return clusterRouter.NewBuilder("TestClass", false, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
 }
 
 func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Replicator {
