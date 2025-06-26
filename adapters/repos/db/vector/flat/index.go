@@ -1053,8 +1053,36 @@ func (index *flat) Stats() (common.IndexStats, error) {
 }
 
 func (index *flat) VectorStorageSize() int64 {
-	// TODO-usage: Implement this
-	return 0
+	count := atomic.LoadUint64(&index.count)
+	dims := atomic.LoadInt32(&index.dims)
+
+	if count == 0 || dims == 0 {
+		return 0
+	}
+
+	// Calculate uncompressed size (float32 = 4 bytes per dimension)
+	uncompressedSize := int64(count) * int64(dims) * 4
+
+	// Apply compression ratio if compressed
+	if index.Compressed() {
+		var compressionRatio float64
+		switch index.compression {
+		case compressionBQ:
+			// Use the BQ quantizer's compression ratio
+			compressionRatio = index.bq.Stats().CompressionRatio(int(dims))
+		case compressionPQ:
+			// PQ compression ratio depends on segments, use conservative estimate
+			compressionRatio = 1.0 / 4.0 // Rough estimate: 4x compression
+		case compressionSQ:
+			// SQ compression ratio is ~4x
+			compressionRatio = 1.0 / 4.0
+		default:
+			compressionRatio = 1.0
+		}
+		return int64(float64(uncompressedSize) * compressionRatio)
+	}
+
+	return uncompressedSize
 }
 
 func (index *flat) CompressionStats() (compressionhelpers.CompressionStats, error) {
