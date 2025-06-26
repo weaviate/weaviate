@@ -209,4 +209,12 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, clientWithCertificate)
 	})
+
+	t.Run("unparseable string", func(t *testing.T) {
+		client := newClientWithCertificate("s3://")
+		clientWithCertificate, err := client.useCertificate()
+		require.Nil(t, clientWithCertificate)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "failed to decode certificate")
+	})
 }

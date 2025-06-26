@@ -12,6 +12,7 @@
 package runtime
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -152,4 +153,20 @@ func TestDynamicValue(t *testing.T) {
 	assert.Equal(t, time.Duration(0), zeroDur.Get())
 	assert.Equal(t, "", zeroString.Get())
 	assert.Equal(t, []string(nil), zeroSlice.Get())
+}
+
+func Test_String(t *testing.T) {
+	s := time.Second * 2
+
+	zeroInt := NewDynamicValue(89)
+	zeroFloat := NewDynamicValue(7.8)
+	zeroBool := NewDynamicValue(true)
+	zeroDur := NewDynamicValue(s)
+	zeroString := NewDynamicValue("weaviate")
+
+	assert.Equal(t, "89", fmt.Sprintf("%v", zeroInt))
+	assert.Equal(t, "7.8", fmt.Sprintf("%v", zeroFloat))
+	assert.Equal(t, "true", fmt.Sprintf("%v", zeroBool))
+	assert.Equal(t, s.String(), fmt.Sprintf("%v", zeroDur))
+	assert.Equal(t, "weaviate", fmt.Sprintf("%v", zeroString))
 }

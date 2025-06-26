@@ -12,6 +12,7 @@
 package runtime
 
 import (
+	"fmt"
 	"sync"
 	"time"
 
@@ -102,4 +103,14 @@ func (dv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
 
 	dv.val = &val
 	return nil
+}
+
+// String implements Stringer interface for `%v` formatting
+// for any dynamic value types.
+func (dv *DynamicValue[T]) String() string {
+	res := dv.val
+	if res == nil {
+		res = &dv.def
+	}
+	return fmt.Sprintf("%v", *res)
 }
