@@ -134,7 +134,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 	req := getRequest(t, paragraphClass.Class)
 
 	move := "MOVE"
-	req.TransferType = &move
+	req.Type = &move
 	// Create MOVE replication operation and wait until the shard is in the sharding state (meaning it is uncancellable)
 	created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(req), nil)
 	require.Nil(t, err)

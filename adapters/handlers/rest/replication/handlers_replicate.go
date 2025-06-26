@@ -46,11 +46,11 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}
 	uuid := strfmt.UUID(id.String())
 
-	transferType := models.ReplicationReplicateReplicaRequestTransferTypeCOPY
-	if params.Body.TransferType != nil {
-		transferType = *params.Body.TransferType
+	replicationType := models.ReplicationReplicateReplicaRequestTypeCOPY
+	if params.Body.Type != nil {
+		replicationType = *params.Body.Type
 	}
-	if err := h.replicationManager.ReplicationReplicateReplica(params.HTTPRequest.Context(), uuid, *params.Body.SourceNodeName, collection, *params.Body.ShardID, *params.Body.DestinationNodeName, transferType); err != nil {
+	if err := h.replicationManager.ReplicationReplicateReplica(params.HTTPRequest.Context(), uuid, *params.Body.SourceNodeName, collection, *params.Body.ShardID, *params.Body.DestinationNodeName, replicationType); err != nil {
 		if errors.Is(err, replicationTypes.ErrInvalidRequest) {
 			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -65,7 +65,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 		"shardId":      *params.Body.ShardID,
 		"sourceNodeId": *params.Body.SourceNodeName,
 		"destNodeId":   *params.Body.DestinationNodeName,
-		"transferType": params.Body.TransferType,
+		"type":         params.Body.Type,
 	}).Info("replicate operation registered")
 
 	return h.handleReplicationReplicateResponse(uuid)
@@ -126,7 +126,7 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 			Errors: response.Status.Errors,
 		},
 		StatusHistory: history,
-		TransferType:  &response.TransferType,
+		Type:          &response.TransferType,
 	}
 }
 
