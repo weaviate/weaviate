@@ -35,7 +35,7 @@ import (
 func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	scheduler *queue.Scheduler, indexCheckpoints *indexcheckpoint.Checkpoints,
-	reindexer ShardReindexerV3,
+	reindexer ShardReindexerV3, lazyLoadSegments bool,
 ) (_ *Shard, err error) {
 	start := time.Now()
 
@@ -126,11 +126,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 
 	_ = s.reindexer.RunBeforeLsmInit(ctx, s)
 
-	if err := s.initNonVector(ctx, class); err != nil {
+	if s.index.Config.LazySegmentsDisabled {
+		lazyLoadSegments = false // disable globally
+	}
+	if err := s.initNonVector(ctx, class, lazyLoadSegments); err != nil {
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
-	if err = s.initShardVectors(ctx); err != nil {
+	if err = s.initShardVectors(ctx, lazyLoadSegments); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
 
