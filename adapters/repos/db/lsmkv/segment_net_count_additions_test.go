@@ -97,6 +97,10 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 	err = os.RemoveAll(path.Join(dirName, fname))
 	require.Nil(t, err)
 
+	// just to ensure segments are loaded
+	cursor := b.Cursor()
+	cursor.Close()
+
 	files, err = os.ReadDir(dirName)
 	require.Nil(t, err)
 	_, ok = findFileWithExt(files, ".cna")
@@ -110,6 +114,10 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), opts...)
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
+
+	// just to ensure segments are loaded
+	cursor = b2.Cursor()
+	cursor.Close()
 
 	files, err = os.ReadDir(dirName)
 	require.Nil(t, err)

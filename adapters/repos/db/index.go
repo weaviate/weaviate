@@ -348,7 +348,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				defer i.shardLoadLimiter.Release()
 
 				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-					i.indexCheckpoints, i.shardReindexer)
+					i.indexCheckpoints, i.shardReindexer, false)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -378,7 +378,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		}
 
 		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-			i.allocChecker, i.shardLoadLimiter, i.shardReindexer)
+			i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true)
 		i.shards.Store(shardName, shard)
 	}
 
@@ -454,7 +454,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 // used to init/create shard in different moments of index's lifecycle, therefore it needs to be called
 // within shardCreateLocks to prevent parallel create/init of the same shard
 func (i *Index) initShard(ctx context.Context, shardName string, class *models.Class,
-	promMetrics *monitoring.PrometheusMetrics, disableLazyLoad bool,
+	promMetrics *monitoring.PrometheusMetrics, disableLazyLoad bool, implicitShardLoading bool,
 ) (ShardLike, error) {
 	if disableLazyLoad {
 		if err := i.allocChecker.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
@@ -467,7 +467,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		defer i.shardLoadLimiter.Release()
 
 		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-			i.indexCheckpoints, i.shardReindexer)
+			i.indexCheckpoints, i.shardReindexer, false)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
@@ -476,7 +476,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	}
 
 	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-		i.allocChecker, i.shardLoadLimiter, i.shardReindexer)
+		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, implicitShardLoading)
 	return shard, nil
 }
 
@@ -530,7 +530,7 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	eg.SetLimit(_NUMCPU)
 
 	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.initPropertyBuckets(ctx, eg, props...)
+		shard.initPropertyBuckets(ctx, eg, false, props...)
 		return nil
 	})
 
@@ -651,6 +651,7 @@ type IndexConfig struct {
 	QueryMaximumResults                 int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
+	LazySegmentsDisabled                bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int
@@ -2010,14 +2011,15 @@ func (i *Index) getClass() *models.Class {
 // Method first tries to get shard from Index::shards map,
 // or inits shard and adds it to the map if shard was not found
 func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false)
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false)
 }
 
-func (i *Index) LoadLocalShard(ctx context.Context, shardName string) error {
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true)
+func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
+	mustLoad := !implicitShardLoading
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading)
 }
 
-func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool) error {
+func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
 
@@ -2043,7 +2045,7 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 
 	disableLazyLoad := mustLoad || i.Config.DisableLazyLoadShards
 
-	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad)
+	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad, implicitShardLoading)
 	if err != nil {
 		return err
 	}
@@ -2096,7 +2098,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			return nil, func() {}, fmt.Errorf("class %s not found in schema", className)
 		}
 
-		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true)
+		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
 		if err != nil {
 			return nil, func() {}, err
 		}
