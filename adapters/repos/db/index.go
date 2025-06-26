@@ -2914,16 +2914,24 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName,
 	shardPath := shardPathLSM(i.path(), shardName)
 
 	// Create a temporary store to access the dimensions bucket
-	lsmkvMetrics := lsmkv.NewMetrics(nil, i.Config.ClassName.String(), shardName)
+	var promMetrics *monitoring.PrometheusMetrics
+	if i.metrics != nil && i.metrics.baseMetrics != nil {
+		promMetrics = i.metrics.baseMetrics
+	} else {
+		// Use global metrics as fallback
+		promMetrics = monitoring.GetMetrics()
+	}
+
+	lsmkvMetrics := lsmkv.NewMetrics(promMetrics, i.Config.ClassName.String(), shardName)
 	store, err := lsmkv.New(shardPath, i.path(), i.logger, lsmkvMetrics,
 		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
+		// If we can't create the store, return 0 dimensions and count
 		return 0, 0
 	}
 	defer store.Shutdown(ctx)
 
-	// Use the same logic as the loaded shard's DimensionsUsage method
-	return calcTargetVectorDimensionsFromStore(ctx, store, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return dimLength, len(v)
+	return calcTargetVectorDimensionsFromStore(ctx, store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+		return len(v), dimLen
 	})
 }
