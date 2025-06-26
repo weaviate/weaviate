@@ -285,7 +285,7 @@ func (ri *RemoteIndex) SearchAllReplicas(ctx context.Context,
 	cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
-	replEnabled bool,
+	replEnabled bool, // TODO remove this, unused
 	localNode string,
 	targetCombination *dto.TargetCombination,
 	properties []string,
@@ -312,7 +312,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	cursor *filters.Cursor,
 	groupBy *searchparams.GroupBy,
 	adds additional.Properties,
-	replEnabled bool,
+	replEnabled bool, // TODO remove this, unused
 	targetCombination *dto.TargetCombination,
 	properties []string,
 ) ([]*storobj.Object, []float32, string, error) {
