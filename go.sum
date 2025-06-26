@@ -686,6 +686,10 @@ github.com/weaviate/s5cmd/v2 v2.0.1 h1:NLsBemDEeUa1pcqVAGl5Y2quKH8EFpkz/Z8n4s620
 github.com/weaviate/s5cmd/v2 v2.0.1/go.mod h1:JEoBF8SXVwK8qoaRKi0fPA4qi4OFmr+iVgc4XO3l/Zs=
 github.com/weaviate/sroar v0.0.9 h1:S0WLyz7XxN8Kl1WxA08htpNE+vV66kdyFQ/UndL6Z60=
 github.com/weaviate/sroar v0.0.9/go.mod h1:I6HAMeJjGMDI8cuFDUK4TIRsy5Csn5RFncNkosyNgKE=
+github.com/weaviate/sroar v0.0.10-0.20250606122007-5037f645dabe h1:mZIbN6CTycvlCH5Fr5tNI5vmA3rhG4A8yo7+PE2eLRA=
+github.com/weaviate/sroar v0.0.10-0.20250606122007-5037f645dabe/go.mod h1:I6HAMeJjGMDI8cuFDUK4TIRsy5Csn5RFncNkosyNgKE=
+github.com/weaviate/sroar v0.0.10-0.20250611133608-85bc2321431c h1:gmGO+BOzDbClrR9RDLPyvjO1wu+fsl/Id4C6ss2bEmk=
+github.com/weaviate/sroar v0.0.10-0.20250611133608-85bc2321431c/go.mod h1:I6HAMeJjGMDI8cuFDUK4TIRsy5Csn5RFncNkosyNgKE=
 github.com/weaviate/tiktoken-go v0.0.2 h1:lkwTMEoXSFSXxYvw1c44/xz3OOAh27L3+3vvNN/TSSg=
 github.com/weaviate/tiktoken-go v0.0.2/go.mod h1:u47qSckEGSi4sOcVJmUnd3xoHpDV9/5FDDi3KUCFUq4=
 github.com/willf/bitset v1.1.11 h1:N7Z7E9UvjW+sGsEl7k/SJrvY2reP1A07MrGuCjIOjRE=
