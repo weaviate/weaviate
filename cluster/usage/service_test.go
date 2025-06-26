@@ -218,7 +218,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 		f := args.Get(0).(func(string, db.ShardLike) error)
 		f(hotTenant, mockShard)
 	})
-	mockIndex.EXPECT().CalculateColdTenantMetrics(ctx, coldTenant).Return(int64(coldObjectCount), coldStorageSize)
+	mockIndex.EXPECT().CalculateUnloadedObjectsMetrics(ctx, coldTenant).Return(int64(coldObjectCount), coldStorageSize)
 
 	mockShard.On("ForEachVectorIndex", mock.AnythingOfType("func(string, db.VectorIndex) error")).Return(nil).Run(func(args mock.Arguments) {
 		f := args.Get(0).(func(string, db.VectorIndex) error)
