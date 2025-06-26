@@ -71,8 +71,8 @@ func setupDebugHandlers(appState *state.State) {
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
-	http.HandleFunc("/debug/index/rebuild/inverted/pauseUntilRestart", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		appState.ReindexCtxCancel(fmt.Errorf("pauseUntilRestart endpoint"))
+	http.HandleFunc("/debug/index/rebuild/inverted/cancelReindexContext", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		appState.ReindexCtxCancel(fmt.Errorf("cancelReindexContext endpoint"))
 		w.WriteHeader(http.StatusAccepted)
 	}))
 
@@ -180,9 +180,6 @@ func setupDebugHandlers(appState *state.State) {
 	}))
 
 	http.HandleFunc("/debug/index/rebuild/inverted/rollback", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// cancel all
-		appState.ReindexCtxCancel(fmt.Errorf("rollback endpoint"))
-
 		colName := r.URL.Query().Get("collection")
 		if colName == "" {
 			http.Error(w, "collection is required", http.StatusBadRequest)

@@ -430,12 +430,14 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 		err = fmt.Errorf("creating reindex tracker: %w", err)
 		return zerotime, false, err
 	}
+
+	// rollback initiated by the user after restart, stop double writes
 	if rt.IsRollback() {
 		logger.Debug("rollback started")
 		props, err2 := t.readPropsToReindex(rt)
 		if err2 != nil {
 			err = fmt.Errorf("reading reindexable props for rollback: %w", err2)
-			return
+			return zerotime, false, err
 		}
 		err = nil
 
@@ -443,15 +445,20 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 			err = t.unloadReindexBuckets(ctx, logger, shard, props)
 			if err != nil {
 				err = fmt.Errorf("unloading reindex buckets: %w", err)
-				return
+				return zerotime, false, err
 			}
+			logger.Info("reindex buckets unloaded")
 			err = t.unloadIngestBuckets(ctx, logger, shard, props)
 			if err != nil {
 				err = fmt.Errorf("unloading ingest buckets: %w", err)
-				return
+				return zerotime, false, err
 			}
+			logger.Info("ingest buckets unloaded")
+		} else {
+			logger.Warnf("inverted bucket is being used for search, will not be unloaded: %s. Rollback will proceed on restart", shard.Name())
 		}
-		return
+		// return early to stop ingestion
+		return zerotime, false, nil
 	}
 
 	if t.config.rollback {
