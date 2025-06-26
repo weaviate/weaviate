@@ -128,25 +128,37 @@ func Test_Schema_Authorization(t *testing.T) {
 			methodName:        "AddAlias",
 			additionalArgs:    []interface{}{&models.Alias{Class: "classname"}},
 			expectedVerb:      authorization.CREATE,
-			expectedResources: authorization.CollectionsMetadata("Classname"),
+			expectedResources: authorization.Aliases("Classname"),
 		},
 		{
 			methodName:        "UpdateAlias",
 			additionalArgs:    []interface{}{"aliasName", "class"},
 			expectedVerb:      authorization.UPDATE,
-			expectedResources: authorization.CollectionsMetadata("class"),
+			expectedResources: authorization.Aliases("class", "aliasName"),
 		},
 		{
 			methodName:        "DeleteAlias",
 			additionalArgs:    []interface{}{"aliasName"},
 			expectedVerb:      authorization.DELETE,
-			expectedResources: authorization.CollectionsMetadata("aliasName"),
+			expectedResources: authorization.Aliases("", "aliasName"),
 		},
 		{
 			methodName:        "GetAliases",
-			additionalArgs:    []interface{}{ptrStr("alias"), ptrStr("class")},
+			additionalArgs:    []interface{}{"", ""},
 			expectedVerb:      authorization.READ,
-			expectedResources: nil,
+			expectedResources: authorization.Aliases("", ""),
+		},
+		{
+			methodName:        "GetAliases",
+			additionalArgs:    []interface{}{"aliasName", ""},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.Aliases("", "aliasName"),
+		},
+		{
+			methodName:        "GetAliases",
+			additionalArgs:    []interface{}{"", "className"},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.Aliases("className", ""),
 		},
 	}
 
@@ -236,8 +248,4 @@ func allExportedMethods(subject interface{}) []string {
 	}
 
 	return methods
-}
-
-func ptrStr(in string) *string {
-	return &in
 }

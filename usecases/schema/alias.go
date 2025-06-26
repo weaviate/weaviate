@@ -20,13 +20,13 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
-func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, alias, className *string) ([]*models.Alias, error) {
-	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ); err != nil {
+func (h *Handler) GetAliases(ctx context.Context, principal *models.Principal, alias, className string) ([]*models.Alias, error) {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.Aliases(className, alias)...); err != nil {
 		return nil, err
 	}
 	var class *models.Class
-	if className != nil {
-		name := schema.UppercaseClassName(*className)
+	if className != "" {
+		name := schema.UppercaseClassName(className)
 		class = h.schemaReader.ReadOnlyClass(name)
 	}
 	aliases, err := h.schemaManager.GetAliases(ctx, alias, class)
@@ -40,7 +40,7 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 	alias *models.Alias,
 ) (*models.Alias, uint64, error) {
 	alias.Class = schema.UppercaseClassName(alias.Class)
-	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.CollectionsMetadata(alias.Class)...)
+	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Aliases(alias.Class, alias.Alias)...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -55,11 +55,11 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 	aliasName, targetClassName string,
 ) (*models.Alias, error) {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.CollectionsMetadata(targetClassName)...)
+	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Aliases(targetClassName, aliasName)...)
 	if err != nil {
 		return nil, err
 	}
-	aliases, err := h.schemaManager.GetAliases(ctx, &aliasName, nil)
+	aliases, err := h.schemaManager.GetAliases(ctx, aliasName, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -78,7 +78,7 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 }
 
 func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, aliasName string) error {
-	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.CollectionsMetadata(aliasName)...)
+	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases("", aliasName)...)
 	if err != nil {
 		return err
 	}

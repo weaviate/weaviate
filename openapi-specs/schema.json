@@ -270,6 +270,22 @@
             }
           }
         },
+        "aliases": {
+          "type": "object",
+          "description": "resources applicable for aliases actions",
+          "properties": {
+            "collection": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+            },
+            "alias": {
+              "type": "string",
+              "default": "*",
+              "description": "string or regex. if a specific alias name, if left empty it will be ALL or *"
+            }
+          }
+        },
         "action": {
           "type": "string",
           "description": "allowed actions in weaviate.",
@@ -301,7 +317,11 @@
             "create_replicate",
             "read_replicate",
             "update_replicate",
-            "delete_replicate"
+            "delete_replicate",
+            "create_aliases",
+            "read_aliases",
+            "update_aliases",
+            "delete_aliases"
           ]
         }
       },

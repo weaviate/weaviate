@@ -7224,8 +7224,28 @@ func init() {
             "create_replicate",
             "read_replicate",
             "update_replicate",
-            "delete_replicate"
+            "delete_replicate",
+            "create_aliases",
+            "read_aliases",
+            "update_aliases",
+            "delete_aliases"
           ]
+        },
+        "aliases": {
+          "description": "resources applicable for aliases actions",
+          "type": "object",
+          "properties": {
+            "alias": {
+              "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "backups": {
           "description": "resources applicable for backup actions",
@@ -16080,8 +16100,28 @@ func init() {
             "create_replicate",
             "read_replicate",
             "update_replicate",
-            "delete_replicate"
+            "delete_replicate",
+            "create_aliases",
+            "read_aliases",
+            "update_aliases",
+            "delete_aliases"
           ]
+        },
+        "aliases": {
+          "description": "resources applicable for aliases actions",
+          "type": "object",
+          "properties": {
+            "alias": {
+              "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "backups": {
           "description": "resources applicable for backup actions",
@@ -16208,6 +16248,22 @@ func init() {
               "default": "*"
             }
           }
+        }
+      }
+    },
+    "PermissionAliases": {
+      "description": "resources applicable for aliases actions",
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
         }
       }
     },

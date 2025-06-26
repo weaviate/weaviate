@@ -40,7 +40,7 @@ func (s *aliasesHandlers) getAliases(params schema.AliasesGetParams,
 	if params.Class != nil {
 		className = *params.Class
 	}
-	aliases, err := s.manager.GetAliases(ctx, principal, nil, params.Class)
+	aliases, err := s.manager.GetAliases(ctx, principal, "", className)
 	if err != nil {
 		s.metricRequestsTotal.logError(className, err)
 		switch {
@@ -48,7 +48,7 @@ func (s *aliasesHandlers) getAliases(params schema.AliasesGetParams,
 			return schema.NewAliasesGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewAliasesGetInternalServerError().
+			return schema.NewAliasesGetForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
@@ -63,7 +63,7 @@ func (s *aliasesHandlers) getAlias(params schema.AliasesGetAliasParams,
 	principal *models.Principal,
 ) middleware.Responder {
 	ctx := restCtx.AddPrincipalToContext(params.HTTPRequest.Context(), principal)
-	aliases, err := s.manager.GetAliases(ctx, principal, &params.AliasName, nil)
+	aliases, err := s.manager.GetAliases(ctx, principal, params.AliasName, "")
 	if err != nil {
 		s.metricRequestsTotal.logError("", err)
 		switch {
@@ -71,7 +71,7 @@ func (s *aliasesHandlers) getAlias(params schema.AliasesGetAliasParams,
 			return schema.NewAliasesGetAliasForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		default:
-			return schema.NewAliasesGetAliasInternalServerError().
+			return schema.NewAliasesGetAliasForbidden().
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}

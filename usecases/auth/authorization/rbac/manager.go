@@ -459,6 +459,15 @@ func prettyPermissionsResources(perm *models.Permission) string {
 		}
 	}
 
+	if perm.Aliases != nil {
+		if perm.Aliases.Collection != nil && *perm.Aliases.Collection != "" {
+			res += fmt.Sprintf(" Collection: %s,", *perm.Aliases.Collection)
+		}
+		if perm.Aliases.Alias != nil && *perm.Aliases.Alias != "" {
+			res += fmt.Sprintf(" Alias: %s,", *perm.Aliases.Alias)
+		}
+	}
+
 	if many := strings.Count(res, ","); many == 1 {
 		res = strings.ReplaceAll(res, ",", "")
 		res = strings.TrimSpace(res)

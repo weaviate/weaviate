@@ -23,7 +23,7 @@ import (
 	entSentry "github.com/weaviate/weaviate/entities/sentry"
 )
 
-func (s *Raft) GetAliases(ctx context.Context, alias *string, class *models.Class) ([]*models.Alias, error) {
+func (s *Raft) GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error) {
 	if entSentry.Enabled() {
 		transaction := sentry.StartSpan(ctx, "grpc.client",
 			sentry.WithTransactionName("raft.query.aliases"),
@@ -33,8 +33,8 @@ func (s *Raft) GetAliases(ctx context.Context, alias *string, class *models.Clas
 		defer transaction.Finish()
 	}
 	req := cmd.QueryGetAliasesRequest{}
-	if alias != nil {
-		req.Alias = *alias
+	if alias != "" {
+		req.Alias = alias
 	}
 	if class != nil {
 		req.Class = class.Class
