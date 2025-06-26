@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/additional"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/usecases/config"
@@ -94,6 +95,7 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 		selectionEnabled:              selectionEnabled,
 		selectedPropsByCollection:     selectedPropsByCollection,
 		selectedShardsByCollection:    selectedShardsByCollection,
+		perObjectDelay:                0 * time.Millisecond,
 	}
 
 	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("task created")
@@ -130,6 +132,7 @@ type mapToBlockmaxConfig struct {
 	memtableOptBlockmaxFactor     int
 	processingDuration            time.Duration
 	pauseDuration                 time.Duration
+	perObjectDelay                time.Duration
 	checkProcessingEveryNoObjects int
 	selectionEnabled              bool
 	selectedPropsByCollection     map[string]map[string]struct{}
@@ -168,6 +171,8 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 		err = fmt.Errorf("creating reindex tracker: %w", err)
 		return
 	}
+
+	rt.checkOverrides(logger, &t.config)
 
 	if t.config.conditionalStart && !rt.HasStartCondition() {
 		err = fmt.Errorf("conditional start is set, but file trigger is not found")
@@ -431,6 +436,8 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 		return zerotime, false, err
 	}
 
+	rt.checkOverrides(logger, &t.config)
+
 	// rollback initiated by the user after restart, stop double writes
 	if rt.IsRollback() {
 		logger.Debug("rollback started")
@@ -566,22 +573,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 	processingStarted, mdCh := t.objectsIteratorAsync(logger, shard, lastStoredKey, t.keyParser.FromBytes,
 		propExtraction, reindexStarted, breakCh)
 
-	sleepFor := os.Getenv("DEBUG_SHARD_PER_OBJECT_DELAY")
-
-	sleepForDuration := 0 * time.Millisecond
-	if sleepFor != "" {
-		sleepForDuration, err = time.ParseDuration(sleepFor)
-		if err != nil {
-			err = fmt.Errorf("parsing DEBUG_SHARD_PER_OBJECT_DELAY: %w", err)
-			return zerotime, false, err
-		}
-		if sleepForDuration < 0 {
-			err = fmt.Errorf("DEBUG_SHARD_PER_OBJECT_DELAY must be a positive duration, got: %s", sleepFor)
-			return zerotime, false, err
-		}
-	}
 	for md := range mdCh {
-		time.Sleep(sleepForDuration)
 		if md == nil {
 			finished = true
 		} else if md.err != nil {
@@ -611,8 +603,8 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInitAsync(ctx context.Context
 			processedCount++
 			lastProcessedKey = md.key
 
-			// check execution time every X objects processed to close the cursor and pause shard's migration
 			breakCh <- processedCount%t.config.checkProcessingEveryNoObjects == 0 && (time.Since(processingStarted) > t.config.processingDuration || rt.IsPaused())
+			time.Sleep(t.config.perObjectDelay)
 		}
 	}
 	if !bytes.Equal(lastStoredKey.Bytes(), lastProcessedKey.Bytes()) {
@@ -1297,7 +1289,7 @@ type mapToBlockmaxReindexTracker interface {
 	getStarted() (time.Time, error)
 
 	markProgress(lastProcessedKey indexKey, processedCount, indexedCount int) error
-	GetProgress() (indexKey, time.Time, error)
+	GetProgress() (indexKey, *time.Time, error)
 
 	IsReindexed() bool
 	markReindexed() error
@@ -1323,6 +1315,8 @@ type mapToBlockmaxReindexTracker interface {
 	IsRollback() bool
 
 	reset() error
+
+	checkOverrides(logger logrus.FieldLogger, config *mapToBlockmaxConfig)
 }
 
 func NewFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser) *fileMapToBlockmaxReindexTracker {
@@ -1340,6 +1334,7 @@ func NewFileMapToBlockmaxReindexTracker(lsmPath string, keyParser indexKeyParser
 			filenameProperties: "properties.mig",
 			filenameRollback:   "rollback.mig",
 			filenamePaused:     "paused.mig",
+			filenameOverrides:  "overrides.mig",
 			migrationPath:      filepath.Join(lsmPath, ".migrations", "searchable_map_to_blockmax"),
 		},
 	}
@@ -1362,6 +1357,7 @@ type fileReindexTrackerConfig struct {
 	filenameProperties string
 	filenameRollback   string
 	filenamePaused     string
+	filenameOverrides  string
 	migrationPath      string
 }
 
@@ -1434,44 +1430,44 @@ func (t *fileMapToBlockmaxReindexTracker) markProgress(lastProcessedKey indexKey
 	return nil
 }
 
-func (t *fileMapToBlockmaxReindexTracker) GetProgress() (indexKey, time.Time, error) {
+func (t *fileMapToBlockmaxReindexTracker) GetProgress() (indexKey, *time.Time, error) {
 	filename, err := t.findLastProgressFile()
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, nil, err
 	}
 	if filename == "" {
-		return t.keyParser.FromBytes(nil), time.Time{}, nil
+		return t.keyParser.FromBytes(nil), nil, nil
 	}
 
 	checkpoint, err := strconv.Atoi(strings.TrimPrefix(filename, t.config.filenameProgress+"."))
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, nil, err
 	}
 
 	path := t.filepath(filename)
 	content, err := os.ReadFile(path)
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, nil, err
 	}
 
 	split := strings.Split(string(content), "\n")
 	key, err := t.keyParser.FromString(split[1])
 	if err != nil {
-		return nil, time.Time{}, err
+		return nil, nil, err
 	}
 
 	timeStr := strings.TrimSpace(split[0])
 	if timeStr == "" {
-		return key, time.Time{}, fmt.Errorf("progress file '%s' is empty", filename)
+		return key, nil, fmt.Errorf("progress file '%s' is empty", filename)
 	}
 
 	tm, err := t.decodeTime(timeStr)
 	if err != nil {
-		return nil, time.Time{}, fmt.Errorf("decoding time from '%s': %w", timeStr, err)
+		return nil, nil, fmt.Errorf("decoding time from '%s': %w", timeStr, err)
 	}
 
 	t.progressCheckpoint = checkpoint + 1
-	return key, tm, nil
+	return key, &tm, nil
 }
 
 func (t *fileMapToBlockmaxReindexTracker) GetMigratedCount() (int, int, error) {
@@ -1572,6 +1568,10 @@ func (t *fileMapToBlockmaxReindexTracker) IsTidied() bool {
 	return t.fileExists(t.config.filenameTidied)
 }
 
+func (t *fileMapToBlockmaxReindexTracker) getTidied() (time.Time, error) {
+	return t.getTime(t.config.filenameTidied)
+}
+
 func (t *fileMapToBlockmaxReindexTracker) markTidied() error {
 	return t.createFile(t.config.filenameTidied, []byte(t.encodeTimeNow()))
 }
@@ -1661,6 +1661,9 @@ func (t *fileMapToBlockmaxReindexTracker) GetStatusStrings() (status string, mes
 	if !t.IsStarted() {
 		status = "not started"
 		message = "reindexing not started"
+		if t.HasStartCondition() {
+			message = "reindexing will start on next restart"
+		}
 		return
 	}
 	message = "reindexing started"
@@ -1684,8 +1687,6 @@ func (t *fileMapToBlockmaxReindexTracker) GetStatusStrings() (status string, mes
 		message = "reindexing just started, no snapshots yet"
 	}
 
-	// output[i]["latest_snapshot"] = strings.Join(strings.Split(string(progressFile), "\n"), ", ")
-
 	if t.IsReindexed() {
 		status = "reindexed"
 		message = "reindexing done, needs restart to merge buckets"
@@ -1701,11 +1702,6 @@ func (t *fileMapToBlockmaxReindexTracker) GetStatusStrings() (status string, mes
 		message = "reindexing done, buckets swapped"
 	}
 
-	if t.IsTidied() {
-		status = "tidied"
-		message = "reindexing done, buckets tidied"
-	}
-
 	if t.IsPaused() {
 		status = "paused"
 		message = "reindexing paused, needs resume or rollback"
@@ -1715,6 +1711,12 @@ func (t *fileMapToBlockmaxReindexTracker) GetStatusStrings() (status string, mes
 		status = "rollback"
 		message = "reindexing rollback in progress, will finish on next restart"
 	}
+
+	if t.IsTidied() {
+		status = "tidied"
+		message = "reindexing done, buckets tidied"
+	}
+
 	return
 }
 
@@ -1728,10 +1730,10 @@ func (t *fileMapToBlockmaxReindexTracker) GetTimes() map[string]string {
 		times["started"] = t.encodeTime(started)
 	}
 	_, tm, err := t.GetProgress()
-	if (tm != time.Time{}) || err != nil {
+	if tm == nil || err != nil {
 		times["reindexSnapshot"] = ""
 	} else {
-		times["reindexSnapshot"] = t.encodeTime(tm)
+		times["reindexSnapshot"] = t.encodeTime(*tm)
 	}
 
 	reindexed, err := t.getReindexed()
@@ -1754,14 +1756,131 @@ func (t *fileMapToBlockmaxReindexTracker) GetTimes() map[string]string {
 		times["swapped"] = t.encodeTime(swapped)
 	}
 
-	tidied := t.IsTidied()
-	if tidied {
-		times["tidied"] = t.encodeTimeNow()
-	} else {
+	tidied, err := t.getTidied()
+	if err != nil {
 		times["tidied"] = ""
+	} else {
+		times["tidied"] = t.encodeTime(tidied)
 	}
 
 	return times
+}
+
+func (t *fileMapToBlockmaxReindexTracker) checkOverrides(logger logrus.FieldLogger, config *mapToBlockmaxConfig) {
+	if !t.fileExists(t.config.filenameOverrides) {
+		return
+	}
+	if config == nil {
+		return
+	}
+	content, err := os.ReadFile(t.filepath(t.config.filenameOverrides))
+	if err != nil {
+		return
+	}
+	lines := strings.Split(strings.TrimSpace(string(content)), "\n")
+	if len(lines) == 0 {
+		return
+	}
+
+	for _, line := range lines {
+		parts := strings.SplitN(line, "=", 2)
+		if len(parts) != 2 {
+			logger.WithField("line", line).Warn("invalid override line, expected 'key=value'")
+			continue
+		}
+		key := strings.TrimSpace(parts[0])
+		value := strings.TrimSpace(parts[1])
+		logger.WithFields(logrus.Fields{
+			"key":   key,
+			"value": value,
+		}).Info("processing override")
+
+		switch key {
+		case "swapBuckets":
+			config.swapBuckets = entcfg.Enabled(value)
+		case "unswapBuckets":
+			config.unswapBuckets = entcfg.Enabled(value)
+		case "tidyBuckets":
+			config.tidyBuckets = entcfg.Enabled(value)
+		case "reloadShards":
+			config.reloadShards = entcfg.Enabled(value)
+		case "rollback":
+			config.rollback = entcfg.Enabled(value)
+		case "conditionalStart":
+			config.conditionalStart = entcfg.Enabled(value)
+		case "concurrency":
+			concurrency, err := strconv.Atoi(value)
+			if err != nil {
+				logger.WithField("value", value).Warn("invalid concurrency value, must be an integer")
+				continue
+			}
+			if concurrency <= 0 {
+				logger.WithField("value", value).Warn("invalid concurrency value, must be greater than 0")
+				continue
+			}
+			config.concurrency = concurrency
+		case "memtableOptBlockmaxFactor":
+			memtableOptBlockmaxFactor, err := strconv.Atoi(value)
+			if err != nil {
+				logger.WithField("value", value).Warn("invalid memtableOptBlockmaxFactor value, must be an integer")
+				continue
+			}
+			if memtableOptBlockmaxFactor <= 0 {
+				logger.WithField("value", value).Warn("invalid memtableOptBlockmaxFactor value, must be greater than 0")
+				continue
+			}
+			config.memtableOptBlockmaxFactor = memtableOptBlockmaxFactor
+		case "processingDuration":
+			processingDuration, err := time.ParseDuration(value)
+			if err != nil {
+				logger.WithField("value", value).Warnf("invalid processingDuration value: %v", err)
+				continue
+			}
+			if processingDuration <= 0 {
+				logger.WithField("value", value).Warn("invalid processingDuration value, must be greater than 0")
+				continue
+			}
+			config.processingDuration = processingDuration
+		case "pauseDuration":
+			pauseDuration, err := time.ParseDuration(value)
+			if err != nil {
+				logger.WithField("value", value).Warnf("invalid pauseDuration value: %v", err)
+				continue
+			}
+			if pauseDuration <= 0 {
+				logger.WithField("value", value).Warn("invalid pauseDuration value, must be greater than 0")
+				continue
+			}
+			config.pauseDuration = pauseDuration
+		case "perObjectDelay":
+			perObjectDelay, err := time.ParseDuration(value)
+			if err != nil {
+				logger.WithField("value", value).Warnf("invalid perObjectDelay value: %v", err)
+				continue
+			}
+			if perObjectDelay < 0 {
+				logger.WithField("value", value).Warn("invalid perObjectDelay value, must be greater than or equal to 0")
+				continue
+			}
+			config.perObjectDelay = perObjectDelay
+		case "checkProcessingEveryNoObjects":
+			checkProcessingEveryNoObjects, err := strconv.Atoi(value)
+			if err != nil {
+				logger.WithField("value", value).Warnf("invalid checkProcessingEveryNoObjects value: %v", err)
+				continue
+			}
+			if checkProcessingEveryNoObjects <= 0 {
+				logger.WithField("value", value).Warn("invalid checkProcessingEveryNoObjects value, must be greater than 0")
+				continue
+			}
+			config.checkProcessingEveryNoObjects = checkProcessingEveryNoObjects
+		default:
+			logger.WithField("key", key).Warnf("unknown override key, ignoring: %s", key)
+			continue
+		}
+	}
+
+	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("reindex config overrides applied")
 }
 
 // -----------------------------------------------------------------------------

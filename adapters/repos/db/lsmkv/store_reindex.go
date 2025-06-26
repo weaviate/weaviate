@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -52,7 +53,7 @@ func (s *Store) ResumeObjectBucketCompaction(ctx context.Context) error {
 
 	b := s.bucketsByName["objects"]
 	if b == nil {
-		return nil // no objects bucket, nothing to resume
+		return fmt.Errorf("no bucket named 'objects' found in store %s", s.dir)
 	}
 
 	if err := b.disk.compactionCallbackCtrl.Activate(); err != nil {
