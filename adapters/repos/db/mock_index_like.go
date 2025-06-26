@@ -89,6 +89,53 @@ func (_c *MockIndexLike_CalculateUnloadedObjectsMetrics_Call) RunAndReturn(run f
 	return _c
 }
 
+// CalculateUnloadedVectorsMetrics provides a mock function with given fields: ctx, tenantName
+func (_m *MockIndexLike) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) int64 {
+	ret := _m.Called(ctx, tenantName)
+
+	if len(ret) == 0 {
+		panic("no return value specified for CalculateUnloadedVectorsMetrics")
+	}
+
+	var r0 int64
+	if rf, ok := ret.Get(0).(func(context.Context, string) int64); ok {
+		r0 = rf(ctx, tenantName)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	return r0
+}
+
+// MockIndexLike_CalculateUnloadedVectorsMetrics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CalculateUnloadedVectorsMetrics'
+type MockIndexLike_CalculateUnloadedVectorsMetrics_Call struct {
+	*mock.Call
+}
+
+// CalculateUnloadedVectorsMetrics is a helper method to define mock.On call
+//   - ctx context.Context
+//   - tenantName string
+func (_e *MockIndexLike_Expecter) CalculateUnloadedVectorsMetrics(ctx interface{}, tenantName interface{}) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
+	return &MockIndexLike_CalculateUnloadedVectorsMetrics_Call{Call: _e.mock.On("CalculateUnloadedVectorsMetrics", ctx, tenantName)}
+}
+
+func (_c *MockIndexLike_CalculateUnloadedVectorsMetrics_Call) Run(run func(ctx context.Context, tenantName string)) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].(string))
+	})
+	return _c
+}
+
+func (_c *MockIndexLike_CalculateUnloadedVectorsMetrics_Call) Return(_a0 int64) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockIndexLike_CalculateUnloadedVectorsMetrics_Call) RunAndReturn(run func(context.Context, string) int64) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ForEachShard provides a mock function with given fields: f
 func (_m *MockIndexLike) ForEachShard(f func(string, ShardLike) error) error {
 	ret := _m.Called(f)

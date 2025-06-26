@@ -799,5 +799,5 @@ func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) int64 {
 
 	// For unloaded shards, use the existing cold tenant calculation method
 	// This avoids complex disk file calculations and uses the same logic as the index
-	return l.shardOpts.index.CalculateColdTenantVectorStorageSize(ctx, l.shardOpts.name)
+	return l.shardOpts.index.CalculateUnloadedVectorsMetrics(ctx, l.shardOpts.name)
 }
