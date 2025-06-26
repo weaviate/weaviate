@@ -423,6 +423,13 @@ func setupDebugHandlers(appState *state.State) {
 		response := map[string]interface{}{
 			"shards": output,
 		}
+
+		if err != nil {
+			logger.WithField("collection", colName).Error("failed to get shard names")
+			http.Error(w, "failed to get shard names", http.StatusInternalServerError)
+			response["error"] = "failed to get shard names: " + err.Error()
+		}
+
 		jsonBytes, err := json.Marshal(response)
 		if err != nil {
 			logger.WithError(err).Error("marshal failed on stats")
