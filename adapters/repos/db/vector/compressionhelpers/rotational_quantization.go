@@ -17,8 +17,9 @@ import (
 	"math"
 
 	"github.com/pkg/errors"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	"golang.org/x/exp/slices"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 )
 
 type RotationalQuantizer struct {
@@ -295,6 +296,15 @@ type RQStats struct {
 
 func (rq RQStats) CompressionType() string {
 	return "rq"
+}
+
+func (rq RQStats) CompressionRatio(dimensionality int) float64 {
+	// RQ compression: original size = inputDim * 4 bytes (float32)
+	// compressed size = 16 bytes (metadata) + outputDim * 1 byte (compressed data)
+	// where outputDim is typically the same as inputDim after rotation
+	originalSize := dimensionality * 4
+	compressedSize := 16 + dimensionality // 16 bytes metadata + 1 byte per dimension
+	return float64(originalSize) / float64(compressedSize)
 }
 
 func (rq *RotationalQuantizer) Stats() CompressionStats {
