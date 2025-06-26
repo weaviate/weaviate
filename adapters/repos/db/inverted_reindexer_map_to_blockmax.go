@@ -1462,7 +1462,7 @@ func (t *fileMapToBlockmaxReindexTracker) GetProgress() (indexKey, time.Time, er
 
 	timeStr := strings.TrimSpace(split[0])
 	if timeStr == "" {
-		return key, time.Time{}, nil
+		return key, time.Time{}, fmt.Errorf("progress file '%s' is empty", filename)
 	}
 
 	tm, err := t.decodeTime(timeStr)
@@ -1682,7 +1682,6 @@ func (t *fileMapToBlockmaxReindexTracker) GetStatusStrings() (status string, mes
 
 	if count == 0 {
 		message = "reindexing just started, no snapshots yet"
-		return
 	}
 
 	// output[i]["latest_snapshot"] = strings.Join(strings.Split(string(progressFile), "\n"), ", ")
@@ -1728,9 +1727,8 @@ func (t *fileMapToBlockmaxReindexTracker) GetTimes() map[string]string {
 	} else {
 		times["started"] = t.encodeTime(started)
 	}
-
 	_, tm, err := t.GetProgress()
-	if err != nil {
+	if (tm != time.Time{}) || err != nil {
 		times["reindexSnapshot"] = ""
 	} else {
 		times["reindexSnapshot"] = t.encodeTime(tm)

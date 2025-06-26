@@ -544,10 +544,8 @@ func setupDebugHandlers(appState *state.State) {
 			output[i]["status"] = status
 			output[i]["message"] = message
 
-			properties, err := rt.GetProps()
-			if err != nil {
-				output[i]["properties"] = fmt.Sprintf("error: %v", err)
-			} else {
+			properties, _ := rt.GetProps()
+			if properties != nil {
 				output[i]["properties"] = properties
 			}
 			output[i]["times"] = rt.GetTimes()
