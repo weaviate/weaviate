@@ -13,6 +13,7 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path"
@@ -43,6 +44,7 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -2867,4 +2869,61 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 	}, i.logger)
 
 	return nil
+}
+
+// calcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
+func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (sum int, dimensions int) {
+	b := store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return 0, 0
+	}
+
+	c := b.MapCursor()
+	defer c.Close()
+
+	var (
+		nameLen        = len(targetVector)
+		expectedKeyLen = 4 + nameLen
+	)
+
+	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
+		// for named vectors we have to additionally check if the key is prefixed with the vector name
+		keyMatches := len(k) == expectedKeyLen && (nameLen == 4 || strings.HasPrefix(string(k), targetVector))
+		if !keyMatches {
+			continue
+		}
+
+		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
+		size, dim := calcEntry(dimLength, v)
+		if dimensions == 0 && dim > 0 {
+			dimensions = dim
+		}
+		sum += size
+	}
+
+	return sum, dimensions
+}
+
+// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
+func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName, targetVector string) (dimensions int, objectCount int) {
+	// Obtain a lock that prevents tenant activation
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
+
+	// Locate the shard on disk
+	shardPath := shardPathLSM(i.path(), shardName)
+
+	// Create a temporary store to access the dimensions bucket
+	lsmkvMetrics := lsmkv.NewMetrics(nil, i.Config.ClassName.String(), shardName)
+	store, err := lsmkv.New(shardPath, i.path(), i.logger, lsmkvMetrics,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	if err != nil {
+		return 0, 0
+	}
+	defer store.Shutdown(ctx)
+
+	// Use the same logic as the loaded shard's DimensionsUsage method
+	return calcTargetVectorDimensionsFromStore(ctx, store, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+		return dimLength, len(v)
+	})
 }

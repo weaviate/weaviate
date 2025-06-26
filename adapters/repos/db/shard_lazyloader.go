@@ -453,13 +453,29 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 }
 
 func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (int, int) {
-	l.mustLoad()
-	return l.shard.DimensionsUsage(ctx, targetVector)
+	l.mutex.Lock()
+	if l.loaded {
+		l.mutex.Unlock()
+		return l.shard.DimensionsUsage(ctx, targetVector)
+	}
+	l.mutex.Unlock()
+
+	// For unloaded shards, use the unloaded shard/tenant calculation method
+	// This avoids loading the shard into memory
+	return l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
 }
 
 func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) int {
-	l.mustLoad()
-	return l.shard.Dimensions(ctx, targetVector)
+	l.mutex.Lock()
+	if l.loaded {
+		l.mutex.Unlock()
+		return l.shard.Dimensions(ctx, targetVector)
+	}
+	l.mutex.Unlock()
+
+	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
+	dimensions, _ := l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
+	return dimensions
 }
 
 func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
