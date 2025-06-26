@@ -28,32 +28,33 @@ import (
 
 func TestCreateUser(t *testing.T) {
 	adminKey := "admin-key"
-	// adminUser := "admin-user"
+	adminUser := "admin-user"
 
 	otherUser := "custom-user"
 	otherKey := "custom-key"
 
 	otherUser2 := "custom-user2"
-	//otherKey2 := "custom-key2"
-	//
+	otherKey2 := "custom-key2"
+
 	otherUser3 := "custom-user3"
 	otherKey3 := "custom-key3"
 
-	//ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	//compose, err := docker.New().WithWeaviate().
-	//	WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithUserApiKey(otherUser2, otherKey2).WithUserApiKey(otherUser3, otherKey3).
-	//	WithDbUsers().
-	//	WithRBAC().WithRbacRoots(adminUser).
-	//	Start(ctx)
-	//require.Nil(t, err)
-	//helper.SetupClient(compose.GetWeaviate().URI())
-	//defer func() {
-	//	helper.ResetClient()
-	//	require.NoError(t, compose.Terminate(ctx))
-	//	cancel()
-	//}()
+	otherUser4 := "custom-user4"
+	otherKey4 := "custom-key4"
 
-	helper.SetupClient("127.0.0.1:8081")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	compose, err := docker.New().WithWeaviate().
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithUserApiKey(otherUser2, otherKey2).WithUserApiKey(otherUser3, otherKey3).WithUserApiKey(otherUser4, otherKey4).
+		WithDbUsers().
+		WithRBAC().WithRbacRoots(adminUser).
+		Start(ctx)
+	require.Nil(t, err)
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer func() {
+		helper.ResetClient()
+		require.NoError(t, compose.Terminate(ctx))
+		cancel()
+	}()
 
 	userName := "CreateUserTestUser"
 
@@ -173,6 +174,30 @@ func TestCreateUser(t *testing.T) {
 		var parsed *users.GetOwnInfoUnauthorized
 		require.True(t, errors.As(err, &parsed))
 		require.Equal(t, 401, parsed.Code())
+	})
+
+	t.Run("import static user and suspend", func(t *testing.T) {
+		key := helper.CreateUserWithApiKey(t, otherUser4, adminKey, nil)
+
+		info := helper.GetInfoForOwnUser(t, key)
+		require.Equal(t, otherUser4, *info.Username)
+
+		helper.DeactivateUser(t, adminKey, otherUser4, true)
+
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(otherKey4))
+		require.Error(t, err)
+		var parsed *users.GetOwnInfoUnauthorized
+		require.True(t, errors.As(err, &parsed))
+		require.Equal(t, 401, parsed.Code())
+
+		helper.ActivateUser(t, adminKey, otherUser4)
+		_, err = helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(otherKey4))
+		require.Error(t, err)
+		require.True(t, errors.As(err, &parsed))
+		require.Equal(t, 401, parsed.Code())
+
+		newKey := helper.RotateKey(t, otherUser4, adminKey)
+		helper.GetInfoForOwnUser(t, newKey)
 	})
 }
 
