@@ -724,7 +724,14 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED"},
 			expected: Authentication{
 				OIDC: OIDC{
-					Enabled: runtime.NewDynamicValue(true),
+					Enabled:           true,
+					Issuer:            runtime.NewDynamicValue(""),
+					ClientID:          runtime.NewDynamicValue(""),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue(""),
+					GroupsClaim:       runtime.NewDynamicValue(""),
+					Scopes:            runtime.NewDynamicValue([]string(nil)),
+					Certificate:       runtime.NewDynamicValue(""),
 				},
 			},
 		},

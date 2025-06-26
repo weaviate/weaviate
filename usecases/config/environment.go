@@ -147,7 +147,8 @@ func FromEnv(config *Config) error {
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
-		config.Authentication.OIDC.Enabled = runtime.NewDynamicValue(true)
+		fmt.Println("I'm here?")
+		config.Authentication.OIDC.Enabled = true
 		var (
 			skipClientCheck bool
 			issuer          string

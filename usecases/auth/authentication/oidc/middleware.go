@@ -43,7 +43,7 @@ func New(cfg config.Config) (*Client, error) {
 		Config: cfg.Authentication.OIDC,
 	}
 
-	if !client.Config.Enabled.Get() {
+	if !client.Config.Enabled {
 		// if oidc is not enabled, we are done, no need to setup an actual client.
 		// The "disabled" client is however still valuable to deny any requests
 		// coming in with an OAuth token set.
@@ -113,7 +113,7 @@ func (c *Client) validateConfig() error {
 
 // ValidateAndExtract can be used as a middleware for go-swagger
 func (c *Client) ValidateAndExtract(token string, scopes []string) (*models.Principal, error) {
-	if !c.Config.Enabled.Get() {
+	if !c.Config.Enabled {
 		return nil, errors.New(401, "oidc auth is not configured, please try another auth scheme or set up weaviate with OIDC configured")
 	}
 

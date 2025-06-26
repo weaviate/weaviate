@@ -53,7 +53,7 @@ func upgradeGroupingsFrom129(enforcer *casbin.SyncedCachedEnforcer, authNconf co
 						return err
 					}
 				}
-				if authNconf.OIDC.Enabled.Get() {
+				if authNconf.OIDC.Enabled {
 					if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(userNoPrefix, models.UserTypeInputOidc), role); err != nil {
 						return err
 					}

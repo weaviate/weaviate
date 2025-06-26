@@ -21,7 +21,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestMigrationsUpsert(t *testing.T) {
@@ -341,7 +340,7 @@ func TestMigrateRevokeRoles(t *testing.T) {
 
 func TestMigrateAssignRoles(t *testing.T) {
 	oidc := config.OIDC{
-		Enabled: runtime.NewDynamicValue[bool](true),
+		Enabled: true,
 	}
 
 	tests := []struct {

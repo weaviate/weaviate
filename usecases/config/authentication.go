@@ -44,7 +44,7 @@ func (a Authentication) Validate() error {
 }
 
 func (a Authentication) AnyAuthMethodSelected() bool {
-	return a.AnonymousAccess.Enabled || a.OIDC.Enabled.Get() || a.APIKey.Enabled || a.DBUsers.Enabled
+	return a.AnonymousAccess.Enabled || a.OIDC.Enabled || a.APIKey.Enabled || a.DBUsers.Enabled
 }
 
 func (a Authentication) AnyApiKeyAvailable() bool {
@@ -61,7 +61,7 @@ type AnonymousAccess struct {
 
 // OIDC configures the OIDC middleware
 type OIDC struct {
-	Enabled           *runtime.DynamicValue[bool]     `json:"enabled" yaml:"enabled"`
+	Enabled           bool                            `json:"enabled" yaml:"enabled"`
 	Issuer            *runtime.DynamicValue[string]   `json:"issuer" yaml:"issuer"`
 	ClientID          *runtime.DynamicValue[string]   `json:"client_id" yaml:"client_id"`
 	SkipClientIDCheck *runtime.DynamicValue[bool]     `yaml:"skip_client_id_check" json:"skip_client_id_check"`

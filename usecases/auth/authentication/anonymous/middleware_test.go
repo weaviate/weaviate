@@ -18,7 +18,6 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func Test_AnonymousMiddleware_Enabled(t *testing.T) {
@@ -62,7 +61,7 @@ func Test_AnonymousMiddleware_Disabled(t *testing.T) {
 					Enabled: false,
 				},
 				OIDC: config.OIDC{
-					Enabled: runtime.NewDynamicValue[bool](true),
+					Enabled: true,
 				},
 			},
 		}
@@ -89,7 +88,7 @@ func Test_AnonymousMiddleware_Disabled(t *testing.T) {
 					Enabled: false,
 				},
 				OIDC: config.OIDC{
-					Enabled: runtime.NewDynamicValue[bool](true),
+					Enabled: true,
 				},
 			},
 		}

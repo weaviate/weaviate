@@ -56,7 +56,7 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 
 	api.WellKnownGetWellKnownOpenidConfigurationHandler = well_known.GetWellKnownOpenidConfigurationHandlerFunc(
 		func(params well_known.GetWellKnownOpenidConfigurationParams, principal *models.Principal) middleware.Responder {
-			if !serverConfig.Config.Authentication.OIDC.Enabled.Get() {
+			if !serverConfig.Config.Authentication.OIDC.Enabled {
 				metricRequestsTotal.logUserError("")
 				return well_known.NewGetWellKnownOpenidConfigurationNotFound()
 			}

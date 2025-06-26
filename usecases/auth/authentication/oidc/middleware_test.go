@@ -29,7 +29,7 @@ func Test_Middleware_NotConfigured(t *testing.T) {
 	cfg := config.Config{
 		Authentication: config.Authentication{
 			OIDC: config.OIDC{
-				Enabled: runtime.NewDynamicValue(false),
+				Enabled: false,
 			},
 		},
 	}
@@ -47,7 +47,7 @@ func Test_Middleware_IncompleteConfiguration(t *testing.T) {
 	cfg := config.Config{
 		Authentication: config.Authentication{
 			OIDC: config.OIDC{
-				Enabled: runtime.NewDynamicValue(true),
+				Enabled: true,
 			},
 		},
 	}
@@ -72,7 +72,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled:           runtime.NewDynamicValue(true),
+					Enabled:           true,
 					Issuer:            runtime.NewDynamicValue(server.URL),
 					ClientID:          runtime.NewDynamicValue("best_client"),
 					SkipClientIDCheck: runtime.NewDynamicValue(false),
@@ -97,7 +97,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled:           runtime.NewDynamicValue(true),
+					Enabled:           true,
 					Issuer:            runtime.NewDynamicValue(server.URL),
 					ClientID:          runtime.NewDynamicValue("best_client"),
 					SkipClientIDCheck: runtime.NewDynamicValue(false),
@@ -123,7 +123,7 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled:           runtime.NewDynamicValue(true),
+					Enabled:           true,
 					Issuer:            runtime.NewDynamicValue(server.URL),
 					ClientID:          runtime.NewDynamicValue("best_client"),
 					SkipClientIDCheck: runtime.NewDynamicValue(false),
@@ -183,7 +183,7 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 		cfg := config.Config{
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
-					Enabled:     runtime.NewDynamicValue(true),
+					Enabled:     true,
 					Certificate: runtime.NewDynamicValue(certificate),
 				},
 			},

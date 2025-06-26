@@ -15,8 +15,6 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/weaviate/weaviate/usecases/config/runtime"
-
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -46,7 +44,7 @@ func TestConfig_Authentication(t *testing.T) {
 	t.Run("only oidc selected", func(t *testing.T) {
 		auth := Authentication{
 			OIDC: OIDC{
-				Enabled: runtime.NewDynamicValue(true),
+				Enabled: true,
 			},
 		}
 
@@ -62,7 +60,7 @@ func TestConfig_Authentication(t *testing.T) {
 		// may write
 		auth := Authentication{
 			OIDC: OIDC{
-				Enabled: runtime.NewDynamicValue(true),
+				Enabled: true,
 			},
 			AnonymousAccess: AnonymousAccess{
 				Enabled: true,

@@ -25,7 +25,6 @@ import (
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/conv"
 	"github.com/weaviate/weaviate/usecases/config"
-	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func TestUpdateGroupings(t *testing.T) {
@@ -41,14 +40,14 @@ func TestUpdateGroupings(t *testing.T) {
 			rolesToAdd:         []string{"role:test"},
 			assignments:        map[string]string{"user:" + conv.InternalPlaceHolder: "role:test"},
 			expectedAfterWards: map[string]string{"db:" + conv.InternalPlaceHolder: "role:test"},
-			authNconf:          config.Authentication{OIDC: config.OIDC{Enabled: runtime.NewDynamicValue(true)}},
+			authNconf:          config.Authentication{OIDC: config.OIDC{Enabled: true}},
 		},
 		{
 			name:               "only oidc enabled - normal user will only be added as oidc",
 			rolesToAdd:         []string{"role:test"},
 			assignments:        map[string]string{"user:something": "role:test"},
 			expectedAfterWards: map[string]string{"oidc:something": "role:test"},
-			authNconf:          config.Authentication{OIDC: config.OIDC{Enabled: runtime.NewDynamicValue(true)}},
+			authNconf:          config.Authentication{OIDC: config.OIDC{Enabled: true}},
 		},
 		{
 			name:               "only db enabled - normal user will only be added as db",
@@ -62,14 +61,14 @@ func TestUpdateGroupings(t *testing.T) {
 			rolesToAdd:         []string{"role:test"},
 			assignments:        map[string]string{"user:something": "role:test"},
 			expectedAfterWards: map[string]string{"db:something": "role:test", "oidc:something": "role:test"},
-			authNconf:          config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"something"}}, OIDC: config.OIDC{Enabled: runtime.NewDynamicValue(true)}},
+			authNconf:          config.Authentication{APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"something"}}, OIDC: config.OIDC{Enabled: true}},
 		},
 		{
 			name:               "both enabled but user is not added to api key list- normal user will be added for both",
 			rolesToAdd:         []string{"role:test"},
 			assignments:        map[string]string{"user:something": "role:test"},
 			expectedAfterWards: map[string]string{"oidc:something": "role:test"},
-			authNconf:          config.Authentication{APIKey: config.StaticAPIKey{Enabled: true}, OIDC: config.OIDC{Enabled: runtime.NewDynamicValue(true)}},
+			authNconf:          config.Authentication{APIKey: config.StaticAPIKey{Enabled: true}, OIDC: config.OIDC{Enabled: true}},
 		},
 	}
 

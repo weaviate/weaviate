@@ -913,7 +913,7 @@ func (h *authZHandlers) revokeRoleFromGroup(params authz.RevokeRoleFromGroupPara
 func (h *authZHandlers) userExists(user string, userType models.UserTypeInput) (bool, error) {
 	switch userType {
 	case models.UserTypeInputOidc:
-		if !h.oidcConfigs.Enabled.Get() {
+		if !h.oidcConfigs.Enabled {
 			return false, fmt.Errorf("oidc is not enabled")
 		}
 		return true, nil
@@ -944,7 +944,7 @@ func (h *authZHandlers) userExistsDeprecated(user string) (bool, error) {
 	// We are only able to check if a user is present on the system if APIKeys are the only auth method. For OIDC
 	// users are managed in an external service and there is no general way to check if a user we have not seen yet is
 	// valid.
-	if h.oidcConfigs.Enabled.Get() {
+	if h.oidcConfigs.Enabled {
 		return true, nil
 	}
 

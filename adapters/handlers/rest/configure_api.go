@@ -1728,7 +1728,7 @@ func initRuntimeOverrides(appState *state.State) {
 
 		hooks := make(map[string]func() error)
 
-		if appState.OIDC.Config.Enabled.Get() {
+		if appState.OIDC.Config.Enabled {
 			registered.OIDCIssuer = appState.OIDC.Config.Issuer
 			registered.OIDCClientID = appState.OIDC.Config.ClientID
 			registered.OIDCSkipClientIDCheck = appState.OIDC.Config.SkipClientIDCheck

@@ -280,7 +280,7 @@ func migrateAssignRolesV0(req *cmd.AddRolesForUsersRequest, authNconfig config.A
 		})
 	}
 
-	if authNconfig.OIDC.Enabled.Get() {
+	if authNconfig.OIDC.Enabled {
 		reqs = append(reqs, &cmd.AddRolesForUsersRequest{
 			Version: req.Version + 1,
 			Roles:   req.Roles,
