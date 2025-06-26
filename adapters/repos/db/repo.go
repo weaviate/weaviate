@@ -151,6 +151,7 @@ type IndexGetter interface {
 type IndexLike interface {
 	ForEachShard(f func(name string, shard ShardLike) error) error
 	CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64)
+	CalculateColdTenantVectorStorageSize(ctx context.Context, tenantName string) int64
 }
 
 func New(logger logrus.FieldLogger, config Config,

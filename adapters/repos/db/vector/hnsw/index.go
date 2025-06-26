@@ -1014,8 +1014,30 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 }
 
 func (h *hnsw) VectorStorageSize() int64 {
-	// TODO-usage: Implement this
-	return 0
+	h.RLock()
+	defer h.RUnlock()
+
+	// Get count and dimensions
+	var count int64
+	if h.compressed.Load() {
+		count = h.compressor.CountVectors()
+	} else {
+		count = int64(h.AlreadyIndexed())
+	}
+	dims := h.dims
+
+	if count == 0 || dims == 0 {
+		return 0
+	}
+
+	// Calculate uncompressed size (float32 = 4 bytes per dimension)
+	uncompressedSize := count * int64(dims) * 4
+
+	if h.compressed.Load() {
+		return int64(float64(uncompressedSize) * h.compressor.Stats().CompressionRatio(int(dims)))
+	}
+
+	return uncompressedSize
 }
 
 func (h *hnsw) CompressionStats() (compressionhelpers.CompressionStats, error) {
