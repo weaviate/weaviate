@@ -594,15 +594,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 
 	appState.SchemaManager = schemaManager
 
-	// Initialize usage service after all components are ready
-	if appState.Modules.UsageEnabled() {
-		if usageModule := appState.Modules.GetByName(modusagegcs.Name); usageModule != nil {
-			if usageModuleWithService, ok := usageModule.(modulecapabilities.ModuleWithUsageService); ok {
-				usageService := usage.NewService(schemaManager, repo, appState.Modules)
-				usageModuleWithService.SetUsageService(usageService)
-			}
-		}
-	}
+	// initialize needed services after all components are ready
+	postInitModules(appState)
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
@@ -1638,6 +1631,18 @@ func registerModules(appState *state.State) error {
 		Debug("completed registering modules")
 
 	return nil
+}
+
+func postInitModules(appState *state.State) {
+	// Initialize usage service after all components are ready
+	if appState.Modules.UsageEnabled() {
+		if usageModule := appState.Modules.GetByName(modusagegcs.Name); usageModule != nil {
+			if usageModuleWithService, ok := usageModule.(modulecapabilities.ModuleWithUsageService); ok {
+				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules)
+				usageModuleWithService.SetUsageService(usageService)
+			}
+		}
+	}
 }
 
 func initModules(ctx context.Context, appState *state.State) error {
