@@ -77,7 +77,8 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 					shardUsage := &ShardUsage{
 						Name:                tenantName,
 						ObjectsCount:        int(objectCount),
-						ObjectsStorageBytes: storageSize,
+						ObjectsStorageBytes: uint64(storageSize),
+						VectorStorageBytes:  uint64(index.CalculateColdTenantVectorStorageSize(ctx, tenantName)),
 						NamedVectors:        make([]*VectorUsage, 0), // Empty for cold tenants
 					}
 					coldTenants[tenantName] = shardUsage
@@ -94,7 +95,8 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 				shardUsage := &ShardUsage{
 					Name:                name,
 					ObjectsCount:        shard.ObjectCountAsync(),
-					ObjectsStorageBytes: shard.ObjectStorageSize(ctx),
+					ObjectsStorageBytes: uint64(shard.ObjectStorageSize(ctx)),
+					VectorStorageBytes:  uint64(shard.VectorStorageSize(ctx)),
 					NamedVectors:        make([]*VectorUsage, 0),
 				}
 

@@ -2991,3 +2991,52 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 	// If we can't determine object count, return the disk size as fallback
 	return totalObjectCount, totalDiskSize
 }
+
+// CalculateColdTenantVectorStorageSize calculates vector storage size for a cold tenant without loading it into memory
+func (i *Index) CalculateColdTenantVectorStorageSize(ctx context.Context, tenantName string) int64 {
+	// Obtain a lock that prevents tenant activation
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
+
+	// Locate the tenant on disk
+	shardPath := shardPathLSM(i.path(), tenantName)
+
+	// Get vector index configurations to determine dimensions and compression
+	vectorConfigs := i.GetVectorIndexConfigs()
+	if len(vectorConfigs) == 0 {
+		return 0
+	}
+
+	// Calculate total vector storage size by examining vector buckets on disk
+	totalVectorStorageSize := int64(0)
+
+	// Use a single walk to avoid nested filepath.Walk calls and reduce file descriptors
+	if err := filepath.Walk(shardPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Check if this is a vector bucket directory
+		if info.IsDir() && helpers.IsVectorBucket(info.Name()) {
+			// For vector bucket directories, we'll calculate their size in the next iteration
+			return nil
+		}
+
+		// Check if this file belongs to a vector bucket by checking its parent directory
+		if !info.IsDir() {
+			parentDir := filepath.Dir(path)
+			parentName := filepath.Base(parentDir)
+
+			// If the parent directory is a vector bucket, add this file's size
+			if helpers.IsVectorBucket(parentName) {
+				totalVectorStorageSize += info.Size()
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return 0
+	}
+
+	return totalVectorStorageSize
+}
