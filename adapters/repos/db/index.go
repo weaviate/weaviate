@@ -2943,8 +2943,8 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName,
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64) {
 	// Obtain a lock that prevents tenant activation
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.shardCreateLocks.Lock(tenantName)
+	defer i.shardCreateLocks.Unlock(tenantName)
 
 	// Locate the tenant on disk
 	shardPath := shardPathLSM(i.path(), tenantName)
