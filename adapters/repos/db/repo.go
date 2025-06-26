@@ -150,7 +150,7 @@ type IndexGetter interface {
 // This allows for better testability by using interfaces instead of concrete types
 type IndexLike interface {
 	ForEachShard(f func(name string, shard ShardLike) error) error
-	CalculateColdTenantMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64)
+	CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64)
 }
 
 func New(logger logrus.FieldLogger, config Config,
