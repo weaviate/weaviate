@@ -21,7 +21,7 @@ import (
 
 // DynamicType represents different types that is supported in runtime configs
 type DynamicType interface {
-	~int | ~float64 | ~bool | time.Duration | ~string
+	~int | ~float64 | ~bool | time.Duration | ~string | []string
 }
 
 // DynamicValue represents any runtime config value. It's zero value is
@@ -78,6 +78,11 @@ func (dv *DynamicValue[T]) Reset() {
 
 // Set is used by the config manager to update the dynamic value.
 func (dv *DynamicValue[T]) SetValue(val T) {
+	// log this at the high level, that someone is trying to set unitilized runtime value
+	if dv == nil {
+		return
+	}
+
 	dv.mu.Lock()
 	defer dv.mu.Unlock()
 

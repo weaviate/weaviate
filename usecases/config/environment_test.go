@@ -21,6 +21,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/usecases/cluster"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 const DefaultGoroutineFactor = 1.5
@@ -723,7 +724,14 @@ func TestEnvironmentAuthentication(t *testing.T) {
 			auth_env_var: []string{"AUTHENTICATION_OIDC_ENABLED"},
 			expected: Authentication{
 				OIDC: OIDC{
-					Enabled: true,
+					Enabled:           true,
+					Issuer:            runtime.NewDynamicValue(""),
+					ClientID:          runtime.NewDynamicValue(""),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue(""),
+					GroupsClaim:       runtime.NewDynamicValue(""),
+					Scopes:            runtime.NewDynamicValue([]string(nil)),
+					Certificate:       runtime.NewDynamicValue(""),
 				},
 			},
 		},
