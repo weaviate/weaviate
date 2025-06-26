@@ -32,8 +32,11 @@ import (
 func setupDebugHandlers(appState *state.State) {
 	logger := appState.Logger.WithField("handler", "debug")
 
+	// if targetNode is set, we add a target node override (eg run this on the "source" node)
+	// if targetNode is not set, we initialize async replication for the shard
+	// but do not add a target node override (eg run this on the "destination" node)
 	http.HandleFunc(
-		"/debug/async-replication/add-target-override",
+		"/debug/async-replication/set",
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			collectionName := r.URL.Query().Get("collection")
 			if collectionName == "" {
@@ -46,10 +49,6 @@ func setupDebugHandlers(appState *state.State) {
 				return
 			}
 			targetNode := r.URL.Query().Get("targetNode")
-			if targetNode == "" {
-				http.Error(w, "targetNode is required", http.StatusBadRequest)
-				return
-			}
 			upperTimeBoundStr := r.URL.Query().Get("upperTimeBound")
 			upperTimeBound := time.Now().UnixMilli()
 			if upperTimeBoundStr != "" {
@@ -80,22 +79,34 @@ func setupDebugHandlers(appState *state.State) {
 				http.Error(w, "collection not found", http.StatusNotFound)
 				return
 			}
-			idx.IncomingAddAsyncReplicationTargetNode(
-				ctx,
-				shardStr,
-				additional.AsyncReplicationTargetNodeOverride{
-					CollectionID:   collectionName,
-					ShardID:        shardStr,
-					SourceNode:     appState.Cluster.LocalName(),
-					TargetNode:     targetNode,
-					UpperTimeBound: upperTimeBound,
-				},
-			)
-			if err != nil {
-				logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardStr).
-					Error("failed to add async replication target node")
-				http.Error(w, "failed to add async replication target node", http.StatusInternalServerError)
-				return
+			if targetNode != "" {
+				err = idx.IncomingAddAsyncReplicationTargetNode(
+					ctx,
+					shardStr,
+					additional.AsyncReplicationTargetNodeOverride{
+						CollectionID:   collectionName,
+						ShardID:        shardStr,
+						SourceNode:     appState.Cluster.LocalName(),
+						TargetNode:     targetNode,
+						UpperTimeBound: upperTimeBound,
+					},
+				)
+				if err != nil {
+					logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardStr).
+						Error("failed to add async replication target node")
+					http.Error(w, "failed to add async replication target node", http.StatusInternalServerError)
+					return
+				}
+			} else {
+				s, release, err := idx.GetShard(ctx, shardStr)
+				if err != nil {
+					logger.WithError(err).WithField("collection", collectionName).WithField("shard", shardStr).
+						Error("failed to get shard")
+					http.Error(w, "failed to get shard", http.StatusInternalServerError)
+					return
+				}
+				defer release()
+				s.SetAsyncReplicationEnabled(ctx, true)
 			}
 			w.WriteHeader(http.StatusAccepted)
 		}),
