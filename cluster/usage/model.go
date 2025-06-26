@@ -51,7 +51,10 @@ type ShardUsage struct {
 	ObjectsCount int `json:"objects_count"`
 
 	// The storage size in bytes
-	ObjectsStorageBytes int64 `json:"objects_storage_bytes"`
+	ObjectsStorageBytes uint64 `json:"objects_storage_bytes"`
+
+	// The actual memory storage bytes used by vectors
+	VectorStorageBytes uint64 `json:"vector_storage_bytes"`
 
 	// List of named vectors and their metrics
 	NamedVectors []*VectorUsage `json:"named_vectors"`
