@@ -210,9 +210,12 @@ func (c *Client) useCertificate() (*http.Client, error) {
 	}
 
 	certBlock, _ := pem.Decode([]byte(certificate))
+	if certBlock == nil || len(certBlock.Bytes) == 0 {
+		return nil, fmt.Errorf("failed to decode certificate")
+	}
 	cert, err := x509.ParseCertificate(certBlock.Bytes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to decode certificate: %w", err)
+		return nil, fmt.Errorf("failed to parse certificate: %w", err)
 	}
 
 	certPool := x509.NewCertPool()
