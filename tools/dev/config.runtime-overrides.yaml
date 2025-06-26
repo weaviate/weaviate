@@ -7,9 +7,7 @@ query_slow_log_enabled: true
 query_slow_log_threshold: 100ms
 inverted_sorter_disabled: false
 
-exp_oidc_username_claim: "sub"
-exp_oidc_client_id: "0oa7iz2g41rNxv95B5d7"
-exp_oidc_issuer: "https://dev-32300990.okta.com/oauth2/aus7iz3tna3kckRWS5d7"
-exp_oidc_groups_claim: "teams"
-
-exp_oidc_skip_client_id_check: true
+# exp_oidc_username_claim: "sub"
+# exp_oidc_client_id: "<client_id>"
+# exp_oidc_issuer: "<issuer_url>"
+# exp_oidc_groups_claim: "teams"
