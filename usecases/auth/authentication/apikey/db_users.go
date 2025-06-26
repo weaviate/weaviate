@@ -247,6 +247,7 @@ func (c *DBUser) DeleteUser(userId string) error {
 	delete(c.data.Users, userId)
 	delete(c.memoryOnlyData.weakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
+	delete(c.data.ImportedApiKeysWeakHash, userId)
 	return c.storeToFile()
 }
 

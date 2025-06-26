@@ -28,26 +28,32 @@ import (
 
 func TestCreateUser(t *testing.T) {
 	adminKey := "admin-key"
-	adminUser := "admin-user"
+	// adminUser := "admin-user"
 
 	otherUser := "custom-user"
 	otherKey := "custom-key"
 
 	otherUser2 := "custom-user2"
-	otherKey2 := "custom-key2"
+	//otherKey2 := "custom-key2"
+	//
+	otherUser3 := "custom-user3"
+	otherKey3 := "custom-key3"
 
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-	compose, err := docker.New().WithWeaviate().WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithUserApiKey(otherUser2, otherKey2).
-		WithDbUsers().
-		WithRBAC().WithRbacRoots(adminUser).
-		Start(ctx)
-	require.Nil(t, err)
-	helper.SetupClient(compose.GetWeaviate().URI())
-	defer func() {
-		helper.ResetClient()
-		require.NoError(t, compose.Terminate(ctx))
-		cancel()
-	}()
+	//ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	//compose, err := docker.New().WithWeaviate().
+	//	WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithUserApiKey(otherUser2, otherKey2).WithUserApiKey(otherUser3, otherKey3).
+	//	WithDbUsers().
+	//	WithRBAC().WithRbacRoots(adminUser).
+	//	Start(ctx)
+	//require.Nil(t, err)
+	//helper.SetupClient(compose.GetWeaviate().URI())
+	//defer func() {
+	//	helper.ResetClient()
+	//	require.NoError(t, compose.Terminate(ctx))
+	//	cancel()
+	//}()
+
+	helper.SetupClient("127.0.0.1:8081")
 
 	userName := "CreateUserTestUser"
 
@@ -152,6 +158,21 @@ func TestCreateUser(t *testing.T) {
 
 		user := helper.GetUser(t, otherUser2, adminKey)
 		require.Equal(t, time.Time(user.CreatedAt).UTC().Truncate(time.Millisecond), createTime.UTC().Truncate(time.Millisecond))
+	})
+
+	t.Run("import static user and delete", func(t *testing.T) {
+		key := helper.CreateUserWithApiKey(t, otherUser3, adminKey, nil)
+
+		info := helper.GetInfoForOwnUser(t, key)
+		require.Equal(t, otherUser3, *info.Username)
+
+		helper.DeleteUser(t, otherUser3, adminKey)
+
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(otherKey3))
+		require.Error(t, err)
+		var parsed *users.GetOwnInfoUnauthorized
+		require.True(t, errors.As(err, &parsed))
+		require.Equal(t, 401, parsed.Code())
 	})
 }
 
