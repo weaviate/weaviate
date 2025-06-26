@@ -47,13 +47,13 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 	// Whether the replica operation is scheduled for deletion.
 	ScheduledForDelete bool `json:"scheduledForDelete,omitempty"`
 
-	// The identifier of the shard involved in this replication operation.
+	// The name of the shard involved in this replication operation.
 	// Required: true
-	ShardID *string `json:"shardId"`
+	Shard *string `json:"shard"`
 
 	// The identifier of the node from which the replica is being moved or copied (the source node).
 	// Required: true
-	SourceNodeID *string `json:"sourceNodeId"`
+	SourceNode *string `json:"sourceNode"`
 
 	// An object detailing the current operational state of the replica movement and any errors encountered.
 	// Required: true
@@ -62,9 +62,9 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 	// An array detailing the historical sequence of statuses the replication operation has transitioned through, if requested and available.
 	StatusHistory []*ReplicationReplicateDetailsReplicaStatus `json:"statusHistory"`
 
-	// The identifier of the node to which the replica is being moved or copied (the destination node).
+	// The identifier of the node to which the replica is being moved or copied (the target node).
 	// Required: true
-	TargetNodeID *string `json:"targetNodeId"`
+	TargetNode *string `json:"targetNode"`
 
 	// Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).
 	// Required: true
@@ -87,11 +87,11 @@ func (m *ReplicationReplicateDetailsReplicaResponse) Validate(formats strfmt.Reg
 		res = append(res, err)
 	}
 
-	if err := m.validateShardID(formats); err != nil {
+	if err := m.validateShard(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateSourceNodeID(formats); err != nil {
+	if err := m.validateSourceNode(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -103,7 +103,7 @@ func (m *ReplicationReplicateDetailsReplicaResponse) Validate(formats strfmt.Reg
 		res = append(res, err)
 	}
 
-	if err := m.validateTargetNodeID(formats); err != nil {
+	if err := m.validateTargetNode(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -139,18 +139,18 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateID(formats strfmt.R
 	return nil
 }
 
-func (m *ReplicationReplicateDetailsReplicaResponse) validateShardID(formats strfmt.Registry) error {
+func (m *ReplicationReplicateDetailsReplicaResponse) validateShard(formats strfmt.Registry) error {
 
-	if err := validate.Required("shardId", "body", m.ShardID); err != nil {
+	if err := validate.Required("shard", "body", m.Shard); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationReplicateDetailsReplicaResponse) validateSourceNodeID(formats strfmt.Registry) error {
+func (m *ReplicationReplicateDetailsReplicaResponse) validateSourceNode(formats strfmt.Registry) error {
 
-	if err := validate.Required("sourceNodeId", "body", m.SourceNodeID); err != nil {
+	if err := validate.Required("sourceNode", "body", m.SourceNode); err != nil {
 		return err
 	}
 
@@ -203,9 +203,9 @@ func (m *ReplicationReplicateDetailsReplicaResponse) validateStatusHistory(forma
 	return nil
 }
 
-func (m *ReplicationReplicateDetailsReplicaResponse) validateTargetNodeID(formats strfmt.Registry) error {
+func (m *ReplicationReplicateDetailsReplicaResponse) validateTargetNode(formats strfmt.Registry) error {
 
-	if err := validate.Required("targetNodeId", "body", m.TargetNodeID); err != nil {
+	if err := validate.Required("targetNode", "body", m.TargetNode); err != nil {
 		return err
 	}
 

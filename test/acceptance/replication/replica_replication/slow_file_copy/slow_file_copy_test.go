@@ -188,10 +188,10 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 					resp, err := helper.Client(t).Replication.Replicate(
 						replication.NewReplicateParams().WithBody(
 							&models.ReplicationReplicateReplicaRequest{
-								CollectionID:        &paragraphClass.Class,
-								SourceNodeName:      &node.Name,
-								DestinationNodeName: &targetNode,
-								ShardID:             &shard.Name,
+								Collection: &paragraphClass.Class,
+								SourceNode: &node.Name,
+								TargetNode: &targetNode,
+								Shard:      &shard.Name,
 							},
 						),
 						nil,

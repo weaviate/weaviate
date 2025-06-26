@@ -26,28 +26,28 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationReplicateReplicaRequest Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and destination node, the collection and type of transfer.
+// ReplicationReplicateReplicaRequest Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and target node, the collection and type of transfer.
 //
 // swagger:model ReplicationReplicateReplicaRequest
 type ReplicationReplicateReplicaRequest struct {
 
-	// The unique identifier (name) of the collection to which the target shard belongs.
+	// The name of the collection to which the target shard belongs.
 	// Required: true
-	CollectionID *string `json:"collectionId"`
+	Collection *string `json:"collection"`
 
-	// The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.
+	// The name of the shard whose replica is to be moved or copied.
 	// Required: true
-	DestinationNodeName *string `json:"destinationNodeName"`
-
-	// The ID of the shard whose replica is to be moved or copied.
-	// Required: true
-	ShardID *string `json:"shardId"`
+	Shard *string `json:"shard"`
 
 	// The name of the Weaviate node currently hosting the shard replica that needs to be moved or copied.
 	// Required: true
-	SourceNodeName *string `json:"sourceNodeName"`
+	SourceNode *string `json:"sourceNode"`
 
-	// Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.
+	// The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.
+	// Required: true
+	TargetNode *string `json:"targetNode"`
+
+	// Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.
 	// Enum: [COPY MOVE]
 	Type *string `json:"type,omitempty"`
 }
@@ -56,19 +56,19 @@ type ReplicationReplicateReplicaRequest struct {
 func (m *ReplicationReplicateReplicaRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateCollectionID(formats); err != nil {
+	if err := m.validateCollection(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateDestinationNodeName(formats); err != nil {
+	if err := m.validateShard(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateShardID(formats); err != nil {
+	if err := m.validateSourceNode(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateSourceNodeName(formats); err != nil {
+	if err := m.validateTargetNode(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -82,36 +82,36 @@ func (m *ReplicationReplicateReplicaRequest) Validate(formats strfmt.Registry) e
 	return nil
 }
 
-func (m *ReplicationReplicateReplicaRequest) validateCollectionID(formats strfmt.Registry) error {
+func (m *ReplicationReplicateReplicaRequest) validateCollection(formats strfmt.Registry) error {
 
-	if err := validate.Required("collectionId", "body", m.CollectionID); err != nil {
+	if err := validate.Required("collection", "body", m.Collection); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationReplicateReplicaRequest) validateDestinationNodeName(formats strfmt.Registry) error {
+func (m *ReplicationReplicateReplicaRequest) validateShard(formats strfmt.Registry) error {
 
-	if err := validate.Required("destinationNodeName", "body", m.DestinationNodeName); err != nil {
+	if err := validate.Required("shard", "body", m.Shard); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationReplicateReplicaRequest) validateShardID(formats strfmt.Registry) error {
+func (m *ReplicationReplicateReplicaRequest) validateSourceNode(formats strfmt.Registry) error {
 
-	if err := validate.Required("shardId", "body", m.ShardID); err != nil {
+	if err := validate.Required("sourceNode", "body", m.SourceNode); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationReplicateReplicaRequest) validateSourceNodeName(formats strfmt.Registry) error {
+func (m *ReplicationReplicateReplicaRequest) validateTargetNode(formats strfmt.Registry) error {
 
-	if err := validate.Required("sourceNodeName", "body", m.SourceNodeName); err != nil {
+	if err := validate.Required("targetNode", "body", m.TargetNode); err != nil {
 		return err
 	}
 

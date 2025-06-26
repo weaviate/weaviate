@@ -60,10 +60,10 @@ func (suite *ReplicationTestSuite) TestReplicationForceDeleteOperations() {
 				shardsPerNode[src.Name] = shard.Name
 				_, err := helper.Client(t).Replication.Replicate(
 					replication.NewReplicateParams().WithBody(&models.ReplicationReplicateReplicaRequest{
-						SourceNodeName:      &src.Name,
-						DestinationNodeName: &tgt.Name,
-						ShardID:             &shard.Name,
-						CollectionID:        &paragraphClass.Class,
+						SourceNode: &src.Name,
+						TargetNode: &tgt.Name,
+						Shard:      &shard.Name,
+						Collection: &paragraphClass.Class,
 					}),
 					nil,
 				)
