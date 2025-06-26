@@ -60,11 +60,7 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
-<<<<<<< refactor/salvatore/single-and-multi-tenant-router
-=======
-	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/usage"
->>>>>>> main
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -596,16 +592,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.SchemaManager = schemaManager
-<<<<<<< refactor/salvatore/single-and-multi-tenant-router
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
-=======
 
 	// initialize needed services after all components are ready
 	postInitModules(appState)
->>>>>>> main
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
