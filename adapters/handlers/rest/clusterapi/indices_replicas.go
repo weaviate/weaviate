@@ -31,7 +31,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/objects"
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/replica/hashtree"
-	"github.com/weaviate/weaviate/usecases/scaler"
 )
 
 type replicator interface {
@@ -65,14 +64,8 @@ type replicator interface {
 		level int, discriminant *hashtree.Bitset) (digests []hashtree.Digest, err error)
 }
 
-type localScaler interface {
-	LocalScaleOut(ctx context.Context, className string,
-		dist scaler.ShardDist) error
-}
-
 type replicatedIndices struct {
 	shards replicator
-	scaler localScaler
 	auth   auth
 	// maintenanceModeEnabled is an experimental feature to allow the system to be
 	// put into a maintenance mode where all replicatedIndices requests just return a 418
@@ -100,10 +93,9 @@ var (
 		`\/shards\/(` + sh + `):(commit|abort)`)
 )
 
-func NewReplicatedIndices(shards replicator, scaler localScaler, auth auth, maintenanceModeEnabled func() bool) *replicatedIndices {
+func NewReplicatedIndices(shards replicator, auth auth, maintenanceModeEnabled func() bool) *replicatedIndices {
 	return &replicatedIndices{
 		shards:                 shards,
-		scaler:                 scaler,
 		auth:                   auth,
 		maintenanceModeEnabled: maintenanceModeEnabled,
 	}
@@ -200,15 +192,6 @@ func (i *replicatedIndices) indicesHandler() http.HandlerFunc {
 			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
 			return
 
-		case regxIncreaseRepFactor.MatchString(path):
-			if r.Method == http.MethodPut {
-				i.increaseReplicationFactor().ServeHTTP(w, r)
-				return
-			}
-
-			http.Error(w, "405 Method not Allowed", http.StatusMethodNotAllowed)
-			return
-
 		case regxCommitPhase.MatchString(path):
 			if r.Method == http.MethodPost {
 				i.executeCommitPhase().ServeHTTP(w, r)
@@ -263,37 +246,6 @@ func (i *replicatedIndices) executeCommitPhase() http.Handler {
 			return
 		}
 		w.Write(b)
-	})
-}
-
-func (i *replicatedIndices) increaseReplicationFactor() http.Handler {
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		args := regxIncreaseRepFactor.FindStringSubmatch(r.URL.Path)
-		if len(args) != 2 {
-			http.Error(w, "invalid URI", http.StatusBadRequest)
-			return
-		}
-
-		index := args[1]
-
-		bodyBytes, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		dist, err := IndicesPayloads.IncreaseReplicationFactor.Unmarshal(bodyBytes)
-		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		if err := i.scaler.LocalScaleOut(r.Context(), index, dist); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
-		}
-
-		w.WriteHeader(http.StatusNoContent)
 	})
 }
 

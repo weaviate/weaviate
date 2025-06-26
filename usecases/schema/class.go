@@ -272,37 +272,8 @@ func UpdateClassInternal(h *Handler, ctx context.Context, className string, upda
 		return err
 	}
 
-	initial := h.schemaReader.ReadOnlyClass(className)
-	var shardingState *sharding.State
-
-	if initial != nil {
-		_, err := validateUpdatingMT(initial, updated)
-		if err != nil {
-			return err
-		}
-
-		initialRF := initial.ReplicationConfig.Factor
-		updatedRF := updated.ReplicationConfig.Factor
-
-		if initialRF != updatedRF {
-			ss, _, err := h.schemaManager.QueryShardingState(className)
-			if err != nil {
-				return fmt.Errorf("query sharding state for %q: %w", className, err)
-			}
-			shardingState, err = h.scaleOut.Scale(ctx, className, ss.Config, initialRF, updatedRF)
-			if err != nil {
-				return fmt.Errorf(
-					"scale %q from %d replicas to %d: %w",
-					className, initialRF, updatedRF, err)
-			}
-		}
-
-		if err := validateImmutableFields(initial, updated); err != nil {
-			return err
-		}
-	}
-
-	_, err := h.schemaManager.UpdateClass(ctx, updated, shardingState)
+	// A nil sharding state means that the sharding state will not be updated.
+	_, err := h.schemaManager.UpdateClass(ctx, updated, nil)
 	return err
 }
 

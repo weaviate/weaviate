@@ -24,7 +24,7 @@ import (
 func TestMaintenanceModeReplicatedIndices(t *testing.T) {
 	noopAuth := clusterapi.NewNoopAuthHandler()
 	// NOTE leaving shards and scaler nil for now, fill in when needed
-	indices := clusterapi.NewReplicatedIndices(nil, nil, noopAuth, func() bool { return true })
+	indices := clusterapi.NewReplicatedIndices(nil, noopAuth, func() bool { return true })
 	mux := http.NewServeMux()
 	mux.Handle("/replicas/indices/", indices.Indices())
 	server := httptest.NewServer(mux)
