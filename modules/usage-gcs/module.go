@@ -71,12 +71,6 @@ func (m *module) SetUsageService(usageService any) {
 	}
 }
 
-func (m *module) SetUsageService(usageService any) {
-	if service, ok := usageService.(clusterusage.Service); ok {
-		m.usageService = service
-	}
-}
-
 func (m *module) Name() string {
 	return Name
 }
