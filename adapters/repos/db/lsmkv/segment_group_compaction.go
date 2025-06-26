@@ -89,7 +89,7 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 
 	// as newest segments are prioritized, loop in reverse order
 	for leftId := len(sg.segments) - 2; leftId >= 0; leftId-- {
-		left, right := sg.segments[leftId], sg.segments[leftId+1]
+		left, right := sg.segments[leftId].getSegment(), sg.segments[leftId+1].getSegment()
 
 		if left.secondaryIndexCount != right.secondaryIndexCount {
 			// only pair of segments with the same secondary indexes are compacted
@@ -179,7 +179,7 @@ func (sg *SegmentGroup) segmentAtPos(pos int) *segment {
 	sg.maintenanceLock.RLock()
 	defer sg.maintenanceLock.RUnlock()
 
-	return sg.segments[pos]
+	return sg.segments[pos].getSegment()
 }
 
 func segmentID(path string) string {
@@ -367,8 +367,8 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	newPathTmp string,
 ) error {
 	sg.maintenanceLock.RLock()
-	updatedCountNetAdditions := sg.segments[old1].countNetAdditions +
-		sg.segments[old2].countNetAdditions
+	updatedCountNetAdditions := sg.segments[old1].getCountNetAdditions() +
+		sg.segments[old2].getCountNetAdditions()
 	sg.maintenanceLock.RUnlock()
 
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
@@ -460,7 +460,7 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 	// extension from the new segment itself and the pre-computed files which
 	// carried the name of the second old segment
 	for i, path := range precomputedFiles {
-		updated, err := sg.stripTmpExtension(path, segmentID(leftSegment.path), segmentID(rightSegment.path))
+		updated, err := sg.stripTmpExtension(path, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
 		}
@@ -489,8 +489,8 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 
 	sg.segments = append(sg.segments[:old1], sg.segments[old1+1:]...)
 
-	sg.observeReplaceCompactedDuration(start, old1, leftSegment, rightSegment)
-	return leftSegment, rightSegment, nil
+	sg.observeReplaceCompactedDuration(start, old1, leftSegment.getSegment(), rightSegment.getSegment())
+	return leftSegment.getSegment(), rightSegment.getSegment(), nil
 }
 
 func (sg *SegmentGroup) observeReplaceCompactedDuration(
@@ -588,6 +588,7 @@ type segmentLevelStats struct {
 	indexes  map[uint16]int
 	payloads map[uint16]int
 	count    map[uint16]int
+	unloaded int
 }
 
 func newSegmentLevelStats() segmentLevelStats {
@@ -595,6 +596,7 @@ func newSegmentLevelStats() segmentLevelStats {
 		indexes:  map[uint16]int{},
 		payloads: map[uint16]int{},
 		count:    map[uint16]int{},
+		unloaded: 0,
 	}
 }
 
@@ -605,15 +607,20 @@ func (sg *SegmentGroup) segmentLevelStats() segmentLevelStats {
 	stats := newSegmentLevelStats()
 
 	for _, seg := range sg.segments {
-		stats.count[seg.level]++
+		if !seg.isLoaded() {
+			stats.unloaded++
+			continue
+		}
+		sgm := seg.getSegment()
+		stats.count[sgm.level]++
 
-		cur := stats.indexes[seg.level]
-		cur += seg.index.Size()
-		stats.indexes[seg.level] = cur
+		cur := stats.indexes[sgm.level]
+		cur += sgm.index.Size()
+		stats.indexes[sgm.level] = cur
 
-		cur = stats.payloads[seg.level]
+		cur = stats.payloads[sgm.level]
 		cur += seg.PayloadSize()
-		stats.payloads[seg.level] = cur
+		stats.payloads[sgm.level] = cur
 	}
 
 	return stats
@@ -677,6 +684,11 @@ func (s *segmentLevelStats) report(metrics *Metrics,
 			"path":     dir,
 		}).Set(float64(count))
 	}
+
+	metrics.SegmentUnloaded.With(prometheus.Labels{
+		"strategy": strategy,
+		"path":     dir,
+	}).Set(float64(s.unloaded))
 }
 
 func (sg *SegmentGroup) compactionFitsSizeLimit(left, right *segment) bool {

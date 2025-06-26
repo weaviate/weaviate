@@ -62,3 +62,6 @@ packages:
   github.com/weaviate/weaviate/entities/moduletools:
     interfaces:
       ModuleInitParams:
+  github.com/weaviate/weaviate/cluster/usage:
+    interfaces:
+      Service:

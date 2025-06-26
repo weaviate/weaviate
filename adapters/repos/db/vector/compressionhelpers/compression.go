@@ -20,6 +20,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
@@ -44,6 +45,7 @@ type CommitLogger interface {
 
 type CompressionStats interface {
 	CompressionType() string
+	CompressionRatio(dimensions int) float64
 }
 
 type VectorCompressor interface {
@@ -791,4 +793,9 @@ type UncompressedStats struct{}
 
 func (u UncompressedStats) CompressionType() string {
 	return "none"
+}
+
+func (u UncompressedStats) CompressionRatio(_ int) float64 {
+	// Uncompressed vectors have no compression
+	return 1.0
 }

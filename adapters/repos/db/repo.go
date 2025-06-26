@@ -210,6 +210,7 @@ type Config struct {
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
 	MaxImportGoroutinesFactor           float64
+	LazySegmentsDisabled                bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int

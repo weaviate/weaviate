@@ -45,6 +45,7 @@ type Config struct {
 	HNSWSnapshotOnStartup bool
 	MinMMapSize           int64
 	MaxWalReuseSize       int64
+	LazyLoadSegments      bool
 	AllocChecker          memwatch.AllocChecker
 }
 

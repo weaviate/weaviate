@@ -60,9 +60,15 @@ import (
 	rCluster "github.com/weaviate/weaviate/cluster"
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/replication/copier"
+<<<<<<< refactor/salvatore/single-and-multi-tenant-router
+=======
+	"github.com/weaviate/weaviate/cluster/router"
+	"github.com/weaviate/weaviate/cluster/usage"
+>>>>>>> main
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/replication"
 	vectorIndex "github.com/weaviate/weaviate/entities/vectorindex"
@@ -395,6 +401,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MemtablesMinActiveSeconds:           appState.ServerConfig.Config.Persistence.MemtablesMinActiveDurationSeconds,
 		MemtablesMaxActiveSeconds:           appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
 		MinMMapSize:                         appState.ServerConfig.Config.Persistence.MinMMapSize,
+		LazySegmentsDisabled:                appState.ServerConfig.Config.Persistence.LazySegmentsDisabled,
 		MaxReuseWalSize:                     appState.ServerConfig.Config.Persistence.MaxReuseWalSize,
 		SegmentsCleanupIntervalSeconds:      appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
 		SeparateObjectsCompactions:          appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
@@ -589,10 +596,16 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	}
 
 	appState.SchemaManager = schemaManager
+<<<<<<< refactor/salvatore/single-and-multi-tenant-router
 	repo.SetNodeSelector(appState.ClusterService.NodeSelector())
 	repo.SetSchemaReader(appState.ClusterService.SchemaReader())
 	repo.SetReplicationFSM(appState.ClusterService.ReplicationFsm())
 	repo.SetSchemaGetter(appState.SchemaManager)
+=======
+
+	// initialize needed services after all components are ready
+	postInitModules(appState)
+>>>>>>> main
 
 	appState.RemoteIndexIncoming = sharding.NewRemoteIndexIncoming(repo, appState.ClusterService.SchemaReader(), appState.Modules)
 	appState.RemoteNodeIncoming = sharding.NewRemoteNodeIncoming(repo)
@@ -1627,6 +1640,18 @@ func registerModules(appState *state.State) error {
 		Debug("completed registering modules")
 
 	return nil
+}
+
+func postInitModules(appState *state.State) {
+	// Initialize usage service after all components are ready
+	if appState.Modules.UsageEnabled() {
+		if usageModule := appState.Modules.GetByName(modusagegcs.Name); usageModule != nil {
+			if usageModuleWithService, ok := usageModule.(modulecapabilities.ModuleWithUsageService); ok {
+				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules)
+				usageModuleWithService.SetUsageService(usageService)
+			}
+		}
+	}
 }
 
 func initModules(ctx context.Context, appState *state.State) error {

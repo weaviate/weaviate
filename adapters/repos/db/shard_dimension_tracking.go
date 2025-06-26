@@ -13,16 +13,13 @@ package db
 
 import (
 	"context"
-	"encoding/binary"
-	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -34,8 +31,33 @@ const (
 	DimensionCategoryStandard DimensionCategory = iota
 	DimensionCategoryPQ
 	DimensionCategoryBQ
+	DimensionCategorySQ
+	DimensionCategoryRQ
 )
 
+func (c DimensionCategory) String() string {
+	switch c {
+	case DimensionCategoryPQ:
+		return "pq"
+	case DimensionCategoryBQ:
+		return "bq"
+	case DimensionCategorySQ:
+		return "sq"
+	case DimensionCategoryRQ:
+		return "rq"
+	default:
+		return "standard"
+	}
+}
+
+// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (int, int) {
+	return s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+		return dimLength, len(v)
+	})
+}
+
+// Dimensions returns the total number of dimensions for a given vector
 func (s *Shard) Dimensions(ctx context.Context, targetVector string) int {
 	sum, _ := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
 		return dimLength * len(v), dimLength
@@ -52,35 +74,7 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 }
 
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (sum int, dimensions int) {
-	b := s.store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return 0, 0
-	}
-
-	c := b.MapCursor()
-	defer c.Close()
-
-	var (
-		nameLen        = len(targetVector)
-		expectedKeyLen = 4 + nameLen
-	)
-
-	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
-		// for named vectors we have to additionally check if the key is prefixed with the vector name
-		keyMatches := len(k) == expectedKeyLen && (nameLen == 4 || strings.HasPrefix(string(k), targetVector))
-		if !keyMatches {
-			continue
-		}
-
-		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
-		size, dim := calcEntry(dimLength, v)
-		if dimensions == 0 && dim > 0 {
-			dimensions = dim
-		}
-		sum += size
-	}
-
-	return sum, dimensions
+	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry)
 }
 
 func (s *Shard) initDimensionTracking() {
@@ -153,7 +147,7 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 }
 
 func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) (dims int, segs int) {
-	switch category, segments := getDimensionCategory(vecCfg); category {
+	switch category, segments := GetDimensionCategory(vecCfg); category {
 	case DimensionCategoryPQ:
 		count := s.QuantizedDimensions(ctx, vecName, segments)
 		return 0, count
@@ -205,7 +199,7 @@ func sendVectorDimensionsMetric(promMetrics *monitoring.PrometheusMetrics,
 	}
 }
 
-func getDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
+func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory, int) {
 	// We have special dimension tracking for BQ and PQ to represent reduced costs
 	// these are published under the separate vector_segments_dimensions metric
 	if hnswUserConfig, ok := cfg.(hnswent.UserConfig); ok {
@@ -214,6 +208,12 @@ func getDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory
 		}
 		if hnswUserConfig.BQ.Enabled {
 			return DimensionCategoryBQ, 0
+		}
+		if hnswUserConfig.SQ.Enabled {
+			return DimensionCategorySQ, 0
+		}
+		if hnswUserConfig.RQ.Enabled {
+			return DimensionCategoryRQ, 0
 		}
 	}
 	return DimensionCategoryStandard, 0

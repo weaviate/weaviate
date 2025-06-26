@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
@@ -379,7 +380,7 @@ func New(cfg Config, uc ent.UserConfig,
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
 		if !uc.Multivector.MuveraConfig.Enabled {
-			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments))
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
 			}
@@ -1010,4 +1011,16 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
+}
+
+func (h *hnsw) VectorStorageSize() int64 {
+	// TODO-usage: Implement this
+	return 0
+}
+
+func (h *hnsw) CompressionStats() (compressionhelpers.CompressionStats, error) {
+	if h.compressed.Load() {
+		return h.compressor.Stats(), nil
+	}
+	return compressionhelpers.UncompressedStats{}, nil
 }

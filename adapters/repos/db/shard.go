@@ -20,11 +20,9 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"go.etcd.io/bbolt"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
+	"go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -34,6 +32,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/propertyspecific"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -78,6 +77,7 @@ type ShardLike interface {
 	Counter() *indexcounter.Counter
 	ObjectCount() int
 	ObjectCountAsync() int
+	ObjectStorageSize() int64
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
@@ -97,7 +97,7 @@ type ShardLike interface {
 	ID() string // Get the shard id
 	drop() error
 	HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error
-	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property)
+	initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property)
 	ListBackupFiles(ctx context.Context, ret *backup.ShardDescriptor) error
 	resumeMaintenanceCycles(ctx context.Context) error
 	GetFileMetadata(ctx context.Context, relativeFilePath string) (file.FileMetadata, error)
@@ -140,8 +140,10 @@ type ShardLike interface {
 	abortReplication(context.Context, string) replica.SimpleResponse
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
-	// TODO tests only
+	// Dimensions returns the total number of dimensions for a given vector
 	Dimensions(ctx context.Context, targetVector string) int // dim(vector)*number vectors
+	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
+	DimensionsUsage(ctx context.Context, targetVector string) (int, int)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
@@ -379,7 +381,8 @@ func (s *Shard) UpdateVectorIndexConfigs(ctx context.Context, updated map[string
 				break
 			}
 		} else {
-			if err = s.initTargetVector(ctx, targetVector, targetCfg); err != nil {
+			// dont lazy load segments on config update
+			if err = s.initTargetVector(ctx, targetVector, targetCfg, false); err != nil {
 				return fmt.Errorf("creating new vector index: %w", err)
 			}
 		}
@@ -413,6 +416,11 @@ func (s *Shard) ObjectCountAsync() int {
 	}
 
 	return b.CountAsync()
+}
+
+func (s *Shard) ObjectStorageSize() int64 {
+	// TODO-usage: implement this storage bytes
+	return 0
 }
 
 func (s *Shard) isFallbackToSearchable() bool {

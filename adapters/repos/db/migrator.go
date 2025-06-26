@@ -129,6 +129,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMinActiveSeconds:                    m.db.config.MemtablesMinActiveSeconds,
 			MemtablesMaxActiveSeconds:                    m.db.config.MemtablesMaxActiveSeconds,
 			MinMMapSize:                                  m.db.config.MinMMapSize,
+			LazySegmentsDisabled:                         m.db.config.LazySegmentsDisabled,
 			MaxReuseWalSize:                              m.db.config.MaxReuseWalSize,
 			SegmentsCleanupIntervalSeconds:               m.db.config.SegmentsCleanupIntervalSeconds,
 			SeparateObjectsCompactions:                   m.db.config.SeparateObjectsCompactions,
@@ -209,7 +210,7 @@ func (m *Migrator) LoadShard(ctx context.Context, class, shard string) error {
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
-	return idx.LoadLocalShard(ctx, shard)
+	return idx.LoadLocalShard(ctx, shard, false)
 }
 
 func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
@@ -304,8 +305,8 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 		}
 
 		if phys.Status == models.TenantActivityStatusHOT {
-			// Only load the tenant if activity status == HOT
-			if err := idx.LoadLocalShard(ctx, shardName); err != nil {
+			// Only load the tenant if activity status == HOT.
+			if err := idx.LoadLocalShard(ctx, shardName, false); err != nil {
 				return fmt.Errorf("add missing tenant shard %s during update index: %w", shardName, err)
 			}
 		} else {
@@ -511,7 +512,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 
 // UpdateTenants activates or deactivates tenant partitions and returns a commit func
 // that can be used to either commit or rollback the changes
-func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload) error {
+func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload, implicitTenantActivation bool) error {
 	indexID := indexID(schema.ClassName(class.Class))
 
 	m.classLocks.Lock(indexID)
@@ -564,7 +565,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 				defer cancel()
 
-				if err := idx.LoadLocalShard(ctx, name); err != nil {
+				if err := idx.LoadLocalShard(ctx, name, implicitTenantActivation); err != nil {
 					ec.Add(err)
 					idx.logger.WithFields(logrus.Fields{
 						"action": "tenant_activation_lazy_load_shard",
