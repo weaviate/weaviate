@@ -221,7 +221,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 		f(hotTenant, mockShard)
 	})
 	mockIndex.EXPECT().CalculateUnloadedObjectsMetrics(ctx, coldTenant).Return(int64(coldObjectCount), coldStorageSize)
-	mockIndex.EXPECT().CalculateColdTenantVectorStorageSize(ctx, coldTenant).Return(int64(0))
+	mockIndex.EXPECT().CalculateUnloadedVectorsMetrics(ctx, coldTenant).Return(int64(0))
 
 	mockShard.On("ForEachVectorIndex", mock.AnythingOfType("func(string, db.VectorIndex) error")).Return(nil).Run(func(args mock.Arguments) {
 		f := args.Get(0).(func(string, db.VectorIndex) error)
@@ -855,8 +855,8 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats, nil)
 
 	// Mock cold tenant calculations
-	mockIndex.EXPECT().CalculateColdTenantMetrics(ctx, coldTenant).Return(int64(coldObjectCount), coldStorageSize)
-	mockIndex.EXPECT().CalculateColdTenantVectorStorageSize(ctx, coldTenant).Return(coldVectorStorageSize) // Test cold tenant vector storage
+	mockIndex.EXPECT().CalculateUnloadedObjectsMetrics(ctx, coldTenant).Return(int64(coldObjectCount), coldStorageSize)
+	mockIndex.EXPECT().CalculateUnloadedVectorsMetrics(ctx, coldTenant).Return(coldVectorStorageSize) // Test cold tenant vector storage
 
 	mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
 		f := args.Get(0).(func(string, db.ShardLike) error)

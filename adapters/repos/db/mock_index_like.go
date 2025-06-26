@@ -89,12 +89,12 @@ func (_c *MockIndexLike_CalculateUnloadedObjectsMetrics_Call) RunAndReturn(run f
 	return _c
 }
 
-// CalculateColdTenantVectorStorageSize provides a mock function with given fields: ctx, tenantName
-func (_m *MockIndexLike) CalculateColdTenantVectorStorageSize(ctx context.Context, tenantName string) int64 {
+// CalculateUnloadedVectorsMetrics provides a mock function with given fields: ctx, tenantName
+func (_m *MockIndexLike) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) int64 {
 	ret := _m.Called(ctx, tenantName)
 
 	if len(ret) == 0 {
-		panic("no return value specified for CalculateColdTenantVectorStorageSize")
+		panic("no return value specified for CalculateUnloadedVectorsMetrics")
 	}
 
 	var r0 int64
@@ -107,31 +107,31 @@ func (_m *MockIndexLike) CalculateColdTenantVectorStorageSize(ctx context.Contex
 	return r0
 }
 
-// MockIndexLike_CalculateColdTenantVectorStorageSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CalculateColdTenantVectorStorageSize'
-type MockIndexLike_CalculateColdTenantVectorStorageSize_Call struct {
+// MockIndexLike_CalculateUnloadedVectorsMetrics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CalculateUnloadedVectorsMetrics'
+type MockIndexLike_CalculateUnloadedVectorsMetrics_Call struct {
 	*mock.Call
 }
 
-// CalculateColdTenantVectorStorageSize is a helper method to define mock.On call
+// CalculateUnloadedVectorsMetrics is a helper method to define mock.On call
 //   - ctx context.Context
 //   - tenantName string
-func (_e *MockIndexLike_Expecter) CalculateColdTenantVectorStorageSize(ctx interface{}, tenantName interface{}) *MockIndexLike_CalculateColdTenantVectorStorageSize_Call {
-	return &MockIndexLike_CalculateColdTenantVectorStorageSize_Call{Call: _e.mock.On("CalculateColdTenantVectorStorageSize", ctx, tenantName)}
+func (_e *MockIndexLike_Expecter) CalculateUnloadedVectorsMetrics(ctx interface{}, tenantName interface{}) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
+	return &MockIndexLike_CalculateUnloadedVectorsMetrics_Call{Call: _e.mock.On("CalculateUnloadedVectorsMetrics", ctx, tenantName)}
 }
 
-func (_c *MockIndexLike_CalculateColdTenantVectorStorageSize_Call) Run(run func(ctx context.Context, tenantName string)) *MockIndexLike_CalculateColdTenantVectorStorageSize_Call {
+func (_c *MockIndexLike_CalculateUnloadedVectorsMetrics_Call) Run(run func(ctx context.Context, tenantName string)) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
 	_c.Call.Run(func(args mock.Arguments) {
 		run(args[0].(context.Context), args[1].(string))
 	})
 	return _c
 }
 
-func (_c *MockIndexLike_CalculateColdTenantVectorStorageSize_Call) Return(_a0 int64) *MockIndexLike_CalculateColdTenantVectorStorageSize_Call {
+func (_c *MockIndexLike_CalculateUnloadedVectorsMetrics_Call) Return(_a0 int64) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
 	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockIndexLike_CalculateColdTenantVectorStorageSize_Call) RunAndReturn(run func(context.Context, string) int64) *MockIndexLike_CalculateColdTenantVectorStorageSize_Call {
+func (_c *MockIndexLike_CalculateUnloadedVectorsMetrics_Call) RunAndReturn(run func(context.Context, string) int64) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
 	_c.Call.Return(run)
 	return _c
 }
