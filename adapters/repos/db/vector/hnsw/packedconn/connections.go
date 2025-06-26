@@ -451,8 +451,23 @@ func (c *Connections) BulkInsertAtLayer(conns []uint64, layer uint8) {
 		return
 	}
 
-	// Need to merge with existing data
+	// Check if current scheme can handle the new values
 	currentScheme := unpackScheme(layerData.packed)
+	requiredScheme := determineOptimalScheme(conns)
+
+	if requiredScheme <= currentScheme {
+		// Current scheme is sufficient - just append encoded bytes
+		currentCount := unpackCount(layerData.packed)
+		newCount := currentCount + uint32(len(conns))
+
+		// Encode new values using current scheme and append
+		newData := encodeValues(conns, currentScheme)
+		layerData.data = append(layerData.data, newData...)
+		layerData.packed = packSchemeAndCount(currentScheme, newCount)
+		return
+	}
+
+	// Need to upgrade scheme - decode existing, merge, and re-encode
 	existing := decodeValues(layerData.data, currentScheme, unpackCount(layerData.packed))
 	all := append(existing, conns...)
 
