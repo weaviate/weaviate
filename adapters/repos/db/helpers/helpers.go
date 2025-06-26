@@ -71,3 +71,7 @@ func BucketSearchableFromPropNameLSM(propName string) string {
 func BucketRangeableFromPropNameLSM(propName string) string {
 	return BucketFromPropNameLSM(propName + "_rangeable")
 }
+
+func IsVectorBucket(bucketName string) bool {
+	return bucketName == VectorsBucketLSM || bucketName == VectorsCompressedBucketLSM || bucketName == DimensionsBucketLSM
+}
