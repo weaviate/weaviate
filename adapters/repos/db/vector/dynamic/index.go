@@ -144,6 +144,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		DistanceProvider: cfg.DistanceProvider,
 		MinMMapSize:      cfg.MinMMapSize,
 		MaxWalReuseSize:  cfg.MaxWalReuseSize,
+		AllocChecker:     cfg.AllocChecker,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())

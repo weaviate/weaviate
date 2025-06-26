@@ -15,12 +15,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"strings"
 	"sync"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/cluster/types"
 	"github.com/weaviate/weaviate/entities/models"
@@ -57,6 +57,7 @@ type schema struct {
 	// mu protects the `classes`
 	mu      sync.RWMutex
 	classes map[string]*metaClass
+	aliases map[string]string
 
 	// metrics
 	// collectionsCount represents the number of collections on this specific node.
@@ -73,6 +74,7 @@ func NewSchema(nodeID string, shardReader shardReader, reg prometheus.Registerer
 	s := &schema{
 		nodeID:      nodeID,
 		classes:     make(map[string]*metaClass, 128),
+		aliases:     make(map[string]string, 128),
 		shardReader: shardReader,
 		collectionsCount: r.NewGauge(prometheus.GaugeOpts{
 			Namespace:   "weaviate",
@@ -604,5 +606,74 @@ func (s *schema) restore(classes map[string]*metaClass, parser Parser) error {
 		cls.Sharding.SetLocalName(s.nodeID)
 	}
 	s.replaceClasses(classes)
+	return nil
+}
+
+func (s *schema) RestoreAlias(data []byte) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	s.aliases = make(map[string]string)
+	if err := json.Unmarshal(data, &s.aliases); err != nil {
+		return fmt.Errorf("restore alias: parse json: %w", err)
+	}
+	return nil
+}
+
+func (s *schema) createAlias(class, alias string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.classes[class] == nil {
+		return fmt.Errorf("create alias: class %q does not exist", class)
+	}
+	if s.unsafeAliasExists(alias) {
+		return fmt.Errorf("create alias: alias %q already exists", alias)
+	}
+	s.aliases[alias] = class
+	return nil
+}
+
+func (s *schema) replaceAlias(newClass, alias string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if s.classes[newClass] == nil {
+		return fmt.Errorf("replace alias: class %q does not exist", newClass)
+	}
+	if !s.unsafeAliasExists(alias) {
+		return fmt.Errorf("replace alias: alias %q does not exist", alias)
+	}
+	s.aliases[alias] = newClass
+	return nil
+}
+
+// unsafeAliasExists is not concurrency-safe! Lock s.aliases before calling
+func (s *schema) unsafeAliasExists(alias string) bool {
+	for found := range s.aliases {
+		if found == alias {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *schema) getAliases() map[string]string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return maps.Clone(s.aliases)
+}
+
+func (s *schema) resolveAlias(alias string) string {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.aliases[alias]
+}
+
+func (s *schema) deleteAlias(alias string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.aliases, alias)
+	// purposefully idempotent
 	return nil
 }
