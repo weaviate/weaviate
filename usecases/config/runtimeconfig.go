@@ -39,7 +39,6 @@ type WeaviateRuntimeConfig struct {
 	InvertedSorterDisabled         *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
 	// Experimental configs. Will be removed in the future.
-	// OIDCEnabled           *runtime.DynamicValue[bool]     `json:"exp_oidc_enabled" yaml:"exp_oidc_enabled"`
 	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
 	OIDCClientID          *runtime.DynamicValue[string]   `json:"exp_oidc_client_id" yaml:"exp_oidc_client_id"`
 	OIDCSkipClientIDCheck *runtime.DynamicValue[bool]     `yaml:"exp_oidc_skip_client_id_check" json:"exp_oidc_skip_client_id_check"`

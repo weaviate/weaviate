@@ -210,6 +210,9 @@ func (c *Client) useCertificate() (*http.Client, error) {
 	}
 
 	certBlock, _ := pem.Decode([]byte(certificate))
+	if certBlock == nil {
+		return nil, fmt.Errorf("invalid certificate. not a valid PEM certificate")
+	}
 	cert, err := x509.ParseCertificate(certBlock.Bytes)
 	if err != nil {
 		return nil, fmt.Errorf("failed to decode certificate: %w", err)

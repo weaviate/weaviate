@@ -148,34 +148,51 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = runtime.NewDynamicValue(true)
+		var (
+			skipClientCheck bool
+			issuer          string
+			clientID        string
+			scopes          []string
+			userClaim       string
+			groupsClaim     string
+			certificate     string
+		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
-			config.Authentication.OIDC.SkipClientIDCheck = runtime.NewDynamicValue(true)
+			skipClientCheck = true
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
-			config.Authentication.OIDC.Issuer = runtime.NewDynamicValue(v)
+			issuer = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_CLIENT_ID"); v != "" {
-			config.Authentication.OIDC.ClientID = runtime.NewDynamicValue(v)
+			clientID = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_SCOPES"); v != "" {
-			config.Authentication.OIDC.Scopes = runtime.NewDynamicValue(strings.Split(v, ","))
+			scopes = strings.Split(v, ",")
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_USERNAME_CLAIM"); v != "" {
-			config.Authentication.OIDC.UsernameClaim = runtime.NewDynamicValue(v)
+			userClaim = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
-			config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(v)
+			groupsClaim = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
-			config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(v)
+			certificate = v
 		}
+
+		config.Authentication.OIDC.SkipClientIDCheck = runtime.NewDynamicValue(skipClientCheck)
+		config.Authentication.OIDC.Issuer = runtime.NewDynamicValue(issuer)
+		config.Authentication.OIDC.ClientID = runtime.NewDynamicValue(clientID)
+		config.Authentication.OIDC.Scopes = runtime.NewDynamicValue(scopes)
+		config.Authentication.OIDC.UsernameClaim = runtime.NewDynamicValue(userClaim)
+		config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(groupsClaim)
+		config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(certificate)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
