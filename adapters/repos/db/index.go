@@ -2970,11 +2970,11 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName,
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64) {
 	// Obtain a lock that prevents tenant activation
-	i.shardCreateLocks.Lock(tenantName)
-	defer i.shardCreateLocks.Unlock(tenantName)
+	i.shardTransferMutex.RLock()
+	defer i.shardTransferMutex.RUnlock()
 
 	// Locate the tenant on disk
-	shardPath := shardPathObjectsLSM(i.path(), tenantName)
+	shardPath := shardPathLSM(i.path(), tenantName)
 
 	// Parse all .cna files in the object store and sum them up
 	totalObjectCount := int64(0)
@@ -3013,6 +3013,13 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 		return nil
 	}); err != nil {
 		return 0, 0
+	}
+
+	// Calculate mean object size and total storage size
+	if totalObjectCount > 0 {
+		meanObjectSize := totalDiskSize / totalObjectCount
+		calculatedStorageSize := totalObjectCount * meanObjectSize
+		return totalObjectCount, calculatedStorageSize
 	}
 
 	// If we can't determine object count, return the disk size as fallback
