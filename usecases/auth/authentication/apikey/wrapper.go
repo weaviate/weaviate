@@ -48,7 +48,11 @@ func (a *ApiKey) ValidateAndExtract(token string, scopes []string) (*models.Prin
 		}
 		return principal, nil
 	}
-	if principal := a.Dynamic.ValidateImportedKey(token); principal != nil {
+	principal, err := a.Dynamic.ValidateImportedKey(token)
+	if err != nil {
+		return nil, errors.New(401, "unauthorized: %v", err)
+	}
+	if principal != nil {
 		return principal, nil
 	} else if a.Dynamic.IsBlockedKey(token) {
 		// make sure static keys do not work after import and key rotation
