@@ -31,6 +31,8 @@ const (
 	DimensionCategoryStandard DimensionCategory = iota
 	DimensionCategoryPQ
 	DimensionCategoryBQ
+	DimensionCategorySQ
+	DimensionCategoryRQ
 )
 
 func (c DimensionCategory) String() string {
@@ -39,6 +41,10 @@ func (c DimensionCategory) String() string {
 		return "pq"
 	case DimensionCategoryBQ:
 		return "bq"
+	case DimensionCategorySQ:
+		return "sq"
+	case DimensionCategoryRQ:
+		return "rq"
 	default:
 		return "standard"
 	}
@@ -202,6 +208,12 @@ func GetDimensionCategory(cfg schemaConfig.VectorIndexConfig) (DimensionCategory
 		}
 		if hnswUserConfig.BQ.Enabled {
 			return DimensionCategoryBQ, 0
+		}
+		if hnswUserConfig.SQ.Enabled {
+			return DimensionCategorySQ, 0
+		}
+		if hnswUserConfig.RQ.Enabled {
+			return DimensionCategoryRQ, 0
 		}
 	}
 	return DimensionCategoryStandard, 0
