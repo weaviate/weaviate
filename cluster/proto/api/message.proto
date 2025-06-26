@@ -153,6 +153,7 @@ message AddTenantsRequest {
 message UpdateTenantsRequest {
   repeated Tenant tenants = 1;
   repeated string cluster_nodes = 2;
+  bool implicit_update_request = 3;
 }
 
 message TenantsProcess {
