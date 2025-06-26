@@ -78,6 +78,7 @@ type ShardLike interface {
 	ObjectCount() int
 	ObjectCountAsync() int
 	ObjectStorageSize(ctx context.Context) int64
+	VectorStorageSize(ctx context.Context) int64
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
@@ -425,6 +426,22 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) int64 {
 	}
 
 	return bucket.DiskSize() + bucket.MetadataSize()
+}
+
+func (s *Shard) VectorStorageSize(ctx context.Context) int64 {
+	// Calculate vector storage size by iterating through all vector indexes
+	totalSize := int64(0)
+
+	err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+		totalSize += index.VectorStorageSize()
+		return nil
+	})
+
+	if err != nil {
+		return 0
+	}
+
+	return totalSize
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
