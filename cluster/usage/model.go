@@ -20,8 +20,8 @@ type Report struct {
 	// The name of the node
 	Node string `json:"node"`
 
-	// List of single tenant collections and their metrics
-	SingleTenantCollections []*CollectionUsage `json:"singleTenantCollections"`
+	// List of collections and their metrics
+	Collections []*CollectionUsage `json:"collections"`
 
 	// List of backups and their metrics
 	Backups []*BackupUsage `json:"backups"`
@@ -33,10 +33,10 @@ type CollectionUsage struct {
 	Name string `json:"name"`
 
 	// The replication factor of the collection
-	ReplicationFactor int `json:"replicationFactor"`
+	ReplicationFactor int `json:"replication_factor"`
 
 	// The number of unique shards in the collection
-	UniqueShardCount int `json:"uniqueShardCount"`
+	UniqueShardCount int `json:"unique_shard_count"`
 
 	// List of shards and their metrics
 	Shards []*ShardUsage `json:"shards"`
@@ -48,13 +48,13 @@ type ShardUsage struct {
 	Name string `json:"name"`
 
 	// The number of objects in the shard
-	ObjectsCount int `json:"objectsCount"`
+	ObjectsCount int `json:"objects_count"`
 
 	// The storage size in bytes
-	ObjectsStorageBytes int64 `json:"objectsStorageBytes"`
+	ObjectsStorageBytes int64 `json:"objects_storage_bytes"`
 
 	// List of named vectors and their metrics
-	NamedVectors []*VectorUsage `json:"namedVectors"`
+	NamedVectors []*VectorUsage `json:"named_vectors"`
 }
 
 // VectorUsage represents metrics for a single vector index
@@ -69,10 +69,10 @@ type VectorUsage struct {
 	Compression string `json:"compression"`
 
 	// The compression ratio achieved
-	VectorCompressionRatio float64 `json:"vectorCompressionRatio"`
+	VectorCompressionRatio float64 `json:"vector_compression_ratio"`
 
 	// The actual memory storage bytes used by vectors
-	VectorStorageBytes int64 `json:"vectorStorageBytes"`
+	VectorStorageBytes int64 `json:"vector_storage_bytes"`
 
 	// List of dimensionalities and their metrics
 	Dimensionalities []*DimensionalityUsage `json:"dimensionalities"`
@@ -93,10 +93,10 @@ type BackupUsage struct {
 	ID string `json:"id"`
 
 	// The completion time of the backup
-	CompletionTime string `json:"completionTime"`
+	CompletionTime string `json:"completion_time"`
 
 	// The size of the backup in GiB
-	SizeInGib float64 `json:"sizeInGib"`
+	SizeInGib float64 `json:"size_in_gib"`
 
 	// The type of backup
 	Type string `json:"type"`

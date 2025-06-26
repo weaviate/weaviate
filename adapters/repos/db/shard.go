@@ -77,7 +77,7 @@ type ShardLike interface {
 	Counter() *indexcounter.Counter
 	ObjectCount() int
 	ObjectCountAsync() int
-	ObjectStorageSize() int64
+	ObjectStorageSize(ctx context.Context) int64
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
@@ -418,9 +418,43 @@ func (s *Shard) ObjectCountAsync() int {
 	return b.CountAsync()
 }
 
-func (s *Shard) ObjectStorageSize() int64 {
-	// TODO-usage: implement this storage bytes
-	return 0
+func (s *Shard) isLoaded() bool {
+	return s.GetStatusNoLoad() == storagestate.StatusReady || s.GetStatusNoLoad() == storagestate.StatusReadOnly
+}
+
+func (s *Shard) ObjectStorageSize(ctx context.Context) int64 {
+	// Check if tenant is loaded
+	if s.isLoaded() {
+		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+		if bucket == nil {
+			return 0
+		}
+		// In-memory: sum object sizes
+		totalSize := int64(0)
+		err := bucket.IterateObjects(ctx, func(obj *storobj.Object) error {
+			bin, err := obj.MarshalBinary()
+			if err != nil {
+				return err
+			}
+			totalSize += int64(len(bin))
+			return nil
+		})
+		if err != nil {
+			return 0
+		}
+		return totalSize
+	}
+
+	// For non-loaded shards, use disk size calculation
+	s.statusLock.Lock()
+	defer s.statusLock.Unlock()
+
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return 0
+	}
+
+	return bucket.DiskPayloadSize()
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
