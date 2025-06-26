@@ -11,8 +11,8 @@
 
 package usage
 
-// UsageResponse represents the response from the metrics endpoint
-type UsageResponse struct {
+// Report represents the usage metrics report from the metrics endpoint
+type Report struct {
 	// The version of usage policy, date based versioning
 	// e.g. 2025-06-01
 	Version string `json:"version"`
@@ -51,7 +51,7 @@ type ShardUsage struct {
 	ObjectsCount int `json:"objectsCount"`
 
 	// The storage size in bytes
-	ObjectsStorageBytes int `json:"objectsStorageBytes"`
+	ObjectsStorageBytes int64 `json:"objectsStorageBytes"`
 
 	// List of named vectors and their metrics
 	NamedVectors []*VectorUsage `json:"namedVectors"`

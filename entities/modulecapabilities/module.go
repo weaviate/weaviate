@@ -77,3 +77,9 @@ type Dependency[T dto.Embedding] interface {
 type ModuleHasAltNames interface {
 	AltNames() []string
 }
+
+// ModuleWithUsageService is an optional capability interface for modules that need a usage service
+type ModuleWithUsageService interface {
+	Module
+	SetUsageService(usageService any) // Using interface{} to avoid circular dependency
+}
