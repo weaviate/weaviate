@@ -78,7 +78,7 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 						Name:                tenantName,
 						ObjectsCount:        int(objectCount),
 						ObjectsStorageBytes: uint64(storageSize),
-						VectorStorageBytes:  uint64(index.CalculateColdTenantVectorStorageSize(ctx, tenantName)),
+						VectorStorageBytes:  uint64(index.CalculateUnloadedVectorsMetrics(ctx, tenantName)),
 						NamedVectors:        make([]*VectorUsage, 0), // Empty for cold tenants
 					}
 					coldTenants[tenantName] = shardUsage
