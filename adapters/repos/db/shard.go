@@ -432,12 +432,10 @@ func (s *Shard) VectorStorageSize(ctx context.Context) int64 {
 	// Calculate vector storage size by iterating through all vector indexes
 	totalSize := int64(0)
 
-	err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
+	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		totalSize += index.VectorStorageSize()
 		return nil
-	})
-
-	if err != nil {
+	}); err != nil {
 		return 0
 	}
 
