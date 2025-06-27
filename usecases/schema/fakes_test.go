@@ -211,6 +211,10 @@ func (f *fakeSchemaManager) ReadOnlySchema() models.Schema {
 	return args.Get(0).(models.Schema)
 }
 
+func (f *fakeSchemaManager) Aliases() map[string]string {
+	return nil
+}
+
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
 	args := f.Called(class)
 	return args.Get(0).(*sharding.State)

@@ -20,6 +20,8 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/helper"
 	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 )
@@ -40,6 +42,45 @@ func gettingObjects(t *testing.T) {
 		}
 
 		assert.ElementsMatch(t, expected, cities)
+	})
+
+	t.Run("listing with top-level aliases", func(t *testing.T) {
+		client := helper.Client(t)
+		params := schema.NewAliasesCreateParams().WithBody(&models.Alias{
+			Alias: "CityAlias",
+			Class: "City",
+		})
+		_, err := client.Schema.AliasesCreate(params, nil)
+		defer func(t *testing.T) {
+			params := schema.NewAliasesDeleteParams().WithAliasName("CityAlias")
+			_, err := client.Schema.AliasesDelete(params, nil)
+			if err != nil {
+				t.Logf("Error deleting aliases: %v", err)
+			}
+		}(t)
+		require.Nil(t, err)
+
+		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { CityAlias { name } } }")
+		cities := result.Get("Get", "CityAlias").AsSlice()
+
+		expected := []interface{}{
+			map[string]interface{}{"name": "Amsterdam"},
+			map[string]interface{}{"name": "Rotterdam"},
+			map[string]interface{}{"name": "Berlin"},
+			map[string]interface{}{"name": "Dusseldorf"},
+			map[string]interface{}{"name": "Missing Island"},
+			map[string]interface{}{"name": nil},
+		}
+
+		assert.ElementsMatch(t, expected, cities)
+
+		t.Run("assert alias no longer in schema after deletion", func(t *testing.T) {
+			params := schema.NewAliasesDeleteParams().WithAliasName("CityAlias")
+			_, err := client.Schema.AliasesDelete(params, nil)
+			require.Nil(t, err)
+
+			_ = graphqlhelper.ErrorGraphQL(t, helper.RootAuth, "{  Get { CityAlias { name } } }")
+		})
 	})
 
 	t.Run("listing cities with relations", func(t *testing.T) {

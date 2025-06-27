@@ -1273,11 +1273,6 @@ func parseClusterConfig() (cluster.Config, error) {
 		cfg.DataBindPort = cfg.GossipBindPort + 1
 	}
 
-	if cfg.DataBindPort != cfg.GossipBindPort+1 {
-		return cfg, fmt.Errorf("CLUSTER_DATA_BIND_PORT must be one port " +
-			"number greater than CLUSTER_GOSSIP_BIND_PORT")
-	}
-
 	cfg.IgnoreStartupSchemaSync = entcfg.Enabled(
 		os.Getenv("CLUSTER_IGNORE_SCHEMA_SYNC"))
 	cfg.SkipSchemaSyncRepair = entcfg.Enabled(
