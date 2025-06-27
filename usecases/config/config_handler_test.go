@@ -154,7 +154,6 @@ func TestConfigParsing(t *testing.T) {
 		assert.False(t, config.Authentication.OIDC.SkipClientIDCheck.Get())
 		assert.ElementsMatch(t, []string{"email", "openid"}, config.Authentication.OIDC.Scopes.Get())
 		assert.Equal(t, "valid-certificate", config.Authentication.OIDC.Certificate.Get())
-
 	})
 
 	t.Run("parse config.yaml with oidc config - json", func(t *testing.T) {
@@ -196,7 +195,6 @@ func TestConfigParsing(t *testing.T) {
 		assert.False(t, config.Authentication.OIDC.SkipClientIDCheck.Get())
 		assert.ElementsMatch(t, []string{"email", "openid"}, config.Authentication.OIDC.Scopes.Get())
 		assert.Equal(t, "valid-certificate", config.Authentication.OIDC.Certificate.Get())
-
 	})
 
 	t.Run("parse config.yaml file with admin_list and read_only_users", func(t *testing.T) {
