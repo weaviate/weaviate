@@ -120,7 +120,7 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, 0, colCount.Get())
 		assert.Equal(t, 0*time.Second, minFinWait.Get())
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
@@ -151,7 +151,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 0, colCount.Get())
 
-		require.NotPanics(t, func() { UpdateRuntimeConfig(log, reg, parsed) })
+		require.NotPanics(t, func() { UpdateRuntimeConfig(log, reg, parsed, nil) })
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
@@ -183,7 +183,7 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		assert.Equal(t, false, autoSchema.Get())
 		assert.Equal(t, 7, colCount.Get())
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'MaximumAllowedCollectionsCount' changed from '7' to '13'" action=runtime_overrides_changed field=MaximumAllowedCollectionsCount new_value=13 old_value=7`)
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'AutoschemaEnabled' changed from 'false' to 'true'" action=runtime_overrides_changed field=AutoschemaEnabled new_value=true old_value=false`)
 		logs.Reset()
@@ -194,7 +194,7 @@ maximum_allowed_collections_count: 10`)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'MaximumAllowedCollectionsCount' changed from '13' to '10'" action=runtime_overrides_changed field=MaximumAllowedCollectionsCount new_value=10 old_value=13`)
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'AutoschemaEnabled' changed from 'true' to 'false'" action=runtime_overrides_changed field=AutoschemaEnabled new_value=false old_value=true`)
 		logs.Reset()
@@ -204,7 +204,7 @@ maximum_allowed_collections_count: 10`)
 		parsed, err = ParseRuntimeConfig(buf)
 		require.NoError(t, err)
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 		assert.Contains(t, logs.String(), `level=info msg="runtime overrides: config 'MaximumAllowedCollectionsCount' changed from '10' to '7'" action=runtime_overrides_changed field=MaximumAllowedCollectionsCount new_value=7 old_value=10`)
 	})
 
@@ -246,7 +246,7 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file.
 		assert.Equal(t, 0*time.Second, minFinWait.Get())
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 
 		// after update (reflect from parsed values)
 		assert.Equal(t, true, autoSchema.Get())
@@ -264,7 +264,7 @@ replica_movement_minimum_async_wait: 10s`)
 		assert.Equal(t, 13, colCount.Get())
 		assert.Equal(t, false, asyncRep.Get()) // this field doesn't exist in original config file, should return default value.
 
-		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed))
+		require.NoError(t, UpdateRuntimeConfig(log, reg, parsed, nil))
 
 		// after update.
 		assert.Equal(t, false, autoSchema.Get())

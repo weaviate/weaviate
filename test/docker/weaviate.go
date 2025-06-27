@@ -94,6 +94,7 @@ func startWeaviate(ctx context.Context,
 	for key, value := range extraEnvSettings {
 		env[key] = value
 	}
+
 	httpPort := nat.Port("8080/tcp")
 	exposedPorts := []string{"8080/tcp"}
 	waitStrategies := []wait.Strategy{
@@ -115,6 +116,7 @@ func startWeaviate(ctx context.Context,
 			networkName: {containerName},
 		},
 		ExposedPorts: exposedPorts,
+		WaitingFor:   wait.ForAll(waitStrategies...),
 		Env:          env,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{

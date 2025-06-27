@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"reflect"
+	"strings"
 	"time"
 
 	"github.com/pkg/errors"
@@ -37,6 +38,15 @@ type WeaviateRuntimeConfig struct {
 	QuerySlowLogEnabled             *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
 	QuerySlowLogThreshold           *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
 	InvertedSorterDisabled          *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
+
+	// Experimental configs. Will be removed in the future.
+	OIDCIssuer            *runtime.DynamicValue[string]   `json:"exp_oidc_issuer" yaml:"exp_oidc_issuer"`
+	OIDCClientID          *runtime.DynamicValue[string]   `json:"exp_oidc_client_id" yaml:"exp_oidc_client_id"`
+	OIDCSkipClientIDCheck *runtime.DynamicValue[bool]     `yaml:"exp_oidc_skip_client_id_check" json:"exp_oidc_skip_client_id_check"`
+	OIDCUsernameClaim     *runtime.DynamicValue[string]   `yaml:"exp_oidc_username_claim" json:"exp_oidc_username_claim"`
+	OIDCGroupsClaim       *runtime.DynamicValue[string]   `yaml:"exp_oidc_groups_claim" json:"exp_oidc_groups_claim"`
+	OIDCScopes            *runtime.DynamicValue[[]string] `yaml:"exp_oidc_scopes" json:"exp_oidc_scopes"`
+	OIDCCertificate       *runtime.DynamicValue[string]   `yaml:"exp_oidc_certificate" json:"exp_oidc_certificate"`
 }
 
 // ParseRuntimeConfig decode WeaviateRuntimeConfig from raw bytes of YAML.
@@ -58,12 +68,12 @@ func ParseRuntimeConfig(buf []byte) (*WeaviateRuntimeConfig, error) {
 
 // UpdateConfig does in-place update of `source` config based on values available in
 // `parsed` config.
-func UpdateRuntimeConfig(log logrus.FieldLogger, source, parsed *WeaviateRuntimeConfig) error {
+func UpdateRuntimeConfig(log logrus.FieldLogger, source, parsed *WeaviateRuntimeConfig, hooks map[string]func() error) error {
 	if source == nil || parsed == nil {
 		return fmt.Errorf("source and parsed cannot be nil")
 	}
 
-	updateRuntimeConfig(log, reflect.ValueOf(*source), reflect.ValueOf(*parsed))
+	updateRuntimeConfig(log, reflect.ValueOf(*source), reflect.ValueOf(*parsed), hooks)
 	return nil
 }
 
@@ -102,7 +112,8 @@ But this approach has two serious drawbacks
 With this reflection method, we avoided that extra step from the consumer. This reflection approach is "logically" same as above implementation.
 See "runtimeconfig_test.go" for more examples.
 */
-func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value) {
+
+func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value, hooks map[string]func() error) {
 	// Basically we do following
 	//
 	// 1. Loop through all the `source` fields
@@ -178,11 +189,21 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value) {
 				sv.SetValue(p.Get())
 			}
 			r.newV = sv.Get()
+		case *runtime.DynamicValue[[]string]:
+			r.oldV = sv.Get()
+			if pf.IsNil() {
+				// Means the config is removed
+				sv.Reset()
+			} else {
+				p := pi.(*runtime.DynamicValue[[]string])
+				sv.SetValue(p.Get())
+			}
+			r.newV = sv.Get()
 		default:
 			panic(fmt.Sprintf("not recognized type: %#v, %#v", pi, si))
 		}
 
-		if r.newV != r.oldV {
+		if !reflect.DeepEqual(r.newV, r.oldV) {
 			logRecords = append(logRecords, r)
 		}
 
@@ -197,10 +218,36 @@ func updateRuntimeConfig(log logrus.FieldLogger, source, parsed reflect.Value) {
 			"new_value": v.newV,
 		}).Infof("runtime overrides: config '%v' changed from '%v' to '%v'", v.field, v.oldV, v.newV)
 	}
+
+	for match, f := range hooks {
+		if matchUpdatedFields(match, logRecords) {
+			err := f()
+			if err != nil {
+				log.WithFields(logrus.Fields{
+					"action": "runtime_overrides_hooks",
+					"match":  match,
+				}).Errorf("error calling runtime hooks for match %s, %v", match, err)
+				continue
+			}
+			log.WithFields(logrus.Fields{
+				"action": "runtime_overrides_hooks",
+				"match":  match,
+			}).Infof("runtime overrides: hook ran for matching '%v' pattern", match)
+		}
+	}
 }
 
 // updateLogRecord is used to record changes during updating runtime config.
 type updateLogRecord struct {
 	field      string
 	oldV, newV any
+}
+
+func matchUpdatedFields(match string, records []updateLogRecord) bool {
+	for _, v := range records {
+		if strings.Contains(v.field, match) {
+			return true
+		}
+	}
+	return false
 }
