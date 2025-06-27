@@ -127,8 +127,9 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction   bool
-	disableCompaction bool
+	forceCompaction     bool
+	disableCompaction   bool
+	keepLevelCompaction bool
 
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
@@ -227,6 +228,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepSegmentsInMemory:     b.keepSegmentsInMemory,
 			MinMMapSize:              b.minMMapSize,
 			bm25config:               b.bm25Config,
+			keepLevelCompaction:      b.keepLevelCompaction,
 		}, b.allocChecker)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)

@@ -12,6 +12,8 @@
 package lsmkv
 
 import (
+	"time"
+
 	"github.com/weaviate/weaviate/entities/lsmkv"
 	"github.com/weaviate/weaviate/usecases/byteops"
 )
@@ -99,8 +101,8 @@ func (sg *SegmentGroup) newCursors() ([]innerCursorReplace, func()) {
 }
 
 func (sg *SegmentGroup) newCursorsWithFlushingSupport() ([]innerCursorReplace, func()) {
-	sg.cursorsLock.Lock()
-	defer sg.cursorsLock.Unlock()
+	sg.CursorLockLogging("newCursorsWithFlushingSupport")
+	defer sg.CursorUnlockLogging("newCursorsWithFlushingSupport", time.Now())
 
 	sg.activeCursors++
 
@@ -125,14 +127,14 @@ func (sg *SegmentGroup) newCursorsWithFlushingSupport() ([]innerCursorReplace, f
 	release := func() {
 		sg.maintenanceLock.RUnlock()
 
-		sg.cursorsLock.Lock()
-		defer sg.cursorsLock.Unlock()
+		sg.CursorLockLogging("newCursorsWithFlushingSupport (release)")
+		defer sg.CursorUnlockLogging("newCursorsWithFlushingSupport (release)", time.Now())
 
 		sg.activeCursors--
 
 		if sg.activeCursors == 0 && len(sg.enqueuedSegments) > 0 {
-			sg.maintenanceLock.Lock()
-			defer sg.maintenanceLock.Unlock()
+			sg.MaintenanceLockLogging("newCursorsWithFlushingSupport (release)")
+			defer sg.MaintenanceUnlockLogging("newCursorsWithFlushingSupport (release)", time.Now())
 
 			sg.segments = append(sg.segments, sg.enqueuedSegments...)
 			sg.enqueuedSegments = nil

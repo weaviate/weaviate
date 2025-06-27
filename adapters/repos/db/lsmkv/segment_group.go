@@ -80,6 +80,8 @@ type SegmentGroup struct {
 	enableChecksumValidation bool
 	MinMMapSize              int64
 
+	keepLevelCompaction bool
+
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
 
@@ -108,6 +110,7 @@ type sgConfig struct {
 	keepSegmentsInMemory     bool
 	MinMMapSize              int64
 	bm25config               *models.BM25Config
+	keepLevelCompaction      bool
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -136,6 +139,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		maxSegmentSize:           cfg.maxSegmentSize,
 		cleanupInterval:          cfg.cleanupInterval,
 		enableChecksumValidation: cfg.enableChecksumValidation,
+		keepLevelCompaction:      cfg.keepLevelCompaction,
 		allocChecker:             allocChecker,
 		lastCompactionCall:       now,
 		lastCleanupCall:          now,
@@ -429,8 +433,8 @@ func (sg *SegmentGroup) makeExistsOn(segments []*segment) existsOnLowerSegmentsF
 }
 
 func (sg *SegmentGroup) add(path string) error {
-	sg.maintenanceLock.Lock()
-	defer sg.maintenanceLock.Unlock()
+	sg.MaintenanceLockLogging("addSegment")
+	defer sg.MaintenanceUnlockLogging("addSegment", time.Now())
 
 	segment, err := newSegment(path, sg.logger,
 		sg.metrics, sg.makeExistsOn(sg.segments),
@@ -474,16 +478,16 @@ func (sg *SegmentGroup) getAndLockSegments() (segments []*segment, release func(
 }
 
 func (sg *SegmentGroup) addInitializedSegment(segment *segment) error {
-	sg.cursorsLock.Lock()
-	defer sg.cursorsLock.Unlock()
+	sg.CursorLockLogging("addInitializedSegment")
+	defer sg.CursorUnlockLogging("addInitializedSegment", time.Now())
 
 	if sg.activeCursors > 0 {
 		sg.enqueuedSegments = append(sg.enqueuedSegments, segment)
 		return nil
 	}
 
-	sg.maintenanceLock.Lock()
-	defer sg.maintenanceLock.Unlock()
+	sg.MaintenanceLockLogging("addInitializedSegment")
+	defer sg.MaintenanceUnlockLogging("addInitializedSegment", time.Now())
 
 	sg.segments = append(sg.segments, segment)
 	return nil
@@ -698,8 +702,8 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 		return err
 	}
 
-	sg.cursorsLock.Lock()
-	defer sg.cursorsLock.Unlock()
+	sg.CursorLockLogging("shutdown")
+	defer sg.CursorUnlockLogging("shutdown", time.Now())
 
 	for _, seg := range sg.enqueuedSegments {
 		seg.close()
@@ -712,8 +716,8 @@ func (sg *SegmentGroup) shutdown(ctx context.Context) error {
 	// it is blocked waiting for the same lock, eventually blocking entire cycle loop and preventing to read stop signal.
 	// If stop signal can not be read, shutdown will not receive stop result and will not proceed with further execution.
 	// Maintenance lock will then never be released.
-	sg.maintenanceLock.Lock()
-	defer sg.maintenanceLock.Unlock()
+	sg.MaintenanceLockLogging("shutdown")
+	defer sg.MaintenanceUnlockLogging("shutdown", time.Now())
 
 	for _, seg := range sg.segments {
 		if err := seg.close(); err != nil {
@@ -831,4 +835,38 @@ func (sg *SegmentGroup) GetAveragePropertyLength() (float64, uint64) {
 	}
 
 	return weightedAverage, totalDocCount
+}
+
+func (sg *SegmentGroup) CursorLockLogging(method string) {
+	startTime := time.Now()
+	sg.cursorsLock.Lock()
+	took := time.Since(startTime)
+	if strings.Contains(sg.dir, "objects") && took > 100*time.Millisecond {
+		sg.logger.Warnf("Locked cursorsLock %s %s after %s", sg.dir, method, took)
+	}
+}
+
+func (sg *SegmentGroup) CursorUnlockLogging(method string, startTime time.Time) {
+	sg.cursorsLock.Unlock()
+	took := time.Since(startTime)
+	if strings.Contains(sg.dir, "objects") && took > 100*time.Millisecond {
+		sg.logger.Warnf("Unlocked cursorsLock %s %s after %s", sg.dir, method, took)
+	}
+}
+
+func (sg *SegmentGroup) MaintenanceLockLogging(method string) {
+	startTime := time.Now()
+	sg.maintenanceLock.Lock()
+	took := time.Since(startTime)
+	if strings.Contains(sg.dir, "objects") && took > 100*time.Millisecond {
+		sg.logger.Warnf("Locked maintenanceLock %s %s after %s", sg.dir, method, took)
+	}
+}
+
+func (sg *SegmentGroup) MaintenanceUnlockLogging(method string, startTime time.Time) {
+	sg.maintenanceLock.Unlock()
+	took := time.Since(startTime)
+	if strings.Contains(sg.dir, "objects") && took > 100*time.Millisecond {
+		sg.logger.Warnf("Unlocked maintenanceLock %s %s after %s", sg.dir, method, took)
+	}
 }

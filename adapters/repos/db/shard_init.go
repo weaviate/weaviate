@@ -133,6 +133,14 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		return nil, errors.Wrapf(err, "init shard %q", s.ID())
 	}
 
+	if os.Getenv("DEBUG_SHARD_INIT_DELAY") != "" { // ensure that the env var is set
+		val, err := time.ParseDuration(os.Getenv("DEBUG_SHARD_INIT_DELAY"))
+		if err != nil {
+			return nil, fmt.Errorf("invalid DEBUG_SHARD_INIT_DELAY value: %w", err)
+		}
+		time.Sleep(val)
+	}
+
 	if err = s.initShardVectors(ctx); err != nil {
 		return nil, fmt.Errorf("init shard vectors: %w", err)
 	}
