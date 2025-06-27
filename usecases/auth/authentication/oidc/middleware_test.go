@@ -211,7 +211,7 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 	})
 
 	t.Run("unparseable string", func(t *testing.T) {
-		client := newClientWithCertificate("s3://")
+		client := newClientWithCertificate("unparseable")
 		clientWithCertificate, err := client.useCertificate()
 		require.Nil(t, clientWithCertificate)
 		require.Error(t, err)

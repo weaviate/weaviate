@@ -12,6 +12,7 @@
 package oidc
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
 	"crypto/x509"
@@ -23,6 +24,8 @@ import (
 
 	"github.com/coreos/go-oidc/v3/oidc"
 	errors "github.com/go-openapi/errors"
+	"github.com/minio/minio-go/v7"
+	"github.com/minio/minio-go/v7/pkg/credentials"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/config"
 )
@@ -205,6 +208,30 @@ func (c *Client) useCertificate() (*http.Client, error) {
 			return nil, fmt.Errorf("failed to read certificate from %s: %w", c.Config.Certificate.Get(), err)
 		}
 		certificate = string(certBytes)
+	} else if strings.HasPrefix(c.Config.Certificate.Get(), "s3://") {
+		parts := strings.TrimPrefix(c.Config.Certificate.Get(), "s3://")
+		segments := strings.SplitN(parts, "/", 2)
+		if len(segments) != 2 {
+			return nil, fmt.Errorf("invalid S3 URI, must contain bucket and key: %s", c.Config.Certificate.Get())
+		}
+		bucketName, objectKey := segments[0], segments[1]
+		minioClient, err := minio.New("s3.amazonaws.com", &minio.Options{
+			Creds:  credentials.NewEnvAWS(),
+			Secure: true,
+		})
+		if err != nil {
+			return nil, fmt.Errorf("failed to create S3 client: %w", err)
+		}
+		object, err := minioClient.GetObject(context.Background(), bucketName, objectKey, minio.GetObjectOptions{})
+		if err != nil {
+			return nil, fmt.Errorf("failed to get certificate from: %s: %w", c.Config.Certificate.Get(), err)
+		}
+		defer object.Close()
+		var content bytes.Buffer
+		if _, err := io.Copy(&content, object); err != nil {
+			return nil, fmt.Errorf("failed to read certificate from %s: %w", c.Config.Certificate.Get(), err)
+		}
+		certificate = content.String()
 	} else {
 		certificate = c.Config.Certificate.Get()
 	}
