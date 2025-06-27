@@ -217,7 +217,7 @@ func (s *State) dataPort(m *memberlist.Node) int {
 			"node":   m.Name,
 		}).WithError(err).Debug("unable to get node metadata, falling back to default data port")
 
-		return s.config.DataBindPort // fallback to default
+		return int(m.Port) + 1 // the convention that it's 1 higher than the gossip port
 	}
 
 	return meta.RestPort
