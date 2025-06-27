@@ -174,6 +174,11 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 
 	rt.checkOverrides(logger, &t.config)
 
+	if rt.IsRollback() {
+		// make it so it "survives" the rt.reset()
+		t.config.rollback = true
+	}
+
 	if t.config.conditionalStart && !rt.HasStartCondition() {
 		err = fmt.Errorf("conditional start is set, but file trigger is not found")
 		return
@@ -185,7 +190,7 @@ func (t *ShardReindexTask_MapToBlockmax) OnBeforeLsmInit(ctx context.Context, sh
 		return
 	}
 
-	if t.config.rollback || rt.IsRollback() {
+	if t.config.rollback {
 		logger.Debugf("rollback started: config=%v, runtime=%v", t.config.rollback, rt.IsRollback())
 
 		if rt.IsTidied() {
@@ -325,6 +330,13 @@ func (t *ShardReindexTask_MapToBlockmax) OnAfterLsmInit(ctx context.Context, sha
 	rt, err := t.newReindexTracker(shard.pathLSM())
 	if err != nil {
 		err = fmt.Errorf("creating reindex tracker: %w", err)
+		return
+	}
+
+	rt.checkOverrides(logger, &t.config)
+
+	if rt.IsRollback() {
+		logger.Debug("rollback. nothing to do")
 		return
 	}
 
