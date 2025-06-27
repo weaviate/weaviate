@@ -209,6 +209,13 @@ func WithDisableCompaction(disable bool) BucketOption {
 	}
 }
 
+func WithKeepLevelCompaction(keepLevelCompaction bool) BucketOption {
+	return func(b *Bucket) error {
+		b.keepLevelCompaction = keepLevelCompaction
+		return nil
+	}
+}
+
 func WithKeepSegmentsInMemory(keep bool) BucketOption {
 	return func(b *Bucket) error {
 		b.keepSegmentsInMemory = keep
