@@ -47,7 +47,7 @@ func parseYaml(buf []byte) (*testConfig, error) {
 	return &c, nil
 }
 
-func updater(_ logrus.FieldLogger, source, parsed *testConfig) error {
+func updater(_ logrus.FieldLogger, source, parsed *testConfig, _ map[string]func() error) error {
 	source.BackupInterval.SetValue(parsed.BackupInterval.Get())
 	return nil
 }
@@ -60,7 +60,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 
 	t.Run("non-exist config should fail config manager at the startup", func(t *testing.T) {
 		reg := prometheus.NewPedanticRegistry()
-		_, err := NewConfigManager("non-exist.yaml", parseYaml, updater, registered, 10*time.Millisecond, log, reg)
+		_, err := NewConfigManager("non-exist.yaml", parseYaml, updater, registered, 10*time.Millisecond, log, nil, reg)
 		require.ErrorIs(t, err, ErrFailedToOpenConfig)
 
 		// assert: config_last_load_success=0 and no metric for config_hash
@@ -84,7 +84,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		_, err = NewConfigManager(tmp.Name(), parseYaml, updater, registered, 10*time.Millisecond, log, reg)
+		_, err = NewConfigManager(tmp.Name(), parseYaml, updater, registered, 10*time.Millisecond, log, nil, reg)
 		require.ErrorIs(t, err, ErrFailedToParseConfig)
 
 		// assert: config_last_load_success=0 and no metric for config_hash
@@ -110,7 +110,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		_, err = NewConfigManager(tmp.Name(), parseYaml, updater, registered, 10*time.Millisecond, log, reg)
+		_, err = NewConfigManager(tmp.Name(), parseYaml, updater, registered, 10*time.Millisecond, log, nil, reg)
 		require.NoError(t, err)
 
 		// assert: config_last_load_success=1 and config_hash should be set.
@@ -146,7 +146,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		cm, err := NewConfigManager(tmp.Name(), trackedParser, updater, registered, 10*time.Millisecond, log, reg)
+		cm, err := NewConfigManager(tmp.Name(), trackedParser, updater, registered, 10*time.Millisecond, log, nil, reg)
 		require.NoError(t, err)
 
 		// assert: should have called `parser` only once during initial loading.
@@ -218,7 +218,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		cm, err := NewConfigManager(tmp.Name(), trackedParser, updater, registered, 10*time.Millisecond, log, reg)
+		cm, err := NewConfigManager(tmp.Name(), trackedParser, updater, registered, 10*time.Millisecond, log, nil, reg)
 		require.NoError(t, err)
 
 		// assert: should have called `parser` only once during initial loading.
@@ -285,7 +285,7 @@ func TestConfigManager_loadConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		cm, err := NewConfigManager(tmp.Name(), trackedParser, updater, registered, 10*time.Millisecond, log, reg)
+		cm, err := NewConfigManager(tmp.Name(), trackedParser, updater, registered, 10*time.Millisecond, log, nil, reg)
 		require.NoError(t, err)
 
 		// assert: should have called `parser` only once during initial loading.
@@ -347,7 +347,7 @@ func TestConfigManager_GetConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		_, err = NewConfigManager(tmp.Name(), parseYaml, updater, registered, 100*time.Millisecond, log, reg)
+		_, err = NewConfigManager(tmp.Name(), parseYaml, updater, registered, 100*time.Millisecond, log, nil, reg)
 		require.NoError(t, err)
 
 		getConfigWait := make(chan struct{})
@@ -388,7 +388,7 @@ func TestConfigManager_GetConfig(t *testing.T) {
 		require.NoError(t, err)
 		require.NoError(t, tmp.Close())
 
-		cm, err := NewConfigManager(tmp.Name(), parseYaml, updater, registered, 100*time.Millisecond, log, reg)
+		cm, err := NewConfigManager(tmp.Name(), parseYaml, updater, registered, 100*time.Millisecond, log, nil, reg)
 		require.NoError(t, err)
 		assertConfig(t, cm, registered, 10*time.Second)
 

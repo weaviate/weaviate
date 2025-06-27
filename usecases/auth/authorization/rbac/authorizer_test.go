@@ -448,14 +448,14 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	firstPerm := permissions[0]
 	assert.Contains(t, firstPerm, "resource", "First permission entry should contain resource field")
 	assert.Contains(t, firstPerm, "results", "First permission entry should contain results field")
-	assert.Equal(t, "Collection: Test1", firstPerm["resource"])
+	assert.Equal(t, "[Domain: collections, Collection: Test1]", firstPerm["resource"])
 	assert.Equal(t, "success", firstPerm["results"])
 
 	// Check the second permission entry
 	secondPerm := permissions[1]
 	assert.Contains(t, secondPerm, "resource", "Second permission entry should contain resource field")
 	assert.Contains(t, secondPerm, "results", "Second permission entry should contain results field")
-	assert.Equal(t, "Collection: Test2", secondPerm["resource"])
+	assert.Equal(t, "[Domain: collections, Collection: Test2]", secondPerm["resource"])
 	assert.Equal(t, "success", secondPerm["results"])
 
 	// Check other required fields

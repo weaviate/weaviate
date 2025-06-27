@@ -139,31 +139,67 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	cursor := bucket.Cursor()
+	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
+	cursor := bucket.CursorOnDisk()
 	defer cursor.Close()
 
 	n := 0
 
+	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
+	err = func() error {
+		inMemCursor := bucket.CursorInMem()
+		defer inMemCursor.Close()
+
+		for k, v := inMemCursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = inMemCursor.Next() {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				obj, err := storobj.FromBinaryUUIDOnly(v)
+				if err != nil {
+					return fmt.Errorf("cannot unmarshal object: %w", err)
+				}
+
+				replicaObj := types.RepairResponse{
+					ID:         obj.ID().String(),
+					UpdateTime: obj.LastUpdateTimeUnix(),
+					// TODO: use version when supported
+					Version: 0,
+				}
+
+				objs = append(objs, replicaObj)
+
+				n++
+			}
+		}
+
+		return nil
+	}()
+	if err != nil {
+		return nil, err
+	}
+
 	for k, v := cursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = cursor.Next() {
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			return objs, ctx.Err()
+		default:
+			obj, err := storobj.FromBinaryUUIDOnly(v)
+			if err != nil {
+				return objs, fmt.Errorf("cannot unmarshal object: %w", err)
+			}
+
+			replicaObj := types.RepairResponse{
+				ID:         obj.ID().String(),
+				UpdateTime: obj.LastUpdateTimeUnix(),
+				// TODO: use version when supported
+				Version: 0,
+			}
+
+			objs = append(objs, replicaObj)
+
+			n++
 		}
-
-		obj, err := storobj.FromBinaryUUIDOnly(v)
-		if err != nil {
-			return objs, fmt.Errorf("cannot unmarshal object: %w", err)
-		}
-
-		replicaObj := types.RepairResponse{
-			ID:         obj.ID().String(),
-			UpdateTime: obj.LastUpdateTimeUnix(),
-			// TODO: use version when supported
-			Version: 0,
-		}
-
-		objs = append(objs, replicaObj)
-
-		n++
 	}
 
 	return objs, nil

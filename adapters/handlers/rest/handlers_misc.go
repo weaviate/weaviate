@@ -61,7 +61,7 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 				return well_known.NewGetWellKnownOpenidConfigurationNotFound()
 			}
 
-			target, err := url.JoinPath(serverConfig.Config.Authentication.OIDC.Issuer, "/.well-known/openid-configuration")
+			target, err := url.JoinPath(serverConfig.Config.Authentication.OIDC.Issuer.Get(), "/.well-known/openid-configuration")
 			if err != nil {
 				metricRequestsTotal.logError("", err)
 				return well_known.NewGetWellKnownOpenidConfigurationInternalServerError().WithPayload(errPayloadFromSingleErr(err))
@@ -70,8 +70,8 @@ func setupMiscHandlers(api *operations.WeaviateAPI, serverConfig *config.Weaviat
 			scopes := serverConfig.Config.Authentication.OIDC.Scopes
 			body := &well_known.GetWellKnownOpenidConfigurationOKBody{
 				Href:     target,
-				ClientID: clientID,
-				Scopes:   scopes,
+				ClientID: clientID.Get(),
+				Scopes:   scopes.Get(),
 			}
 
 			metricRequestsTotal.logOk("")
