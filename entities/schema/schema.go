@@ -49,6 +49,11 @@ func Empty() Schema {
 	}
 }
 
+type SchemaWithAliases struct {
+	Schema
+	Aliases map[string]string
+}
+
 // Return one of the semantic schema's
 func (s *Schema) SemanticSchemaFor() *models.Schema {
 	return s.Objects

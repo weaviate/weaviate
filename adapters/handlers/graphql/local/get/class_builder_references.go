@@ -26,6 +26,14 @@ func (b *classBuilder) referenceField(propertyType schema.PropertyDataType,
 	property *models.Property, className string,
 ) *graphql.Field {
 	refClasses := propertyType.Classes()
+	// Include alias as top referenced class name in gql schema
+	for _, class := range refClasses {
+		alias, ok := b.knownAliases[class.String()]
+		if ok {
+			refClasses = append(refClasses, schema.ClassName(alias))
+		}
+	}
+
 	propertyName := cases.Title(language.Und, cases.NoLower).String(property.Name)
 	dataTypeClasses := []*graphql.Object{}
 
