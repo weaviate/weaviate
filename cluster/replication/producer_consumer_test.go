@@ -450,6 +450,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			// Assert that the mock expectations were met
 			mockFSMUpdater.AssertExpectations(t)
 			mockReplicaCopier.AssertExpectations(t)
+			require.True(t, mockFSMUpdater.AssertCalled(t, "ReplicationUpdateReplicaOpStatus", mock.Anything, uint64(opId), api.READY), "READY should be called at least once")
 		})
 	}
 }
