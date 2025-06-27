@@ -52,23 +52,23 @@ func TestReplicationReplicate(t *testing.T) {
 		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
 		collection := fmt.Sprintf("Collection%d", randomInt(10))
-		shardId := fmt.Sprintf("shard-%d", randomInt(10))
-		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
-		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
+		shard := fmt.Sprintf("shard-%d", randomInt(10))
+		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
+		targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		replicationType := randomReplicationType()
 		params := replication.ReplicateParams{
 			HTTPRequest: &http.Request{},
 			Body: &models.ReplicationReplicateReplicaRequest{
-				CollectionID:        &collection,
-				DestinationNodeName: &targetNodeId,
-				ShardID:             &shardId,
-				SourceNodeName:      &sourceNodeId,
-				Type:                &replicationType,
+				Collection: &collection,
+				TargetNode: &targetNode,
+				Shard:      &shard,
+				SourceNode: &sourceNode,
+				Type:       &replicationType,
 			},
 		}
 
 		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId, replicationType).Return(nil)
+		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNode, collection, shard, targetNode, replicationType).Return(nil)
 
 		// WHEN
 		response := handler.replicate(params, &models.Principal{})
@@ -84,17 +84,17 @@ func TestReplicationReplicate(t *testing.T) {
 		// GIVEN
 		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
-		shardId := fmt.Sprintf("shard-%d", randomInt(10))
-		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
-		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
+		shard := fmt.Sprintf("shard-%d", randomInt(10))
+		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
+		targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		replicationType := randomReplicationType()
 		params := replication.ReplicateParams{
 			HTTPRequest: &http.Request{},
 			Body: &models.ReplicationReplicateReplicaRequest{
-				DestinationNodeName: &targetNodeId,
-				ShardID:             &shardId,
-				SourceNodeName:      &sourceNodeId,
-				Type:                &replicationType,
+				TargetNode: &targetNode,
+				Shard:      &shard,
+				SourceNode: &sourceNode,
+				Type:       &replicationType,
 			},
 		}
 
@@ -110,16 +110,16 @@ func TestReplicationReplicate(t *testing.T) {
 		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
 		collection := fmt.Sprintf("Collection%d", randomInt(10))
-		shardId := fmt.Sprintf("shard-%d", randomInt(10))
-		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
+		shard := fmt.Sprintf("shard-%d", randomInt(10))
+		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
 		replicationType := randomReplicationType()
 		params := replication.ReplicateParams{
 			HTTPRequest: &http.Request{},
 			Body: &models.ReplicationReplicateReplicaRequest{
-				CollectionID:   &collection,
-				ShardID:        &shardId,
-				SourceNodeName: &sourceNodeId,
-				Type:           &replicationType,
+				Collection: &collection,
+				Shard:      &shard,
+				SourceNode: &sourceNode,
+				Type:       &replicationType,
 			},
 		}
 
@@ -135,16 +135,16 @@ func TestReplicationReplicate(t *testing.T) {
 		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
 		collection := fmt.Sprintf("Collection%d", randomInt(10))
-		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
-		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
+		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
+		targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		replicationType := randomReplicationType()
 		params := replication.ReplicateParams{
 			HTTPRequest: &http.Request{},
 			Body: &models.ReplicationReplicateReplicaRequest{
-				CollectionID:        &collection,
-				DestinationNodeName: &targetNodeId,
-				SourceNodeName:      &sourceNodeId,
-				Type:                &replicationType,
+				Collection: &collection,
+				TargetNode: &targetNode,
+				SourceNode: &sourceNode,
+				Type:       &replicationType,
 			},
 		}
 
@@ -160,16 +160,16 @@ func TestReplicationReplicate(t *testing.T) {
 		handler, _, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
 		collection := fmt.Sprintf("Collection%d", randomInt(10))
-		shardId := fmt.Sprintf("shard-%d", randomInt(10))
-		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
+		shard := fmt.Sprintf("shard-%d", randomInt(10))
+		targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		replicationType := randomReplicationType()
 		params := replication.ReplicateParams{
 			HTTPRequest: &http.Request{},
 			Body: &models.ReplicationReplicateReplicaRequest{
-				CollectionID:        &collection,
-				ShardID:             &shardId,
-				DestinationNodeName: &targetNodeId,
-				Type:                &replicationType,
+				Collection: &collection,
+				Shard:      &shard,
+				TargetNode: &targetNode,
+				Type:       &replicationType,
 			},
 		}
 
@@ -185,23 +185,23 @@ func TestReplicationReplicate(t *testing.T) {
 		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
 		collection := fmt.Sprintf("Collection%d", randomInt(10))
-		shardId := fmt.Sprintf("shard-%d", randomInt(10))
-		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
-		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
+		shard := fmt.Sprintf("shard-%d", randomInt(10))
+		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
+		targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		replicationType := randomReplicationType()
 		params := replication.ReplicateParams{
 			HTTPRequest: &http.Request{},
 			Body: &models.ReplicationReplicateReplicaRequest{
-				CollectionID:        &collection,
-				DestinationNodeName: &targetNodeId,
-				ShardID:             &shardId,
-				SourceNodeName:      &sourceNodeId,
-				Type:                &replicationType,
+				Collection: &collection,
+				TargetNode: &targetNode,
+				Shard:      &shard,
+				SourceNode: &sourceNode,
+				Type:       &replicationType,
 			},
 		}
 
 		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId, replicationType).Return(types.ErrInvalidRequest)
+		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNode, collection, shard, targetNode, replicationType).Return(types.ErrInvalidRequest)
 
 		// WHEN
 		response := handler.replicate(params, &models.Principal{})
@@ -217,23 +217,23 @@ func TestReplicationReplicate(t *testing.T) {
 		handler, mockAuthorizer, mockReplicationManager := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
 		collection := fmt.Sprintf("Collection%d", randomInt(10))
-		shardId := fmt.Sprintf("shard-%d", randomInt(10))
-		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
-		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
+		shard := fmt.Sprintf("shard-%d", randomInt(10))
+		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
+		targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		replicationType := randomReplicationType()
 		params := replication.ReplicateParams{
 			HTTPRequest: &http.Request{},
 			Body: &models.ReplicationReplicateReplicaRequest{
-				CollectionID:        &collection,
-				DestinationNodeName: &targetNodeId,
-				ShardID:             &shardId,
-				SourceNodeName:      &sourceNodeId,
-				Type:                &replicationType,
+				Collection: &collection,
+				TargetNode: &targetNode,
+				Shard:      &shard,
+				SourceNode: &sourceNode,
+				Type:       &replicationType,
 			},
 		}
 
 		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
-		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNodeId, collection, shardId, targetNodeId, replicationType).Return(errors.New("target node does not exist"))
+		mockReplicationManager.EXPECT().ReplicationReplicateReplica(mock.Anything, mock.AnythingOfType("strfmt.UUID"), sourceNode, collection, shard, targetNode, replicationType).Return(errors.New("target node does not exist"))
 
 		// WHEN
 		response := handler.replicate(params, &models.Principal{})
@@ -249,18 +249,18 @@ func TestReplicationReplicate(t *testing.T) {
 		handler, mockAuthorizer, _ := createReplicationHandlerWithMocks(t, createNullLogger(t))
 
 		collection := fmt.Sprintf("Collection%d", randomInt(10))
-		shardId := fmt.Sprintf("shard-%d", randomInt(10))
-		sourceNodeId := fmt.Sprintf("node-%d", randomInt(5)*2)
-		targetNodeId := fmt.Sprintf("node-%d", randomInt(5)*2+1)
+		shard := fmt.Sprintf("shard-%d", randomInt(10))
+		sourceNode := fmt.Sprintf("node-%d", randomInt(5)*2)
+		targetNode := fmt.Sprintf("node-%d", randomInt(5)*2+1)
 		replicationType := randomReplicationType()
 		params := replication.ReplicateParams{
 			HTTPRequest: &http.Request{},
 			Body: &models.ReplicationReplicateReplicaRequest{
-				CollectionID:        &collection,
-				DestinationNodeName: &targetNodeId,
-				ShardID:             &shardId,
-				SourceNodeName:      &sourceNodeId,
-				Type:                &replicationType,
+				Collection: &collection,
+				TargetNode: &targetNode,
+				Shard:      &shard,
+				SourceNode: &sourceNode,
+				Type:       &replicationType,
 			},
 		}
 
@@ -328,9 +328,9 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		replicationDetails := response.(*replication.ReplicationDetailsOK)
 		assert.Equal(t, id, *replicationDetails.Payload.ID)
 		assert.Equal(t, collection, *replicationDetails.Payload.Collection)
-		assert.Equal(t, shardId, *replicationDetails.Payload.ShardID)
-		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNodeID)
-		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNodeID)
+		assert.Equal(t, shardId, *replicationDetails.Payload.Shard)
+		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNode)
+		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNode)
 		assert.Equal(t, status, replicationDetails.Payload.Status.State)
 		assert.Equal(t, 0, len(replicationDetails.Payload.StatusHistory))
 	})
@@ -394,9 +394,9 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		replicationDetails := response.(*replication.ReplicationDetailsOK)
 		assert.Equal(t, uuid, *replicationDetails.Payload.ID)
 		assert.Equal(t, collection, *replicationDetails.Payload.Collection)
-		assert.Equal(t, shardId, *replicationDetails.Payload.ShardID)
-		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNodeID)
-		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNodeID)
+		assert.Equal(t, shardId, *replicationDetails.Payload.Shard)
+		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNode)
+		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNode)
 		assert.Equal(t, status, replicationDetails.Payload.Status.State)
 		assert.Equal(t, historyStatus, replicationDetails.Payload.StatusHistory[0].State)
 		assert.Equal(t, []string{"error1", "error2"}, replicationDetails.Payload.StatusHistory[0].Errors)

@@ -7352,20 +7352,20 @@ func init() {
       "description": "Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.",
       "type": "object",
       "required": [
-        "nodeName",
-        "collectionId",
-        "shardId"
+        "node",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
+        "collection": {
           "description": "The name of the collection to which the shard replica belongs.",
           "type": "string"
         },
-        "nodeName": {
+        "node": {
           "description": "The name of the Weaviate node from which the shard replica will be deleted.",
           "type": "string"
         },
-        "shardId": {
+        "shard": {
           "description": "The ID of the shard whose replica is to be deleted.",
           "type": "string"
         }
@@ -7375,20 +7375,20 @@ func init() {
       "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
       "type": "object",
       "required": [
-        "nodeName",
-        "collectionId",
-        "shardId"
+        "node",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
+        "collection": {
           "description": "The name of the collection to which the shard replica belongs.",
           "type": "string"
         },
-        "nodeName": {
+        "node": {
           "description": "The name of the Weaviate node hosting the shard replica that is to be disabled.",
           "type": "string"
         },
-        "shardId": {
+        "shard": {
           "description": "The ID of the shard whose replica is to be disabled.",
           "type": "string"
         }
@@ -7398,9 +7398,9 @@ func init() {
       "description": "Provides a comprehensive overview of a specific replication operation, detailing its unique ID, the involved collection, shard, source and target nodes, transfer type, current status, and optionally, its status history.",
       "required": [
         "id",
-        "shardId",
-        "sourceNodeId",
-        "targetNodeId",
+        "shard",
+        "sourceNode",
+        "targetNode",
         "collection",
         "status",
         "type"
@@ -7423,11 +7423,11 @@ func init() {
           "description": "Whether the replica operation is scheduled for deletion.",
           "type": "boolean"
         },
-        "shardId": {
-          "description": "The identifier of the shard involved in this replication operation.",
+        "shard": {
+          "description": "The name of the shard involved in this replication operation.",
           "type": "string"
         },
-        "sourceNodeId": {
+        "sourceNode": {
           "description": "The identifier of the node from which the replica is being moved or copied (the source node).",
           "type": "string"
         },
@@ -7443,8 +7443,8 @@ func init() {
             "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
           }
         },
-        "targetNodeId": {
-          "description": "The identifier of the node to which the replica is being moved or copied (the destination node).",
+        "targetNode": {
+          "description": "The identifier of the node to which the replica is being moved or copied (the target node).",
           "type": "string"
         },
         "type": {
@@ -7533,33 +7533,33 @@ func init() {
       }
     },
     "ReplicationReplicateReplicaRequest": {
-      "description": "Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and destination node, the collection and type of transfer.",
+      "description": "Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and target node, the collection and type of transfer.",
       "type": "object",
       "required": [
-        "sourceNodeName",
-        "destinationNodeName",
-        "collectionId",
-        "shardId"
+        "sourceNode",
+        "targetNode",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
-          "description": "The unique identifier (name) of the collection to which the target shard belongs.",
+        "collection": {
+          "description": "The name of the collection to which the target shard belongs.",
           "type": "string"
         },
-        "destinationNodeName": {
-          "description": "The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.",
+        "shard": {
+          "description": "The name of the shard whose replica is to be moved or copied.",
           "type": "string"
         },
-        "shardId": {
-          "description": "The ID of the shard whose replica is to be moved or copied.",
-          "type": "string"
-        },
-        "sourceNodeName": {
+        "sourceNode": {
           "description": "The name of the Weaviate node currently hosting the shard replica that needs to be moved or copied.",
           "type": "string"
         },
+        "targetNode": {
+          "description": "The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.",
+          "type": "string"
+        },
         "type": {
-          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
+          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
           "type": "string",
           "default": "COPY",
           "enum": [
@@ -16061,20 +16061,20 @@ func init() {
       "description": "Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.",
       "type": "object",
       "required": [
-        "nodeName",
-        "collectionId",
-        "shardId"
+        "node",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
+        "collection": {
           "description": "The name of the collection to which the shard replica belongs.",
           "type": "string"
         },
-        "nodeName": {
+        "node": {
           "description": "The name of the Weaviate node from which the shard replica will be deleted.",
           "type": "string"
         },
-        "shardId": {
+        "shard": {
           "description": "The ID of the shard whose replica is to be deleted.",
           "type": "string"
         }
@@ -16084,20 +16084,20 @@ func init() {
       "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
       "type": "object",
       "required": [
-        "nodeName",
-        "collectionId",
-        "shardId"
+        "node",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
+        "collection": {
           "description": "The name of the collection to which the shard replica belongs.",
           "type": "string"
         },
-        "nodeName": {
+        "node": {
           "description": "The name of the Weaviate node hosting the shard replica that is to be disabled.",
           "type": "string"
         },
-        "shardId": {
+        "shard": {
           "description": "The ID of the shard whose replica is to be disabled.",
           "type": "string"
         }
@@ -16107,9 +16107,9 @@ func init() {
       "description": "Provides a comprehensive overview of a specific replication operation, detailing its unique ID, the involved collection, shard, source and target nodes, transfer type, current status, and optionally, its status history.",
       "required": [
         "id",
-        "shardId",
-        "sourceNodeId",
-        "targetNodeId",
+        "shard",
+        "sourceNode",
+        "targetNode",
         "collection",
         "status",
         "type"
@@ -16132,11 +16132,11 @@ func init() {
           "description": "Whether the replica operation is scheduled for deletion.",
           "type": "boolean"
         },
-        "shardId": {
-          "description": "The identifier of the shard involved in this replication operation.",
+        "shard": {
+          "description": "The name of the shard involved in this replication operation.",
           "type": "string"
         },
-        "sourceNodeId": {
+        "sourceNode": {
           "description": "The identifier of the node from which the replica is being moved or copied (the source node).",
           "type": "string"
         },
@@ -16152,8 +16152,8 @@ func init() {
             "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
           }
         },
-        "targetNodeId": {
-          "description": "The identifier of the node to which the replica is being moved or copied (the destination node).",
+        "targetNode": {
+          "description": "The identifier of the node to which the replica is being moved or copied (the target node).",
           "type": "string"
         },
         "type": {
@@ -16242,33 +16242,33 @@ func init() {
       }
     },
     "ReplicationReplicateReplicaRequest": {
-      "description": "Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and destination node, the collection and type of transfer.",
+      "description": "Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and target node, the collection and type of transfer.",
       "type": "object",
       "required": [
-        "sourceNodeName",
-        "destinationNodeName",
-        "collectionId",
-        "shardId"
+        "sourceNode",
+        "targetNode",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
-          "description": "The unique identifier (name) of the collection to which the target shard belongs.",
+        "collection": {
+          "description": "The name of the collection to which the target shard belongs.",
           "type": "string"
         },
-        "destinationNodeName": {
-          "description": "The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.",
+        "shard": {
+          "description": "The name of the shard whose replica is to be moved or copied.",
           "type": "string"
         },
-        "shardId": {
-          "description": "The ID of the shard whose replica is to be moved or copied.",
-          "type": "string"
-        },
-        "sourceNodeName": {
+        "sourceNode": {
           "description": "The name of the Weaviate node currently hosting the shard replica that needs to be moved or copied.",
           "type": "string"
         },
+        "targetNode": {
+          "description": "The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.",
+          "type": "string"
+        },
         "type": {
-          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
+          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
           "type": "string",
           "default": "COPY",
           "enum": [

@@ -32,30 +32,30 @@ type ReplicationDisableReplicaRequest struct {
 
 	// The name of the collection to which the shard replica belongs.
 	// Required: true
-	CollectionID *string `json:"collectionId"`
+	Collection *string `json:"collection"`
 
 	// The name of the Weaviate node hosting the shard replica that is to be disabled.
 	// Required: true
-	NodeName *string `json:"nodeName"`
+	Node *string `json:"node"`
 
 	// The ID of the shard whose replica is to be disabled.
 	// Required: true
-	ShardID *string `json:"shardId"`
+	Shard *string `json:"shard"`
 }
 
 // Validate validates this replication disable replica request
 func (m *ReplicationDisableReplicaRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateCollectionID(formats); err != nil {
+	if err := m.validateCollection(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateNodeName(formats); err != nil {
+	if err := m.validateNode(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateShardID(formats); err != nil {
+	if err := m.validateShard(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -65,27 +65,27 @@ func (m *ReplicationDisableReplicaRequest) Validate(formats strfmt.Registry) err
 	return nil
 }
 
-func (m *ReplicationDisableReplicaRequest) validateCollectionID(formats strfmt.Registry) error {
+func (m *ReplicationDisableReplicaRequest) validateCollection(formats strfmt.Registry) error {
 
-	if err := validate.Required("collectionId", "body", m.CollectionID); err != nil {
+	if err := validate.Required("collection", "body", m.Collection); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationDisableReplicaRequest) validateNodeName(formats strfmt.Registry) error {
+func (m *ReplicationDisableReplicaRequest) validateNode(formats strfmt.Registry) error {
 
-	if err := validate.Required("nodeName", "body", m.NodeName); err != nil {
+	if err := validate.Required("node", "body", m.Node); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationDisableReplicaRequest) validateShardID(formats strfmt.Registry) error {
+func (m *ReplicationDisableReplicaRequest) validateShard(formats strfmt.Registry) error {
 
-	if err := validate.Required("shardId", "body", m.ShardID); err != nil {
+	if err := validate.Required("shard", "body", m.Shard); err != nil {
 		return err
 	}
 

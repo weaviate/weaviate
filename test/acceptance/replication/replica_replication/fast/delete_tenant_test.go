@@ -185,9 +185,9 @@ func getMTRequest(t *testing.T, className, tenant string) *models.ReplicationRep
 	}
 
 	return &models.ReplicationReplicateReplicaRequest{
-		CollectionID:        &className,
-		SourceNodeName:      &sourceNode,
-		DestinationNodeName: &destinationNode,
-		ShardID:             &tenant,
+		Collection: &className,
+		SourceNode: &sourceNode,
+		TargetNode: &destinationNode,
+		Shard:      &tenant,
 	}
 }

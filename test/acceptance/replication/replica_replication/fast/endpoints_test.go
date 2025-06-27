@@ -92,7 +92,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get collection and shard sharding state", func(t *testing.T) {
-		shard := getRequest(t, paragraphClass.Class).ShardID
+		shard := getRequest(t, paragraphClass.Class).Shard
 		shardingState, err := helper.Client(t).Replication.GetCollectionShardingState(replication.NewGetCollectionShardingStateParams().WithCollection(&paragraphClass.Class).WithShard(shard), nil)
 		require.Nil(t, err)
 		require.NotNil(t, shardingState)
@@ -162,7 +162,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get replication operation by collection and shard", func(t *testing.T) {
-		shard := getRequest(t, paragraphClass.Class).ShardID
+		shard := getRequest(t, paragraphClass.Class).Shard
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&paragraphClass.Class).WithShard(shard), nil)
 		require.Nil(t, err)
 		found := false
@@ -176,7 +176,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get replication operation by target node", func(t *testing.T) {
-		nodeID := getRequest(t, paragraphClass.Class).DestinationNodeName
+		nodeID := getRequest(t, paragraphClass.Class).TargetNode
 		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithNodeID(nodeID), nil)
 		require.Nil(t, err)
 		found := false
@@ -310,9 +310,9 @@ func getRequest(t *testing.T, className string) *models.ReplicationReplicateRepl
 	nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className), nil)
 	require.Nil(t, err)
 	return &models.ReplicationReplicateReplicaRequest{
-		CollectionID:        &className,
-		SourceNodeName:      &nodes.Payload.Nodes[0].Name,
-		DestinationNodeName: &nodes.Payload.Nodes[1].Name,
-		ShardID:             &nodes.Payload.Nodes[0].Shards[0].Name,
+		Collection: &className,
+		SourceNode: &nodes.Payload.Nodes[0].Name,
+		TargetNode: &nodes.Payload.Nodes[1].Name,
+		Shard:      &nodes.Payload.Nodes[0].Shards[0].Name,
 	}
 }

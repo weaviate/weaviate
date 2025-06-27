@@ -66,16 +66,16 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateMOVEDeletesSourceRepl
 		foundSrc := false
 		foundDst := false
 		for _, node := range nodes.Payload.Nodes {
-			if *req.SourceNodeName == node.Name {
+			if *req.SourceNode == node.Name {
 				for _, shard := range node.Shards {
-					if shard.Name == *req.ShardID {
+					if shard.Name == *req.Shard {
 						foundSrc = true
 					}
 				}
 			}
-			if *req.DestinationNodeName == node.Name {
+			if *req.TargetNode == node.Name {
 				for _, shard := range node.Shards {
-					if shard.Name == *req.ShardID {
+					if shard.Name == *req.Shard {
 						foundDst = true
 					}
 				}
