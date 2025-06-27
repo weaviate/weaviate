@@ -200,7 +200,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
@@ -211,31 +211,31 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairSimpleScenario() {
 			require.Len(ct, resp.Nodes, 3)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)
-				assert.Equal(ct, "HEALTHY", *n.Status)
+				require.Equal(ct, "HEALTHY", *n.Status)
 			}
 		}, 15*time.Second, 500*time.Millisecond)
 	})
 
 	t.Run("assert updated object read repair was made", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			exists, err := common.ObjectExistsCL(t, compose.GetWeaviateNode(2).URI(),
 				replaceObj.Class, replaceObj.ID, types.ConsistencyLevelOne)
-			assert.Nil(ct, err)
-			assert.True(ct, exists)
+			require.Nil(ct, err)
+			require.True(ct, exists)
 
 			resp, err := common.GetObjectCL(t, compose.GetWeaviate().URI(),
 				repairObj.Class, repairObj.ID, types.ConsistencyLevelOne)
-			assert.Nil(ct, err)
-			assert.NotNil(ct, resp)
+			require.Nil(ct, err)
+			require.NotNil(ct, resp)
 
 			if resp == nil {
 				return
 			}
 
-			assert.Equal(ct, replaceObj.ID, resp.ID)
-			assert.Equal(ct, replaceObj.Class, resp.Class)
-			assert.EqualValues(ct, replaceObj.Properties, resp.Properties)
-			assert.EqualValues(ct, replaceObj.Vector, resp.Vector)
+			require.Equal(ct, replaceObj.ID, resp.ID)
+			require.Equal(ct, replaceObj.Class, resp.Class)
+			require.EqualValues(ct, replaceObj.Properties, resp.Properties)
+			require.EqualValues(ct, replaceObj.Vector, resp.Vector)
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }
