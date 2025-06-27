@@ -367,6 +367,16 @@ func (pq *ProductQuantizer) Fit(data [][]float32) error {
 	if pq.trainingLimit > 0 && len(data) > pq.trainingLimit {
 		data = data[:pq.trainingLimit]
 	}
+
+	for i, vec := range data {
+		if vec == nil {
+			return fmt.Errorf("unable to train product quantization: vector at index %d is nil", i)
+		}
+		if len(vec) != pq.dimensions {
+			return fmt.Errorf("unable to train product quantization: vector at index %d has length %d, expected %d", i, len(vec), pq.dimensions)
+		}
+	}
+
 	switch pq.encoderType {
 	case UseTileEncoder:
 		pq.kms = make([]PQEncoder, pq.m)
