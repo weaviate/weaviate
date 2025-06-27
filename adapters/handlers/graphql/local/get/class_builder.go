@@ -27,7 +27,6 @@ import (
 type classBuilder struct {
 	authorizer      authorization.Authorizer
 	schema          *schema.SchemaWithAliases
-	knownAliases    map[string]string
 	knownClasses    map[string]*graphql.Object
 	beaconClass     *graphql.Object
 	logger          logrus.FieldLogger
@@ -46,20 +45,12 @@ func newClassBuilder(schema *schema.SchemaWithAliases, logger logrus.FieldLogger
 
 	b.initKnownClasses()
 	b.initBeaconClass()
-	b.initKnownAliases()
 
 	return b
 }
 
 func (b *classBuilder) initKnownClasses() {
 	b.knownClasses = map[string]*graphql.Object{}
-}
-
-func (b *classBuilder) initKnownAliases() {
-	b.knownAliases = map[string]string{}
-	for alias, aliasedClass := range b.schema.Aliases {
-		b.knownAliases[aliasedClass] = alias
-	}
 }
 
 func (b *classBuilder) initBeaconClass() {
@@ -120,13 +111,6 @@ func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error)
 func (b *classBuilder) classField(class *models.Class, fusionEnum *graphql.Enum) (*graphql.Field, error) {
 	classObject := b.classObject(class)
 	b.knownClasses[class.Class] = classObject
-
-	if alias, ok := b.knownAliases[class.Class]; ok {
-		aliasedClass := *class
-		aliasedClass.Class = alias
-		b.knownClasses[alias] = b.classObject(&aliasedClass)
-	}
-
 	classField := buildGetClassField(classObject, class, b.modulesProvider, fusionEnum, b.authorizer)
 	return &classField, nil
 }

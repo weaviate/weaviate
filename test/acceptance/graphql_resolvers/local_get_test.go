@@ -83,51 +83,6 @@ func gettingObjects(t *testing.T) {
 		})
 	})
 
-	t.Run("listing with crossref aliases", func(t *testing.T) {
-		t.Logf("DEPRECATED: using aliased cross-references is not supported!")
-
-		client := helper.Client(t)
-		params := schema.NewAliasesCreateParams().WithBody(&models.Alias{
-			Alias: "CityAlias",
-			Class: "City",
-		})
-		_, err := client.Schema.AliasesCreate(params, nil)
-		defer func(t *testing.T) {
-			params := schema.NewAliasesDeleteParams().WithAliasName("CityAlias")
-			_, err := client.Schema.AliasesDelete(params, nil)
-			if err != nil {
-				t.Logf("Error deleting aliases: %v", err)
-			}
-		}(t)
-		require.Nil(t, err)
-
-		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{  Get { Company { inCity { ... on CityAlias { name } } } } }")
-		cities := result.Get("Get", "Company").AsSlice()
-
-		// DEPRECATED: NOTE: using aliased cross-references is not supported!
-		expected := []interface{}{
-			map[string]interface{}{"inCity": []interface{}{}},
-			map[string]interface{}{"inCity": []interface{}{}},
-			map[string]interface{}{"inCity": []interface{}{}},
-			map[string]interface{}{"inCity": nil},
-			map[string]interface{}{"inCity": []interface{}{}},
-			map[string]interface{}{"inCity": []interface{}{}},
-			map[string]interface{}{"inCity": []interface{}{}},
-			map[string]interface{}{"inCity": nil},
-			map[string]interface{}{"inCity": nil},
-		}
-
-		assert.ElementsMatch(t, expected, cities)
-
-		t.Run("assert alias no longer in schema after deletion", func(t *testing.T) {
-			params := schema.NewAliasesDeleteParams().WithAliasName("CityAlias")
-			_, err := client.Schema.AliasesDelete(params, nil)
-			require.Nil(t, err)
-
-			_ = graphqlhelper.ErrorGraphQL(t, helper.RootAuth, "{  Get { Company { inCity { ... on CityAlias { name } } } } }")
-		})
-	})
-
 	t.Run("listing cities with relations", func(t *testing.T) {
 		result := graphqlhelper.AssertGraphQL(t, helper.RootAuth, "{ Get { City { name, inCountry { ... on Country { name } } } } }")
 		cities := result.Get("Get", "City").AsSlice()

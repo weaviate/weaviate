@@ -37,7 +37,6 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 	adminUser := "admin-user"
 	customKey := "custom-key"
 	customUser := "custom-user"
-	t.Setenv("TEST_WEAVIATE_IMAGE", "module_test_image")
 
 	compose, down := composeUp(t, map[string]string{adminUser: adminKey}, map[string]string{customUser: customKey}, nil)
 	defer down()
