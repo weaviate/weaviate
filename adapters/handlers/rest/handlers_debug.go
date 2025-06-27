@@ -182,7 +182,7 @@ func setupDebugHandlers(appState *state.State) {
 	http.HandleFunc("/debug/index/rebuild/inverted/status", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		response := map[string]interface{}{
 			"BlockMax WAND": "unknown",
-			"status":        "error",
+			"status":        "unknown",
 		}
 		output := make(map[string]map[string]interface{})
 		func() {
@@ -192,6 +192,7 @@ func setupDebugHandlers(appState *state.State) {
 			classNameString, _, idx, err := parseIndexAndShards(appState, r)
 			if err != nil {
 				logger.WithError(err).Error("failed to parse index and shards")
+				response["status"] = "error"
 				response["error"] = err.Error()
 				return
 			}
@@ -218,7 +219,8 @@ func setupDebugHandlers(appState *state.State) {
 			)
 			if err != nil {
 				logger.WithField("collection", colName).Error("failed to get shard names")
-				http.Error(w, "failed to get shard names", http.StatusInternalServerError)
+				response["status"] = "error"
+				response["error"] = err.Error()
 				return
 			}
 
@@ -233,7 +235,8 @@ func setupDebugHandlers(appState *state.State) {
 				tenantResponses, err := appState.SchemaManager.GetConsistentTenants(ctx, nil, colName, true, []string{})
 				if err != nil {
 					logger.WithField("collection", colName).Error("failed to get tenant responses")
-					http.Error(w, "failed to get tenant responses", http.StatusInternalServerError)
+					response["status"] = "error"
+					response["error"] = err.Error()
 					return
 				}
 
@@ -249,7 +252,9 @@ func setupDebugHandlers(appState *state.State) {
 			}
 
 			if len(tenantMap) == 0 {
-				http.Error(w, "no shards or tenants found", http.StatusNotFound)
+				logger.WithField("collection", colName).Error("no tenants found")
+				response["status"] = "error"
+				response["error"] = "no tenants found"
 				return
 			}
 
@@ -259,6 +264,7 @@ func setupDebugHandlers(appState *state.State) {
 				if path == "" {
 					output[i]["status"] = "shard_not_loaded"
 					output[i]["message"] = "shard not loaded"
+					output[i]["action"] = "load shard or activate tenant"
 					continue
 				}
 				// check if the shard directory exists
@@ -266,6 +272,7 @@ func setupDebugHandlers(appState *state.State) {
 				if err != nil {
 					output[i]["status"] = "shard_not_loaded"
 					output[i]["message"] = "shard directory does not exist"
+					output[i]["action"] = "load shard or activate tenant"
 					continue
 				}
 
@@ -274,21 +281,24 @@ func setupDebugHandlers(appState *state.State) {
 				if err != nil {
 					output[i]["status"] = "not_started"
 					output[i]["message"] = "no searchable_map_to_blockmax folder found"
+					output[i]["action"] = "enable relevant REINDEX_MAP_TO_BLOCKMAX_* env vars"
 					continue
 				}
 
 				keyParser := &db.UuidKeyParser{}
 				rt := db.NewFileMapToBlockmaxReindexTracker(path, keyParser)
 
-				status, message := rt.GetStatusStrings()
+				status, message, action := rt.GetStatusStrings()
 
 				if appState.ServerConfig.Config.ReindexMapToBlockmaxConfig.ConditionalStart && !rt.HasStartCondition() {
 					message = "reindexing not started, no start condition file found"
 					status = "not_started"
+					action = "call /start?collection=<> endpoint to start reindexing"
 				}
 
 				output[i]["status"] = status
 				output[i]["message"] = message
+				output[i]["action"] = action
 
 				properties, _ := rt.GetProps()
 				if properties != nil {
@@ -296,10 +306,11 @@ func setupDebugHandlers(appState *state.State) {
 				}
 				output[i]["times"] = rt.GetTimes()
 
-				migratedCount, snapshotCount, _ := rt.GetMigratedCount()
+				migratedCount, snapshots, _ := rt.GetMigratedCount()
 
 				output[i]["migratedCount"] = fmt.Sprintf("%d", migratedCount)
-				output[i]["snapshotCount"] = fmt.Sprintf("%d", snapshotCount)
+				output[i]["snapshotCount"] = fmt.Sprintf("%d", len(snapshots))
+				output[i]["snapshots"] = snapshots
 
 			}
 			response["status"] = "success"

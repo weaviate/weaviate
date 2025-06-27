@@ -1470,46 +1470,96 @@ func (t *fileMapToBlockmaxReindexTracker) GetProgress() (indexKey, *time.Time, e
 	return key, &tm, nil
 }
 
-func (t *fileMapToBlockmaxReindexTracker) GetMigratedCount() (int, int, error) {
-	// count the progress.mig.* files in the shard directory
-	files, err := os.ReadDir(t.config.migrationPath)
+func (t *fileMapToBlockmaxReindexTracker) parseProgressFile(filename string) (lastProcessedKey indexKey, tm time.Time, allCount int, idxCount int, err error) {
+	// open progress file
+	/*
+		2025-06-26T19:05:12.473157Z
+		57849825-b584-4d8d-8da5-a86be7fd1207
+		all 145
+		idx 145
+	*/
+	progressFilePath := filename
+	progressFile, err := os.ReadFile(progressFilePath)
 	if err != nil {
-		return 0, 0, fmt.Errorf("failed to read migration directory: %w", err)
+		err = fmt.Errorf("failed to read %s: %w", progressFilePath, err)
+		return
 	}
+	// check if the file is empty
+	if len(progressFile) == 0 {
+		err = fmt.Errorf("progress file %s is empty", progressFilePath)
+		return
+	}
+
+	// parse progress file
+	progressFileFields := strings.Split(string(progressFile), "\n")
+	if len(progressFileFields) != 4 {
+		err = fmt.Errorf("progress file %s has unexpected format, expected 4 lines, got %d", progressFilePath, len(progressFileFields))
+		return
+	}
+
+	// timestamp parsing
+	tm, err = t.decodeTime(strings.TrimSpace(progressFileFields[0]))
+	if err != nil {
+		err = fmt.Errorf("failed to parse timestamp from %s: %w", progressFilePath, err)
+		return
+	}
+
+	// parse last processed key
+	lastProcessedKey, err = t.keyParser.FromString(progressFileFields[1])
+	if err != nil {
+		err = fmt.Errorf("failed to parse last processed key from %s: %w", progressFilePath, err)
+		return
+	}
+	// parse objects migrated count
+	allCount, err = strconv.Atoi(strings.Split(progressFileFields[2], " ")[1])
+	if err != nil {
+		err = fmt.Errorf("failed to parse objects migrated count from %s: %w", progressFilePath, err)
+		return
+	}
+	// parse index count
+	idxCount, err = strconv.Atoi(strings.Split(progressFileFields[3], " ")[1])
+	if err != nil {
+		err = fmt.Errorf("failed to parse index count from %s: %w", progressFilePath, err)
+		return
+	}
+
+	return
+}
+
+func (t *fileMapToBlockmaxReindexTracker) GetMigratedCount() (objectsMigratedCountTotal int, snapshots []map[string]string, err error) {
+	// count the progress.mig.* files in the shard directory
+	snapshots = make([]map[string]string, 0)
+	files, err := os.ReadDir(t.config.migrationPath)
+	objectsMigratedCountTotal = 0
 	progressCount := 0
-	objectsMigratedCountTotal := 0
 
-	// files sorted by filename
-
+	if err != nil {
+		return
+	}
 	for _, file := range files {
 		if strings.HasPrefix(file.Name(), "progress.mig.") {
+			snapshot := map[string]string{
+				"checkpoint": strings.TrimPrefix(file.Name(), "progress.mig."),
+			}
 			progressCount++
 			// open progress file
 
 			progressFilePath := t.config.migrationPath + "/" + file.Name()
-			progressFile, err := os.ReadFile(progressFilePath)
-			if err != nil {
-				return objectsMigratedCountTotal, progressCount, fmt.Errorf("failed to read %s: %w", progressFilePath, err)
-			}
-			// check if the file is empty
-			if len(progressFile) == 0 {
-				continue
+			key, tm, allCount, idxCount, err2 := t.parseProgressFile(progressFilePath)
+			if err2 != nil {
+				err = fmt.Errorf("failed to parse progress file %s: %w", progressFilePath, err2)
+				return
 			}
 
-			// parse progress file
-			progressFileFields := strings.Split(string(progressFile), "\n")
-			if len(progressFileFields) != 4 {
-				continue
-			}
-			// parse objects migrated count
-			objectsMigratedCount, err := strconv.Atoi(strings.Split(progressFileFields[3], " ")[1])
-			if err != nil {
-				return objectsMigratedCountTotal, progressCount, fmt.Errorf("failed to parse objects migrated count from %s: %w", progressFilePath, err)
-			}
-			objectsMigratedCountTotal += objectsMigratedCount
+			objectsMigratedCountTotal += allCount
+			snapshot["lastProcessedKey"] = key.String()
+			snapshot["timestamp"] = tm.Format(time.RFC3339)
+			snapshot["allCount"] = fmt.Sprintf("%d", allCount)
+			snapshot["idxCount"] = fmt.Sprintf("%d", idxCount)
+			snapshots = append(snapshots, snapshot)
 		}
 	}
-	return objectsMigratedCountTotal, progressCount, nil
+	return
 }
 
 func (t *fileMapToBlockmaxReindexTracker) IsReindexed() bool {
@@ -1657,16 +1707,19 @@ func (t *fileMapToBlockmaxReindexTracker) IsPaused() bool {
 	return t.fileExists(t.config.filenamePaused)
 }
 
-func (t *fileMapToBlockmaxReindexTracker) GetStatusStrings() (status string, message string) {
+func (t *fileMapToBlockmaxReindexTracker) GetStatusStrings() (status string, message string, action string) {
 	if !t.IsStarted() {
 		status = "not started"
 		message = "reindexing not started"
+		action = "enable relevant REINDEX_MAP_TO_BLOCKMAX_* env vars"
 		if t.HasStartCondition() {
 			message = "reindexing will start on next restart"
+			action = "restart"
 		}
 		return
 	}
 	message = "reindexing started"
+	action = "wait"
 
 	if !t.HasProps() {
 		status = "computing properties"
@@ -1690,31 +1743,37 @@ func (t *fileMapToBlockmaxReindexTracker) GetStatusStrings() (status string, mes
 	if t.IsReindexed() {
 		status = "reindexed"
 		message = "reindexing done, needs restart to merge buckets"
+		action = "restart"
 	}
 
 	if t.IsMerged() {
 		status = "merged"
 		message = "reindexing done, buckets merged"
+		action = "restart"
 	}
 
 	if t.IsSwapped() {
 		status = "swapped"
 		message = "reindexing done, buckets swapped"
+		action = "restart"
 	}
 
 	if t.IsPaused() {
 		status = "paused"
 		message = "reindexing paused, needs resume or rollback"
+		action = "resume or rollback"
 	}
 
 	if t.IsRollback() {
 		status = "rollback"
 		message = "reindexing rollback in progress, will finish on next restart"
+		action = "restart"
 	}
 
 	if t.IsTidied() {
 		status = "tidied"
 		message = "reindexing done, buckets tidied"
+		action = "nothing to do"
 	}
 
 	return
@@ -1729,8 +1788,8 @@ func (t *fileMapToBlockmaxReindexTracker) GetTimes() map[string]string {
 	} else {
 		times["started"] = t.encodeTime(started)
 	}
-	_, tm, err := t.GetProgress()
-	if tm == nil || err != nil {
+	_, tm, _ := t.GetProgress()
+	if tm == nil {
 		times["reindexSnapshot"] = ""
 	} else {
 		times["reindexSnapshot"] = t.encodeTime(*tm)
