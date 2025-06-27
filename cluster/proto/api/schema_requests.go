@@ -126,7 +126,9 @@ type QueryResolveAliasResponse struct {
 	Class string
 }
 
-type QueryGetAliasesRequest struct{}
+type QueryGetAliasesRequest struct {
+	Alias, Class string
+}
 
 type QueryGetAliasesResponse struct {
 	Aliases map[string]string

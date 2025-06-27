@@ -456,12 +456,31 @@ func TestGetAlias(t *testing.T) {
 	require.Nil(t, sc.addClass(&models.Class{Class: "C3"}, ss, 1))
 	require.Nil(t, sc.createAlias("C1", "A1"))
 	require.Nil(t, sc.createAlias("C2", "A2"))
+	require.Nil(t, sc.createAlias("C2", "A3"))
 
 	t.Run("get aliases", func(t *testing.T) {
-		aliases := sc.getAliases()
+		aliases := sc.getAliases("", "")
 		expected := map[string]string{
 			"A1": "C1",
 			"A2": "C2",
+			"A3": "C2",
+		}
+		assert.EqualValues(t, expected, aliases)
+	})
+
+	t.Run("get aliases for alias A1", func(t *testing.T) {
+		aliases := sc.getAliases("A1", "")
+		expected := map[string]string{
+			"A1": "C1",
+		}
+		assert.EqualValues(t, expected, aliases)
+	})
+
+	t.Run("get aliases for class C2", func(t *testing.T) {
+		aliases := sc.getAliases("", "C2")
+		expected := map[string]string{
+			"A2": "C2",
+			"A3": "C2",
 		}
 		assert.EqualValues(t, expected, aliases)
 	})
@@ -469,10 +488,11 @@ func TestGetAlias(t *testing.T) {
 	t.Run("get updated aliases", func(t *testing.T) {
 		require.Nil(t, sc.replaceAlias("C3", "A2"))
 
-		aliases := sc.getAliases()
+		aliases := sc.getAliases("", "")
 		expected := map[string]string{
 			"A1": "C1",
 			"A2": "C3",
+			"A3": "C2",
 		}
 		assert.EqualValues(t, expected, aliases)
 	})

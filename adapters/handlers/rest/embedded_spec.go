@@ -150,6 +150,253 @@ func init() {
         }
       }
     },
+    "/aliases": {
+      "get": {
+        "description": "get all aliases or filtered by a class (collection)",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get aliases",
+        "operationId": "aliases.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "class (collection) to which alias is assigned.",
+            "name": "class",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "list of class's (collection's) aliases",
+            "schema": {
+              "$ref": "#/definitions/AliasResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Create a new alias for a collection",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Create a new alias",
+        "operationId": "aliases.create",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added new alias to the specified class (collection).",
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid create alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/aliases/{aliasName}": {
+      "get": {
+        "description": "get all aliases or filtered by a class (collection)",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get aliases",
+        "operationId": "aliases.get.alias",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "list of class's (collection's) aliases",
+            "schema": {
+              "$ref": "#/definitions/AliasResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "put": {
+        "description": "Replace alias of a specific class (collection) to other class",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update an alias.",
+        "operationId": "aliases.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "class": {
+                  "description": "new class (collection).",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New alias to the target class (collection).",
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid update alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "delete alias from a specific class (collection).",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "aliases.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted alias from specified class (collection)."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid delete alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/authz/groups/{id}/assign": {
       "post": {
         "tags": [
@@ -5266,6 +5513,32 @@ func init() {
         "type": "object"
       }
     },
+    "Alias": {
+      "description": "represents a class (collection) and alias name mapping",
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "The name of the alias.",
+          "type": "string"
+        },
+        "class": {
+          "description": "class (collection) to which alias is assigned.",
+          "type": "string"
+        }
+      }
+    },
+    "AliasResponse": {
+      "description": "The list of aliases",
+      "type": "object",
+      "properties": {
+        "aliases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Alias"
+          }
+        }
+      }
+    },
     "AsyncReplicationStatus": {
       "description": "The status of the async replication.",
       "properties": {
@@ -6951,8 +7224,28 @@ func init() {
             "create_replicate",
             "read_replicate",
             "update_replicate",
-            "delete_replicate"
+            "delete_replicate",
+            "create_aliases",
+            "read_aliases",
+            "update_aliases",
+            "delete_aliases"
           ]
+        },
+        "aliases": {
+          "description": "resources applicable for aliases actions",
+          "type": "object",
+          "properties": {
+            "alias": {
+              "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "backups": {
           "description": "resources applicable for backup actions",
@@ -8426,6 +8719,253 @@ func init() {
           },
           "503": {
             "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
+          }
+        }
+      }
+    },
+    "/aliases": {
+      "get": {
+        "description": "get all aliases or filtered by a class (collection)",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get aliases",
+        "operationId": "aliases.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "class (collection) to which alias is assigned.",
+            "name": "class",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "list of class's (collection's) aliases",
+            "schema": {
+              "$ref": "#/definitions/AliasResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Create a new alias for a collection",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Create a new alias",
+        "operationId": "aliases.create",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added new alias to the specified class (collection).",
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid create alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/aliases/{aliasName}": {
+      "get": {
+        "description": "get all aliases or filtered by a class (collection)",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get aliases",
+        "operationId": "aliases.get.alias",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "list of class's (collection's) aliases",
+            "schema": {
+              "$ref": "#/definitions/AliasResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "put": {
+        "description": "Replace alias of a specific class (collection) to other class",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update an alias.",
+        "operationId": "aliases.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "class": {
+                  "description": "new class (collection).",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New alias to the target class (collection).",
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid update alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "delete alias from a specific class (collection).",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "aliases.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted alias from specified class (collection)."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid delete alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -13656,6 +14196,32 @@ func init() {
         "type": "object"
       }
     },
+    "Alias": {
+      "description": "represents a class (collection) and alias name mapping",
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "The name of the alias.",
+          "type": "string"
+        },
+        "class": {
+          "description": "class (collection) to which alias is assigned.",
+          "type": "string"
+        }
+      }
+    },
+    "AliasResponse": {
+      "description": "The list of aliases",
+      "type": "object",
+      "properties": {
+        "aliases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Alias"
+          }
+        }
+      }
+    },
     "AsyncReplicationStatus": {
       "description": "The status of the async replication.",
       "properties": {
@@ -15534,8 +16100,28 @@ func init() {
             "create_replicate",
             "read_replicate",
             "update_replicate",
-            "delete_replicate"
+            "delete_replicate",
+            "create_aliases",
+            "read_aliases",
+            "update_aliases",
+            "delete_aliases"
           ]
+        },
+        "aliases": {
+          "description": "resources applicable for aliases actions",
+          "type": "object",
+          "properties": {
+            "alias": {
+              "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "backups": {
           "description": "resources applicable for backup actions",
@@ -15662,6 +16248,22 @@ func init() {
               "default": "*"
             }
           }
+        }
+      }
+    },
+    "PermissionAliases": {
+      "description": "resources applicable for aliases actions",
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
         }
       }
     },

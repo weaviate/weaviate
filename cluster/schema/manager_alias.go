@@ -92,7 +92,7 @@ func (s *SchemaManager) GetAliases(req *command.QueryRequest) ([]byte, error) {
 	}
 
 	response := command.QueryGetAliasesResponse{
-		Aliases: s.schema.getAliases(),
+		Aliases: s.schema.getAliases(subCommand.Alias, subCommand.Class),
 	}
 	payload, err := json.Marshal(&response)
 	if err != nil {

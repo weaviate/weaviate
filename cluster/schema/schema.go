@@ -658,9 +658,23 @@ func (s *schema) unsafeAliasExists(alias string) bool {
 	return false
 }
 
-func (s *schema) getAliases() map[string]string {
+func (s *schema) getAliases(alias, class string) map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if alias != "" {
+		if className, ok := s.aliases[alias]; ok {
+			return map[string]string{alias: className}
+		}
+	}
+	if class != "" {
+		aliases := make(map[string]string)
+		for aliasName, className := range s.aliases {
+			if className == class {
+				aliases[aliasName] = className
+			}
+		}
+		return aliases
+	}
 	return maps.Clone(s.aliases)
 }
 
