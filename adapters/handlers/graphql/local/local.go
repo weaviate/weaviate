@@ -24,7 +24,7 @@ import (
 )
 
 // Build the local queries from the database schema.
-func Build(dbSchema *schema.Schema, logger logrus.FieldLogger,
+func Build(dbSchema *schema.SchemaWithAliases, logger logrus.FieldLogger,
 	config config.Config, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (graphql.Fields, error) {
 	getField, err := get.Build(dbSchema, logger, modulesProvider, authorizer)

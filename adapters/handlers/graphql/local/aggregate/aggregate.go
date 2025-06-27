@@ -33,7 +33,7 @@ type ModulesProvider interface {
 }
 
 // Build the Aggregate Kinds schema
-func Build(dbSchema *schema.Schema, config config.Config,
+func Build(dbSchema *schema.SchemaWithAliases, config config.Config,
 	modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) (*graphql.Field, error) {
 	if len(dbSchema.Objects.Classes) == 0 {
