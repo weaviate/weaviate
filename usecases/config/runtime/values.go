@@ -12,6 +12,7 @@
 package runtime
 
 import (
+	"encoding/json"
 	"fmt"
 	"sync"
 	"time"
@@ -103,6 +104,47 @@ func (dv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
 
 	dv.val = &val
 	return nil
+}
+
+// MarshalYAML implements `yaml.v3` custom encoding for `DynamicValue` type.
+func (dv *DynamicValue[T]) MarshalYAML() (any, error) {
+	dv.mu.Lock()
+	val := dv.def
+	if dv.val != nil {
+		val = *dv.val
+	}
+	dv.mu.Unlock()
+
+	return val, nil
+}
+
+// UnmarshalJSON implements `json` custom decoding for `DynamicValue` type.
+func (dv *DynamicValue[T]) UnmarshalJSON(data []byte) error {
+	var val T
+	if err := json.Unmarshal(data, &val); err != nil {
+		return err
+	}
+	dv.mu.Lock()
+	defer dv.mu.Unlock()
+	dv.val = &val
+	return nil
+}
+
+// MarshalJSON implements `json` custom encoding for `DynamicValue` type.
+func (dv *DynamicValue[T]) MarshalJSON() ([]byte, error) {
+	dv.mu.Lock()
+	val := dv.def
+	if dv.val != nil {
+		val = *dv.val
+	}
+	dv.mu.Unlock()
+
+	b, err := json.Marshal(val)
+	if err != nil {
+		return nil, err
+	}
+
+	return b, nil
 }
 
 // String implements Stringer interface for `%v` formatting
