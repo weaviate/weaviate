@@ -20,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/peer"
 
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
