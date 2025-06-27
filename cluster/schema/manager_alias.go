@@ -59,9 +59,10 @@ func (s *SchemaManager) DeleteAlias(cmd *command.ApplyRequest) error {
 
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.deleteAlias(req.Alias) },
-			updateStore:  func() error { return nil /* nothing do to here */ },
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { return s.schema.deleteAlias(req.Alias) },
+			updateStore:          func() error { return nil /* nothing do to here */ },
+			enableSchemaCallback: true,
 		},
 	)
 }

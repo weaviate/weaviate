@@ -1915,6 +1915,50 @@ func TestGetRelation(t *testing.T) {
 	})
 }
 
+func TestGetWithAlias(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolver()
+	expectedParams := dto.GetParams{
+		ClassName: "SomeAction",
+		Properties: []search.SelectProperty{
+			{
+				Name:        "hasAction",
+				IsPrimitive: false,
+				Refs: []search.SelectClass{
+					{
+						ClassName: "SomeActionAlias",
+						RefProperties: []search.SelectProperty{
+							{
+								Name:        "intField",
+								IsPrimitive: true,
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+	resolver.On("GetClass", expectedParams).
+		Return(test_helper.EmptyList(), nil).Once()
+
+	query := "{ Get { SomeActionAlias { hasAction { ... on SomeActionAlias { intField } } } } }"
+	resolver.AssertResolve(t, query)
+}
+
+func TestGetWithAliasCrossRef(t *testing.T) {
+	t.Parallel()
+	resolver := newMockResolver()
+	expectedParams := dto.GetParams{
+		ClassName:  "SomeAction",
+		Properties: []search.SelectProperty{{Name: "intField", IsPrimitive: true}},
+	}
+
+	resolver.On("GetClass", expectedParams).
+		Return(test_helper.EmptyList(), nil).Once()
+
+	resolver.AssertResolve(t, "{ Get { SomeActionAlias { intField } } }")
+}
+
 func TestNearObject(t *testing.T) {
 	t.Parallel()
 

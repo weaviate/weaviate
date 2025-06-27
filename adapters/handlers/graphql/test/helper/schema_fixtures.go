@@ -21,6 +21,11 @@ var SimpleSchema = CreateSimpleSchema(config.VectorizerModuleText2VecContextiona
 
 func CreateSimpleSchema(vectorizer string) schema.SchemaWithAliases {
 	return schema.SchemaWithAliases{
+		Aliases: map[string]string{
+			"SomeThingAlias":         "SomeThing",
+			"CustomVectorClassAlias": "CustomVectorClass",
+			"SomeActionAlias":        "SomeAction",
+		},
 		Schema: schema.Schema{
 			Objects: &models.Schema{
 				Classes: []*models.Class{
