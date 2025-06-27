@@ -23,6 +23,8 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization/errors"
 )
 
+const AuditLogVersion = 2
+
 func (m *Manager) authorize(ctx context.Context, principal *models.Principal, verb string, skipAudit bool, resources ...string) error {
 	if principal == nil {
 		return fmt.Errorf("rbac: %w", errors.NewUnauthenticated())
@@ -33,10 +35,11 @@ func (m *Manager) authorize(ctx context.Context, principal *models.Principal, ve
 	}
 
 	logger := m.logger.WithFields(logrus.Fields{
-		"action":         "authorize",
-		"user":           principal.Username,
-		"component":      authorization.ComponentName,
-		"request_action": verb,
+		"action":           "authorize",
+		"user":             principal.Username,
+		"component":        authorization.ComponentName,
+		"request_action":   verb,
+		"rbac_log_version": AuditLogVersion,
 	})
 	if !m.rbacConf.IpInAuditDisabled {
 		sourceIp := ctx.Value("sourceIp")

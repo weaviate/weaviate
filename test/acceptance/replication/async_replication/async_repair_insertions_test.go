@@ -84,7 +84,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
@@ -95,15 +95,15 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectInsertionScenario()
 			require.Len(ct, resp.Nodes, clusterSize)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)
-				assert.Equal(ct, "HEALTHY", *n.Status)
+				require.Equal(ct, "HEALTHY", *n.Status)
 			}
 		}, 15*time.Second, 500*time.Millisecond)
 	})
 
 	t.Run(fmt.Sprintf("assert node %d has all the objects", node), func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", types.ConsistencyLevelOne)
-			assert.Len(ct, resp, len(paragraphIDs))
+			require.Len(ct, resp, len(paragraphIDs))
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }

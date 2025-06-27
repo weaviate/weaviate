@@ -116,7 +116,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
@@ -127,15 +127,15 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairMultiTenancyScenario() {
 			require.Len(ct, resp.Nodes, clusterSize)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)
-				assert.Equal(ct, "HEALTHY", *n.Status)
+				require.Equal(ct, "HEALTHY", *n.Status)
 			}
 		}, 15*time.Second, 500*time.Millisecond)
 	})
 
 	t.Run("validate async object propagation", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp := common.GQLTenantGet(t, compose.GetWeaviateNode(2).URI(), paragraphClass.Class, types.ConsistencyLevelOne, tenantName)
-			assert.Len(ct, resp, objectCount)
+			require.Len(ct, resp, objectCount)
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }
