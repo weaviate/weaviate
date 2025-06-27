@@ -92,7 +92,7 @@ type RemoteIndexClient interface {
 	) ([]*storobj.Object, []float32, error)
 
 	Aggregate(ctx context.Context, hostname, indexName, shardName string,
-		params aggregation.Params) (*aggregation.Result, error)
+		params aggregation.Params, replProps *additional.ReplicationProperties) (*aggregation.Result, error)
 	FindUUIDs(ctx context.Context, hostName, indexName, shardName string,
 		filters *filters.LocalFilter) ([]strfmt.UUID, error)
 	DeleteObjectBatch(ctx context.Context, hostName, indexName, shardName string,
@@ -342,7 +342,7 @@ func (ri *RemoteIndex) Aggregate(
 	params aggregation.Params,
 ) (*aggregation.Result, error) {
 	f := func(_, host string) (interface{}, error) {
-		r, err := ri.client.Aggregate(ctx, host, ri.class, shard, params)
+		r, err := ri.client.Aggregate(ctx, host, ri.class, shard, params, nil)
 		if err != nil {
 			return nil, err
 		}

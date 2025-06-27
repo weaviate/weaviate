@@ -80,7 +80,7 @@ type fakeVectorSearcher struct {
 }
 
 func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
-	vector models.Vector, targetVector string, offset, limit int, filters *filters.LocalFilter,
+	vector models.Vector, targetVector string, offset, limit int, filters *filters.LocalFilter, replProps *additional.ReplicationProperties,
 ) ([]search.Result, error) {
 	f.calledWithVector = vector
 	f.calledWithLimit = limit
@@ -89,7 +89,7 @@ func (f *fakeVectorSearcher) CrossClassVectorSearch(ctx context.Context,
 }
 
 func (f *fakeVectorSearcher) Aggregate(ctx context.Context,
-	params aggregation.Params, modules *modules.Provider,
+	params aggregation.Params, replProps *additional.ReplicationProperties, modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)
@@ -157,7 +157,7 @@ func (f *fakeVectorRepo) Object(ctx context.Context, className string, id strfmt
 }
 
 func (f *fakeVectorRepo) Aggregate(ctx context.Context,
-	params aggregation.Params, modules *modules.Provider,
+	params aggregation.Params, replProps *additional.ReplicationProperties, modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	args := f.Called(params)
 	return args.Get(0).(*aggregation.Result), args.Error(1)

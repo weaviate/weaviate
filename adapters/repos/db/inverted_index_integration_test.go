@@ -19,6 +19,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+
+	"github.com/weaviate/weaviate/cluster/schema/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 
@@ -81,12 +87,16 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Classes: []*models.Class{class},
 		},
 	}}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -195,19 +205,30 @@ func TestIndexNullState_GetClass(t *testing.T) {
 	var schemaGetter *fakeSchemaGetter
 
 	t.Run("init repo", func(t *testing.T) {
+		shardState := singleShardState()
 		schemaGetter = &fakeSchemaGetter{
-			shardState: singleShardState(),
+			shardState: shardState,
 			schema: schema.Schema{
 				Objects: &models.Schema{},
 			},
 		}
+		mockSchemaReader := types.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+		mockNodeSelector := cluster.NewMockNodeSelector(t)
+		mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+		mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true).Maybe()
 		var err error
 		repo, err = New(logrus.New(), Config{
 			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
-		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)
 		require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -463,19 +484,30 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 	var schemaGetter *fakeSchemaGetter
 
 	t.Run("init repo", func(t *testing.T) {
+		shardState := singleShardState()
 		schemaGetter = &fakeSchemaGetter{
-			shardState: singleShardState(),
+			shardState: shardState,
 			schema: schema.Schema{
 				Objects: &models.Schema{},
 			},
 		}
+		mockSchemaReader := types.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+		mockNodeSelector := cluster.NewMockNodeSelector(t)
+		mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+		mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true).Maybe()
 		var err error
 		repo, err = New(logrus.New(), Config{
 			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
-		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)
 		require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -818,19 +850,30 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 	var schemaGetter *fakeSchemaGetter
 
 	t.Run("init repo", func(t *testing.T) {
+		shardState := singleShardState()
 		schemaGetter = &fakeSchemaGetter{
-			shardState: singleShardState(),
+			shardState: shardState,
 			schema: schema.Schema{
 				Objects: &models.Schema{},
 			},
 		}
+		mockSchemaReader := types.NewMockSchemaReader(t)
+		mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+		mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+		mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+		mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+		mockNodeSelector := cluster.NewMockNodeSelector(t)
+		mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+		mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true).Maybe()
 		var err error
 		repo, err = New(logrus.New(), Config{
 			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
 			MaxImportGoroutinesFactor: 1,
-		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+		}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+			mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 		require.Nil(t, err)
 		repo.SetSchemaGetter(schemaGetter)
 		require.Nil(t, repo.WaitForStartup(testCtx()))

@@ -160,7 +160,7 @@ func (m *Manager) getObjectsFromRepo(ctx context.Context,
 		return nil, NewErrInternal("list objects: after parameter not allowed, cursor must be specific to one class, set class query param")
 	}
 	res, err := m.vectorRepo.ObjectSearch(ctx, smartOffset, smartLimit,
-		nil, m.getSort(sort, order), additional, tenant)
+		nil, m.getSort(sort, order), additional, nil, tenant)
 	if err != nil {
 		return nil, NewErrInternal("list objects: %v", err)
 	}

@@ -217,7 +217,7 @@ func (f *fakeRemoteClient) SearchShard(ctx context.Context, hostName, indexName,
 }
 
 func (f *fakeRemoteClient) Aggregate(ctx context.Context, hostName, indexName,
-	shardName string, params aggregation.Params,
+	shardName string, params aggregation.Params, replProps *additional.ReplicationProperties,
 ) (*aggregation.Result, error) {
 	return nil, nil
 }

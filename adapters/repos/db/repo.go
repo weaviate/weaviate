@@ -147,6 +147,8 @@ func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
+	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader,
+	replicationFSM types.ReplicationFSMReader,
 ) (*DB, error) {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -171,6 +173,9 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor:          memMonitor,
 		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
 		reindexer:           NewShardReindexerV3Noop(),
+		schemaReader:        schemaReader,
+		nodeSelector:        nodeSelector,
+		replicationFSM:      replicationFSM,
 	}
 
 	if db.maxNumberGoroutines == 0 {
