@@ -39,6 +39,7 @@ func New(logger *logrus.Logger, clusterStateReader cluster.NodeSelector, metadat
 }
 
 func (r *Router) GetReadWriteReplicasLocation(collection string, shard string) ([]string, []string, []string, error) {
+	// TODO nil ptr here in integration test
 	replicas, err := r.metadataReader.ShardReplicas(collection, shard)
 	if err != nil {
 		return nil, nil, nil, err

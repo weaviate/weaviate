@@ -81,6 +81,7 @@ func TestDistributedBackupsOverride(t *testing.T) {
 			for _, obj := range data {
 				node := nodes[rnd.Intn(len(nodes))]
 
+				// TODO nil ptr here in integration test
 				err := node.repo.PutObject(context.Background(), obj, obj.Vector, nil, nil, nil, 0)
 				require.Nil(t, err)
 			}
