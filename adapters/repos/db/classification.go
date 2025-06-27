@@ -16,8 +16,6 @@ import (
 	"fmt"
 	"math"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -73,8 +71,7 @@ func (db *DB) ZeroShotSearch(ctx context.Context, vector []float32,
 	}
 
 	res, err := db.VectorSearch(ctx, dto.GetParams{
-		ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-		ClassName:             class,
+		ClassName: class,
 		Pagination: &filters.Pagination{
 			Limit: 1,
 		},
@@ -101,8 +98,7 @@ func (db *DB) AggregateNeighbors(ctx context.Context, vector []float32,
 	mergedFilter := mergeUserFilterWithRefCountFilter(filter, class, properties,
 		filters.OperatorGreaterThan, 0)
 	res, err := db.VectorSearch(ctx, dto.GetParams{
-		ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-		ClassName:             class,
+		ClassName: class,
 		Pagination: &filters.Pagination{
 			Limit: k,
 		},

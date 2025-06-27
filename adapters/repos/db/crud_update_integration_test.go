@@ -110,8 +110,7 @@ func TestUpdateJourney(t *testing.T) {
 	t.Run("verify vector search results are initially as expected",
 		func(t *testing.T) {
 			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-				ClassName:             "UpdateTestClass",
+				ClassName: "UpdateTestClass",
 				Pagination: &filters.Pagination{
 					Limit: 100,
 				},
@@ -191,8 +190,7 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
 		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-			ClassName:             "UpdateTestClass",
+			ClassName: "UpdateTestClass",
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},
@@ -255,8 +253,7 @@ func TestUpdateJourney(t *testing.T) {
 
 	t.Run("verify new vector search results are as expected", func(t *testing.T) {
 		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-			ClassName:             "UpdateTestClass",
+			ClassName: "UpdateTestClass",
 			Pagination: &filters.Pagination{
 				Limit: 100,
 			},

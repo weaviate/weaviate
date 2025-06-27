@@ -418,7 +418,7 @@ func (r *aggregateResp) decode(data []byte) (err error) {
 }
 
 func (c *RemoteIndex) Aggregate(ctx context.Context, hostName, index,
-	shard string, params aggregation.Params,
+	shard string, params aggregation.Params, replProps *additional.ReplicationProperties,
 ) (*aggregation.Result, error) {
 	// create new request
 	body, err := clusterapi.IndicesPayloads.AggregationParams.Marshal(params)

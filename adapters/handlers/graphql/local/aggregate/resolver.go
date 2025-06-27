@@ -18,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/weaviate/weaviate/entities/additional"
+
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -40,7 +42,7 @@ const GroupedByFieldName = "groupedBy"
 // form the overall GraphQL API main interface. All data-base connectors that
 // want to support the Meta feature must implement this interface.
 type Resolver interface {
-	Aggregate(ctx context.Context, principal *models.Principal, info *aggregation.Params) (interface{}, error)
+	Aggregate(ctx context.Context, principal *models.Principal, info *aggregation.Params, replProps *additional.ReplicationProperties) (interface{}, error)
 }
 
 // RequestsLog is a local abstraction on the RequestsLog that needs to be
@@ -179,7 +181,7 @@ func resolveAggregate(p graphql.ResolveParams, authorizer authorization.Authoriz
 		return nil, fmt.Errorf("objectLimit can only be used with a near<Media> or hybrid filter")
 	}
 
-	res, err := resolver.Aggregate(p.Context, principal, params)
+	res, err := resolver.Aggregate(p.Context, principal, params, nil)
 	if err != nil {
 		return nil, err
 	}

@@ -18,10 +18,8 @@ import (
 	"fmt"
 	"testing"
 
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
-
 	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 
 	"github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -396,9 +394,6 @@ func Test_AddingReferencesInBatches(t *testing.T) {
 			// to remove the additional storage updates. By still including this
 			// test we verify that such an update is indeed no longer necessary
 			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-				ReplicationProperties: &additional.ReplicationProperties{
-					ConsistencyLevel: string(routerTypes.ConsistencyLevelOne),
-				},
 				ClassName: "AddingBatchReferencesTestSource",
 				Pagination: &filters.Pagination{
 					Limit: 1,

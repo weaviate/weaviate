@@ -21,11 +21,8 @@ import (
 	"testing"
 	"time"
 
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/additional"
-
 	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 
 	"github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -304,9 +301,6 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 		// Vector search
 		t.Run("can perform vector search using regular embeddings", func(t *testing.T) {
 			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-				ReplicationProperties: &additional.ReplicationProperties{
-					ConsistencyLevel: string(routerTypes.ConsistencyLevelOne),
-				},
 				ClassName: className,
 				Pagination: &filters.Pagination{
 					Offset: 0,
@@ -319,9 +313,6 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 
 		t.Run("can perform vector search using ColBERT embeddings", func(t *testing.T) {
 			res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-				ReplicationProperties: &additional.ReplicationProperties{
-					ConsistencyLevel: string(routerTypes.ConsistencyLevelOne),
-				},
 				ClassName: className,
 				Pagination: &filters.Pagination{
 					Offset: 0,
@@ -953,9 +944,6 @@ func testBatchImportObjects(repo *DB) func(t *testing.T) {
 
 				t.Run("a vector search returns the correct number of elements", func(t *testing.T) {
 					res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-						ReplicationProperties: &additional.ReplicationProperties{
-							ConsistencyLevel: string(routerTypes.ConsistencyLevelOne),
-						},
 						ClassName: "ThingForBatching",
 						Pagination: &filters.Pagination{
 							Offset: 0,

@@ -287,9 +287,8 @@ func TestCRUD(t *testing.T) {
 		func(t *testing.T) {
 			// This is to verify the inverted index was updated correctly
 			res, err := repo.Search(context.Background(), dto.GetParams{
-				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-				ClassName:             "TheBestThingClass",
-				Pagination:            &filters.Pagination{Limit: 10},
+				ClassName:  "TheBestThingClass",
+				Pagination: &filters.Pagination{Limit: 10},
 				Filters: &filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -464,11 +463,10 @@ func TestCRUD(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 
 		params := dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-			ClassName:             "TheBestThingClass",
-			Pagination:            &filters.Pagination{Limit: 10},
-			Filters:               nil,
-			Properties:            search.SelectProperties{{Name: "location"}, {Name: "stringProp"}, {Name: "phone"}},
+			ClassName:  "TheBestThingClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    nil,
+			Properties: search.SelectProperties{{Name: "location"}, {Name: "stringProp"}, {Name: "phone"}},
 		}
 		res, err := repo.VectorSearch(context.Background(), params, []string{""}, []models.Vector{searchVector})
 
@@ -1070,10 +1068,9 @@ func TestCRUD(t *testing.T) {
 		func(t *testing.T) {
 			searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 			params := dto.GetParams{
-				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-				ClassName:             "TheBestThingClass",
-				Pagination:            &filters.Pagination{Limit: 10},
-				Filters:               nil,
+				ClassName:  "TheBestThingClass",
+				Pagination: &filters.Pagination{Limit: 10},
+				Filters:    nil,
 			}
 
 			res, err := repo.VectorSearch(context.Background(), params, []string{""}, []models.Vector{searchVector})
@@ -1085,10 +1082,9 @@ func TestCRUD(t *testing.T) {
 	t.Run("searching by vector for a single action class again after deletion", func(t *testing.T) {
 		searchVector := []float32{2.9, 1.1, 0.5, 8.01}
 		params := dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-			ClassName:             "TheBestActionClass",
-			Pagination:            &filters.Pagination{Limit: 10},
-			Filters:               nil,
+			ClassName:  "TheBestActionClass",
+			Pagination: &filters.Pagination{Limit: 10},
+			Filters:    nil,
 		}
 
 		res, err := repo.VectorSearch(context.Background(), params, []string{""}, []models.Vector{searchVector})
@@ -1180,10 +1176,9 @@ func TestCRUD(t *testing.T) {
 		t.Run("query every action for its referenced thing", func(t *testing.T) {
 			for i := range createdActionIDs {
 				resp, err := repo.Search(context.Background(), dto.GetParams{
-					ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-					ClassName:             "TheBestActionClass",
-					Pagination:            &filters.Pagination{Limit: 5},
-					AdditionalProperties:  additional.Properties{ID: true},
+					ClassName:            "TheBestActionClass",
+					Pagination:           &filters.Pagination{Limit: 5},
+					AdditionalProperties: additional.Properties{ID: true},
 					Properties: search.SelectProperties{
 						{
 							Name: "refProp",
@@ -1258,9 +1253,8 @@ func TestCRUD(t *testing.T) {
 
 		t.Run("perform search with id filter", func(t *testing.T) {
 			res, err := repo.Search(context.Background(), dto.GetParams{
-				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-				Pagination:            &filters.Pagination{Limit: 10},
-				ClassName:             "TheBestActionClass",
+				Pagination: &filters.Pagination{Limit: 10},
+				ClassName:  "TheBestActionClass",
 				Filters: &filters.LocalFilter{
 					Root: &filters.Clause{
 						Operator: filters.OperatorEqual,
@@ -1659,9 +1653,8 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 
 	t.Run("verify inverted index works correctly", func(t *testing.T) {
 		res, err := repo.Search(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-			Filters:               buildFilter("int_prop", total+1, lte, dtInt),
-			ClassName:             className,
+			Filters:   buildFilter("int_prop", total+1, lte, dtInt),
+			ClassName: className,
 			Pagination: &filters.Pagination{
 				Offset: 0,
 				Limit:  total,
@@ -1673,9 +1666,8 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 
 	t.Run("perform unfiltered vector search and verify there are no matches", func(t *testing.T) {
 		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-			Filters:               nil,
-			ClassName:             className,
+			Filters:   nil,
+			ClassName: className,
 			Pagination: &filters.Pagination{
 				Offset: 0,
 				Limit:  total,
@@ -1699,9 +1691,8 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 
 	t.Run("perform unfiltered vector search and verify correct matches", func(t *testing.T) {
 		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-			Filters:               nil,
-			ClassName:             className,
+			Filters:   nil,
+			ClassName: className,
 			Pagination: &filters.Pagination{
 				Offset: 0,
 				Limit:  total,
@@ -1713,9 +1704,8 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 
 	t.Run("perform filtered vector search and verify correct matches", func(t *testing.T) {
 		res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-			Filters:               buildFilter("int_prop", 50, lt, dtInt),
-			ClassName:             className,
+			Filters:   buildFilter("int_prop", 50, lt, dtInt),
+			ClassName: className,
 			Pagination: &filters.Pagination{
 				Offset: 0,
 				Limit:  total,
@@ -1826,9 +1816,8 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 
 	t.Run("perform nearVector search by distance", func(t *testing.T) {
 		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-			ClassName:             className,
-			Pagination:            &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			ClassName:  className,
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
 				Distance: 0.1,
 			},
@@ -1852,9 +1841,8 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 
 	t.Run("perform nearObject search by distance", func(t *testing.T) {
 		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-			ClassName:             className,
-			Pagination:            &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			ClassName:  className,
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearObject: &searchparams.NearObject{
 				Distance: 0.1,
 				ID:       searchObject.String(),
@@ -1976,9 +1964,8 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 
 	t.Run("perform nearVector search by distance", func(t *testing.T) {
 		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-			ClassName:             className,
-			Pagination:            &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			ClassName:  className,
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearVector: &searchparams.NearVector{
 				Certainty: 0.9,
 			},
@@ -2002,9 +1989,8 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 
 	t.Run("perform nearObject search by distance", func(t *testing.T) {
 		results, err := repo.VectorSearch(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types.ConsistencyLevelOne)},
-			ClassName:             className,
-			Pagination:            &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
+			ClassName:  className,
+			Pagination: &filters.Pagination{Limit: filters.LimitFlagSearchByDist},
 			NearObject: &searchparams.NearObject{
 				Certainty: 0.9,
 				ID:        searchObject.String(),

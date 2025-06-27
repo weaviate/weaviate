@@ -166,8 +166,7 @@ func TestRestartJourney(t *testing.T) {
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := repo.VectorSearch(context.Background(),
 				dto.GetParams{
-					ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)},
-					ClassName:             "Class",
+					ClassName: "Class",
 					Pagination: &filters.Pagination{
 						Limit: 1,
 					},
@@ -251,8 +250,7 @@ func TestRestartJourney(t *testing.T) {
 		t.Run("find object through vector index", func(t *testing.T) {
 			res, err := newRepo.VectorSearch(context.Background(),
 				dto.GetParams{
-					ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)},
-					ClassName:             "Class",
+					ClassName: "Class",
 					Pagination: &filters.Pagination{
 						Limit: 1,
 					},

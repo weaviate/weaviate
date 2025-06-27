@@ -1376,6 +1376,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	if replProps == nil {
+		replProps = defaultConsistency()
+	}
 	plan, err := i.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Shard:            tenant,
 		ConsistencyLevel: types.ConsistencyLevel(replProps.ConsistencyLevel),
@@ -1746,6 +1749,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	if replProps == nil {
+		replProps = defaultConsistency()
+	}
 	plan, err := i.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Shard:            tenant,
 		ConsistencyLevel: types.ConsistencyLevel(replProps.ConsistencyLevel),
@@ -2185,12 +2191,14 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) aggregate(ctx context.Context,
-	params aggregation.Params, modules *modules.Provider,
+	params aggregation.Params, replProps *additional.ReplicationProperties, modules *modules.Provider,
 ) (*aggregation.Result, error) {
-	cl := defaultConsistency() // TODO: retrieve consistency level
+	if replProps == nil {
+		replProps = defaultConsistency()
+	}
 	plan, err := i.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Shard:            params.Tenant,
-		ConsistencyLevel: types.ConsistencyLevel(cl.ConsistencyLevel),
+		ConsistencyLevel: types.ConsistencyLevel(replProps.ConsistencyLevel),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("error while building routing plan: %w", err)

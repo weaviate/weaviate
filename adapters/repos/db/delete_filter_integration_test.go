@@ -20,9 +20,6 @@ import (
 
 	"github.com/stretchr/testify/mock"
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
-	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/additional"
-
 	"github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
 
@@ -136,8 +133,7 @@ func Test_FilterSearchesOnDeletedDocIDsWithLimits(t *testing.T) {
 
 	t.Run("searching for boolProp == true with a strict limit", func(t *testing.T) {
 		res, err := repo.Search(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)},
-			ClassName:             className,
+			ClassName: className,
 			Pagination: &filters.Pagination{
 				// important as the first 5 doc ids we encounter now should all be
 				// deleted
@@ -266,9 +262,8 @@ func TestLimitOneAfterDeletion(t *testing.T) {
 
 	t.Run("query with high limit", func(t *testing.T) {
 		res, err := repo.Search(context.Background(), dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)},
-			Filters:               buildFilter("author", "Simon", eq, dtText),
-			ClassName:             "Test",
+			Filters:   buildFilter("author", "Simon", eq, dtText),
+			ClassName: "Test",
 			Pagination: &filters.Pagination{
 				Offset: 0,
 				Limit:  100,

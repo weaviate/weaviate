@@ -17,17 +17,16 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"os"
 	"testing"
 
-	"github.com/stretchr/testify/mock"
-	types2 "github.com/weaviate/weaviate/cluster/router/types"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
 	"github.com/sirupsen/logrus/hooks/test"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -434,8 +433,7 @@ func TestRFJourney(t *testing.T) {
 		results_set_1, err := repo.VectorSearch(
 			context.TODO(),
 			dto.GetParams{
-				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-				ClassName:             "MyClass",
+				ClassName: "MyClass",
 				Pagination: &filters.Pagination{
 					Offset: 0,
 					Limit:  6,
@@ -450,8 +448,7 @@ func TestRFJourney(t *testing.T) {
 		results_set_2, err := repo.VectorSearch(
 			context.TODO(),
 			dto.GetParams{
-				ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-				ClassName:             "MyClass",
+				ClassName: "MyClass",
 				Pagination: &filters.Pagination{
 					Offset: 0,
 					Limit:  6,
@@ -491,8 +488,7 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Hybrid", func(t *testing.T) {
 		params := dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-			ClassName:             "MyClass",
+			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
@@ -530,8 +526,7 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Hybrid with negative limit", func(t *testing.T) {
 		params := dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-			ClassName:             "MyClass",
+			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "Elephant Parade",
 				Vector: elephantVector(),
@@ -571,8 +566,7 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Hybrid with offset 1", func(t *testing.T) {
 		params := dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-			ClassName:             "MyClass",
+			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "Elephant Parade",
 				Vector: elephantVector(),
@@ -614,8 +608,7 @@ func TestRFJourney(t *testing.T) {
 
 	t.Run("Hybrid with offset 2", func(t *testing.T) {
 		params := dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-			ClassName:             "MyClass",
+			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "Elephant Parade",
 				Vector: elephantVector(),
@@ -751,8 +744,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 	t.Run("Hybrid with filter - no results expected", func(t *testing.T) {
 		params := dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-			ClassName:             "MyClass",
+			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
@@ -784,8 +776,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 	t.Run("Hybrid", func(t *testing.T) {
 		params := dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-			ClassName:             "MyClass",
+			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),
@@ -825,8 +816,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 
 	t.Run("Hybrid with filter", func(t *testing.T) {
 		params := dto.GetParams{
-			ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(types2.ConsistencyLevelOne)},
-			ClassName:             "MyClass",
+			ClassName: "MyClass",
 			HybridSearch: &searchparams.HybridSearch{
 				Query:  "elephant",
 				Vector: elephantVector(),

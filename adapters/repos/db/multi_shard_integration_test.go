@@ -431,7 +431,6 @@ func makeTestRetrievingBaseClass(repo *DB, data []*models.Object,
 		t.Run("retrieve through class-level vector search", func(t *testing.T) {
 			do := func(t *testing.T, limit, expected int) {
 				res, err := repo.VectorSearch(context.Background(), dto.GetParams{
-					ReplicationProperties: &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)},
 					Pagination: &filters.Pagination{
 						Limit: limit,
 					},
