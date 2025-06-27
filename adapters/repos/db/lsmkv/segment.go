@@ -67,10 +67,6 @@ type Segment interface {
 	getCollection(key []byte) ([]value, error)
 	getInvertedData() *segmentInvertedData
 	getSegment() *segment
-	initBloomFilter(overwrite bool) error
-	initBloomFilters(metrics *Metrics, overwrite bool) error
-	initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool) error
-	initSecondaryBloomFilter(pos int, overwrite bool) error
 	isLoaded() bool
 	loadBloomFilterFromDisk() error
 	loadBloomFilterSecondaryFromDisk(pos int) error
@@ -163,6 +159,7 @@ type segmentConfig struct {
 	enableChecksumValidation bool
 	MinMMapSize              int64
 	allocChecker             memwatch.AllocChecker
+	fileList                 []string
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -340,12 +337,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	if seg.useBloomFilter {
-		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived); err != nil {
+		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived, cfg.fileList); err != nil {
 			return nil, err
 		}
 	}
 	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived); err != nil {
+		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.fileList); err != nil {
 			return nil, err
 		}
 	}

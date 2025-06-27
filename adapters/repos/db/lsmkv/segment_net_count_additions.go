@@ -45,7 +45,7 @@ func countNetPathFromSegmentPath(segPath string) string {
 	return fmt.Sprintf("%s.cna", extless)
 }
 
-func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool) error {
+func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, existingFilesList []string) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
 		return nil
@@ -53,12 +53,11 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 
 	path := s.countNetPath()
 
-	ok, err := fileExists(path)
+	loadFromDisk, err := fileExistsInList(existingFilesList, path)
 	if err != nil {
 		return err
 	}
-
-	if ok {
+	if loadFromDisk {
 		if overwrite {
 			err := os.Remove(path)
 			if err != nil {

@@ -18,6 +18,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -117,6 +118,10 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	list, err := os.ReadDir(cfg.dir)
 	if err != nil {
 		return nil, err
+	}
+	fileNames := make([]string, 0, len(list))
+	for _, file := range list {
+		fileNames = append(fileNames, file.Name())
 	}
 
 	now := time.Now()
@@ -269,6 +274,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			enableChecksumValidation: sg.enableChecksumValidation,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
+			fileList:                 fileNames,
 		}
 		if lazySegmentLoading {
 			segment, err = newLazySegment(rightSegmentPath, logger,
@@ -322,12 +328,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		// If yes, we must assume that the flush never finished, as otherwise the
 		// WAL would have been lsmkv.Deleted. Thus we must remove it.
 		walFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
-		ok, err := fileExists(filepath.Join(sg.dir, walFileName))
-		if err != nil {
-			return nil, fmt.Errorf("check for presence of wals for segment %s: %w",
-				entry.Name(), err)
-		}
-		if ok {
+		if slices.Contains(fileNames, walFileName) {
 			// the segment will be recovered from the WAL
 			err := os.Remove(filepath.Join(sg.dir, entry.Name()))
 			if err != nil {
@@ -352,6 +353,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			enableChecksumValidation: sg.enableChecksumValidation,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
+			fileList:                 fileNames,
 		}
 		if lazySegmentLoading {
 			segment, err = newLazySegment(filepath.Join(sg.dir, entry.Name()), logger,
