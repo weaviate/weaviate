@@ -34,7 +34,7 @@ var (
 func newMockExecutor(m *fakeMigrator, s *fakeSchemaManager) *executor {
 	logger, _ := test.NewNullLogger()
 	x := NewExecutor(m, s, logger, func(string) error { return nil })
-	x.RegisterSchemaUpdateCallback(func(updatedSchema schema.Schema) {})
+	x.RegisterSchemaUpdateCallback(func(updatedSchema schema.SchemaWithAliases) {})
 	return x
 }
 
