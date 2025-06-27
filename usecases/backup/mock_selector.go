@@ -191,8 +191,7 @@ func (_c *MockSelector_Shards_Call) RunAndReturn(run func(context.Context, strin
 func NewMockSelector(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockSelector {
+}) *MockSelector {
 	mock := &MockSelector{}
 	mock.Mock.Test(t)
 

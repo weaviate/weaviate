@@ -141,8 +141,7 @@ func (_c *MockBackupBackendProvider_EnabledBackupBackends_Call) RunAndReturn(run
 func NewMockBackupBackendProvider(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockBackupBackendProvider {
+}) *MockBackupBackendProvider {
 	mock := &MockBackupBackendProvider{}
 	mock.Mock.Test(t)
 
