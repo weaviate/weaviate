@@ -41,6 +41,10 @@ func TestVectorDistanceQuery(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	dirName := t.TempDir()
 
+	shardState := singleShardState()
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
@@ -48,7 +52,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		MaxImportGoroutinesFactor: 1,
 		DisableLazyLoadShards:     true, // need access to the shard directly to convert UUIDs to docIds
 	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		cluster.NewMockNodeSelector(t), types.NewMockSchemaReader(t), replicationTypes.NewMockReplicationFSMReader(t))
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 
 	class := &models.Class{
@@ -64,7 +68,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 	}
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: []*models.Class{class}}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
 	repo.SetSchemaGetter(schemaGetter)
 	migrator := NewMigrator(repo, logger)

@@ -140,6 +140,9 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	repo, err := New(logger, Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -148,7 +151,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 	},
 		&fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{},
 		&fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
-		cluster.NewMockNodeSelector(t), types.NewMockSchemaReader(t), replicationTypes.NewMockReplicationFSMReader(t),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader,
 	)
 	require.NoError(t, err)
 
