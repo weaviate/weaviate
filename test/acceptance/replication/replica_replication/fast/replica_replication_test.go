@@ -163,7 +163,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 				continue
 			}
 
-			transferType := api.COPY.String()
+			replicationType := api.COPY.String()
 			for _, shard := range node.Shards {
 				if shard.Class != paragraphClass.Class {
 					continue
@@ -180,7 +180,7 @@ func (suite *ReplicationHappyPathTestSuite) TestReplicaMovementHappyPath() {
 							SourceNodeName:      &node.Name,
 							DestinationNodeName: &targetNode,
 							ShardID:             &shard.Name,
-							TransferType:        &transferType,
+							Type:                &replicationType,
 						},
 					),
 					nil,

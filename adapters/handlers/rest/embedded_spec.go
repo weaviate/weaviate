@@ -7403,7 +7403,7 @@ func init() {
         "targetNodeId",
         "collection",
         "status",
-        "transferType"
+        "type"
       ],
       "properties": {
         "collection": {
@@ -7447,7 +7447,7 @@ func init() {
           "description": "The identifier of the node to which the replica is being moved or copied (the destination node).",
           "type": "string"
         },
-        "transferType": {
+        "type": {
           "description": "Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).",
           "type": "string",
           "enum": [
@@ -7558,7 +7558,7 @@ func init() {
           "description": "The name of the Weaviate node currently hosting the shard replica that needs to be moved or copied.",
           "type": "string"
         },
-        "transferType": {
+        "type": {
           "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
           "type": "string",
           "default": "COPY",
@@ -16112,7 +16112,7 @@ func init() {
         "targetNodeId",
         "collection",
         "status",
-        "transferType"
+        "type"
       ],
       "properties": {
         "collection": {
@@ -16156,7 +16156,7 @@ func init() {
           "description": "The identifier of the node to which the replica is being moved or copied (the destination node).",
           "type": "string"
         },
-        "transferType": {
+        "type": {
           "description": "Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).",
           "type": "string",
           "enum": [
@@ -16267,7 +16267,7 @@ func init() {
           "description": "The name of the Weaviate node currently hosting the shard replica that needs to be moved or copied.",
           "type": "string"
         },
-        "transferType": {
+        "type": {
           "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
           "type": "string",
           "default": "COPY",

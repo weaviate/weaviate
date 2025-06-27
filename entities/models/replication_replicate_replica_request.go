@@ -49,7 +49,7 @@ type ReplicationReplicateReplicaRequest struct {
 
 	// Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.
 	// Enum: [COPY MOVE]
-	TransferType *string `json:"transferType,omitempty"`
+	Type *string `json:"type,omitempty"`
 }
 
 // Validate validates this replication replicate replica request
@@ -72,7 +72,7 @@ func (m *ReplicationReplicateReplicaRequest) Validate(formats strfmt.Registry) e
 		res = append(res, err)
 	}
 
-	if err := m.validateTransferType(formats); err != nil {
+	if err := m.validateType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -118,7 +118,7 @@ func (m *ReplicationReplicateReplicaRequest) validateSourceNodeName(formats strf
 	return nil
 }
 
-var replicationReplicateReplicaRequestTypeTransferTypePropEnum []interface{}
+var replicationReplicateReplicaRequestTypeTypePropEnum []interface{}
 
 func init() {
 	var res []string
@@ -126,34 +126,34 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		replicationReplicateReplicaRequestTypeTransferTypePropEnum = append(replicationReplicateReplicaRequestTypeTransferTypePropEnum, v)
+		replicationReplicateReplicaRequestTypeTypePropEnum = append(replicationReplicateReplicaRequestTypeTypePropEnum, v)
 	}
 }
 
 const (
 
-	// ReplicationReplicateReplicaRequestTransferTypeCOPY captures enum value "COPY"
-	ReplicationReplicateReplicaRequestTransferTypeCOPY string = "COPY"
+	// ReplicationReplicateReplicaRequestTypeCOPY captures enum value "COPY"
+	ReplicationReplicateReplicaRequestTypeCOPY string = "COPY"
 
-	// ReplicationReplicateReplicaRequestTransferTypeMOVE captures enum value "MOVE"
-	ReplicationReplicateReplicaRequestTransferTypeMOVE string = "MOVE"
+	// ReplicationReplicateReplicaRequestTypeMOVE captures enum value "MOVE"
+	ReplicationReplicateReplicaRequestTypeMOVE string = "MOVE"
 )
 
 // prop value enum
-func (m *ReplicationReplicateReplicaRequest) validateTransferTypeEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, replicationReplicateReplicaRequestTypeTransferTypePropEnum, true); err != nil {
+func (m *ReplicationReplicateReplicaRequest) validateTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, replicationReplicateReplicaRequestTypeTypePropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *ReplicationReplicateReplicaRequest) validateTransferType(formats strfmt.Registry) error {
-	if swag.IsZero(m.TransferType) { // not required
+func (m *ReplicationReplicateReplicaRequest) validateType(formats strfmt.Registry) error {
+	if swag.IsZero(m.Type) { // not required
 		return nil
 	}
 
 	// value enum
-	if err := m.validateTransferTypeEnum("transferType", "body", *m.TransferType); err != nil {
+	if err := m.validateTypeEnum("type", "body", *m.Type); err != nil {
 		return err
 	}
 
