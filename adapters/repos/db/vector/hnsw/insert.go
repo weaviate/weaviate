@@ -128,7 +128,7 @@ func (h *hnsw) AddBatch(ctx context.Context, ids []uint64, vectors [][]float32) 
 		if maxId < id {
 			maxId = id
 		}
-		levels[i] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
+		levels[i] = int(h.generateLevel()) // TODO: represent level as uint8
 	}
 	h.RLock()
 	if maxId >= uint64(len(h.nodes)) {
@@ -270,7 +270,7 @@ func (h *hnsw) AddMultiBatch(ctx context.Context, docIDs []uint64, vectors [][][
 		numVectors := len(vectors[i])
 		levels := make([]int, numVectors)
 		for j := range numVectors {
-			levels[j] = int(math.Floor(-math.Log(h.randFunc()) * h.levelNormalizer))
+			levels[j] = int(h.generateLevel()) // TODO: represent level as uint8
 		}
 
 		h.Lock()
@@ -522,4 +522,8 @@ func (h *hnsw) insertInitialElement(node *vertex, nodeVec []float32) error {
 
 	// go h.insertHook(node.id, 0, node.connections)
 	return nil
+}
+
+func (h *hnsw) generateLevel() uint8 {
+	return uint8(math.Floor(-math.Log(max(h.randFunc(), 1e-19)) * h.levelNormalizer))
 }
