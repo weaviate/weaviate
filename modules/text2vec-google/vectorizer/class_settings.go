@@ -25,6 +25,7 @@ const (
 	projectIDProperty   = "projectId"
 	modelIDProperty     = "modelId"
 	titleProperty       = "titleProperty"
+	locationProperty    = "location"
 )
 
 const (
@@ -35,6 +36,7 @@ const (
 	DefaultModelID               = "textembedding-gecko@001"
 	DefaultAIStudioEndpoint      = "generativelanguage.googleapis.com"
 	DefaulAIStudioModelID        = "embedding-001"
+	DefaultLocation              = "us-central1"
 )
 
 var availableGoogleModels = []string{
@@ -130,4 +132,8 @@ func (ic *classSettings) ModelID() string {
 
 func (ic *classSettings) TitleProperty() string {
 	return ic.getStringProperty(titleProperty, "")
+}
+
+func (ic *classSettings) Location() string {
+	return ic.getStringProperty(locationProperty, DefaultLocation)
 }
