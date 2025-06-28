@@ -38,6 +38,9 @@ func reVectorize(ctx context.Context,
 		return true, nil, nil, nil
 	}
 
+	if ctx.Err() != nil {
+		return false, nil, nil, ctx.Err()
+	}
 	shouldReVectorize, oldObject := reVectorizeEmbeddings(ctx, cfg, mod, object, class, sourceProperties, findObjectFn)
 	if shouldReVectorize {
 		return shouldReVectorize, nil, nil, nil
@@ -79,6 +82,9 @@ func reVectorizeMulti(ctx context.Context,
 		return true, nil, nil, nil
 	}
 
+	if ctx.Err() != nil {
+		return false, nil, nil, fmt.Errorf("context is done: %w", ctx.Err())
+	}
 	shouldReVectorize, oldObject := reVectorizeEmbeddings(ctx, cfg, mod, object, class, sourceProperties, findObjectFn)
 	if shouldReVectorize {
 		return shouldReVectorize, nil, nil, nil
