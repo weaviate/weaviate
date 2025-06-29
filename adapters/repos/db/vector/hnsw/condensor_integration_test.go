@@ -913,12 +913,6 @@ func TestCondensorWithRQInformation(t *testing.T) {
 	})
 }
 
-func (h *hnsw) ClearConnectionBuff() {
-	for _, v := range h.nodes {
-		v.connections.ClearBuff()
-	}
-}
-
 func assertIndicesFromCommitLogsMatch(t *testing.T, fileNameControl string,
 	fileNames []string,
 ) {
