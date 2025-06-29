@@ -41,7 +41,7 @@ var (
 type Parser[T any] func([]byte) (*T, error)
 
 // Updater try to update `source` config with newly `parsed` config.
-type Updater[T any] func(log logrus.FieldLogger, source, parsed *T) error
+type Updater[T any] func(log logrus.FieldLogger, source, parsed *T, hooks map[string]func() error) error
 
 // ConfigManager takes care of periodically loading the config from
 // given filepath for every interval period.
@@ -63,6 +63,9 @@ type ConfigManager[T any] struct {
 	log             logrus.FieldLogger
 	lastLoadSuccess prometheus.Gauge
 	configHash      *prometheus.GaugeVec
+
+	// exp hooks
+	hooks map[string]func() error
 }
 
 func NewConfigManager[T any](
@@ -72,6 +75,7 @@ func NewConfigManager[T any](
 	registered *T,
 	interval time.Duration,
 	log logrus.FieldLogger,
+	hooks map[string]func() error,
 	r prometheus.Registerer,
 ) (*ConfigManager[T], error) {
 	// catch empty filepath early
@@ -94,6 +98,7 @@ func NewConfigManager[T any](
 			Help: "Hash value of the currently active runtime configuration",
 		}, []string{"sha256"}), // sha256 is type of checksum and hard-coded for now
 		currentConfig: registered,
+		hooks:         hooks,
 	}
 
 	// try to load it once to fail early if configs are invalid
@@ -138,7 +143,7 @@ func (cm *ConfigManager[T]) loadConfig() error {
 		return errors.Join(ErrFailedToParseConfig, err)
 	}
 
-	if err := cm.update(cm.log, cm.currentConfig, cfg); err != nil {
+	if err := cm.update(cm.log, cm.currentConfig, cfg, cm.hooks); err != nil {
 		return err
 	}
 

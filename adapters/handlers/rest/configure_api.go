@@ -1838,6 +1838,20 @@ func initRuntimeOverrides(appState *state.State) {
 			registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 		}
 
+		hooks := make(map[string]func() error)
+		if appState.OIDC.Config.Enabled {
+			registered.OIDCIssuer = appState.OIDC.Config.Issuer
+			registered.OIDCClientID = appState.OIDC.Config.ClientID
+			registered.OIDCSkipClientIDCheck = appState.OIDC.Config.SkipClientIDCheck
+			registered.OIDCUsernameClaim = appState.OIDC.Config.UsernameClaim
+			registered.OIDCGroupsClaim = appState.OIDC.Config.GroupsClaim
+			registered.OIDCScopes = appState.OIDC.Config.Scopes
+			registered.OIDCCertificate = appState.OIDC.Config.Certificate
+
+			hooks["OIDC"] = appState.OIDC.Init
+			appState.Logger.Log(logrus.InfoLevel, "registereing OIDC runtime overrides hooks")
+		}
+
 		cm, err := configRuntime.NewConfigManager(
 			appState.ServerConfig.Config.RuntimeOverrides.Path,
 			config.ParseRuntimeConfig,
@@ -1845,6 +1859,7 @@ func initRuntimeOverrides(appState *state.State) {
 			registered,
 			appState.ServerConfig.Config.RuntimeOverrides.LoadInterval,
 			appState.Logger,
+			hooks,
 			prometheus.DefaultRegisterer)
 		if err != nil {
 			appState.Logger.WithField("action", "startup").WithError(err).Fatal("could not create runtime config manager")
