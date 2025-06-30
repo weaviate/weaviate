@@ -61,6 +61,7 @@ func Test_AliasesAPI(t *testing.T) {
 		})
 	})
 
+	var aliases []string
 	t.Run("create Aliases", func(t *testing.T) {
 		tests := []struct {
 			name  string
@@ -104,9 +105,19 @@ func Test_AliasesAPI(t *testing.T) {
 					}
 				}
 				assert.True(t, aliasCreated)
+				aliases = append(aliases, tt.alias.Alias)
 			})
 		}
 	})
+
+	defer func() {
+		helper.DeleteClass(t, "Books")
+		helper.DeleteClass(t, "Document")
+		helper.DeleteClass(t, "Passage")
+		for _, alias := range aliases {
+			helper.DeleteAlias(t, alias)
+		}
+	}()
 
 	t.Run("get aliases", func(t *testing.T) {
 		resp := helper.GetAliases(t, nil)
