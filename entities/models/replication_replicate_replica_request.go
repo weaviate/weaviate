@@ -26,53 +26,53 @@ import (
 	"github.com/go-openapi/validate"
 )
 
-// ReplicationReplicateReplicaRequest Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and destination node, the collection and type of transfer.
+// ReplicationReplicateReplicaRequest Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and target node, the collection and type of transfer.
 //
 // swagger:model ReplicationReplicateReplicaRequest
 type ReplicationReplicateReplicaRequest struct {
 
-	// The unique identifier (name) of the collection to which the target shard belongs.
+	// The name of the collection to which the target shard belongs.
 	// Required: true
-	CollectionID *string `json:"collectionId"`
+	Collection *string `json:"collection"`
 
-	// The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.
+	// The name of the shard whose replica is to be moved or copied.
 	// Required: true
-	DestinationNodeName *string `json:"destinationNodeName"`
-
-	// The ID of the shard whose replica is to be moved or copied.
-	// Required: true
-	ShardID *string `json:"shardId"`
+	Shard *string `json:"shard"`
 
 	// The name of the Weaviate node currently hosting the shard replica that needs to be moved or copied.
 	// Required: true
-	SourceNodeName *string `json:"sourceNodeName"`
+	SourceNode *string `json:"sourceNode"`
 
-	// Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.
+	// The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.
+	// Required: true
+	TargetNode *string `json:"targetNode"`
+
+	// Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.
 	// Enum: [COPY MOVE]
-	TransferType *string `json:"transferType,omitempty"`
+	Type *string `json:"type,omitempty"`
 }
 
 // Validate validates this replication replicate replica request
 func (m *ReplicationReplicateReplicaRequest) Validate(formats strfmt.Registry) error {
 	var res []error
 
-	if err := m.validateCollectionID(formats); err != nil {
+	if err := m.validateCollection(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateDestinationNodeName(formats); err != nil {
+	if err := m.validateShard(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateShardID(formats); err != nil {
+	if err := m.validateSourceNode(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateSourceNodeName(formats); err != nil {
+	if err := m.validateTargetNode(formats); err != nil {
 		res = append(res, err)
 	}
 
-	if err := m.validateTransferType(formats); err != nil {
+	if err := m.validateType(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -82,43 +82,43 @@ func (m *ReplicationReplicateReplicaRequest) Validate(formats strfmt.Registry) e
 	return nil
 }
 
-func (m *ReplicationReplicateReplicaRequest) validateCollectionID(formats strfmt.Registry) error {
+func (m *ReplicationReplicateReplicaRequest) validateCollection(formats strfmt.Registry) error {
 
-	if err := validate.Required("collectionId", "body", m.CollectionID); err != nil {
+	if err := validate.Required("collection", "body", m.Collection); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationReplicateReplicaRequest) validateDestinationNodeName(formats strfmt.Registry) error {
+func (m *ReplicationReplicateReplicaRequest) validateShard(formats strfmt.Registry) error {
 
-	if err := validate.Required("destinationNodeName", "body", m.DestinationNodeName); err != nil {
+	if err := validate.Required("shard", "body", m.Shard); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationReplicateReplicaRequest) validateShardID(formats strfmt.Registry) error {
+func (m *ReplicationReplicateReplicaRequest) validateSourceNode(formats strfmt.Registry) error {
 
-	if err := validate.Required("shardId", "body", m.ShardID); err != nil {
+	if err := validate.Required("sourceNode", "body", m.SourceNode); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (m *ReplicationReplicateReplicaRequest) validateSourceNodeName(formats strfmt.Registry) error {
+func (m *ReplicationReplicateReplicaRequest) validateTargetNode(formats strfmt.Registry) error {
 
-	if err := validate.Required("sourceNodeName", "body", m.SourceNodeName); err != nil {
+	if err := validate.Required("targetNode", "body", m.TargetNode); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-var replicationReplicateReplicaRequestTypeTransferTypePropEnum []interface{}
+var replicationReplicateReplicaRequestTypeTypePropEnum []interface{}
 
 func init() {
 	var res []string
@@ -126,34 +126,34 @@ func init() {
 		panic(err)
 	}
 	for _, v := range res {
-		replicationReplicateReplicaRequestTypeTransferTypePropEnum = append(replicationReplicateReplicaRequestTypeTransferTypePropEnum, v)
+		replicationReplicateReplicaRequestTypeTypePropEnum = append(replicationReplicateReplicaRequestTypeTypePropEnum, v)
 	}
 }
 
 const (
 
-	// ReplicationReplicateReplicaRequestTransferTypeCOPY captures enum value "COPY"
-	ReplicationReplicateReplicaRequestTransferTypeCOPY string = "COPY"
+	// ReplicationReplicateReplicaRequestTypeCOPY captures enum value "COPY"
+	ReplicationReplicateReplicaRequestTypeCOPY string = "COPY"
 
-	// ReplicationReplicateReplicaRequestTransferTypeMOVE captures enum value "MOVE"
-	ReplicationReplicateReplicaRequestTransferTypeMOVE string = "MOVE"
+	// ReplicationReplicateReplicaRequestTypeMOVE captures enum value "MOVE"
+	ReplicationReplicateReplicaRequestTypeMOVE string = "MOVE"
 )
 
 // prop value enum
-func (m *ReplicationReplicateReplicaRequest) validateTransferTypeEnum(path, location string, value string) error {
-	if err := validate.EnumCase(path, location, value, replicationReplicateReplicaRequestTypeTransferTypePropEnum, true); err != nil {
+func (m *ReplicationReplicateReplicaRequest) validateTypeEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, replicationReplicateReplicaRequestTypeTypePropEnum, true); err != nil {
 		return err
 	}
 	return nil
 }
 
-func (m *ReplicationReplicateReplicaRequest) validateTransferType(formats strfmt.Registry) error {
-	if swag.IsZero(m.TransferType) { // not required
+func (m *ReplicationReplicateReplicaRequest) validateType(formats strfmt.Registry) error {
+	if swag.IsZero(m.Type) { // not required
 		return nil
 	}
 
 	// value enum
-	if err := m.validateTransferTypeEnum("transferType", "body", *m.TransferType); err != nil {
+	if err := m.validateTypeEnum("type", "body", *m.Type); err != nil {
 		return err
 	}
 

@@ -27,9 +27,10 @@ func (s *SchemaManager) CreateAlias(cmd *command.ApplyRequest) error {
 
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.createAlias(req.Collection, req.Alias) },
-			updateStore:  func() error { return nil /* nothing do to here */ },
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { return s.schema.createAlias(req.Collection, req.Alias) },
+			updateStore:          func() error { return nil /* nothing do to here */ },
+			enableSchemaCallback: true,
 		},
 	)
 }
@@ -42,9 +43,10 @@ func (s *SchemaManager) ReplaceAlias(cmd *command.ApplyRequest) error {
 
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.replaceAlias(req.Collection, req.Alias) },
-			updateStore:  func() error { return nil /* nothing do to here */ },
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { return s.schema.replaceAlias(req.Collection, req.Alias) },
+			updateStore:          func() error { return nil /* nothing do to here */ },
+			enableSchemaCallback: true,
 		},
 	)
 }
@@ -57,9 +59,10 @@ func (s *SchemaManager) DeleteAlias(cmd *command.ApplyRequest) error {
 
 	return s.apply(
 		applyOp{
-			op:           cmd.GetType().String(),
-			updateSchema: func() error { return s.schema.deleteAlias(req.Alias) },
-			updateStore:  func() error { return nil /* nothing do to here */ },
+			op:                   cmd.GetType().String(),
+			updateSchema:         func() error { return s.schema.deleteAlias(req.Alias) },
+			updateStore:          func() error { return nil /* nothing do to here */ },
+			enableSchemaCallback: true,
 		},
 	)
 }
@@ -92,7 +95,7 @@ func (s *SchemaManager) GetAliases(req *command.QueryRequest) ([]byte, error) {
 	}
 
 	response := command.QueryGetAliasesResponse{
-		Aliases: s.schema.getAliases(),
+		Aliases: s.schema.getAliases(subCommand.Alias, subCommand.Class),
 	}
 	payload, err := json.Marshal(&response)
 	if err != nil {

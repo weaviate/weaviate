@@ -150,6 +150,253 @@ func init() {
         }
       }
     },
+    "/aliases": {
+      "get": {
+        "description": "get all aliases or filtered by a class (collection)",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get aliases",
+        "operationId": "aliases.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "class (collection) to which alias is assigned.",
+            "name": "class",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "list of class's (collection's) aliases",
+            "schema": {
+              "$ref": "#/definitions/AliasResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Create a new alias for a collection",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Create a new alias",
+        "operationId": "aliases.create",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added new alias to the specified class (collection).",
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid create alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/aliases/{aliasName}": {
+      "get": {
+        "description": "get all aliases or filtered by a class (collection)",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get aliases",
+        "operationId": "aliases.get.alias",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "list of class's (collection's) aliases",
+            "schema": {
+              "$ref": "#/definitions/AliasResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "put": {
+        "description": "Replace alias of a specific class (collection) to other class",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update an alias.",
+        "operationId": "aliases.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "class": {
+                  "description": "new class (collection).",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New alias to the target class (collection).",
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid update alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "delete alias from a specific class (collection).",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "aliases.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted alias from specified class (collection)."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid delete alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
     "/authz/groups/{id}/assign": {
       "post": {
         "tags": [
@@ -3634,8 +3881,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The ID of the target node to get details for.",
-            "name": "nodeId",
+            "description": "The name of the target node to get details for.",
+            "name": "targetNode",
             "in": "query"
           },
           {
@@ -5264,6 +5511,32 @@ func init() {
       "type": "object",
       "additionalProperties": {
         "type": "object"
+      }
+    },
+    "Alias": {
+      "description": "represents a class (collection) and alias name mapping",
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "The name of the alias.",
+          "type": "string"
+        },
+        "class": {
+          "description": "class (collection) to which alias is assigned.",
+          "type": "string"
+        }
+      }
+    },
+    "AliasResponse": {
+      "description": "The list of aliases",
+      "type": "object",
+      "properties": {
+        "aliases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Alias"
+          }
+        }
       }
     },
     "AsyncReplicationStatus": {
@@ -6951,8 +7224,28 @@ func init() {
             "create_replicate",
             "read_replicate",
             "update_replicate",
-            "delete_replicate"
+            "delete_replicate",
+            "create_aliases",
+            "read_aliases",
+            "update_aliases",
+            "delete_aliases"
           ]
+        },
+        "aliases": {
+          "description": "resources applicable for aliases actions",
+          "type": "object",
+          "properties": {
+            "alias": {
+              "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "backups": {
           "description": "resources applicable for backup actions",
@@ -7352,20 +7645,20 @@ func init() {
       "description": "Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.",
       "type": "object",
       "required": [
-        "nodeName",
-        "collectionId",
-        "shardId"
+        "node",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
+        "collection": {
           "description": "The name of the collection to which the shard replica belongs.",
           "type": "string"
         },
-        "nodeName": {
+        "node": {
           "description": "The name of the Weaviate node from which the shard replica will be deleted.",
           "type": "string"
         },
-        "shardId": {
+        "shard": {
           "description": "The ID of the shard whose replica is to be deleted.",
           "type": "string"
         }
@@ -7375,20 +7668,20 @@ func init() {
       "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
       "type": "object",
       "required": [
-        "nodeName",
-        "collectionId",
-        "shardId"
+        "node",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
+        "collection": {
           "description": "The name of the collection to which the shard replica belongs.",
           "type": "string"
         },
-        "nodeName": {
+        "node": {
           "description": "The name of the Weaviate node hosting the shard replica that is to be disabled.",
           "type": "string"
         },
-        "shardId": {
+        "shard": {
           "description": "The ID of the shard whose replica is to be disabled.",
           "type": "string"
         }
@@ -7398,12 +7691,12 @@ func init() {
       "description": "Provides a comprehensive overview of a specific replication operation, detailing its unique ID, the involved collection, shard, source and target nodes, transfer type, current status, and optionally, its status history.",
       "required": [
         "id",
-        "shardId",
-        "sourceNodeId",
-        "targetNodeId",
+        "shard",
+        "sourceNode",
+        "targetNode",
         "collection",
         "status",
-        "transferType"
+        "type"
       ],
       "properties": {
         "collection": {
@@ -7423,11 +7716,11 @@ func init() {
           "description": "Whether the replica operation is scheduled for deletion.",
           "type": "boolean"
         },
-        "shardId": {
-          "description": "The identifier of the shard involved in this replication operation.",
+        "shard": {
+          "description": "The name of the shard involved in this replication operation.",
           "type": "string"
         },
-        "sourceNodeId": {
+        "sourceNode": {
           "description": "The identifier of the node from which the replica is being moved or copied (the source node).",
           "type": "string"
         },
@@ -7443,11 +7736,11 @@ func init() {
             "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
           }
         },
-        "targetNodeId": {
-          "description": "The identifier of the node to which the replica is being moved or copied (the destination node).",
+        "targetNode": {
+          "description": "The identifier of the node to which the replica is being moved or copied (the target node).",
           "type": "string"
         },
-        "transferType": {
+        "type": {
           "description": "Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).",
           "type": "string",
           "enum": [
@@ -7533,33 +7826,33 @@ func init() {
       }
     },
     "ReplicationReplicateReplicaRequest": {
-      "description": "Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and destination node, the collection and type of transfer.",
+      "description": "Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and target node, the collection and type of transfer.",
       "type": "object",
       "required": [
-        "sourceNodeName",
-        "destinationNodeName",
-        "collectionId",
-        "shardId"
+        "sourceNode",
+        "targetNode",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
-          "description": "The unique identifier (name) of the collection to which the target shard belongs.",
+        "collection": {
+          "description": "The name of the collection to which the target shard belongs.",
           "type": "string"
         },
-        "destinationNodeName": {
-          "description": "The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.",
+        "shard": {
+          "description": "The name of the shard whose replica is to be moved or copied.",
           "type": "string"
         },
-        "shardId": {
-          "description": "The ID of the shard whose replica is to be moved or copied.",
-          "type": "string"
-        },
-        "sourceNodeName": {
+        "sourceNode": {
           "description": "The name of the Weaviate node currently hosting the shard replica that needs to be moved or copied.",
           "type": "string"
         },
-        "transferType": {
-          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
+        "targetNode": {
+          "description": "The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
           "type": "string",
           "default": "COPY",
           "enum": [
@@ -8426,6 +8719,253 @@ func init() {
           },
           "503": {
             "description": "The application is currently not able to serve traffic. If other horizontal replicas of weaviate are available and they are capable of receiving traffic, all traffic should be redirected there instead."
+          }
+        }
+      }
+    },
+    "/aliases": {
+      "get": {
+        "description": "get all aliases or filtered by a class (collection)",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get aliases",
+        "operationId": "aliases.get",
+        "parameters": [
+          {
+            "type": "string",
+            "description": "class (collection) to which alias is assigned.",
+            "name": "class",
+            "in": "query"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "list of class's (collection's) aliases",
+            "schema": {
+              "$ref": "#/definitions/AliasResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "post": {
+        "description": "Create a new alias for a collection",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Create a new alias",
+        "operationId": "aliases.create",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Added new alias to the specified class (collection).",
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid create alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/aliases/{aliasName}": {
+      "get": {
+        "description": "get all aliases or filtered by a class (collection)",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Get aliases",
+        "operationId": "aliases.get.alias",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "list of class's (collection's) aliases",
+            "schema": {
+              "$ref": "#/definitions/AliasResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid class",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "put": {
+        "description": "Replace alias of a specific class (collection) to other class",
+        "tags": [
+          "schema"
+        ],
+        "summary": "Update an alias.",
+        "operationId": "aliases.update",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "class": {
+                  "description": "new class (collection).",
+                  "type": "string"
+                }
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "New alias to the target class (collection).",
+            "schema": {
+              "$ref": "#/definitions/Alias"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid update alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      },
+      "delete": {
+        "description": "delete alias from a specific class (collection).",
+        "tags": [
+          "schema"
+        ],
+        "operationId": "aliases.delete",
+        "parameters": [
+          {
+            "type": "string",
+            "name": "aliasName",
+            "in": "path",
+            "required": true
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Deleted alias from specified class (collection)."
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Invalid delete alias request",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -12024,8 +12564,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The ID of the target node to get details for.",
-            "name": "nodeId",
+            "description": "The name of the target node to get details for.",
+            "name": "targetNode",
             "in": "query"
           },
           {
@@ -13654,6 +14194,32 @@ func init() {
       "type": "object",
       "additionalProperties": {
         "type": "object"
+      }
+    },
+    "Alias": {
+      "description": "represents a class (collection) and alias name mapping",
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "The name of the alias.",
+          "type": "string"
+        },
+        "class": {
+          "description": "class (collection) to which alias is assigned.",
+          "type": "string"
+        }
+      }
+    },
+    "AliasResponse": {
+      "description": "The list of aliases",
+      "type": "object",
+      "properties": {
+        "aliases": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/Alias"
+          }
+        }
       }
     },
     "AsyncReplicationStatus": {
@@ -15534,8 +16100,28 @@ func init() {
             "create_replicate",
             "read_replicate",
             "update_replicate",
-            "delete_replicate"
+            "delete_replicate",
+            "create_aliases",
+            "read_aliases",
+            "update_aliases",
+            "delete_aliases"
           ]
+        },
+        "aliases": {
+          "description": "resources applicable for aliases actions",
+          "type": "object",
+          "properties": {
+            "alias": {
+              "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            },
+            "collection": {
+              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "type": "string",
+              "default": "*"
+            }
+          }
         },
         "backups": {
           "description": "resources applicable for backup actions",
@@ -15662,6 +16248,22 @@ func init() {
               "default": "*"
             }
           }
+        }
+      }
+    },
+    "PermissionAliases": {
+      "description": "resources applicable for aliases actions",
+      "type": "object",
+      "properties": {
+        "alias": {
+          "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
+        },
+        "collection": {
+          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "type": "string",
+          "default": "*"
         }
       }
     },
@@ -16061,20 +16663,20 @@ func init() {
       "description": "Specifies the parameters required to permanently delete a specific shard replica from a particular node. This action will remove the replica's data from the node.",
       "type": "object",
       "required": [
-        "nodeName",
-        "collectionId",
-        "shardId"
+        "node",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
+        "collection": {
           "description": "The name of the collection to which the shard replica belongs.",
           "type": "string"
         },
-        "nodeName": {
+        "node": {
           "description": "The name of the Weaviate node from which the shard replica will be deleted.",
           "type": "string"
         },
-        "shardId": {
+        "shard": {
           "description": "The ID of the shard whose replica is to be deleted.",
           "type": "string"
         }
@@ -16084,20 +16686,20 @@ func init() {
       "description": "Specifies the parameters required to mark a specific shard replica as inactive (soft-delete) on a particular node. This action typically prevents the replica from serving requests but does not immediately remove its data.",
       "type": "object",
       "required": [
-        "nodeName",
-        "collectionId",
-        "shardId"
+        "node",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
+        "collection": {
           "description": "The name of the collection to which the shard replica belongs.",
           "type": "string"
         },
-        "nodeName": {
+        "node": {
           "description": "The name of the Weaviate node hosting the shard replica that is to be disabled.",
           "type": "string"
         },
-        "shardId": {
+        "shard": {
           "description": "The ID of the shard whose replica is to be disabled.",
           "type": "string"
         }
@@ -16107,12 +16709,12 @@ func init() {
       "description": "Provides a comprehensive overview of a specific replication operation, detailing its unique ID, the involved collection, shard, source and target nodes, transfer type, current status, and optionally, its status history.",
       "required": [
         "id",
-        "shardId",
-        "sourceNodeId",
-        "targetNodeId",
+        "shard",
+        "sourceNode",
+        "targetNode",
         "collection",
         "status",
-        "transferType"
+        "type"
       ],
       "properties": {
         "collection": {
@@ -16132,11 +16734,11 @@ func init() {
           "description": "Whether the replica operation is scheduled for deletion.",
           "type": "boolean"
         },
-        "shardId": {
-          "description": "The identifier of the shard involved in this replication operation.",
+        "shard": {
+          "description": "The name of the shard involved in this replication operation.",
           "type": "string"
         },
-        "sourceNodeId": {
+        "sourceNode": {
           "description": "The identifier of the node from which the replica is being moved or copied (the source node).",
           "type": "string"
         },
@@ -16152,11 +16754,11 @@ func init() {
             "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
           }
         },
-        "targetNodeId": {
-          "description": "The identifier of the node to which the replica is being moved or copied (the destination node).",
+        "targetNode": {
+          "description": "The identifier of the node to which the replica is being moved or copied (the target node).",
           "type": "string"
         },
-        "transferType": {
+        "type": {
           "description": "Indicates whether the operation is a 'COPY' (source replica remains) or a 'MOVE' (source replica is removed after successful transfer).",
           "type": "string",
           "enum": [
@@ -16242,33 +16844,33 @@ func init() {
       }
     },
     "ReplicationReplicateReplicaRequest": {
-      "description": "Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and destination node, the collection and type of transfer.",
+      "description": "Specifies the parameters required to initiate a shard replica movement operation between two nodes for a given collection and shard. This request defines the source and target node, the collection and type of transfer.",
       "type": "object",
       "required": [
-        "sourceNodeName",
-        "destinationNodeName",
-        "collectionId",
-        "shardId"
+        "sourceNode",
+        "targetNode",
+        "collection",
+        "shard"
       ],
       "properties": {
-        "collectionId": {
-          "description": "The unique identifier (name) of the collection to which the target shard belongs.",
+        "collection": {
+          "description": "The name of the collection to which the target shard belongs.",
           "type": "string"
         },
-        "destinationNodeName": {
-          "description": "The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.",
+        "shard": {
+          "description": "The name of the shard whose replica is to be moved or copied.",
           "type": "string"
         },
-        "shardId": {
-          "description": "The ID of the shard whose replica is to be moved or copied.",
-          "type": "string"
-        },
-        "sourceNodeName": {
+        "sourceNode": {
           "description": "The name of the Weaviate node currently hosting the shard replica that needs to be moved or copied.",
           "type": "string"
         },
-        "transferType": {
-          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the destination node while keeping the source replica. 'MOVE' creates a new replica on the destination node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
+        "targetNode": {
+          "description": "The name of the Weaviate node where the new shard replica will be created as part of the movement or copy operation.",
+          "type": "string"
+        },
+        "type": {
+          "description": "Specifies the type of replication operation to perform. 'COPY' creates a new replica on the target node while keeping the source replica. 'MOVE' creates a new replica on the target node and then removes the source replica upon successful completion. Defaults to 'COPY' if omitted.",
           "type": "string",
           "default": "COPY",
           "enum": [

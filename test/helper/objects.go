@@ -484,3 +484,60 @@ func ObjectContentsProp(contents string) map[string]interface{} {
 	props["contents"] = contents
 	return props
 }
+
+func CreateAlias(t *testing.T, alias *models.Alias) {
+	CreateAliasWithAuthz(t, alias, nil)
+}
+
+func CreateAliasWithAuthz(t *testing.T, alias *models.Alias, authInfo runtime.ClientAuthInfoWriter) {
+	t.Helper()
+	params := schema.NewAliasesCreateParams().WithBody(alias)
+	resp, err := Client(t).Schema.AliasesCreate(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func GetAliases(t *testing.T, className *string) *models.AliasResponse {
+	return GetAliasesWithAuthz(t, className, nil)
+}
+
+func GetAliasesWithAuthz(t *testing.T, className *string, authInfo runtime.ClientAuthInfoWriter) *models.AliasResponse {
+	t.Helper()
+	params := schema.NewAliasesGetParams().WithClass(className)
+	resp, err := Client(t).Schema.AliasesGet(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+	return resp.GetPayload()
+}
+
+func GetAlias(t *testing.T, aliasName string) *models.AliasResponse {
+	return GetAliasWithAuthz(t, aliasName, nil)
+}
+
+func GetAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) *models.AliasResponse {
+	t.Helper()
+	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
+	resp, err := Client(t).Schema.AliasesGetAlias(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+	return resp.GetPayload()
+}
+
+func UpdateAlias(t *testing.T, aliasName, targetClassName string) {
+	UpdateAliasWithAuthz(t, aliasName, targetClassName, nil)
+}
+
+func UpdateAliasWithAuthz(t *testing.T, aliasName, targetClassName string, authInfo runtime.ClientAuthInfoWriter) {
+	t.Helper()
+	params := schema.NewAliasesUpdateParams().WithAliasName(aliasName).WithBody(schema.AliasesUpdateBody{Class: targetClassName})
+	resp, err := Client(t).Schema.AliasesUpdate(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+}
+
+func DeleteAlias(t *testing.T, aliasName string) {
+	DeleteAliasWithAuthz(t, aliasName, nil)
+}
+
+func DeleteAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) {
+	t.Helper()
+	params := schema.NewAliasesDeleteParams().WithAliasName(aliasName)
+	resp, err := Client(t).Schema.AliasesDelete(params, authInfo)
+	AssertRequestOk(t, resp, err, nil)
+}

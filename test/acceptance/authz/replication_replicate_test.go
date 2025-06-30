@@ -81,29 +81,29 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 	createReplication := &models.Permission{
 		Action: &authorization.CreateReplicate,
 		Replicate: &models.PermissionReplicate{
-			Collection: req.CollectionID,
-			Shard:      req.ShardID,
+			Collection: req.Collection,
+			Shard:      req.Shard,
 		},
 	}
 	readReplication := &models.Permission{
 		Action: &authorization.ReadReplicate,
 		Replicate: &models.PermissionReplicate{
-			Collection: req.CollectionID,
-			Shard:      req.ShardID,
+			Collection: req.Collection,
+			Shard:      req.Shard,
 		},
 	}
 	updateReplication := &models.Permission{
 		Action: &authorization.UpdateReplicate,
 		Replicate: &models.PermissionReplicate{
-			Collection: req.CollectionID,
-			Shard:      req.ShardID,
+			Collection: req.Collection,
+			Shard:      req.Shard,
 		},
 	}
 	deleteReplication := &models.Permission{
 		Action: &authorization.DeleteReplicate,
 		Replicate: &models.PermissionReplicate{
-			Collection: req.CollectionID,
-			Shard:      req.ShardID,
+			Collection: req.Collection,
+			Shard:      req.Shard,
 		},
 	}
 
@@ -199,9 +199,9 @@ func getReplicateRequest(t *testing.T, className, key string) *models.Replicatio
 	nodes, err := helper.Client(t).Nodes.NodesGetClass(nodes.NewNodesGetClassParams().WithOutput(&verbose).WithClassName(className), helper.CreateAuth(key))
 	require.Nil(t, err)
 	return &models.ReplicationReplicateReplicaRequest{
-		CollectionID:        &className,
-		SourceNodeName:      &nodes.Payload.Nodes[0].Name,
-		DestinationNodeName: &nodes.Payload.Nodes[1].Name,
-		ShardID:             &nodes.Payload.Nodes[0].Shards[0].Name,
+		Collection: &className,
+		SourceNode: &nodes.Payload.Nodes[0].Name,
+		TargetNode: &nodes.Payload.Nodes[1].Name,
+		Shard:      &nodes.Payload.Nodes[0].Shards[0].Name,
 	}
 }

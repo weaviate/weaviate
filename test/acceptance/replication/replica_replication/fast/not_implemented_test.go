@@ -70,10 +70,10 @@ func (suite *ReplicationNotImplementedTestSuite) TestReplicationNotImplemented()
 
 	t.Run("POST /replication/replicate", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(&models.ReplicationReplicateReplicaRequest{
-			CollectionID:        string_("test-collection"),
-			DestinationNodeName: string_("dest-node"),
-			ShardID:             string_("test-shard"),
-			SourceNodeName:      string_("src-node"),
+			Collection: string_("test-collection"),
+			TargetNode: string_("tgt-node"),
+			Shard:      string_("test-shard"),
+			SourceNode: string_("src-node"),
 		}), nil)
 		require.IsType(t, &replication.ReplicateNotImplemented{}, err, fmt.Sprintf("Expected NotImplemented error for replicate but got %v", err))
 	})

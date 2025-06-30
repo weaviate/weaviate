@@ -72,6 +72,12 @@ type SchemaManager interface {
 	QueryTenantsShards(class string, tenants ...string) (map[string]string, uint64, error)
 	QueryShardingState(class string) (*sharding.State, uint64, error)
 	QueryClassVersions(names ...string) (map[string]uint64, error)
+
+	// Aliases
+	CreateAlias(ctx context.Context, alias string, class *models.Class) (uint64, error)
+	ReplaceAlias(ctx context.Context, alias *models.Alias, newClass *models.Class) (uint64, error)
+	DeleteAlias(ctx context.Context, alias string) (uint64, error)
+	GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error)
 }
 
 // SchemaReader allows reading the local schema with or without using a schema version.
@@ -88,6 +94,7 @@ type SchemaReader interface {
 	ReadOnlyClass(name string) *models.Class
 	ReadOnlyVersionedClass(name string) versioned.Class
 	ReadOnlySchema() models.Schema
+	Aliases() map[string]string
 	CopyShardingState(class string) *sharding.State
 	ShardReplicas(class, shard string) ([]string, error)
 	ShardFromUUID(class string, uuid []byte) string

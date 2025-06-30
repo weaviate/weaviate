@@ -211,6 +211,10 @@ func (f *fakeSchemaManager) ReadOnlySchema() models.Schema {
 	return args.Get(0).(models.Schema)
 }
 
+func (f *fakeSchemaManager) Aliases() map[string]string {
+	return nil
+}
+
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {
 	args := f.Called(class)
 	return args.Get(0).(*sharding.State)
@@ -268,6 +272,26 @@ func (f *fakeSchemaManager) GetShardsStatus(class, tenant string) (models.ShardS
 
 func (f *fakeSchemaManager) WaitForUpdate(ctx context.Context, schemaVersion uint64) error {
 	return nil
+}
+
+func (f *fakeSchemaManager) CreateAlias(ctx context.Context, alias string, class *models.Class) (uint64, error) {
+	args := f.Called(ctx, alias, class)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) ReplaceAlias(ctx context.Context, alias *models.Alias, newClass *models.Class) (uint64, error) {
+	args := f.Called(ctx, alias, newClass)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) DeleteAlias(ctx context.Context, alias string) (uint64, error) {
+	args := f.Called(ctx, alias)
+	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error) {
+	args := f.Called(ctx, alias, class)
+	return args.Get(0).([]*models.Alias), args.Error(1)
 }
 
 type fakeStore struct {

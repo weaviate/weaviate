@@ -75,6 +75,7 @@ var resourcePatterns = []string{
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/.*$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+/objects/[^/]+$`, authorization.DataDomain),
 	fmt.Sprintf(`^%s/collections/[^/]+/shards/[^/]+$`, authorization.ReplicateDomain),
+	fmt.Sprintf(`^%s/collections/[^/]+/aliases/[^/]+$`, authorization.AliasesDomain),
 }
 
 func newPolicy(policy []string) *authorization.Policy {
@@ -154,6 +155,18 @@ func CasbinReplicate(collection, shard string) string {
 	collection = strings.ReplaceAll(collection, "*", ".*")
 	shard = strings.ReplaceAll(shard, "*", ".*")
 	return fmt.Sprintf("%s/collections/%s/shards/%s", authorization.ReplicateDomain, collection, shard)
+}
+
+func CasbinAliases(collection, alias string) string {
+	if collection == "" {
+		collection = "*"
+	}
+	if alias == "" {
+		alias = "*"
+	}
+	collection = strings.ReplaceAll(collection, "*", ".*")
+	alias = strings.ReplaceAll(alias, "*", ".*")
+	return fmt.Sprintf("%s/collections/%s/aliases/%s", authorization.AliasesDomain, collection, alias)
 }
 
 func CasbinData(collection, shard, object string) string {
@@ -303,6 +316,18 @@ func policy(permission *models.Permission) (*authorization.Policy, error) {
 			}
 		}
 		resource = CasbinReplicate(collection, shard)
+	case authorization.AliasesDomain:
+		collection := "*"
+		alias := "*"
+		if permission.Aliases != nil {
+			if permission.Aliases.Collection != nil {
+				collection = schema.UppercaseClassName(*permission.Aliases.Collection)
+			}
+			if permission.Aliases.Alias != nil {
+				alias = schema.UppercaseClassName(*permission.Aliases.Alias)
+			}
+		}
+		resource = CasbinAliases(collection, alias)
 	default:
 		return nil, fmt.Errorf("invalid domain: %s", domain)
 
@@ -410,6 +435,11 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 			Collection: &splits[2],
 			Shard:      &splits[4],
 		}
+	case authorization.AliasesDomain:
+		permission.Aliases = &models.PermissionAliases{
+			Collection: &splits[2],
+			Alias:      &splits[4],
+		}
 	case *authorization.All:
 		permission.Backups = authorization.AllBackups
 		permission.Data = authorization.AllData
@@ -419,6 +449,7 @@ func permission(policy []string, validatePath bool) (*models.Permission, error) 
 		permission.Tenants = authorization.AllTenants
 		permission.Users = authorization.AllUsers
 		permission.Replicate = authorization.AllReplicate
+		permission.Aliases = authorization.AllAliases
 	case authorization.ClusterDomain:
 		// do nothing
 	default:

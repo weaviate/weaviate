@@ -33,10 +33,10 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 		return replication.NewReplicateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
-	collection := schema.UppercaseClassName(*params.Body.CollectionID)
+	collection := schema.UppercaseClassName(*params.Body.Collection)
 	ctx := params.HTTPRequest.Context()
 
-	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Replications(collection, *params.Body.ShardID)); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Replications(collection, *params.Body.Shard)); err != nil {
 		return replication.NewReplicateForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
 
@@ -46,11 +46,11 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}
 	uuid := strfmt.UUID(id.String())
 
-	transferType := models.ReplicationReplicateReplicaRequestTransferTypeCOPY
-	if params.Body.TransferType != nil {
-		transferType = *params.Body.TransferType
+	replicationType := models.ReplicationReplicateReplicaRequestTypeCOPY
+	if params.Body.Type != nil {
+		replicationType = *params.Body.Type
 	}
-	if err := h.replicationManager.ReplicationReplicateReplica(params.HTTPRequest.Context(), uuid, *params.Body.SourceNodeName, collection, *params.Body.ShardID, *params.Body.DestinationNodeName, transferType); err != nil {
+	if err := h.replicationManager.ReplicationReplicateReplica(params.HTTPRequest.Context(), uuid, *params.Body.SourceNode, collection, *params.Body.Shard, *params.Body.TargetNode, replicationType); err != nil {
 		if errors.Is(err, replicationTypes.ErrInvalidRequest) {
 			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -58,14 +58,14 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	}
 
 	h.logger.WithFields(logrus.Fields{
-		"action":       "replication_engine",
-		"op":           "replicate",
-		"id":           id,
-		"collection":   *params.Body.CollectionID,
-		"shardId":      *params.Body.ShardID,
-		"sourceNodeId": *params.Body.SourceNodeName,
-		"destNodeId":   *params.Body.DestinationNodeName,
-		"transferType": params.Body.TransferType,
+		"action":     "replication_engine",
+		"op":         "replicate",
+		"id":         id,
+		"collection": *params.Body.Collection,
+		"shard":      *params.Body.Shard,
+		"sourceNode": *params.Body.SourceNode,
+		"targetNode": *params.Body.TargetNode,
+		"type":       params.Body.Type,
 	}).Info("replicate operation registered")
 
 	return h.handleReplicationReplicateResponse(uuid)
@@ -115,9 +115,9 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 	return &models.ReplicationReplicateDetailsReplicaResponse{
 		Collection:         &response.Collection,
 		ID:                 &response.Uuid,
-		ShardID:            &response.ShardId,
-		SourceNodeID:       &response.SourceNodeId,
-		TargetNodeID:       &response.TargetNodeId,
+		Shard:              &response.ShardId,
+		SourceNode:         &response.SourceNodeId,
+		TargetNode:         &response.TargetNodeId,
 		Uncancelable:       response.Uncancelable,
 		ScheduledForCancel: response.ScheduledForCancel,
 		ScheduledForDelete: response.ScheduledForDelete,
@@ -126,7 +126,7 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 			Errors: response.Status.Errors,
 		},
 		StatusHistory: history,
-		TransferType:  &response.TransferType,
+		Type:          &response.TransferType,
 	}
 }
 
@@ -356,7 +356,7 @@ func (h *replicationHandler) listReplication(params replication.ListReplicationP
 	var response []api.ReplicationDetailsResponse
 	var err error
 
-	if params.Collection == nil && params.Shard == nil && params.NodeID == nil {
+	if params.Collection == nil && params.Shard == nil && params.TargetNode == nil {
 		response, err = h.replicationManager.GetAllReplicationDetails(params.HTTPRequest.Context())
 	} else if params.Collection != nil {
 		if params.Shard != nil {
@@ -364,8 +364,8 @@ func (h *replicationHandler) listReplication(params replication.ListReplicationP
 		} else {
 			response, err = h.replicationManager.GetReplicationDetailsByCollection(params.HTTPRequest.Context(), *params.Collection)
 		}
-	} else if params.NodeID != nil {
-		response, err = h.replicationManager.GetReplicationDetailsByTargetNode(params.HTTPRequest.Context(), *params.NodeID)
+	} else if params.TargetNode != nil {
+		response, err = h.replicationManager.GetReplicationDetailsByTargetNode(params.HTTPRequest.Context(), *params.TargetNode)
 	} else {
 		// This can happen if the user provides only a shard id without a collection id
 		return replication.NewListReplicationBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("shard id provided without collection id")))

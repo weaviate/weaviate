@@ -38,8 +38,9 @@ const (
 	DefaultFilterStrategy = FilterStrategySweeping
 
 	// Fail validation if those criteria are not met
-	MinmumMaxConnections = 4
-	MinmumEFConstruction = 4
+	MinmumMaxConnections  = 4
+	MaximumMaxConnections = 2047
+	MinmumEFConstruction  = 4
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -247,6 +248,13 @@ func (u *UserConfig) validate() error {
 		errMsgs = append(errMsgs, fmt.Sprintf(
 			"maxConnections must be a positive integer with a minimum of %d",
 			MinmumMaxConnections,
+		))
+	}
+
+	if u.MaxConnections > MaximumMaxConnections {
+		errMsgs = append(errMsgs, fmt.Sprintf(
+			"maxConnections must be less than %d",
+			MaximumMaxConnections+1,
 		))
 	}
 

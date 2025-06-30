@@ -58,11 +58,11 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 			require.Nil(t, err)
 			replicaPresent := false
 			for _, shard := range shardingState.Payload.ShardingState.Shards {
-				if shard.Shard != *req.ShardID {
+				if shard.Shard != *req.Shard {
 					continue
 				}
 				for _, replica := range shard.Replicas {
-					if replica == *req.DestinationNodeName {
+					if replica == *req.TargetNode {
 						replicaPresent = true
 						break
 					}
@@ -103,16 +103,16 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsCOPY() {
 		foundSrc := false
 		foundDst := false
 		for _, node := range nodes.Payload.Nodes {
-			if *req.SourceNodeName == node.Name {
+			if *req.SourceNode == node.Name {
 				for _, shard := range node.Shards {
-					if shard.Name == *req.ShardID {
+					if shard.Name == *req.Shard {
 						foundSrc = true
 					}
 				}
 			}
-			if *req.DestinationNodeName == node.Name {
+			if *req.TargetNode == node.Name {
 				for _, shard := range node.Shards {
-					if shard.Name == *req.ShardID {
+					if shard.Name == *req.Shard {
 						foundDst = true
 					}
 				}
@@ -134,7 +134,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 	req := getRequest(t, paragraphClass.Class)
 
 	move := "MOVE"
-	req.TransferType = &move
+	req.Type = &move
 	// Create MOVE replication operation and wait until the shard is in the sharding state (meaning it is uncancellable)
 	created, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(req), nil)
 	require.Nil(t, err)
@@ -146,11 +146,11 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 		require.Nil(t, err)
 		replicaPresent := false
 		for _, shard := range shardingState.Payload.ShardingState.Shards {
-			if shard.Shard != *req.ShardID {
+			if shard.Shard != *req.Shard {
 				continue
 			}
 			for _, replica := range shard.Replicas {
-				if replica == *req.DestinationNodeName {
+				if replica == *req.TargetNode {
 					replicaPresent = true
 					break
 				}
@@ -192,16 +192,16 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateConflictsMOVE() {
 		foundSrc := false
 		foundDst := false
 		for _, node := range nodes.Payload.Nodes {
-			if *req.SourceNodeName == node.Name {
+			if *req.SourceNode == node.Name {
 				for _, shard := range node.Shards {
-					if shard.Name == *req.ShardID {
+					if shard.Name == *req.Shard {
 						foundSrc = true
 					}
 				}
 			}
-			if *req.DestinationNodeName == node.Name {
+			if *req.TargetNode == node.Name {
 				for _, shard := range node.Shards {
-					if shard.Name == *req.ShardID {
+					if shard.Name == *req.Shard {
 						foundDst = true
 					}
 				}
