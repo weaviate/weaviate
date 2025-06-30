@@ -16,8 +16,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
-	"strings"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
 
@@ -37,21 +35,17 @@ var ErrInvalidChecksum = errors.New("invalid checksum")
 type existsOnLowerSegmentsFn func(key []byte) (bool, error)
 
 func (s *segment) countNetPath() string {
-	return countNetPathFromSegmentPath(s.path)
+	return s.buildPath("%s.cna")
 }
 
-func countNetPathFromSegmentPath(segPath string) string {
-	extless := strings.TrimSuffix(segPath, filepath.Ext(segPath))
-	return fmt.Sprintf("%s.cna", extless)
-}
-
-func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, existingFilesList map[string]int64) error {
+func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int, existingFilesList map[string]int64) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
 		return nil
 	}
 
 	path := s.countNetPath()
+	s.metaPaths = append(s.metaPaths, path)
 
 	loadFromDisk, err := fileExistsInList(existingFilesList, path)
 	if err != nil {
@@ -78,32 +72,36 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 		}
 	}
 
-	var lastErr error
-	countNet := 0
-	cb := func(key []byte, tombstone bool) {
-		existedOnPrior, err := exists(key)
-		if err != nil {
-			lastErr = err
+	if precomputedCNAValue != nil {
+		s.countNetAdditions = *precomputedCNAValue
+	} else {
+		var lastErr error
+		countNet := 0
+		cb := func(key []byte, tombstone bool) {
+			existedOnPrior, err := exists(key)
+			if err != nil {
+				lastErr = err
+			}
+
+			if tombstone && existedOnPrior {
+				countNet--
+			}
+
+			if !tombstone && !existedOnPrior {
+				countNet++
+			}
 		}
 
-		if tombstone && existedOnPrior {
-			countNet--
+		extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
+			s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
+
+		extr.do()
+
+		s.countNetAdditions = countNet
+
+		if lastErr != nil {
+			return lastErr
 		}
-
-		if !tombstone && !existedOnPrior {
-			countNet++
-		}
-	}
-
-	extr := newBufferedKeyAndTombstoneExtractor(s.contents, s.dataStartPos,
-		s.dataEndPos, 10e6, s.secondaryIndexCount, cb)
-
-	extr.do()
-
-	s.countNetAdditions = countNet
-
-	if lastErr != nil {
-		return lastErr
 	}
 
 	if err := s.storeCountNetOnDisk(); err != nil {

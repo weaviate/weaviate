@@ -98,6 +98,7 @@ type Segment interface {
 
 type segment struct {
 	path                string
+	metaPaths           []string
 	level               uint16
 	secondaryIndexCount uint16
 	version             uint16
@@ -152,14 +153,15 @@ type diskIndex interface {
 }
 
 type segmentConfig struct {
-	mmapContents             bool
-	useBloomFilter           bool
-	calcCountNetAdditions    bool
-	overwriteDerived         bool
-	enableChecksumValidation bool
-	MinMMapSize              int64
-	allocChecker             memwatch.AllocChecker
-	fileList                 map[string]int64
+	mmapContents                 bool
+	useBloomFilter               bool
+	calcCountNetAdditions        bool
+	overwriteDerived             bool
+	enableChecksumValidation     bool
+	MinMMapSize                  int64
+	allocChecker                 memwatch.AllocChecker
+	fileList                     map[string]int64
+	precomputedCountNetAdditions *int
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -352,7 +354,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.fileList); err != nil {
+		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputedCountNetAdditions, cfg.fileList); err != nil {
 			return nil, err
 		}
 	}
