@@ -119,6 +119,84 @@ func TestConfigModules(t *testing.T) {
 }
 
 func TestConfigParsing(t *testing.T) {
+	t.Run("parse config.yaml with oidc config - yaml", func(t *testing.T) {
+		configFileName := "config.yaml"
+		configYaml := `authentication:
+  oidc:
+    enabled: true
+    issuer: http://localhost:9090/auth/realms/weaviate
+    username_claim: preferred_username
+    groups_claim: groups
+    client_id: demo
+    skip_client_id_check: false
+    scopes: ['email', 'openid']
+    certificate: "valid-certificate"
+`
+
+		filepath := fmt.Sprintf("%s/%s", t.TempDir(), configFileName)
+		f, err := os.Create(filepath)
+		require.Nil(t, err)
+		defer f.Close()
+		_, err2 := f.WriteString(configYaml)
+		require.Nil(t, err2)
+
+		file, err := os.ReadFile(filepath)
+		require.Nil(t, err)
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile(file, configFileName)
+		require.Nil(t, err)
+
+		assert.True(t, config.Authentication.OIDC.Enabled)
+		assert.Equal(t, "http://localhost:9090/auth/realms/weaviate", config.Authentication.OIDC.Issuer.Get())
+		assert.Equal(t, "preferred_username", config.Authentication.OIDC.UsernameClaim.Get())
+		assert.Equal(t, "groups", config.Authentication.OIDC.GroupsClaim.Get())
+		assert.Equal(t, "demo", config.Authentication.OIDC.ClientID.Get())
+		assert.False(t, config.Authentication.OIDC.SkipClientIDCheck.Get())
+		assert.ElementsMatch(t, []string{"email", "openid"}, config.Authentication.OIDC.Scopes.Get())
+		assert.Equal(t, "valid-certificate", config.Authentication.OIDC.Certificate.Get())
+	})
+
+	t.Run("parse config.yaml with oidc config - json", func(t *testing.T) {
+		configFileName := "config.json"
+		configYaml := `{
+  "authentication": {
+    "oidc": {
+      "enabled": true,
+      "issuer": "http://localhost:9090/auth/realms/weaviate",
+      "username_claim": "preferred_username",
+      "groups_claim": "groups",
+      "client_id": "demo",
+      "skip_client_id_check": false,
+      "scopes": ["email", "openid"],
+      "certificate": "valid-certificate"
+    }
+  }
+}
+`
+
+		filepath := fmt.Sprintf("%s/%s", t.TempDir(), configFileName)
+		f, err := os.Create(filepath)
+		require.Nil(t, err)
+		defer f.Close()
+		_, err2 := f.WriteString(configYaml)
+		require.Nil(t, err2)
+
+		file, err := os.ReadFile(filepath)
+		require.Nil(t, err)
+		weaviateConfig := &WeaviateConfig{}
+		config, err := weaviateConfig.parseConfigFile(file, configFileName)
+		require.Nil(t, err)
+
+		assert.True(t, config.Authentication.OIDC.Enabled)
+		assert.Equal(t, "http://localhost:9090/auth/realms/weaviate", config.Authentication.OIDC.Issuer.Get())
+		assert.Equal(t, "preferred_username", config.Authentication.OIDC.UsernameClaim.Get())
+		assert.Equal(t, "groups", config.Authentication.OIDC.GroupsClaim.Get())
+		assert.Equal(t, "demo", config.Authentication.OIDC.ClientID.Get())
+		assert.False(t, config.Authentication.OIDC.SkipClientIDCheck.Get())
+		assert.ElementsMatch(t, []string{"email", "openid"}, config.Authentication.OIDC.Scopes.Get())
+		assert.Equal(t, "valid-certificate", config.Authentication.OIDC.Certificate.Get())
+	})
+
 	t.Run("parse config.yaml file with admin_list and read_only_users", func(t *testing.T) {
 		configFileName := "config.yaml"
 		configYaml := `authorization:

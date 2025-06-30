@@ -20,7 +20,6 @@ import (
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storobj"
 )
 
@@ -92,82 +91,6 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 
 	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
 		return fmt.Errorf("object deletion in hashtree: %w", err)
-	}
-
-	return nil
-}
-
-func (s *Shard) canDeleteOne(ctx context.Context, id strfmt.UUID) (bucket *lsmkv.Bucket, obj, uid []byte, docID uint64, updateTime int64, err error) {
-	if uid, err = parseBytesUUID(id); err != nil {
-		return nil, nil, uid, 0, 0, err
-	}
-
-	bucket = s.store.Bucket(helpers.ObjectsBucketLSM)
-	existing, err := bucket.Get(uid)
-	if err != nil {
-		return nil, nil, uid, 0, 0, fmt.Errorf("get previous object: %w", err)
-	}
-
-	if existing == nil {
-		return bucket, nil, uid, 0, 0, nil
-	}
-
-	// we need the doc ID so we can clean up inverted indices currently
-	// pointing to this object
-	docID, updateTime, err = storobj.DocIDAndTimeFromBinary(existing)
-	if err != nil {
-		return bucket, nil, uid, 0, 0, fmt.Errorf("get existing doc id from object binary: %w", err)
-	}
-	return bucket, existing, uid, docID, updateTime, nil
-}
-
-func (s *Shard) deleteOne(ctx context.Context, bucket *lsmkv.Bucket, obj, idBytes []byte, docID uint64, currentUpdateTime int64, deletionTime time.Time) error {
-	if obj == nil || bucket == nil {
-		return nil
-	}
-
-	var err error
-
-	if deletionTime.IsZero() {
-		err = bucket.Delete(idBytes)
-	} else {
-		err = bucket.DeleteWith(idBytes, deletionTime)
-	}
-	if err != nil {
-		return fmt.Errorf("delete object from bucket: %w", err)
-	}
-
-	err = s.cleanupInvertedIndexOnDelete(obj, docID)
-	if err != nil {
-		return fmt.Errorf("delete object from bucket: %w", err)
-	}
-
-	if err = s.store.WriteWALs(); err != nil {
-		return fmt.Errorf("flush all buffered WALs: %w", err)
-	}
-
-	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		if err = queue.Delete(docID); err != nil {
-			return fmt.Errorf("delete from vector index of vector %q: %w", targetVector, err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	err = s.ForEachVectorQueue(func(targetVector string, queue *VectorIndexQueue) error {
-		if err = queue.Flush(); err != nil {
-			return fmt.Errorf("flush all vector index buffered WALs of vector %q: %w", targetVector, err)
-		}
-		return nil
-	})
-	if err != nil {
-		return err
-	}
-
-	if err = s.mayDeleteObjectHashTree(idBytes, currentUpdateTime); err != nil {
-		return fmt.Errorf("store object deletion in hashtree: %w", err)
 	}
 
 	return nil
