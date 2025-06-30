@@ -1027,3 +1027,319 @@ func TestNewWithData(t *testing.T) {
 	copied := NewWithData(c.Data())
 	require.ElementsMatch(t, c.GetLayer(0), copied.GetLayer(0))
 }
+
+func TestConnections_DataSerialization_SingleLayer(t *testing.T) {
+	// Test with small values that fit in 2-byte scheme
+	c, err := NewWithMaxLayer(0)
+	require.Nil(t, err)
+
+	smallValues := []uint64{1, 100, 1000, 65535}
+	c.ReplaceLayer(0, smallValues)
+
+	data := c.Data()
+	require.NotNil(t, data)
+	require.Greater(t, len(data), 0)
+
+	// Deserialize and verify
+	copied := NewWithData(data)
+	require.NotNil(t, copied)
+	assert.Equal(t, c.Layers(), copied.Layers())
+	assert.ElementsMatch(t, c.GetLayer(0), copied.GetLayer(0))
+	assert.Equal(t, c.LenAtLayer(0), copied.LenAtLayer(0))
+}
+
+func TestConnections_DataSerialization_MultipleLayers(t *testing.T) {
+	c, err := NewWithMaxLayer(2)
+	require.Nil(t, err)
+
+	// Layer 0: small values (2-byte scheme)
+	smallValues := []uint64{1, 100, 1000, 65535}
+	c.ReplaceLayer(0, smallValues)
+
+	// Layer 1: medium values (3-byte scheme)
+	mediumValues := []uint64{100000, 500000, 16777215}
+	c.ReplaceLayer(1, mediumValues)
+
+	// Layer 2: large values (4-byte scheme)
+	largeValues := []uint64{10000000, 50000000, 4294967295}
+	c.ReplaceLayer(2, largeValues)
+
+	data := c.Data()
+	require.NotNil(t, data)
+	require.Greater(t, len(data), 0)
+
+	// Deserialize and verify
+	copied := NewWithData(data)
+	require.NotNil(t, copied)
+	assert.Equal(t, c.Layers(), copied.Layers())
+
+	// Verify each layer
+	assert.ElementsMatch(t, c.GetLayer(0), copied.GetLayer(0))
+	assert.ElementsMatch(t, c.GetLayer(1), copied.GetLayer(1))
+	assert.ElementsMatch(t, c.GetLayer(2), copied.GetLayer(2))
+
+	assert.Equal(t, c.LenAtLayer(0), copied.LenAtLayer(0))
+	assert.Equal(t, c.LenAtLayer(1), copied.LenAtLayer(1))
+	assert.Equal(t, c.LenAtLayer(2), copied.LenAtLayer(2))
+}
+
+func TestConnections_DataSerialization_AllSchemes(t *testing.T) {
+	c, err := NewWithMaxLayer(4)
+	require.Nil(t, err)
+
+	// Test all encoding schemes with boundary values
+	testCases := []struct {
+		layer  uint8
+		values []uint64
+		scheme uint8
+		desc   string
+	}{
+		{0, []uint64{1, 100, 65535}, SCHEME_2BYTE, "2-byte scheme"},
+		{1, []uint64{65536, 100000, 16777215}, SCHEME_3BYTE, "3-byte scheme"},
+		{2, []uint64{16777216, 100000000, 4294967295}, SCHEME_4BYTE, "4-byte scheme"},
+		{3, []uint64{4294967296, 1000000000000, 1099511627775}, SCHEME_5BYTE, "5-byte scheme"},
+		{4, []uint64{1099511627776, 1000000000000000, 18446744073709551615}, SCHEME_8BYTE, "8-byte scheme"},
+	}
+
+	for _, tc := range testCases {
+		c.ReplaceLayer(tc.layer, tc.values)
+	}
+
+	data := c.Data()
+	require.NotNil(t, data)
+	require.Greater(t, len(data), 0)
+
+	// Deserialize and verify
+	copied := NewWithData(data)
+	require.NotNil(t, copied)
+	assert.Equal(t, c.Layers(), copied.Layers())
+
+	// Verify each layer
+	for _, tc := range testCases {
+		assert.ElementsMatch(t, c.GetLayer(tc.layer), copied.GetLayer(tc.layer),
+			"Layer %d (%s) mismatch", tc.layer, tc.desc)
+		assert.Equal(t, c.LenAtLayer(tc.layer), copied.LenAtLayer(tc.layer),
+			"Layer %d (%s) length mismatch", tc.layer, tc.desc)
+	}
+}
+
+func TestConnections_DataSerialization_EmptyLayers(t *testing.T) {
+	c, err := NewWithMaxLayer(3)
+	require.Nil(t, err)
+
+	// Only populate layer 1, leave others empty
+	values := []uint64{1, 2, 3, 4, 5}
+	c.ReplaceLayer(1, values)
+
+	data := c.Data()
+	require.NotNil(t, data)
+	require.Greater(t, len(data), 0)
+
+	// Deserialize and verify
+	copied := NewWithData(data)
+	require.NotNil(t, copied)
+	assert.Equal(t, c.Layers(), copied.Layers())
+
+	// Verify empty layers remain empty
+	assert.Len(t, copied.GetLayer(0), 0)
+	assert.Len(t, copied.GetLayer(2), 0)
+	assert.Len(t, copied.GetLayer(3), 0)
+
+	// Verify populated layer
+	assert.ElementsMatch(t, values, copied.GetLayer(1))
+	assert.Equal(t, len(values), copied.LenAtLayer(1))
+}
+
+func TestConnections_DataSerialization_EmptyConnections(t *testing.T) {
+	c, err := NewWithMaxLayer(0)
+	require.Nil(t, err)
+
+	data := c.Data()
+	require.NotNil(t, data)
+	// NewWithMaxLayer(0) creates layerCount=1, so we expect 1 layer with empty data
+	// Format: [layerCount=1][packed=0][dataLen=0][dataLen=0][dataLen=0][dataLen=0]
+	expectedData := []byte{1, 0, 0, 0, 0, 0, 0}
+	assert.Equal(t, expectedData, data)
+
+	// Deserialize and verify
+	copied := NewWithData(data)
+	require.NotNil(t, copied)
+	assert.Equal(t, uint8(1), copied.Layers())
+	assert.Len(t, copied.GetLayer(0), 0)
+}
+
+func TestConnections_DataSerialization_InsertAtLayer(t *testing.T) {
+	c, err := NewWithMaxLayer(1)
+	require.Nil(t, err)
+
+	// Use InsertAtLayer to build up data
+	expectedValues := []uint64{1, 100, 1000, 100000, 10000000}
+	for _, val := range expectedValues {
+		c.InsertAtLayer(val, 0)
+	}
+
+	data := c.Data()
+	require.NotNil(t, data)
+	require.Greater(t, len(data), 0)
+
+	// Deserialize and verify
+	copied := NewWithData(data)
+	require.NotNil(t, copied)
+	assert.Equal(t, c.Layers(), copied.Layers())
+	assert.ElementsMatch(t, expectedValues, copied.GetLayer(0))
+	assert.Equal(t, len(expectedValues), copied.LenAtLayer(0))
+}
+
+func TestConnections_DataSerialization_BulkInsert(t *testing.T) {
+	c, err := NewWithMaxLayer(1)
+	require.Nil(t, err)
+
+	// Start with some values
+	initialValues := []uint64{1, 2, 3}
+	c.ReplaceLayer(0, initialValues)
+
+	// Add more values using BulkInsertAtLayer
+	additionalValues := []uint64{100, 200, 300, 1000000}
+	c.BulkInsertAtLayer(additionalValues, 0)
+
+	expectedValues := append(initialValues, additionalValues...)
+
+	data := c.Data()
+	require.NotNil(t, data)
+	require.Greater(t, len(data), 0)
+
+	// Deserialize and verify
+	copied := NewWithData(data)
+	require.NotNil(t, copied)
+	assert.Equal(t, c.Layers(), copied.Layers())
+	assert.ElementsMatch(t, expectedValues, copied.GetLayer(0))
+	assert.Equal(t, len(expectedValues), copied.LenAtLayer(0))
+}
+
+func TestConnections_DataSerialization_LargeValues(t *testing.T) {
+	c, err := NewWithMaxLayer(0)
+	require.Nil(t, err)
+
+	// Test with very large values that require 8-byte encoding
+	largeValues := []uint64{
+		18446744073709551615, // max uint64
+		1000000000000000000,
+		5000000000000000000,
+		9999999999999999999,
+	}
+
+	c.ReplaceLayer(0, largeValues)
+
+	data := c.Data()
+	require.NotNil(t, data)
+	require.Greater(t, len(data), 0)
+
+	// Deserialize and verify
+	copied := NewWithData(data)
+	require.NotNil(t, copied)
+	assert.Equal(t, c.Layers(), copied.Layers())
+	assert.ElementsMatch(t, largeValues, copied.GetLayer(0))
+	assert.Equal(t, len(largeValues), copied.LenAtLayer(0))
+}
+
+func TestConnections_DataSerialization_MixedSchemes(t *testing.T) {
+	c, err := NewWithMaxLayer(2)
+	require.Nil(t, err)
+
+	// Layer 0: Start with small values, then add large ones to trigger scheme upgrade
+	c.InsertAtLayer(1, 0)
+	c.InsertAtLayer(100, 0)
+	c.InsertAtLayer(18446744073709551615, 0) // This should trigger 8-byte scheme
+
+	// Layer 1: Start with medium values, then add larger ones
+	c.InsertAtLayer(100000, 1)
+	c.InsertAtLayer(500000, 1)
+	c.InsertAtLayer(4294967296, 1) // This should trigger 5-byte scheme
+
+	data := c.Data()
+	require.NotNil(t, data)
+	require.Greater(t, len(data), 0)
+
+	// Deserialize and verify
+	copied := NewWithData(data)
+	require.NotNil(t, copied)
+	assert.Equal(t, c.Layers(), copied.Layers())
+
+	// Verify both layers
+	assert.ElementsMatch(t, c.GetLayer(0), copied.GetLayer(0))
+	assert.ElementsMatch(t, c.GetLayer(1), copied.GetLayer(1))
+	assert.Equal(t, c.LenAtLayer(0), copied.LenAtLayer(0))
+	assert.Equal(t, c.LenAtLayer(1), copied.LenAtLayer(1))
+}
+
+func TestConnections_DataSerialization_Stress(t *testing.T) {
+	layers := uint8(5)
+	c, err := NewWithMaxLayer(layers)
+	require.Nil(t, err)
+
+	// Populate all layers with different sized values
+	for i := uint8(0); i <= layers; i++ {
+		values := make([]uint64, 10)
+		for j := 0; j < 10; j++ {
+			// Mix different value ranges to test different schemes
+			switch j % 5 {
+			case 0:
+				values[j] = uint64(j + 1) // Small values
+			case 1:
+				values[j] = uint64(100000 + j) // Medium values
+			case 2:
+				values[j] = uint64(1000000000 + j) // Large values
+			case 3:
+				values[j] = uint64(1000000000000 + j) // Very large values
+			case 4:
+				values[j] = uint64(1000000000000000000 + j) // Extremely large values
+			}
+		}
+		c.ReplaceLayer(i, values)
+	}
+
+	data := c.Data()
+	require.NotNil(t, data)
+	require.Greater(t, len(data), 0)
+
+	// Deserialize and verify
+	copied := NewWithData(data)
+	require.NotNil(t, copied)
+	assert.Equal(t, c.Layers(), copied.Layers())
+
+	// Verify all layers
+	for i := uint8(0); i <= layers; i++ {
+		assert.ElementsMatch(t, c.GetLayer(i), copied.GetLayer(i),
+			"Layer %d mismatch", i)
+		assert.Equal(t, c.LenAtLayer(i), copied.LenAtLayer(i),
+			"Layer %d length mismatch", i)
+	}
+}
+
+func TestConnections_DataSerialization_EmptyData(t *testing.T) {
+	// Test with empty data
+	copied := NewWithData([]byte{})
+	require.NotNil(t, copied)
+	assert.Equal(t, uint8(0), copied.Layers())
+
+	// Test with nil data
+	copied = NewWithData(nil)
+	require.NotNil(t, copied)
+	assert.Equal(t, uint8(0), copied.Layers())
+}
+
+func TestConnections_DataSerialization_MalformedData(t *testing.T) {
+	// Test with malformed data (too short)
+	copied := NewWithData([]byte{1}) // Layer count 1 but no data
+	require.NotNil(t, copied)
+	assert.Equal(t, uint8(1), copied.Layers())
+	assert.Len(t, copied.GetLayer(0), 0)
+
+	// Test with incomplete layer data
+	malformedData := []byte{2, 0, 0, 0, 0, 0, 0} // Layer count 2, incomplete first layer
+	copied = NewWithData(malformedData)
+	require.NotNil(t, copied)
+	assert.Equal(t, uint8(2), copied.Layers())
+	assert.Len(t, copied.GetLayer(0), 0)
+	assert.Len(t, copied.GetLayer(1), 0)
+}
