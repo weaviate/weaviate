@@ -28,8 +28,8 @@ import (
 type ListReplicationURL struct {
 	Collection     *string
 	IncludeHistory *bool
-	NodeID         *string
 	Shard          *string
+	TargetNode     *string
 
 	_basePath string
 	// avoid unkeyed usage
@@ -81,20 +81,20 @@ func (o *ListReplicationURL) Build() (*url.URL, error) {
 		qs.Set("includeHistory", includeHistoryQ)
 	}
 
-	var nodeIDQ string
-	if o.NodeID != nil {
-		nodeIDQ = *o.NodeID
-	}
-	if nodeIDQ != "" {
-		qs.Set("nodeId", nodeIDQ)
-	}
-
 	var shardQ string
 	if o.Shard != nil {
 		shardQ = *o.Shard
 	}
 	if shardQ != "" {
 		qs.Set("shard", shardQ)
+	}
+
+	var targetNodeQ string
+	if o.TargetNode != nil {
+		targetNodeQ = *o.TargetNode
+	}
+	if targetNodeQ != "" {
+		qs.Set("targetNode", targetNodeQ)
 	}
 
 	_result.RawQuery = qs.Encode()
