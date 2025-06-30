@@ -370,12 +370,17 @@ func TestCreateAlias(t *testing.T) {
 
 	t.Run("fail on conflicting creation", func(t *testing.T) {
 		err := sc.createAlias("C", "A1")
-		require.EqualError(t, err, "create alias: alias \"A1\" already exists")
+		require.EqualError(t, err, "create alias: alias A1 already exists")
 	})
 
 	t.Run("fail on non-existing class", func(t *testing.T) {
+		err := sc.createAlias("D", "newAlias")
+		require.EqualError(t, err, "create alias: class D does not exist")
+	})
+
+	t.Run("fail on non-existing alias", func(t *testing.T) {
 		err := sc.createAlias("D", "A1")
-		require.EqualError(t, err, "create alias: class \"D\" does not exist")
+		require.EqualError(t, err, "create alias: alias A1 already exists")
 	})
 }
 
@@ -396,12 +401,12 @@ func TestReplaceAlias(t *testing.T) {
 
 	t.Run("fail on non-existing alias", func(t *testing.T) {
 		err := sc.replaceAlias("C1", "A2")
-		require.EqualError(t, err, "replace alias: alias \"A2\" does not exist")
+		require.EqualError(t, err, "replace alias: alias A2 does not exist")
 	})
 
 	t.Run("fail on non-existing class", func(t *testing.T) {
 		err := sc.replaceAlias("D", "A1")
-		require.EqualError(t, err, "replace alias: class \"D\" does not exist")
+		require.EqualError(t, err, "replace alias: class D does not exist")
 	})
 }
 

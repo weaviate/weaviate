@@ -109,10 +109,18 @@ func (s *schema) ClassInfo(class string) ClassInfo {
 func (s *schema) ClassEqual(name string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.unsafeClassEqual(name)
+}
 
+func (s *schema) unsafeClassEqual(name string) string {
 	for k := range s.classes {
 		if strings.EqualFold(k, name) {
 			return k
+		}
+	}
+	for alias := range s.aliases {
+		if strings.EqualFold(alias, name) {
+			return alias
 		}
 	}
 	return ""
@@ -143,7 +151,10 @@ func (s *schema) metaClass(class string) *metaClass {
 func (s *schema) ReadOnlyClass(class string) (*models.Class, uint64) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.unsafeReadOnlyClass(class)
+}
 
+func (s *schema) unsafeReadOnlyClass(class string) (*models.Class, uint64) {
 	meta := s.classes[class]
 	if meta == nil {
 		return nil, 0
@@ -624,11 +635,14 @@ func (s *schema) createAlias(class, alias string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if s.classes[class] == nil {
-		return fmt.Errorf("create alias: class %q does not exist", class)
-	}
 	if s.unsafeAliasExists(alias) {
-		return fmt.Errorf("create alias: alias %q already exists", alias)
+		return fmt.Errorf("create alias: alias %s already exists", alias)
+	}
+	if cls, _ := s.unsafeReadOnlyClass(class); cls == nil {
+		return fmt.Errorf("create alias: class %s does not exist", class)
+	}
+	if other := s.unsafeClassEqual(alias); other == alias {
+		return fmt.Errorf("create alias: class %s already exists", class)
 	}
 	s.aliases[alias] = class
 	return nil
@@ -639,10 +653,10 @@ func (s *schema) replaceAlias(newClass, alias string) error {
 	defer s.mu.Unlock()
 
 	if s.classes[newClass] == nil {
-		return fmt.Errorf("replace alias: class %q does not exist", newClass)
+		return fmt.Errorf("replace alias: class %s does not exist", newClass)
 	}
 	if !s.unsafeAliasExists(alias) {
-		return fmt.Errorf("replace alias: alias %q does not exist", alias)
+		return fmt.Errorf("replace alias: alias %s does not exist", alias)
 	}
 	s.aliases[alias] = newClass
 	return nil
