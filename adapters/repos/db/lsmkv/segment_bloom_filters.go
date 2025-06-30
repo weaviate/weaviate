@@ -29,14 +29,28 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-func (s *segment) bloomFilterPath() string {
+func (s *segment) buildPath(template string) string {
+	isTmpFile := filepath.Ext(s.path) == ".tmp"
+
 	extless := strings.TrimSuffix(s.path, filepath.Ext(s.path))
-	return fmt.Sprintf("%s.bloom", extless)
+	if isTmpFile { // remove second extension
+		extless = strings.TrimSuffix(extless, filepath.Ext(extless))
+	}
+
+	path := fmt.Sprintf(template, extless)
+	if isTmpFile {
+		path = fmt.Sprintf("%s.tmp", path)
+	}
+	return path
+}
+
+func (s *segment) bloomFilterPath() string {
+	return s.buildPath("%s.bloom")
 }
 
 func (s *segment) bloomFilterSecondaryPath(pos int) string {
-	extless := strings.TrimSuffix(s.path, filepath.Ext(s.path))
-	return fmt.Sprintf("%s.secondary.%d.bloom", extless, pos)
+	posTemplate := fmt.Sprintf(".%d.bloom", pos)
+	return s.buildPath("%s.secondary" + posTemplate)
 }
 
 func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
@@ -57,6 +71,7 @@ func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
 
 func (s *segment) initBloomFilter(overwrite bool) error {
 	path := s.bloomFilterPath()
+	s.metaPaths = append(s.metaPaths, path)
 
 	ok, err := fileExists(path)
 	if err != nil {
@@ -201,6 +216,7 @@ func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool) error {
 	before := time.Now()
 
 	path := s.bloomFilterSecondaryPath(pos)
+	s.metaPaths = append(s.metaPaths, path)
 
 	ok, err := fileExists(path)
 	if err != nil {
