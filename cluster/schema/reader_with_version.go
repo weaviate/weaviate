@@ -59,6 +59,10 @@ func (rs SchemaReader) ReadOnlyClassWithVersion(ctx context.Context, class strin
 		}
 		return nil
 	})
+	if rs.schema.resolveAlias(class) != "" {
+		resolved, _ := rs.schema.ReadOnlyClass(class)
+		return resolved, nil
+	}
 	return cls, nil
 }
 

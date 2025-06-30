@@ -14,6 +14,7 @@ package objects
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/go-openapi/strfmt"
 
@@ -23,17 +24,22 @@ import (
 )
 
 // HeadObject check object's existence in the connected DB
-func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, class string,
+func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, className string,
 	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
 ) (bool, *Error) {
-	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(class, tenant, id)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant, id)); err != nil {
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}
 
 	m.metrics.HeadObjectInc()
 	defer m.metrics.HeadObjectDec()
 
-	ok, err := m.vectorRepo.Exists(ctx, class, id, repl, tenant)
+	class := m.schemaManager.ReadOnlyClass(className)
+	if class == nil {
+		return false, &Error{fmt.Sprintf("class %s not found", className), StatusNotFound, nil}
+	}
+
+	ok, err := m.vectorRepo.Exists(ctx, class.Class, id, repl, tenant)
 	if err != nil {
 		switch {
 		case errors.As(err, &ErrMultiTenancy{}):
