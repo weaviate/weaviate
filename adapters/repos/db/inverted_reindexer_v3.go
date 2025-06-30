@@ -312,6 +312,13 @@ func (r *shardReindexerV3) runScheduledTask(ctx context.Context, key string, tas
 
 	index := r.getIndex(schema.ClassName(collectionName))
 	if index == nil {
+		// try again later, as we have observed that index can be nil
+		// for a short period of time after shard is created, but before it is loaded
+		r.locked(func() {
+			if ctx.Err() == nil {
+				r.queue.insert(key, tasks, time.Now().Add(1*time.Minute))
+			}
+		})
 		err = fmt.Errorf("index for shard '%s' of collection '%s' not found", shardName, collectionName)
 		return
 	}
