@@ -409,13 +409,13 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			MinimumFactor:            1,
 			AsyncReplicationDisabled: appState.ServerConfig.Config.Replication.AsyncReplicationDisabled,
 		},
-		MaximumConcurrentShardLoads:        appState.ServerConfig.Config.MaximumConcurrentShardLoads,
-		TenantActivityReadLogLevel:         appState.ServerConfig.Config.TenantActivityReadLogLevel,
-		TenantActivityWriteLogLevel:        appState.ServerConfig.Config.TenantActivityWriteLogLevel,
-		QuerySlowLogEnabled:                appState.ServerConfig.Config.QuerySlowLogEnabled,
-		QuerySlowLogThreshold:              appState.ServerConfig.Config.QuerySlowLogThreshold,
-		InvertedSorterDisabled:             appState.ServerConfig.Config.InvertedSorterDisabled,
-		MaintenanceModeEnabledForLocalhost: appState.Cluster.MaintenanceModeEnabledForLocalhost,
+		MaximumConcurrentShardLoads: appState.ServerConfig.Config.MaximumConcurrentShardLoads,
+		TenantActivityReadLogLevel:  appState.ServerConfig.Config.TenantActivityReadLogLevel,
+		TenantActivityWriteLogLevel: appState.ServerConfig.Config.TenantActivityWriteLogLevel,
+		QuerySlowLogEnabled:         appState.ServerConfig.Config.QuerySlowLogEnabled,
+		QuerySlowLogThreshold:       appState.ServerConfig.Config.QuerySlowLogThreshold,
+		InvertedSorterDisabled:      appState.ServerConfig.Config.InvertedSorterDisabled,
+		MaintenanceModeEnabled:      appState.Cluster.MaintenanceModeEnabledForLocalhost,
 	}, remoteIndexClient, appState.Cluster, remoteNodesClient, replicationClient, appState.Metrics, appState.MemWatch) // TODO client
 	if err != nil {
 		appState.Logger.

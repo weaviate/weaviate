@@ -78,21 +78,21 @@ const (
 )
 
 type asyncReplicationConfig struct {
-	hashtreeHeight                     int
-	frequency                          time.Duration
-	frequencyWhilePropagating          time.Duration
-	aliveNodesCheckingFrequency        time.Duration
-	loggingFrequency                   time.Duration
-	initShieldCPUEveryN                int
-	diffBatchSize                      int
-	diffPerNodeTimeout                 time.Duration
-	prePropagationTimeout              time.Duration
-	propagationTimeout                 time.Duration
-	propagationLimit                   int
-	propagationDelay                   time.Duration
-	propagationConcurrency             int
-	propagationBatchSize               int
-	maintenanceModeEnabledForLocalhost func() bool
+	hashtreeHeight              int
+	frequency                   time.Duration
+	frequencyWhilePropagating   time.Duration
+	aliveNodesCheckingFrequency time.Duration
+	loggingFrequency            time.Duration
+	initShieldCPUEveryN         int
+	diffBatchSize               int
+	diffPerNodeTimeout          time.Duration
+	prePropagationTimeout       time.Duration
+	propagationTimeout          time.Duration
+	propagationLimit            int
+	propagationDelay            time.Duration
+	propagationConcurrency      int
+	propagationBatchSize        int
+	maintenanceModeEnabled      func() bool
 }
 
 func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
@@ -178,8 +178,8 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE", err)
 	}
 
-	config.maintenanceModeEnabledForLocalhost = s.index.Config.MaintenanceModeEnabledForLocalhost
-	if config.maintenanceModeEnabledForLocalhost == nil {
+	config.maintenanceModeEnabled = s.index.Config.MaintenanceModeEnabled
+	if config.maintenanceModeEnabled == nil {
 		return asyncReplicationConfig{}, fmt.Errorf("maintenance mode enabled function is not set")
 	}
 
@@ -561,8 +561,8 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 				return
 			case <-propagationRequired:
 
-				if config.maintenanceModeEnabledForLocalhost != nil &&
-					config.maintenanceModeEnabledForLocalhost() {
+				if config.maintenanceModeEnabled != nil &&
+					config.maintenanceModeEnabled() {
 					// if maintenance mode is enabled for localhost, skip async replication
 					s.index.logger.
 						WithField("action", "async_replication").
