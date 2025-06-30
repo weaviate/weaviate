@@ -700,6 +700,7 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 			cfg.ReindexMapToBlockmaxConfig.ConditionalStart,
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.ProcessingDurationSeconds),
 			time.Second*time.Duration(cfg.ReindexMapToBlockmaxConfig.PauseDurationSeconds),
+			time.Millisecond*time.Duration(cfg.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds),
 			concurrency, cfg.ReindexMapToBlockmaxConfig.Selected, appState.SchemaManager,
 		))
 	}

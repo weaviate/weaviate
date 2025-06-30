@@ -32,7 +32,7 @@ func parseIndexAndShards(appState *state.State, r *http.Request) (string, []stri
 	}
 
 	shardsToMigrateString := r.URL.Query().Get("shards")
-	shardsToMigrate := strings.Split(shardsToMigrateString, ",")[1:]
+	shardsToMigrate := strings.Split(shardsToMigrateString, ",")
 
 	className := schema.ClassName(colName)
 	classNameString := strings.ToLower(className.String())

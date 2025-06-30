@@ -38,7 +38,7 @@ import (
 
 func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 	swapBuckets, unswapBuckets, tidyBuckets, reloadShards, rollback, conditionalStart bool,
-	processingDuration, pauseDuration time.Duration, concurrency int,
+	processingDuration, pauseDuration time.Duration, perObjectDelay time.Duration, concurrency int,
 	cptSelected []config.CollectionPropsTenants, schemaManager *schema.Manager,
 ) *ShardReindexTask_MapToBlockmax {
 	name := "MapToBlockmax"
@@ -95,7 +95,7 @@ func NewShardInvertedReindexTaskMapToBlockmax(logger logrus.FieldLogger,
 		selectionEnabled:              selectionEnabled,
 		selectedPropsByCollection:     selectedPropsByCollection,
 		selectedShardsByCollection:    selectedShardsByCollection,
-		perObjectDelay:                0 * time.Millisecond,
+		perObjectDelay:                perObjectDelay,
 	}
 
 	logger.WithField("config", fmt.Sprintf("%+v", config)).Debug("task created")

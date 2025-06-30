@@ -112,7 +112,6 @@ func setupDebugHandlers(appState *state.State) {
 		shardsToMigrate := strings.Split(shardsToMigrateString, ",")[1:]
 
 		className := schema.ClassName(colName)
-		classNameString := strings.ToLower(className.String())
 		idx := appState.DB.GetIndex(className)
 
 		if idx == nil {
@@ -120,13 +119,9 @@ func setupDebugHandlers(appState *state.State) {
 			http.Error(w, "collection not found or not ready", http.StatusNotFound)
 			return
 		}
-		// shard map: shardName -> shardPath
-		paths := make(map[string]string)
-		shards := make(map[string]db.ShardLike)
 
-		output := make(map[string]map[string]string, len(paths))
+		output := make(map[string]map[string]string)
 		// shards will not be force loaded, as we are only getting the name
-		rootPath := appState.DB.GetConfig().RootPath
 		err := idx.ForEachShard(
 			func(shardName string, shard db.ShardLike) error {
 				if len(shardsToMigrate) == 0 || slices.Contains(shardsToMigrate, shardName) {
@@ -145,9 +140,6 @@ func setupDebugHandlers(appState *state.State) {
 						}
 						return nil
 					}
-					shardPath := rootPath + "/" + classNameString + "/" + shardName + "/lsm/"
-					paths[shardName] = shardPath
-					shards[shardName] = shard
 					output[shardName] = map[string]string{
 						"shard":       shardName,
 						"shardStatus": shard.GetStatusNoLoad().String(),
