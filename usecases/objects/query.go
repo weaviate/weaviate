@@ -71,7 +71,14 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	class := "*"
 
 	if params != nil && params.Class != "" {
+		// We keep this for the audit log to contain the requested class, even it it's an alias
 		class = params.Class
+		fetched := m.schemaManager.ReadOnlyClass(class)
+		if fetched == nil {
+			return nil, &Error{fmt.Sprintf("class %q not found", class), StatusUnprocessableEntity, nil}
+		}
+		// Conduct the query with the resolved class, if an alias was provided
+		params.Class = fetched.Class
 	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsData(class)...); err != nil {
