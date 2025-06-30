@@ -231,6 +231,7 @@ type Config struct {
 	QuerySlowLogEnabled                 *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold               *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled              *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabledForLocalhost  func() bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't
