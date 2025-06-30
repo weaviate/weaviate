@@ -3881,8 +3881,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The ID of the target node to get details for.",
-            "name": "nodeId",
+            "description": "The name of the target node to get details for.",
+            "name": "targetNode",
             "in": "query"
           },
           {
@@ -12564,8 +12564,8 @@ func init() {
         "parameters": [
           {
             "type": "string",
-            "description": "The ID of the target node to get details for.",
-            "name": "nodeId",
+            "description": "The name of the target node to get details for.",
+            "name": "targetNode",
             "in": "query"
           },
           {

@@ -3470,9 +3470,9 @@
         ],
         "parameters": [
           {
-            "name": "nodeId",
+            "name": "targetNode",
             "in": "query",
-            "description": "The ID of the target node to get details for.",
+            "description": "The name of the target node to get details for.",
             "required": false,
             "type": "string"
           },

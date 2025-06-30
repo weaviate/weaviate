@@ -356,7 +356,7 @@ func (h *replicationHandler) listReplication(params replication.ListReplicationP
 	var response []api.ReplicationDetailsResponse
 	var err error
 
-	if params.Collection == nil && params.Shard == nil && params.NodeID == nil {
+	if params.Collection == nil && params.Shard == nil && params.TargetNode == nil {
 		response, err = h.replicationManager.GetAllReplicationDetails(params.HTTPRequest.Context())
 	} else if params.Collection != nil {
 		if params.Shard != nil {
@@ -364,8 +364,8 @@ func (h *replicationHandler) listReplication(params replication.ListReplicationP
 		} else {
 			response, err = h.replicationManager.GetReplicationDetailsByCollection(params.HTTPRequest.Context(), *params.Collection)
 		}
-	} else if params.NodeID != nil {
-		response, err = h.replicationManager.GetReplicationDetailsByTargetNode(params.HTTPRequest.Context(), *params.NodeID)
+	} else if params.TargetNode != nil {
+		response, err = h.replicationManager.GetReplicationDetailsByTargetNode(params.HTTPRequest.Context(), *params.TargetNode)
 	} else {
 		// This can happen if the user provides only a shard id without a collection id
 		return replication.NewListReplicationBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("shard id provided without collection id")))

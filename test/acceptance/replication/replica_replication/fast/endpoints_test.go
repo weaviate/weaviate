@@ -177,7 +177,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 
 	t.Run("get replication operation by target node", func(t *testing.T) {
 		nodeID := getRequest(t, paragraphClass.Class).TargetNode
-		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithNodeID(nodeID), nil)
+		details, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithTargetNode(nodeID), nil)
 		require.Nil(t, err)
 		found := false
 		for _, op := range details.Payload {
@@ -220,7 +220,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 
 	t.Run("get non-existing replication operation by target node", func(t *testing.T) {
 		nodeID := "non-existing"
-		_, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithNodeID(&nodeID), nil)
+		_, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithTargetNode(&nodeID), nil)
 		require.NotNil(t, err)
 		require.IsType(t, replication.NewListReplicationNotFound(), err)
 	})
