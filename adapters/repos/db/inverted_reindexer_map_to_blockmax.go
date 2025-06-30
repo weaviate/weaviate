@@ -1469,52 +1469,42 @@ func (t *fileMapToBlockmaxReindexTracker) GetProgress() (indexKey, *time.Time, e
 }
 
 func (t *fileMapToBlockmaxReindexTracker) parseProgressFile(filename string) (lastProcessedKey indexKey, tm time.Time, allCount int, idxCount int, err error) {
-	// open progress file
-	/*
-		2025-06-26T19:05:12.473157Z
-		57849825-b584-4d8d-8da5-a86be7fd1207
-		all 145
-		idx 145
-	*/
 	progressFilePath := filename
 	progressFile, err := os.ReadFile(progressFilePath)
 	if err != nil {
 		err = fmt.Errorf("failed to read %s: %w", progressFilePath, err)
 		return
 	}
-	// check if the file is empty
+
 	if len(progressFile) == 0 {
 		err = fmt.Errorf("progress file %s is empty", progressFilePath)
 		return
 	}
 
-	// parse progress file
 	progressFileFields := strings.Split(string(progressFile), "\n")
 	if len(progressFileFields) != 4 {
 		err = fmt.Errorf("progress file %s has unexpected format, expected 4 lines, got %d", progressFilePath, len(progressFileFields))
 		return
 	}
 
-	// timestamp parsing
 	tm, err = t.decodeTime(strings.TrimSpace(progressFileFields[0]))
 	if err != nil {
 		err = fmt.Errorf("failed to parse timestamp from %s: %w", progressFilePath, err)
 		return
 	}
 
-	// parse last processed key
 	lastProcessedKey, err = t.keyParser.FromString(progressFileFields[1])
 	if err != nil {
 		err = fmt.Errorf("failed to parse last processed key from %s: %w", progressFilePath, err)
 		return
 	}
-	// parse objects migrated count
+
 	allCount, err = strconv.Atoi(strings.Split(progressFileFields[2], " ")[1])
 	if err != nil {
 		err = fmt.Errorf("failed to parse objects migrated count from %s: %w", progressFilePath, err)
 		return
 	}
-	// parse index count
+
 	idxCount, err = strconv.Atoi(strings.Split(progressFileFields[3], " ")[1])
 	if err != nil {
 		err = fmt.Errorf("failed to parse index count from %s: %w", progressFilePath, err)
@@ -1525,7 +1515,6 @@ func (t *fileMapToBlockmaxReindexTracker) parseProgressFile(filename string) (la
 }
 
 func (t *fileMapToBlockmaxReindexTracker) GetMigratedCount() (objectsMigratedCountTotal int, snapshots []map[string]string, err error) {
-	// count the progress.mig.* files in the shard directory
 	snapshots = make([]map[string]string, 0)
 	files, err := os.ReadDir(t.config.migrationPath)
 	objectsMigratedCountTotal = 0
@@ -1540,8 +1529,6 @@ func (t *fileMapToBlockmaxReindexTracker) GetMigratedCount() (objectsMigratedCou
 				"checkpoint": strings.TrimPrefix(file.Name(), "progress.mig."),
 			}
 			progressCount++
-			// open progress file
-
 			progressFilePath := t.config.migrationPath + "/" + file.Name()
 			key, tm, allCount, idxCount, err2 := t.parseProgressFile(progressFilePath)
 			if err2 != nil {
