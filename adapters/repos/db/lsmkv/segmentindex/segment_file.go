@@ -16,7 +16,6 @@ import (
 	"bytes"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/weaviate/weaviate/usecases/integrity"
 )
@@ -220,7 +219,7 @@ func (f *SegmentFile) WriteChecksum() (int64, error) {
 }
 
 // ValidateChecksum determines if a segment's content matches its checksum
-func (f *SegmentFile) ValidateChecksum(info os.FileInfo) error {
+func (f *SegmentFile) ValidateChecksum(size int64) error {
 	if f.reader == nil {
 		return fmt.Errorf(" SegmentFile not initialized with a reader, " +
 			"try adding one with segmentindex.WithReader(io.Reader)")
@@ -236,7 +235,7 @@ func (f *SegmentFile) ValidateChecksum(info os.FileInfo) error {
 
 	var (
 		buffer    = make([]byte, 4096) // Buffer for chunked reads
-		dataSize  = info.Size() - HeaderSize - ChecksumSize
+		dataSize  = size - HeaderSize - ChecksumSize
 		remaining = dataSize
 	)
 

@@ -18,12 +18,10 @@ import (
 	"fmt"
 	"hash/crc32"
 	"io"
-	"io/fs"
 	"os"
 	"sync"
 	"sync/atomic"
 
-	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/usecases/byteops"
@@ -66,7 +64,8 @@ func (cl *lazyCommitLogger) mayInitCommitLogger() error {
 		return nil
 	}
 
-	commitLogger, err := newCommitLogger(cl.path, cl.strategy)
+	// file does not exist yet
+	commitLogger, err := newCommitLogger(cl.path, cl.strategy, 0)
 	if err != nil {
 		return err
 	}
@@ -246,20 +245,10 @@ func newLazyCommitLogger(path, strategy string) (*lazyCommitLogger, error) {
 	}, nil
 }
 
-func newCommitLogger(path, strategy string) (*commitLogger, error) {
-	out := &commitLogger{
-		path: walPath(path),
-	}
+func newCommitLogger(path, strategy string, fileSize int64) (*commitLogger, error) {
+	out := &commitLogger{path: walPath(path)}
 
-	fileInfo, err := os.Stat(out.path)
-	if err != nil {
-		if !errors.Is(err, fs.ErrNotExist) {
-			return nil, err
-		}
-		// empty wal
-	} else {
-		out.n.Swap(fileInfo.Size())
-	}
+	out.n.Swap(fileSize)
 
 	f, err := os.OpenFile(out.path, os.O_APPEND|os.O_CREATE|os.O_RDWR, 0o666)
 	if err != nil {

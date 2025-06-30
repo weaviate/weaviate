@@ -39,14 +39,14 @@ func (s *segment) bloomFilterSecondaryPath(pos int) string {
 	return fmt.Sprintf("%s.secondary.%d.bloom", extless, pos)
 }
 
-func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
-	if err := s.initBloomFilter(overwrite); err != nil {
+func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool, existingFilesList map[string]int64) error {
+	if err := s.initBloomFilter(overwrite, existingFilesList); err != nil {
 		return fmt.Errorf("init bloom filter for primary index: %w", err)
 	}
 	if s.secondaryIndexCount > 0 {
 		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
 		for i := range s.secondaryBloomFilters {
-			if err := s.initSecondaryBloomFilter(i, overwrite); err != nil {
+			if err := s.initSecondaryBloomFilter(i, overwrite, existingFilesList); err != nil {
 				return fmt.Errorf("init bloom filter for secondary index at %d: %w", i, err)
 			}
 		}
@@ -55,15 +55,14 @@ func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool) error {
 	return nil
 }
 
-func (s *segment) initBloomFilter(overwrite bool) error {
+func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]int64) error {
 	path := s.bloomFilterPath()
 
-	ok, err := fileExists(path)
+	loadFromDisk, err := fileExistsInList(existingFilesList, path)
 	if err != nil {
 		return err
 	}
-
-	if ok {
+	if loadFromDisk {
 		if overwrite {
 			err := os.Remove(path)
 			if err != nil {
@@ -197,17 +196,16 @@ func (s *segment) loadBloomFilterFromDisk() error {
 	return nil
 }
 
-func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool) error {
+func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFilesList map[string]int64) error {
 	before := time.Now()
 
 	path := s.bloomFilterSecondaryPath(pos)
 
-	ok, err := fileExists(path)
+	loadFromDisk, err := fileExistsInList(existingFilesList, path)
 	if err != nil {
 		return err
 	}
-
-	if ok {
+	if loadFromDisk {
 		if overwrite {
 			err := os.Remove(path)
 			if err != nil {
@@ -319,6 +317,15 @@ func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 	}
 
 	return nil
+}
+
+func fileExistsInList(nameList map[string]int64, filePath string) (bool, error) {
+	if nameList != nil {
+		_, ok := nameList[filePath]
+		return ok, nil
+	} else {
+		return fileExists(filePath)
+	}
 }
 
 // writeWithChecksum expects the data in the buffer to start at position byteops.Uint32Len so the

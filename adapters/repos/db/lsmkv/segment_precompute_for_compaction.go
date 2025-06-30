@@ -122,7 +122,7 @@ func preComputeSegmentMeta(path string, updatedCountNetAdditions int,
 	if header.Version >= segmentindex.SegmentV1 && enableChecksumValidation {
 		file.Seek(0, io.SeekStart)
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
-		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
+		if err := segmentFile.ValidateChecksum(fileInfo.Size()); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
 		}
 	}

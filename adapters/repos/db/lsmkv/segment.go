@@ -67,10 +67,6 @@ type Segment interface {
 	getCollection(key []byte) ([]value, error)
 	getInvertedData() *segmentInvertedData
 	getSegment() *segment
-	initBloomFilter(overwrite bool) error
-	initBloomFilters(metrics *Metrics, overwrite bool) error
-	initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool) error
-	initSecondaryBloomFilter(pos int, overwrite bool) error
 	isLoaded() bool
 	loadBloomFilterFromDisk() error
 	loadBloomFilterSecondaryFromDisk(pos int) error
@@ -163,6 +159,7 @@ type segmentConfig struct {
 	enableChecksumValidation bool
 	MinMMapSize              int64
 	allocChecker             memwatch.AllocChecker
+	fileList                 map[string]int64
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -198,11 +195,21 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}()
 
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("stat file: %w", err)
+	var size int64
+	if cfg.fileList != nil {
+		if fileSize, ok := cfg.fileList[file.Name()]; ok {
+			size = fileSize
+		}
 	}
-	size := fileInfo.Size()
+
+	// fallback to getting the filesize from disk in case it wasn't prefetched (for example, for new segments after compaction)
+	if size == 0 {
+		fileInfo, err := file.Stat()
+		if err != nil {
+			return nil, fmt.Errorf("stat file: %w", err)
+		}
+		size = fileInfo.Size()
+	}
 
 	// mmap has some overhead, we can read small files directly to memory
 	var contents []byte
@@ -227,7 +234,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	useBloomFilter := cfg.useBloomFilter
 	readFromMemory := cfg.mmapContents
 	if size > cfg.MinMMapSize || cfg.allocChecker == nil || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
-		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
+		contents2, err := mmap.MapRegion(file, int(size), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
 		}
@@ -256,7 +263,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation {
 		file.Seek(0, io.SeekStart)
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
-		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
+		if err := segmentFile.ValidateChecksum(size); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
 		}
 	}
@@ -340,12 +347,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	if seg.useBloomFilter {
-		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived); err != nil {
+		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived, cfg.fileList); err != nil {
 			return nil, err
 		}
 	}
 	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived); err != nil {
+		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.fileList); err != nil {
 			return nil, err
 		}
 	}
