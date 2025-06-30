@@ -19,7 +19,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"time"
 
@@ -40,7 +39,7 @@ func (s *segment) bloomFilterSecondaryPath(pos int) string {
 	return fmt.Sprintf("%s.secondary.%d.bloom", extless, pos)
 }
 
-func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool, existingFilesList []string) error {
+func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool, existingFilesList map[string]int64) error {
 	if err := s.initBloomFilter(overwrite, existingFilesList); err != nil {
 		return fmt.Errorf("init bloom filter for primary index: %w", err)
 	}
@@ -56,7 +55,7 @@ func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool, existingFil
 	return nil
 }
 
-func (s *segment) initBloomFilter(overwrite bool, existingFilesList []string) error {
+func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]int64) error {
 	path := s.bloomFilterPath()
 
 	loadFromDisk, err := fileExistsInList(existingFilesList, path)
@@ -197,7 +196,7 @@ func (s *segment) loadBloomFilterFromDisk() error {
 	return nil
 }
 
-func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFilesList []string) error {
+func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFilesList map[string]int64) error {
 	before := time.Now()
 
 	path := s.bloomFilterSecondaryPath(pos)
@@ -320,9 +319,10 @@ func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
 	return nil
 }
 
-func fileExistsInList(nameList []string, filePath string) (bool, error) {
+func fileExistsInList(nameList map[string]int64, filePath string) (bool, error) {
 	if nameList != nil {
-		return slices.Contains(nameList, filepath.Base(filePath)), nil
+		_, ok := nameList[filePath]
+		return ok, nil
 	} else {
 		return fileExists(filePath)
 	}

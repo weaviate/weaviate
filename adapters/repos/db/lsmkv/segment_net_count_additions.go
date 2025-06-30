@@ -45,7 +45,7 @@ func countNetPathFromSegmentPath(segPath string) string {
 	return fmt.Sprintf("%s.cna", extless)
 }
 
-func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, existingFilesList []string) error {
+func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, existingFilesList map[string]int64) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
 		return nil
