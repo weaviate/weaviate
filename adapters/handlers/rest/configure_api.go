@@ -537,7 +537,8 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		return copier.NewFileReplicationServiceClient(clientConn, authConfig), nil
 	}
 
-	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, appState.Cluster, copier.DefaultConcurrency, dataPath, appState.DB, appState.Logger)
+	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, appState.Cluster,
+		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers, dataPath, appState.DB, appState.Logger)
 
 	rConfig := rCluster.Config{
 		WorkDir:                         filepath.Join(dataPath, config.DefaultRaftDir),

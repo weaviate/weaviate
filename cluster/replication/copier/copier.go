@@ -39,8 +39,6 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 )
 
-const DefaultConcurrency = 10
-
 // Copier for shard replicas, can copy a shard replica from one node to another.
 type Copier struct {
 	// clientFactory is a factory function to create a gRPC client for the remote node
@@ -66,10 +64,6 @@ type Copier struct {
 func New(clientFactory FileReplicationServiceClientFactory, remoteIndex types.RemoteIndex, nodeSelector cluster.NodeSelector,
 	concurrentWorkers int, rootPath string, dbWrapper types.DbWrapper, logger logrus.FieldLogger,
 ) *Copier {
-	if concurrentWorkers <= 0 {
-		concurrentWorkers = DefaultConcurrency
-	}
-
 	return &Copier{
 		clientFactory:     clientFactory,
 		remoteIndex:       remoteIndex,
