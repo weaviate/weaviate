@@ -60,12 +60,30 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, fmt.Errorf("cannot process add object: %w", err)
 	}
 
-	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
+	obj, err := m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
+	if err != nil {
+		return nil, err
+	}
+
+	if obj.Class != className {
+		alias := className
+		obj.Class = alias
+	}
+
+	return obj, nil
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,
 	object *models.Object, repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (*models.Object, error) {
+	//fetched := m.schemaManager.ReadOnlyClass(object.Class)
+	//if fetched == nil {
+	//	return nil, fmt.Errorf("class %s not found", object.Class)
+	//}
+	//if fetched.Class != object.Class {
+	//	object.Class = fetched.Class
+	//}
+
 	id, err := m.checkIDOrAssignNew(ctx, principal, object.Class, object.ID, repl, object.Tenant)
 	if err != nil {
 		return nil, err

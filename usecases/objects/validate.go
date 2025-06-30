@@ -14,6 +14,7 @@ package objects
 import (
 	"context"
 	"errors"
+	"fmt"
 
 	"github.com/weaviate/weaviate/entities/classcache"
 
@@ -31,7 +32,11 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
 	className := schema.UppercaseClassName(obj.Class)
-	obj.Class = className
+	class := m.schemaManager.ReadOnlyClass(className)
+	if class == nil {
+		return fmt.Errorf("class %s not found", className)
+	}
+	obj.Class = class.Class
 
 	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))
 	if err != nil {

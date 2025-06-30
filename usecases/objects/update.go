@@ -28,7 +28,7 @@ import (
 )
 
 // UpdateObject updates object of class.
-// If the class contains a network ref, it has a side-effect on the schema: The schema will be updated to
+// If the class contains a network ref, it has a side effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
@@ -72,6 +72,20 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		return nil, err
 	}
 
+	var (
+		class *models.Class
+		alias string
+	)
+	if obj.ClassName != updates.Class {
+		class = m.schemaManager.ReadOnlyClass(className)
+		if class != nil {
+			updates.Class = class.Class
+			alias = className
+		}
+	} else {
+		class = fetchedClasses[className].Class
+	}
+
 	maxSchemaVersion := fetchedClasses[className].Version
 	schemaVersion, err := m.autoSchemaManager.autoSchema(ctx, principal, false, fetchedClasses, updates)
 	if err != nil {
@@ -87,8 +101,6 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		WithField("updated", updates).
 		WithField("id", id).
 		Debug("received update kind request")
-
-	class := fetchedClasses[className].Class
 
 	prevObj := obj.Object()
 	err = m.validateObjectAndNormalizeNames(ctx, repl, updates, prevObj, fetchedClasses)
@@ -119,6 +131,10 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, vectors, multiVectors, repl, maxSchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
+	}
+
+	if alias != "" {
+		updates.Class = alias
 	}
 
 	return updates, nil
