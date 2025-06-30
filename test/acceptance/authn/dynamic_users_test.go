@@ -42,9 +42,12 @@ func TestCreateUser(t *testing.T) {
 	otherUser4 := "custom-user4"
 	otherKey4 := "custom-key4"
 
+	otherUser5 := "custom-user5"
+	otherKey5 := "custom-key5"
+
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	compose, err := docker.New().WithWeaviate().
-		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithUserApiKey(otherUser2, otherKey2).WithUserApiKey(otherUser3, otherKey3).WithUserApiKey(otherUser4, otherKey4).
+		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(otherUser, otherKey).WithUserApiKey(otherUser2, otherKey2).WithUserApiKey(otherUser3, otherKey3).WithUserApiKey(otherUser4, otherKey4).WithUserApiKey(otherUser5, otherKey5).
 		WithDbUsers().
 		WithRBAC().WithRbacRoots(adminUser).
 		Start(ctx)
@@ -55,7 +58,6 @@ func TestCreateUser(t *testing.T) {
 		require.NoError(t, compose.Terminate(ctx))
 		cancel()
 	}()
-
 	userName := "CreateUserTestUser"
 
 	t.Run("create and delete user", func(t *testing.T) {
@@ -176,7 +178,7 @@ func TestCreateUser(t *testing.T) {
 		require.Equal(t, 401, parsed.Code())
 	})
 
-	t.Run("import static user and suspend", func(t *testing.T) {
+	t.Run("import static user and suspend with rotate", func(t *testing.T) {
 		key := helper.CreateUserWithApiKey(t, otherUser4, adminKey, nil)
 
 		info := helper.GetInfoForOwnUser(t, key)
@@ -198,6 +200,24 @@ func TestCreateUser(t *testing.T) {
 
 		newKey := helper.RotateKey(t, otherUser4, adminKey)
 		helper.GetInfoForOwnUser(t, newKey)
+	})
+
+	t.Run("import static user and suspend without rotate", func(t *testing.T) {
+		key := helper.CreateUserWithApiKey(t, otherUser5, adminKey, nil)
+
+		info := helper.GetInfoForOwnUser(t, key)
+		require.Equal(t, otherUser5, *info.Username)
+
+		helper.DeactivateUser(t, adminKey, otherUser5, false)
+
+		_, err := helper.Client(t).Users.GetOwnInfo(users.NewGetOwnInfoParams(), helper.CreateAuth(otherKey5))
+		require.Error(t, err)
+		var parsed *users.GetOwnInfoUnauthorized
+		require.True(t, errors.As(err, &parsed))
+		require.Equal(t, 401, parsed.Code())
+
+		helper.ActivateUser(t, adminKey, otherUser5)
+		helper.GetInfoForOwnUser(t, key)
 	})
 }
 

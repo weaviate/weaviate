@@ -327,6 +327,10 @@ func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
 		if subtle.ConstantTimeCompare(keyHashGiven[:], keyHashStored[:]) != 1 {
 			continue
 		}
+		if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
+			return nil, fmt.Errorf("user deactivated")
+		}
+
 		if _, ok := c.data.UserKeyRevoked[userId]; ok {
 			return nil, fmt.Errorf("key is revoked")
 		}
