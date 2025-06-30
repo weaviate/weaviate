@@ -76,7 +76,7 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 		return out, err
 	}
 
-	out.ClassName = req.Collection
+	out.ClassName = class.Class
 	out.ReplicationProperties = extractReplicationProperties(req.ConsistencyLevel)
 
 	out.Tenant = req.Tenant

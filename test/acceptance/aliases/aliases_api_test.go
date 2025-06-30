@@ -180,5 +180,17 @@ func Test_AliasesAPI(t *testing.T) {
 			errorPayload, _ := json.MarshalIndent(err, "", " ")
 			assert.Contains(t, string(errorPayload), fmt.Sprintf("class name %s already exists", class.Class))
 		})
+
+		t.Run("get class objects with alias", func(t *testing.T) {
+			objWithClassName, err := helper.GetObject(t, books.DefaultClassName, books.ProjectHailMary)
+			require.NoError(t, err)
+			require.NotNil(t, objWithClassName)
+			aliasName := "BookAlias"
+			objWithAlias, err := helper.GetObject(t, aliasName, books.ProjectHailMary)
+			require.NoError(t, err)
+			require.NotNil(t, objWithAlias)
+			assert.Equal(t, objWithAlias.Class, objWithAlias.Class)
+			assert.Equal(t, objWithAlias.ID, objWithAlias.ID)
+		})
 	})
 }
