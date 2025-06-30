@@ -6,3 +6,8 @@ tenant_activity_write_log_level: info
 query_slow_log_enabled: true
 query_slow_log_threshold: 100ms
 inverted_sorter_disabled: false
+
+# exp_oidc_username_claim: "sub"
+# exp_oidc_client_id: "<client_id>"
+# exp_oidc_issuer: "<issuer_url>"
+# exp_oidc_groups_claim: "teams"
