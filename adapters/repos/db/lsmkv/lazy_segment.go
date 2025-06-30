@@ -230,9 +230,9 @@ func (s *lazySegment) initBloomFilters(metrics *Metrics, overwrite bool) error {
 	return s.segment.initBloomFilters(metrics, overwrite)
 }
 
-func (s *lazySegment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool) error {
+func (s *lazySegment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int) error {
 	s.mustLoad()
-	return s.segment.initCountNetAdditions(exists, overwrite)
+	return s.segment.initCountNetAdditions(exists, overwrite, precomputedCNAValue)
 }
 
 func (s *lazySegment) initSecondaryBloomFilter(pos int, overwrite bool) error {
