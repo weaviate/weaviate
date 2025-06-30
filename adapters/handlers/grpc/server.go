@@ -80,6 +80,8 @@ func CreateGRPCServer(state *state.State, options ...grpc.ServerOption) *grpc.Se
 
 	interceptors = append(interceptors, makeIPInterceptor())
 
+	interceptors = append(interceptors, makeMaintenanceModeInterceptor(state.Cluster.MaintenanceModeEnabledForLocalhost))
+
 	if len(interceptors) > 0 {
 		o = append(o, grpc.ChainUnaryInterceptor(interceptors...))
 	}
@@ -162,6 +164,15 @@ func makeIPInterceptor() grpc.UnaryServerInterceptor {
 		// Add IP to context
 		ctx = context.WithValue(ctx, "sourceIp", clientIP)
 
+		return handler(ctx, req)
+	}
+}
+
+func makeMaintenanceModeInterceptor(maintenanceModeEnabledForLocalhost func() bool) grpc.UnaryServerInterceptor {
+	return func(ctx context.Context, req any, info *grpc.UnaryServerInfo, handler grpc.UnaryHandler) (any, error) {
+		if maintenanceModeEnabledForLocalhost() {
+			return nil, status.Error(codes.Unavailable, "server is in maintenance mode")
+		}
 		return handler(ctx, req)
 	}
 }
