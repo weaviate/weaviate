@@ -40,6 +40,7 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 	alias *models.Alias,
 ) (*models.Alias, uint64, error) {
 	alias.Class = schema.UppercaseClassName(alias.Class)
+	alias.Alias = schema.UppercaseClassName(alias.Alias)
 	err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.Aliases(alias.Class, alias.Alias)...)
 	if err != nil {
 		return nil, 0, err
@@ -55,6 +56,8 @@ func (h *Handler) AddAlias(ctx context.Context, principal *models.Principal,
 func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 	aliasName, targetClassName string,
 ) (*models.Alias, error) {
+	targetClassName = schema.UppercaseClassName(targetClassName)
+	aliasName = schema.UppercaseClassName(aliasName)
 	err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Aliases(targetClassName, aliasName)...)
 	if err != nil {
 		return nil, err
@@ -78,6 +81,7 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 }
 
 func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, aliasName string) error {
+	aliasName = schema.UppercaseClassName(aliasName)
 	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases("", aliasName)...)
 	if err != nil {
 		return err

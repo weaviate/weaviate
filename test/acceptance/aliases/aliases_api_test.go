@@ -13,11 +13,13 @@ package test
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client/schema"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -66,7 +68,7 @@ func Test_AliasesAPI(t *testing.T) {
 		}{
 			{
 				name:  books.DefaultClassName,
-				alias: &models.Alias{Alias: "BoookAlias", Class: books.DefaultClassName},
+				alias: &models.Alias{Alias: "BookAlias", Class: books.DefaultClassName},
 			},
 			{
 				name:  documents.Document,
@@ -137,5 +139,46 @@ func Test_AliasesAPI(t *testing.T) {
 		checkAliasesCount(t, 6)
 		helper.DeleteAlias(t, "AliasThatWillBeReplaced")
 		checkAliasesCount(t, 5)
+	})
+
+	t.Run("create with clashing names", func(t *testing.T) {
+		t.Run("create aliases", func(t *testing.T) {
+			tests := []struct {
+				name             string
+				alias            *models.Alias
+				expectedErrorMsg string
+			}{
+				{
+					name:             "clashing class name",
+					alias:            &models.Alias{Alias: books.DefaultClassName, Class: documents.Passage},
+					expectedErrorMsg: fmt.Sprintf("create alias: class %s already exists", documents.Passage),
+				},
+				{
+					name:             "clashing alias name",
+					alias:            &models.Alias{Alias: "BookAlias", Class: documents.Passage},
+					expectedErrorMsg: fmt.Sprintf("create alias: alias %s already exists", "BookAlias"),
+				},
+			}
+			for _, tt := range tests {
+				t.Run(tt.name, func(t *testing.T) {
+					alias := tt.alias
+					params := schema.NewAliasesCreateParams().WithBody(alias)
+					resp, err := helper.Client(t).Schema.AliasesCreate(params, nil)
+					require.Nil(t, resp)
+					require.Error(t, err)
+					errorPayload, _ := json.MarshalIndent(err, "", " ")
+					assert.Contains(t, string(errorPayload), tt.expectedErrorMsg)
+				})
+			}
+		})
+		t.Run("create class", func(t *testing.T) {
+			class := books.ClassModel2VecVectorizerWithName("BookAlias")
+			params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+			resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+			require.Nil(t, resp)
+			require.Error(t, err)
+			errorPayload, _ := json.MarshalIndent(err, "", " ")
+			assert.Contains(t, string(errorPayload), fmt.Sprintf("class name %s already exists", class.Class))
+		})
 	})
 }
