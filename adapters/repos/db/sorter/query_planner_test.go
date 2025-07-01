@@ -193,7 +193,7 @@ func TestQueryPlanner(t *testing.T) {
 			require.Nil(t, err)
 			defer store.Shutdown(ctx)
 
-			err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM)
+			err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, lsmkv.WithCalcCountNetAdditions(true))
 			require.Nil(t, err)
 
 			objectsB := store.Bucket(helpers.ObjectsBucketLSM)

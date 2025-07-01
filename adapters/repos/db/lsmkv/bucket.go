@@ -200,7 +200,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		logger:                logger,
 		metrics:               metrics,
 		useBloomFilter:        true,
-		calcCountNetAdditions: true,
+		calcCountNetAdditions: false,
 		haltedFlushTimer:      interval.NewBackoffTimer(),
 	}
 
