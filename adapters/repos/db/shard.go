@@ -423,37 +423,12 @@ func (s *Shard) isLoaded() bool {
 }
 
 func (s *Shard) ObjectStorageSize(ctx context.Context) int64 {
-	// Check if tenant is loaded
-	if s.isLoaded() {
-		bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
-		if bucket == nil {
-			return 0
-		}
-		// In-memory: sum object sizes
-		totalSize := int64(0)
-		err := bucket.IterateObjects(ctx, func(obj *storobj.Object) error {
-			bin, err := obj.MarshalBinary()
-			if err != nil {
-				return err
-			}
-			totalSize += int64(len(bin))
-			return nil
-		})
-		if err != nil {
-			return 0
-		}
-		return totalSize
-	}
-
-	// For non-loaded shards, use disk size calculation
-	s.statusLock.Lock()
-	defer s.statusLock.Unlock()
-
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
 		return 0
 	}
 
+	// Use efficient disk payload size calculation for both loaded and non-loaded shards
 	return bucket.DiskPayloadSize()
 }
 
