@@ -1040,8 +1040,8 @@
       "description": "Represents an error encountered during a replication operation, including its timestamp and a human-readable message.",
       "type": "object",
       "properties": {
-        "whenErroredUnix": {
-          "description": "The timestamp when the error occurred. This is an approximate time and so should not be used for precise timing.",
+        "whenErroredUnixMs": {
+          "description": "The unix timestamp in ms when the error occurred. This is an approximate time and so should not be used for precise timing.",
           "format": "int64",
           "type": "integer"
         },
@@ -1067,8 +1067,8 @@
             "CANCELLED"
           ]
         },
-        "whenStartedUnix": {
-          "description": "The timestamp when this state was first entered. This is an approximate time and so should not be used for precise timing.",
+        "whenStartedUnixMs": {
+          "description": "The UNIX timestamp in ms when this state was first entered. This is an approximate time and so should not be used for precise timing.",
           "format": "int64",
           "type": "integer"
         },
@@ -1137,8 +1137,8 @@
             "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatus"
           }
         },
-        "whenStartedUnix": {
-          "description": "The timestamp when the replication operation was initiated. This is an approximate time and so should not be used for precise timing.",
+        "whenStartedUnixMs": {
+          "description": "The UNIX timestamp in ms when the replication operation was initiated. This is an approximate time and so should not be used for precise timing.",
           "format": "int64",
           "type": "integer"
         }

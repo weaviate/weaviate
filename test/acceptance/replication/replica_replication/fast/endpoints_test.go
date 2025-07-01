@@ -147,13 +147,13 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		require.False(t, details.Payload.ScheduledForDelete)
 		require.False(t, details.Payload.Uncancelable)
 		require.Equal(t, id, *details.Payload.ID)
-		require.NotNil(t, details.Payload.WhenStartedUnix)
-		require.Less(t, details.Payload.WhenStartedUnix, time.Now())
-		require.NotNil(t, details.Payload.Status.WhenStartedUnix)
-		require.Less(t, details.Payload.Status.WhenStartedUnix, time.Now())
+		require.NotNil(t, details.Payload.WhenStartedUnixMs)
+		require.Less(t, details.Payload.WhenStartedUnixMs, time.Now())
+		require.NotNil(t, details.Payload.Status.WhenStartedUnixMs)
+		require.Less(t, details.Payload.Status.WhenStartedUnixMs, time.Now())
 		for _, status := range details.Payload.StatusHistory {
-			require.NotNil(t, status.WhenStartedUnix)
-			require.Less(t, status.WhenStartedUnix, time.Now())
+			require.NotNil(t, status.WhenStartedUnixMs)
+			require.Less(t, status.WhenStartedUnixMs, time.Now())
 		}
 	})
 

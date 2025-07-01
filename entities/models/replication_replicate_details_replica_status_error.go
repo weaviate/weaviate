@@ -31,8 +31,8 @@ type ReplicationReplicateDetailsReplicaStatusError struct {
 	// A human-readable message describing the error.
 	Message string `json:"message,omitempty"`
 
-	// The timestamp when the error occurred. This is an approximate time and so should not be used for precise timing.
-	WhenErroredUnix int64 `json:"whenErroredUnix,omitempty"`
+	// The unix timestamp in ms when the error occurred. This is an approximate time and so should not be used for precise timing.
+	WhenErroredUnixMs int64 `json:"whenErroredUnixMs,omitempty"`
 }
 
 // Validate validates this replication replicate details replica status error

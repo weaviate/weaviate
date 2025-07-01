@@ -108,14 +108,14 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 			errors := make([]*models.ReplicationReplicateDetailsReplicaStatusError, 0, len(status.Errors))
 			for _, err := range status.Errors {
 				errors = append(errors, &models.ReplicationReplicateDetailsReplicaStatusError{
-					Message:         err.Message,
-					WhenErroredUnix: err.ErroredTimeUnix,
+					Message:           err.Message,
+					WhenErroredUnixMs: err.ErroredTimeUnixMs,
 				})
 			}
 			history[i] = &models.ReplicationReplicateDetailsReplicaStatus{
-				State:           status.State,
-				Errors:          errors,
-				WhenStartedUnix: status.StartTimeUnix,
+				State:             status.State,
+				Errors:            errors,
+				WhenStartedUnixMs: status.StartTimeUnixMs,
 			}
 		}
 	}
@@ -123,8 +123,8 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 	errors := make([]*models.ReplicationReplicateDetailsReplicaStatusError, 0, len(response.Status.Errors))
 	for _, err := range response.Status.Errors {
 		errors = append(errors, &models.ReplicationReplicateDetailsReplicaStatusError{
-			Message:         err.Message,
-			WhenErroredUnix: err.ErroredTimeUnix,
+			Message:           err.Message,
+			WhenErroredUnixMs: err.ErroredTimeUnixMs,
 		})
 	}
 
@@ -138,13 +138,13 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 		ScheduledForCancel: response.ScheduledForCancel,
 		ScheduledForDelete: response.ScheduledForDelete,
 		Status: &models.ReplicationReplicateDetailsReplicaStatus{
-			State:           response.Status.State,
-			Errors:          errors,
-			WhenStartedUnix: response.StartTimeUnix,
+			State:             response.Status.State,
+			Errors:            errors,
+			WhenStartedUnixMs: response.StartTimeUnixMs,
 		},
-		StatusHistory:   history,
-		Type:            &response.TransferType,
-		WhenStartedUnix: response.StartTimeUnix,
+		StatusHistory:     history,
+		Type:              &response.TransferType,
+		WhenStartedUnixMs: response.StartTimeUnixMs,
 	}
 }
 

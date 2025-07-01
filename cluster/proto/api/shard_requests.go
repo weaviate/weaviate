@@ -108,14 +108,14 @@ type ReplicationDetailsRequestByTargetNode struct {
 }
 
 type ReplicationDetailsError struct {
-	Message         string
-	ErroredTimeUnix int64 // Unix timestamp when the error occurred
+	Message           string
+	ErroredTimeUnixMs int64 // Unix timestamp in milliseconds when the error occurred
 }
 
 type ReplicationDetailsState struct {
-	State         string
-	Errors        []ReplicationDetailsError
-	StartTimeUnix int64 // Unix timestamp when the state was first entered
+	State           string
+	Errors          []ReplicationDetailsError
+	StartTimeUnixMs int64 // Unix timestamp in milliseconds when the state was first entered
 }
 
 type ReplicationDetailsResponse struct {
@@ -130,10 +130,10 @@ type ReplicationDetailsResponse struct {
 	ScheduledForCancel bool
 	ScheduledForDelete bool
 
-	Status        ReplicationDetailsState
-	StatusHistory []ReplicationDetailsState
-	TransferType  string
-	StartTimeUnix int64
+	Status          ReplicationDetailsState
+	StatusHistory   []ReplicationDetailsState
+	TransferType    string
+	StartTimeUnixMs int64
 }
 
 type ReplicationCancelRequest struct {

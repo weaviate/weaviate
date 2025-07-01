@@ -30,8 +30,8 @@ type State struct {
 	State api.ShardReplicationState
 	// Errors is the list of errors that occurred during this state
 	Errors []api.ReplicationDetailsError
-	// StartTimeUnix is the Unix timestamp when the state was first entered
-	StartTimeUnix int64
+	// Ms is the Unix timestamp in milliseconds when the state was first entered
+	StartTimeUnixMs int64
 }
 
 // StateHistory is the history of the state changes of the shard replication operation
@@ -76,8 +76,8 @@ func (s *ShardReplicationOpStatus) AddError(error string, time time.Time) error 
 		return ErrMaxErrorsReached
 	}
 	s.Current.Errors = append(s.Current.Errors, api.ReplicationDetailsError{
-		Message:         error,
-		ErroredTimeUnix: time.Unix(),
+		Message:           error,
+		ErroredTimeUnixMs: time.UnixMilli(),
 	})
 	return nil
 }
@@ -86,9 +86,9 @@ func (s *ShardReplicationOpStatus) AddError(error string, time time.Time) error 
 func (s *ShardReplicationOpStatus) ChangeState(nextState api.ShardReplicationState) {
 	s.History = append(s.History, s.Current)
 	s.Current = State{
-		State:         nextState,
-		Errors:        []api.ReplicationDetailsError{},
-		StartTimeUnix: time.Now().Unix(),
+		State:           nextState,
+		Errors:          []api.ReplicationDetailsError{},
+		StartTimeUnixMs: time.Now().UnixMilli(),
 	}
 }
 
@@ -136,9 +136,9 @@ func (s *ShardReplicationOpStatus) GetHistory() StateHistory {
 // ToAPIFormat converts the State to the API format
 func (s State) ToAPIFormat() api.ReplicationDetailsState {
 	return api.ReplicationDetailsState{
-		State:         s.State.String(),
-		Errors:        s.Errors,
-		StartTimeUnix: s.StartTimeUnix,
+		State:           s.State.String(),
+		Errors:          s.Errors,
+		StartTimeUnixMs: s.StartTimeUnixMs,
 	}
 }
 
