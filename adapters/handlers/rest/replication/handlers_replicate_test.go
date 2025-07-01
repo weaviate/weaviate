@@ -16,6 +16,7 @@ import (
 	"math/rand"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -300,6 +301,7 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		status := randomString(statusOptions)
 		replicationType := randomReplicationType()
 
+		startTime := time.Now().UnixMilli()
 		expectedResponse := api.ReplicationDetailsResponse{
 			Uuid:         id,
 			Collection:   collection,
@@ -307,11 +309,13 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			SourceNodeId: sourceNodeId,
 			TargetNodeId: targetNodeId,
 			Status: api.ReplicationDetailsState{
-				State:  status,
-				Errors: []string{},
+				State:           status,
+				Errors:          []api.ReplicationDetailsError{},
+				StartTimeUnixMs: startTime,
 			},
-			StatusHistory: []api.ReplicationDetailsState{},
-			TransferType:  replicationType,
+			StatusHistory:   []api.ReplicationDetailsState{},
+			TransferType:    replicationType,
+			StartTimeUnixMs: startTime,
 		}
 
 		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -332,7 +336,11 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNode)
 		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNode)
 		assert.Equal(t, status, replicationDetails.Payload.Status.State)
+		assert.Equal(t, 0, len(replicationDetails.Payload.Status.Errors))
+		assert.Equal(t, startTime, replicationDetails.Payload.Status.WhenStartedUnixMs)
 		assert.Equal(t, 0, len(replicationDetails.Payload.StatusHistory))
+		assert.Equal(t, replicationType, *replicationDetails.Payload.Type)
+		assert.Equal(t, startTime, replicationDetails.Payload.WhenStartedUnixMs)
 	})
 
 	t.Run("successful retrieval with history", func(t *testing.T) {
@@ -361,6 +369,10 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		status := randomString(statusOptions)
 		historyStatus := randomString(statusOptions)
 
+		startTime := time.Now().Add(-time.Hour).UnixMilli()
+		firstErrorTime := time.Now().Add(-time.Hour).UnixMilli()
+		secondErrorTime := time.Now().Add(-time.Hour).Add(time.Minute).UnixMilli()
+
 		expectedResponse := api.ReplicationDetailsResponse{
 			Uuid:         uuid,
 			Id:           id,
@@ -370,14 +382,16 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			TargetNodeId: targetNodeId,
 			Status: api.ReplicationDetailsState{
 				State:  status,
-				Errors: []string{},
+				Errors: []api.ReplicationDetailsError{},
 			},
 			StatusHistory: []api.ReplicationDetailsState{
 				{
-					State:  historyStatus,
-					Errors: []string{"error1", "error2"},
+					State:           historyStatus,
+					Errors:          []api.ReplicationDetailsError{{Message: "error1", ErroredTimeUnixMs: firstErrorTime}, {Message: "error2", ErroredTimeUnixMs: secondErrorTime}},
+					StartTimeUnixMs: startTime,
 				},
 			},
+			StartTimeUnixMs: startTime,
 		}
 
 		mockAuthorizer.EXPECT().Authorize(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
@@ -398,8 +412,14 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNode)
 		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNode)
 		assert.Equal(t, status, replicationDetails.Payload.Status.State)
+		assert.Equal(t, 0, len(replicationDetails.Payload.Status.Errors))
+		assert.Equal(t, startTime, replicationDetails.Payload.Status.WhenStartedUnixMs)
 		assert.Equal(t, historyStatus, replicationDetails.Payload.StatusHistory[0].State)
-		assert.Equal(t, []string{"error1", "error2"}, replicationDetails.Payload.StatusHistory[0].Errors)
+		assert.Equal(t, "error1", replicationDetails.Payload.StatusHistory[0].Errors[0].Message)
+		assert.Equal(t, "error2", replicationDetails.Payload.StatusHistory[0].Errors[1].Message)
+		assert.Equal(t, firstErrorTime, replicationDetails.Payload.StatusHistory[0].Errors[0].WhenErroredUnixMs)
+		assert.Equal(t, secondErrorTime, replicationDetails.Payload.StatusHistory[0].Errors[1].WhenErroredUnixMs)
+		assert.Equal(t, startTime, replicationDetails.Payload.WhenStartedUnixMs)
 	})
 
 	t.Run("request id not found authorized", func(t *testing.T) {

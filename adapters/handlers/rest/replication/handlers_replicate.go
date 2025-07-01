@@ -105,11 +105,27 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 	if withHistory {
 		history = make([]*models.ReplicationReplicateDetailsReplicaStatus, len(response.StatusHistory))
 		for i, status := range response.StatusHistory {
+			errors := make([]*models.ReplicationReplicateDetailsReplicaStatusError, 0, len(status.Errors))
+			for _, err := range status.Errors {
+				errors = append(errors, &models.ReplicationReplicateDetailsReplicaStatusError{
+					Message:           err.Message,
+					WhenErroredUnixMs: err.ErroredTimeUnixMs,
+				})
+			}
 			history[i] = &models.ReplicationReplicateDetailsReplicaStatus{
-				State:  status.State,
-				Errors: status.Errors,
+				State:             status.State,
+				Errors:            errors,
+				WhenStartedUnixMs: status.StartTimeUnixMs,
 			}
 		}
+	}
+
+	errors := make([]*models.ReplicationReplicateDetailsReplicaStatusError, 0, len(response.Status.Errors))
+	for _, err := range response.Status.Errors {
+		errors = append(errors, &models.ReplicationReplicateDetailsReplicaStatusError{
+			Message:           err.Message,
+			WhenErroredUnixMs: err.ErroredTimeUnixMs,
+		})
 	}
 
 	return &models.ReplicationReplicateDetailsReplicaResponse{
@@ -122,11 +138,13 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 		ScheduledForCancel: response.ScheduledForCancel,
 		ScheduledForDelete: response.ScheduledForDelete,
 		Status: &models.ReplicationReplicateDetailsReplicaStatus{
-			State:  response.Status.State,
-			Errors: response.Status.Errors,
+			State:             response.Status.State,
+			Errors:            errors,
+			WhenStartedUnixMs: response.StartTimeUnixMs,
 		},
-		StatusHistory: history,
-		Type:          &response.TransferType,
+		StatusHistory:     history,
+		Type:              &response.TransferType,
+		WhenStartedUnixMs: response.StartTimeUnixMs,
 	}
 }
 

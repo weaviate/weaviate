@@ -7751,6 +7751,11 @@ func init() {
         "uncancelable": {
           "description": "Whether the replica operation is uncancelable.",
           "type": "boolean"
+        },
+        "whenStartedUnixMs": {
+          "description": "The UNIX timestamp in ms when the replication operation was initiated. This is an approximate time and so should not be used for precise timing.",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -7762,7 +7767,7 @@ func init() {
           "description": "A list of error messages encountered by this replica during the replication operation, if any.",
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatusError"
           }
         },
         "state": {
@@ -7776,6 +7781,26 @@ func init() {
             "READY",
             "CANCELLED"
           ]
+        },
+        "whenStartedUnixMs": {
+          "description": "The UNIX timestamp in ms when this state was first entered. This is an approximate time and so should not be used for precise timing.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaStatusError": {
+      "description": "Represents an error encountered during a replication operation, including its timestamp and a human-readable message.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "description": "A human-readable message describing the error.",
+          "type": "string"
+        },
+        "whenErroredUnixMs": {
+          "description": "The unix timestamp in ms when the error occurred. This is an approximate time and so should not be used for precise timing.",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -16769,6 +16794,11 @@ func init() {
         "uncancelable": {
           "description": "Whether the replica operation is uncancelable.",
           "type": "boolean"
+        },
+        "whenStartedUnixMs": {
+          "description": "The UNIX timestamp in ms when the replication operation was initiated. This is an approximate time and so should not be used for precise timing.",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -16780,7 +16810,7 @@ func init() {
           "description": "A list of error messages encountered by this replica during the replication operation, if any.",
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatusError"
           }
         },
         "state": {
@@ -16794,6 +16824,26 @@ func init() {
             "READY",
             "CANCELLED"
           ]
+        },
+        "whenStartedUnixMs": {
+          "description": "The UNIX timestamp in ms when this state was first entered. This is an approximate time and so should not be used for precise timing.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaStatusError": {
+      "description": "Represents an error encountered during a replication operation, including its timestamp and a human-readable message.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "description": "A human-readable message describing the error.",
+          "type": "string"
+        },
+        "whenErroredUnixMs": {
+          "description": "The unix timestamp in ms when the error occurred. This is an approximate time and so should not be used for precise timing.",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },

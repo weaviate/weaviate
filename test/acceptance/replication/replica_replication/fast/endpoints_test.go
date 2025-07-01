@@ -136,7 +136,8 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 	})
 
 	t.Run("get replication operation", func(t *testing.T) {
-		details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
+		includeHistory := true
+		details, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id).WithIncludeHistory(&includeHistory), nil)
 		require.Nil(t, err)
 		require.NotNil(t, details)
 		require.NotNil(t, details.Payload)
@@ -145,6 +146,14 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		require.False(t, details.Payload.ScheduledForDelete)
 		require.False(t, details.Payload.Uncancelable)
 		require.Equal(t, id, *details.Payload.ID)
+		require.NotNil(t, details.Payload.WhenStartedUnixMs)
+		require.Less(t, details.Payload.WhenStartedUnixMs, time.Now().UnixMilli())
+		require.NotNil(t, details.Payload.Status.WhenStartedUnixMs)
+		require.Less(t, details.Payload.Status.WhenStartedUnixMs, time.Now().UnixMilli())
+		for _, status := range details.Payload.StatusHistory {
+			require.NotNil(t, status.WhenStartedUnixMs)
+			require.Less(t, status.WhenStartedUnixMs, time.Now().UnixMilli())
+		}
 	})
 
 	t.Run("get replication operation by collection", func(t *testing.T) {
