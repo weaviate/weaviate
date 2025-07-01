@@ -7762,7 +7762,7 @@ func init() {
           "description": "A list of error messages encountered by this replica during the replication operation, if any.",
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatusError"
           }
         },
         "state": {
@@ -7776,6 +7776,26 @@ func init() {
             "READY",
             "CANCELLED"
           ]
+        },
+        "whenStartedUnix": {
+          "description": "The timestamp when this state was first entered.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaStatusError": {
+      "description": "Represents an error encountered during a replication operation, including its timestamp and a human-readable message.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "description": "A human-readable message describing the error.",
+          "type": "string"
+        },
+        "whenErroredUnix": {
+          "description": "The timestamp when the error occurred.",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -16780,7 +16800,7 @@ func init() {
           "description": "A list of error messages encountered by this replica during the replication operation, if any.",
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatusError"
           }
         },
         "state": {
@@ -16794,6 +16814,26 @@ func init() {
             "READY",
             "CANCELLED"
           ]
+        },
+        "whenStartedUnix": {
+          "description": "The timestamp when this state was first entered.",
+          "type": "integer",
+          "format": "int64"
+        }
+      }
+    },
+    "ReplicationReplicateDetailsReplicaStatusError": {
+      "description": "Represents an error encountered during a replication operation, including its timestamp and a human-readable message.",
+      "type": "object",
+      "properties": {
+        "message": {
+          "description": "A human-readable message describing the error.",
+          "type": "string"
+        },
+        "whenErroredUnix": {
+          "description": "The timestamp when the error occurred.",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },

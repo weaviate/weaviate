@@ -13,6 +13,7 @@ package replication
 
 import (
 	"errors"
+	"time"
 
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
@@ -28,7 +29,7 @@ type State struct {
 	// State is the current state of the shard replication operation
 	State api.ShardReplicationState
 	// Errors is the list of errors that occurred during this state
-	Errors []string
+	Errors []api.ReplicationDetailsError
 }
 
 // StateHistory is the history of the state changes of the shard replication operation
@@ -68,11 +69,14 @@ func NewShardReplicationStatus(state api.ShardReplicationState) ShardReplication
 }
 
 // AddError adds an error to the current state of the shard replication operation
-func (s *ShardReplicationOpStatus) AddError(error string) error {
+func (s *ShardReplicationOpStatus) AddError(error string, time time.Time) error {
 	if len(s.Current.Errors) >= MaxErrors {
 		return ErrMaxErrorsReached
 	}
-	s.Current.Errors = append(s.Current.Errors, error)
+	s.Current.Errors = append(s.Current.Errors, api.ReplicationDetailsError{
+		Message:         error,
+		ErroredTimeUnix: time.Unix(),
+	})
 	return nil
 }
 
@@ -81,7 +85,7 @@ func (s *ShardReplicationOpStatus) ChangeState(nextState api.ShardReplicationSta
 	s.History = append(s.History, s.Current)
 	s.Current = State{
 		State:  nextState,
-		Errors: []string{},
+		Errors: []api.ReplicationDetailsError{},
 	}
 }
 

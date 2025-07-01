@@ -1036,6 +1036,21 @@
         }
       }
     },
+    "ReplicationReplicateDetailsReplicaStatusError": {
+      "description": "Represents an error encountered during a replication operation, including its timestamp and a human-readable message.",
+      "type": "object",
+      "properties": {
+        "whenErroredUnix": {
+          "description": "The timestamp when the error occurred.",
+          "format": "int64",
+          "type": "integer"
+        },
+        "message": {
+          "description": "A human-readable message describing the error.",
+          "type": "string"
+        }
+      }
+    },
     "ReplicationReplicateDetailsReplicaStatus": {
       "description": "Represents the current or historical status of a shard replica involved in a replication operation, including its operational state and any associated errors.",
       "type": "object",
@@ -1052,11 +1067,16 @@
             "CANCELLED"
           ]
         },
+        "whenStartedUnix": {
+          "description": "The timestamp when this state was first entered.",
+          "format": "int64",
+          "type": "integer"
+        },
         "errors": {
           "description": "A list of error messages encountered by this replica during the replication operation, if any.",
           "type": "array",
           "items": {
-            "type": "string"
+            "$ref": "#/definitions/ReplicationReplicateDetailsReplicaStatusError"
           }
         }
       }

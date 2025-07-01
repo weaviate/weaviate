@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
@@ -547,7 +548,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						assert.ErrorAs(t, err, &expectedErr)
 					} else {
 						assert.NoError(t, err)
-						expectedFinalState.AddError(errReq.Error)
+						expectedFinalState.AddError(errReq.Error, time.Now())
 					}
 				}
 			}

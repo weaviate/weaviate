@@ -146,6 +146,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 		require.False(t, details.Payload.ScheduledForDelete)
 		require.False(t, details.Payload.Uncancelable)
 		require.Equal(t, id, *details.Payload.ID)
+		require.Less(t, details.Payload.Status.WhenStartedUnix, time.Now())
 	})
 
 	t.Run("get replication operation by collection", func(t *testing.T) {
