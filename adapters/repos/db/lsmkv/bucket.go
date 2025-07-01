@@ -1897,3 +1897,11 @@ func (b *Bucket) DiskSize() int64 {
 	}
 	return 0
 }
+
+// MetadataSize returns the total size of metadata files (.bloom and .cna) from segments in memory
+func (b *Bucket) MetadataSize() int64 {
+	if b.disk == nil {
+		return 0
+	}
+	return b.disk.MetadataSize()
+}
