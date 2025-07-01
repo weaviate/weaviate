@@ -2927,6 +2927,11 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 
 		// Only count files, not directories
 		if !info.IsDir() {
+			// Skip vector bucket files
+			if helpers.IsVectorBucket(filepath.Base(filepath.Dir(path))) {
+				return nil
+			}
+
 			totalDiskSize += info.Size()
 
 			// Look for .cna files (net count additions)
