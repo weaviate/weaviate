@@ -172,7 +172,7 @@ type Config struct {
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 
-	ReplicaMovementEnabled          bool                                 `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
+	ReplicaMovementDisabled         bool                                 `json:"replica_movement_disabled" yaml:"replica_movement_disabled"`
 	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration] `json:"REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT" yaml:"REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"`
 
 	// TenantActivityReadLogLevel is 'debug' by default as every single READ
