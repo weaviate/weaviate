@@ -711,13 +711,13 @@ func (sg *SegmentGroup) count() int {
 	return count
 }
 
-func (sg *SegmentGroup) payloadSize() int64 {
+func (sg *SegmentGroup) Size() int64 {
 	segments, release := sg.getAndLockSegments()
 	defer release()
 
 	totalSize := int64(0)
 	for _, seg := range segments {
-		totalSize += int64(seg.PayloadSize())
+		totalSize += int64(seg.Size())
 	}
 
 	return totalSize
