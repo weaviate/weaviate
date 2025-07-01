@@ -1679,17 +1679,17 @@ func (_c *MockVectorIndex_ValidateMultiBeforeInsert_Call) RunAndReturn(run func(
 	return _c
 }
 
-// VectorStorageSize provides a mock function with no fields
-func (_m *MockVectorIndex) VectorStorageSize() int64 {
-	ret := _m.Called()
+// VectorStorageSize provides a mock function with given fields: ctx
+func (_m *MockVectorIndex) VectorStorageSize(ctx context.Context) int64 {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for VectorStorageSize")
 	}
 
 	var r0 int64
-	if rf, ok := ret.Get(0).(func() int64); ok {
-		r0 = rf()
+	if rf, ok := ret.Get(0).(func(context.Context) int64); ok {
+		r0 = rf(ctx)
 	} else {
 		r0 = ret.Get(0).(int64)
 	}
@@ -1703,13 +1703,14 @@ type MockVectorIndex_VectorStorageSize_Call struct {
 }
 
 // VectorStorageSize is a helper method to define mock.On call
-func (_e *MockVectorIndex_Expecter) VectorStorageSize() *MockVectorIndex_VectorStorageSize_Call {
-	return &MockVectorIndex_VectorStorageSize_Call{Call: _e.mock.On("VectorStorageSize")}
+//   - ctx context.Context
+func (_e *MockVectorIndex_Expecter) VectorStorageSize(ctx interface{}) *MockVectorIndex_VectorStorageSize_Call {
+	return &MockVectorIndex_VectorStorageSize_Call{Call: _e.mock.On("VectorStorageSize", ctx)}
 }
 
-func (_c *MockVectorIndex_VectorStorageSize_Call) Run(run func()) *MockVectorIndex_VectorStorageSize_Call {
+func (_c *MockVectorIndex_VectorStorageSize_Call) Run(run func(ctx context.Context)) *MockVectorIndex_VectorStorageSize_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
@@ -1719,7 +1720,7 @@ func (_c *MockVectorIndex_VectorStorageSize_Call) Return(_a0 int64) *MockVectorI
 	return _c
 }
 
-func (_c *MockVectorIndex_VectorStorageSize_Call) RunAndReturn(run func() int64) *MockVectorIndex_VectorStorageSize_Call {
+func (_c *MockVectorIndex_VectorStorageSize_Call) RunAndReturn(run func(context.Context) int64) *MockVectorIndex_VectorStorageSize_Call {
 	_c.Call.Return(run)
 	return _c
 }

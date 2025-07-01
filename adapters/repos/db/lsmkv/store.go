@@ -13,6 +13,7 @@ package lsmkv
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path"
@@ -22,14 +23,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	wsync "github.com/weaviate/weaviate/entities/sync"
 )
@@ -615,4 +616,37 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 	for _, segment := range segments {
 		segment.setPath(updatePath(segment.getPath()))
 	}
+}
+
+// CalcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
+func (s *Store) CalcTargetVectorDimensionsFromStore(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []MapPair) (int, int)) (sum int, dimensions int) {
+	b := s.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return 0, 0
+	}
+
+	c := b.MapCursor()
+	defer c.Close()
+
+	var (
+		nameLen        = len(targetVector)
+		expectedKeyLen = 4 + nameLen
+	)
+
+	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
+		// for named vectors we have to additionally check if the key is prefixed with the vector name
+		keyMatches := len(k) == expectedKeyLen && (nameLen == 4 || strings.HasPrefix(string(k), targetVector))
+		if !keyMatches {
+			continue
+		}
+
+		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
+		size, dim := calcEntry(dimLength, v)
+		if dimensions == 0 && dim > 0 {
+			dimensions = dim
+		}
+		sum += size
+	}
+
+	return sum, dimensions
 }

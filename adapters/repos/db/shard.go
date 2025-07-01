@@ -433,7 +433,7 @@ func (s *Shard) VectorStorageSize(ctx context.Context) int64 {
 	totalSize := int64(0)
 
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		totalSize += index.VectorStorageSize()
+		totalSize += index.VectorStorageSize(ctx)
 		return nil
 	}); err != nil {
 		return 0
