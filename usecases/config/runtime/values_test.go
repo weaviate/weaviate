@@ -31,6 +31,7 @@ func TestDynamicValue_Unmarshal(t *testing.T) {
 			Alice  bool          `yaml:"alice"`
 			Dave   time.Duration `yaml:"dave"`
 			Status string        `yaml:"status"`
+			Slice  []string      `yaml:"slice"`
 		}{}
 		buf := `
 foo: 2
@@ -38,6 +39,7 @@ bar: 4.5
 alice: true
 dave: 20s
 status: "done"
+slice: ["one", "two", "three"]
 `
 
 		dec := yaml.NewDecoder(strings.NewReader(buf))
@@ -49,6 +51,7 @@ status: "done"
 		assert.Equal(t, true, val.Alice)
 		assert.Equal(t, 20*time.Second, val.Dave)
 		assert.Equal(t, "done", val.Status)
+		assert.Equal(t, []string{"one", "two", "three"}, val.Slice)
 	})
 
 	t.Run("derived types", func(t *testing.T) {
@@ -90,6 +93,7 @@ func TestDynamicValue(t *testing.T) {
 		dBool     DynamicValue[bool]
 		dDuration DynamicValue[time.Duration]
 		dString   DynamicValue[string]
+		dSlice    DynamicValue[[]string]
 	)
 
 	// invariant: Zero value of any `DynamicValue` is usable and should return correct
@@ -99,6 +103,7 @@ func TestDynamicValue(t *testing.T) {
 	assert.Equal(t, false, dBool.Get())
 	assert.Equal(t, time.Duration(0), dDuration.Get())
 	assert.Equal(t, "", dString.Get())
+	assert.Equal(t, []string(nil), dSlice.Get())
 
 	// invariant: `NewDynamicValue` constructor should set custom default and should override
 	// the `zero-value`
@@ -107,12 +112,14 @@ func TestDynamicValue(t *testing.T) {
 	dBool2 := NewDynamicValue(true)
 	dDuration2 := NewDynamicValue(4 * time.Second)
 	dString2 := NewDynamicValue("progress")
+	dSlice2 := NewDynamicValue([]string{"one", "two"})
 
 	assert.Equal(t, int(25), dInt2.Get())
 	assert.Equal(t, float64(18.6), dFloat2.Get())
 	assert.Equal(t, true, dBool2.Get())
 	assert.Equal(t, time.Duration(4*time.Second), dDuration2.Get())
 	assert.Equal(t, "progress", dString2.Get())
+	assert.Equal(t, []string{"one", "two"}, dSlice2.Get())
 
 	// invariant: After setting dynamic default via `SetValue`, this value should
 	// override both `zero-value` and `custom-default`.
@@ -121,12 +128,14 @@ func TestDynamicValue(t *testing.T) {
 	dBool.SetValue(false)
 	dDuration.SetValue(10 * time.Second)
 	dString.SetValue("backlog")
+	dSlice.SetValue([]string{})
 
 	assert.Equal(t, int(30), dInt.Get())
 	assert.Equal(t, float64(22.7), dFloat.Get())
 	assert.Equal(t, false, dBool.Get())
 	assert.Equal(t, time.Duration(10*time.Second), dDuration.Get())
 	assert.Equal(t, "backlog", dString.Get())
+	assert.Equal(t, []string{}, dSlice.Get())
 
 	// invariant: Zero value pointer type should return correct zero value with `Get()` without panic
 	var (
@@ -135,6 +144,7 @@ func TestDynamicValue(t *testing.T) {
 		zeroBool   *DynamicValue[bool]
 		zeroDur    *DynamicValue[time.Duration]
 		zeroString *DynamicValue[string]
+		zeroSlice  *DynamicValue[[]string]
 	)
 
 	assert.Equal(t, 0, zeroInt.Get())
@@ -142,6 +152,7 @@ func TestDynamicValue(t *testing.T) {
 	assert.Equal(t, false, zeroBool.Get())
 	assert.Equal(t, time.Duration(0), zeroDur.Get())
 	assert.Equal(t, "", zeroString.Get())
+	assert.Equal(t, []string(nil), zeroSlice.Get())
 }
 
 func Test_String(t *testing.T) {

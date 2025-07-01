@@ -122,17 +122,9 @@ func (s *Shard) prepareMergeObject(ctx context.Context, requestID string, doc *o
 }
 
 func (s *Shard) prepareDeleteObject(ctx context.Context, requestID string, uuid strfmt.UUID, deletionTime time.Time) replica.SimpleResponse {
-	bucket, obj, idBytes, docID, updateTime, err := s.canDeleteOne(ctx, uuid)
-	if err != nil {
-		return replica.SimpleResponse{
-			Errors: []replica.Error{
-				{Code: replica.StatusPreconditionFailed, Msg: err.Error()},
-			},
-		}
-	}
 	task := func(ctx context.Context) interface{} {
 		resp := replica.SimpleResponse{}
-		if err := s.deleteOne(ctx, bucket, obj, idBytes, docID, updateTime, deletionTime); err != nil {
+		if err := s.DeleteObject(ctx, uuid, deletionTime); err != nil {
 			resp.Errors = []replica.Error{
 				{Code: replica.StatusConflict, Msg: err.Error()},
 			}

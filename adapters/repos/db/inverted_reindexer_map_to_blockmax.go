@@ -823,9 +823,9 @@ func (t *ShardReindexTask_MapToBlockmax) loadReindexSearchBuckets(ctx context.Co
 
 func (t *ShardReindexTask_MapToBlockmax) loadIngestSearchBuckets(ctx context.Context,
 	logger logrus.FieldLogger, shard ShardLike, props []string,
-	disableCompaction, keepTombstones bool,
+	keepLevelCompaction, keepTombstones bool,
 ) error {
-	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, disableCompaction, keepTombstones, t.config.memtableOptBlockmaxFactor)
+	bucketOpts := t.bucketOptions(shard, lsmkv.StrategyInverted, keepLevelCompaction, keepTombstones, t.config.memtableOptBlockmaxFactor)
 	return t.loadBuckets(ctx, logger, shard, props, t.ingestBucketName, bucketOpts)
 }
 
@@ -999,7 +999,7 @@ func (t *ShardReindexTask_MapToBlockmax) calcPropLenInverted(items []inverted.Co
 }
 
 func (t *ShardReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, strategy string,
-	disableCompaction, keepTombstones bool, memtableOptFactor int,
+	keepLevelCompaction, keepTombstones bool, memtableOptFactor int,
 ) []lsmkv.BucketOption {
 	index := shard.Index()
 
@@ -1016,7 +1016,7 @@ func (t *ShardReindexTask_MapToBlockmax) bucketOptions(shard ShardLike, strategy
 		lsmkv.WithMaxSegmentSize(index.Config.MaxSegmentSize),
 		lsmkv.WithSegmentsChecksumValidationEnabled(index.Config.LSMEnableSegmentsChecksumValidation),
 		lsmkv.WithStrategy(strategy),
-		lsmkv.WithDisableCompaction(disableCompaction),
+		lsmkv.WithKeepLevelCompaction(keepLevelCompaction),
 		lsmkv.WithKeepTombstones(keepTombstones),
 	}
 
