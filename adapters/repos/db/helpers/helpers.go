@@ -77,5 +77,5 @@ func IsVectorBucket(bucketName string) bool {
 	return bucketName == VectorsBucketLSM ||
 		bucketName == VectorsCompressedBucketLSM ||
 		bucketName == DimensionsBucketLSM ||
-		strings.Contains(bucketName, "muvera_vectors")
+		strings.HasSuffix(bucketName, "_muvera_vectors")
 }
