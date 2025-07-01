@@ -391,7 +391,7 @@ func (h *replicationHandler) listReplication(params replication.ListReplicationP
 
 	// Handle error if any
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
-		return replication.NewListReplicationOK() // No content is returned if no replication operations are found
+		return replication.NewListReplicationNotFound().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	} else if err != nil {
 		return replication.NewListReplicationInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 	}
