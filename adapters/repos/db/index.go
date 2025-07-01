@@ -2988,11 +2988,6 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 		return 0, 0
 	}
 
-	// Calculate mean object size and total storage size
-	if totalObjectCount > 0 {
-		return totalObjectCount, totalDiskSize
-	}
-
 	// If we can't determine object count, return the disk size as fallback
 	return totalObjectCount, totalDiskSize
 }

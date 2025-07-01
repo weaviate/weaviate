@@ -1890,14 +1890,6 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 	return float64(propLengthSum) / float64(propLengthCount), nil
 }
 
-// DiskObjectCount returns the object count from the disk segment group (cold path)
-func (b *Bucket) DiskObjectCount() int {
-	if b.disk != nil {
-		return b.disk.count()
-	}
-	return 0
-}
-
 // DiskPayloadSize returns the total payload size from the disk segment group (cold path)
 func (b *Bucket) DiskPayloadSize() int64 {
 	if b.disk != nil {
