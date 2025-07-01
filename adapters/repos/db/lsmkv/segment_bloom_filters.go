@@ -73,7 +73,7 @@ func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]i
 	path := s.bloomFilterPath()
 	s.metaPaths = append(s.metaPaths, path)
 
-	loadFromDisk, err := fileExistsInList(existingFilesList, path)
+	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
 	if err != nil {
 		return err
 	}
@@ -217,7 +217,7 @@ func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFile
 	path := s.bloomFilterSecondaryPath(pos)
 	s.metaPaths = append(s.metaPaths, path)
 
-	loadFromDisk, err := fileExistsInList(existingFilesList, path)
+	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
 	if err != nil {
 		return err
 	}

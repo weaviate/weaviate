@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
 
@@ -47,7 +48,7 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 	path := s.countNetPath()
 	s.metaPaths = append(s.metaPaths, path)
 
-	loadFromDisk, err := fileExistsInList(existingFilesList, path)
+	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
 	if err != nil {
 		return err
 	}
