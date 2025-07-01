@@ -32,6 +32,7 @@ func TestReplaceStrategy(t *testing.T) {
 			f:    replaceInsertAndUpdate,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -40,6 +41,7 @@ func TestReplaceStrategy(t *testing.T) {
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
 				WithSecondaryIndices(1),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -47,6 +49,7 @@ func TestReplaceStrategy(t *testing.T) {
 			f:    replaceInsertAndDelete,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -54,6 +57,7 @@ func TestReplaceStrategy(t *testing.T) {
 			f:    replaceCursors,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 	}

@@ -34,6 +34,7 @@ func TestCNA(t *testing.T) {
 			f:    createCNAOnFlush,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -41,6 +42,7 @@ func TestCNA(t *testing.T) {
 			f:    createCNAInit,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -48,6 +50,7 @@ func TestCNA(t *testing.T) {
 			f:    repairCorruptedCNAOnInit,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 	}
@@ -168,7 +171,6 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontCreateCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
-				WithCalcCountNetAdditions(false),
 			},
 		},
 		{
@@ -176,7 +178,6 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontRecreateCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
-				WithCalcCountNetAdditions(false),
 			},
 		},
 		{
@@ -184,7 +185,6 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontPrecomputeCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
-				WithCalcCountNetAdditions(false),
 			},
 		},
 	}
