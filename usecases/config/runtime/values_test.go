@@ -232,7 +232,6 @@ func TestDyanamicValue_Reset(t *testing.T) {
 	assert.Equal(t, []string{"a", "b"}, *slice.val)
 	slice.Reset() // reset should only reset val. not default
 	assert.Nil(t, slice.val)
-
 }
 
 func Test_String(t *testing.T) {
