@@ -63,7 +63,7 @@ type VectorIndex interface {
 	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
 	Stats() (common.IndexStats, error)
 	// VectorStorageSize returns the actual memory storage bytes used by vectors in this index
-	VectorStorageSize() int64
+	VectorStorageSize(ctx context.Context) int64
 	// CompressionStats returns the compression statistics for this index
 	CompressionStats() (compressionhelpers.CompressionStats, error)
 }

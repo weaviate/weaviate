@@ -184,7 +184,7 @@ func (i *Index) Stats() (common.IndexStats, error) {
 	return &NoopStats{}, errors.New("Stats() is not implemented for noop index")
 }
 
-func (i *Index) VectorStorageSize() int64 {
+func (i *Index) VectorStorageSize(_ context.Context) int64 {
 	// Noop index doesn't store vectors in memory, so return 0
 	return 0
 }
