@@ -708,7 +708,7 @@ func (s *schema) getAliases(alias, class string) map[string]string {
 	return nil
 }
 
-func (s *schema) resolveAlias(alias string) string {
+func (s *schema) ResolveAlias(alias string) string {
 	alias = s.canonicalAlias(alias)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
