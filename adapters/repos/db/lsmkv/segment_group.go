@@ -215,6 +215,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 					enableChecksumValidation: sg.enableChecksumValidation,
 					MinMMapSize:              sg.MinMMapSize,
 					allocChecker:             sg.allocChecker,
+					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
