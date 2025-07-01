@@ -692,7 +692,7 @@ func (s *schema) getAliases(alias, class string) map[string]string {
 	return maps.Clone(s.aliases)
 }
 
-func (s *schema) resolveAlias(alias string) string {
+func (s *schema) ResolveAlias(alias string) string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.unsafeResolveAlias(alias)

@@ -49,7 +49,12 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 			objectErrors[i] = err
 			continue
 		}
-		obj.Collection = class.Class
+		obj.Collection = collection
+		if class != nil {
+			// class is nil when we are relying on auto schema to create a collection
+			// aliases cannot be created for non-existent classes
+			obj.Collection = class.Class
+		}
 
 		if obj.Properties != nil {
 			props = extractPrimitiveProperties(&pb.ObjectPropertiesValue{

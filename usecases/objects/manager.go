@@ -67,6 +67,9 @@ type schemaManager interface {
 
 	// GetConsistentSchema retrieves a locally cached copy of the schema
 	GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error)
+
+	// ResolveAlias returns a class name associated with a given alias, empty string if doesn't exist
+	ResolveAlias(alias string) string
 }
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of

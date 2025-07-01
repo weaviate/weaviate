@@ -127,11 +127,10 @@ func (m *Manager) getObjectFromRepo(ctx context.Context, class string, id strfmt
 	adds additional.Properties, repl *additional.ReplicationProperties, tenant string,
 ) (res *search.Result, err error) {
 	if class != "" {
-		fetched := m.schemaManager.ReadOnlyClass(class)
-		if fetched == nil {
-			return nil, fmt.Errorf("class %s not found", class)
+		if cls := m.schemaManager.ResolveAlias(class); cls != "" {
+			class = cls
 		}
-		res, err = m.vectorRepo.Object(ctx, fetched.Class, id, search.SelectProperties{}, adds, repl, tenant)
+		res, err = m.vectorRepo.Object(ctx, class, id, search.SelectProperties{}, adds, repl, tenant)
 	} else {
 		res, err = m.vectorRepo.ObjectByID(ctx, id, search.SelectProperties{}, adds, tenant)
 	}

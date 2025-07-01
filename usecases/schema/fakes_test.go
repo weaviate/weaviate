@@ -294,6 +294,11 @@ func (f *fakeSchemaManager) GetAliases(ctx context.Context, alias string, class 
 	return args.Get(0).([]*models.Alias), args.Error(1)
 }
 
+func (f *fakeSchemaManager) ResolveAlias(alias string) string {
+	args := f.Called(alias)
+	return args.Get(0).(string)
+}
+
 type fakeStore struct {
 	collections map[string]*models.Class
 	parser      Parser

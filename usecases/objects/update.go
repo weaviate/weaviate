@@ -63,6 +63,12 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (*models.Object, error) {
+	var alias string
+	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
+		alias = className
+		className = cls
+	}
+
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
@@ -70,20 +76,6 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	obj, err := m.getObjectFromRepo(ctx, className, id, additional.Properties{}, repl, updates.Tenant)
 	if err != nil {
 		return nil, err
-	}
-
-	var (
-		class *models.Class
-		alias string
-	)
-	if obj.ClassName != updates.Class {
-		class = m.schemaManager.ReadOnlyClass(className)
-		if class != nil {
-			updates.Class = class.Class
-			alias = className
-		}
-	} else {
-		class = fetchedClasses[className].Class
 	}
 
 	maxSchemaVersion := fetchedClasses[className].Version
@@ -101,6 +93,8 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 		WithField("updated", updates).
 		WithField("id", id).
 		Debug("received update kind request")
+
+	class := fetchedClasses[className].Class
 
 	prevObj := obj.Object()
 	err = m.validateObjectAndNormalizeNames(ctx, repl, updates, prevObj, fetchedClasses)

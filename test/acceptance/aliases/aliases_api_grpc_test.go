@@ -18,12 +18,14 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	pb "github.com/weaviate/weaviate/grpc/generated/protocol/v1"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 func Test_AliasesAPI_gRPC(t *testing.T) {
@@ -71,15 +73,223 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		require.NotEmpty(t, resp.Aliases)
 	})
 
-	t.Run("search using alias", func(t *testing.T) {
-		resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
-			Collection:  booksAliasName,
-			Uses_123Api: true,
-			Uses_125Api: true,
-			Uses_127Api: true,
+	tests := []struct {
+		name       string
+		collection string
+	}{
+		{
+			name:       "search using collection name",
+			collection: books.DefaultClassName,
+		},
+		{
+			name:       "search using alias",
+			collection: booksAliasName,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Run("search", func(t *testing.T) {
+				t.Run("get", func(t *testing.T) {
+					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
+						Collection:  tt.collection,
+						Uses_123Api: true,
+						Uses_125Api: true,
+						Uses_127Api: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					assert.Len(t, resp.Results, 3)
+				})
+				t.Run("get with filters", func(t *testing.T) {
+					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
+						Collection: tt.collection,
+						Metadata:   &pb.MetadataRequest{Vector: true, Uuid: true},
+						Filters: &pb.Filters{
+							Operator:  pb.Filters_OPERATOR_EQUAL,
+							On:        []string{"title"},
+							TestValue: &pb.Filters_ValueText{ValueText: "Dune"},
+						},
+						Uses_123Api: true,
+						Uses_125Api: true,
+						Uses_127Api: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					assert.Len(t, resp.Results, 1)
+					assert.Equal(t, resp.Results[0].Metadata.Id, books.Dune.String())
+					assert.NotEmpty(t, resp.Results[0].Metadata.GetVectorBytes())
+				})
+				t.Run("nearText", func(t *testing.T) {
+					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
+						Collection: tt.collection,
+						Metadata:   &pb.MetadataRequest{Uuid: true},
+						NearText: &pb.NearTextSearch{
+							Query: []string{"Dune"},
+						},
+						Uses_123Api: true,
+						Uses_125Api: true,
+						Uses_127Api: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					assert.Len(t, resp.Results, 3)
+					assert.Equal(t, resp.Results[0].Metadata.Id, books.Dune.String())
+				})
+				t.Run("bm25", func(t *testing.T) {
+					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
+						Collection: tt.collection,
+						Metadata:   &pb.MetadataRequest{Uuid: true},
+						Bm25Search: &pb.BM25{
+							Query:      "Dune",
+							Properties: []string{"title"},
+						},
+						Uses_123Api: true,
+						Uses_125Api: true,
+						Uses_127Api: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					assert.Len(t, resp.Results, 1)
+					assert.Equal(t, resp.Results[0].Metadata.Id, books.Dune.String())
+				})
+				t.Run("hybrid", func(t *testing.T) {
+					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
+						Collection: tt.collection,
+						Metadata:   &pb.MetadataRequest{Uuid: true},
+						HybridSearch: &pb.Hybrid{
+							Query: "Project",
+							Alpha: 0.75,
+						},
+						Properties: &pb.PropertiesRequest{
+							NonRefProperties: []string{"title"},
+						},
+						Uses_123Api: true,
+						Uses_125Api: true,
+						Uses_127Api: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					assert.Len(t, resp.Results, 3)
+					assert.Equal(t, resp.Results[0].Metadata.Id, books.ProjectHailMary.String())
+				})
+			})
+			t.Run("aggregate using alias", func(t *testing.T) {
+				t.Run("count", func(t *testing.T) {
+					resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+						Collection:   tt.collection,
+						ObjectsCount: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					require.NotNil(t, resp.GetSingleResult())
+					require.Equal(t, int64(3), resp.GetSingleResult().GetObjectsCount())
+				})
+				t.Run("count with filters", func(t *testing.T) {
+					resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+						Collection: tt.collection,
+						Filters: &pb.Filters{
+							Operator:  pb.Filters_OPERATOR_EQUAL,
+							On:        []string{"title"},
+							TestValue: &pb.Filters_ValueText{ValueText: "Dune"},
+						},
+						ObjectsCount: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					require.NotNil(t, resp.GetSingleResult())
+					require.Equal(t, int64(1), resp.GetSingleResult().GetObjectsCount())
+				})
+				t.Run("count with nearText", func(t *testing.T) {
+					certainty := float64(0.8)
+					resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+						Collection: tt.collection,
+						Filters: &pb.Filters{
+							Operator:  pb.Filters_OPERATOR_EQUAL,
+							On:        []string{"title"},
+							TestValue: &pb.Filters_ValueText{ValueText: "Dune"},
+						},
+						Search: &pb.AggregateRequest_NearText{
+							NearText: &pb.NearTextSearch{
+								Query:     []string{"Dune"},
+								Certainty: &certainty,
+							},
+						},
+						ObjectsCount: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					require.NotNil(t, resp.GetSingleResult())
+					require.Equal(t, int64(1), resp.GetSingleResult().GetObjectsCount())
+				})
+			})
+		})
+	}
+
+	t.Run("batch insert using alias", func(t *testing.T) {
+		theMartian := "67b79643-cf8b-4b22-b206-000000000001"
+		resp, err := grpcClient.BatchObjects(ctx, &pb.BatchObjectsRequest{
+			Objects: []*pb.BatchObject{
+				{
+					Collection: booksAliasName,
+					Uuid:       theMartian,
+					Properties: &pb.BatchObject_Properties{
+						NonRefProperties: &structpb.Struct{
+							Fields: map[string]*structpb.Value{
+								"title":       structpb.NewStringValue("The Martian"),
+								"description": structpb.NewStringValue("Stranded on Mars after a dust storm forces his crew to evacuate, astronaut Mark Watney is presumed dead and left alone on the hostile planet."),
+							},
+						},
+					},
+				},
+			},
 		})
 		require.NoError(t, err)
 		require.NotNil(t, resp)
-		assert.Len(t, resp.Results, 3)
+
+		tests := []struct {
+			name       string
+			collection string
+		}{
+			{
+				name:       "search using collection name",
+				collection: books.DefaultClassName,
+			},
+			{
+				name:       "search using alias",
+				collection: booksAliasName,
+			},
+		}
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				t.Run("count", func(t *testing.T) {
+					resp, err := grpcClient.Aggregate(ctx, &pb.AggregateRequest{
+						Collection:   tt.collection,
+						ObjectsCount: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					require.NotNil(t, resp.GetSingleResult())
+					require.Equal(t, int64(4), resp.GetSingleResult().GetObjectsCount())
+				})
+				t.Run("search using id", func(t *testing.T) {
+					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
+						Collection: tt.collection,
+						Metadata:   &pb.MetadataRequest{Vector: true, Uuid: true},
+						Filters: &pb.Filters{
+							Operator:  pb.Filters_OPERATOR_EQUAL,
+							On:        []string{filters.InternalPropID},
+							TestValue: &pb.Filters_ValueText{ValueText: theMartian},
+						},
+						Uses_123Api: true,
+						Uses_125Api: true,
+						Uses_127Api: true,
+					})
+					require.NoError(t, err)
+					require.NotNil(t, resp)
+					require.Len(t, resp.Results, 1)
+					assert.Equal(t, theMartian, resp.Results[0].Metadata.Id)
+				})
+			})
+		}
 	})
 }

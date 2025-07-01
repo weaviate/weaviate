@@ -23,12 +23,14 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
+	graphqlhelper "github.com/weaviate/weaviate/test/helper/graphql"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/books"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/documents"
 )
 
 func Test_AliasesAPI(t *testing.T) {
 	ctx := context.Background()
+	t.Setenv("TEST_WEAVIATE_IMAGE", "module_test_image")
 	compose, err := docker.New().
 		WithWeaviate().
 		WithText2VecModel2Vec().
@@ -62,7 +64,7 @@ func Test_AliasesAPI(t *testing.T) {
 	})
 
 	var aliases []string
-	t.Run("create Aliases", func(t *testing.T) {
+	t.Run("create aliases", func(t *testing.T) {
 		tests := []struct {
 			name  string
 			alias *models.Alias
@@ -111,12 +113,12 @@ func Test_AliasesAPI(t *testing.T) {
 	})
 
 	defer func() {
-		helper.DeleteClass(t, "Books")
-		helper.DeleteClass(t, "Document")
-		helper.DeleteClass(t, "Passage")
 		for _, alias := range aliases {
 			helper.DeleteAlias(t, alias)
 		}
+		helper.DeleteClass(t, books.DefaultClassName)
+		helper.DeleteClass(t, documents.Passage)
+		helper.DeleteClass(t, documents.Document)
 	}()
 
 	t.Run("get aliases", func(t *testing.T) {
@@ -182,26 +184,74 @@ func Test_AliasesAPI(t *testing.T) {
 				})
 			}
 		})
-		t.Run("create class", func(t *testing.T) {
-			class := books.ClassModel2VecVectorizerWithName("BookAlias")
-			params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
-			resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
-			require.Nil(t, resp)
-			require.Error(t, err)
-			errorPayload, _ := json.MarshalIndent(err, "", " ")
-			assert.Contains(t, string(errorPayload), fmt.Sprintf("class name %s already exists", class.Class))
-		})
 
-		t.Run("get class objects with alias", func(t *testing.T) {
-			objWithClassName, err := helper.GetObject(t, books.DefaultClassName, books.ProjectHailMary)
-			require.NoError(t, err)
-			require.NotNil(t, objWithClassName)
+		t.Run("tests with BookAlias", func(t *testing.T) {
 			aliasName := "BookAlias"
-			objWithAlias, err := helper.GetObject(t, aliasName, books.ProjectHailMary)
-			require.NoError(t, err)
-			require.NotNil(t, objWithAlias)
-			assert.Equal(t, objWithAlias.Class, objWithAlias.Class)
-			assert.Equal(t, objWithAlias.ID, objWithAlias.ID)
+			t.Run("create class with alias name", func(t *testing.T) {
+				class := books.ClassModel2VecVectorizerWithName(aliasName)
+				params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
+				resp, err := helper.Client(t).Schema.SchemaObjectsCreate(params, nil)
+				require.Nil(t, resp)
+				require.Error(t, err)
+				errorPayload, _ := json.MarshalIndent(err, "", " ")
+				assert.Contains(t, string(errorPayload), fmt.Sprintf("class name %s already exists", class.Class))
+			})
+			t.Run("GraphQL Get query with alias", func(t *testing.T) {
+				getQuery := `
+					{
+						Get{
+							%s%s{
+								title
+								description
+								_additional{
+									id
+								}
+							}
+						}
+					}`
+				tests := []struct {
+					name  string
+					query string
+				}{
+					{
+						name:  "Get",
+						query: fmt.Sprintf(getQuery, aliasName, ""),
+					},
+					{
+						name:  "Get with nearText",
+						query: fmt.Sprintf(getQuery, aliasName, `(nearText:{concepts:"Dune"})`),
+					},
+				}
+				for _, tt := range tests {
+					t.Run(tt.name, func(t *testing.T) {
+						res := graphqlhelper.AssertGraphQL(t, nil, tt.query).Get("Get", aliasName).AsSlice()
+						require.NotEmpty(t, res)
+						for _, r := range res {
+							elem, ok := r.(map[string]interface{})
+							require.True(t, ok)
+							title, ok := elem["title"].(string)
+							require.True(t, ok)
+							require.NotEmpty(t, title)
+							description, ok := elem["description"].(string)
+							require.True(t, ok)
+							require.NotEmpty(t, description)
+							id, ok := elem["_additional"].(map[string]interface{})["id"].(string)
+							require.True(t, ok)
+							require.NotEmpty(t, id)
+						}
+					})
+				}
+			})
+			t.Run("get class objects with alias", func(t *testing.T) {
+				objWithClassName, err := helper.GetObject(t, books.DefaultClassName, books.ProjectHailMary)
+				require.NoError(t, err)
+				require.NotNil(t, objWithClassName)
+
+				objWithAlias, err := helper.GetObject(t, aliasName, books.ProjectHailMary)
+				require.NoError(t, err)
+				require.NotNil(t, objWithAlias)
+				assert.Equal(t, objWithClassName.ID, objWithAlias.ID)
+			})
 		})
 	})
 }
