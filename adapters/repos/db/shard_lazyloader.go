@@ -16,7 +16,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"sync"
 	"time"
 
@@ -218,27 +217,7 @@ func (l *LazyLoadShard) ObjectStorageSize(ctx context.Context) int64 {
 
 	// For unloaded shards, calculate storage size by walking the file system
 	// This avoids loading the shard into memory entirely
-	shardPath := l.pathLSM()
-
-	totalDiskSize := int64(0)
-
-	// Walk the shard directory and sum up all file sizes
-	if err := filepath.Walk(shardPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		// Only count files, not directories
-		if !info.IsDir() {
-			totalDiskSize += info.Size()
-		}
-
-		return nil
-	}); err != nil {
-		// If we can't walk the directory, return 0
-		return 0
-	}
-
+	_, totalDiskSize := l.shardOpts.index.CalculateUnloadedObjectsMetrics(ctx, l.shardOpts.name)
 	return totalDiskSize
 }
 
