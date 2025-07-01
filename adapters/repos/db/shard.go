@@ -443,22 +443,6 @@ func (s *Shard) VectorStorageSize(ctx context.Context) int64 {
 	return totalSize
 }
 
-func (s *Shard) VectorStorageSize(ctx context.Context) int64 {
-	// Calculate vector storage size by iterating through all vector indexes
-	totalSize := int64(0)
-
-	err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		totalSize += index.VectorStorageSize()
-		return nil
-	})
-
-	if err != nil {
-		return 0
-	}
-
-	return totalSize
-}
-
 func (s *Shard) isFallbackToSearchable() bool {
 	return s.fallbackToSearchable
 }
