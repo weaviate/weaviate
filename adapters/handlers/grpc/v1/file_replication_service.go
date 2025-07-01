@@ -25,6 +25,9 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// fileChunkSize defines the size of each file chunk sent over gRPC.
+// Currently set to 64 KB, which is a reasonable size for network transmission.
+// It can be made configurable in the future if needed.
 const fileChunkSize = 64 * 1024 // 64 KB
 
 type FileReplicationService struct {
