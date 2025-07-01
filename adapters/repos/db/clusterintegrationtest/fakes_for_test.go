@@ -32,6 +32,8 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema/types"
 
 	"github.com/sirupsen/logrus/hooks/test"
+
+	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -58,26 +60,20 @@ type node struct {
 	hostname      string
 }
 
-func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingState *sharding.State,
+func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
+	allNodes *[]*node, shardingState *sharding.State,
 ) {
 	var err error
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
-	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return(n.name).Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(nodeName string) (string, bool) {
-		for _, node := range *allNodes {
-			if node.name == nodeName {
-				if node.hostname == "" {
-					return "", false
-				}
-				return node.hostname, true
-			}
-		}
-		return "", false
-	}).Maybe()
+
+	var names []string
+	for _, node := range *allNodes {
+		names = append(names, node.name)
+	}
+	nodeSelector := mocks.NewMockNodeSelector(names...)
 	nodeResolver := &nodeResolver{
-		NodeSelector: mockNodeSelector,
+		NodeSelector: nodeSelector,
 		nodes:        allNodes,
 		local:        n.name,
 	}
@@ -95,37 +91,12 @@ func (n *node) init(t *testing.T, dirName string, allNodes *[]*node, shardingSta
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
-	mockSchemaReader := types.NewMockSchemaReader(t)
-	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
-	mockSchemaReader.EXPECT().
-		ShardReplicas(mock.Anything, mock.Anything).
-		RunAndReturn(func(class string, shard string) ([]string, error) {
-			phys, ok := shardState.Physical[shard]
-			if !ok {
-				return nil, fmt.Errorf("shard %q not found for class %q", shard, class)
-			}
-			return phys.BelongsToNodes, nil
-		}).Maybe()
-	mockSchemaReader.EXPECT().ShardOwner(mock.Anything, mock.Anything).RunAndReturn(func(class string, shard string) (string, error) {
-		x, ok := shardState.Physical[shard]
-		if !ok {
-			return "", fmt.Errorf("shard %q not found for class %q", shard, class)
-		}
-		if len(x.BelongsToNodes) < 1 || x.BelongsToNodes[0] == "" {
-			return "", fmt.Errorf("owner node not found for shard %q and class %q", shard, class)
-		}
-		return shardState.Physical[shard].BelongsToNodes[0], nil
-	}).Maybe()
-	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(class string, shard string, replicas []string) []string {
-			return replicas
-		}).Maybe()
-	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).RunAndReturn(
-		func(class string, shard string, replicas []string) ([]string, []string) {
-			return replicas, []string{}
-		}).Maybe()
-
+	schemaReader := types.NewMockSchemaReader(t)
+	schemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	schemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return(names, nil).Maybe()
+	replicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	replicationFSM.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return(names).Maybe()
+	replicationFSM.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return(names, nil).Maybe()
 	n.repo, err = db.New(logger, n.name, db.Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  localDir,

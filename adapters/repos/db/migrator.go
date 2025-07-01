@@ -14,8 +14,13 @@ package db
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"slices"
 	"time"
+
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+
+	"github.com/weaviate/weaviate/cluster/router"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -117,6 +122,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		m.db.schemaGetter,
 		m.db.schemaReader,
 		m.db.replicationFSM,
+		routerTypes.NewDirectCandidateReplicaPicker(m.localNodeName, routerTypes.NewRandomReplicaPicker(rand.Intn)),
 	).Build()
 	idx, err := NewIndex(ctx,
 		IndexConfig{
