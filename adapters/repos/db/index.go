@@ -13,7 +13,6 @@ package db
 
 import (
 	"context"
-	"encoding/binary"
 	"fmt"
 	"os"
 	"path"
@@ -2875,39 +2874,6 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 	return nil
 }
 
-// calcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
-func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (sum int, dimensions int) {
-	b := store.Bucket(helpers.DimensionsBucketLSM)
-	if b == nil {
-		return 0, 0
-	}
-
-	c := b.MapCursor()
-	defer c.Close()
-
-	var (
-		nameLen        = len(targetVector)
-		expectedKeyLen = 4 + nameLen
-	)
-
-	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
-		// for named vectors we have to additionally check if the key is prefixed with the vector name
-		keyMatches := len(k) == expectedKeyLen && (nameLen == 4 || strings.HasPrefix(string(k), targetVector))
-		if !keyMatches {
-			continue
-		}
-
-		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
-		size, dim := calcEntry(dimLength, v)
-		if dimensions == 0 && dim > 0 {
-			dimensions = dim
-		}
-		sum += size
-	}
-
-	return sum, dimensions
-}
-
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
 func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName, targetVector string) (dimensions int, objectCount int) {
 	// Obtain a lock that prevents tenant activation
@@ -2935,7 +2901,7 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName,
 	}
 	defer store.Shutdown(ctx)
 
-	return calcTargetVectorDimensionsFromStore(ctx, store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+	return store.CalcTargetVectorDimensionsFromStore(ctx, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
 		return len(v), dimLen
 	})
 }

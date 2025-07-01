@@ -1052,7 +1052,7 @@ func (index *flat) Stats() (common.IndexStats, error) {
 	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
 }
 
-func (index *flat) VectorStorageSize() int64 {
+func (index *flat) VectorStorageSize(_ context.Context) int64 {
 	count := atomic.LoadUint64(&index.count)
 	dims := atomic.LoadInt32(&index.dims)
 
