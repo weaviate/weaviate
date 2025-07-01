@@ -39,7 +39,7 @@ type ReplicationReplicateDetailsReplicaStatus struct {
 	// Enum: [REGISTERED HYDRATING FINALIZING DEHYDRATING READY CANCELLED]
 	State string `json:"state,omitempty"`
 
-	// The timestamp when this state was first entered.
+	// The timestamp when this state was first entered. This is an approximate time and so should not be used for precise timing.
 	WhenStartedUnix int64 `json:"whenStartedUnix,omitempty"`
 }
 

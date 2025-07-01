@@ -113,8 +113,9 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 				})
 			}
 			history[i] = &models.ReplicationReplicateDetailsReplicaStatus{
-				State:  status.State,
-				Errors: errors,
+				State:           status.State,
+				Errors:          errors,
+				WhenStartedUnix: status.StartTimeUnix,
 			}
 		}
 	}
@@ -141,8 +142,9 @@ func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool
 			Errors:          errors,
 			WhenStartedUnix: response.StartTimeUnix,
 		},
-		StatusHistory: history,
-		Type:          &response.TransferType,
+		StatusHistory:   history,
+		Type:            &response.TransferType,
+		WhenStartedUnix: response.StartTimeUnix,
 	}
 }
 

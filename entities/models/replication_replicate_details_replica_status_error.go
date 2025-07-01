@@ -31,7 +31,7 @@ type ReplicationReplicateDetailsReplicaStatusError struct {
 	// A human-readable message describing the error.
 	Message string `json:"message,omitempty"`
 
-	// The timestamp when the error occurred.
+	// The timestamp when the error occurred. This is an approximate time and so should not be used for precise timing.
 	WhenErroredUnix int64 `json:"whenErroredUnix,omitempty"`
 }
 

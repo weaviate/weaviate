@@ -113,8 +113,9 @@ type ReplicationDetailsError struct {
 }
 
 type ReplicationDetailsState struct {
-	State  string
-	Errors []ReplicationDetailsError
+	State         string
+	Errors        []ReplicationDetailsError
+	StartTimeUnix int64 // Unix timestamp when the state was first entered
 }
 
 type ReplicationDetailsResponse struct {

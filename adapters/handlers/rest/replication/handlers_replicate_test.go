@@ -309,8 +309,9 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			SourceNodeId: sourceNodeId,
 			TargetNodeId: targetNodeId,
 			Status: api.ReplicationDetailsState{
-				State:  status,
-				Errors: []api.ReplicationDetailsError{},
+				State:         status,
+				Errors:        []api.ReplicationDetailsError{},
+				StartTimeUnix: startTime,
 			},
 			StatusHistory: []api.ReplicationDetailsState{},
 			TransferType:  replicationType,
@@ -335,9 +336,11 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNode)
 		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNode)
 		assert.Equal(t, status, replicationDetails.Payload.Status.State)
+		assert.Equal(t, 0, len(replicationDetails.Payload.Status.Errors))
+		assert.Equal(t, startTime, replicationDetails.Payload.Status.WhenStartedUnix)
 		assert.Equal(t, 0, len(replicationDetails.Payload.StatusHistory))
 		assert.Equal(t, replicationType, *replicationDetails.Payload.Type)
-		assert.Equal(t, startTime, replicationDetails.Payload.Status.WhenStartedUnix)
+		assert.Equal(t, startTime, replicationDetails.Payload.WhenStartedUnix)
 	})
 
 	t.Run("successful retrieval with history", func(t *testing.T) {
@@ -383,8 +386,9 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 			},
 			StatusHistory: []api.ReplicationDetailsState{
 				{
-					State:  historyStatus,
-					Errors: []api.ReplicationDetailsError{{Message: "error1", ErroredTimeUnix: firstErrorTime}, {Message: "error2", ErroredTimeUnix: secondErrorTime}},
+					State:         historyStatus,
+					Errors:        []api.ReplicationDetailsError{{Message: "error1", ErroredTimeUnix: firstErrorTime}, {Message: "error2", ErroredTimeUnix: secondErrorTime}},
+					StartTimeUnix: startTime,
 				},
 			},
 			StartTimeUnix: startTime,
@@ -408,12 +412,14 @@ func TestGetReplicationDetailsByReplicationId(t *testing.T) {
 		assert.Equal(t, sourceNodeId, *replicationDetails.Payload.SourceNode)
 		assert.Equal(t, targetNodeId, *replicationDetails.Payload.TargetNode)
 		assert.Equal(t, status, replicationDetails.Payload.Status.State)
+		assert.Equal(t, 0, len(replicationDetails.Payload.Status.Errors))
+		assert.Equal(t, startTime, replicationDetails.Payload.Status.WhenStartedUnix)
 		assert.Equal(t, historyStatus, replicationDetails.Payload.StatusHistory[0].State)
 		assert.Equal(t, "error1", replicationDetails.Payload.StatusHistory[0].Errors[0].Message)
 		assert.Equal(t, "error2", replicationDetails.Payload.StatusHistory[0].Errors[1].Message)
 		assert.Equal(t, firstErrorTime, replicationDetails.Payload.StatusHistory[0].Errors[0].WhenErroredUnix)
 		assert.Equal(t, secondErrorTime, replicationDetails.Payload.StatusHistory[0].Errors[1].WhenErroredUnix)
-		assert.Equal(t, startTime, replicationDetails.Payload.Status.WhenStartedUnix)
+		assert.Equal(t, startTime, replicationDetails.Payload.WhenStartedUnix)
 	})
 
 	t.Run("request id not found authorized", func(t *testing.T) {

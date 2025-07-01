@@ -73,6 +73,9 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 
 	// Whether the replica operation is uncancelable.
 	Uncancelable bool `json:"uncancelable,omitempty"`
+
+	// The timestamp when the replication operation was initiated. This is an approximate time and so should not be used for precise timing.
+	WhenStartedUnix int64 `json:"whenStartedUnix,omitempty"`
 }
 
 // Validate validates this replication replicate details replica response

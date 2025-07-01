@@ -7751,6 +7751,11 @@ func init() {
         "uncancelable": {
           "description": "Whether the replica operation is uncancelable.",
           "type": "boolean"
+        },
+        "whenStartedUnix": {
+          "description": "The timestamp when the replication operation was initiated. This is an approximate time and so should not be used for precise timing.",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -7778,7 +7783,7 @@ func init() {
           ]
         },
         "whenStartedUnix": {
-          "description": "The timestamp when this state was first entered.",
+          "description": "The timestamp when this state was first entered. This is an approximate time and so should not be used for precise timing.",
           "type": "integer",
           "format": "int64"
         }
@@ -7793,7 +7798,7 @@ func init() {
           "type": "string"
         },
         "whenErroredUnix": {
-          "description": "The timestamp when the error occurred.",
+          "description": "The timestamp when the error occurred. This is an approximate time and so should not be used for precise timing.",
           "type": "integer",
           "format": "int64"
         }
@@ -16789,6 +16794,11 @@ func init() {
         "uncancelable": {
           "description": "Whether the replica operation is uncancelable.",
           "type": "boolean"
+        },
+        "whenStartedUnix": {
+          "description": "The timestamp when the replication operation was initiated. This is an approximate time and so should not be used for precise timing.",
+          "type": "integer",
+          "format": "int64"
         }
       }
     },
@@ -16816,7 +16826,7 @@ func init() {
           ]
         },
         "whenStartedUnix": {
-          "description": "The timestamp when this state was first entered.",
+          "description": "The timestamp when this state was first entered. This is an approximate time and so should not be used for precise timing.",
           "type": "integer",
           "format": "int64"
         }
@@ -16831,7 +16841,7 @@ func init() {
           "type": "string"
         },
         "whenErroredUnix": {
-          "description": "The timestamp when the error occurred.",
+          "description": "The timestamp when the error occurred. This is an approximate time and so should not be used for precise timing.",
           "type": "integer",
           "format": "int64"
         }
