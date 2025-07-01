@@ -1019,7 +1019,7 @@ func (h *hnsw) VectorStorageSize(ctx context.Context) int64 {
 
 	// Always use the dimensions bucket for accurate counts instead of cache-based counts
 	// This ensures we get the correct total vectors and dimensions regardless of cache size
-	dimensions, objectCount := h.store.CalcTargetVectorDimensionsFromStore(ctx, "", func(dimLen int, v []lsmkv.MapPair) (int, int) {
+	objectCount, dimensions := h.store.CalcTargetVectorDimensionsFromStore(ctx, "", func(dimLen int, v []lsmkv.MapPair) (int, int) {
 		return dimLen * len(v), dimLen
 	})
 
