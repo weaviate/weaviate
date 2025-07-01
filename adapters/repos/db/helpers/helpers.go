@@ -13,6 +13,7 @@ package helpers
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/weaviate/weaviate/entities/filters"
 )
@@ -73,5 +74,8 @@ func BucketRangeableFromPropNameLSM(propName string) string {
 }
 
 func IsVectorBucket(bucketName string) bool {
-	return bucketName == VectorsBucketLSM || bucketName == VectorsCompressedBucketLSM || bucketName == DimensionsBucketLSM
+	return bucketName == VectorsBucketLSM ||
+		bucketName == VectorsCompressedBucketLSM ||
+		bucketName == DimensionsBucketLSM ||
+		strings.Contains(bucketName, "muvera_vectors")
 }
