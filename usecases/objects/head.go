@@ -14,7 +14,6 @@ package objects
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/go-openapi/strfmt"
 
@@ -35,11 +34,11 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 	defer m.metrics.HeadObjectDec()
 
 	class := m.schemaManager.ReadOnlyClass(className)
-	if class == nil {
-		return false, &Error{fmt.Sprintf("class %s not found", className), StatusNotFound, nil}
+	if class != nil {
+		className = class.Class
 	}
 
-	ok, err := m.vectorRepo.Exists(ctx, class.Class, id, repl, tenant)
+	ok, err := m.vectorRepo.Exists(ctx, className, id, repl, tenant)
 	if err != nil {
 		switch {
 		case errors.As(err, &ErrMultiTenancy{}):

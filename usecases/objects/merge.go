@@ -57,10 +57,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 
 	className := schema.UppercaseClassName(updates.Class)
 	class := m.schemaManager.ReadOnlyClass(className)
-	if class == nil {
-		return &Error{fmt.Sprintf("class %q not found", className), StatusUnprocessableEntity, nil}
+	if class != nil {
+		// class might be an alias
+		className = class.Class
 	}
-	updates.Class = class.Class
+	updates.Class = className
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
