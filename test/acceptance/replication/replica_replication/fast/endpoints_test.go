@@ -196,32 +196,32 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateEndpoints() {
 
 	t.Run("get non-existing replication operation by collection", func(t *testing.T) {
 		collection := "non-existing"
-		_, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&collection), nil)
+		res, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&collection), nil)
 		require.NotNil(t, err)
-		require.IsType(t, replication.NewListReplicationNotFound(), err)
+		require.Len(t, res.Payload, 0)
 	})
 
 	t.Run("get non-existing replication operation by collection and shard", func(t *testing.T) {
 		collection := "non-existing"
 		shard := "non-existing"
-		_, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&collection).WithShard(&shard), nil)
+		res, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&collection).WithShard(&shard), nil)
 		require.NotNil(t, err)
-		require.IsType(t, replication.NewListReplicationNotFound(), err)
+		require.Len(t, res.Payload, 0)
 	})
 
 	t.Run("get non-existing replication operation with valid collection and non-existing shard", func(t *testing.T) {
 		collection := paragraphClass.Class
 		shard := "non-existing"
-		_, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&collection).WithShard(&shard), nil)
+		res, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithCollection(&collection).WithShard(&shard), nil)
 		require.NotNil(t, err)
-		require.IsType(t, replication.NewListReplicationNotFound(), err)
+		require.Len(t, res.Payload, 0)
 	})
 
 	t.Run("get non-existing replication operation by target node", func(t *testing.T) {
 		nodeID := "non-existing"
-		_, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithTargetNode(&nodeID), nil)
+		res, err := helper.Client(t).Replication.ListReplication(replication.NewListReplicationParams().WithTargetNode(&nodeID), nil)
 		require.NotNil(t, err)
-		require.IsType(t, replication.NewListReplicationNotFound(), err)
+		require.Len(t, res.Payload, 0)
 	})
 
 	t.Run("cancel replication operation", func(t *testing.T) {
