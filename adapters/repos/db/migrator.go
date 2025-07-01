@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"slices"
 	"time"
 
@@ -119,6 +120,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		m.db.schemaGetter,
 		m.db.schemaReader,
 		m.db.replicationFSM,
+		routerTypes.NewDirectCandidateReplicaPicker(m.localNodeName, routerTypes.NewRandomReplicaPicker(rand.Intn)),
 	).Build()
 	idx, err := NewIndex(ctx,
 		IndexConfig{

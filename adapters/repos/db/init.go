@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"math/rand"
 	"os"
 	"path"
 	"time"
@@ -92,6 +93,7 @@ func (db *DB) init(ctx context.Context) error {
 				db.schemaGetter,
 				db.schemaReader,
 				db.replicationFSM,
+				routerTypes.NewDirectCandidateReplicaPicker(db.localNodeName, routerTypes.NewRandomReplicaPicker(rand.Intn)),
 			).Build()
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                                    schema.ClassName(class.Class),
