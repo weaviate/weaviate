@@ -28,6 +28,8 @@ import (
 type NodeSelector interface {
 	// NodeAddress resolves node id into an ip address without the port.
 	NodeAddress(id string) string
+	// NodeGRPCPort returns the gRPC port for a specific node id.
+	NodeGRPCPort(id string) (int, error)
 	// StorageCandidates returns list of storage nodes (names)
 	// sorted by the free amount of disk space in descending orders
 	StorageCandidates() []string
@@ -115,6 +117,7 @@ func Init(userConfig Config, grpcPort, raftBootstrapExpect int, dataPath string,
 			},
 		},
 	}
+
 	if err := state.delegate.init(diskSpace); err != nil {
 		logger.WithField("action", "init_state.delete_init").WithError(err).
 			Error("delegate init failed")

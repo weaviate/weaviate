@@ -42,6 +42,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/sirupsen/logrus"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/weaviate/fgprof"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -509,7 +511,35 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	dataPath := appState.ServerConfig.Config.Persistence.DataPath
 
 	schemaParser := schema.NewParser(appState.Cluster, vectorIndex.ParseAndValidateConfig, migrator, appState.Modules)
-	replicaCopier := copier.New(remoteIndexClient, appState.Cluster, dataPath, appState.DB, appState.Logger)
+
+	remoteClientFactory := func(ctx context.Context, address string) (copier.FileReplicationServiceClient, error) {
+		grpcConfig := appState.ServerConfig.Config.GRPC
+		authConfig := appState.ServerConfig.Config.Cluster.AuthConfig
+
+		var creds credentials.TransportCredentials
+
+		useTLS := len(grpcConfig.CertFile) > 0
+
+		if useTLS {
+			creds = credentials.NewClientTLSFromCert(nil, "")
+		} else {
+			creds = insecure.NewCredentials() // use insecure credentials for testing
+		}
+
+		clientConn, err := grpc.NewClient(
+			address,
+			grpc.WithTransportCredentials(creds),
+		)
+		if err != nil {
+			return nil, fmt.Errorf("failed to create gRPC client connection: %w", err)
+		}
+
+		return copier.NewFileReplicationServiceClient(clientConn, authConfig), nil
+	}
+
+	replicaCopier := copier.New(remoteClientFactory, remoteIndexClient, appState.Cluster,
+		appState.ServerConfig.Config.ReplicationEngineFileCopyWorkers, dataPath, appState.DB, appState.Logger)
+
 	rConfig := rCluster.Config{
 		WorkDir:                         filepath.Join(dataPath, config.DefaultRaftDir),
 		NodeID:                          nodeName,
