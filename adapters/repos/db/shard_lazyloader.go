@@ -16,13 +16,13 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/pkg/errors"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcounter"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
-	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -209,36 +208,38 @@ func (l *LazyLoadShard) ObjectCountAsync() int {
 	return l.shard.ObjectCountAsync()
 }
 
-func (s *LazyLoadShard) ObjectStorageSize(ctx context.Context) int64 {
-	s.mutex.Lock()
-	if s.loaded {
-		s.mutex.Unlock()
-		return s.shard.ObjectStorageSize(ctx)
+func (l *LazyLoadShard) ObjectStorageSize(ctx context.Context) int64 {
+	l.mutex.Lock()
+	if l.loaded {
+		l.mutex.Unlock()
+		return l.shard.ObjectStorageSize(ctx)
 	}
-	s.mutex.Unlock()
+	l.mutex.Unlock()
 
-	// not ready path: work directly with LSMKV store without loading the shard
-	// This avoids force-loading the tenant into memory
+	// For unloaded shards, calculate storage size by walking the file system
+	// This avoids loading the shard into memory entirely
+	shardPath := l.pathLSM()
 
-	// Get the LSM store path for this shard
-	storePath := s.pathLSM()
+	totalDiskSize := int64(0)
 
-	// Create a temporary store to access the objects bucket
-	// Create lsmkv metrics for this temporary store
-	lsmkvMetrics := lsmkv.NewMetrics(s.shardOpts.promMetrics, s.shardOpts.index.Config.ClassName.String(), s.shardOpts.name)
-	store, err := lsmkv.New(storePath, s.shardOpts.index.path(), s.shardOpts.index.logger, lsmkvMetrics,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
-	if err != nil {
+	// Walk the shard directory and sum up all file sizes
+	if err := filepath.Walk(shardPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Only count files, not directories
+		if !info.IsDir() {
+			totalDiskSize += info.Size()
+		}
+
+		return nil
+	}); err != nil {
+		// If we can't walk the directory, return 0
 		return 0
 	}
-	defer store.Shutdown(ctx)
 
-	bucket := store.Bucket(helpers.ObjectsBucketLSM)
-	if bucket == nil {
-		return 0
-	}
-
-	return bucket.DiskPayloadSize()
+	return totalDiskSize
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {
