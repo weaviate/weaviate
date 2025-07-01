@@ -179,7 +179,6 @@ maximum_allowed_collections_count: 13`) // leaving out `asyncRep` config
 		assert.Equal(t, "INFO", source.TenantActivityReadLogLevel.Get())
 		assert.Equal(t, "INFO", source.TenantActivityWriteLogLevel.Get())
 		assert.Equal(t, true, source.RevectorizeCheckDisabled.Get())
-
 	})
 
 	t.Run("Reset() of non-exist config values in parsed yaml shouldn't panic", func(t *testing.T) {
