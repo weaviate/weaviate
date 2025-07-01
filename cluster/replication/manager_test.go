@@ -564,8 +564,16 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 			statusResp := api.ReplicationDetailsResponse{}
 			err = json.Unmarshal(resp, &statusResp)
 			assert.NoError(t, err)
-			assert.Equal(t, expectedFinalState.GetCurrent().ToAPIFormat(), statusResp.Status)
-			assert.Equal(t, expectedFinalState.GetHistory().ToAPIFormat(), statusResp.StatusHistory)
+			assert.Equal(t, expectedFinalState.GetCurrent().ToAPIFormat().State, statusResp.Status.State)
+			for i, err := range expectedFinalState.GetCurrent().ToAPIFormat().Errors {
+				assert.Equal(t, err.Message, statusResp.Status.Errors[i].Message)
+			}
+			for i, status := range expectedFinalState.GetHistory().ToAPIFormat() {
+				assert.Equal(t, status.State, statusResp.StatusHistory[i].State)
+				for j, err := range status.Errors {
+					assert.Equal(t, err.Message, statusResp.StatusHistory[i].Errors[j].Message)
+				}
+			}
 		})
 	}
 }
@@ -790,7 +798,9 @@ func TestManager_SnapshotRestore(t *testing.T) {
 					require.Equal(t, resp.Uuid, uuid)
 					require.Equal(t, resp.Id, originalReq.Id)
 					require.Equal(t, api.ShardReplicationState(resp.Status.State), api.REGISTERED)
-					require.Equal(t, resp.Status.Errors, []string{originalReq.Error})
+					for _, err := range resp.Status.Errors {
+						require.Equal(t, err.Message, originalReq.Error)
+					}
 				default:
 					t.Fatalf("unknown apply request type: %v", req.Type)
 				}
