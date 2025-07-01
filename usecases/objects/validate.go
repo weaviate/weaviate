@@ -31,10 +31,8 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
 	className := schema.UppercaseClassName(obj.Class)
-	class := m.schemaManager.ReadOnlyClass(className)
-	if class != nil {
-		// might be an alias
-		className = class.Class
+	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
+		className = cls
 	}
 	obj.Class = className
 

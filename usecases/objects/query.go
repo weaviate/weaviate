@@ -71,12 +71,8 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 	class := "*"
 
 	if params != nil && params.Class != "" {
-		// We keep this for the audit log to contain the requested class, even it it's an alias
-		class = params.Class
-		fetched := m.schemaManager.ReadOnlyClass(class)
-		if fetched != nil {
-			// might be an alias
-			params.Class = fetched.Class
+		if cls := m.schemaManager.ResolveAlias(params.Class); cls != "" {
+			params.Class = cls
 		}
 	}
 

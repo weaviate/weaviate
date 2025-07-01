@@ -33,9 +33,8 @@ func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, c
 	m.metrics.HeadObjectInc()
 	defer m.metrics.HeadObjectDec()
 
-	class := m.schemaManager.ReadOnlyClass(className)
-	if class != nil {
-		className = class.Class
+	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
+		className = cls
 	}
 
 	ok, err := m.vectorRepo.Exists(ctx, className, id, repl, tenant)

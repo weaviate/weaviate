@@ -30,7 +30,6 @@ import (
 
 func Test_AliasesAPI_gRPC(t *testing.T) {
 	ctx := context.Background()
-	t.Setenv("TEST_WEAVIATE_IMAGE", "module_test_image")
 	compose, err := docker.New().
 		WithWeaviateWithGRPC().
 		WithText2VecModel2Vec().

@@ -56,10 +56,8 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	}
 
 	className := schema.UppercaseClassName(updates.Class)
-	class := m.schemaManager.ReadOnlyClass(className)
-	if class != nil {
-		// class might be an alias
-		className = class.Class
+	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
+		className = cls
 	}
 	updates.Class = className
 
