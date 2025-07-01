@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
-func TestSegmentGroup_PayloadSize(t *testing.T) {
+func TestSegmentGroup_Size(t *testing.T) {
 	tests := []struct {
 		name         string
 		segments     []Segment
@@ -31,71 +31,71 @@ func TestSegmentGroup_PayloadSize(t *testing.T) {
 			description:  "should return 0 when no segments are present",
 		},
 		{
-			name: "single segment with payload",
+			name: "single segment",
 			segments: []Segment{
-				&segment{dataEndPos: 1024},
+				&segment{size: 1024},
 			},
 			expectedSize: 1024,
-			description:  "should return the payload size of a single segment",
+			description:  "should return the size of a single segment",
 		},
 		{
-			name: "multiple segments with different payload sizes",
+			name: "multiple segments with different sizes",
 			segments: []Segment{
-				&segment{dataEndPos: 512},
-				&segment{dataEndPos: 1024},
-				&segment{dataEndPos: 2048},
+				&segment{size: 512},
+				&segment{size: 1024},
+				&segment{size: 2048},
 			},
 			expectedSize: 3584, // 512 + 1024 + 2048
-			description:  "should return the sum of all segment payload sizes",
+			description:  "should return the sum of all segment sizes",
 		},
 		{
-			name: "segments with zero payload size",
+			name: "segments with zero size",
 			segments: []Segment{
-				&segment{dataEndPos: 0},
-				&segment{dataEndPos: 1024},
-				&segment{dataEndPos: 0},
+				&segment{size: 0},
+				&segment{size: 1024},
+				&segment{size: 0},
 			},
 			expectedSize: 1024,
-			description:  "should handle segments with zero payload size correctly",
+			description:  "should handle segments with zero size correctly",
 		},
 		{
-			name: "large payload sizes",
+			name: "large sizes",
 			segments: []Segment{
-				&segment{dataEndPos: 1024 * 1024}, // 1MB
-				&segment{dataEndPos: 2048 * 1024}, // 2MB
-				&segment{dataEndPos: 4096 * 1024}, // 4MB
+				&segment{size: 1024 * 1024}, // 1MB
+				&segment{size: 2048 * 1024}, // 2MB
+				&segment{size: 4096 * 1024}, // 4MB
 			},
 			expectedSize: 7168 * 1024, // 7MB
-			description:  "should handle large payload sizes correctly",
+			description:  "should handle large sizes correctly",
 		},
 		{
 			name: "many small segments",
 			segments: []Segment{
-				&segment{dataEndPos: 1},
-				&segment{dataEndPos: 2},
-				&segment{dataEndPos: 3},
-				&segment{dataEndPos: 4},
-				&segment{dataEndPos: 5},
-				&segment{dataEndPos: 6},
-				&segment{dataEndPos: 7},
-				&segment{dataEndPos: 8},
-				&segment{dataEndPos: 9},
-				&segment{dataEndPos: 10},
+				&segment{size: 1},
+				&segment{size: 2},
+				&segment{size: 3},
+				&segment{size: 4},
+				&segment{size: 5},
+				&segment{size: 6},
+				&segment{size: 7},
+				&segment{size: 8},
+				&segment{size: 9},
+				&segment{size: 10},
 			},
 			expectedSize: 55, // sum of 1 to 10
 			description:  "should handle many small segments correctly",
 		},
 		{
-			name: "mixed payload sizes including edge cases",
+			name: "mixed sizes including edge cases",
 			segments: []Segment{
-				&segment{dataEndPos: 0},
-				&segment{dataEndPos: 1},
-				&segment{dataEndPos: 1000000},
-				&segment{dataEndPos: 0},
-				&segment{dataEndPos: 999999},
+				&segment{size: 0},
+				&segment{size: 1},
+				&segment{size: 1000000},
+				&segment{size: 0},
+				&segment{size: 999999},
 			},
 			expectedSize: 2000000, // 0 + 1 + 1000000 + 0 + 999999
-			description:  "should handle mixed payload sizes including zeros and large values",
+			description:  "should handle mixed sizes including zeros and large values",
 		},
 	}
 
@@ -105,27 +105,27 @@ func TestSegmentGroup_PayloadSize(t *testing.T) {
 				segments: tt.segments,
 			}
 
-			result := sg.payloadSize()
+			result := sg.Size()
 
 			assert.Equal(t, tt.expectedSize, result, tt.description)
 		})
 	}
 }
 
-func TestSegmentGroup_PayloadSize_WithEnqueuedSegments(t *testing.T) {
+func TestSegmentGroup_Size_WithEnqueuedSegments(t *testing.T) {
 	sg := &SegmentGroup{
 		segments: []Segment{
-			&segment{dataEndPos: 100},
-			&segment{dataEndPos: 200},
+			&segment{size: 100},
+			&segment{size: 200},
 		},
 		enqueuedSegments: []Segment{
-			&segment{dataEndPos: 300},
-			&segment{dataEndPos: 400},
+			&segment{size: 300},
+			&segment{size: 400},
 		},
 	}
 
 	expectedSize := int64(1000) // 100 + 200 + 300 + 400
 
-	result := sg.payloadSize()
+	result := sg.Size()
 	assert.Equal(t, expectedSize, result, "should include both regular and enqueued segments")
 }
