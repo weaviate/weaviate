@@ -1013,28 +1013,31 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	return &stats, nil
 }
 
-func (h *hnsw) VectorStorageSize() int64 {
+func (h *hnsw) VectorStorageSize(ctx context.Context) int64 {
 	h.RLock()
 	defer h.RUnlock()
 
-	// Get count and dimensions
-	var count int64
-	if h.compressed.Load() {
-		count = h.compressor.CountVectors()
-	} else {
-		count = int64(h.AlreadyIndexed())
-	}
-	dims := h.dims
+	// Always use the dimensions bucket for accurate counts instead of cache-based counts
+	// This ensures we get the correct total vectors and dimensions regardless of cache size
+	dimensions, objectCount := h.store.CalcTargetVectorDimensionsFromStore(ctx, "", func(dimLen int, v []lsmkv.MapPair) (int, int) {
+		return dimLen * len(v), dimLen
+	})
 
-	if count == 0 || dims == 0 {
+	if objectCount == 0 || dimensions == 0 {
+		return 0
+	}
+
+	// Calculate average dimensions per vector
+	avgDimensions := dimensions / objectCount
+	if avgDimensions == 0 {
 		return 0
 	}
 
 	// Calculate uncompressed size (float32 = 4 bytes per dimension)
-	uncompressedSize := count * int64(dims) * 4
+	uncompressedSize := int64(objectCount) * int64(avgDimensions) * 4
 
 	if h.compressed.Load() {
-		return int64(float64(uncompressedSize) * h.compressor.Stats().CompressionRatio(int(dims)))
+		return int64(float64(uncompressedSize) * h.compressor.Stats().CompressionRatio(avgDimensions))
 	}
 
 	return uncompressedSize

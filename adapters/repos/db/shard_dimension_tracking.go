@@ -74,7 +74,7 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 }
 
 func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (sum int, dimensions int) {
-	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry)
+	return s.store.CalcTargetVectorDimensionsFromStore(ctx, targetVector, calcEntry)
 }
 
 func (s *Shard) initDimensionTracking() {
