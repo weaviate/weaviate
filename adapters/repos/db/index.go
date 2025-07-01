@@ -2875,7 +2875,7 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 }
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName, targetVector string) (dimensions int, objectCount int) {
+func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName, targetVector string) (objectCount, dimensions int) {
 	// Obtain a lock that prevents tenant activation
 	i.shardTransferMutex.RLock()
 	defer i.shardTransferMutex.RUnlock()

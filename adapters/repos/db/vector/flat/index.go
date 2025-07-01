@@ -1072,10 +1072,10 @@ func (index *flat) VectorStorageSize(_ context.Context) int64 {
 			compressionRatio = index.bq.Stats().CompressionRatio(int(dims))
 		case compressionPQ:
 			// PQ compression ratio depends on segments, use conservative estimate
-			compressionRatio = 1.0 / 4.0 // Rough estimate: 4x compression
+			compressionRatio = 0.25 // Rough estimate: 4x compression
 		case compressionSQ:
 			// SQ compression ratio is ~4x
-			compressionRatio = 1.0 / 4.0
+			compressionRatio = 0.25
 		default:
 			compressionRatio = 1.0
 		}
