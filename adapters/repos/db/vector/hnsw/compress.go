@@ -61,6 +61,10 @@ func (h *hnsw) compress(cfg ent.UserConfig) error {
 				continue
 			}
 
+			if len(p) == 0 {
+				continue
+			}
+
 			cleanData = append(cleanData, p)
 			if len(cleanData) >= cfg.PQ.TrainingLimit {
 				break
