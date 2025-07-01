@@ -512,7 +512,7 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 		},
 		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
@@ -522,5 +522,5 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	return NewMigrator(repo, logger)
+	return NewMigrator(repo, logger, "node1")
 }

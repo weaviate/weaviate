@@ -40,7 +40,7 @@ func TestBM25FJourneyBlock(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -303,7 +303,7 @@ func TestBM25FSinglePropBlock(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -358,7 +358,7 @@ func TestBM25FWithFiltersBlock(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -462,7 +462,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilterBlock(t *testing.T)
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -534,7 +534,7 @@ func TestBM25FDifferentParamsJourneyBlock(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -600,7 +600,7 @@ func TestBM25FCompareBlock(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -692,7 +692,7 @@ func TestBM25F_ComplexDocumentsBlock(t *testing.T) {
 		},
 	}
 
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -789,7 +789,7 @@ func TestBM25F_SortMultiPropBlock(t *testing.T) {
 			Classes: []*models.Class{},
 		},
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,

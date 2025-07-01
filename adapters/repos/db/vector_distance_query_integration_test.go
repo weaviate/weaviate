@@ -36,7 +36,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 	logger, _ := test.NewNullLogger()
 	dirName := t.TempDir()
 
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
@@ -61,7 +61,7 @@ func TestVectorDistanceQuery(t *testing.T) {
 		shardState: singleShardState(),
 	}
 	repo.SetSchemaGetter(schemaGetter)
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	require.Nil(t,
 		migrator.AddClass(context.Background(), class, schemaGetter.shardState))

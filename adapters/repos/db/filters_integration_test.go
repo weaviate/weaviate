@@ -43,7 +43,7 @@ func TestFilters(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -54,7 +54,7 @@ func TestFilters(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	t.Run("prepare test schema and data ", prepareCarTestSchemaAndData(repo, migrator, schemaGetter))
 
 	t.Run("primitive props without nesting", testPrimitiveProps(repo))
@@ -74,7 +74,7 @@ func TestFiltersNoLengthIndex(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -84,7 +84,7 @@ func TestFiltersNoLengthIndex(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	t.Run("prepare test schema and data ", prepareCarTestSchemaAndDataNoLength(repo, migrator, schemaGetter))
 	t.Run("primitive props without nesting", testPrimitivePropsWithNoLengthIndex(repo))
 }
@@ -1031,7 +1031,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -1042,7 +1042,7 @@ func TestGeoPropUpdateJourney(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("import schema", func(t *testing.T) {
 		class := &models.Class{
@@ -1139,7 +1139,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -1150,7 +1150,7 @@ func TestCasingOfOperatorCombinations(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	class := &models.Class{
 		Class:               "FilterCasingBug",
@@ -1543,7 +1543,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -1554,7 +1554,7 @@ func TestFilteringAfterDeletion(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	class := &models.Class{
 		Class:               "DeletionClass",
 		VectorIndexConfig:   enthnsw.NewDefaultUserConfig(),

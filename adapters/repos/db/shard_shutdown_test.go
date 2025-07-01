@@ -135,7 +135,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -170,7 +170,7 @@ func initIndexAndPopulate(t *testing.T, dirName string) (index *Index, cleanup f
 		},
 	}
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	err = migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 	require.NoError(t, err)
 	schemaGetter.schema = sch

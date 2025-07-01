@@ -46,7 +46,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 		shardState: shardState,
 	}
 
-	vrepo, err := db.New(logger, db.Config{
+	vrepo, err := db.New(logger, "node1", db.Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -55,7 +55,7 @@ func Test_Classifier_KNN_SaveConsistency(t *testing.T) {
 	require.Nil(t, err)
 	vrepo.SetSchemaGetter(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
-	migrator := db.NewMigrator(vrepo, logger)
+	migrator := db.NewMigrator(vrepo, logger, "node1")
 
 	// so we can reuse it for follow up requests, such as checking the status
 	size := 400
@@ -184,7 +184,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 
 	sg := &fakeSchemaGetter{shardState: singleShardState()}
 
-	vrepo, err := db.New(logger, db.Config{
+	vrepo, err := db.New(logger, "node1", db.Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -192,7 +192,7 @@ func Test_Classifier_ZeroShot_SaveConsistency(t *testing.T) {
 	require.Nil(t, err)
 	vrepo.SetSchemaGetter(sg)
 	require.Nil(t, vrepo.WaitForStartup(context.Background()))
-	migrator := db.NewMigrator(vrepo, logger)
+	migrator := db.NewMigrator(vrepo, logger, "node1")
 
 	t.Run("preparations", func(t *testing.T) {
 		t.Run("creating the classes", func(t *testing.T) {

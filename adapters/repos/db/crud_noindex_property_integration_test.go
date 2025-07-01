@@ -56,7 +56,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -67,7 +67,7 @@ func TestCRUD_NoIndexProp(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,

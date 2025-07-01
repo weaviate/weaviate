@@ -81,7 +81,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 			Classes: []*models.Class{class},
 		},
 	}}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -92,7 +92,7 @@ func TestIndexByTimestampsNullStatePropLength_AddClass(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	require.Nil(t, migrator.AddProperty(context.Background(), class.Class, &models.Property{
 		Name:         "updateWithIINil",
@@ -202,7 +202,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			},
 		}
 		var err error
-		repo, err = New(logrus.New(), Config{
+		repo, err = New(logrus.New(), "node1", Config{
 			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
@@ -255,7 +255,7 @@ func TestIndexNullState_GetClass(t *testing.T) {
 			},
 		}
 
-		migrator := NewMigrator(repo, repo.logger)
+		migrator := NewMigrator(repo, repo.logger, "node1")
 		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		require.Nil(t, err)
 		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)
@@ -470,7 +470,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			},
 		}
 		var err error
-		repo, err = New(logrus.New(), Config{
+		repo, err = New(logrus.New(), "node1", Config{
 			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
@@ -525,7 +525,7 @@ func TestIndexPropLength_GetClass(t *testing.T) {
 			},
 		}
 
-		migrator := NewMigrator(repo, repo.logger)
+		migrator := NewMigrator(repo, repo.logger, "node1")
 		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		require.Nil(t, err)
 		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)
@@ -825,7 +825,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			},
 		}
 		var err error
-		repo, err = New(logrus.New(), Config{
+		repo, err = New(logrus.New(), "node1", Config{
 			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,
@@ -877,7 +877,7 @@ func TestIndexByTimestamps_GetClass(t *testing.T) {
 			},
 		}
 
-		migrator := NewMigrator(repo, repo.logger)
+		migrator := NewMigrator(repo, repo.logger, "node1")
 		err := migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 		require.Nil(t, err)
 		err = migrator.AddClass(context.Background(), refClass, schemaGetter.shardState)

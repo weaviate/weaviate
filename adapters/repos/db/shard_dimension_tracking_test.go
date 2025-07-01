@@ -47,7 +47,7 @@ func Benchmark_Migration(b *testing.B) {
 				schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 				shardState: shardState,
 			}
-			repo, err := New(logger, Config{
+			repo, err := New(logger, "node1", Config{
 				RootPath:                  dirName,
 				QueryMaximumResults:       1000,
 				MaxImportGoroutinesFactor: 1,
@@ -58,7 +58,7 @@ func Benchmark_Migration(b *testing.B) {
 			require.Nil(b, repo.WaitForStartup(testCtx()))
 			defer repo.Shutdown(context.Background())
 
-			migrator := NewMigrator(repo, logger)
+			migrator := NewMigrator(repo, logger, "node1")
 
 			class := &models.Class{
 				Class:               "Test",
@@ -112,7 +112,7 @@ func Test_Migration(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       1000,
 		MaxImportGoroutinesFactor: 1,
@@ -123,7 +123,7 @@ func Test_Migration(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
@@ -180,7 +180,7 @@ func Test_DimensionTracking(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -191,7 +191,7 @@ func Test_DimensionTracking(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("set schema", func(t *testing.T) {
 		class := &models.Class{
@@ -585,7 +585,7 @@ func createTestDatabaseWithClass(t *testing.T, class *models.Class) *DB {
 	metrics := monitoring.GetMetrics()
 	metrics.Registerer = monitoring.NoopRegisterer
 
-	db, err := New(logrus.New(), Config{
+	db, err := New(logrus.New(), "node1", Config{
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,

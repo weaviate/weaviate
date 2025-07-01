@@ -85,7 +85,7 @@ func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchem
 
 	schemaGetter.schema = schema
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	// Load text from file standard_test_data.json
@@ -114,7 +114,7 @@ func TestHybrid(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -153,7 +153,7 @@ func TestBIER(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -233,7 +233,7 @@ func SetupFusionClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGett
 
 	schemaGetter.schema = schema
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	addObj(repo, 0, map[string]interface{}{"title": "Our journey to BM25F", "description": "This is how we get to BM25F"}, []float32{
@@ -255,7 +255,7 @@ func TestRFJourney(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -638,7 +638,7 @@ func TestRFJourneyWithFilters(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -835,7 +835,7 @@ func TestStability(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
@@ -993,7 +993,7 @@ func TestHybridOverSearch(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,

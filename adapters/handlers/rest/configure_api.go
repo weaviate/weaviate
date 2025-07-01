@@ -388,7 +388,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	remoteIndexClient := clients.NewRemoteIndex(appState.ClusterHttpClient)
 	remoteNodesClient := clients.NewRemoteNode(appState.ClusterHttpClient)
 	replicationClient := clients.NewReplicationClient(appState.ClusterHttpClient)
-	repo, err := db.New(appState.Logger, db.Config{
+	repo, err := db.New(appState.Logger, appState.Cluster.LocalName(), db.Config{
 		ServerVersion:                       config.ServerVersion,
 		GitHash:                             build.Revision,
 		MemtablesFlushDirtyAfter:            appState.ServerConfig.Config.Persistence.MemtablesFlushDirtyAfter,
@@ -457,7 +457,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	setupDebugHandlers(appState)
 	setupGoProfiling(appState.ServerConfig.Config, appState.Logger)
 
-	migrator := db.NewMigrator(repo, appState.Logger)
+	migrator := db.NewMigrator(repo, appState.Logger, appState.Cluster.LocalName())
 	migrator.SetNode(appState.Cluster.LocalName())
 	// TODO-offload: "offload-s3" has to come from config when enable modules more than S3
 	migrator.SetOffloadProvider(appState.Modules, "offload-s3")

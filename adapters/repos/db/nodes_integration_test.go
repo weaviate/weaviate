@@ -36,7 +36,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",
 		MemtablesFlushDirtyAfter:  60,
@@ -50,7 +50,7 @@ func TestNodesAPI_Journey(t *testing.T) {
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	// check nodes api response on empty DB
 	nodeStatues, err := repo.GetNodeStatus(context.Background(), "", "", verbosity.OutputVerbose)

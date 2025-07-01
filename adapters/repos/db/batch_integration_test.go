@@ -45,7 +45,7 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -59,7 +59,7 @@ func TestBatchPutObjectsWithDimensions(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -80,7 +80,7 @@ func TestBatchPutObjects(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -94,7 +94,7 @@ func TestBatchPutObjects(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -110,7 +110,7 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -124,7 +124,7 @@ func TestBatchPutObjectsWithNamedVectors(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	className := "NamedVectors"
 
@@ -301,7 +301,7 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -315,7 +315,7 @@ func TestBatchPutObjectsNoVectorsWithDimensions(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))
@@ -337,7 +337,7 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -350,7 +350,7 @@ func TestBatchPutObjectsNoVectors(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -366,7 +366,7 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  1,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -380,7 +380,7 @@ func TestBatchDeleteObjectsWithDimensions(t *testing.T) {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the test class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -445,7 +445,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -458,7 +458,7 @@ func TestBatchDeleteObjects(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -476,7 +476,7 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       queryMaximumResults,
@@ -489,7 +489,7 @@ func TestBatchDeleteObjects_JourneyWithDimensions(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator, schemaGetter))
 
@@ -516,7 +516,7 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       queryMaximumResults,
@@ -528,7 +528,7 @@ func TestBatchDeleteObjects_Journey(t *testing.T) {
 	defer func() {
 		require.Nil(t, repo.Shutdown(context.Background()))
 	}()
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", testAddBatchObjectClass(repo, migrator,
 		schemaGetter))

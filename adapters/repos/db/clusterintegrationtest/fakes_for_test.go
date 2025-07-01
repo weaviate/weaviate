@@ -24,7 +24,12 @@ import (
 	"os"
 	"path"
 	"sync"
+	"testing"
 	"time"
+
+	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/types"
 
 	"github.com/sirupsen/logrus/hooks/test"
 
@@ -55,8 +60,8 @@ type node struct {
 	hostname      string
 }
 
-func (n *node) init(dirName string, shardStateRaw []byte,
-	allNodes *[]*node,
+func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
+	allNodes *[]*node, shardingState *sharding.State,
 ) {
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
@@ -65,8 +70,9 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	for _, node := range *allNodes {
 		names = append(names, node.name)
 	}
+	nodeSelector := mocks.NewMockNodeSelector(names...)
 	nodeResolver := &nodeResolver{
-		NodeSelector: mocks.NewMockNodeSelector(names...),
+		NodeSelector: nodeSelector,
 		nodes:        allNodes,
 		local:        n.name,
 	}
@@ -80,7 +86,13 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
-	n.repo, err = db.New(logger, db.Config{
+	schemaReader := types.NewMockSchemaReader(t)
+	schemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	schemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return(names, nil).Maybe()
+	replicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
+	replicationFSM.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return(names).Maybe()
+	replicationFSM.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return(names, nil).Maybe()
+	n.repo, err = db.New(logger, n.name, db.Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
@@ -110,7 +122,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	n.scheduler = ubak.NewScheduler(
 		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
 
-	n.migrator = db.NewMigrator(n.repo, logger)
+	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
 	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger, config.Config{})),
 		n.repo, clusterapi.NewNoopAuthHandler(), func() bool { return false }, logger)

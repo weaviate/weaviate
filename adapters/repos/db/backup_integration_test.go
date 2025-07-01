@@ -261,7 +261,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	db, err := New(logger, Config{
+	db, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
@@ -270,7 +270,7 @@ func setupTestDB(t *testing.T, rootDir string, classes ...*models.Class) *DB {
 	require.Nil(t, err)
 	db.SetSchemaGetter(schemaGetter)
 	require.Nil(t, db.WaitForStartup(testCtx()))
-	migrator := NewMigrator(db, logger)
+	migrator := NewMigrator(db, logger, "node1")
 
 	for _, class := range classes {
 		require.Nil(t,

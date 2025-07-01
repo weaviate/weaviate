@@ -37,7 +37,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		MaxImportGoroutinesFactor: 1,
@@ -46,7 +46,7 @@ func TestMultipleCrossRefTypes(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		for _, class := range parkingGaragesSchema().Objects.Classes {

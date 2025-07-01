@@ -39,7 +39,7 @@ func TestRefFilters(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryLimit:                20,
@@ -50,7 +50,7 @@ func TestRefFilters(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}
@@ -463,7 +463,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -473,7 +473,7 @@ func TestRefFilters_MergingWithAndOperator(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(testCtx())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("adding all classes to the schema", func(t *testing.T) {
 		schemaGetter.schema.Objects = &models.Schema{}

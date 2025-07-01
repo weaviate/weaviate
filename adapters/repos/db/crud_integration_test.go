@@ -88,7 +88,7 @@ func TestCRUD(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
@@ -98,7 +98,7 @@ func TestCRUD(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
@@ -1297,7 +1297,7 @@ func TestCRUD_Query(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
@@ -1307,7 +1307,7 @@ func TestCRUD_Query(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
@@ -1536,7 +1536,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -1546,7 +1546,7 @@ func Test_ImportWithoutVector_UpdateWithVectorLater(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("prepare data for test", func(t *testing.T) {
 		data = make([]*models.Object, total)
@@ -1690,7 +1690,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter: 60,
 		RootPath:                 dirName,
 		// this is set really low to ensure that search
@@ -1703,7 +1703,7 @@ func TestVectorSearch_ByDistance(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("create required schema", func(t *testing.T) {
 		class = &models.Class{
@@ -1827,7 +1827,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter: 60,
 		RootPath:                 dirName,
 		// this is set really low to ensure that search
@@ -1840,7 +1840,7 @@ func TestVectorSearch_ByCertainty(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("create required schema", func(t *testing.T) {
 		class = &models.Class{
@@ -1976,7 +1976,7 @@ func Test_PutPatchRestart(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       100,
@@ -1986,7 +1986,7 @@ func Test_PutPatchRestart(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	defer repo.Shutdown(context.Background())
 	require.Nil(t, repo.WaitForStartup(ctx))
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	require.Nil(t,
 		migrator.AddClass(ctx, testClass, schemaGetter.shardState))
@@ -2120,7 +2120,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       100,
@@ -2130,7 +2130,7 @@ func TestCRUDWithEmptyArrays(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	require.Nil(t,
 		migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 	require.Nil(t,
@@ -2253,7 +2253,7 @@ func TestOverwriteObjects(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
@@ -2264,7 +2264,7 @@ func TestOverwriteObjects(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	t.Run("create the class", func(t *testing.T) {
 		require.Nil(t,
 			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
@@ -2355,7 +2355,7 @@ func TestIndexDigestObjects(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10,
@@ -2366,7 +2366,7 @@ func TestIndexDigestObjects(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	t.Run("create the class", func(t *testing.T) {
 		require.Nil(t,
 			migrator.AddClass(context.Background(), class, schemaGetter.shardState))
@@ -2482,7 +2482,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  t.TempDir(),
 		QueryMaximumResults:       10,
@@ -2493,7 +2493,7 @@ func TestIndexDifferentVectorLength(t *testing.T) {
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
 	defer repo.Shutdown(context.Background())
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	require.Nil(t, migrator.AddClass(context.Background(), class, schemaGetter.shardState))
 	// update schema getter so it's in sync with class
 	schemaGetter.schema = schema.Schema{

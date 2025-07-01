@@ -223,7 +223,7 @@ func testShardWithSettings(t *testing.T, ctx context.Context, class *models.Clas
 	logger, _ := test.NewNullLogger()
 	maxResults := int64(10_000)
 
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  tmpDir,
 		QueryMaximumResults:       maxResults,

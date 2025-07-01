@@ -51,7 +51,7 @@ func TestRestartJourney(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -60,7 +60,7 @@ func TestRestartJourney(t *testing.T) {
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 
 	t.Run("creating the thing class", func(t *testing.T) {
 		require.Nil(t,
@@ -167,7 +167,7 @@ func TestRestartJourney(t *testing.T) {
 		require.Nil(t, repo.Shutdown(context.Background()))
 		repo = nil
 
-		newRepo, err = New(logger, Config{
+		newRepo, err = New(logger, "node1", Config{
 			MemtablesFlushDirtyAfter:  60,
 			RootPath:                  dirName,
 			QueryMaximumResults:       10000,

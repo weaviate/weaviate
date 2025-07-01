@@ -139,7 +139,7 @@ func SetupClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, lo
 
 	schemaGetter.schema = schema
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	testData := []map[string]interface{}{}
@@ -205,7 +205,7 @@ func SetupClassForFilterScoringTest(t require.TestingT, repo *DB, schemaGetter *
 
 	schemaGetter.schema = schema
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	testData := []map[string]interface{}{}
@@ -232,7 +232,7 @@ func TestBM25FJourney(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -482,7 +482,7 @@ func TestBM25FSingleProp(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -525,7 +525,7 @@ func TestBM25FWithFilters(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -589,7 +589,7 @@ func TestBM25FWithFilters_ScoreIsIdenticalWithOrWithoutFilter(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -649,7 +649,7 @@ func TestBM25FDifferentParamsJourney(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -718,7 +718,7 @@ func TestBM25FCompare(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: singleShardState(),
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -869,7 +869,7 @@ func SetupClassDocuments(t require.TestingT, repo *DB, schemaGetter *fakeSchemaG
 		},
 	}
 
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	testData := []map[string]interface{}{}
@@ -904,7 +904,7 @@ func TestBM25F_ComplexDocuments(t *testing.T) {
 			Classes: []*models.Class{},
 		},
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
@@ -1011,7 +1011,7 @@ func MultiPropClass(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter
 	for i, prop := range class.Properties {
 		props[i] = prop.Name
 	}
-	migrator := NewMigrator(repo, logger)
+	migrator := NewMigrator(repo, logger, "node1")
 	migrator.AddClass(context.Background(), class, schemaGetter.shardState)
 
 	testData := []map[string]interface{}{}
@@ -1046,7 +1046,7 @@ func TestBM25F_SortMultiProp(t *testing.T) {
 			Classes: []*models.Class{},
 		},
 	}
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,

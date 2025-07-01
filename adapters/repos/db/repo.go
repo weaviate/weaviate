@@ -49,6 +49,7 @@ import (
 
 type DB struct {
 	logger            logrus.FieldLogger
+	localNodeName     string
 	schemaGetter      schemaUC.SchemaGetter
 	config            Config
 	indices           map[string]*Index
@@ -143,7 +144,7 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
 
-func New(logger logrus.FieldLogger, config Config,
+func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
@@ -158,6 +159,7 @@ func New(logger logrus.FieldLogger, config Config,
 
 	db := &DB{
 		logger:              logger,
+		localNodeName:       localNodeName,
 		config:              config,
 		indices:             map[string]*Index{},
 		remoteIndex:         remoteIndex,

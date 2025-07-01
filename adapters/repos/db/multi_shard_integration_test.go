@@ -279,7 +279,7 @@ func setupMultiShardTest(t *testing.T) (*DB, *logrus.Logger) {
 	dirName := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	repo, err := New(logger, Config{
+	repo, err := New(logger, "node1", Config{
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",
 		MemtablesFlushDirtyAfter:  60,
@@ -306,7 +306,7 @@ func makeTestMultiShardSchema(repo *DB, logger logrus.FieldLogger, fixedShardSta
 		repo.SetSchemaGetter(schemaGetter)
 		err := repo.WaitForStartup(testCtx())
 		require.Nil(t, err)
-		migrator := NewMigrator(repo, logger)
+		migrator := NewMigrator(repo, logger, "node1")
 
 		t.Run("creating the class", func(t *testing.T) {
 			for _, class := range classes {
