@@ -25,6 +25,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 )
 
+const (
+	maxConnectionsPerNode = 4096 // max number of connections per node, used to truncate links
+)
+
 type Deserializer struct {
 	logger                   logrus.FieldLogger
 	reusableBuffer           []byte
@@ -298,6 +302,12 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 		return 0, err
 	}
 
+	if len(targets) >= maxConnectionsPerNode {
+		d.logger.Warnf("read ReplaceLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d", len(targets), maxConnectionsPerNode, source, level, maxConnectionsPerNode)
+		targets = targets[:maxConnectionsPerNode]
+		length = uint16(len(targets))
+	}
+
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
 	if err != nil {
 		return 0, err
@@ -348,6 +358,12 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	targets, err := d.readUint64Slice(r, int(length))
 	if err != nil {
 		return 0, err
+	}
+
+	if len(targets) >= maxConnectionsPerNode {
+		d.logger.Warnf("read AddLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d", len(targets), maxConnectionsPerNode, source, level, maxConnectionsPerNode)
+		targets = targets[:maxConnectionsPerNode]
+		length = uint16(len(targets))
 	}
 
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
