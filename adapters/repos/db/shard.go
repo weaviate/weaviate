@@ -424,8 +424,7 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) int64 {
 		return 0
 	}
 
-	// Use efficient disk payload size calculation for both loaded and non-loaded shards
-	return bucket.DiskSize()
+	return bucket.DiskSize() + bucket.MetadataSize()
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
