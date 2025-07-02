@@ -59,7 +59,7 @@ func (m *CohereModule) Name() string {
 }
 
 func (m *CohereModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *CohereModule) Init(ctx context.Context,

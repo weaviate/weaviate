@@ -36,7 +36,7 @@ type classSettings struct {
 }
 
 func NewClassSettings(cfg moduletools.ClassConfig) *classSettings {
-	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettings(cfg, LowerCaseInput)}
+	return &classSettings{cfg: cfg, BaseClassSettings: *basesettings.NewBaseClassSettingsWithAltNames(cfg, LowerCaseInput, "text2multivec-jinaai", []string{"text2colbert-jinaai"}, nil)}
 }
 
 func (cs *classSettings) Model() string {
