@@ -52,7 +52,7 @@ func (m *OctoAIModule) Name() string {
 }
 
 func (m *OctoAIModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *OctoAIModule) Init(ctx context.Context,

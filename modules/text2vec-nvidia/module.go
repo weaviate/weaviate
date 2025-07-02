@@ -62,7 +62,7 @@ func (m *NvidiaModule) Name() string {
 }
 
 func (m *NvidiaModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *NvidiaModule) Init(ctx context.Context,

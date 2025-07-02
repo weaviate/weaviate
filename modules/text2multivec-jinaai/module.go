@@ -74,7 +74,7 @@ func (m *JinaAIModule) AltNames() []string {
 }
 
 func (m *JinaAIModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2ColBERT
+	return modulecapabilities.Text2Multivec
 }
 
 func (m *JinaAIModule) Init(ctx context.Context,
