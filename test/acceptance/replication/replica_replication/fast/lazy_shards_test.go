@@ -125,10 +125,6 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWithLazyShardLoading(
 				}),
 				nil,
 			)
-			if err != nil {
-				parsed, _ := err.(*replication.ReplicateInternalServerError)
-				t.Logf("Replication failed with error: %s", parsed.Payload.Error[0].Message)
-			}
 			require.Nil(t, err, "failed to start replication for tenant %s on node %s", tenantName, sourceNode)
 			opIds = append(opIds, *res.Payload.ID)
 		})
