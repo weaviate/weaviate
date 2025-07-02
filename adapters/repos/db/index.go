@@ -3002,7 +3002,7 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 	}
 
 	// Locate the tenant on disk
-	shardPath := shardPathLSM(i.path(), tenantName)
+	shardPath := shardPathDimensionsLSM(i.path(), tenantName)
 
 	// Create a temporary store to access the dimensions bucket
 	var promMetrics *monitoring.PrometheusMetrics
