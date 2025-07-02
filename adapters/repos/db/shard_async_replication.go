@@ -92,6 +92,7 @@ type asyncReplicationConfig struct {
 	propagationDelay            time.Duration
 	propagationConcurrency      int
 	propagationBatchSize        int
+	maintenanceModeEnabled      func() bool
 }
 
 func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
@@ -175,6 +176,11 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 		os.Getenv("ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE"), defaultPropagationBatchSize, minPropagationBatchSize, maxPropagationBatchSize)
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE", err)
+	}
+
+	config.maintenanceModeEnabled = s.index.Config.MaintenanceModeEnabled
+	if config.maintenanceModeEnabled == nil {
+		return asyncReplicationConfig{}, fmt.Errorf("maintenance mode enabled function is not set")
 	}
 
 	return
@@ -554,6 +560,23 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 			case <-ctx.Done():
 				return
 			case <-propagationRequired:
+
+				if config.maintenanceModeEnabled != nil &&
+					config.maintenanceModeEnabled() {
+					// if maintenance mode is enabled for localhost, skip async replication
+					s.index.logger.
+						WithField("action", "async_replication").
+						WithField("class_name", s.class.Class).
+						WithField("shard_name", s.name).
+						Info("skipping async replication in maintenance mode")
+					backoffTimer.Reset()
+					lastHashbeatMux.Lock()
+					lastHashbeat = time.Now()
+					lastHashbeatPropagatedObjects = false
+					lastHashbeatMux.Unlock()
+					continue
+				}
+
 				stats, err := s.hashBeat(ctx, config)
 				if err != nil {
 					if ctx.Err() != nil {
