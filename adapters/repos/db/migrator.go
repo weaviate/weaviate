@@ -300,11 +300,7 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 			}
 		} else {
 			// Shutdown the tenant if activity status != HOT
-			shard := idx.shards.Load(shardName)
-			if shard == nil {
-				continue
-			}
-			if err := shard.Shutdown(ctx); err != nil {
+			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
 				return fmt.Errorf("shutdown tenant shard %s during update index: %w", shardName, err)
 			}
 		}
@@ -357,14 +353,11 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	}
 
 	// Initialize missing shards and shutdown unneeded ones
-	for shardName, shard := range existingShards {
+	for shardName := range existingShards {
 		if !slices.Contains(requestedShards, shardName) {
-			if err := shard.Shutdown(ctx); err != nil {
-				// we log instead of returning an error, to avoid stopping the change
-				m.logger.WithField("shard", shardName).Error("shutdown shard during update index: %w", err)
-				continue
+			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
+				return fmt.Errorf("failed to unload shard %s during update index: %w", shardName, err)
 			}
-			idx.shards.LoadAndDelete(shardName)
 		}
 	}
 
