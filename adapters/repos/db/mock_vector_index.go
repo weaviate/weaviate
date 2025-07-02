@@ -1679,52 +1679,6 @@ func (_c *MockVectorIndex_ValidateMultiBeforeInsert_Call) RunAndReturn(run func(
 	return _c
 }
 
-// VectorStorageSize provides a mock function with given fields: ctx
-func (_m *MockVectorIndex) VectorStorageSize(ctx context.Context) int64 {
-	ret := _m.Called(ctx)
-
-	if len(ret) == 0 {
-		panic("no return value specified for VectorStorageSize")
-	}
-
-	var r0 int64
-	if rf, ok := ret.Get(0).(func(context.Context) int64); ok {
-		r0 = rf(ctx)
-	} else {
-		r0 = ret.Get(0).(int64)
-	}
-
-	return r0
-}
-
-// MockVectorIndex_VectorStorageSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'VectorStorageSize'
-type MockVectorIndex_VectorStorageSize_Call struct {
-	*mock.Call
-}
-
-// VectorStorageSize is a helper method to define mock.On call
-//   - ctx context.Context
-func (_e *MockVectorIndex_Expecter) VectorStorageSize(ctx interface{}) *MockVectorIndex_VectorStorageSize_Call {
-	return &MockVectorIndex_VectorStorageSize_Call{Call: _e.mock.On("VectorStorageSize", ctx)}
-}
-
-func (_c *MockVectorIndex_VectorStorageSize_Call) Run(run func(ctx context.Context)) *MockVectorIndex_VectorStorageSize_Call {
-	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(context.Context))
-	})
-	return _c
-}
-
-func (_c *MockVectorIndex_VectorStorageSize_Call) Return(_a0 int64) *MockVectorIndex_VectorStorageSize_Call {
-	_c.Call.Return(_a0)
-	return _c
-}
-
-func (_c *MockVectorIndex_VectorStorageSize_Call) RunAndReturn(run func(context.Context) int64) *MockVectorIndex_VectorStorageSize_Call {
-	_c.Call.Return(run)
-	return _c
-}
-
 // NewMockVectorIndex creates a new instance of MockVectorIndex. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockVectorIndex(t interface {
