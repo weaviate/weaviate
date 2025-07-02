@@ -24,9 +24,6 @@ import (
 	"sync"
 	"time"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/models"
-
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -36,9 +33,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -1889,4 +1888,20 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 		return 0, nil
 	}
 	return float64(propLengthSum) / float64(propLengthCount), nil
+}
+
+// DiskSize returns the total size from the disk segment group (cold path)
+func (b *Bucket) DiskSize() int64 {
+	if b.disk != nil {
+		return b.disk.Size()
+	}
+	return 0
+}
+
+// MetadataSize returns the total size of metadata files (.bloom and .cna) from segments in memory
+func (b *Bucket) MetadataSize() int64 {
+	if b.disk == nil {
+		return 0
+	}
+	return b.disk.MetadataSize()
 }

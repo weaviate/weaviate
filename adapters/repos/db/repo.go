@@ -20,24 +20,21 @@ import (
 	"sync/atomic"
 	"time"
 
-	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
-	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
-
-	"github.com/weaviate/weaviate/cluster/replication/types"
-
-	"github.com/weaviate/weaviate/usecases/cluster"
-
-	"github.com/weaviate/weaviate/entities/storobj"
-
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
+	"github.com/weaviate/weaviate/cluster/replication/types"
+	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
+	"github.com/weaviate/weaviate/entities/storobj"
+	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
@@ -142,6 +139,19 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
+
+// IndexGetter interface defines the methods that the service uses from db.IndexGetter
+// This allows for better testability by using interfaces instead of concrete types
+type IndexGetter interface {
+	GetIndexLike(className schema.ClassName) IndexLike
+}
+
+// IndexLike interface defines the methods that the service uses from db.Index
+// This allows for better testability by using interfaces instead of concrete types
+type IndexLike interface {
+	ForEachShard(f func(name string, shard ShardLike) error) error
+	CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64)
+}
 
 func New(logger logrus.FieldLogger, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
@@ -250,6 +260,10 @@ type Config struct {
 	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+}
+
+func (db *DB) GetIndexLike(className schema.ClassName) IndexLike {
+	return db.GetIndex(className)
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

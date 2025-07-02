@@ -17,9 +17,11 @@ import (
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	golangSort "sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2936,4 +2938,56 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName,
 	return calcTargetVectorDimensionsFromStore(ctx, store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
 		return len(v), dimLen
 	})
+}
+
+// CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
+func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64) {
+	// Obtain a lock that prevents tenant activation
+	i.shardCreateLocks.Lock(tenantName)
+	defer i.shardCreateLocks.Unlock(tenantName)
+
+	// Locate the tenant on disk
+	shardPath := shardPathObjectsLSM(i.path(), tenantName)
+
+	// Parse all .cna files in the object store and sum them up
+	totalObjectCount := int64(0)
+	totalDiskSize := int64(0)
+
+	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
+	if err := filepath.Walk(shardPath, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Only count files, not directories
+		if !info.IsDir() {
+			totalDiskSize += info.Size()
+
+			// Look for .cna files (net count additions)
+			if strings.HasSuffix(info.Name(), ".cna") {
+				// Read the .cna file to get object count
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return err
+				}
+
+				// Parse the count from the .cna file
+				// .cna files typically contain a simple integer count
+				count, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
+				if err != nil {
+					// If parsing fails, skip this file
+					return nil
+				}
+
+				totalObjectCount += count
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return 0, 0
+	}
+
+	// If we can't determine object count, return the disk size as fallback
+	return totalObjectCount, totalDiskSize
 }
