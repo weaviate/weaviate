@@ -99,7 +99,7 @@ import (
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
 	modsum "github.com/weaviate/weaviate/modules/sum-transformers"
 	modspellcheck "github.com/weaviate/weaviate/modules/text-spellcheck"
-	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2colbert-jinaai"
+	modtext2multivecjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
 	modtext2vecaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modt2vbigram "github.com/weaviate/weaviate/modules/text2vec-bigram"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
@@ -972,7 +972,7 @@ func registerModules(appState *state.State) error {
 		modvoyageai.Name,
 		modmulti2vecvoyageai.Name,
 		modweaviateembed.Name,
-		modtext2colbertjinaai.Name,
+		modtext2multivecjinaai.Name,
 		modnvidia.Name,
 		modmulti2vecnvidia.Name,
 	}
@@ -1461,11 +1461,13 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
-	if _, ok := enabledModules[modtext2colbertjinaai.Name]; ok {
-		appState.Modules.Register(modtext2colbertjinaai.New())
+	_, enabledText2MultivecJinaAI := enabledModules[modtext2multivecjinaai.Name]
+	_, enabledText2ColBERTJinaAI := enabledModules[modtext2multivecjinaai.LegacyName]
+	if enabledText2MultivecJinaAI || enabledText2ColBERTJinaAI {
+		appState.Modules.Register(modtext2multivecjinaai.New())
 		appState.Logger.
 			WithField("action", "startup").
-			WithField("module", modtext2colbertjinaai.Name).
+			WithField("module", modtext2multivecjinaai.Name).
 			Debug("enabled module")
 	}
 
