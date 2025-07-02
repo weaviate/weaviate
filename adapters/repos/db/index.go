@@ -2992,44 +2992,53 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 	defer i.shardCreateLocks.Unlock(tenantName)
 
 	// Locate the tenant on disk
-	shardPath := shardPathVectorLSM(i.path(), tenantName)
+	shardPath := shardPathLSM(i.path(), tenantName)
 
-	// Get vector index configurations to determine dimensions and compression
+	// Create a temporary store to access the dimensions bucket
+	var promMetrics *monitoring.PrometheusMetrics
+	if i.metrics != nil && i.metrics.baseMetrics != nil {
+		promMetrics = i.metrics.baseMetrics
+	} else {
+		// Use global metrics as fallback
+		promMetrics = monitoring.GetMetrics()
+	}
+
+	lsmkvMetrics := lsmkv.NewMetrics(promMetrics, i.Config.ClassName.String(), tenantName)
+	store, err := lsmkv.New(shardPath, i.path(), i.logger, lsmkvMetrics,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	if err != nil {
+		return 0
+	}
+	defer store.Shutdown(ctx)
+
+	// Get vector index configurations to determine compression settings
 	vectorConfigs := i.GetVectorIndexConfigs()
 	if len(vectorConfigs) == 0 {
 		return 0
 	}
 
-	// Calculate total vector storage size by examining vector buckets on disk
-	totalVectorStorageSize := int64(0)
+	totalSize := int64(0)
 
-	// Use a single walk to avoid nested filepath.Walk calls and reduce file descriptors
-	if err := filepath.Walk(shardPath, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	// For each target vector, calculate storage size using dimensions bucket and config-based compression
+	for targetVector, config := range vectorConfigs {
+		// Get dimensions and object count from the dimensions bucket
+		objectCount, dimensions := store.CalcTargetVectorDimensionsFromStore(ctx, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+			return len(v), dimLen
+		})
+
+		if objectCount == 0 || dimensions == 0 {
+			continue
 		}
 
-		// Check if this is a vector bucket directory
-		if info.IsDir() && helpers.IsVectorBucket(info.Name()) {
-			// For vector bucket directories, we'll calculate their size in the next iteration
-			return nil
-		}
+		// Calculate uncompressed size (float32 = 4 bytes per dimension)
+		uncompressedSize := int64(objectCount) * int64(dimensions) * 4
 
-		// Check if this file belongs to a vector bucket by checking its parent directory
-		if !info.IsDir() {
-			parentDir := filepath.Dir(path)
-			parentName := filepath.Base(parentDir)
+		// For inactive tenants, use vector index config for dimension tracking
+		// This is similar to the original shard dimension tracking approach
+		compressionRatio := helpers.CompressionRatioFromConfig(config, dimensions)
 
-			// If the parent directory is a vector bucket, add this file's size
-			if helpers.IsVectorBucket(parentName) {
-				totalVectorStorageSize += info.Size()
-			}
-		}
-
-		return nil
-	}); err != nil {
-		return 0
+		totalSize += int64(float64(uncompressedSize) * compressionRatio)
 	}
 
-	return totalVectorStorageSize
+	return totalSize
 }

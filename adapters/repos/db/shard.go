@@ -429,11 +429,37 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) int64 {
 }
 
 func (s *Shard) VectorStorageSize(ctx context.Context) int64 {
-	// Calculate vector storage size by iterating through all vector indexes
+	// Always use the dimensions bucket for tracking total vectors and dimensions
+	// This ensures we get accurate counts regardless of cache size or shard state
+	// This method is only called for active tenants, so we can always use direct vector index compression
+
 	totalSize := int64(0)
 
+	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
-		totalSize += index.VectorStorageSize(ctx)
+		// Get dimensions and object count from the dimensions bucket for this specific target vector
+		objectCount, dimensions := s.store.CalcTargetVectorDimensionsFromStore(ctx, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+			return len(v), dimLen
+		})
+
+		if objectCount == 0 || dimensions == 0 {
+			return nil
+		}
+
+		// Calculate uncompressed size (float32 = 4 bytes per dimension)
+		uncompressedSize := int64(objectCount) * int64(dimensions) * 4
+
+		// For active tenants, always use the direct vector index compression rate
+		// Get the actual compression rate from the vector index
+		compressionRate := float64(1.0) // default to no compression
+
+		if stats, err := index.CompressionStats(); err == nil {
+			compressionRate = stats.CompressionRatio(dimensions)
+		}
+
+		// Calculate total size using actual compression rate
+		totalSize += int64(float64(uncompressedSize) * compressionRate)
+
 		return nil
 	}); err != nil {
 		return 0
@@ -468,10 +494,6 @@ func shardPathLSM(indexPath, shardName string) string {
 
 func shardPathObjectsLSM(indexPath, shardName string) string {
 	return path.Join(shardPathLSM(indexPath, shardName), helpers.ObjectsBucketLSM)
-}
-
-func shardPathVectorLSM(indexPath, shardName string) string {
-	return path.Join(shardPathLSM(indexPath, shardName), helpers.VectorsBucketLSM)
 }
 
 func bucketKeyPropertyLength(length int) ([]byte, error) {
