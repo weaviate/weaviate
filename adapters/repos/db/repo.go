@@ -239,6 +239,7 @@ type Config struct {
 	HNSWFlatSearchConcurrency                    int
 	HNSWAcornFilterRatio                         float64
 	VisitedListPoolMaxSize                       int
+	VisitedListCollisionRate                     int
 
 	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
 	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]

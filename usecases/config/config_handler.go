@@ -156,13 +156,21 @@ type Config struct {
 	DisableTelemetry                    bool                     `json:"disable_telemetry" yaml:"disable_telemetry"`
 	HNSWStartupWaitForVectorCache       bool                     `json:"hnsw_startup_wait_for_vector_cache" yaml:"hnsw_startup_wait_for_vector_cache"`
 	HNSWVisitedListPoolMaxSize          int                      `json:"hnsw_visited_list_pool_max_size" yaml:"hnsw_visited_list_pool_max_size"`
-	HNSWFlatSearchConcurrency           int                      `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
-	HNSWAcornFilterRatio                float64                  `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
-	Sentry                              *entsentry.ConfigOpts    `json:"sentry" yaml:"sentry"`
-	MetadataServer                      MetadataServer           `json:"metadata_server" yaml:"metadata_server"`
-	SchemaHandlerConfig                 SchemaHandlerConfig      `json:"schema" yaml:"schema"`
-	DistributedTasks                    DistributedTasksConfig   `json:"distributed_tasks" yaml:"distributed_tasks"`
-	ReplicationEngineMaxWorkers         int                      `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
+
+	// HNSWVisitedListCollisionRate controls how much memory is allocated for
+	// segments in visited lists. A higher value requires more memory, but leads
+	// to better performance. A lower value leads to less heap usage, but
+	// potentially more allocations, thus reducing performance. The default is a
+	// sane value, you do not need to touch this, unless you know what exactly
+	// you're doing.
+	HNSWVisitedListCollisionRate int                    `json:"hnsw_visited_list_collision_rate" yaml:"hnsw_visited_list_collision_rate"`
+	HNSWFlatSearchConcurrency    int                    `json:"hnsw_flat_search_concurrency" yaml:"hnsw_flat_search_concurrency"`
+	HNSWAcornFilterRatio         float64                `json:"hnsw_acorn_filter_ratio" yaml:"hnsw_acorn_filter_ratio"`
+	Sentry                       *entsentry.ConfigOpts  `json:"sentry" yaml:"sentry"`
+	MetadataServer               MetadataServer         `json:"metadata_server" yaml:"metadata_server"`
+	SchemaHandlerConfig          SchemaHandlerConfig    `json:"schema" yaml:"schema"`
+	DistributedTasks             DistributedTasksConfig `json:"distributed_tasks" yaml:"distributed_tasks"`
+	ReplicationEngineMaxWorkers  int                    `json:"replication_engine_max_workers" yaml:"replication_engine_max_workers"`
 	// Raft Specific configuration
 	// TODO-RAFT: Do we want to be able to specify these with config file as well ?
 	Raft Raft
@@ -436,7 +444,10 @@ const (
 	DefaultMetadataServerDataEventsChannelCapacity = 100
 )
 
-const DefaultHNSWVisitedListPoolSize = -1 // unlimited for backward compatibility
+const (
+	DefaultHNSWVisitedListPoolSize      = -1 // unlimited for backward compatibility
+	DefaultHNSWVisitedListCollisionRate = -1 // true default is set inside the HNSW package
+)
 
 const DefaultHNSWFlatSearchConcurrency = 1 // 1 for backward compatibility
 

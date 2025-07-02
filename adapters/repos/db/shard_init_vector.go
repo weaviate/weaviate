@@ -117,13 +117,14 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
 					)
 				},
-				AllocChecker:           s.index.allocChecker,
-				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
-				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
-				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
-				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
-				DisableSnapshots:       s.index.Config.HNSWDisableSnapshots,
-				SnapshotOnStartup:      s.index.Config.HNSWSnapshotOnStartup,
+				AllocChecker:             s.index.allocChecker,
+				WaitForCachePrefill:      s.index.Config.HNSWWaitForCachePrefill,
+				FlatSearchConcurrency:    s.index.Config.HNSWFlatSearchConcurrency,
+				AcornFilterRatio:         s.index.Config.HNSWAcornFilterRatio,
+				VisitedListPoolMaxSize:   s.index.Config.VisitedListPoolMaxSize,
+				VisitedListCollisionRate: s.index.Config.VisitedListCollisionRate,
+				DisableSnapshots:         s.index.Config.HNSWDisableSnapshots,
+				SnapshotOnStartup:        s.index.Config.HNSWSnapshotOnStartup,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())

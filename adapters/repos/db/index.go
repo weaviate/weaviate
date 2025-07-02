@@ -682,6 +682,7 @@ type IndexConfig struct {
 	HNSWFlatSearchConcurrency                    int
 	HNSWAcornFilterRatio                         float64
 	VisitedListPoolMaxSize                       int
+	VisitedListCollisionRate                     int
 
 	QuerySlowLogEnabled    *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold  *configRuntime.DynamicValue[time.Duration]

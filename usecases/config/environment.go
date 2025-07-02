@@ -389,6 +389,14 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if err := parseInt(
+		"HNSW_VISITED_LIST_COLLISION_RATE",
+		func(size int) { config.HNSWVisitedListCollisionRate = size },
+		DefaultHNSWVisitedListCollisionRate,
+	); err != nil {
+		return err
+	}
+
 	if err := parseNonNegativeInt(
 		"HNSW_FLAT_SEARCH_CONCURRENCY",
 		func(val int) { config.HNSWFlatSearchConcurrency = val },

@@ -188,7 +188,8 @@ type hnsw struct {
 	allocChecker            memwatch.AllocChecker
 	tombstoneCleanupRunning atomic.Bool
 
-	visitedListPoolMaxSize int
+	visitedListPoolMaxSize   int
+	visitedListCollisionRate int
 
 	// only used for multivector mode
 	multivector   atomic.Bool
@@ -336,9 +337,10 @@ func New(cfg Config, uc ent.UserConfig,
 		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
 
-		store:                  store,
-		allocChecker:           cfg.AllocChecker,
-		visitedListPoolMaxSize: cfg.VisitedListPoolMaxSize,
+		store:                    store,
+		allocChecker:             cfg.AllocChecker,
+		visitedListPoolMaxSize:   cfg.VisitedListPoolMaxSize,
+		visitedListCollisionRate: cfg.VisitedListCollisionRate,
 
 		docIDVectors:  make(map[uint64][]uint64),
 		muveraEncoder: muveraEncoder,

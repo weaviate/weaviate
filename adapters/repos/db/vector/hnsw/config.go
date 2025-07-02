@@ -48,7 +48,8 @@ type Config struct {
 	ShardName string
 	ClassName string
 
-	VisitedListPoolMaxSize int
+	VisitedListPoolMaxSize   int
+	VisitedListCollisionRate int
 }
 
 func (c Config) Validate() error {

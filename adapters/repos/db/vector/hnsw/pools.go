@@ -32,9 +32,9 @@ type pools struct {
 	tempVectorsUint64 *common.TempVectorUint64Pool
 }
 
-func newPools(maxConnectionsLayerZero int) *pools {
+func newPools(maxConnectionsLayerZero, collisionRate int) *pools {
 	return &pools{
-		visitedLists:     newVisitedPool(0),
+		visitedLists:     newVisitedPool(0, collisionRate),
 		visitedListsLock: &sync.RWMutex{},
 		pqItemSlice: &sync.Pool{
 			New: func() interface{} {
@@ -53,14 +53,18 @@ type visitedPool struct {
 	pool *sync.Pool
 }
 
-func newVisitedPool(initialSize int) *visitedPool {
+func newVisitedPool(initialSize, collisionRate int) *visitedPool {
 	if initialSize <= 0 {
 		initialSize = 1_000_000 // Default size if not specified
 	}
+	if collisionRate <= 0 {
+		collisionRate = 65536 // Default collision rate if not specified
+	}
+
 	return &visitedPool{
 		pool: &sync.Pool{
 			New: func() interface{} {
-				return visited.NewSparseSet(initialSize, 8192)
+				return visited.NewSparseSet(initialSize, collisionRate)
 			},
 		},
 	}
