@@ -27,6 +27,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -93,6 +94,9 @@ type DB struct {
 	shardLoadLimiter ShardLoadLimiter
 
 	reindexer ShardReindexerV3
+
+	bitmapBufPool      roaringset.BitmapBufPool
+	bitmapBufPoolClose func()
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -161,6 +165,8 @@ func New(logger logrus.FieldLogger, config Config,
 		memMonitor:          memMonitor,
 		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
 		reindexer:           NewShardReindexerV3Noop(),
+		bitmapBufPool:       roaringset.NewBitmapBufPoolNoop(),
+		bitmapBufPoolClose:  func() {},
 	}
 
 	if db.maxNumberGoroutines == 0 {
@@ -317,6 +323,7 @@ func (db *DB) DeleteIndex(className schema.ClassName) error {
 
 func (db *DB) Shutdown(ctx context.Context) error {
 	db.shutdown <- struct{}{}
+	db.bitmapBufPoolClose()
 
 	if !asyncEnabled() {
 		// shut down the workers that add objects to
@@ -386,5 +393,11 @@ func (db *DB) batchWorker(first bool) {
 
 func (db *DB) WithReindexer(reindexer ShardReindexerV3) *DB {
 	db.reindexer = reindexer
+	return db
+}
+
+func (db *DB) WithBitmapBufPool(bufPool roaringset.BitmapBufPool, close func()) *DB {
+	db.bitmapBufPool = bufPool
+	db.bitmapBufPoolClose = close
 	return db
 }
