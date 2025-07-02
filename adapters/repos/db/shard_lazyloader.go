@@ -463,7 +463,7 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (int, int) {
+func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (count, dimensions int) {
 	l.mutex.Lock()
 	if l.loaded {
 		l.mutex.Unlock()

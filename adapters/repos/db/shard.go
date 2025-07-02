@@ -144,7 +144,8 @@ type ShardLike interface {
 	// Dimensions returns the total number of dimensions for a given vector
 	Dimensions(ctx context.Context, targetVector string) int // dim(vector)*number vectors
 	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-	DimensionsUsage(ctx context.Context, targetVector string) (int, int)
+	// TODO: rename to DimensionsUsage struct and find a better way because of import cycle
+	DimensionsUsage(ctx context.Context, targetVector string) (count, dimensions int)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
@@ -438,16 +439,16 @@ func (s *Shard) VectorStorageSize(ctx context.Context) int64 {
 	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// Get dimensions and object count from the dimensions bucket for this specific target vector
-		objectCount, dimensions := s.store.CalcTargetVectorDimensionsFromStore(ctx, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+		count, dimensions := s.store.CalcTargetVectorDimensionsFromStore(ctx, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
 			return len(v), dimLen
 		})
 
-		if objectCount == 0 || dimensions == 0 {
+		if count == 0 || dimensions == 0 {
 			return nil
 		}
 
 		// Calculate uncompressed size (float32 = 4 bytes per dimension)
-		uncompressedSize := int64(objectCount) * int64(dimensions) * 4
+		uncompressedSize := int64(count) * int64(dimensions) * 4
 
 		// For active tenants, always use the direct vector index compression rate
 		// Get the actual compression rate from the vector index

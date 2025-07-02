@@ -109,7 +109,7 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 						indexType = vectorIndexConfig.IndexType()
 					}
 
-					dimensions, objects := shard.DimensionsUsage(ctx, targetVector)
+					count, dimensions := shard.DimensionsUsage(ctx, targetVector)
 					// Get compression ratio from vector index stats
 					var compressionRatio float64
 					if compressionStats, err := vectorIndex.CompressionStats(); err == nil {
@@ -124,9 +124,9 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 						VectorCompressionRatio: compressionRatio,
 					}
 
-					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &DimensionalityUsage{
-						Dimensionality: dimensions,
-						Count:          objects,
+					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &Dimensionality{
+						Dimensions: dimensions,
+						Count:      count,
 					})
 
 					shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
