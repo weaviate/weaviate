@@ -28,23 +28,9 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestReplicationReplicateWithLazyShardLoading(t *testing.T) {
-	// mainCtx := context.Background()
-
-	// compose, err := docker.New().
-	// 	WithWeaviateCluster(3).
-	// 	WithWeaviateEnv("MAX_PARALLEL_WORKERS", "100").
-	// 	WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
-	// 	Start(mainCtx)
-	// require.Nil(t, err)
-	// helper.SetupClient(compose.GetWeaviate().URI())
-
-	// defer func() {
-	// 	if err := compose.Terminate(mainCtx); err != nil {
-	// 		t.Fatalf("failed to terminate test containers: %s", err.Error())
-	// 	}
-	// }()
-	helper.SetupClient("localhost:8080")
+func (suite *ReplicationTestSuite) TestReplicationReplicateWithLazyShardLoading() {
+	t := suite.T()
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
