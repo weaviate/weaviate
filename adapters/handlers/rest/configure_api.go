@@ -54,6 +54,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/classifications"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	modulestorage "github.com/weaviate/weaviate/adapters/repos/modules"
 	schemarepo "github.com/weaviate/weaviate/adapters/repos/schema"
 	rCluster "github.com/weaviate/weaviate/cluster"
@@ -598,6 +599,9 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 			Fatal("modules didn't initialize")
 	}
 
+	bitmapBufPool, bitmapBufPoolClose := configureBitmapBufPool(appState)
+	repo.WithBitmapBufPool(bitmapBufPool, bitmapBufPoolClose)
+
 	var reindexCtx context.Context
 	reindexCtx, appState.ReindexCtxCancel = context.WithCancelCause(context.Background())
 	reindexer := configureReindexer(appState, reindexCtx)
@@ -717,6 +721,13 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	}
 	reindexer.Init()
 	return reindexer
+}
+
+func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
+	// TODO get settings from config
+	MB := 1 << 20
+	GB := 1 << 30
+	return roaringset.NewBitmapBufPoolDefault(appState.Logger, 128*MB, 2*GB)
 }
 
 func parseNode2Port(appState *state.State) (m map[string]int, err error) {
