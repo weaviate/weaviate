@@ -619,7 +619,7 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 }
 
 // CalcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
-func (s *Store) CalcTargetVectorDimensionsFromStore(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []MapPair) (int, int)) (sum int, dimensions int) {
+func (s *Store) CalcTargetVectorDimensionsFromStore(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []MapPair) (int, int)) (count int, dimensions int) {
 	b := s.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
 		return 0, 0
@@ -645,8 +645,8 @@ func (s *Store) CalcTargetVectorDimensionsFromStore(ctx context.Context, targetV
 		if dimensions == 0 && dim > 0 {
 			dimensions = dim
 		}
-		sum += size
+		count += size
 	}
 
-	return sum, dimensions
+	return count, dimensions
 }

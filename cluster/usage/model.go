@@ -78,13 +78,13 @@ type VectorUsage struct {
 	VectorStorageBytes int64 `json:"vector_storage_bytes"`
 
 	// List of dimensionalities and their metrics
-	Dimensionalities []*DimensionalityUsage `json:"dimensionalities"`
+	Dimensionalities []*Dimensionality `json:"dimensionalities"`
 }
 
-// DimensionalityUsage represents metrics for a specific dimensionality
-type DimensionalityUsage struct {
+// Dimensionality represents metrics for a specific dimensionality
+type Dimensionality struct {
 	// The dimensionality of the vectors
-	Dimensionality int `json:"dimensionality"`
+	Dimensions int `json:"dimensions"`
 
 	// The number of objects with this dimensionality
 	Count int `json:"count"`
