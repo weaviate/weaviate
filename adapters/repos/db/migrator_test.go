@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -94,7 +95,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 				ReplicationFactor: 1,
 				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 			}, originalSS, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 
 			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil, NewShardReindexerV3Noop(), false)
@@ -223,7 +224,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				ReplicationFactor: 1,
 				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 			}, initialState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop())
+				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop(), roaringset.NewBitmapBufPoolNoop())
 			require.NoError(t, err)
 
 			// Initialize shards
