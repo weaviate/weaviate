@@ -179,9 +179,6 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 	}
 
 	config.maintenanceModeEnabled = s.index.Config.MaintenanceModeEnabled
-	if config.maintenanceModeEnabled == nil {
-		return asyncReplicationConfig{}, fmt.Errorf("maintenance mode enabled function is not set")
-	}
 
 	return
 }
