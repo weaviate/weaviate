@@ -2992,7 +2992,7 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 	defer i.shardCreateLocks.Unlock(tenantName)
 
 	// Locate the tenant on disk
-	shardPath := shardPathLSM(i.path(), tenantName)
+	shardPath := shardPathVectorLSM(i.path(), tenantName)
 
 	// Get vector index configurations to determine dimensions and compression
 	vectorConfigs := i.GetVectorIndexConfigs()
