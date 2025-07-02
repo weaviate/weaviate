@@ -1050,40 +1050,6 @@ func (index *flat) Stats() (common.IndexStats, error) {
 	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
 }
 
-func (index *flat) VectorStorageSize(ctx context.Context) int64 {
-	objectCount, dimensions := index.store.CalcTargetVectorDimensionsFromStore(ctx, index.targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-		return dimLen * len(v), dimLen
-	})
-
-	if objectCount == 0 || dimensions == 0 {
-		return 0
-	}
-
-	// Calculate uncompressed size (float32 = 4 bytes per dimension)
-	uncompressedSize := int64(objectCount) * int64(dimensions) * 4
-
-	// Apply compression ratio if compressed
-	if index.Compressed() {
-		var compressionRatio float64
-		switch index.compression {
-		case compressionBQ:
-			// Use the BQ quantizer's compression ratio
-			compressionRatio = index.bq.Stats().CompressionRatio(dimensions)
-		case compressionPQ:
-			// PQ compression ratio depends on segments, use conservative estimate
-			compressionRatio = 0.25 // Rough estimate: 4x compression
-		case compressionSQ:
-			// SQ compression ratio is ~4x
-			compressionRatio = 0.25
-		default:
-			compressionRatio = 1.0
-		}
-		return int64(float64(uncompressedSize) * compressionRatio)
-	}
-
-	return uncompressedSize
-}
-
 func (index *flat) CompressionStats() (compressionhelpers.CompressionStats, error) {
 	// Flat index doesn't have detailed compression stats, return uncompressed stats
 	return compressionhelpers.UncompressedStats{}, nil

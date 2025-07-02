@@ -1013,36 +1013,6 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	return &stats, nil
 }
 
-func (h *hnsw) VectorStorageSize(ctx context.Context) int64 {
-	h.RLock()
-	defer h.RUnlock()
-
-	// Always use the dimensions bucket for accurate counts instead of cache-based counts
-	// This ensures we get the correct total vectors and dimensions regardless of cache size
-	objectCount, dimensions := h.store.CalcTargetVectorDimensionsFromStore(ctx, "", func(dimLen int, v []lsmkv.MapPair) (int, int) {
-		return dimLen * len(v), dimLen
-	})
-
-	if objectCount == 0 || dimensions == 0 {
-		return 0
-	}
-
-	// Calculate average dimensions per vector
-	avgDimensions := dimensions / objectCount
-	if avgDimensions == 0 {
-		return 0
-	}
-
-	// Calculate uncompressed size (float32 = 4 bytes per dimension)
-	uncompressedSize := int64(objectCount) * int64(avgDimensions) * 4
-
-	if h.compressed.Load() {
-		return int64(float64(uncompressedSize) * h.compressor.Stats().CompressionRatio(avgDimensions))
-	}
-
-	return uncompressedSize
-}
-
 func (h *hnsw) CompressionStats() (compressionhelpers.CompressionStats, error) {
 	if h.compressed.Load() {
 		return h.compressor.Stats(), nil

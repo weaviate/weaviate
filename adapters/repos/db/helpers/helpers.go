@@ -13,7 +13,6 @@ package helpers
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/weaviate/weaviate/entities/filters"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
@@ -74,13 +73,6 @@ func BucketSearchableFromPropNameLSM(propName string) string {
 
 func BucketRangeableFromPropNameLSM(propName string) string {
 	return BucketFromPropNameLSM(propName + "_rangeable")
-}
-
-func IsVectorBucket(bucketName string) bool {
-	return bucketName == VectorsBucketLSM ||
-		bucketName == VectorsCompressedBucketLSM ||
-		bucketName == DimensionsBucketLSM ||
-		strings.HasSuffix(bucketName, "_muvera_vectors")
 }
 
 // CompressionRatioFromConfig calculates the compression ratio from vector index config
