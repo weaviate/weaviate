@@ -336,9 +336,7 @@ func TestDynamicUpgradeCancelation(t *testing.T) {
 
 func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	ctx := context.Background()
-	currentIndexing := os.Getenv("ASYNC_INDEXING")
-	os.Setenv("ASYNC_INDEXING", "true")
-	defer os.Setenv("ASYNC_INDEXING", currentIndexing)
+	t.Setenv("ASYNC_INDEXING", "true")
 	dimensions := 20
 	vectors_size := 10_000
 	threshold := 2000
@@ -401,9 +399,10 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 			}
 			return vec, nil
 		},
-		TempVectorForIDThunk: TempVectorForIDThunk(vectors),
-		TombstoneCallbacks:   noopCallback,
-		SharedDB:             db,
+		TempVectorForIDThunk:    TempVectorForIDThunk(vectors),
+		TombstoneCallbacks:      noopCallback,
+		SharedDB:                db,
+		HNSWWaitForCachePrefill: true,
 	}
 	uc := ent.UserConfig{
 		Threshold: uint64(threshold),
@@ -417,33 +416,38 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	require.NoError(t, err)
 
 	compressionhelpers.Concurrently(logger, uint64(threshold), func(i uint64) {
-		dynamic.Add(ctx, i, vectors[i])
+		err := dynamic.Add(ctx, i, vectors[i])
+		require.NoError(t, err)
 	})
 	shouldUpgrade, at := dynamic.ShouldUpgrade()
 	assert.True(t, shouldUpgrade)
 	assert.Equal(t, threshold, at)
 	assert.False(t, dynamic.Upgraded())
-	wg := sync.WaitGroup{}
+	var wg sync.WaitGroup
 	wg.Add(1)
-	dynamic.Upgrade(func() {
+	err = dynamic.Upgrade(func() {
 		wg.Done() //flat -> hnsw
 	})
+	require.NoError(t, err)
 	wg.Wait()
-	wg = sync.WaitGroup{}
 	wg.Add(1)
-	dynamic.Upgrade(func() {
+	err = dynamic.Upgrade(func() {
 		wg.Done() //PQ
 	})
+	require.NoError(t, err)
 	wg.Wait()
 	compressionhelpers.Concurrently(logger, uint64(vectors_size-threshold), func(i uint64) {
-		dynamic.Add(ctx, uint64(threshold)+i, vectors[threshold+int(i)])
+		err := dynamic.Add(ctx, uint64(threshold)+i, vectors[threshold+int(i)])
+		require.NoError(t, err)
 	})
 
 	recall, latency := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	fmt.Println(recall, latency)
 
-	dynamic.Flush()
-	dynamic.Shutdown(t.Context())
+	err = dynamic.Flush()
+	require.NoError(t, err)
+	err = dynamic.Shutdown(t.Context())
+	require.NoError(t, err)
 
 	// open the db again
 	db, err = bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
@@ -451,7 +455,7 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	config.SharedDB = db
 
 	dynamic, err = New(config, uc, dummyStore)
-	require.Nil(t, err)
+	require.NoError(t, err)
 	dynamic.PostStartup()
 	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	assert.Equal(t, recall, recall2)
