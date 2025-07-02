@@ -1535,34 +1535,6 @@ func (i *Index) targetShardNames(ctx context.Context, tenant string) ([]string, 
 		fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 }
 
-func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vector,
-	targetVectors []string, dist float32, limit int, localFilters *filters.LocalFilter,
-	sort []filters.Sort, groupBy *searchparams.GroupBy, additionalProps additional.Properties,
-	targetCombination *dto.TargetCombination, properties []string, shardName string,
-) ([]*storobj.Object, []float32, error) {
-	shard, release, err := i.GetShard(ctx, shardName)
-	if err != nil {
-		return nil, nil, err
-	}
-	if shard != nil {
-		defer release()
-	}
-
-	localCtx := helpers.InitSlowQueryDetails(ctx)
-	helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
-	localShardResult, localShardScores, err := shard.ObjectVectorSearch(
-		localCtx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties)
-	if err != nil {
-		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
-	}
-	// TODO should this guard return false during replica movement with rf=1
-	// Append result to out
-	if i.replicationEnabled() {
-		storobj.AddOwnership(localShardResult, i.getSchema.NodeName(), shardName)
-	}
-	return localShardResult, localShardScores, nil
-}
-
 func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Vector,
 	targetVectors []string, distance float32, limit int, localFilters *filters.LocalFilter,
 	sort []filters.Sort, groupBy *searchparams.GroupBy, additional additional.Properties,
@@ -2388,7 +2360,6 @@ func (i *Index) findUUIDs(ctx context.Context,
 		}
 
 		results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, types.ConsistencyLevel(repl.ConsistencyLevel))
-
 		if err != nil {
 			return nil, fmt.Errorf("find matching doc ids in shard %q: %w", shardName, err)
 		}
