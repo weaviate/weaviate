@@ -210,13 +210,13 @@ func TestBackup_BucketLevel(t *testing.T) {
 		require.Nil(t, err)
 
 		t.Run("check ListFiles, results", func(t *testing.T) {
-			assert.Len(t, files, 5)
+			assert.Len(t, files, 2)
 
 			// build regex to get very close approximation to the expected
 			// contents of the ListFiles result. the only thing we can't
 			// know for sure is the actual name of the segment group, hence
 			// the `.*`
-			re := path.Clean(fmt.Sprintf("%s\\/.*\\.(wal|db|bloom|cna)", shard.Index().Config.RootPath))
+			re := path.Clean(fmt.Sprintf("%s\\/.*\\.(wal|db|metadata)", shard.Index().Config.RootPath))
 
 			// we expect to see only four files inside the bucket at this point:
 			//   1. a *.db file - the segment itself
@@ -235,13 +235,12 @@ func TestBackup_BucketLevel(t *testing.T) {
 			}
 
 			// check that we have one of each: *.db
-			exts := make([]string, 5)
+			exts := make([]string, 2)
 			for i, file := range files {
 				exts[i] = filepath.Ext(file)
 			}
-			assert.Contains(t, exts, ".db")    // the main segment
-			assert.Contains(t, exts, ".cna")   // the segment's count net additions
-			assert.Contains(t, exts, ".bloom") // matches both bloom filters (primary+secondary ones)
+			assert.Contains(t, exts, ".db")       // the main segment
+			assert.Contains(t, exts, ".metadata") // the segment's count net additions and both bloom filters (primary+secondary ones)
 		})
 
 		err = shard.Store().ResumeCompaction(ctx)
