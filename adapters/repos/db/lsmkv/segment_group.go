@@ -145,6 +145,14 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	// TODO: a single iteration may be possible
 
 	for entry := range files {
+		// remove old metadata files (.cna+.bloom) that have been replaced by .metadata.
+		if filepath.Ext(entry) == ".cna" || filepath.Ext(entry) == ".bloom" {
+			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+				return nil, fmt.Errorf("delete old metadata files %q: %w", entry, err)
+			}
+			continue
+		}
+
 		if filepath.Ext(entry) != ".tmp" {
 			continue
 		}

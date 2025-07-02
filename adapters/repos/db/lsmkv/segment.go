@@ -49,14 +49,10 @@ type Segment interface {
 
 	PayloadSize() int
 	Size() int
-	bloomFilterPath() string
-	bloomFilterSecondaryPath(pos int) string
 	bufferedReaderAt(offset uint64, operation string) (io.Reader, error)
 	bytesReaderFrom(in []byte) (*bytes.Reader, error)
 	close() error
 	collectionStratParseData(in []byte) ([]value, error)
-	computeAndStoreBloomFilter(path string) error
-	computeAndStoreSecondaryBloomFilter(path string, pos int) error
 	copyNode(b []byte, offset nodeOffset) error
 	countNetPath() string
 	dropImmediately() error
@@ -68,9 +64,6 @@ type Segment interface {
 	getInvertedData() *segmentInvertedData
 	getSegment() *segment
 	isLoaded() bool
-	loadBloomFilterFromDisk() error
-	loadBloomFilterSecondaryFromDisk(pos int) error
-	loadCountNetFromDisk() error
 	markForDeletion() error
 	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
 	newCollectionCursor() *segmentCursorCollection
@@ -82,18 +75,11 @@ type Segment interface {
 	newRoaringSetCursor() *roaringset.SegmentCursor
 	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
 	newRoaringSetRangeReader() *roaringsetrange.SegmentReader
-	precomputeBloomFilter() error
-	precomputeBloomFilters() ([]string, error)
-	precomputeCountNetAdditions(updatedCountNetAdditions int) ([]string, error)
-	precomputeSecondaryBloomFilter(pos int) error
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
 	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
 	segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, bool, error)
-	storeBloomFilterOnDisk(path string) error
-	storeBloomFilterSecondaryOnDisk(path string, pos int) error
-	storeCountNetOnDisk() error
 }
 
 type segment struct {
@@ -348,15 +334,8 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}
 
-	if seg.useBloomFilter {
-		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived, cfg.fileList); err != nil {
-			return nil, err
-		}
-	}
-	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputedCountNetAdditions, cfg.fileList); err != nil {
-			return nil, err
-		}
+	if err := seg.initMetadata(metrics, cfg.overwriteDerived, existsLower, cfg.precomputedCountNetAdditions, cfg.fileList); err != nil {
+		return nil, err
 	}
 
 	if seg.strategy == segmentindex.StrategyInverted {
@@ -398,22 +377,11 @@ func (s *segment) close() error {
 }
 
 func (s *segment) dropImmediately() error {
-	// support for persisting bloom filters and cnas was added in v1.17,
-	// therefore the files may not be present on segments created with previous
-	// versions. By using RemoveAll, which does not error on NotExists, these
-	// drop calls are backward-compatible:
-	if err := os.RemoveAll(s.bloomFilterPath()); err != nil {
-		return fmt.Errorf("drop bloom filter: %w", err)
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i)); err != nil {
-			return fmt.Errorf("drop bloom filter: %w", err)
-		}
-	}
-
-	if err := os.RemoveAll(s.countNetPath()); err != nil {
-		return fmt.Errorf("drop count net additions file: %w", err)
+	// metadata files were added in v1.31, therefore the files may not be present
+	// on segments created with previous versions. By using RemoveAll, which does
+	// not error on NotExists, these drop calls are backward-compatible:
+	if err := os.RemoveAll(s.metadataPath()); err != nil {
+		return fmt.Errorf("drop metadata: %w", err)
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
@@ -431,18 +399,8 @@ func (s *segment) dropMarked() error {
 	// therefore the files may not be present on segments created with previous
 	// versions. By using RemoveAll, which does not error on NotExists, these
 	// drop calls are backward-compatible:
-	if err := os.RemoveAll(s.bloomFilterPath() + DeleteMarkerSuffix); err != nil {
+	if err := os.RemoveAll(s.metadataPath() + DeleteMarkerSuffix); err != nil {
 		return fmt.Errorf("drop previously marked bloom filter: %w", err)
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := os.RemoveAll(s.bloomFilterSecondaryPath(i) + DeleteMarkerSuffix); err != nil {
-			return fmt.Errorf("drop previously marked secondary bloom filter: %w", err)
-		}
-	}
-
-	if err := os.RemoveAll(s.countNetPath() + DeleteMarkerSuffix); err != nil {
-		return fmt.Errorf("drop previously marked count net additions file: %w", err)
 	}
 
 	// for the segment itself, we're not using RemoveAll, but Remove. If there
@@ -465,23 +423,9 @@ func (s *segment) markForDeletion() error {
 	// support for persisting bloom filters and cnas was added in v1.17,
 	// therefore the files may not be present on segments created with previous
 	// versions. If we get a not exist error, we ignore it.
-	if err := markDeleted(s.bloomFilterPath()); err != nil {
+	if err := markDeleted(s.metadataPath()); err != nil {
 		if !os.IsNotExist(err) {
 			return fmt.Errorf("mark bloom filter deleted: %w", err)
-		}
-	}
-
-	for i := 0; i < int(s.secondaryIndexCount); i++ {
-		if err := markDeleted(s.bloomFilterSecondaryPath(i)); err != nil {
-			if !os.IsNotExist(err) {
-				return fmt.Errorf("mark secondary bloom filter deleted: %w", err)
-			}
-		}
-	}
-
-	if err := markDeleted(s.countNetPath()); err != nil {
-		if !os.IsNotExist(err) {
-			return fmt.Errorf("mark count net additions file deleted: %w", err)
 		}
 	}
 

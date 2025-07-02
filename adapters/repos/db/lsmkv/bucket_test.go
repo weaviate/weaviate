@@ -189,11 +189,9 @@ func bucketReadsIntoMemory(ctx context.Context, t *testing.T, opts []BucketOptio
 	files, err := os.ReadDir(b.GetDir())
 	require.Nil(t, err)
 
-	_, ok := findFileWithExt(files, ".bloom")
+	_, ok := findFileWithExt(files, ".metadata")
 	assert.True(t, ok)
 
-	_, ok = findFileWithExt(files, "secondary.0.bloom")
-	assert.True(t, ok)
 	b.Shutdown(ctx)
 
 	b2, err := NewBucketCreator().NewBucket(ctx, b.GetDir(), "", logger, nil,

@@ -14,14 +14,8 @@ package lsmkv
 import (
 	"encoding/binary"
 	"errors"
-	"fmt"
-	"os"
-	"path/filepath"
-
-	"github.com/weaviate/weaviate/usecases/byteops"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
-	"github.com/weaviate/weaviate/entities/diskio"
 )
 
 // ErrInvalidChecksum indicates that the read file should not be trusted. For
@@ -39,38 +33,19 @@ func (s *segment) countNetPath() string {
 	return s.buildPath("%s.cna")
 }
 
-func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int, existingFilesList map[string]int64) error {
-	if s.strategy != segmentindex.StrategyReplace {
-		// replace is the only strategy that supports counting
+func (s *segment) initCNAFromData(meta metadata) error {
+	if !s.calcCountNetAdditions || s.strategy != segmentindex.StrategyReplace {
 		return nil
 	}
 
-	path := s.countNetPath()
-	s.metaPaths = append(s.metaPaths, path)
+	s.countNetAdditions = int(binary.LittleEndian.Uint64(meta.NetAdditions[0:8]))
 
-	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
-	if err != nil {
-		return err
-	}
-	if loadFromDisk {
-		if overwrite {
-			err := os.Remove(path)
-			if err != nil {
-				return fmt.Errorf("delete existing net additions counter %s: %w", path, err)
-			}
-		} else {
-			err = s.loadCountNetFromDisk()
-			if err == nil {
-				return nil
-			}
+	return nil
+}
 
-			if !errors.Is(err, ErrInvalidChecksum) {
-				// not a recoverable error
-				return err
-			}
-
-			// now continue re-calculating
-		}
+func (s *segment) recalcCountNetAdditions(exists existsOnLowerSegmentsFn, precomputedCNAValue *int) ([]byte, error) {
+	if !s.calcCountNetAdditions || s.strategy != segmentindex.StrategyReplace {
+		return nil, nil
 	}
 
 	if precomputedCNAValue != nil {
@@ -98,52 +73,14 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 
 		extr.do()
 
-		s.countNetAdditions = countNet
-
 		if lastErr != nil {
-			return lastErr
+			return nil, lastErr
 		}
+
+		s.countNetAdditions = countNet
 	}
 
-	if err := s.storeCountNetOnDisk(); err != nil {
-		return fmt.Errorf("store count net additions on disk: %w", err)
-	}
-
-	return nil
-}
-
-func (s *segment) storeCountNetOnDisk() error {
-	return storeCountNetOnDisk(s.countNetPath(), s.countNetAdditions, s.observeMetaWrite)
-}
-
-func storeCountNetOnDisk(path string, value int, observeWrite diskio.MeteredWriterCallback) error {
-	rw := byteops.NewReadWriter(make([]byte, byteops.Uint64Len+byteops.Uint32Len))
-	rw.MoveBufferPositionForward(byteops.Uint32Len) // leave space for checksum
-	rw.WriteUint64(uint64(value))
-
-	return writeWithChecksum(rw, path, observeWrite)
-}
-
-func (s *segment) loadCountNetFromDisk() error {
-	data, err := loadWithChecksum(s.countNetPath(), 12, s.metrics.ReadObserver("netAdditions"))
-	if err != nil {
-		return err
-	}
-
-	s.countNetAdditions = int(binary.LittleEndian.Uint64(data[0:8]))
-
-	return nil
-}
-
-func (s *segment) precomputeCountNetAdditions(updatedCountNetAdditions int) ([]string, error) {
-	if s.strategy != segmentindex.StrategyReplace {
-		// only "replace" has count net additions, so we are done
-		return []string{}, nil
-	}
-
-	cnaPath := fmt.Sprintf("%s.tmp", s.countNetPath())
-	if err := storeCountNetOnDisk(cnaPath, updatedCountNetAdditions, s.observeMetaWrite); err != nil {
-		return nil, err
-	}
-	return []string{cnaPath}, nil
+	data := make([]byte, 8)
+	binary.LittleEndian.PutUint64(data, uint64(s.countNetAdditions))
+	return data, nil
 }

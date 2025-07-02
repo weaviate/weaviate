@@ -46,11 +46,9 @@ func TestCreateBloomOnFlush(t *testing.T) {
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
 
-	_, ok := findFileWithExt(files, ".bloom")
+	_, ok := findFileWithExt(files, ".metadata")
 	assert.True(t, ok)
 
-	_, ok = findFileWithExt(files, "secondary.0.bloom")
-	assert.True(t, ok)
 	// on Windows we have to shutdown the bucket before opening it again
 	require.Nil(t, b.Shutdown(ctx))
 
@@ -87,7 +85,7 @@ func TestCreateBloomInit(t *testing.T) {
 		WithSecondaryKey(0, []byte("bonjour"))))
 	require.Nil(t, b.FlushMemtable())
 
-	for _, ext := range []string{".secondary.0.bloom", ".bloom"} {
+	for _, ext := range []string{".metadata"} {
 		files, err := os.ReadDir(dirName)
 		require.Nil(t, err)
 		fname, ok := findFileWithExt(files, ext)
@@ -117,9 +115,7 @@ func TestCreateBloomInit(t *testing.T) {
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
-	_, ok := findFileWithExt(files, ".bloom")
-	require.True(t, ok)
-	_, ok = findFileWithExt(files, ".secondary.0.bloom")
+	_, ok := findFileWithExt(files, ".metadata")
 	require.True(t, ok)
 }
 
@@ -139,7 +135,7 @@ func TestRepairCorruptedBloomOnInit(t *testing.T) {
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
-	fname, ok := findFileWithExt(files, ".bloom")
+	fname, ok := findFileWithExt(files, ".metadata")
 	require.True(t, ok)
 
 	// now corrupt the bloom filter by randomly overriding data
@@ -176,7 +172,7 @@ func TestRepairTooShortBloomOnInit(t *testing.T) {
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
-	fname, ok := findFileWithExt(files, ".bloom")
+	fname, ok := findFileWithExt(files, ".metadata")
 	require.True(t, ok)
 	b.Shutdown(ctx)
 
@@ -213,7 +209,7 @@ func TestRepairCorruptedBloomSecondaryOnInit(t *testing.T) {
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
-	fname, ok := findFileWithExt(files, "secondary.0.bloom")
+	fname, ok := findFileWithExt(files, "metadata")
 	require.True(t, ok)
 
 	// now corrupt the file by replacing the count value without adapting the checksum
@@ -263,7 +259,7 @@ func TestRepairCorruptedBloomSecondaryOnInitIntoMemory(t *testing.T) {
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
-	fname, ok := findFileWithExt(files, "secondary.0.bloom")
+	fname, ok := findFileWithExt(files, "metadata")
 	require.True(t, ok)
 
 	b.Shutdown(ctx)
@@ -301,7 +297,7 @@ func TestRepairTooShortBloomSecondaryOnInit(t *testing.T) {
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
-	fname, ok := findFileWithExt(files, "secondary.0.bloom")
+	fname, ok := findFileWithExt(files, "metadata")
 	require.True(t, ok)
 
 	b.Shutdown(ctx)
@@ -426,9 +422,9 @@ func dontCreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
 		files, err := os.ReadDir(dirName)
 		require.NoError(t, err)
 
-		_, ok := findFileWithExt(files, ".bloom")
+		_, ok := findFileWithExt(files, ".metadata")
 		assert.False(t, ok)
-		_, ok = findFileWithExt(files, "secondary.0.bloom")
+		_, ok = findFileWithExt(files, "metadata")
 		assert.False(t, ok)
 	})
 
@@ -469,9 +465,9 @@ func dontRecreateBloom(ctx context.Context, t *testing.T, opts []BucketOption) {
 		files, err := os.ReadDir(dirName)
 		require.NoError(t, err)
 
-		_, ok := findFileWithExt(files, ".bloom")
+		_, ok := findFileWithExt(files, ".metadata")
 		assert.False(t, ok)
-		_, ok = findFileWithExt(files, "secondary.0.bloom")
+		_, ok = findFileWithExt(files, "metadata")
 		assert.False(t, ok)
 	})
 
@@ -514,9 +510,7 @@ func dontPrecomputeBloom(ctx context.Context, t *testing.T, opts []BucketOption)
 		files, err := os.ReadDir(dirName)
 		require.NoError(t, err)
 
-		_, ok := findFileWithExt(files, ".bloom")
-		assert.False(t, ok)
-		_, ok = findFileWithExt(files, "secondary.0.bloom")
+		_, ok := findFileWithExt(files, ".metadata")
 		assert.False(t, ok)
 	})
 
