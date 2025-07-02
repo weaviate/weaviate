@@ -272,17 +272,17 @@
         },
         "aliases": {
           "type": "object",
-          "description": "resources applicable for aliases actions",
+          "description": "Resource definition for alias-related actions and permissions. Used to specify which aliases and collections can be accessed or modified.",
           "properties": {
             "collection": {
               "type": "string",
               "default": "*",
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *"
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections."
             },
             "alias": {
               "type": "string",
               "default": "*",
-              "description": "string or regex. if a specific alias name, if left empty it will be ALL or *"
+              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value `*` applies the permission to all aliases."
             }
           }
         },
@@ -2963,23 +2963,24 @@
     },
     "Alias": {
       "type": "object",
-      "description": "represents a class (collection) and alias name mapping",
+      "description": "Represents the mapping between an alias name and a collection. An alias provides an alternative name for accessing a collection.",
       "properties": {
         "alias": {
-          "description": "The name of the alias.",
+          "description": "The unique name of the alias that serves as an alternative identifier for the collection.",
           "type": "string"
         },
         "class": {
-          "description": "class (collection) to which alias is assigned.",
+          "description": "The name of the collection (class) to which this alias is mapped.",
           "type": "string"
         }
       }
     },
     "AliasResponse": {
-      "description": "The list of aliases",
+      "description": "Response object containing a list of alias mappings.",
       "type": "object",
       "properties": {
         "aliases": {
+          "description": "Array of alias objects, each containing an alias-to-collection mapping.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/Alias"
@@ -7624,8 +7625,8 @@
     },
     "/aliases": {
       "get": {
-        "summary": "Get aliases",
-        "description": "get all aliases or filtered by a class (collection)",
+        "summary": "List aliases",
+        "description": "Retrieve a list of all aliases in the system. Results can be filtered by specifying a collection (class) name to get aliases for a specific collection only.",
         "operationId": "aliases.get",
         "tags": [
           "schema"
@@ -7633,7 +7634,7 @@
         "parameters": [
           {
             "name": "class",
-            "description": "class (collection) to which alias is assigned.",
+            "description": "Optional filter to retrieve aliases for a specific collection (class) only. If not provided, returns all aliases.",
             "in": "query",
             "required": false,
             "type": "string"
@@ -7641,7 +7642,7 @@
         ],
         "responses": {
           "200": {
-            "description": "list of class's (collection's) aliases",
+            "description": "Successfully retrieved the list of aliases",
             "schema": {
               "$ref": "#/definitions/AliasResponse"
             }
@@ -7656,7 +7657,7 @@
             }
           },
           "422": {
-            "description": "Invalid class",
+            "description": "Invalid collection (class) parameter provided",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7671,7 +7672,7 @@
       },
       "post": {
         "summary": "Create a new alias",
-        "description": "Create a new alias for a collection",
+        "description": "Create a new alias mapping between an alias name and a collection (class). The alias acts as an alternative name for accessing the collection.",
         "operationId": "aliases.create",
         "tags": [
           "schema"
@@ -7688,7 +7689,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Added new alias to the specified class (collection).",
+            "description": "Successfully created a new alias for the specified collection (class)",
             "schema": {
               "$ref": "#/definitions/Alias"
             }
@@ -7703,7 +7704,7 @@
             }
           },
           "422": {
-            "description": "Invalid create alias request",
+            "description": "Invalid create alias request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7719,8 +7720,8 @@
     },
     "/aliases/{aliasName}": {
       "get": {
-        "summary": "Get aliases",
-        "description": "get all aliases or filtered by a class (collection)",
+        "summary": "Get am alias",
+        "description": "Retrieve details about a specific alias by its name, including which collection (class) it points to.",
         "operationId": "aliases.get.alias",
         "tags": [
           "schema"
@@ -7735,7 +7736,7 @@
         ],
         "responses": {
           "200": {
-            "description": "list of class's (collection's) aliases",
+            "description": "Successfully retrieved the alias details.",
             "schema": {
               "$ref": "#/definitions/AliasResponse"
             }
@@ -7750,7 +7751,7 @@
             }
           },
           "422": {
-            "description": "Invalid class",
+            "description": "Invalid alias name provided.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7764,8 +7765,8 @@
         }
       },
       "put": {
-        "summary": "Update an alias.",
-        "description": "Replace alias of a specific class (collection) to other class",
+        "summary": "Update an alias",
+        "description": "Update an existing alias to point to a different collection (class). This allows you to redirect an alias from one collection to another without changing the alias name.",
         "operationId": "aliases.update",
         "tags": [
           "schema"
@@ -7785,7 +7786,7 @@
               "type": "object",
               "properties": {
                 "class": {
-                  "description": "new class (collection).",
+                  "description": "The new collection (class) that the alias should point to.",
                   "type": "string"
                 }
               }
@@ -7794,7 +7795,7 @@
         ],
         "responses": {
           "200": {
-            "description": "New alias to the target class (collection).",
+            "description": "Successfully updated the alias to point to the new collection (class).",
             "schema": {
               "$ref": "#/definitions/Alias"
             }
@@ -7815,7 +7816,7 @@
             }
           },
           "422": {
-            "description": "Invalid update alias request",
+            "description": "Invalid update alias request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7829,7 +7830,8 @@
         }
       },
       "delete": {
-        "description": "delete alias from a specific class (collection).",
+        "summary": "Delete an alias",
+        "description": "Remove an existing alias from the system. This will delete the alias mapping but will not affect the underlying collection (class).",
         "operationId": "aliases.delete",
         "tags": [
           "schema"
@@ -7844,7 +7846,7 @@
         ],
         "responses": {
           "200": {
-            "description": "Deleted alias from specified class (collection)."
+            "description": "Successfully deleted the alias."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -7856,7 +7858,7 @@
             }
           },
           "422": {
-            "description": "Invalid delete alias request",
+            "description": "Invalid delete alias request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
