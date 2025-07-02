@@ -79,6 +79,7 @@ type SegmentGroup struct {
 	compactLeftOverSegments  bool // see bucket for more details
 	enableChecksumValidation bool
 	MinMMapSize              int64
+	keepLevelCompaction      bool // see bucket for more details
 
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
@@ -102,6 +103,7 @@ type sgConfig struct {
 	useBloomFilter           bool
 	calcCountNetAdditions    bool
 	forceCompaction          bool
+	keepLevelCompaction      bool
 	maxSegmentSize           int64
 	cleanupInterval          time.Duration
 	enableChecksumValidation bool

@@ -101,7 +101,18 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 				// max size not exceeded
 				matchingPairFound = true
 				matchingLeftId = leftId
-				matchingLevel = left.level + 1
+
+				// this is for bucket migrations with re-ingestion, specifically
+				// for the new incoming data (ingest) bucket.
+				// we don't want to change the level of the segments on ingest data,
+				// so that, when we copy the segments to the bucket with the reingested
+				// data, the levels are all still at zero, and they can be compacted
+				// with the existing re-ingested segments.
+				if sg.keepLevelCompaction {
+					matchingLevel = left.level
+				} else {
+					matchingLevel = left.level + 1
+				}
 			} else if matchingPairFound {
 				// older segment of same level as pair's level exist.
 				// keep unchanged level

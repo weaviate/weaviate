@@ -102,7 +102,7 @@ func (dv *DynamicValue[T]) UnmarshalYAML(node *yaml.Node) error {
 	dv.mu.Lock()
 	defer dv.mu.Unlock()
 
-	dv.val = &val
+	dv.def = val
 	return nil
 }
 
@@ -126,7 +126,7 @@ func (dv *DynamicValue[T]) UnmarshalJSON(data []byte) error {
 	}
 	dv.mu.Lock()
 	defer dv.mu.Unlock()
-	dv.val = &val
+	dv.def = val
 	return nil
 }
 
