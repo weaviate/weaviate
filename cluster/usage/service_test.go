@@ -87,7 +87,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0))
-	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionality, dimensionCount)
+	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
 
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
@@ -209,7 +209,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	mockShard.EXPECT().ObjectCountAsync().Return(hotObjectCount)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0))
-	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionality, dimensionCount)
+	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
 
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
@@ -378,7 +378,7 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 	defaultCompressionRatio := 0.7
 	textCompressionRatio := 0.7
 	imageCompressionRatio := 0.8
-	defaultDimensionality := 1536
+	dimensionality := 1536
 	textDimensionality := 768
 	imageDimensionality := 1024
 	dimensionCount := 2000
@@ -417,16 +417,16 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0))
-	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(defaultDimensionality, dimensionCount)
-	mockShard.EXPECT().DimensionsUsage(ctx, textVectorName).Return(textDimensionality, dimensionCount)
-	mockShard.EXPECT().DimensionsUsage(ctx, imageVectorName).Return(imageDimensionality, dimensionCount)
+	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
+	mockShard.EXPECT().DimensionsUsage(ctx, textVectorName).Return(dimensionCount, textDimensionality)
+	mockShard.EXPECT().DimensionsUsage(ctx, imageVectorName).Return(dimensionCount, imageDimensionality)
 
 	mockDefaultVectorIndex := db.NewMockVectorIndex(t)
 	mockTextVectorIndex := db.NewMockVectorIndex(t)
 	mockImageVectorIndex := db.NewMockVectorIndex(t)
 
 	mockDefaultCompressionStats := compressionhelpers.NewMockCompressionStats(t)
-	mockDefaultCompressionStats.EXPECT().CompressionRatio(defaultDimensionality).Return(defaultCompressionRatio)
+	mockDefaultCompressionStats.EXPECT().CompressionRatio(dimensionality).Return(defaultCompressionRatio)
 	mockDefaultVectorIndex.EXPECT().CompressionStats().Return(mockDefaultCompressionStats, nil)
 
 	mockTextCompressionStats := compressionhelpers.NewMockCompressionStats(t)
@@ -622,7 +622,7 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0))
-	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionality, dimensionCount)
+	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
 
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockVectorIndex.EXPECT().CompressionStats().Return(nil, errors.New(errorMessage))
@@ -720,7 +720,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0))
-	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionality, dimensionCount)
+	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
 
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
@@ -847,7 +847,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	mockHotShard.EXPECT().ObjectCountAsync().Return(hotObjectCount)
 	mockHotShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize)
 	mockHotShard.EXPECT().VectorStorageSize(ctx).Return(hotVectorStorageSize) // Test actual vector storage size
-	mockHotShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionality, dimensionCount)
+	mockHotShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
 
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
