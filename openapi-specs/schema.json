@@ -7720,7 +7720,7 @@
     },
     "/aliases/{aliasName}": {
       "get": {
-        "summary": "Get am alias",
+        "summary": "Get an alias",
         "description": "Retrieve details about a specific alias by its name, including which collection (class) it points to.",
         "operationId": "aliases.get.alias",
         "tags": [

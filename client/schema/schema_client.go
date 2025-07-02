@@ -206,7 +206,7 @@ func (a *Client) AliasesGet(params *AliasesGetParams, authInfo runtime.ClientAut
 }
 
 /*
-AliasesGetAlias gets am alias
+AliasesGetAlias gets an alias
 
 Retrieve details about a specific alias by its name, including which collection (class) it points to.
 */

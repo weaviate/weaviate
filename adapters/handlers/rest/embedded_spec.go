@@ -250,7 +250,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Get am alias",
+        "summary": "Get an alias",
         "operationId": "aliases.get.alias",
         "parameters": [
           {
@@ -8844,7 +8844,7 @@ func init() {
         "tags": [
           "schema"
         ],
-        "summary": "Get am alias",
+        "summary": "Get an alias",
         "operationId": "aliases.get.alias",
         "parameters": [
           {
