@@ -2904,11 +2904,16 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
 func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName, targetVector string) (count, dimensions int) {
 	// Obtain a lock that prevents tenant activation
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
 
-	// Locate the shard on disk
-	shardPath := shardPathLSM(i.path(), shardName)
+	// check if created in the meantime by concurrent call
+	if shard := i.shards.Load(shardName); shard != nil {
+		return shard.DimensionsUsage(ctx, targetVector)
+	}
+
+	// Locate the tenant on disk
+	shardPath := shardPathDimensionsLSM(i.path(), shardName)
 
 	// Create a temporary store to access the dimensions bucket
 	var promMetrics *monitoring.PrometheusMetrics
@@ -2997,7 +3002,7 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 	}
 
 	// Locate the tenant on disk
-	shardPath := shardPathDimensionsLSM(i.path(), tenantName)
+	shardPath := shardPathLSM(i.path(), tenantName)
 
 	// Create a temporary store to access the dimensions bucket
 	var promMetrics *monitoring.PrometheusMetrics
