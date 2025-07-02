@@ -870,7 +870,7 @@ func (d *Compose) With3NodeCluster() *Compose {
 }
 
 func (d *Compose) startCluster(ctx context.Context, size int, settings map[string]string) ([]*DockerContainer, error) {
-	if size == 0 || size > 3 {
+	if size == 0 || size > 5 {
 		return nil, nil
 	}
 	for k, v := range d.weaviateEnvs {
@@ -881,11 +881,15 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		delete(settings, k)
 	}
 
-	raft_join := "node1,node2,node3"
+	raft_join := "node1,node2,node3,node4,node5"
 	if size == 1 {
 		raft_join = "node1"
 	} else if size == 2 {
 		raft_join = "node1,node2"
+	} else if size == 3 {
+		raft_join = "node1,node2,node3"
+	} else if size == 4 {
+		raft_join = "node1,node2,node3,node4"
 	}
 
 	cs := make([]*DockerContainer, size)
@@ -1014,6 +1018,40 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 				config3, networkName, image, Weaviate3, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node3"))
 			if err != nil {
 				return errors.Wrapf(err, "start %s", Weaviate3)
+			}
+			return nil
+		})
+	}
+
+	if size > 3 {
+		config4 := copySettings(settings)
+		config4["CLUSTER_HOSTNAME"] = "node4"
+		config4["CLUSTER_GOSSIP_BIND_PORT"] = "7106"
+		config4["CLUSTER_DATA_BIND_PORT"] = "7107"
+		config4["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
+		eg.Go(func() (err error) {
+			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
+			cs[3], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
+				config4, networkName, image, Weaviate4, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node4"))
+			if err != nil {
+				return errors.Wrapf(err, "start %s", Weaviate4)
+			}
+			return nil
+		})
+	}
+
+	if size > 4 {
+		config5 := copySettings(settings)
+		config5["CLUSTER_HOSTNAME"] = "node5"
+		config5["CLUSTER_GOSSIP_BIND_PORT"] = "7108"
+		config5["CLUSTER_DATA_BIND_PORT"] = "7109"
+		config5["CLUSTER_JOIN"] = fmt.Sprintf("%s:7100", Weaviate1)
+		eg.Go(func() (err error) {
+			time.Sleep(time.Second * 10) // node1 needs to be up before we can start this node
+			cs[4], err = startWeaviate(ctx, d.enableModules, d.defaultVectorizerModule,
+				config5, networkName, image, Weaviate5, d.withWeaviateExposeGRPCPort, wellKnownEndpointFunc("node5"))
+			if err != nil {
+				return errors.Wrapf(err, "start %s", Weaviate5)
 			}
 			return nil
 		})

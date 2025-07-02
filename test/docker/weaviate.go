@@ -29,6 +29,8 @@ const (
 	Weaviate1      = "weaviate"
 	Weaviate2      = "weaviate2"
 	Weaviate3      = "weaviate3"
+	Weaviate4      = "weaviate4"
+	Weaviate5      = "weaviate5"
 	Weaviate       = "weaviate"
 	SecondWeaviate = "second-weaviate"
 )

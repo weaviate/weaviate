@@ -654,6 +654,7 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 
 				if !s.index.asyncReplicationEnabled() && len(config.targetNodeOverrides) == 0 {
 					// skip hashbeat iteration when async replication is disabled and no target node overrides are set
+					// this likely means the node is the target node of an ongoing shard replication operation
 					backoffTimer.Reset()
 					lastHashbeatMux.Lock()
 					lastHashbeat = time.Now()
