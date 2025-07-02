@@ -2991,8 +2991,13 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 	i.shardCreateLocks.Lock(tenantName)
 	defer i.shardCreateLocks.Unlock(tenantName)
 
+	// check if created in the meantime by concurrent call
+	if shard := i.shards.Load(tenantName); shard != nil {
+		return shard.VectorStorageSize(ctx)
+	}
+
 	// Locate the tenant on disk
-	shardPath := shardPathLSM(i.path(), tenantName)
+	shardPath := shardPathDimensionsLSM(i.path(), tenantName)
 
 	// Create a temporary store to access the dimensions bucket
 	var promMetrics *monitoring.PrometheusMetrics
