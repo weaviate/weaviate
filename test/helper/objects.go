@@ -218,6 +218,22 @@ func PatchObject(t *testing.T, object *models.Object) error {
 	return err
 }
 
+func HeadObject(t *testing.T, id strfmt.UUID) error {
+	t.Helper()
+	params := objects.NewObjectsHeadParams().WithID(id)
+	resp, err := Client(t).Objects.ObjectsHead(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return err
+}
+
+func ValidateObject(t *testing.T, object *models.Object) error {
+	t.Helper()
+	params := objects.NewObjectsValidateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsValidate(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return err
+}
+
 func DeleteClass(t *testing.T, class string) {
 	t.Helper()
 	delParams := schema.NewSchemaObjectsDeleteParams().WithClassName(class)

@@ -35,6 +35,9 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 ) (*BatchDeleteResponse, error) {
 	class := "*"
 	if match != nil {
+		if cls := b.schemaManager.ResolveAlias(match.Class); cls != "" {
+			match.Class = cls
+		}
 		class = match.Class
 	}
 
