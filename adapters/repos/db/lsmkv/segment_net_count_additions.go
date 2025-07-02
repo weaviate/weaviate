@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
 
@@ -38,7 +39,7 @@ func (s *segment) countNetPath() string {
 	return s.buildPath("%s.cna")
 }
 
-func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int) error {
+func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int, existingFilesList map[string]int64) error {
 	if s.strategy != segmentindex.StrategyReplace {
 		// replace is the only strategy that supports counting
 		return nil
@@ -47,12 +48,11 @@ func (s *segment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrit
 	path := s.countNetPath()
 	s.metaPaths = append(s.metaPaths, path)
 
-	ok, err := fileExists(path)
+	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
 	if err != nil {
 		return err
 	}
-
-	if ok {
+	if loadFromDisk {
 		if overwrite {
 			err := os.Remove(path)
 			if err != nil {

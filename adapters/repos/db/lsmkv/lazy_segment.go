@@ -220,26 +220,6 @@ func (s *lazySegment) getSegment() *segment {
 	return s.segment
 }
 
-func (s *lazySegment) initBloomFilter(overwrite bool) error {
-	s.mustLoad()
-	return s.segment.initBloomFilter(overwrite)
-}
-
-func (s *lazySegment) initBloomFilters(metrics *Metrics, overwrite bool) error {
-	s.mustLoad()
-	return s.segment.initBloomFilters(metrics, overwrite)
-}
-
-func (s *lazySegment) initCountNetAdditions(exists existsOnLowerSegmentsFn, overwrite bool, precomputedCNAValue *int) error {
-	s.mustLoad()
-	return s.segment.initCountNetAdditions(exists, overwrite, precomputedCNAValue)
-}
-
-func (s *lazySegment) initSecondaryBloomFilter(pos int, overwrite bool) error {
-	s.mustLoad()
-	return s.segment.initSecondaryBloomFilter(pos, overwrite)
-}
-
 func (s *lazySegment) isLoaded() bool {
 	s.mux.Lock()
 	defer s.mux.Unlock()

@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -182,6 +184,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, err
 	}
 
+	files, err := diskio.GetFileWithSizes(dir)
+	if err != nil {
+		return nil, err
+	}
+
 	b := &Bucket{
 		dir:                   dir,
 		rootDir:               rootDir,
@@ -228,7 +235,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepSegmentsInMemory:     b.keepSegmentsInMemory,
 			MinMMapSize:              b.minMMapSize,
 			bm25config:               b.bm25Config,
-		}, b.allocChecker, b.lazySegmentLoading)
+		}, b.allocChecker, b.lazySegmentLoading, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
@@ -282,7 +289,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	b.disk = sg
 
-	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
+	if err := b.mayRecoverFromCommitLogs(ctx, files); err != nil {
 		return nil, err
 	}
 
