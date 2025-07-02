@@ -170,6 +170,7 @@ type Index struct {
 	globalreplicationConfig *replication.GlobalConfig
 
 	getSchema  schemaUC.SchemaGetter
+	router     router.Router
 	logger     logrus.FieldLogger
 	remote     *sharding.RemoteIndex
 	stopwords  *stopwords.Detector
@@ -275,6 +276,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
 		getSchema:               sg,
+		router:                  router,
 		logger:                  logger,
 		classSearcher:           cs,
 		vectorIndexUserConfig:   vectorIndexUserConfig,
@@ -1374,13 +1376,15 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	if err := i.validateMultiTenancy(tenant); err != nil {
-		return nil, nil, err
+	if replProps == nil {
+		replProps = defaultConsistency()
 	}
-
-	shardNames, err := i.targetShardNames(ctx, tenant)
-	if err != nil || len(shardNames) == 0 {
-		return nil, nil, err
+	plan, err := i.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
+		Shard:            tenant,
+		ConsistencyLevel: types.ConsistencyLevel(replProps.ConsistencyLevel),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("error while building routing plan: %w", err)
 	}
 
 	// If the request is a BM25F with no properties selected, use all possible properties
@@ -1407,7 +1411,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
-		filters, keywordRanking, sort, cursor, addlProps, shardNames, properties)
+		filters, keywordRanking, sort, cursor, addlProps, plan.Shards(), properties)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1440,7 +1444,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	if len(sort) > 0 {
-		if len(shardNames) > 1 {
+		if len(plan.Shards()) > 1 {
 			var err error
 			outObjects, outScores, err = i.sort(outObjects, outScores, sort, limit)
 			if err != nil {
@@ -1449,7 +1453,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	} else if keywordRanking != nil {
 		outObjects, outScores = i.sortKeywordRanking(outObjects, outScores)
-	} else if len(shardNames) > 1 && !addlProps.ReferenceQuery {
+	} else if len(plan.Shards()) > 1 && !addlProps.ReferenceQuery {
 		// sort only for multiple shards (already sorted for single)
 		// and for not reference nested query (sort is applied for root query)
 		outObjects, outScores = i.sortByID(outObjects, outScores)
@@ -1745,16 +1749,19 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	if err := i.validateMultiTenancy(tenant); err != nil {
-		return nil, nil, err
+	if replProps == nil {
+		replProps = defaultConsistency()
 	}
-	shardNames, err := i.targetShardNames(ctx, tenant)
-	if err != nil || len(shardNames) == 0 {
-		return nil, nil, err
+	plan, err := i.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
+		Shard:            tenant,
+		ConsistencyLevel: types.ConsistencyLevel(replProps.ConsistencyLevel),
+	})
+	if err != nil {
+		return nil, nil, fmt.Errorf("error while building routing plan: %w", err)
 	}
 
-	if len(shardNames) == 1 && !i.Config.ForceFullReplicasSearch {
-		shard, release, err := i.GetShard(ctx, shardNames[0])
+	if len(plan.Shards()) == 1 && !i.Config.ForceFullReplicasSearch {
+		shard, release, err := i.GetShard(ctx, plan.Shards()[0])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1770,9 +1777,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	// the case we have to adjust how we calculate the output capacity
 	var shardCap int
 	if limit < 0 {
-		shardCap = len(shardNames) * hnsw.DefaultSearchByDistInitialLimit
+		shardCap = len(plan.Shards()) * hnsw.DefaultSearchByDistInitialLimit
 	} else {
-		shardCap = len(shardNames) * limit
+		shardCap = len(plan.Shards()) * limit
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
@@ -1786,7 +1793,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	var remoteSearches int64
 	var remoteResponses atomic.Int64
 
-	for _, sn := range shardNames {
+	for _, sn := range plan.Shards() {
 		shardName := sn
 		shard, release, err := i.GetShard(ctx, shardName)
 		if err != nil {
@@ -1851,15 +1858,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
-	if len(shardNames) == 1 {
+	if len(plan.Shards()) == 1 {
 		return out, dists, nil
 	}
 
-	if len(shardNames) > 1 && groupBy != nil {
-		return i.mergeGroups(out, dists, groupBy, limit, len(shardNames))
+	if len(plan.Shards()) > 1 && groupBy != nil {
+		return i.mergeGroups(out, dists, groupBy, limit, len(plan.Shards()))
 	}
 
-	if len(shardNames) > 1 && len(sort) > 0 {
+	if len(plan.Shards()) > 1 && len(sort) > 0 {
 		return i.sort(out, dists, sort, limit)
 	}
 
@@ -2184,19 +2191,21 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 }
 
 func (i *Index) aggregate(ctx context.Context,
-	params aggregation.Params, modules *modules.Provider,
+	params aggregation.Params, replProps *additional.ReplicationProperties, modules *modules.Provider,
 ) (*aggregation.Result, error) {
-	if err := i.validateMultiTenancy(params.Tenant); err != nil {
-		return nil, err
+	if replProps == nil {
+		replProps = defaultConsistency()
+	}
+	plan, err := i.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
+		Shard:            params.Tenant,
+		ConsistencyLevel: types.ConsistencyLevel(replProps.ConsistencyLevel),
+	})
+	if err != nil {
+		return nil, fmt.Errorf("error while building routing plan: %w", err)
 	}
 
-	shardNames, err := i.targetShardNames(ctx, params.Tenant)
-	if err != nil || len(shardNames) == 0 {
-		return nil, err
-	}
-
-	results := make([]*aggregation.Result, len(shardNames))
-	for j, shardName := range shardNames {
+	results := make([]*aggregation.Result, len(plan.Shards()))
+	for j, shardName := range plan.Shards() {
 		var err error
 		var res *aggregation.Result
 
@@ -2579,19 +2588,14 @@ func (i *Index) findUUIDs(ctx context.Context,
 	before := time.Now()
 	defer i.metrics.BatchDelete(before, "filter_total")
 
-	if err := i.validateMultiTenancy(tenant); err != nil {
-		return nil, err
-	}
-
 	className := i.Config.ClassName.String()
-
-	shardNames, err := i.targetShardNames(ctx, tenant)
+	replicas, err := i.router.GetReadReplicasLocation(className, tenant)
 	if err != nil {
 		return nil, err
 	}
 
 	results := make(map[string][]strfmt.UUID)
-	for _, shardName := range shardNames {
+	for _, shardName := range replicas.Shards() {
 		var shard ShardLike
 		var release func()
 		var err error

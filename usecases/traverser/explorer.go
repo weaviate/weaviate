@@ -94,7 +94,7 @@ type objectsSearcher interface {
 
 	// GraphQL Explore{} queries
 	CrossClassVectorSearch(ctx context.Context, vector models.Vector, targetVector string, offset, limit int,
-		filters *filters.LocalFilter) ([]search.Result, error)
+		filters *filters.LocalFilter, replProps *additional.ReplicationProperties) ([]search.Result, error)
 
 	// Near-params searcher
 	Object(ctx context.Context, className string, id strfmt.UUID,
@@ -621,7 +621,7 @@ func (e *Explorer) CrossClassVectorSearch(ctx context.Context,
 		return nil, errors.Errorf("vectorize params: %v", err)
 	}
 
-	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, targetVector, params.Offset, params.Limit, nil)
+	res, err := e.searcher.CrossClassVectorSearch(ctx, vector, targetVector, params.Offset, params.Limit, nil, nil)
 	if err != nil {
 		return nil, errors.Errorf("vector search: %v", err)
 	}

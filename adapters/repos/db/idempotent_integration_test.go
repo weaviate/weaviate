@@ -18,6 +18,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+
+	"github.com/weaviate/weaviate/cluster/schema/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -512,13 +519,23 @@ func setupTestMigrator(t *testing.T, rootDir string, shardState *sharding.State,
 		},
 		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  rootDir,
 		QueryMaximumResults:       10,
 		MaxImportGoroutinesFactor: 1,
 	}, &fakeRemoteClient{}, &fakeNodeResolver{},
-		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+		&fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))

@@ -18,6 +18,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/stretchr/testify/mock"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/local/common_filters"
@@ -34,16 +41,27 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
@@ -60,7 +78,7 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 	for _, location := range []string{"memory", "disk"} {
 		t.Run("bm25f text with AND "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", SearchOperator: common_filters.SearchOperatorAnd}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			// Print results
 			t.Log("--- Start results for search with AND ---")
 			for i, r := range res {
@@ -75,12 +93,12 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 		t.Run("bm25f text with AND == minimum should match with len(queryTerms) "+location, func(t *testing.T) {
 			q := "This is how we get to BM25F"
 			kwr1 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: common_filters.SearchOperatorAnd}
-			res1, scores1, err := idx.objectSearch(context.TODO(), 1000, nil, kwr1, nil, nil, addit, nil, "", 0, props)
+			res1, scores1, err := idx.objectSearch(context.TODO(), 1000, nil, kwr1, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 
 			require.Nil(t, err)
 
 			kwr2 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: common_filters.SearchOperatorOr, MinimumOrTokensMatch: len(strings.Split(q, " "))}
-			res2, scores2, err := idx.objectSearch(context.TODO(), 1000, nil, kwr2, nil, nil, addit, nil, "", 0, props)
+			res2, scores2, err := idx.objectSearch(context.TODO(), 1000, nil, kwr2, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 
 			require.Nil(t, err)
 			// Print results
@@ -105,7 +123,7 @@ func TestBM25FJourneyBlockAnd(t *testing.T) {
 		for minimumOrTokensMatch, expectedSize := range expectedSizes {
 			t.Run("bm25f text with minimum should match with 0...len(queryTerms) "+location, func(t *testing.T) {
 				kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", MinimumOrTokensMatch: minimumOrTokensMatch}
-				res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+				res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 				// Print results
 				t.Log("--- Start results for search with AND ---")
 				for i, r := range res {
@@ -132,16 +150,27 @@ func TestBM25FJourneyAnd(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState)
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"})
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1")
+	mockNodeSelector.EXPECT().NodeHostname("node1").Return("node1", true)
 	repo, err := New(logger, Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, nil, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(context.Background()))
@@ -158,7 +187,7 @@ func TestBM25FJourneyAnd(t *testing.T) {
 	for _, location := range []string{"memory", "disk"} {
 		t.Run("bm25f text with AND "+location, func(t *testing.T) {
 			kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", SearchOperator: common_filters.SearchOperatorAnd}
-			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+			res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 			// Print results
 			t.Log("--- Start results for search with AND ---")
 			for i, r := range res {
@@ -173,12 +202,12 @@ func TestBM25FJourneyAnd(t *testing.T) {
 		t.Run("bm25f text with AND == minimum should match with len(queryTerms) "+location, func(t *testing.T) {
 			q := "This is how we get to BM25F"
 			kwr1 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: common_filters.SearchOperatorAnd}
-			res1, scores1, err := idx.objectSearch(context.TODO(), 1000, nil, kwr1, nil, nil, addit, nil, "", 0, props)
+			res1, scores1, err := idx.objectSearch(context.TODO(), 1000, nil, kwr1, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 
 			require.Nil(t, err)
 
 			kwr2 := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: q, SearchOperator: common_filters.SearchOperatorOr, MinimumOrTokensMatch: len(strings.Split(q, " "))}
-			res2, scores2, err := idx.objectSearch(context.TODO(), 1000, nil, kwr2, nil, nil, addit, nil, "", 0, props)
+			res2, scores2, err := idx.objectSearch(context.TODO(), 1000, nil, kwr2, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 
 			require.Nil(t, err)
 			// Print results
@@ -203,7 +232,7 @@ func TestBM25FJourneyAnd(t *testing.T) {
 		for minimumOrTokensMatch, expectedSize := range expectedSizes {
 			t.Run("bm25f text with minimum should match with 0...len(queryTerms) "+location, func(t *testing.T) {
 				kwr := &searchparams.KeywordRanking{Type: "bm25", Properties: []string{"title", "description"}, Query: "This is how we get to BM25F", MinimumOrTokensMatch: minimumOrTokensMatch}
-				res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, nil, "", 0, props)
+				res, scores, err := idx.objectSearch(context.TODO(), 1000, nil, kwr, nil, nil, addit, &additional.ReplicationProperties{ConsistencyLevel: string(routerTypes.ConsistencyLevelOne)}, "", 0, props)
 				// Print results
 				t.Log("--- Start results for search with AND ---")
 				for i, r := range res {

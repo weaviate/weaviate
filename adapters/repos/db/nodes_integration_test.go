@@ -18,6 +18,11 @@ import (
 	"context"
 	"testing"
 
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+
+	"github.com/weaviate/weaviate/cluster/schema/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -32,10 +37,14 @@ func TestNodesAPI_Journey(t *testing.T) {
 	dirName := t.TempDir()
 
 	logger := logrus.New()
+	shardState := singleShardState()
 	schemaGetter := &fakeSchemaGetter{
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
-		shardState: singleShardState(),
+		shardState: shardState,
 	}
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
 	repo, err := New(logger, Config{
 		ServerVersion:             "server-version",
 		GitHash:                   "git-hash",
@@ -44,7 +53,8 @@ func TestNodesAPI_Journey(t *testing.T) {
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
 		TrackVectorDimensions:     true,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil)
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, nil,
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
