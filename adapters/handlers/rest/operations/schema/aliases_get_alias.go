@@ -45,9 +45,9 @@ func NewAliasesGetAlias(ctx *middleware.Context, handler AliasesGetAliasHandler)
 /*
 	AliasesGetAlias swagger:route GET /aliases/{aliasName} schema aliasesGetAlias
 
-# Get aliases
+# Get am alias
 
-get all aliases or filtered by a class (collection)
+Retrieve details about a specific alias by its name, including which collection (class) it points to.
 */
 type AliasesGetAlias struct {
 	Context *middleware.Context

@@ -48,9 +48,9 @@ func NewAliasesUpdate(ctx *middleware.Context, handler AliasesUpdateHandler) *Al
 /*
 	AliasesUpdate swagger:route PUT /aliases/{aliasName} schema aliasesUpdate
 
-Update an alias.
+# Update an alias
 
-Replace alias of a specific class (collection) to other class
+Update an existing alias to point to a different collection (class). This allows you to redirect an alias from one collection to another without changing the alias name.
 */
 type AliasesUpdate struct {
 	Context *middleware.Context
@@ -91,7 +91,7 @@ func (o *AliasesUpdate) ServeHTTP(rw http.ResponseWriter, r *http.Request) {
 // swagger:model AliasesUpdateBody
 type AliasesUpdateBody struct {
 
-	// new class (collection).
+	// The new collection (class) that the alias should point to.
 	Class string `json:"class,omitempty" yaml:"class,omitempty"`
 }
 

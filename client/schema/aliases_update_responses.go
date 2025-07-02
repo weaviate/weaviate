@@ -85,7 +85,7 @@ func NewAliasesUpdateOK() *AliasesUpdateOK {
 /*
 AliasesUpdateOK describes a response with status code 200, with default header values.
 
-New alias to the target class (collection).
+Successfully updated the alias to point to the new collection (class).
 */
 type AliasesUpdateOK struct {
 	Payload *models.Alias
@@ -345,7 +345,7 @@ func NewAliasesUpdateUnprocessableEntity() *AliasesUpdateUnprocessableEntity {
 /*
 AliasesUpdateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid update alias request
+Invalid update alias request.
 */
 type AliasesUpdateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
@@ -479,7 +479,7 @@ swagger:model AliasesUpdateBody
 */
 type AliasesUpdateBody struct {
 
-	// new class (collection).
+	// The new collection (class) that the alias should point to.
 	Class string `json:"class,omitempty"`
 }
 

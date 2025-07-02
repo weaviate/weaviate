@@ -77,7 +77,7 @@ func NewAliasesGetAliasOK() *AliasesGetAliasOK {
 /*
 AliasesGetAliasOK describes a response with status code 200, with default header values.
 
-list of class's (collection's) aliases
+Successfully retrieved the alias details.
 */
 type AliasesGetAliasOK struct {
 	Payload *models.AliasResponse
@@ -269,7 +269,7 @@ func NewAliasesGetAliasUnprocessableEntity() *AliasesGetAliasUnprocessableEntity
 /*
 AliasesGetAliasUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid class
+Invalid alias name provided.
 */
 type AliasesGetAliasUnprocessableEntity struct {
 	Payload *models.ErrorResponse

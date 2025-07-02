@@ -47,7 +47,7 @@ func NewAliasesCreate(ctx *middleware.Context, handler AliasesCreateHandler) *Al
 
 # Create a new alias
 
-Create a new alias for a collection
+Create a new alias mapping between an alias name and a collection (class). The alias acts as an alternative name for accessing the collection.
 */
 type AliasesCreate struct {
 	Context *middleware.Context

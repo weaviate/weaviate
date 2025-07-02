@@ -28,7 +28,7 @@ import (
 const AliasesDeleteOKCode int = 200
 
 /*
-AliasesDeleteOK Deleted alias from specified class (collection).
+AliasesDeleteOK Successfully deleted the alias.
 
 swagger:response aliasesDeleteOK
 */
@@ -123,7 +123,7 @@ func (o *AliasesDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const AliasesDeleteUnprocessableEntityCode int = 422
 
 /*
-AliasesDeleteUnprocessableEntity Invalid delete alias request
+AliasesDeleteUnprocessableEntity Invalid delete alias request.
 
 swagger:response aliasesDeleteUnprocessableEntity
 */

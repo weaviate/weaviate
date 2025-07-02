@@ -77,7 +77,7 @@ func NewAliasesDeleteOK() *AliasesDeleteOK {
 /*
 AliasesDeleteOK describes a response with status code 200, with default header values.
 
-Deleted alias from specified class (collection).
+Successfully deleted the alias.
 */
 type AliasesDeleteOK struct {
 }
@@ -257,7 +257,7 @@ func NewAliasesDeleteUnprocessableEntity() *AliasesDeleteUnprocessableEntity {
 /*
 AliasesDeleteUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid delete alias request
+Invalid delete alias request.
 */
 type AliasesDeleteUnprocessableEntity struct {
 	Payload *models.ErrorResponse
