@@ -317,7 +317,7 @@ linters:
         text: QF1008 # could remove embedded field <name> from selector
       - linters:
           - staticcheck
-        path: modules/text2colbert-jinaai/ent/class_settings.go
+        path: modules/text2multivec-jinaai/ent/class_settings.go
         text: QF1008 # could remove embedded field <name> from selector
       - linters:
           - staticcheck
@@ -474,6 +474,10 @@ linters:
       - linters:
           - staticcheck
         path: modules/text2vec-transformers/clients/transformers_test.go
+        text: QF1012 # Use fmt.Fprintf(...) instead of Write([]byte(fmt.Sprintf(...)))
+      - linters:
+          - staticcheck
+        path: adapters/handlers/rest/handlers_debug.go
         text: QF1012 # Use fmt.Fprintf(...) instead of Write([]byte(fmt.Sprintf(...)))
       - linters:
           - staticcheck
