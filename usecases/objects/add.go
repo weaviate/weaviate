@@ -39,6 +39,9 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	className := schema.UppercaseClassName(object.Class)
+	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
+		className = cls
+	}
 	object.Class = className
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
@@ -65,10 +68,10 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, err
 	}
 
-	if obj.Class != className {
-		alias := className
-		obj.Class = alias
-	}
+	// if obj.Class != className {
+	// 	alias := className
+	// 	obj.Class = alias
+	// }
 
 	return obj, nil
 }

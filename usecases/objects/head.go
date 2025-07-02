@@ -26,6 +26,9 @@ import (
 func (m *Manager) HeadObject(ctx context.Context, principal *models.Principal, className string,
 	id strfmt.UUID, repl *additional.ReplicationProperties, tenant string,
 ) (bool, *Error) {
+	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
+		className = cls
+	}
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, tenant, id)); err != nil {
 		return false, &Error{err.Error(), StatusForbidden, err}
 	}

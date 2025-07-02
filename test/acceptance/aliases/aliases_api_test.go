@@ -17,9 +17,11 @@ import (
 	"fmt"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/schema"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
@@ -30,7 +32,6 @@ import (
 
 func Test_AliasesAPI(t *testing.T) {
 	ctx := context.Background()
-	t.Setenv("TEST_WEAVIATE_IMAGE", "module_test_image")
 	compose, err := docker.New().
 		WithWeaviate().
 		WithText2VecModel2Vec().
@@ -187,6 +188,18 @@ func Test_AliasesAPI(t *testing.T) {
 
 		t.Run("tests with BookAlias", func(t *testing.T) {
 			aliasName := "BookAlias"
+
+			assertGetObject := func(t *testing.T, id strfmt.UUID) {
+				objWithClassName, err := helper.GetObject(t, books.DefaultClassName, id)
+				require.NoError(t, err)
+				require.NotNil(t, objWithClassName)
+
+				objWithAlias, err := helper.GetObject(t, aliasName, id)
+				require.NoError(t, err)
+				require.NotNil(t, objWithAlias)
+				assert.Equal(t, objWithClassName.ID, objWithAlias.ID)
+			}
+
 			t.Run("create class with alias name", func(t *testing.T) {
 				class := books.ClassModel2VecVectorizerWithName(aliasName)
 				params := schema.NewSchemaObjectsCreateParams().WithObjectClass(class)
@@ -243,14 +256,113 @@ func Test_AliasesAPI(t *testing.T) {
 				}
 			})
 			t.Run("get class objects with alias", func(t *testing.T) {
-				objWithClassName, err := helper.GetObject(t, books.DefaultClassName, books.ProjectHailMary)
-				require.NoError(t, err)
-				require.NotNil(t, objWithClassName)
+				assertGetObject(t, books.ProjectHailMary)
+			})
 
-				objWithAlias, err := helper.GetObject(t, aliasName, books.ProjectHailMary)
+			t.Run("create object with alias", func(t *testing.T) {
+				objID := strfmt.UUID("67b79643-cf8b-4b22-b206-000000000001")
+				obj := &models.Object{
+					Class: aliasName,
+					ID:    objID,
+					Properties: map[string]interface{}{
+						"title":       "The Martian",
+						"description": "Stranded on Mars after a dust storm forces his crew to evacuate, astronaut Mark Watney is presumed dead and left alone on the hostile planet.",
+					},
+				}
+				err := helper.CreateObject(t, obj)
 				require.NoError(t, err)
-				require.NotNil(t, objWithAlias)
-				assert.Equal(t, objWithClassName.ID, objWithAlias.ID)
+				assertGetObject(t, objID)
+			})
+
+			t.Run("update object with alias", func(t *testing.T) {
+				objID := strfmt.UUID("67b79643-cf8b-4b22-b206-000000000001")
+				obj := &models.Object{
+					Class: aliasName,
+					ID:    objID,
+					Properties: map[string]interface{}{
+						"title":       "The Martian",
+						"description": "A book about an astronaut Mark Watney.",
+					},
+				}
+				err := helper.UpdateObject(t, obj)
+				require.NoError(t, err)
+				assertGetObject(t, objID)
+			})
+
+			t.Run("patch object with alias", func(t *testing.T) {
+				objID := strfmt.UUID("67b79643-cf8b-4b22-b206-000000000001")
+				obj := &models.Object{
+					Class: aliasName,
+					ID:    objID,
+					Properties: map[string]interface{}{
+						"title":       "The Martian",
+						"description": "A book about an astronaut Mark Watney.",
+					},
+				}
+				err := helper.PatchObject(t, obj)
+				require.NoError(t, err)
+				assertGetObject(t, objID)
+			})
+
+			t.Run("head object with alias", func(t *testing.T) {
+				objID := strfmt.UUID("67b79643-cf8b-4b22-b206-000000000001")
+				err := helper.HeadObject(t, objID)
+				require.NoError(t, err)
+			})
+
+			t.Run("validate object with alias", func(t *testing.T) {
+				objID := strfmt.UUID("67b79643-cf8b-4b22-b206-000000000001")
+				obj := &models.Object{
+					Class: aliasName,
+					ID:    objID,
+					Properties: map[string]interface{}{
+						"title":       "The Martian",
+						"description": "A book about an astronaut Mark Watney.",
+					},
+				}
+				err := helper.ValidateObject(t, obj)
+				require.NoError(t, err)
+				assertGetObject(t, objID)
+			})
+
+			t.Run("batch insert with alias", func(t *testing.T) {
+				objID1 := strfmt.UUID("67b79643-cf8b-4b22-b206-000000000001")
+				obj1 := &models.Object{
+					Class: aliasName,
+					ID:    objID1,
+					Properties: map[string]interface{}{
+						"title":       "The Martian",
+						"description": "A book about an astronaut Mark Watney that was left on Mars.",
+					},
+				}
+				objID2 := strfmt.UUID("67b79643-cf8b-4b22-b206-000000000002")
+				obj2 := &models.Object{
+					Class: aliasName,
+					ID:    objID2,
+					Properties: map[string]interface{}{
+						"title":       "Nonexistent",
+						"description": "A book about nothing.",
+					},
+				}
+				helper.CreateObjectsBatch(t, []*models.Object{obj1, obj2})
+				require.NoError(t, err)
+				assertGetObject(t, objID1)
+				assertGetObject(t, objID2)
+			})
+
+			t.Run("batch delete with alias", func(t *testing.T) {
+				valueText := "Nonexistent"
+				batchDelete := &models.BatchDelete{
+					Match: &models.BatchDeleteMatch{
+						Class: aliasName,
+						Where: &models.WhereFilter{
+							Path:      []string{"title"},
+							Operator:  models.WhereFilterOperatorEqual,
+							ValueText: &valueText,
+						},
+					},
+				}
+				helper.DeleteObjectsBatch(t, batchDelete, types.ConsistencyLevelAll)
 			})
 		})
 	})
