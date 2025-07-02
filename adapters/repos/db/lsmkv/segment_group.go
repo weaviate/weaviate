@@ -80,6 +80,7 @@ type SegmentGroup struct {
 	compactLeftOverSegments  bool // see bucket for more details
 	enableChecksumValidation bool
 	MinMMapSize              int64
+	keepLevelCompaction      bool // see bucket for more details
 
 	allocChecker   memwatch.AllocChecker
 	maxSegmentSize int64
@@ -103,6 +104,7 @@ type sgConfig struct {
 	useBloomFilter           bool
 	calcCountNetAdditions    bool
 	forceCompaction          bool
+	keepLevelCompaction      bool
 	maxSegmentSize           int64
 	cleanupInterval          time.Duration
 	enableChecksumValidation bool
@@ -113,16 +115,11 @@ type sgConfig struct {
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	compactionCallbacks cyclemanager.CycleCallbackGroup, cfg sgConfig,
-	allocChecker memwatch.AllocChecker, lazySegmentLoading bool,
+	allocChecker memwatch.AllocChecker, lazySegmentLoading bool, files map[string]int64,
 ) (*SegmentGroup, error) {
-	list, err := os.ReadDir(cfg.dir)
-	if err != nil {
-		return nil, err
-	}
-
 	now := time.Now()
 	sg := &SegmentGroup{
-		segments:                 make([]Segment, len(list)),
+		segments:                 make([]Segment, len(files)),
 		dir:                      cfg.dir,
 		logger:                   logger,
 		metrics:                  metrics,
@@ -150,12 +147,12 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 	// Note: it's important to process first the compacted segments
 	// TODO: a single iteration may be possible
 
-	for _, entry := range list {
-		if filepath.Ext(entry.Name()) != ".tmp" {
+	for entry := range files {
+		if filepath.Ext(entry) != ".tmp" {
 			continue
 		}
 
-		potentialCompactedSegmentFileName := strings.TrimSuffix(entry.Name(), ".tmp")
+		potentialCompactedSegmentFileName := strings.TrimSuffix(entry, ".tmp")
 
 		if filepath.Ext(potentialCompactedSegmentFileName) != ".db" {
 			// another kind of temporal file, ignore at this point but it may need to be deleted...
@@ -167,15 +164,15 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 
 		if len(jointSegmentsIDs) == 1 {
 			// cleanup leftover, to be removed
-			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
-				return nil, fmt.Errorf("delete partially cleaned segment %q: %w", entry.Name(), err)
+			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+				return nil, fmt.Errorf("delete partially cleaned segment %q: %w", entry, err)
 			}
 			continue
 		}
 
 		if len(jointSegmentsIDs) != 2 {
 			logger.WithField("action", "lsm_segment_init").
-				WithField("path", filepath.Join(sg.dir, entry.Name())).
+				WithField("path", filepath.Join(sg.dir, entry)).
 				Warn("ignored (partially written) LSM compacted segment generated with a version older than v1.24.0")
 
 			continue
@@ -198,8 +195,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		}
 
 		if leftSegmentFound && rightSegmentFound {
-			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
-				return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry.Name(), err)
+			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
+				return nil, fmt.Errorf("delete partially compacted segment %q: %w", entry, err)
 			}
 			continue
 		}
@@ -221,6 +218,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 					enableChecksumValidation: sg.enableChecksumValidation,
 					MinMMapSize:              sg.MinMMapSize,
 					allocChecker:             sg.allocChecker,
+					fileList:                 make(map[string]int64), // empty to not check if bloom/cna files already exist
 				})
 			if err != nil {
 				return nil, fmt.Errorf("init already compacted right segment %s: %w", rightSegmentFilename, err)
@@ -257,8 +255,8 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			}
 		}
 
-		if err := os.Rename(filepath.Join(sg.dir, entry.Name()), rightSegmentPath); err != nil {
-			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry.Name(), rightSegmentFilename, err)
+		if err := os.Rename(filepath.Join(sg.dir, entry), rightSegmentPath); err != nil {
+			return nil, fmt.Errorf("rename compacted segment file %q as %q: %w", entry, rightSegmentFilename, err)
 		}
 
 		var segment Segment
@@ -270,6 +268,7 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			enableChecksumValidation: sg.enableChecksumValidation,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
+			fileList:                 files,
 		}
 		if lazySegmentLoading {
 			segment, err = newLazySegment(rightSegmentPath, logger,
@@ -293,27 +292,27 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		segmentsAlreadyRecoveredFromCompaction[rightSegmentFilename] = struct{}{}
 	}
 
-	for _, entry := range list {
-		if filepath.Ext(entry.Name()) == DeleteMarkerSuffix {
+	for entry := range files {
+		if filepath.Ext(entry) == DeleteMarkerSuffix {
 			// marked for deletion, but never actually deleted. Delete now.
-			if err := os.Remove(filepath.Join(sg.dir, entry.Name())); err != nil {
+			if err := os.Remove(filepath.Join(sg.dir, entry)); err != nil {
 				// don't abort if the delete fails, we can still continue (albeit
 				// without freeing disk space that should have been freed)
 				sg.logger.WithError(err).WithFields(logrus.Fields{
 					"action": "lsm_segment_init_deleted_previously_marked_files",
-					"file":   entry.Name(),
+					"file":   entry,
 				}).Error("failed to delete file already marked for deletion")
 			}
 			continue
 
 		}
 
-		if filepath.Ext(entry.Name()) != ".db" {
+		if filepath.Ext(entry) != ".db" {
 			// skip, this could be commit log, etc.
 			continue
 		}
 
-		_, alreadyRecoveredFromCompaction := segmentsAlreadyRecoveredFromCompaction[entry.Name()]
+		_, alreadyRecoveredFromCompaction := segmentsAlreadyRecoveredFromCompaction[entry]
 		if alreadyRecoveredFromCompaction {
 			// the .db file was already removed and restored from a compacted segment
 			continue
@@ -322,21 +321,17 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 		// before we can mount this file, we need to check if a WAL exists for it.
 		// If yes, we must assume that the flush never finished, as otherwise the
 		// WAL would have been lsmkv.Deleted. Thus we must remove it.
-		walFileName := strings.TrimSuffix(entry.Name(), ".db") + ".wal"
-		ok, err := fileExists(filepath.Join(sg.dir, walFileName))
-		if err != nil {
-			return nil, fmt.Errorf("check for presence of wals for segment %s: %w",
-				entry.Name(), err)
-		}
+		walFileName := strings.TrimSuffix(entry, ".db") + ".wal"
+		_, ok := files[walFileName]
 		if ok {
 			// the segment will be recovered from the WAL
-			err := os.Remove(filepath.Join(sg.dir, entry.Name()))
+			err := os.Remove(filepath.Join(sg.dir, entry))
 			if err != nil {
-				return nil, fmt.Errorf("delete partially written segment %s: %w", entry.Name(), err)
+				return nil, fmt.Errorf("delete partially written segment %s: %w", entry, err)
 			}
 
 			logger.WithField("action", "lsm_segment_init").
-				WithField("path", filepath.Join(sg.dir, entry.Name())).
+				WithField("path", filepath.Join(sg.dir, entry)).
 				WithField("wal_path", walFileName).
 				Info("discarded (partially written) LSM segment, because an active WAL for " +
 					"the same segment was found. A recovery from the WAL will follow.")
@@ -353,20 +348,22 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 			enableChecksumValidation: sg.enableChecksumValidation,
 			MinMMapSize:              sg.MinMMapSize,
 			allocChecker:             sg.allocChecker,
+			fileList:                 files,
 		}
+		var err error
 		if lazySegmentLoading {
-			segment, err = newLazySegment(filepath.Join(sg.dir, entry.Name()), logger,
+			segment, err = newLazySegment(filepath.Join(sg.dir, entry), logger,
 				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), segConf,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("init lazy segment %s: %w", filepath.Join(sg.dir, entry.Name()), err)
+				return nil, fmt.Errorf("init lazy segment %s: %w", filepath.Join(sg.dir, entry), err)
 			}
 		} else {
-			segment, err = newSegment(filepath.Join(sg.dir, entry.Name()), logger,
+			segment, err = newSegment(filepath.Join(sg.dir, entry), logger,
 				metrics, sg.makeExistsOn(sg.segments[:segmentIndex]), segConf,
 			)
 			if err != nil {
-				return nil, fmt.Errorf("init segment %s: %w", filepath.Join(sg.dir, entry.Name()), err)
+				return nil, fmt.Errorf("init segment %s: %w", filepath.Join(sg.dir, entry), err)
 			}
 		}
 		sg.segments[segmentIndex] = segment

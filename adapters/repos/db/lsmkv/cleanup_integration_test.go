@@ -31,6 +31,7 @@ func TestSegmentsCleanup(t *testing.T) {
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
 				WithSegmentsCleanupInterval(time.Second),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -42,6 +43,7 @@ func TestSegmentsCleanup(t *testing.T) {
 				WithStrategy(StrategyReplace),
 				WithSecondaryIndices(2),
 				WithSegmentsCleanupInterval(time.Second),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 	}

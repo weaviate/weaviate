@@ -491,6 +491,10 @@ func FromEnv(config *Config) error {
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
 			DefaultMapToBlockmaxPauseDurationSeconds)
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PER_OBJECT_DELAY_MILLISECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds = val },
+			DefaultMapToBlockmaxPerObjectDelayMilliseconds)
+
 		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
 		if err != nil {
 			return err

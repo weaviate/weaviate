@@ -62,7 +62,7 @@ func TestCompaction(t *testing.T) {
 				compactionReplaceStrategy(ctx, t, opts, 12116, 12116)
 			},
 			opts: []BucketOption{
-				WithStrategy(StrategyReplace),
+				WithStrategy(StrategyReplace), WithCalcCountNetAdditions(true),
 			},
 		},
 		{
@@ -73,6 +73,7 @@ func TestCompaction(t *testing.T) {
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
 				WithKeepTombstones(true),
+				WithCalcCountNetAdditions(true),
 			},
 		},
 		{

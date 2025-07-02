@@ -101,7 +101,18 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 				// max size not exceeded
 				matchingPairFound = true
 				matchingLeftId = leftId
-				matchingLevel = left.level + 1
+
+				// this is for bucket migrations with re-ingestion, specifically
+				// for the new incoming data (ingest) bucket.
+				// we don't want to change the level of the segments on ingest data,
+				// so that, when we copy the segments to the bucket with the reingested
+				// data, the levels are all still at zero, and they can be compacted
+				// with the existing re-ingested segments.
+				if sg.keepLevelCompaction {
+					matchingLevel = left.level
+				} else {
+					matchingLevel = left.level + 1
+				}
 			} else if matchingPairFound {
 				// older segment of same level as pair's level exist.
 				// keep unchanged level
@@ -372,14 +383,31 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 	sg.maintenanceLock.RUnlock()
 
 	// WIP: we could add a random suffix to the tmp file to avoid conflicts
-	precomputedFiles, err := preComputeSegmentMeta(newPathTmp,
-		updatedCountNetAdditions, sg.logger, sg.useBloomFilter,
-		sg.calcCountNetAdditions, sg.enableChecksumValidation, sg.MinMMapSize, sg.allocChecker, sg.metrics, sg.strategy)
-	if err != nil {
-		return fmt.Errorf("precompute segment meta: %w", err)
+
+	// as a guardrail validate that the segment is considered a .tmp segment.
+	// This way we can be sure that we're not accidentally operating on a live
+	// segment as the segment group completely ignores .tmp segment files
+	if !strings.HasSuffix(newPathTmp, ".tmp") {
+		return fmt.Errorf("pre computing a segment expects a .tmp segment path")
 	}
 
-	oldL, oldR, err := sg.replaceCompactedSegmentsBlocking(old1, old2, precomputedFiles)
+	seg, err := newSegment(newPathTmp, sg.logger, sg.metrics, nil,
+		segmentConfig{
+			mmapContents:                 sg.mmapContents,
+			useBloomFilter:               sg.useBloomFilter,
+			calcCountNetAdditions:        sg.calcCountNetAdditions,
+			overwriteDerived:             true,
+			enableChecksumValidation:     sg.enableChecksumValidation,
+			MinMMapSize:                  sg.MinMMapSize,
+			allocChecker:                 sg.allocChecker,
+			precomputedCountNetAdditions: &updatedCountNetAdditions,
+			fileList:                     make(map[string]int64), // empty to not check if bloom/cna files already exist
+		})
+	if err != nil {
+		return errors.Wrap(err, "create new segment")
+	}
+
+	oldL, oldR, err := sg.replaceCompactedSegmentsBlocking(old1, old2, seg)
 	if err != nil {
 		return fmt.Errorf("replace compacted segments (blocking): %w", err)
 	}
@@ -401,7 +429,7 @@ func (sg *SegmentGroup) replaceCompactedSegments(old1, old2 int,
 const replaceSegmentWarnThreshold = 300 * time.Millisecond
 
 func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
-	old1, old2 int, precomputedFiles []string,
+	old1, old2 int, newSeg *segment,
 ) (*segment, *segment, error) {
 	// We need a maintenanceLock.Lock() to switch segments, however, we can't
 	// simply call Lock(). Due to the write-preferring nature of the RWMutex this
@@ -455,37 +483,25 @@ func (sg *SegmentGroup) replaceCompactedSegmentsBlocking(
 	sg.segments[old1] = nil
 	sg.segments[old2] = nil
 
-	var newPath string
 	// the old segments have been deleted, we can now safely remove the .tmp
 	// extension from the new segment itself and the pre-computed files which
 	// carried the name of the second old segment
-	for i, path := range precomputedFiles {
-		updated, err := sg.stripTmpExtension(path, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
+
+	newPath, err := sg.stripTmpExtension(newSeg.path, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
+	if err != nil {
+		return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
+	}
+	newSeg.path = newPath
+
+	for i, pth := range newSeg.metaPaths {
+		updated, err := sg.stripTmpExtension(pth, segmentID(leftSegment.getPath()), segmentID(rightSegment.getPath()))
 		if err != nil {
 			return nil, nil, errors.Wrap(err, "strip .tmp extension of new segment")
 		}
-
-		if i == 0 {
-			// the first element in the list is the segment itself
-			newPath = updated
-		}
+		newSeg.metaPaths[i] = updated
 	}
 
-	seg, err := newSegment(newPath, sg.logger, sg.metrics, nil,
-		segmentConfig{
-			mmapContents:             sg.mmapContents,
-			useBloomFilter:           sg.useBloomFilter,
-			calcCountNetAdditions:    sg.calcCountNetAdditions,
-			overwriteDerived:         false,
-			enableChecksumValidation: sg.enableChecksumValidation,
-			MinMMapSize:              sg.MinMMapSize,
-			allocChecker:             sg.allocChecker,
-		})
-	if err != nil {
-		return nil, nil, errors.Wrap(err, "create new segment")
-	}
-
-	sg.segments[old2] = seg
+	sg.segments[old2] = newSeg
 
 	sg.segments = append(sg.segments[:old1], sg.segments[old1+1:]...)
 

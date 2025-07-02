@@ -24,6 +24,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/weaviate/weaviate/entities/diskio"
+
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
@@ -130,6 +132,11 @@ type Bucket struct {
 	disableCompaction  bool
 	lazySegmentLoading bool
 
+	// if true, don't increase the segment level during compaction.
+	// useful for migrations, as it allows to merge reindex and ingest buckets
+	// without discontinuities in segment levels.
+	keepLevelCompaction bool
+
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
 	allocChecker memwatch.AllocChecker
@@ -181,6 +188,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, err
 	}
 
+	files, err := diskio.GetFileWithSizes(dir)
+	if err != nil {
+		return nil, err
+	}
+
 	b := &Bucket{
 		dir:                   dir,
 		rootDir:               rootDir,
@@ -192,7 +204,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		logger:                logger,
 		metrics:               metrics,
 		useBloomFilter:        true,
-		calcCountNetAdditions: true,
+		calcCountNetAdditions: false,
 		haltedFlushTimer:      interval.NewBackoffTimer(),
 	}
 
@@ -227,7 +239,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepSegmentsInMemory:     b.keepSegmentsInMemory,
 			MinMMapSize:              b.minMMapSize,
 			bm25config:               b.bm25Config,
-		}, b.allocChecker, b.lazySegmentLoading)
+			keepLevelCompaction:      b.keepLevelCompaction,
+		}, b.allocChecker, b.lazySegmentLoading, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
@@ -281,7 +294,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	b.disk = sg
 
-	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
+	if err := b.mayRecoverFromCommitLogs(ctx, files); err != nil {
 		return nil, err
 	}
 
