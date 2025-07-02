@@ -448,6 +448,7 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	require.NoError(t, err)
 	err = dynamic.Shutdown(t.Context())
 	require.NoError(t, err)
+	dummyStore.FlushMemtables(t.Context())
 
 	// open the db again
 	db, err = bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
@@ -459,4 +460,5 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	dynamic.PostStartup()
 	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	assert.Equal(t, recall, recall2)
+	assert.True(t, false)
 }
