@@ -216,6 +216,15 @@ func (s *segment) initBloomFiltersFromData(meta metadata) error {
 		return fmt.Errorf("read bloom filter: %w", err)
 	}
 
+	s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
+	for i := range s.secondaryBloomFilters {
+		s.secondaryBloomFilters[i] = new(bloom.BloomFilter)
+		_, err := s.secondaryBloomFilters[i].ReadFrom(bytes.NewReader(meta.SecondaryBloomFilter[i]))
+		if err != nil {
+			return fmt.Errorf("read bloom filter: %w", err)
+		}
+
+	}
 	return nil
 }
 
