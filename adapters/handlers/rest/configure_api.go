@@ -742,6 +742,12 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 	return appState
 }
 
+func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
+	return roaringset.NewBitmapBufPoolDefault(appState.Logger,
+		appState.ServerConfig.Config.QueryBitmapBufsMaxBufSize,
+		appState.ServerConfig.Config.QueryBitmapBufsMaxMemory)
+}
+
 func configureReindexer(appState *state.State, reindexCtx context.Context) db.ShardReindexerV3 {
 	tasks := []db.ShardReindexTaskV3{}
 	logger := appState.Logger.WithField("action", "reindexV3")
@@ -774,13 +780,6 @@ func configureReindexer(appState *state.State, reindexCtx context.Context) db.Sh
 	}
 	reindexer.Init()
 	return reindexer
-}
-
-func configureBitmapBufPool(appState *state.State) (pool roaringset.BitmapBufPool, close func()) {
-	// TODO get settings from config
-	MB := 1 << 20
-	GB := 1 << 30
-	return roaringset.NewBitmapBufPoolDefault(appState.Logger, 128*MB, 2*GB)
 }
 
 func parseNode2Port(appState *state.State) (m map[string]int, err error) {
