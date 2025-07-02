@@ -2947,7 +2947,7 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 	defer i.shardCreateLocks.Unlock(tenantName)
 
 	// Locate the tenant on disk
-	shardPath := shardPathLSM(i.path(), tenantName)
+	shardPath := shardPathObjectsLSM(i.path(), tenantName)
 
 	// Parse all .cna files in the object store and sum them up
 	totalObjectCount := int64(0)
