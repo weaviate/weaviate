@@ -39,6 +39,9 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 	classesShards := make(map[string][]string)
 	for _, obj := range objects {
 		obj.Class = schema.UppercaseClassName(obj.Class)
+		if cls := b.schemaManager.ResolveAlias(obj.Class); cls != "" {
+			obj.Class = cls
+		}
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}

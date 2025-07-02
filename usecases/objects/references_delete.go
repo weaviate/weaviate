@@ -47,6 +47,9 @@ func (m *Manager) DeleteObjectReference(ctx context.Context, principal *models.P
 
 	ctx = classcache.ContextWithClassCache(ctx)
 	input.Class = schema.UppercaseClassName(input.Class)
+	if cls := m.schemaManager.ResolveAlias(input.Class); cls != "" {
+		input.Class = cls
+	}
 
 	// We are fetching the existing object and get to know if the UUID exists
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(input.Class, tenant)...); err != nil {

@@ -35,6 +35,9 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	className := schema.UppercaseClassName(updates.Class)
+	if cls := m.schemaManager.ResolveAlias(updates.Class); cls != "" {
+		className = cls
+	}
 	updates.Class = className
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
