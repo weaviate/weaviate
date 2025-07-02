@@ -16,7 +16,6 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 )
 
 const (
@@ -59,9 +58,8 @@ func (h *hnsw) growIndexToAccomodateNode(id uint64, logger logrus.FieldLogger) e
 	}
 
 	h.pools.visitedListsLock.Lock()
-	h.pools.visitedLists.Destroy()
 	h.pools.visitedLists = nil
-	h.pools.visitedLists = visited.NewPool(1, len(newIndex)+512, h.visitedListPoolMaxSize)
+	h.pools.visitedLists = newVisitedPool(len(newIndex) + 512)
 	h.pools.visitedListsLock.Unlock()
 
 	h.nodes = newIndex

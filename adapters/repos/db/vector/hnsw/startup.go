@@ -22,12 +22,11 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
-	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/visited"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 )
 
 func (h *hnsw) init(cfg Config) error {
-	h.pools = newPools(h.maximumConnectionsLayerZero, h.visitedListPoolMaxSize)
+	h.pools = newPools(h.maximumConnectionsLayerZero)
 
 	// init commit logger for future writes
 	cl, err := cfg.MakeCommitLoggerThunk()
@@ -270,9 +269,8 @@ func (h *hnsw) restoreFromDisk(cl CommitLogger) error {
 	h.resetTombstoneMetric()
 
 	// make sure the visited list pool fits the current size
-	h.pools.visitedLists.Destroy()
 	h.pools.visitedLists = nil
-	h.pools.visitedLists = visited.NewPool(1, len(h.nodes)+512, h.visitedListPoolMaxSize)
+	h.pools.visitedLists = newVisitedPool(len(h.nodes) + 512)
 
 	return nil
 }
