@@ -121,6 +121,7 @@ func (db *DB) init(ctx context.Context) error {
 				QuerySlowLogEnabled:                          db.config.QuerySlowLogEnabled,
 				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
+				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
 			}, db.schemaGetter.CopyShardingState(class.Class),
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),

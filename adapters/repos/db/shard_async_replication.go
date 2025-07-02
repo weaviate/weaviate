@@ -96,6 +96,7 @@ type asyncReplicationConfig struct {
 	propagationConcurrency      int
 	propagationBatchSize        int
 	targetNodeOverrides         []additional.AsyncReplicationTargetNodeOverride
+	maintenanceModeEnabled      func() bool
 }
 
 func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
@@ -183,6 +184,8 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE", err)
 	}
+
+	config.maintenanceModeEnabled = s.index.Config.MaintenanceModeEnabled
 
 	return
 }
@@ -652,8 +655,17 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 					config.targetNodeOverrides = s.asyncReplicationConfig.targetNodeOverrides
 				}()
 
-				if !s.index.asyncReplicationEnabled() && len(config.targetNodeOverrides) == 0 {
+				if (!s.index.asyncReplicationEnabled() && len(config.targetNodeOverrides) == 0) ||
+					(config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled()) {
 					// skip hashbeat iteration when async replication is disabled and no target node overrides are set
+					// or maintenance mode is enabled for localhost
+					if config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled() {
+						s.index.logger.
+							WithField("action", "async_replication").
+							WithField("class_name", s.class.Class).
+							WithField("shard_name", s.name).
+							Info("skipping async replication in maintenance mode")
+					}
 					backoffTimer.Reset()
 					lastHashbeatMux.Lock()
 					lastHashbeat = time.Now()
