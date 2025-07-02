@@ -626,15 +626,15 @@ func (m *Permission) UnmarshalBinary(b []byte) error {
 	return nil
 }
 
-// PermissionAliases resources applicable for aliases actions
+// PermissionAliases Resource definition for alias-related actions and permissions. Used to specify which aliases and collections can be accessed or modified.
 //
 // swagger:model PermissionAliases
 type PermissionAliases struct {
 
-	// string or regex. if a specific alias name, if left empty it will be ALL or *
+	// A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value `*` applies the permission to all aliases.
 	Alias *string `json:"alias,omitempty"`
 
-	// string or regex. if a specific collection name, if left empty it will be ALL or *
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections.
 	Collection *string `json:"collection,omitempty"`
 }
 

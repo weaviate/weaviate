@@ -23,15 +23,15 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// Alias represents a class (collection) and alias name mapping
+// Alias Represents the mapping between an alias name and a collection. An alias provides an alternative name for accessing a collection.
 //
 // swagger:model Alias
 type Alias struct {
 
-	// The name of the alias.
+	// The unique name of the alias that serves as an alternative identifier for the collection.
 	Alias string `json:"alias,omitempty"`
 
-	// class (collection) to which alias is assigned.
+	// The name of the collection (class) to which this alias is mapped.
 	Class string `json:"class,omitempty"`
 }
 

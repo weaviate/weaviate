@@ -28,7 +28,7 @@ import (
 const AliasesGetAliasOKCode int = 200
 
 /*
-AliasesGetAliasOK list of class's (collection's) aliases
+AliasesGetAliasOK Successfully retrieved the alias details.
 
 swagger:response aliasesGetAliasOK
 */
@@ -143,7 +143,7 @@ func (o *AliasesGetAliasForbidden) WriteResponse(rw http.ResponseWriter, produce
 const AliasesGetAliasUnprocessableEntityCode int = 422
 
 /*
-AliasesGetAliasUnprocessableEntity Invalid class
+AliasesGetAliasUnprocessableEntity Invalid alias name provided.
 
 swagger:response aliasesGetAliasUnprocessableEntity
 */

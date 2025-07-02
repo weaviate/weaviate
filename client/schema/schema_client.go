@@ -85,7 +85,7 @@ type ClientService interface {
 /*
 AliasesCreate creates a new alias
 
-Create a new alias for a collection
+Create a new alias mapping between an alias name and a collection (class). The alias acts as an alternative name for accessing the collection.
 */
 func (a *Client) AliasesCreate(params *AliasesCreateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesCreateOK, error) {
 	// TODO: Validate the params before sending
@@ -124,7 +124,9 @@ func (a *Client) AliasesCreate(params *AliasesCreateParams, authInfo runtime.Cli
 }
 
 /*
-AliasesDelete delete alias from a specific class (collection).
+AliasesDelete deletes an alias
+
+Remove an existing alias from the system. This will delete the alias mapping but will not affect the underlying collection (class).
 */
 func (a *Client) AliasesDelete(params *AliasesDeleteParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesDeleteOK, error) {
 	// TODO: Validate the params before sending
@@ -163,9 +165,9 @@ func (a *Client) AliasesDelete(params *AliasesDeleteParams, authInfo runtime.Cli
 }
 
 /*
-AliasesGet gets aliases
+AliasesGet lists aliases
 
-get all aliases or filtered by a class (collection)
+Retrieve a list of all aliases in the system. Results can be filtered by specifying a collection (class) name to get aliases for a specific collection only.
 */
 func (a *Client) AliasesGet(params *AliasesGetParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesGetOK, error) {
 	// TODO: Validate the params before sending
@@ -204,9 +206,9 @@ func (a *Client) AliasesGet(params *AliasesGetParams, authInfo runtime.ClientAut
 }
 
 /*
-AliasesGetAlias gets aliases
+AliasesGetAlias gets an alias
 
-get all aliases or filtered by a class (collection)
+Retrieve details about a specific alias by its name, including which collection (class) it points to.
 */
 func (a *Client) AliasesGetAlias(params *AliasesGetAliasParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesGetAliasOK, error) {
 	// TODO: Validate the params before sending
@@ -247,7 +249,7 @@ func (a *Client) AliasesGetAlias(params *AliasesGetAliasParams, authInfo runtime
 /*
 AliasesUpdate updates an alias
 
-Replace alias of a specific class (collection) to other class
+Update an existing alias to point to a different collection (class). This allows you to redirect an alias from one collection to another without changing the alias name.
 */
 func (a *Client) AliasesUpdate(params *AliasesUpdateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*AliasesUpdateOK, error) {
 	// TODO: Validate the params before sending

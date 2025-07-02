@@ -152,23 +152,23 @@ func init() {
     },
     "/aliases": {
       "get": {
-        "description": "get all aliases or filtered by a class (collection)",
+        "description": "Retrieve a list of all aliases in the system. Results can be filtered by specifying a collection (class) name to get aliases for a specific collection only.",
         "tags": [
           "schema"
         ],
-        "summary": "Get aliases",
+        "summary": "List aliases",
         "operationId": "aliases.get",
         "parameters": [
           {
             "type": "string",
-            "description": "class (collection) to which alias is assigned.",
+            "description": "Optional filter to retrieve aliases for a specific collection (class) only. If not provided, returns all aliases.",
             "name": "class",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "list of class's (collection's) aliases",
+            "description": "Successfully retrieved the list of aliases",
             "schema": {
               "$ref": "#/definitions/AliasResponse"
             }
@@ -183,7 +183,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid class",
+            "description": "Invalid collection (class) parameter provided",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -197,7 +197,7 @@ func init() {
         }
       },
       "post": {
-        "description": "Create a new alias for a collection",
+        "description": "Create a new alias mapping between an alias name and a collection (class). The alias acts as an alternative name for accessing the collection.",
         "tags": [
           "schema"
         ],
@@ -215,7 +215,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added new alias to the specified class (collection).",
+            "description": "Successfully created a new alias for the specified collection (class)",
             "schema": {
               "$ref": "#/definitions/Alias"
             }
@@ -230,7 +230,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid create alias request",
+            "description": "Invalid create alias request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -246,11 +246,11 @@ func init() {
     },
     "/aliases/{aliasName}": {
       "get": {
-        "description": "get all aliases or filtered by a class (collection)",
+        "description": "Retrieve details about a specific alias by its name, including which collection (class) it points to.",
         "tags": [
           "schema"
         ],
-        "summary": "Get aliases",
+        "summary": "Get an alias",
         "operationId": "aliases.get.alias",
         "parameters": [
           {
@@ -262,7 +262,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "list of class's (collection's) aliases",
+            "description": "Successfully retrieved the alias details.",
             "schema": {
               "$ref": "#/definitions/AliasResponse"
             }
@@ -277,7 +277,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid class",
+            "description": "Invalid alias name provided.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -291,11 +291,11 @@ func init() {
         }
       },
       "put": {
-        "description": "Replace alias of a specific class (collection) to other class",
+        "description": "Update an existing alias to point to a different collection (class). This allows you to redirect an alias from one collection to another without changing the alias name.",
         "tags": [
           "schema"
         ],
-        "summary": "Update an alias.",
+        "summary": "Update an alias",
         "operationId": "aliases.update",
         "parameters": [
           {
@@ -312,7 +312,7 @@ func init() {
               "type": "object",
               "properties": {
                 "class": {
-                  "description": "new class (collection).",
+                  "description": "The new collection (class) that the alias should point to.",
                   "type": "string"
                 }
               }
@@ -321,7 +321,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "New alias to the target class (collection).",
+            "description": "Successfully updated the alias to point to the new collection (class).",
             "schema": {
               "$ref": "#/definitions/Alias"
             }
@@ -342,7 +342,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid update alias request",
+            "description": "Invalid update alias request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -356,10 +356,11 @@ func init() {
         }
       },
       "delete": {
-        "description": "delete alias from a specific class (collection).",
+        "description": "Remove an existing alias from the system. This will delete the alias mapping but will not affect the underlying collection (class).",
         "tags": [
           "schema"
         ],
+        "summary": "Delete an alias",
         "operationId": "aliases.delete",
         "parameters": [
           {
@@ -371,7 +372,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Deleted alias from specified class (collection)."
+            "description": "Successfully deleted the alias."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -383,7 +384,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid delete alias request",
+            "description": "Invalid delete alias request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5508,24 +5509,25 @@ func init() {
       }
     },
     "Alias": {
-      "description": "represents a class (collection) and alias name mapping",
+      "description": "Represents the mapping between an alias name and a collection. An alias provides an alternative name for accessing a collection.",
       "type": "object",
       "properties": {
         "alias": {
-          "description": "The name of the alias.",
+          "description": "The unique name of the alias that serves as an alternative identifier for the collection.",
           "type": "string"
         },
         "class": {
-          "description": "class (collection) to which alias is assigned.",
+          "description": "The name of the collection (class) to which this alias is mapped.",
           "type": "string"
         }
       }
     },
     "AliasResponse": {
-      "description": "The list of aliases",
+      "description": "Response object containing a list of alias mappings.",
       "type": "object",
       "properties": {
         "aliases": {
+          "description": "Array of alias objects, each containing an alias-to-collection mapping.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/Alias"
@@ -7226,16 +7228,16 @@ func init() {
           ]
         },
         "aliases": {
-          "description": "resources applicable for aliases actions",
+          "description": "Resource definition for alias-related actions and permissions. Used to specify which aliases and collections can be accessed or modified.",
           "type": "object",
           "properties": {
             "alias": {
-              "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
               "type": "string",
               "default": "*"
             },
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             }
@@ -8744,23 +8746,23 @@ func init() {
     },
     "/aliases": {
       "get": {
-        "description": "get all aliases or filtered by a class (collection)",
+        "description": "Retrieve a list of all aliases in the system. Results can be filtered by specifying a collection (class) name to get aliases for a specific collection only.",
         "tags": [
           "schema"
         ],
-        "summary": "Get aliases",
+        "summary": "List aliases",
         "operationId": "aliases.get",
         "parameters": [
           {
             "type": "string",
-            "description": "class (collection) to which alias is assigned.",
+            "description": "Optional filter to retrieve aliases for a specific collection (class) only. If not provided, returns all aliases.",
             "name": "class",
             "in": "query"
           }
         ],
         "responses": {
           "200": {
-            "description": "list of class's (collection's) aliases",
+            "description": "Successfully retrieved the list of aliases",
             "schema": {
               "$ref": "#/definitions/AliasResponse"
             }
@@ -8775,7 +8777,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid class",
+            "description": "Invalid collection (class) parameter provided",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8789,7 +8791,7 @@ func init() {
         }
       },
       "post": {
-        "description": "Create a new alias for a collection",
+        "description": "Create a new alias mapping between an alias name and a collection (class). The alias acts as an alternative name for accessing the collection.",
         "tags": [
           "schema"
         ],
@@ -8807,7 +8809,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Added new alias to the specified class (collection).",
+            "description": "Successfully created a new alias for the specified collection (class)",
             "schema": {
               "$ref": "#/definitions/Alias"
             }
@@ -8822,7 +8824,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid create alias request",
+            "description": "Invalid create alias request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8838,11 +8840,11 @@ func init() {
     },
     "/aliases/{aliasName}": {
       "get": {
-        "description": "get all aliases or filtered by a class (collection)",
+        "description": "Retrieve details about a specific alias by its name, including which collection (class) it points to.",
         "tags": [
           "schema"
         ],
-        "summary": "Get aliases",
+        "summary": "Get an alias",
         "operationId": "aliases.get.alias",
         "parameters": [
           {
@@ -8854,7 +8856,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "list of class's (collection's) aliases",
+            "description": "Successfully retrieved the alias details.",
             "schema": {
               "$ref": "#/definitions/AliasResponse"
             }
@@ -8869,7 +8871,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid class",
+            "description": "Invalid alias name provided.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8883,11 +8885,11 @@ func init() {
         }
       },
       "put": {
-        "description": "Replace alias of a specific class (collection) to other class",
+        "description": "Update an existing alias to point to a different collection (class). This allows you to redirect an alias from one collection to another without changing the alias name.",
         "tags": [
           "schema"
         ],
-        "summary": "Update an alias.",
+        "summary": "Update an alias",
         "operationId": "aliases.update",
         "parameters": [
           {
@@ -8904,7 +8906,7 @@ func init() {
               "type": "object",
               "properties": {
                 "class": {
-                  "description": "new class (collection).",
+                  "description": "The new collection (class) that the alias should point to.",
                   "type": "string"
                 }
               }
@@ -8913,7 +8915,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "New alias to the target class (collection).",
+            "description": "Successfully updated the alias to point to the new collection (class).",
             "schema": {
               "$ref": "#/definitions/Alias"
             }
@@ -8934,7 +8936,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid update alias request",
+            "description": "Invalid update alias request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8948,10 +8950,11 @@ func init() {
         }
       },
       "delete": {
-        "description": "delete alias from a specific class (collection).",
+        "description": "Remove an existing alias from the system. This will delete the alias mapping but will not affect the underlying collection (class).",
         "tags": [
           "schema"
         ],
+        "summary": "Delete an alias",
         "operationId": "aliases.delete",
         "parameters": [
           {
@@ -8963,7 +8966,7 @@ func init() {
         ],
         "responses": {
           "200": {
-            "description": "Deleted alias from specified class (collection)."
+            "description": "Successfully deleted the alias."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -8975,7 +8978,7 @@ func init() {
             }
           },
           "422": {
-            "description": "Invalid delete alias request",
+            "description": "Invalid delete alias request.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -14210,24 +14213,25 @@ func init() {
       }
     },
     "Alias": {
-      "description": "represents a class (collection) and alias name mapping",
+      "description": "Represents the mapping between an alias name and a collection. An alias provides an alternative name for accessing a collection.",
       "type": "object",
       "properties": {
         "alias": {
-          "description": "The name of the alias.",
+          "description": "The unique name of the alias that serves as an alternative identifier for the collection.",
           "type": "string"
         },
         "class": {
-          "description": "class (collection) to which alias is assigned.",
+          "description": "The name of the collection (class) to which this alias is mapped.",
           "type": "string"
         }
       }
     },
     "AliasResponse": {
-      "description": "The list of aliases",
+      "description": "Response object containing a list of alias mappings.",
       "type": "object",
       "properties": {
         "aliases": {
+          "description": "Array of alias objects, each containing an alias-to-collection mapping.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/Alias"
@@ -16121,16 +16125,16 @@ func init() {
           ]
         },
         "aliases": {
-          "description": "resources applicable for aliases actions",
+          "description": "Resource definition for alias-related actions and permissions. Used to specify which aliases and collections can be accessed or modified.",
           "type": "object",
           "properties": {
             "alias": {
-              "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+              "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
               "type": "string",
               "default": "*"
             },
             "collection": {
-              "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+              "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
               "type": "string",
               "default": "*"
             }
@@ -16265,16 +16269,16 @@ func init() {
       }
     },
     "PermissionAliases": {
-      "description": "resources applicable for aliases actions",
+      "description": "Resource definition for alias-related actions and permissions. Used to specify which aliases and collections can be accessed or modified.",
       "type": "object",
       "properties": {
         "alias": {
-          "description": "string or regex. if a specific alias name, if left empty it will be ALL or *",
+          "description": "A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all aliases.",
           "type": "string",
           "default": "*"
         },
         "collection": {
-          "description": "string or regex. if a specific collection name, if left empty it will be ALL or *",
+          "description": "A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value ` + "`" + `*` + "`" + ` applies the permission to all collections.",
           "type": "string",
           "default": "*"
         }

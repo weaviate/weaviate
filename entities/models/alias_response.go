@@ -25,12 +25,12 @@ import (
 	"github.com/go-openapi/swag"
 )
 
-// AliasResponse The list of aliases
+// AliasResponse Response object containing a list of alias mappings.
 //
 // swagger:model AliasResponse
 type AliasResponse struct {
 
-	// aliases
+	// Array of alias objects, each containing an alias-to-collection mapping.
 	Aliases []*Alias `json:"aliases"`
 }
 

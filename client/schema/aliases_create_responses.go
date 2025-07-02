@@ -77,7 +77,7 @@ func NewAliasesCreateOK() *AliasesCreateOK {
 /*
 AliasesCreateOK describes a response with status code 200, with default header values.
 
-Added new alias to the specified class (collection).
+Successfully created a new alias for the specified collection (class)
 */
 type AliasesCreateOK struct {
 	Payload *models.Alias
@@ -269,7 +269,7 @@ func NewAliasesCreateUnprocessableEntity() *AliasesCreateUnprocessableEntity {
 /*
 AliasesCreateUnprocessableEntity describes a response with status code 422, with default header values.
 
-Invalid create alias request
+Invalid create alias request.
 */
 type AliasesCreateUnprocessableEntity struct {
 	Payload *models.ErrorResponse
