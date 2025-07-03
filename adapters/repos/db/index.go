@@ -2945,6 +2945,11 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 	i.shardCreateLocks.Lock(tenantName)
 	defer i.shardCreateLocks.Unlock(tenantName)
 
+	// check if created in the meantime by concurrent call
+	if shard := i.shards.Load(tenantName); shard != nil {
+		return int64(shard.ObjectCount()), shard.ObjectStorageSize(ctx)
+	}
+
 	// Locate the tenant on disk
 	shardPath := shardPathObjectsLSM(i.path(), tenantName)
 
