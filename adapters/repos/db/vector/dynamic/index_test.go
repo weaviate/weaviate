@@ -424,14 +424,18 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	assert.False(t, dynamic.Upgraded())
 	var wg sync.WaitGroup
 	wg.Add(1)
+
+	//flat -> hnsw
 	err = dynamic.Upgrade(func() {
-		wg.Done() //flat -> hnsw
+		wg.Done()
 	})
 	require.NoError(t, err)
 	wg.Wait()
 	wg.Add(1)
+
+	//PQ
 	err = dynamic.Upgrade(func() {
-		wg.Done() //PQ
+		wg.Done()
 	})
 	require.NoError(t, err)
 	wg.Wait()
