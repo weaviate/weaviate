@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,9 +24,10 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/usecases/memwatch"
+
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	bolt "go.etcd.io/bbolt"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -41,7 +42,7 @@ import (
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	flatent "github.com/weaviate/weaviate/entities/vectorindex/flat"
 	"github.com/weaviate/weaviate/usecases/floatcomp"
-	"github.com/weaviate/weaviate/usecases/memwatch"
+	bolt "go.etcd.io/bbolt"
 )
 
 const (
@@ -216,7 +217,6 @@ func (index *flat) initBuckets(ctx context.Context, minMMapSize int64, minWalThr
 	if err := index.store.CreateOrLoadBucket(ctx, index.getBucketName(),
 		lsmkv.WithForceCompaction(forceCompaction),
 		lsmkv.WithUseBloomFilter(false),
-		lsmkv.WithCalcCountNetAdditions(false),
 		lsmkv.WithMinMMapSize(minMMapSize),
 		lsmkv.WithMinWalThreshold(minWalThreshold),
 		lsmkv.WithAllocChecker(allocchecker),
@@ -238,7 +238,6 @@ func (index *flat) initBuckets(ctx context.Context, minMMapSize int64, minWalThr
 		if err := index.store.CreateOrLoadBucket(ctx, index.getCompressedBucketName(),
 			lsmkv.WithForceCompaction(forceCompaction),
 			lsmkv.WithUseBloomFilter(false),
-			lsmkv.WithCalcCountNetAdditions(false),
 			lsmkv.WithMinMMapSize(minMMapSize),
 			lsmkv.WithMinWalThreshold(minWalThreshold),
 			lsmkv.WithAllocChecker(allocchecker),
@@ -1050,16 +1049,6 @@ func (index *flat) QueryMultiVectorDistancer(queryVector [][]float32) common.Que
 
 func (index *flat) Stats() (common.IndexStats, error) {
 	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
-}
-
-func (index *flat) VectorStorageSize() int64 {
-	// TODO-usage: Implement this
-	return 0
-}
-
-func (index *flat) CompressionStats() (compressionhelpers.CompressionStats, error) {
-	// Flat index doesn't have detailed compression stats, return uncompressed stats
-	return compressionhelpers.UncompressedStats{}, nil
 }
 
 type FlatStats struct{}

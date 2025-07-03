@@ -42,7 +42,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-const composerUpgradedKey = "upgraded"
+const (
+	composerUpgradedKey = "upgraded"
+	flatPostfix         = "flat"
+)
 
 var dynamicBucket = []byte("dynamic")
 
@@ -139,10 +142,14 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		logger = l
 	}
 
+	targetVector := cfg.TargetVector
+	if len(targetVector) == 0 {
+		targetVector = flatPostfix
+	}
 	flatConfig := flat.Config{
 		ID:               cfg.ID,
 		RootPath:         cfg.RootPath,
-		TargetVector:     cfg.TargetVector,
+		TargetVector:     targetVector,
 		Logger:           cfg.Logger,
 		DistanceProvider: cfg.DistanceProvider,
 		MinMMapSize:      cfg.MinMMapSize,
@@ -260,7 +267,7 @@ func (dynamic *dynamic) getBucketName() string {
 		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, dynamic.targetVector)
 	}
 
-	return helpers.VectorsBucketLSM
+	return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, flatPostfix)
 }
 
 func (dynamic *dynamic) Compressed() bool {

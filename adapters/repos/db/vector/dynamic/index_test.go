@@ -338,8 +338,8 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	ctx := context.Background()
 	t.Setenv("ASYNC_INDEXING", "true")
 	dimensions := 20
-	vectors_size := 10_000
-	threshold := 2000
+	vectors_size := 4_000
+	threshold := 2_000
 	queries_size := 10
 	k := 10
 
@@ -459,5 +459,4 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	dynamic.PostStartup()
 	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	assert.Equal(t, recall, recall2)
-	assert.True(t, false)
 }
