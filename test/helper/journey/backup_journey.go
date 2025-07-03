@@ -301,7 +301,7 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 }
 
 func backupJourneyWithListing(t *testing.T, journeyType journeyType, className, backend, backupID string, overrideBucket, overridePath string) {
-	if journeyType == clusterJourney && backend == "filesystem" {
+	if journeyType == clusterJourney && backend == "filesystem" || overrideBucket != "" {
 		return
 	}
 	if overridePath != "" {

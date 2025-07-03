@@ -327,10 +327,9 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 
 	response := make(models.BackupListResponse, len(backups))
 	for i, b := range backups {
-		status := string(b.Status)
 		response[i] = &models.BackupListResponseItems0{
 			ID:      b.ID,
-			Status:  status,
+			Status:  string(b.Status),
 			Classes: b.Classes(),
 		}
 	}
