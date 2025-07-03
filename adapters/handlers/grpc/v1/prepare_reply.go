@@ -70,6 +70,7 @@ func NewReplier(
 	}
 }
 
+// Search converts the given res (results) into the returned SearchReply.
 func (r *Replier) Search(res []interface{}, start time.Time, searchParams dto.GetParams, scheme schema.Schema) (*pb.SearchReply, error) {
 	tookSeconds := float64(time.Since(start)) / float64(time.Second)
 	out := &pb.SearchReply{
