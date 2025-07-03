@@ -1,14 +1,13 @@
-//	_       _
-//
+//                           _       _
 // __      _____  __ ___   ___  __ _| |_ ___
+// \ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
+//  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
+//   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//	\ \ /\ / / _ \/ _` \ \ / / |/ _` | __/ _ \
-//	 \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
-//	  \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
-//	 Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
+//  CONTACT: hello@weaviate.io
 //
-//	 CONTACT: hello@weaviate.io
 
 package replication
 
@@ -31,8 +30,12 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestReplicationReplicateWhileMutatingData(t *testing.T) {
-	helper.SetupClient("localhost:8080")
+func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
+	t := suite.T()
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
+
+	// func TestReplicationReplicateWhileMutatingData(t *testing.T) {
+	// 	helper.SetupClient("localhost:8080")
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -209,12 +212,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 					nil,
 				)
 				if err != nil {
-					parsed, ok := err.(*objects.ObjectsClassPutInternalServerError)
-					if ok {
-						t.Logf("Internal Server error Error updating object %s for tenant %s: %v", obj.ID, tenantName, parsed.Payload.Error[0].Message)
-					} else {
-						t.Logf("Error updating object %s for tenant %s: %v", obj.ID, tenantName, err)
-					}
+					t.Logf("Error updating object %s for tenant %s: %v", obj.ID, tenantName, err)
 				}
 			}
 
