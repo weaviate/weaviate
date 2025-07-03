@@ -3008,8 +3008,9 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 
 // useReplicator returns true if we should use the replicator to read/write to this shard
 func (i *Index) useReplicator(shard string) bool {
-	if i.replicationFSM == nil {
-		return false
+	hasOngoingReplication := false
+	if i.replicationFSM != nil {
+		hasOngoingReplication = i.replicationFSM.HasOngoingReplication(i.Config.ClassName.String(), shard, i.replicator.LocalNodeName())
 	}
-	return i.replicationEnabled() || i.replicationFSM.HasOngoingReplication(i.Config.ClassName.String(), shard, i.replicator.LocalNodeName())
+	return i.replicationEnabled() || hasOngoingReplication
 }
