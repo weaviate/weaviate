@@ -438,7 +438,17 @@ func (dynamic *dynamic) ValidateMultiBeforeInsert(vector [][]float32) error {
 func (dynamic *dynamic) PostStartup() {
 	dynamic.Lock()
 	defer dynamic.Unlock()
+	dynamic.upgradeBucket()
 	dynamic.index.PostStartup()
+}
+
+func (dynamic *dynamic) upgradeBucket() {
+	if len(dynamic.targetVector) == 0 {
+		bucket := dynamic.store.Bucket(dynamic.getBucketName())
+		if bucket == nil {
+			dynamic.store.RenameBucket(context.Background(), helpers.VectorsBucketLSM, dynamic.getBucketName())
+		}
+	}
 }
 
 func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {
