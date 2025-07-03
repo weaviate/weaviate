@@ -612,8 +612,10 @@ func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
 	defer dynamic.RUnlock()
 
 	// Delegate to the underlying index (flat or hnsw)
-	if vectorIndex, ok := dynamic.index.(compressionhelpers.CompressionStats); ok {
-		return vectorIndex
+	if vectorIndex, ok := dynamic.index.(interface {
+		CompressionStats() compressionhelpers.CompressionStats
+	}); ok {
+		return vectorIndex.CompressionStats()
 	}
 
 	// Fallback: return uncompressed stats if the underlying index doesn't support CompressionStats

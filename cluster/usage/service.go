@@ -15,6 +15,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	backupent "github.com/weaviate/weaviate/entities/backup"
@@ -33,17 +35,21 @@ type service struct {
 	schemaManager schema.SchemaGetter
 	db            db.IndexGetter
 	backups       backup.BackupBackendProvider
+	logger        logrus.FieldLogger
 }
 
-func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups backup.BackupBackendProvider) Service {
+func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups backup.BackupBackendProvider, logger logrus.FieldLogger) Service {
 	return &service{
 		schemaManager: schemaManager,
 		db:            db,
 		backups:       backups,
+		logger:        logger,
 	}
 }
 
-func (m *service) Usage(ctx context.Context) (*types.Report, error) {
+// Usage service collects usage metrics for the node and shall return error in case of any error
+// to avoid reporting partial data
+func (m *service) Usage(ctx context.Context) (*Report, error) {
 	collections := m.schemaManager.GetSchemaSkipAuth().Objects.Classes
 	usage := &types.Report{
 		Node:        m.schemaManager.NodeName(),
@@ -133,10 +139,10 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 						indexType = vectorIndexConfig.IndexType()
 					}
 
-					dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
-					if err != nil {
-						return err
-					}
+					count, dimensions := shard.DimensionsUsage(ctx, targetVector)
+
+					// Get compression ratio from vector index stats
+					compressionRatio := vectorIndex.CompressionStats().CompressionRatio(dimensions)
 
 					vectorUsage := &types.VectorUsage{
 						Name:                   targetVector,
@@ -171,6 +177,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 	for _, backend := range m.backups.EnabledBackupBackends() {
 		backups, err := backend.AllBackups(ctx)
 		if err != nil {
+			m.logger.WithError(err).WithFields(logrus.Fields{"backend": backend}).Error("failed to get backups from backend")
 			return nil, err
 		}
 
@@ -178,7 +185,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 			if backup.Status != backupent.Success {
 				continue
 			}
-			usage.Backups = append(usage.Backups, &types.BackupUsage{
+			usage.Backups = append(usage.Backups, &BackupUsage{
 				ID:             backup.ID,
 				CompletionTime: backup.CompletedAt.Format(time.RFC3339),
 				SizeInGib:      float64(backup.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB
