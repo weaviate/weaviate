@@ -356,7 +356,9 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	for shardName := range existingShards {
 		if !slices.Contains(requestedShards, shardName) {
 			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
-				return fmt.Errorf("failed to unload shard %s during update index: %w", shardName, err)
+				// TODO: an error should be returned but keeping the old behavior for now
+				m.logger.WithField("shard", shardName).Error("shutdown shard during update index: %w", err)
+				continue
 			}
 		}
 	}
