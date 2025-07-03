@@ -41,6 +41,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
@@ -228,6 +229,8 @@ type Index struct {
 	closed    bool
 
 	shardReindexer ShardReindexerV3
+
+	replicationFSM replicationTypes.ReplicationFSMReader
 }
 
 func (i *Index) ID() string {
@@ -762,7 +765,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		}
 	}
 
-	if i.replicationEnabled() {
+	if i.useReplicator(shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
@@ -772,8 +775,6 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		}
 		return nil
 	}
-
-	// TODO how to support "additional host writes" with RF 1 during shard replica movement?
 
 	// no replication, remote shard (or local not yet inited)
 	shard, release, err := i.GetShard(ctx, shardName)
@@ -932,9 +933,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 		pos     []int
 	}
 	out := make([]error, len(objects))
-	// TODO this check causes problems because i think we'll write only write locally (no best effort)
-	// when rf=1, address in best effort pr
-	if i.replicationEnabled() && replProps == nil {
+	if replProps == nil {
 		replProps = defaultConsistency()
 	}
 
@@ -994,7 +993,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				}
 			}()
 			var errs []error
-			if replProps != nil {
+			if i.useReplicator(shardName) {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
@@ -1070,7 +1069,7 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		refs objects.BatchReferences
 		pos  []int
 	}
-	if i.replicationEnabled() && replProps == nil {
+	if replProps == nil {
 		replProps = defaultConsistency()
 	}
 
@@ -1096,7 +1095,7 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 
 	for shardName, group := range byShard {
 		var errs []error
-		if i.replicationEnabled() {
+		if i.useReplicator(shardName) {
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs, types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else {
 			shard, release, err := i.GetShard(ctx, shardName)
@@ -1159,7 +1158,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	var obj *storobj.Object
 
-	if i.replicationEnabled() {
+	if i.useReplicator(shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
@@ -1261,6 +1260,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		var objects []*storobj.Object
 		var err error
 
+		// TODO why doesn't this have a replicator branch?
 		shard, release, err := i.GetShard(ctx, shardName)
 		if err != nil {
 			return nil, err
@@ -1326,7 +1326,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 	}
 
 	var exists bool
-	if i.replicationEnabled() {
+	if i.useReplicator(shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
@@ -1480,6 +1480,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
+	// TODO should we add a replicator branch here or is it fine to just use replicationEnabled? May need to add a new function which checks for ongoing replication for collection (using existing collection op map)
 	if i.replicationEnabled() {
 		if replProps == nil {
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
@@ -1535,13 +1536,14 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
-					sort, cursor, nil, addlProps, i.replicationEnabled(), nil, properties)
+					sort, cursor, nil, addlProps, nil, properties)
 				if err != nil {
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err)
 				}
 			}
 
+			// TODO same here?
 			if i.replicationEnabled() {
 				storobj.AddOwnership(objs, nodeName, shardName)
 			}
@@ -1685,6 +1687,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
+	// TODO same here?
 	// Append result to out
 	if i.replicationEnabled() {
 		storobj.AddOwnership(localShardResult, i.getSchema.NodeName(), shardName)
@@ -1712,13 +1715,14 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		// Force a search on all the replicas for the shard
 		remoteSearchResults, err := i.remote.SearchAllReplicas(ctx,
 			i.logger, shardName, searchVectors, targetVectors, distance, limit, localFilters,
-			nil, sort, nil, groupBy, additional, i.replicationEnabled(), i.getSchema.NodeName(), targetCombination, properties)
+			nil, sort, nil, groupBy, additional, i.getSchema.NodeName(), targetCombination, properties)
 		// Only return an error if we failed to query remote shards AND we had no local shard to query
 		if err != nil && shard == nil {
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 		}
 		// Append the result of the search to the outgoing result
 		for _, remoteShardResult := range remoteSearchResults {
+			// TODO same here?
 			if i.replicationEnabled() {
 				storobj.AddOwnership(remoteShardResult.Objects, remoteShardResult.Node, shardName)
 			}
@@ -1729,11 +1733,12 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		// Search only what is necessary
 		remoteResult, remoteDists, nodeName, err := i.remote.SearchShard(ctx,
 			shardName, searchVectors, targetVectors, distance, limit, localFilters,
-			nil, sort, nil, groupBy, additional, i.replicationEnabled(), targetCombination, properties)
+			nil, sort, nil, groupBy, additional, targetCombination, properties)
 		if err != nil {
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 		}
 
+		// TODO same here?
 		if i.replicationEnabled() {
 			storobj.AddOwnership(remoteResult, nodeName, shardName)
 		}
@@ -1799,7 +1804,8 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
-		if shard != nil {
+		// TODO is this right? add comment explaining
+		if shard != nil && !i.replicationFSM.HasOngoingReplication(i.Config.ClassName.String(), shardName, i.replicator.LocalNodeName()) {
 			localSearches++
 			eg.Go(func() error {
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
@@ -1820,6 +1826,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard == nil || i.Config.ForceFullReplicasSearch {
 			remoteSearches++
 			eg.Go(func() error {
+				// TODO can this run on a local shard if it exists locally but we run this remote search?
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
@@ -1872,6 +1879,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		dists = dists[:limit]
 	}
 
+	// TODO same here?
 	if i.replicationEnabled() {
 		if replProps == nil {
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
@@ -1902,6 +1910,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
+	// TODO same here?
 	// Hacky fix here
 	// shard.GetStatus() will force a lazy shard to load and we have usecases that rely on that behaviour that a search
 	// will force a lazy loaded shard to load
@@ -1955,7 +1964,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		}
 	}
 
-	if i.replicationEnabled() {
+	if i.useReplicator(shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
@@ -2136,7 +2145,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		}
 	}
 
-	if i.replicationEnabled() {
+	if i.useReplicator(shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
@@ -2203,6 +2212,7 @@ func (i *Index) aggregate(ctx context.Context,
 		var err error
 		var res *aggregation.Result
 
+		// TODO why doesn't this have a replicator branch?
 		var shard ShardLike
 		var release func()
 		shard, release, err = i.GetShard(ctx, shardName)
@@ -2456,6 +2466,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 		var shard ShardLike
 		var release func()
 
+		// TODO why doesn't this have a replicator branch?
 		shard, release, err = i.GetShard(ctx, shardName)
 		if err == nil {
 			if shard != nil {
@@ -2519,6 +2530,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 		var shard ShardLike
 		var release func()
 
+		// TODO why doesn't this have a replicator branch?
 		shard, release, err = i.GetShard(ctx, shardName)
 		if err == nil {
 			if shard != nil {
@@ -2555,6 +2567,7 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 }
 
 func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
+	// TODO why doesn't this have a replicator branch?
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return err
@@ -2599,7 +2612,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 		var release func()
 		var err error
 
-		if i.replicationEnabled() {
+		if i.useReplicator(shardName) {
 			if repl == nil {
 				repl = defaultConsistency()
 			}
@@ -2653,7 +2666,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 		objs objects.BatchSimpleObjects
 	}
 
-	if i.replicationEnabled() && replProps == nil {
+	if replProps == nil {
 		replProps = defaultConsistency()
 	}
 
@@ -2667,7 +2680,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 			defer wg.Done()
 
 			var objs objects.BatchSimpleObjects
-			if i.replicationEnabled() {
+			if i.useReplicator(shardName) {
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
 					dryRun, types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
@@ -2991,4 +3004,12 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 
 	// If we can't determine object count, return the disk size as fallback
 	return totalObjectCount, totalDiskSize
+}
+
+// useReplicator returns true if we should use the replicator to read/write to this shard
+func (i *Index) useReplicator(shard string) bool {
+	if i.replicationFSM == nil {
+		return false
+	}
+	return i.replicationEnabled() || i.replicationFSM.HasOngoingReplication(i.Config.ClassName.String(), shard, i.replicator.LocalNodeName())
 }
