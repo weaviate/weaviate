@@ -12,8 +12,6 @@
 package api
 
 import (
-	"time"
-
 	"github.com/go-openapi/strfmt"
 )
 
@@ -75,9 +73,9 @@ type ReplicationUpdateOpStateResponse struct{}
 type ReplicationRegisterErrorRequest struct {
 	Version int
 
-	Id    uint64
-	Error string
-	Time  time.Time
+	Id         uint64
+	Error      string
+	TimeUnixMs int64
 }
 
 type ReplicationRegisterErrorResponse struct{}

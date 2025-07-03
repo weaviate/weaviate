@@ -548,7 +548,7 @@ func TestManager_UpdateReplicaOpStatusAndRegisterErrors(t *testing.T) {
 						assert.ErrorAs(t, err, &expectedErr)
 					} else {
 						assert.NoError(t, err)
-						expectedFinalState.AddError(errReq.Error, time.Now())
+						expectedFinalState.AddError(errReq.Error, time.Now().UnixMilli())
 					}
 				}
 			}
