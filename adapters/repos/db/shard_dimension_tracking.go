@@ -56,14 +56,14 @@ func (c DimensionCategory) String() string {
 	}
 }
 
-// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (int, int) {
-	return s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v int) (int, int) {
+// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector type
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVectorType string) (int, int) {
+	return s.calcTargetVectorDimensions(ctx, targetVectorType, func(dimLength int, v int) (int, int) {
 		return dimLength * v, dimLength
 	})
 }
 
-// Dimensions returns the total number of dimensions for a given vector
+// Dimensions returns the total number of dimensions for a given vector type
 func (s *Shard) Dimensions(ctx context.Context, targetVectorType string) int {
 	sum, _ := s.calcTargetVectorDimensions(ctx, targetVectorType, func(dimLength int, v int) (int, int) {
 		return dimLength * v, dimLength
@@ -71,9 +71,9 @@ func (s *Shard) Dimensions(ctx context.Context, targetVectorType string) int {
 	return sum
 }
 
-func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
-	sum, dimensions := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v int) (int, int) {
-		return dimLength * v, dimLength
+func (s *Shard) QuantizedDimensions(ctx context.Context, targetVectorType string, segments int) int {
+	sum, dimensions := s.calcTargetVectorDimensions(ctx, targetVectorType, func(dimLength int, v int) (int, int) {
+		return v, dimLength
 	})
 
 	return sum * correctEmptySegments(segments, dimensions)
@@ -81,9 +81,9 @@ func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, se
 
 
 
-func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v int) (int, int)) (sum int, dimensions int) {
-	if targetVector == "" {
-		targetVector = "NN"
+func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVectorType string, calcEntry func(dimLen int, v int) (int, int)) (sum int, dimensions int) {
+	if targetVectorType == "" {
+		targetVectorType = "NN"
 	}
 	b := s.store.Bucket(helpers.DimensionsBucketLSM)
 	if b == nil {
@@ -97,7 +97,7 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 		bm := v
 
 		quant, dimLength := retrieveDimensionsKey(k)
-		if quant != targetVector {
+		if quant != targetVectorType {
 			continue
 		}
 		count_arr := bm.ToArray()

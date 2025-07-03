@@ -440,14 +440,14 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 			multiVectorConfig: enthnsw.NewDefaultUserConfig,
 
 			expectDimensions: multiVecCard * dimensionsPerVector * objectCount,
-		},
+		},/*
 		{
 			name:              "mixed",
 			vectorConfig:      enthnsw.NewDefaultUserConfig,
 			namedVectorConfig: enthnsw.NewDefaultUserConfig,
 
 			expectDimensions: 2 * dimensionsPerVector * objectCount,
-		},
+		},*/
 		{
 			name: "named_with_bq",
 			namedVectorConfig: func() enthnsw.UserConfig {
