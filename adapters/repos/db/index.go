@@ -2916,17 +2916,19 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName,
 	shardPath := shardPathDimensionsLSM(i.path(), shardName)
 
 	// Create a temporary store to access the dimensions bucket
-	var promMetrics *monitoring.PrometheusMetrics
+	promMetrics := monitoring.GetMetrics()
 	if i.metrics != nil && i.metrics.baseMetrics != nil {
 		promMetrics = i.metrics.baseMetrics
-	} else {
-		// Use global metrics as fallback
-		promMetrics = monitoring.GetMetrics()
 	}
 
 	lsmkvMetrics := lsmkv.NewMetrics(promMetrics, i.Config.ClassName.String(), shardName)
-	store, err := lsmkv.New(shardPath, i.path(), i.logger, lsmkvMetrics,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(shardPath,
+		i.path(),
+		i.logger,
+		lsmkvMetrics,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		// If we can't create the store, return 0 dimensions and count
 		return 0, 0
@@ -3005,17 +3007,19 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 	shardPath := shardPathDimensionsLSM(i.path(), tenantName)
 
 	// Create a temporary store to access the dimensions bucket
-	var promMetrics *monitoring.PrometheusMetrics
+	promMetrics := monitoring.GetMetrics()
 	if i.metrics != nil && i.metrics.baseMetrics != nil {
 		promMetrics = i.metrics.baseMetrics
-	} else {
-		// Use global metrics as fallback
-		promMetrics = monitoring.GetMetrics()
 	}
 
 	lsmkvMetrics := lsmkv.NewMetrics(promMetrics, i.Config.ClassName.String(), tenantName)
-	store, err := lsmkv.New(shardPath, i.path(), i.logger, lsmkvMetrics,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
+	store, err := lsmkv.New(shardPath,
+		i.path(),
+		i.logger,
+		lsmkvMetrics,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
 	if err != nil {
 		return 0
 	}
