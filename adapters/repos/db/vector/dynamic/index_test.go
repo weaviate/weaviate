@@ -359,13 +359,12 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 		truths[i], _ = testinghelpers.BruteForce(logger, vectors, queries[i], k, testinghelpers.DistanceWrapper(distancer))
 	})
 	noopCallback := cyclemanager.NewCallbackGroupNoop()
-	fuc := flatent.UserConfig{
-		BQ: flatent.CompressionUserConfig{
-			Enabled: true,
-			Cache:   true,
-		},
-	}
+	fuc := flatent.UserConfig{}
 	fuc.SetDefaults()
+	fuc.BQ = flatent.CompressionUserConfig{
+		Enabled: true,
+		Cache:   true,
+	}
 	hnswuc := hnswent.UserConfig{
 		MaxConnections:        30,
 		EFConstruction:        64,
@@ -385,7 +384,7 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	}
 
 	config := Config{
-		TargetVector: "target_0",
+		TargetVector: "",
 		RootPath:     rootPath,
 		ID:           "vector-test_0",
 		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
