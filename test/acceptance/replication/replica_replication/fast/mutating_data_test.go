@@ -44,7 +44,8 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 		AutoTenantCreation:   true,
 	}
 	cls.ReplicationConfig = &models.ReplicationConfig{
-		Factor: int64(2),
+		Factor:           int64(2),
+		DeletionStrategy: "DeleteOnConflict",
 	}
 
 	// Create the class
