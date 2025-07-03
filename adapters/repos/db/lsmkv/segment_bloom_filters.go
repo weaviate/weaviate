@@ -61,6 +61,7 @@ func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOn
 	s.bloomFilterMetrics = newBloomFilterMetrics(metrics)
 
 	path := s.metadataPath()
+	s.metaPaths = append(s.metaPaths, path)
 
 	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
 	if err != nil {
