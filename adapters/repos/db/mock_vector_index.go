@@ -324,7 +324,7 @@ func (_c *MockVectorIndex_Compressed_Call) RunAndReturn(run func() bool) *MockVe
 }
 
 // CompressionStats provides a mock function with no fields
-func (_m *MockVectorIndex) CompressionStats() (compressionhelpers.CompressionStats, error) {
+func (_m *MockVectorIndex) CompressionStats() compressionhelpers.CompressionStats {
 	ret := _m.Called()
 
 	if len(ret) == 0 {
@@ -332,10 +332,6 @@ func (_m *MockVectorIndex) CompressionStats() (compressionhelpers.CompressionSta
 	}
 
 	var r0 compressionhelpers.CompressionStats
-	var r1 error
-	if rf, ok := ret.Get(0).(func() (compressionhelpers.CompressionStats, error)); ok {
-		return rf()
-	}
 	if rf, ok := ret.Get(0).(func() compressionhelpers.CompressionStats); ok {
 		r0 = rf()
 	} else {
@@ -344,13 +340,7 @@ func (_m *MockVectorIndex) CompressionStats() (compressionhelpers.CompressionSta
 		}
 	}
 
-	if rf, ok := ret.Get(1).(func() error); ok {
-		r1 = rf()
-	} else {
-		r1 = ret.Error(1)
-	}
-
-	return r0, r1
+	return r0
 }
 
 // MockVectorIndex_CompressionStats_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CompressionStats'
@@ -370,12 +360,12 @@ func (_c *MockVectorIndex_CompressionStats_Call) Run(run func()) *MockVectorInde
 	return _c
 }
 
-func (_c *MockVectorIndex_CompressionStats_Call) Return(_a0 compressionhelpers.CompressionStats, _a1 error) *MockVectorIndex_CompressionStats_Call {
-	_c.Call.Return(_a0, _a1)
+func (_c *MockVectorIndex_CompressionStats_Call) Return(_a0 compressionhelpers.CompressionStats) *MockVectorIndex_CompressionStats_Call {
+	_c.Call.Return(_a0)
 	return _c
 }
 
-func (_c *MockVectorIndex_CompressionStats_Call) RunAndReturn(run func() (compressionhelpers.CompressionStats, error)) *MockVectorIndex_CompressionStats_Call {
+func (_c *MockVectorIndex_CompressionStats_Call) RunAndReturn(run func() compressionhelpers.CompressionStats) *MockVectorIndex_CompressionStats_Call {
 	_c.Call.Return(run)
 	return _c
 }

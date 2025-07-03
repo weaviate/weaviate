@@ -451,15 +451,8 @@ func (s *Shard) VectorStorageSize(ctx context.Context) int64 {
 		uncompressedSize := int64(count) * int64(dimensions) * 4
 
 		// For active tenants, always use the direct vector index compression rate
-		// Get the actual compression rate from the vector index
-		compressionRate := float64(1.0) // default to no compression
-
-		if stats, err := index.CompressionStats(); err == nil {
-			compressionRate = stats.CompressionRatio(dimensions)
-		}
-
 		// Calculate total size using actual compression rate
-		totalSize += int64(float64(uncompressedSize) * compressionRate)
+		totalSize += int64(float64(uncompressedSize) * index.CompressionStats().CompressionRatio(dimensions))
 
 		return nil
 	}); err != nil {

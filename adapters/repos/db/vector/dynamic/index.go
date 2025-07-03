@@ -607,19 +607,19 @@ func (dynamic *dynamic) Stats() (common.IndexStats, error) {
 	return dynamic.index.Stats()
 }
 
-func (dynamic *dynamic) CompressionStats() (compressionhelpers.CompressionStats, error) {
+func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
 
 	// Delegate to the underlying index (flat or hnsw)
 	if vectorIndex, ok := dynamic.index.(interface {
-		CompressionStats() (compressionhelpers.CompressionStats, error)
+		CompressionStats() compressionhelpers.CompressionStats
 	}); ok {
 		return vectorIndex.CompressionStats()
 	}
 
 	// Fallback: return uncompressed stats if the underlying index doesn't support CompressionStats
-	return compressionhelpers.UncompressedStats{}, nil
+	return compressionhelpers.UncompressedStats{}
 }
 
 type DynamicStats struct{}

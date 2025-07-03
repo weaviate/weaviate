@@ -65,6 +65,10 @@ func New() *module {
 	}
 }
 
+func (m *module) Logger() logrus.FieldLogger {
+	return m.logger
+}
+
 func (m *module) SetUsageService(usageService any) {
 	if service, ok := usageService.(clusterusage.Service); ok {
 		m.usageService = service

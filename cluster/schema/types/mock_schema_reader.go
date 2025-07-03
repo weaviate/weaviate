@@ -633,10 +633,6 @@ func (_m *MockSchemaReader) ReadOnlySchema() models.Schema {
 	return r0
 }
 
-func (_m *MockSchemaReader) Aliases() map[string]string {
-	return nil
-}
-
 // MockSchemaReader_ReadOnlySchema_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadOnlySchema'
 type MockSchemaReader_ReadOnlySchema_Call struct {
 	*mock.Call
