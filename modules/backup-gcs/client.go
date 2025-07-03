@@ -130,6 +130,11 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 			return nil, fmt.Errorf("get next object: %w", err)
 		}
 
+		// mostly needed for testing on the emulator
+		if !strings.HasSuffix(next.Name, ubak.GlobalBackupFile) {
+			continue
+		}
+
 		contents, err := g.getObject(ctx, bucket, next.Name)
 		if err != nil {
 			return nil, fmt.Errorf("read object %q: %w", next.Name, err)
