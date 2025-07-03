@@ -260,6 +260,7 @@ type Config struct {
 	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled      func() bool
 }
 
 func (db *DB) GetIndexLike(className schema.ClassName) IndexLike {

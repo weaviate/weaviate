@@ -71,7 +71,7 @@ func (m *VoyageAIModule) Name() string {
 }
 
 func (m *VoyageAIModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *VoyageAIModule) Init(ctx context.Context,

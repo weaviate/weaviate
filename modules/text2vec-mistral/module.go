@@ -61,7 +61,7 @@ func (m *MistralModule) Name() string {
 }
 
 func (m *MistralModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *MistralModule) Init(ctx context.Context,
