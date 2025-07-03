@@ -1805,7 +1805,11 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 
 		// TODO is this right? add comment explaining
-		if shard != nil && !i.replicationFSM.HasOngoingReplication(i.Config.ClassName.String(), shardName, i.replicator.LocalNodeName()) {
+		hasOngoingReplication := false
+		if i.replicationFSM != nil {
+			hasOngoingReplication = i.replicationFSM.HasOngoingReplication(i.Config.ClassName.String(), shardName, i.replicator.LocalNodeName())
+		}
+		if shard != nil && !hasOngoingReplication {
 			localSearches++
 			eg.Go(func() error {
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
