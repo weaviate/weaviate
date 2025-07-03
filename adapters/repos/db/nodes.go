@@ -32,6 +32,7 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity str
 	for i, nodeName := range db.schemaGetter.Nodes() {
 		i, nodeName := i, nodeName
 		eg.Go(func() error {
+			fmt.Printf("--asking for node status: nodeName: %v, className: %v, verbosity:%v \n", nodeName, className, verbosity)
 			status, err := db.getNodeStatus(ctx, nodeName, className, verbosity)
 			if err != nil {
 				return fmt.Errorf("node: %v: %w", nodeName, err)
@@ -47,9 +48,11 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity str
 	}
 
 	if err := eg.Wait(); err != nil {
+		fmt.Printf("--asking for node status: className: %v, verbosity:%v err: %v\n", className, verbosity, err)
 		return nil, err
 	}
 
+	fmt.Printf("--SUCCESS asking for node status: className: %v, verbosity:%v err: %v\n", className, verbosity)
 	sort.Slice(nodeStatuses, func(i, j int) bool {
 		return nodeStatuses[i].Name < nodeStatuses[j].Name
 	})
@@ -57,7 +60,9 @@ func (db *DB) GetNodeStatus(ctx context.Context, className string, verbosity str
 }
 
 func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className, output string) (*models.NodeStatus, error) {
+	fmt.Printf("---getNodeStatus start\n")
 	if db.schemaGetter.NodeName() == nodeName {
+		fmt.Printf("---getNodeStatus db.LocalNodeStatus executed\n")
 		return db.LocalNodeStatus(ctx, className, output), nil
 	}
 	status, err := db.remoteNode.GetNodeStatus(ctx, nodeName, className, output)
@@ -79,6 +84,7 @@ func (db *DB) getNodeStatus(ctx context.Context, nodeName string, className, out
 			return nil, err
 		}
 	}
+	fmt.Printf("---getNodeStatus stop\n")
 	return status, nil
 }
 
@@ -98,7 +104,9 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, output string) *mo
 		nodeStats *models.NodeStats
 	)
 	if output == verbosity.OutputVerbose {
+		fmt.Printf("---LocalNodeStatus db.localNodeShardStats start\n")
 		nodeStats = db.localNodeShardStats(ctx, &shards, className)
+		fmt.Printf("---LocalNodeStatus db.localNodeShardStats stop\n")
 	}
 
 	clusterHealthStatus := models.NodeStatusStatusHEALTHY
@@ -116,6 +124,7 @@ func (db *DB) LocalNodeStatus(ctx context.Context, className, output string) *mo
 		BatchStats: db.localNodeBatchStats(),
 	}
 
+	fmt.Printf("--SUCCESS got node status response: %+v\n", status)
 	return &status
 }
 
@@ -124,8 +133,10 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 ) *models.NodeStats {
 	var objectCount, shardCount int64
 	if className == "" {
+		fmt.Printf("--db.indexLock.RLock() start\n")
 		db.indexLock.RLock()
 		defer db.indexLock.RUnlock()
+		fmt.Printf("--for name, idx := range db.indices start\n")
 		for name, idx := range db.indices {
 			if idx == nil {
 				db.logger.WithField("action", "local_node_status_for_all").
@@ -135,18 +146,23 @@ func (db *DB) localNodeShardStats(ctx context.Context,
 			objects, shards := idx.getShardsNodeStatus(ctx, status)
 			objectCount, shardCount = objectCount+objects, shardCount+shards
 		}
+		fmt.Printf("--for name, idx := range db.indices stop\n")
 		return &models.NodeStats{
 			ObjectCount: objectCount,
 			ShardCount:  shardCount,
 		}
 	}
+	fmt.Printf("--db.GetIndex(schema.ClassName(className) start\n")
 	idx := db.GetIndex(schema.ClassName(className))
 	if idx == nil {
 		db.logger.WithField("action", "local_node_status_for_class").
 			Warningf("no index found for class %q", className)
 		return nil
 	}
+	fmt.Printf("--db.GetIndex(schema.ClassName(className) stop\n")
+	fmt.Printf("--before: idx.getShardsNodeStatus(ctx, status: %v)\n", status)
 	objectCount, shardCount = idx.getShardsNodeStatus(ctx, status)
+	fmt.Printf("--after: idx.getShardsNodeStatus(ctx, status: %v)\n", status)
 	return &models.NodeStats{
 		ObjectCount: objectCount,
 		ShardCount:  shardCount,
@@ -167,13 +183,17 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 	status *[]*models.NodeShardStatus,
 ) (totalCount, shardCount int64) {
 	i.ForEachShard(func(name string, shard ShardLike) error {
+		fmt.Printf("--getShardsNodeStatus start\n")
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 
+		fmt.Printf("--getShardsNodeStatus lazy, ok := shard.(*LazyLoadShard)\n")
 		// Don't force load a lazy shard to get nodes status
 		if lazy, ok := shard.(*LazyLoadShard); ok {
+			fmt.Printf("--getShardsNodeStatus lazy, ok := shard.(*LazyLoadShard) - OK!!!!\n")
 			if !lazy.isLoaded() {
+				fmt.Printf("--getShardsNodeStatus !lazy.isLoaded()\n")
 				shardStatus := &models.NodeShardStatus{
 					Name:                 name,
 					Class:                shard.Index().Config.ClassName.String(),
@@ -186,22 +206,26 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			}
 		}
 
+		fmt.Printf("--getShardsNodeStatus objectCount := int64(shard.ObjectCountAsync())\n")
 		objectCount := int64(shard.ObjectCountAsync())
 		totalCount += objectCount
 
 		// FIXME stats of target vectors
+		fmt.Printf("--getShardsNodeStatus shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) - queueLen\n")
 		var queueLen int64
 		_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
 			queueLen += queue.Size()
 			return nil
 		})
 
+		fmt.Printf("--getShardsNodeStatus shard.ForEachVectorIndex - compressed\n")
 		var compressed bool
 		_ = shard.ForEachVectorIndex(func(_ string, index VectorIndex) error {
 			compressed = compressed || index.Compressed()
 			return nil
 		})
 
+		fmt.Printf("--getShardsNodeStatus prepare shardStatus := &models.NodeShardStatus \n")
 		shardStatus := &models.NodeShardStatus{
 			Name:                 name,
 			Class:                shard.Index().Config.ClassName.String(),
@@ -213,6 +237,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		}
 		*status = append(*status, shardStatus)
 		shardCount++
+		fmt.Printf("--getShardsNodeStatus stop\n")
 		return nil
 	})
 	return
