@@ -2040,6 +2040,32 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 	return nil
 }
 
+func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	shardLike, ok := i.shards.LoadAndDelete(shardName)
+	if !ok {
+		return nil // shard was not found, nothing to unload
+	}
+
+	if err := shardLike.Shutdown(ctx); err != nil {
+		if !errors.Is(err, errAlreadyShutdown) {
+			return errors.Wrapf(err, "shutdown shard %q", shardName)
+		}
+		return errors.Wrapf(errAlreadyShutdown, "shutdown shard %q", shardName)
+	}
+
+	return nil
+}
+
 func (i *Index) GetShard(ctx context.Context, shardName string) (
 	shard ShardLike, release func(), err error,
 ) {
