@@ -1313,7 +1313,8 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 									if err != nil {
 										return errors.Wrapf(err, "read node connection at level")
 									}
-									pconn.InsertAtLayer(c, l)
+									connID := binary.LittleEndian.Uint64(b[:8])
+									pconn.InsertAtLayer(connID, l)
 									read += n
 								}
 							}
