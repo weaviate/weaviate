@@ -22,13 +22,12 @@ import (
 	"sync"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -57,6 +56,10 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 
 func (f *fakeSchemaGetter) ReadOnlyClass(className string) *models.Class {
 	return f.schema.GetClass(className)
+}
+
+func (f *fakeSchemaGetter) ResolveAlias(string) string {
+	return ""
 }
 
 func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {

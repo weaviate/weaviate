@@ -20,7 +20,6 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/tailor-inc/graphql"
 	"github.com/tailor-inc/graphql/language/ast"
-
 	"github.com/weaviate/weaviate/adapters/handlers/graphql/descriptions"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
@@ -258,6 +257,10 @@ func (f *fakeSchemaGetter) ResolveParentNodes(string, string,
 
 func (f *fakeSchemaGetter) Statistics() map[string]any {
 	panic("not implemented")
+}
+
+func (f *fakeSchemaGetter) ResolveAlias(string) string {
+	return ""
 }
 
 type fakeInterpretation struct{}

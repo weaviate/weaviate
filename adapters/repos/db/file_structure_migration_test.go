@@ -273,6 +273,10 @@ func (sg *fakeMigrationSchemaGetter) ReadOnlyClass(class string) *models.Class {
 	return sg.sch.GetClass(class)
 }
 
+func (sg *fakeMigrationSchemaGetter) ResolveAlias(string) string {
+	return ""
+}
+
 func (sg *fakeMigrationSchemaGetter) Nodes() []string {
 	return nil
 }
