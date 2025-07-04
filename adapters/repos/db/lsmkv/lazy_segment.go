@@ -17,6 +17,9 @@ import (
 	"io"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/weaviate/weaviate/usecases/monitoring"
+
 	"github.com/weaviate/sroar"
 
 	"github.com/sirupsen/logrus"
@@ -39,6 +42,12 @@ type lazySegment struct {
 func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, cfg segmentConfig,
 ) (*lazySegment, error) {
+	monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+		"operation":  "lazySegmentInit",
+		"class_name": "",
+		"shard_name": "",
+		"path":       "",
+	}).Inc()
 	return &lazySegment{
 		path:        path,
 		logger:      logger,
@@ -58,6 +67,13 @@ func (s *lazySegment) load() error {
 			return err
 		}
 		s.segment = segment
+
+		monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+			"operation":  "lazySegmentLoad",
+			"class_name": "",
+			"shard_name": "",
+			"path":       "",
+		}).Inc()
 	}
 
 	return nil
@@ -148,9 +164,22 @@ func (s *lazySegment) close() error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
+	monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+		"operation":  "lazySegmentClose",
+		"class_name": "",
+		"shard_name": "",
+		"path":       "",
+	}).Inc()
+
 	if s.segment == nil {
 		return nil
 	}
+	monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+		"operation":  "lazySegmentUnLoad",
+		"class_name": "",
+		"shard_name": "",
+		"path":       "",
+	}).Inc()
 
 	return s.segment.close()
 }
