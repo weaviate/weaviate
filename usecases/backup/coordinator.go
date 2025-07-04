@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"slices"
 	"strings"
 	"sync"
@@ -470,6 +471,7 @@ func (c *coordinator) commit(ctx context.Context,
 		st := groups[c.descriptor.ToOriginalNodeName(node)]
 		st.Status, st.Error = p.Status, p.Reason
 		if p.Status != backup.Success {
+			log.Printf("node %q failing: %v\n", node, p.Reason)
 			status = backup.Failed
 			reason = p.Reason
 
