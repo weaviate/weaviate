@@ -31,6 +31,9 @@ func (m *Manager) ValidateObject(ctx context.Context, principal *models.Principa
 	obj *models.Object, repl *additional.ReplicationProperties,
 ) error {
 	className := schema.UppercaseClassName(obj.Class)
+	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
+		className = cls
+	}
 	obj.Class = className
 
 	err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Objects(className, obj.Tenant, obj.ID))

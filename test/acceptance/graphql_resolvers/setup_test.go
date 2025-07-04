@@ -118,6 +118,7 @@ func testGraphQL(t *testing.T, host string) {
 	t.Run("aggregates local meta with where groupBy and nearMedia filters", localMetaWithWhereGroupByNearMediaFilters)
 	t.Run("aggregates local meta with objectLimit and nearMedia filters", localMetaWithObjectLimit)
 	t.Run("aggregates on date fields", aggregatesOnDateFields)
+	t.Run("aggregates using an alias", aggregatesUsingAlias)
 
 	t.Run("expected aggregate failures with invalid conditions", aggregatesWithExpectedFailures)
 

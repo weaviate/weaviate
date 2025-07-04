@@ -50,12 +50,18 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err := m.validateInputs(updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
+	if cls := m.schemaManager.ResolveAlias(updates.Class); cls != "" {
+		updates.Class = cls
+	}
 	cls, id := updates.Class, updates.ID
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	className := schema.UppercaseClassName(updates.Class)
+	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
+		className = cls
+	}
 	updates.Class = className
 
 	ctx = classcache.ContextWithClassCache(ctx)

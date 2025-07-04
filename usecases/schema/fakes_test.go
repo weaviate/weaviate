@@ -17,7 +17,6 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/mock"
-
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -74,6 +73,10 @@ func (f *fakeSchemaManager) UpdateTenants(_ context.Context, class string, req *
 func (f *fakeSchemaManager) DeleteTenants(_ context.Context, class string, req *command.DeleteTenantsRequest) (uint64, error) {
 	args := f.Called(class, req)
 	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) ResolveAlias(alias string) string {
+	return ""
 }
 
 func (f *fakeSchemaManager) Join(ctx context.Context, nodeID, raftAddr string, voter bool) error {

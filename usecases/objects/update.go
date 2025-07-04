@@ -28,13 +28,16 @@ import (
 )
 
 // UpdateObject updates object of class.
-// If the class contains a network ref, it has a side-effect on the schema: The schema will be updated to
+// If the class contains a network ref, it has a side effect on the schema: The schema will be updated to
 // include this particular network ref class.
 func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	class string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	className := schema.UppercaseClassName(updates.Class)
+	if cls := m.schemaManager.ResolveAlias(updates.Class); cls != "" {
+		className = cls
+	}
 	updates.Class = className
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
@@ -63,6 +66,12 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID, updates *models.Object,
 	repl *additional.ReplicationProperties, fetchedClasses map[string]versioned.Class,
 ) (*models.Object, error) {
+	var alias string
+	if cls := m.schemaManager.ResolveAlias(className); cls != "" {
+		alias = className
+		className = cls
+	}
+
 	if id != updates.ID {
 		return nil, NewErrInvalidUserInput("invalid update: field 'id' is immutable")
 	}
@@ -119,6 +128,10 @@ func (m *Manager) updateObjectToConnectorAndSchema(ctx context.Context,
 	err = m.vectorRepo.PutObject(ctx, updates, updates.Vector, vectors, multiVectors, repl, maxSchemaVersion)
 	if err != nil {
 		return nil, fmt.Errorf("put object: %w", err)
+	}
+
+	if alias != "" {
+		updates.Class = alias
 	}
 
 	return updates, nil
