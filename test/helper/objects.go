@@ -535,7 +535,7 @@ func DeleteAlias(t *testing.T, aliasName string) {
 	DeleteAliasWithAuthz(t, aliasName, nil)
 }
 
-func DeleteAliasWithReturn(t *testing.T, aliasName string) (*schema.AliasesDeleteOK, error) {
+func DeleteAliasWithReturn(t *testing.T, aliasName string) (*schema.AliasesDeleteNoContent, error) {
 	t.Helper()
 	params := schema.NewAliasesDeleteParams().WithAliasName(aliasName)
 	resp, err := Client(t).Schema.AliasesDelete(params, nil)
