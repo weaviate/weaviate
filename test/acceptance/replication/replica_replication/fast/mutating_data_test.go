@@ -155,7 +155,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 
 	nodeToAddress := map[string]string{}
 	for idx, node := range ns.Payload.Nodes {
-		nodeToAddress[node.Name] = suite.compose.GetWeaviateNode(idx).URI()
+		nodeToAddress[node.Name] = suite.compose.GetWeaviateNode(idx + 1).URI()
 	}
 
 	objectCountByReplica := make(map[string]int64)
