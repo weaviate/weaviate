@@ -429,11 +429,11 @@ func (s *Shard) ObjectStorageSize(ctx context.Context) int64 {
 	return bucket.DiskSize() + bucket.MetadataSize()
 }
 
+// VectorStorageSize calculates the total storage size of all vector indexes in the shard
+// Always use the dimensions bucket for tracking total vectors and dimensions
+// This ensures we get accurate counts regardless of cache size or shard state
+// This method is only called for active tenants, so we can always use direct vector index compression.
 func (s *Shard) VectorStorageSize(ctx context.Context) int64 {
-	// Always use the dimensions bucket for tracking total vectors and dimensions
-	// This ensures we get accurate counts regardless of cache size or shard state
-	// This method is only called for active tenants, so we can always use direct vector index compression
-
 	totalSize := int64(0)
 
 	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors

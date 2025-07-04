@@ -136,7 +136,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	assert.Len(t, vector.Dimensionalities, 1)
 
 	dim := vector.Dimensionalities[0]
-	assert.Equal(t, dimensionality, dim.Dimensions)
+	assert.Equal(t, dimensionality, dim.Dimensionality)
 	assert.Equal(t, dimensionCount, dim.Count)
 
 	mockSchema.AssertExpectations(t)
@@ -273,7 +273,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 	dim := vector.Dimensionalities[0]
-	assert.Equal(t, dimensionality, dim.Dimensions)
+	assert.Equal(t, dimensionality, dim.Dimensionality)
 	assert.Equal(t, dimensionCount, dim.Count)
 
 	mockSchema.AssertExpectations(t)
@@ -766,7 +766,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 	dim := vector.Dimensionalities[0]
-	assert.Equal(t, dimensionality, dim.Dimensions)
+	assert.Equal(t, dimensionality, dim.Dimensionality)
 	assert.Equal(t, dimensionCount, dim.Count)
 
 	mockSchema.AssertExpectations(t)
@@ -919,7 +919,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 	dim := vector.Dimensionalities[0]
-	assert.Equal(t, dimensionality, dim.Dimensions)
+	assert.Equal(t, dimensionality, dim.Dimensionality)
 	assert.Equal(t, dimensionCount, dim.Count)
 
 	mockSchema.AssertExpectations(t)
