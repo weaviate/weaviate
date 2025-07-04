@@ -28,7 +28,7 @@ import (
 // re-computed at read-time.
 var ErrInvalidChecksum = errors.New("invalid checksum")
 
-const CNAFileSuffix = ".cna"
+const CountNetAdditionsFileSuffix = ".cna"
 
 // existOnLowerSegments is a simple function that can be passed at segment
 // initialization time to check if any of the keys are truly new or previously
@@ -136,9 +136,9 @@ func (s *segment) loadCountNetFromDisk() error {
 	return nil
 }
 
-// ReadCNAFileCount reads a .cna file and returns the count net additions value
+// ReadCountNetAdditionsFile reads a .cna file and returns the count net additions value
 // Returns (count, nil) if successful, (0, error) if the file is invalid or corrupted
-func ReadCNAFileCount(path string) (int64, error) {
+func ReadCountNetAdditionsFile(path string) (int64, error) {
 	data, err := loadWithChecksum(path, 12, nil)
 	if err != nil {
 		return 0, fmt.Errorf("failed to read .cna file: %w", err)
