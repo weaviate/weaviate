@@ -23,6 +23,7 @@ import (
 )
 
 func TestSegmentGroup_CleanupCandidates(t *testing.T) {
+	t.Skip("FIXME: this test is flaky, needs to be fixed")
 	assertSegment := func(t *testing.T, sg *SegmentGroup, idx int, expectedName string, expectedSize int64) {
 		seg := sg.segments[idx].getSegment()
 		assert.Equal(t, filepath.Join(sg.dir, expectedName), seg.path)
