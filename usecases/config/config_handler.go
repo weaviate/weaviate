@@ -320,11 +320,15 @@ func (a AutoSchema) Validate() error {
 
 // QueryDefaults for optional parameters
 type QueryDefaults struct {
-	Limit int64 `json:"limit" yaml:"limit"`
+	Limit        int64 `json:"limit" yaml:"limit"`
+	LimitGraphQL int64 `json:"limitGraphQL" yaml:"limitGraphQL"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
-const DefaultQueryDefaultsLimit int64 = 10
+const (
+	DefaultQueryDefaultsLimit        int64 = 10
+	DefaultQueryDefaultsLimitGraphQL int64 = 100
+)
 
 type Contextionary struct {
 	URL string `json:"url" yaml:"url"`

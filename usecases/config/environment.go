@@ -472,6 +472,19 @@ func FromEnv(config *Config) error {
 		}
 	}
 
+	if v := os.Getenv("QUERY_DEFAULTS_LIMIT_GRAPHQL"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_DEFAULTS_LIMIT_GRAPHQL as int: %w", err)
+		}
+
+		config.QueryDefaults.LimitGraphQL = int64(asInt)
+	} else {
+		if config.QueryDefaults.LimitGraphQL == 0 {
+			config.QueryDefaults.LimitGraphQL = DefaultQueryDefaultsLimitGraphQL
+		}
+	}
+
 	if v := os.Getenv("QUERY_MAXIMUM_RESULTS"); v != "" {
 		asInt, err := strconv.Atoi(v)
 		if err != nil {
