@@ -1676,7 +1676,7 @@ func postInitModules(appState *state.State) {
 	if appState.Modules.UsageEnabled() {
 		if usageModule := appState.Modules.GetByName(modusagegcs.Name); usageModule != nil {
 			if usageModuleWithService, ok := usageModule.(modulecapabilities.ModuleWithUsageService); ok {
-				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules)
+				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
 				usageModuleWithService.SetUsageService(usageService)
 			}
 		}
