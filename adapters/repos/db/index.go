@@ -2964,8 +2964,8 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 			totalDiskSize += info.Size()
 
 			// Look for .cna files (net count additions)
-			if strings.HasSuffix(info.Name(), lsmkv.CNAFileSuffix) {
-				count, err := lsmkv.ReadCNAFileCount(path)
+			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
+				count, err := lsmkv.ReadCountNetAdditionsFile(path)
 				if err != nil {
 					i.logger.WithField("path", path).WithError(err).Warn("failed to read .cna file")
 					return err
