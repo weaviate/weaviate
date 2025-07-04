@@ -581,11 +581,12 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	// start async replication from source node to target node
 	targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
-		CollectionID:   op.Op.SourceShard.CollectionId,
-		ShardID:        op.Op.TargetShard.ShardId,
-		TargetNode:     op.Op.TargetShard.NodeId,
-		SourceNode:     op.Op.SourceShard.NodeId,
-		UpperTimeBound: asyncReplicationUpperTimeBoundUnixMillis,
+		CollectionID:         op.Op.SourceShard.CollectionId,
+		ShardID:              op.Op.TargetShard.ShardId,
+		TargetNode:           op.Op.TargetShard.NodeId,
+		SourceNode:           op.Op.SourceShard.NodeId,
+		UpperTimeBound:       asyncReplicationUpperTimeBoundUnixMillis,
+		NoDeletionResolution: true,
 	}
 	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, targetNodeOverride, op.Status.SchemaVersion); err != nil {
 		return api.ShardReplicationState(""), err
@@ -661,11 +662,12 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		// asyncReplicationMinimumWait time (default 100s). The source node should not receive any writes after the op
 		// enters the DEHYDRATING state.
 		targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
-			CollectionID:   op.Op.SourceShard.CollectionId,
-			ShardID:        op.Op.TargetShard.ShardId,
-			TargetNode:     op.Op.TargetShard.NodeId,
-			SourceNode:     op.Op.SourceShard.NodeId,
-			UpperTimeBound: asyncReplicationUpperTimeBoundUnixMillis,
+			CollectionID:         op.Op.SourceShard.CollectionId,
+			ShardID:              op.Op.TargetShard.ShardId,
+			TargetNode:           op.Op.TargetShard.NodeId,
+			SourceNode:           op.Op.SourceShard.NodeId,
+			UpperTimeBound:       asyncReplicationUpperTimeBoundUnixMillis,
+			NoDeletionResolution: true,
 		}
 
 		// ensure async replication is started on local (target) node
@@ -728,11 +730,12 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 
 	// Cancel async replication and revert state if any
 	targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
-		CollectionID:   op.Op.SourceShard.CollectionId,
-		ShardID:        op.Op.TargetShard.ShardId,
-		TargetNode:     op.Op.TargetShard.NodeId,
-		SourceNode:     op.Op.SourceShard.NodeId,
-		UpperTimeBound: time.Now().UnixMilli(),
+		CollectionID:         op.Op.SourceShard.CollectionId,
+		ShardID:              op.Op.TargetShard.ShardId,
+		TargetNode:           op.Op.TargetShard.NodeId,
+		SourceNode:           op.Op.SourceShard.NodeId,
+		UpperTimeBound:       time.Now().UnixMilli(),
+		NoDeletionResolution: true,
 	}
 	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
 		logger.WithError(err).Error("failure while removing async replication target node")

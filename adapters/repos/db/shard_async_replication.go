@@ -95,7 +95,7 @@ type asyncReplicationConfig struct {
 	propagationDelay            time.Duration
 	propagationConcurrency      int
 	propagationBatchSize        int
-	targetNodeOverrides         []additional.AsyncReplicationTargetNodeOverride
+	targetNodeOverrides         additional.AsyncReplicationTargetNodeOverrides
 	maintenanceModeEnabled      func() bool
 }
 
@@ -494,7 +494,7 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 		}
 
 		if s.asyncReplicationConfig.targetNodeOverrides == nil {
-			s.asyncReplicationConfig.targetNodeOverrides = make([]additional.AsyncReplicationTargetNodeOverride, 0, 1)
+			s.asyncReplicationConfig.targetNodeOverrides = make(additional.AsyncReplicationTargetNodeOverrides, 0, 1)
 		}
 		s.asyncReplicationConfig.targetNodeOverrides = append(s.asyncReplicationConfig.targetNodeOverrides, targetNodeOverride)
 	}()
@@ -510,7 +510,7 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 		// unlock before calling SetAsyncReplicationEnabled because it will lock again
 		defer s.asyncReplicationRWMux.Unlock()
 
-		newTargetNodeOverrides := make([]additional.AsyncReplicationTargetNodeOverride, 0, len(s.asyncReplicationConfig.targetNodeOverrides))
+		newTargetNodeOverrides := make(additional.AsyncReplicationTargetNodeOverrides, 0, len(s.asyncReplicationConfig.targetNodeOverrides))
 		for _, existing := range s.asyncReplicationConfig.targetNodeOverrides {
 			// only remove the existing override if the collection/shard/source/target match and the
 			// existing upper time bound is <= to the override being removed (eg if the override to remove
@@ -537,7 +537,7 @@ func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 		s.asyncReplicationRWMux.Lock()
 		// unlock before calling SetAsyncReplicationEnabled because it will lock again
 		defer s.asyncReplicationRWMux.Unlock()
-		s.asyncReplicationConfig.targetNodeOverrides = make([]additional.AsyncReplicationTargetNodeOverride, 0)
+		s.asyncReplicationConfig.targetNodeOverrides = make(additional.AsyncReplicationTargetNodeOverrides, 0)
 	}()
 	return s.SetAsyncReplicationEnabled(ctx, s.index.Config.AsyncReplicationEnabled)
 }
@@ -549,7 +549,7 @@ func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncRep
 	asyncReplicationStatsToReturn := make([]*models.AsyncReplicationStatus, 0, len(s.asyncReplicationStatsByTargetNode))
 	for targetNodeName, asyncReplicationStats := range s.asyncReplicationStatsByTargetNode {
 		asyncReplicationStatsToReturn = append(asyncReplicationStatsToReturn, &models.AsyncReplicationStatus{
-			ObjectsPropagated:       uint64(asyncReplicationStats.objectsPropagated),
+			ObjectsPropagated:       uint64(asyncReplicationStats.objectsPropagated) - uint64(asyncReplicationStats.objectsNotResolved),
 			StartDiffTimeUnixMillis: asyncReplicationStats.diffStartTime.UnixMilli(),
 			TargetNode:              targetNodeName,
 		})
@@ -841,6 +841,7 @@ type hashBeatHostStats struct {
 	remoteObjects       int
 	objectsPropagated   int
 	objectProgationTook time.Duration
+	objectsNotResolved  int
 }
 
 func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]*hashBeatHostStats, error) {
@@ -927,6 +928,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]
 		}
 	}
 
+	objectsNotResolved := 0
 	if len(objectsToPropagate) > 0 {
 		propagationCtx, cancel := context.WithTimeout(ctx, config.propagationTimeout)
 		defer cancel()
@@ -942,7 +944,9 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]
 			deletionStrategy := s.index.DeletionStrategy()
 
 			if !r.Deleted ||
-				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution {
+				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution ||
+				config.targetNodeOverrides.NoDeletionResolution(shardDiffReader.TargetNodeName) {
+				objectsNotResolved++
 				continue
 			}
 
@@ -967,6 +971,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]
 			remoteObjects:       remoteObjectsCount,
 			objectsPropagated:   len(objectsToPropagate),
 			objectProgationTook: time.Since(objectProgationStart),
+			objectsNotResolved:  objectsNotResolved,
 		},
 	}, nil
 }
