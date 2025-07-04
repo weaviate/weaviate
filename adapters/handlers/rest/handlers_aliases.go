@@ -154,7 +154,7 @@ func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, princip
 	}
 
 	s.metricRequestsTotal.logOk(params.AliasName)
-	return schema.NewAliasesDeleteOK()
+	return schema.NewAliasesDeleteNoContent()
 }
 
 func setupAliasesHandlers(api *operations.WeaviateAPI,
