@@ -671,7 +671,15 @@ func (s *schema) unsafeAliasExists(alias string) bool {
 }
 
 func (s *schema) canonicalAlias(alias string) string {
-	return strings.ToTitle(alias)
+	if len(alias) < 1 {
+		return alias
+	}
+
+	if len(alias) == 1 {
+		return strings.ToUpper(alias)
+	}
+
+	return strings.ToUpper(string(alias[0])) + alias[1:]
 }
 
 func (s *schema) getAliases(alias, class string) map[string]string {
