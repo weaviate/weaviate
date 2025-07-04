@@ -153,14 +153,18 @@ func setupDebugHandlers(appState *state.State) {
 
 	http.HandleFunc("/debug/index/rebuild/inverted/reload", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		colName := r.URL.Query().Get("collection")
-		shardsToMigrateString := r.URL.Query().Get("shards")
 
 		if colName == "" {
 			http.Error(w, "collection name is required", http.StatusBadRequest)
 			return
 		}
 
-		shardsToMigrate := strings.Split(shardsToMigrateString, ",")[1:]
+		shardsToMigrateString := strings.TrimSpace(r.URL.Query().Get("shards"))
+
+		shardsToMigrate := []string{}
+		if shardsToMigrateString != "" {
+			shardsToMigrate = strings.Split(shardsToMigrateString, ",")
+		}
 
 		className := schema.ClassName(colName)
 		idx := appState.DB.GetIndex(className)
@@ -196,6 +200,13 @@ func setupDebugHandlers(appState *state.State) {
 						"shardStatus": shard.GetStatusNoLoad().String(),
 						"status":      "reinit",
 						"message":     "reinit shard started",
+					}
+				} else {
+					output[shardName] = map[string]string{
+						"shard":       shardName,
+						"shardStatus": shard.GetStatusNoLoad().String(),
+						"status":      "skipped",
+						"message":     fmt.Sprintf("shard %s not selected", shardName),
 					}
 				}
 				return nil
@@ -426,6 +437,11 @@ func setupDebugHandlers(appState *state.State) {
 							"status":    "success",
 							"overrides": overrides,
 						}
+					} else {
+						response[shardName] = map[string]string{
+							"status":  "skipped",
+							"message": fmt.Sprintf("shard %s not selected", shardName),
+						}
 					}
 					return nil
 				},
@@ -502,6 +518,11 @@ func setupDebugHandlers(appState *state.State) {
 						response[shardName] = map[string]interface{}{
 							"status": "success",
 							"wrote":  overrides,
+						}
+					} else {
+						response[shardName] = map[string]string{
+							"status":  "skipped",
+							"message": fmt.Sprintf("shard %s not selected", shardName),
 						}
 					}
 					return nil
