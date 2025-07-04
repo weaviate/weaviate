@@ -13,13 +13,10 @@ package roaringset
 
 import (
 	"context"
-	"fmt"
 	"math"
 	"math/bits"
-	"runtime"
 	"slices"
 	"sync"
-	"sync/atomic"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -55,38 +52,8 @@ func NewBitmapBufPoolDefault(logger logrus.FieldLogger, inMemoMaxBufSize int, ma
 		allRanges = append(allRanges, inMemoRanges...)
 	}
 
-	fmt.Printf(". ==> all ranges %v\n\n", allRanges)
 	p := NewBitmapBufPoolRanged(syncMaxBufSize, inMemoBufsLimits, allRanges...)
 	stop := p.StartPeriodicCleanup(logger, cleanupInterval)
-
-	go func() {
-		var topAlloc uint64
-		var stats runtime.MemStats
-
-		i := 0
-		for {
-			time.Sleep(1 * time.Second)
-			runtime.ReadMemStats(&stats)
-			if stats.Alloc > topAlloc {
-				topAlloc = stats.Alloc
-			}
-			i++
-
-			if i%30 == 0 {
-				fmt.Printf("  ==> alloc: %.2fMB, top alloc: %.2fMB, total alloc: %.2fMB\n",
-					float64(stats.Alloc)/1024/1024, float64(topAlloc)/1024/1024, float64(stats.TotalAlloc)/1024/1024)
-
-				for _, pf := range p.poolsSync {
-					fmt.Printf("      pool [%d]: got [%d] created [%d] put [%d]\n",
-						pf.cap, pf.got.Load(), pf.created.Load(), pf.put.Load())
-				}
-				for _, pl := range p.poolsInMemo {
-					fmt.Printf("      pool [%d]: got [%d] created [%d] put [%d] outside [%d] cleaned [%d]\n",
-						pl.cap, pl.got.Load(), pl.created.Load(), pl.put.Load(), pl.outside.Load(), pl.cleaned.Load())
-				}
-			}
-		}
-	}()
 
 	return p, stop
 }
@@ -215,32 +182,22 @@ func (p *bitmapBufPoolFactorWrapper) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar
 
 type BufPoolFixedSync struct {
 	pool *sync.Pool
-
-	cap               int
-	created, got, put atomic.Int32
 }
 
 func NewBufPoolFixedSync(cap int) *BufPoolFixedSync {
-	p := &BufPoolFixedSync{
-		cap: cap,
-	}
-
-	pool := &sync.Pool{
-		New: func() any {
-			p.created.Add(1)
-			buf := make([]byte, 0, cap)
-			return &buf
+	return &BufPoolFixedSync{
+		pool: &sync.Pool{
+			New: func() any {
+				buf := make([]byte, 0, cap)
+				return &buf
+			},
 		},
 	}
-
-	p.pool = pool
-	return p
 }
 
 func (p *BufPoolFixedSync) Get() (buf []byte, put func()) {
 	ptr := p.pool.Get().(*[]byte)
-	defer p.got.Add(1)
-	return *ptr, func() { p.pool.Put(ptr); p.put.Add(1) }
+	return *ptr, func() { p.pool.Put(ptr) }
 }
 
 // -----------------------------------------------------------------------------
@@ -250,8 +207,6 @@ type BufPoolFixedInMemory struct {
 	limit  int
 	bufsCh chan *[]byte  // chan of free buffers
 	leftCh chan struct{} // chan of markings of buffers left to be created up to provided limit
-
-	got, put, created, cleaned, outside atomic.Int32
 }
 
 func NewBufPoolFixedInMemory(cap int, limit int) *BufPoolFixedInMemory {
@@ -273,11 +228,9 @@ func (p *BufPoolFixedInMemory) Get() (buf []byte, put func()) {
 	// take free buffer if available
 	select {
 	case ptr := <-p.bufsCh:
-		defer p.got.Add(1)
 		return *ptr, func() {
 			select {
 			case p.bufsCh <- ptr:
-				p.put.Add(1)
 				// ok
 			default:
 				// should not happen
@@ -291,13 +244,10 @@ func (p *BufPoolFixedInMemory) Get() (buf []byte, put func()) {
 	case <-p.leftCh:
 		// create new buffer if limit not yet reached
 		buf := make([]byte, 0, p.cap)
-		p.created.Add(1)
 		ptr := &buf
-		defer p.got.Add(1)
 		return *ptr, func() {
 			select {
 			case p.bufsCh <- ptr:
-				p.put.Add(1)
 				// ok
 			default:
 				// should not happen
@@ -305,7 +255,6 @@ func (p *BufPoolFixedInMemory) Get() (buf []byte, put func()) {
 		}
 	default:
 		// limit reached, create temp buffer outside of pool
-		p.outside.Add(1)
 		return make([]byte, 0, p.cap), func() {}
 	}
 }
@@ -318,7 +267,6 @@ func (p *BufPoolFixedInMemory) Cleanup() int {
 	for ; i < p.limit; i++ {
 		select {
 		case <-p.bufsCh:
-			p.cleaned.Add(1)
 			p.leftCh <- struct{}{}
 		default:
 			return i
@@ -398,10 +346,6 @@ func calculateInMemoBufferRangesAndLimits(maxSyncBufSize, minRangeP2, maxBufSize
 				bufsLimits[ranges[i]] += bufsLimits[ranges[i+1]]
 			}
 		}
-
-		fmt.Printf("inMemoRanges %v\n", ranges)
-		fmt.Printf("sums %v\n", sums)
-		fmt.Printf("limits %v\n", bufsLimits)
 	}
 	return ranges, bufsLimits
 }
