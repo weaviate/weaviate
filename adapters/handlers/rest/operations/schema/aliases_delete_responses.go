@@ -24,29 +24,29 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// AliasesDeleteOKCode is the HTTP code returned for type AliasesDeleteOK
-const AliasesDeleteOKCode int = 200
+// AliasesDeleteNoContentCode is the HTTP code returned for type AliasesDeleteNoContent
+const AliasesDeleteNoContentCode int = 204
 
 /*
-AliasesDeleteOK Successfully deleted the alias.
+AliasesDeleteNoContent Successfully deleted the alias.
 
-swagger:response aliasesDeleteOK
+swagger:response aliasesDeleteNoContent
 */
-type AliasesDeleteOK struct {
+type AliasesDeleteNoContent struct {
 }
 
-// NewAliasesDeleteOK creates AliasesDeleteOK with default headers values
-func NewAliasesDeleteOK() *AliasesDeleteOK {
+// NewAliasesDeleteNoContent creates AliasesDeleteNoContent with default headers values
+func NewAliasesDeleteNoContent() *AliasesDeleteNoContent {
 
-	return &AliasesDeleteOK{}
+	return &AliasesDeleteNoContent{}
 }
 
 // WriteResponse to the client
-func (o *AliasesDeleteOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *AliasesDeleteNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
-	rw.WriteHeader(200)
+	rw.WriteHeader(204)
 }
 
 // AliasesDeleteUnauthorizedCode is the HTTP code returned for type AliasesDeleteUnauthorized

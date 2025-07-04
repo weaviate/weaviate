@@ -7851,7 +7851,7 @@
           }
         ],
         "responses": {
-          "200": {
+          "204": {
             "description": "Successfully deleted the alias."
           },
           "401": {

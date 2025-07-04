@@ -377,7 +377,7 @@ func init() {
           }
         ],
         "responses": {
-          "200": {
+          "204": {
             "description": "Successfully deleted the alias."
           },
           "401": {
@@ -8983,7 +8983,7 @@ func init() {
           }
         ],
         "responses": {
-          "200": {
+          "204": {
             "description": "Successfully deleted the alias."
           },
           "401": {
