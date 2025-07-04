@@ -751,6 +751,10 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+		return errors.Wrap(err, "object deletion in hashtree")
+	}
+
 	err = s.cleanupInvertedIndexOnDelete(existing, docID)
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
@@ -764,10 +768,6 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	})
 	if err != nil {
 		return err
-	}
-
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
-		return errors.Wrap(err, "object deletion in hashtree")
 	}
 
 	return nil
