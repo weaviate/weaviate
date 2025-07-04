@@ -25,6 +25,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
@@ -183,6 +184,7 @@ func TestDeserializerReadClearLinks(t *testing.T) {
 }
 
 func dummyInitialDeserializerState() *DeserializationResult {
+	conns, _ := packedconn.NewWithMaxLayer(15)
 	return &DeserializationResult{
 		LinksReplaced: make(map[uint64]map[uint16]struct{}),
 		Nodes: []*vertex{
@@ -197,7 +199,7 @@ func dummyInitialDeserializerState() *DeserializationResult {
 				// This is a lower level than we will read, so this node will require
 				// growing
 				level:       8,
-				connections: make([][]uint64, 16),
+				connections: conns,
 			},
 		},
 	}
@@ -266,7 +268,8 @@ func TestDeserializerReadLink(t *testing.T) {
 		err := d.ReadLink(reader, res)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
-		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		conns := res.Nodes[id].connections.GetLayer(uint8(level))
+		lastAddedConnection := conns[len(conns)-1]
 		assert.Equal(t, target, lastAddedConnection)
 	}
 }
@@ -295,8 +298,47 @@ func TestDeserializerReadLinks(t *testing.T) {
 		_, err := d.ReadLinks(reader, res, true)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
-		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		conns := res.Nodes[id].connections.GetLayer(uint8(level))
+		lastAddedConnection := conns[len(conns)-1]
 		assert.Equal(t, id+uint64(connLen)-1, lastAddedConnection)
+	}
+}
+
+func TestDeserializerTruncateReadLinks(t *testing.T) {
+	res := dummyInitialDeserializerState()
+	ids := []uint64{1, 2, 3, 4}
+
+	for _, id := range ids {
+		level := uint16(id * 2)
+		var connLen uint16
+		if id%2 == 0 {
+			connLen = uint16(5000)
+		} else {
+			connLen = uint16(2000)
+		}
+		val := make([]byte, 12+connLen*8)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		binary.LittleEndian.PutUint16(val[8:10], level)
+		binary.LittleEndian.PutUint16(val[10:12], connLen)
+		for i := 0; i < int(connLen); i++ {
+			target := id + uint64(i)
+			binary.LittleEndian.PutUint64(val[12+(i*8):12+(i*8+8)], target)
+		}
+		data := bytes.NewReader(val)
+		logger, _ := test.NewNullLogger()
+		d := NewDeserializer(logger)
+
+		reader := bufio.NewReader(data)
+
+		_, err := d.ReadLinks(reader, res, true)
+		require.Nil(t, err)
+		require.NotNil(t, res.Nodes[id])
+		conns := res.Nodes[id].connections.GetLayer(uint8(level))
+		if id%2 == 0 {
+			require.Equal(t, 4095, len(conns), "Expected connections to be truncated to 4095")
+		} else {
+			require.Equal(t, 2000, len(conns), "Expected connections to be read as is")
+		}
 	}
 }
 
@@ -324,8 +366,47 @@ func TestDeserializerReadAddLinks(t *testing.T) {
 		_, err := d.ReadAddLinks(reader, res)
 		require.Nil(t, err)
 		require.NotNil(t, res.Nodes[id])
-		lastAddedConnection := res.Nodes[id].connections[level][len(res.Nodes[id].connections[level])-1]
+		conns := res.Nodes[id].connections.GetLayer(uint8(level))
+		lastAddedConnection := conns[len(conns)-1]
 		assert.Equal(t, id+uint64(connLen)-1, lastAddedConnection)
+	}
+}
+
+func TestDeserializerTruncateReadAddLinks(t *testing.T) {
+	res := dummyInitialDeserializerState()
+	ids := []uint64{1, 2, 3, 4}
+
+	for _, id := range ids {
+		level := uint16(id * 2)
+		var connLen uint16
+		if id%2 == 0 {
+			connLen = uint16(5000)
+		} else {
+			connLen = uint16(2000)
+		}
+		val := make([]byte, 12+connLen*8)
+		binary.LittleEndian.PutUint64(val[:8], id)
+		binary.LittleEndian.PutUint16(val[8:10], level)
+		binary.LittleEndian.PutUint16(val[10:12], connLen)
+		for i := 0; i < int(connLen); i++ {
+			target := id + uint64(i)
+			binary.LittleEndian.PutUint64(val[12+(i*8):12+(i*8+8)], target)
+		}
+		data := bytes.NewReader(val)
+		logger, _ := test.NewNullLogger()
+		d := NewDeserializer(logger)
+
+		reader := bufio.NewReader(data)
+
+		_, err := d.ReadAddLinks(reader, res)
+		require.Nil(t, err)
+		require.NotNil(t, res.Nodes[id])
+		conns := res.Nodes[id].connections.GetLayer(uint8(level))
+		if id%2 == 0 {
+			require.Equal(t, 4095, len(conns), "Expected connections to be truncated to 4095")
+		} else {
+			require.Equal(t, 2000, len(conns), "Expected connections to be read as is")
+		}
 	}
 }
 
@@ -397,6 +478,7 @@ func TestDeserializerRemoveTombstone(t *testing.T) {
 }
 
 func TestDeserializerClearLinksAtLevel(t *testing.T) {
+	conns, _ := packedconn.NewWithMaxLayer(3)
 	res := &DeserializationResult{
 		LinksReplaced: make(map[uint64]map[uint16]struct{}),
 		Nodes: []*vertex{
@@ -411,7 +493,7 @@ func TestDeserializerClearLinksAtLevel(t *testing.T) {
 				// This is a lower level than we will read, so this node will require
 				// growing
 				level:       4,
-				connections: make([][]uint64, 4),
+				connections: conns,
 			},
 			nil,
 			nil,
