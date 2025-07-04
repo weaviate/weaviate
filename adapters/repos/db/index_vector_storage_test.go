@@ -636,7 +636,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		ReplicationFactor:     1,
 		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 		TrackVectorDimensions: true,
-		DisableLazyLoadShards: true,
+		DisableLazyLoadShards: true, // we have to make sure lazyload shard disabled to load directly
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
@@ -692,7 +692,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 
 	// Test that active calculations are correct
 	expectedSize := int64(objectCount * vectorDimensions * 4)
-	assert.InDelta(t, expectedSize, activeVectorStorageSize, float64(expectedSize)*0.2, "Active vector storage size should be close to expected")
+	assert.Equal(t, expectedSize, activeVectorStorageSize, "Active vector storage size should be close to expected")
 	assert.Equal(t, objectCount, activeCount, "Active shard object count should match")
 	assert.Equal(t, vectorDimensions, activeDimensions, "Active shard dimensions should match")
 	assert.Equal(t, objectCount, activeObjectCount, "Active object count should match")
@@ -723,19 +723,25 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 		ReplicationFactor:     1,
 		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 		TrackVectorDimensions: true,
-		DisableLazyLoadShards: true,
+		DisableLazyLoadShards: false, // we have to make sure lazyload enabled
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+		}, index.GetVectorIndexConfigs(), nil, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)
+
+	// Explicitly shutdown all shards to ensure data is flushed to disk
+	require.NoError(t, newIndex.ForEachShard(func(name string, shard ShardLike) error {
+		return shard.Shutdown(ctx)
+	}))
+	newIndex.shards.LoadAndDelete(shardName)
 
 	inactiveVectorStorageSize := newIndex.CalculateUnloadedVectorsMetrics(ctx, shardName)
 	inactiveCount, inactiveDimensions := newIndex.CalculateUnloadedDimensionsUsage(ctx, shardName, "")
 
 	// Compare active and inactive metrics
-	assert.InDelta(t, activeVectorStorageSize, inactiveVectorStorageSize, float64(activeVectorStorageSize)*0.1, "Active and inactive vector storage size should be very similar")
+	assert.Equal(t, activeVectorStorageSize, inactiveVectorStorageSize, "Active and inactive vector storage size should be very similar")
 	assert.Equal(t, activeCount, inactiveCount, "Active and inactive object count should match")
 	assert.Equal(t, activeDimensions, inactiveDimensions, "Active and inactive dimensions should match")
 	// Verify all mock expectations were met
