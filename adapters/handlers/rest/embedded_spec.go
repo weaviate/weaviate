@@ -264,7 +264,7 @@ func init() {
           "200": {
             "description": "Successfully retrieved the alias details.",
             "schema": {
-              "$ref": "#/definitions/AliasResponse"
+              "$ref": "#/definitions/Alias"
             }
           },
           "401": {
@@ -272,6 +272,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -379,6 +385,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8858,7 +8870,7 @@ func init() {
           "200": {
             "description": "Successfully retrieved the alias details.",
             "schema": {
-              "$ref": "#/definitions/AliasResponse"
+              "$ref": "#/definitions/Alias"
             }
           },
           "401": {
@@ -8866,6 +8878,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8973,6 +8991,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }

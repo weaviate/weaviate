@@ -119,6 +119,51 @@ func (o *AliasesDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer 
 	}
 }
 
+// AliasesDeleteNotFoundCode is the HTTP code returned for type AliasesDeleteNotFound
+const AliasesDeleteNotFoundCode int = 404
+
+/*
+AliasesDeleteNotFound Not Found - Alias does not exist
+
+swagger:response aliasesDeleteNotFound
+*/
+type AliasesDeleteNotFound struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewAliasesDeleteNotFound creates AliasesDeleteNotFound with default headers values
+func NewAliasesDeleteNotFound() *AliasesDeleteNotFound {
+
+	return &AliasesDeleteNotFound{}
+}
+
+// WithPayload adds the payload to the aliases delete not found response
+func (o *AliasesDeleteNotFound) WithPayload(payload *models.ErrorResponse) *AliasesDeleteNotFound {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the aliases delete not found response
+func (o *AliasesDeleteNotFound) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *AliasesDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(404)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
 // AliasesDeleteUnprocessableEntityCode is the HTTP code returned for type AliasesDeleteUnprocessableEntity
 const AliasesDeleteUnprocessableEntityCode int = 422
 

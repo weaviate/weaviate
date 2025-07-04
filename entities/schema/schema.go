@@ -60,15 +60,7 @@ func (s *Schema) SemanticSchemaFor() *models.Schema {
 }
 
 func UppercaseClassName(name string) string {
-	if len(name) < 1 {
-		return name
-	}
-
-	if len(name) == 1 {
-		return strings.ToUpper(name)
-	}
-
-	return strings.ToUpper(string(name[0])) + name[1:]
+	return strings.ToTitle(name)
 }
 
 func UppercaseClassesNames(names ...string) []string {
