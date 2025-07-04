@@ -14,6 +14,7 @@ package inverted
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -179,6 +180,19 @@ func TestRowReaderRoaringSet(t *testing.T) {
 				{"hhh", []uint64{11111111, 2222222, 33333333}},
 			},
 		},
+		{
+			name:     "not like 'h*' value",
+			value:    "h*",
+			operator: filters.OperatorNotLike,
+			expected: []kvData{
+				{"h*", func() []uint64 {
+					bm := sroar.NewBitmap()
+					bm.SetMany([]uint64{111, 222, 333})
+					return roaringset.NewInvertedBitmap(
+						bm, maxDocID+roaringset.DefaultBufferIncrement, logrus.New()).ToArray()
+				}()},
+			},
+		},
 	}
 
 	for _, tc := range testcases {
@@ -233,6 +247,16 @@ func TestRowReaderRoaringSet(t *testing.T) {
 				}
 				result[i].r()
 			}
+		})
+		t.Run(tc.name+" readFn failed", func(t *testing.T) {
+			result := []readResult{}
+			rowReader := createRowReaderRoaringSet([]byte(tc.value), tc.operator, data)
+			err := rowReader.Read(ctx, func(k []byte, v *sroar.Bitmap) (bool, error) {
+				return false, fmt.Errorf("fake error")
+			})
+
+			assert.Len(t, result, 0)
+			assert.NotNil(t, err)
 		})
 	}
 }
