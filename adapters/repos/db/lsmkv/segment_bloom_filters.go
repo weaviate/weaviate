@@ -20,7 +20,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/weaviate/weaviate/usecases/byteops"
 
@@ -28,6 +27,8 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/diskio"
 )
+
+const MetadataVersion = 0
 
 func (s *segment) buildPath(template string) string {
 	isTmpFile := filepath.Ext(s.path) == ".tmp"
@@ -44,33 +45,17 @@ func (s *segment) buildPath(template string) string {
 	return path
 }
 
-func (s *segment) bloomFilterPath() string {
-	return s.buildPath("%s.bloom")
+func (s *segment) metadataPath() string {
+	return s.buildPath("%s.metadata")
 }
 
-func (s *segment) bloomFilterSecondaryPath(pos int) string {
-	posTemplate := fmt.Sprintf(".%d.bloom", pos)
-	return s.buildPath("%s.secondary" + posTemplate)
-}
-
-func (s *segment) initBloomFilters(metrics *Metrics, overwrite bool, existingFilesList map[string]int64) error {
-	if err := s.initBloomFilter(overwrite, existingFilesList); err != nil {
-		return fmt.Errorf("init bloom filter for primary index: %w", err)
-	}
-	if s.secondaryIndexCount > 0 {
-		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
-		for i := range s.secondaryBloomFilters {
-			if err := s.initSecondaryBloomFilter(i, overwrite, existingFilesList); err != nil {
-				return fmt.Errorf("init bloom filter for secondary index at %d: %w", i, err)
-			}
-		}
+func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOnLowerSegmentsFn, precomputedCNAValue *int, existingFilesList map[string]int64) error {
+	if !s.useBloomFilter && !s.calcCountNetAdditions {
+		return nil
 	}
 	s.bloomFilterMetrics = newBloomFilterMetrics(metrics)
-	return nil
-}
 
-func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]int64) error {
-	path := s.bloomFilterPath()
+	path := s.metadataPath()
 	s.metaPaths = append(s.metaPaths, path)
 
 	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
@@ -84,11 +69,10 @@ func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]i
 				return fmt.Errorf("delete existing bloom filter %s: %w", path, err)
 			}
 		} else {
-			err = s.loadBloomFilterFromDisk()
+			err := s.loadMetaFromDisk(path)
 			if err == nil {
 				return nil
 			}
-
 			if !errors.Is(err, ErrInvalidChecksum) {
 				// not a recoverable error
 				return err
@@ -98,26 +82,69 @@ func (s *segment) initBloomFilter(overwrite bool, existingFilesList map[string]i
 		}
 	}
 
-	before := time.Now()
-
-	if err := s.computeAndStoreBloomFilter(path); err != nil {
+	primaryBloom, secondaryBloom, err := s.recalculateBloomFilters()
+	if err != nil {
 		return err
 	}
 
-	took := time.Since(before)
-
-	s.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_primary").
-		WithField("path", s.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
-
-	return nil
-}
-
-func (s *segment) computeAndStoreBloomFilter(path string) error {
-	keys, err := s.index.AllKeys()
+	netAdditions, err := s.recalcCountNetAdditions(exists, precomputedCNAValue)
 	if err != nil {
 		return err
+	}
+
+	return s.writeMetadataToDisk(path, primaryBloom, secondaryBloom, netAdditions)
+}
+
+func (s *segment) writeMetadataToDisk(path string, primaryBloom []byte, secondaryBloom [][]byte, netAdditions []byte) error {
+	// Uint32 for checksum
+	// byte for version
+	// Uint32 for lengths - primary bloom filters, N secondary bloom filters and CNA
+	sizeHeader := byteops.Uint32Len + 1 + (2+s.secondaryIndexCount)*byteops.Uint32Len
+	sizeData := len(primaryBloom) + len(netAdditions)
+	for _, b := range secondaryBloom {
+		sizeData += len(b)
+	}
+	rw := byteops.NewReadWriter(make([]byte, int(sizeHeader)+sizeData))
+	rw.MoveBufferPositionForward(byteops.Uint32Len) // leave space for checksum
+
+	rw.WriteByte(MetadataVersion)
+
+	if err := rw.CopyBytesToBufferWithUint32LengthIndicator(primaryBloom); err != nil {
+		return err
+	}
+
+	if err := rw.CopyBytesToBufferWithUint32LengthIndicator(netAdditions); err != nil {
+		return err
+	}
+	for _, b := range secondaryBloom {
+		if err := rw.CopyBytesToBufferWithUint32LengthIndicator(b); err != nil {
+			return err
+		}
+	}
+	return writeWithChecksum(rw, path, s.observeMetaWrite)
+}
+
+func (s *segment) recalculateBloomFilters() ([]byte, [][]byte, error) {
+	if !s.useBloomFilter {
+		return nil, nil, nil
+	}
+	primaryBloom, err := s.recalculatePrimaryBloomFilter()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	secondaryBlooms, err := s.recalculateSecondaryBloomFilter()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return primaryBloom, secondaryBlooms, nil
+}
+
+func (s *segment) recalculatePrimaryBloomFilter() ([]byte, error) {
+	keys, err := s.index.AllKeys()
+	if err != nil {
+		return nil, err
 	}
 
 	s.bloomFilter = bloom.NewWithEstimates(uint(len(keys)), 0.001)
@@ -125,213 +152,95 @@ func (s *segment) computeAndStoreBloomFilter(path string) error {
 		s.bloomFilter.Add(key)
 	}
 
-	if err := s.storeBloomFilterOnDisk(path); err != nil {
-		return fmt.Errorf("store bloom filter on disk: %w", err)
+	bfSize := getBloomFilterSize(s.bloomFilter)
+
+	rw := byteops.NewReadWriter(make([]byte, bfSize))
+
+	if _, err := s.bloomFilter.WriteTo(&rw); err != nil {
+		return nil, err
 	}
 
-	return nil
+	return rw.Buffer, nil
 }
 
-func (s *segment) precomputeBloomFilters() ([]string, error) {
-	out := []string{}
-
-	if err := s.precomputeBloomFilter(); err != nil {
-		return nil, fmt.Errorf("precompute bloom filter for primary index: %w", err)
+func (s *segment) recalculateSecondaryBloomFilter() ([][]byte, error) {
+	if s.secondaryIndexCount == 0 {
+		return nil, nil
 	}
-	out = append(out, fmt.Sprintf("%s.tmp", s.bloomFilterPath()))
 
-	if s.secondaryIndexCount > 0 {
-		s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
-		for i := range s.secondaryBloomFilters {
-			if err := s.precomputeSecondaryBloomFilter(i); err != nil {
-				return nil, fmt.Errorf("precompute bloom filter for secondary index at %d: %w", i, err)
-			}
-			out = append(out, fmt.Sprintf("%s.tmp", s.bloomFilterSecondaryPath(i)))
+	s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
+	out := make([][]byte, s.secondaryIndexCount)
+	for i := range s.secondaryBloomFilters {
+		keys, err := s.secondaryIndices[i].AllKeys()
+		if err != nil {
+			return nil, err
 		}
+
+		s.secondaryBloomFilters[i] = bloom.NewWithEstimates(uint(len(keys)), 0.001)
+		for _, key := range keys {
+			s.secondaryBloomFilters[i].Add(key)
+		}
+		bfSize := getBloomFilterSize(s.secondaryBloomFilters[i])
+
+		rw := byteops.NewReadWriter(make([]byte, bfSize))
+		if _, err := s.secondaryBloomFilters[i].WriteTo(&rw); err != nil {
+			return nil, err
+		}
+
+		out[i] = rw.Buffer
 	}
 	return out, nil
 }
 
-func (s *segment) precomputeBloomFilter() error {
-	before := time.Now()
-
-	path := fmt.Sprintf("%s.tmp", s.bloomFilterPath())
-	ok, err := fileExists(path)
+func (s *segment) loadMetaFromDisk(path string) error {
+	data, err := loadWithChecksum(path, -1, s.metrics.ReadObserver("loadMetadata"))
 	if err != nil {
 		return err
 	}
 
-	if ok {
-		s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_primary").
-			WithField("path", path).
-			Debugf("temp bloom filter already exists - deleting")
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("delete existing primary temp bloom filter %s: %w", path, err)
-		}
+	rw := byteops.NewReadWriter(data)
+	version := rw.ReadUint8()
+	if version != MetadataVersion {
+		return fmt.Errorf("invalid metadata version: %d", version)
+	}
+	primaryBloom := rw.ReadBytesFromBufferWithUint32LengthIndicator()
+	netAdditions := rw.ReadBytesFromBufferWithUint32LengthIndicator()
+	secondaryBloom := make([][]byte, s.secondaryIndexCount)
+	for i := range secondaryBloom {
+		secondaryBloom[i] = rw.ReadBytesFromBufferWithUint32LengthIndicator()
 	}
 
-	if err := s.computeAndStoreBloomFilter(path); err != nil {
+	if err := s.initBloomFiltersFromData(primaryBloom, secondaryBloom); err != nil {
 		return err
 	}
 
-	took := time.Since(before)
-	s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_primary").
-		WithField("path", s.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
+	if err := s.initCNAFromData(netAdditions); err != nil {
+		return err
+	}
 
 	return nil
 }
 
-func (s *segment) storeBloomFilterOnDisk(path string) error {
-	bfSize := getBloomFilterSize(s.bloomFilter)
-
-	rw := byteops.NewReadWriter(make([]byte, bfSize+byteops.Uint32Len))
-	rw.MoveBufferPositionForward(byteops.Uint32Len) // leave space for checksum
-	_, err := s.bloomFilter.WriteTo(&rw)
-	if err != nil {
-		return fmt.Errorf("write bloom filter: %w", err)
-	}
-
-	return writeWithChecksum(rw, path, s.observeMetaWrite)
-}
-
-func (s *segment) loadBloomFilterFromDisk() error {
-	data, err := loadWithChecksum(s.bloomFilterPath(), -1, s.metrics.ReadObserver("loadBloomfilter"))
-	if err != nil {
-		return err
+func (s *segment) initBloomFiltersFromData(primary []byte, secondary [][]byte) error {
+	if !s.useBloomFilter {
+		return nil
 	}
 
 	s.bloomFilter = new(bloom.BloomFilter)
-	_, err = s.bloomFilter.ReadFrom(bytes.NewReader(data))
+	_, err := s.bloomFilter.ReadFrom(bytes.NewReader(primary))
 	if err != nil {
-		return fmt.Errorf("read bloom filter from disk: %w", err)
+		return fmt.Errorf("read bloom filter: %w", err)
 	}
 
-	return nil
-}
-
-func (s *segment) initSecondaryBloomFilter(pos int, overwrite bool, existingFilesList map[string]int64) error {
-	before := time.Now()
-
-	path := s.bloomFilterSecondaryPath(pos)
-	s.metaPaths = append(s.metaPaths, path)
-
-	loadFromDisk, err := fileExistsInList(existingFilesList, filepath.Base(path))
-	if err != nil {
-		return err
-	}
-	if loadFromDisk {
-		if overwrite {
-			err := os.Remove(path)
-			if err != nil {
-				return fmt.Errorf("deleting existing secondary bloom filter %s: %w", path, err)
-			}
-		} else {
-			err = s.loadBloomFilterSecondaryFromDisk(pos)
-			if err == nil {
-				return nil
-			}
-
-			if !errors.Is(err, ErrInvalidChecksum) {
-				// not a recoverable error
-				return err
-			}
-
-			// now continue re-calculating
+	s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
+	for i := range s.secondaryBloomFilters {
+		s.secondaryBloomFilters[i] = new(bloom.BloomFilter)
+		_, err := s.secondaryBloomFilters[i].ReadFrom(bytes.NewReader(secondary[i]))
+		if err != nil {
+			return fmt.Errorf("read bloom filter: %w", err)
 		}
+
 	}
-
-	if err := s.computeAndStoreSecondaryBloomFilter(path, pos); err != nil {
-		return err
-	}
-
-	took := time.Since(before)
-
-	s.logger.WithField("action", "lsm_init_disk_segment_build_bloom_filter_secondary").
-		WithField("secondary_index_position", pos).
-		WithField("path", s.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
-
-	return nil
-}
-
-func (s *segment) computeAndStoreSecondaryBloomFilter(path string, pos int) error {
-	keys, err := s.secondaryIndices[pos].AllKeys()
-	if err != nil {
-		return err
-	}
-
-	s.secondaryBloomFilters[pos] = bloom.NewWithEstimates(uint(len(keys)), 0.001)
-	for _, key := range keys {
-		s.secondaryBloomFilters[pos].Add(key)
-	}
-
-	if err := s.storeBloomFilterSecondaryOnDisk(path, pos); err != nil {
-		return fmt.Errorf("store secondary bloom filter on disk: %w", err)
-	}
-
-	return nil
-}
-
-func (s *segment) precomputeSecondaryBloomFilter(pos int) error {
-	before := time.Now()
-	path := fmt.Sprintf("%s.tmp", s.bloomFilterSecondaryPath(pos))
-
-	ok, err := fileExists(path)
-	if err != nil {
-		return err
-	}
-
-	if ok {
-		s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_secondary").
-			WithField("secondary_index_position", pos).
-			WithField("path", path).
-			Debugf("temp bloom filter already exists - deleting")
-		if err := os.Remove(path); err != nil {
-			return fmt.Errorf("delete existing secondary temp bloom filter %s: %w", path, err)
-		}
-	}
-
-	if err := s.computeAndStoreSecondaryBloomFilter(path, pos); err != nil {
-		return err
-	}
-
-	took := time.Since(before)
-	s.logger.WithField("action", "lsm_precompute_disk_segment_build_bloom_filter_secondary").
-		WithField("secondary_index_position", pos).
-		WithField("path", s.path).
-		WithField("took", took).
-		Debugf("building bloom filter took %s\n", took)
-	return nil
-}
-
-func (s *segment) storeBloomFilterSecondaryOnDisk(path string, pos int) error {
-	bfSize := getBloomFilterSize(s.bloomFilter)
-
-	rw := byteops.NewReadWriter(make([]byte, bfSize+byteops.Uint32Len))
-	rw.MoveBufferPositionForward(byteops.Uint32Len) // leave space for checksum
-	_, err := s.secondaryBloomFilters[pos].WriteTo(&rw)
-	if err != nil {
-		return fmt.Errorf("write bloom filter: %w", err)
-	}
-
-	return writeWithChecksum(rw, path, s.observeMetaWrite)
-}
-
-func (s *segment) loadBloomFilterSecondaryFromDisk(pos int) error {
-	data, err := loadWithChecksum(s.bloomFilterSecondaryPath(pos), -1, s.metrics.ReadObserver("loadSecondaryBloomFilter"))
-	if err != nil {
-		return err
-	}
-
-	s.secondaryBloomFilters[pos] = new(bloom.BloomFilter)
-	_, err = s.secondaryBloomFilters[pos].ReadFrom(bytes.NewReader(data))
-	if err != nil {
-		return fmt.Errorf("read bloom filter from disk: %w", err)
-	}
-
 	return nil
 }
 

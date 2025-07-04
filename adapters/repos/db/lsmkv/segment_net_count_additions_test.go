@@ -73,7 +73,7 @@ func createCNAOnFlush(ctx context.Context, t *testing.T, opts []BucketOption) {
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
 
-	_, ok := findFileWithExt(files, ".cna")
+	_, ok := findFileWithExt(files, ".metadata")
 	assert.True(t, ok)
 }
 
@@ -94,7 +94,7 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
-	fname, ok := findFileWithExt(files, ".cna")
+	fname, ok := findFileWithExt(files, ".metadata")
 	require.True(t, ok)
 
 	err = os.RemoveAll(path.Join(dirName, fname))
@@ -106,7 +106,7 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 	files, err = os.ReadDir(dirName)
 	require.Nil(t, err)
-	_, ok = findFileWithExt(files, ".cna")
+	_, ok = findFileWithExt(files, ".metadata")
 	require.False(t, ok, "verify the file is really gone")
 
 	// on Windows we have to shutdown the bucket before opening it again
@@ -124,7 +124,7 @@ func createCNAInit(ctx context.Context, t *testing.T, opts []BucketOption) {
 
 	files, err = os.ReadDir(dirName)
 	require.Nil(t, err)
-	_, ok = findFileWithExt(files, ".cna")
+	_, ok = findFileWithExt(files, ".metadata")
 	require.True(t, ok)
 }
 
@@ -145,7 +145,7 @@ func repairCorruptedCNAOnInit(ctx context.Context, t *testing.T, opts []BucketOp
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)
-	fname, ok := findFileWithExt(files, ".cna")
+	fname, ok := findFileWithExt(files, ".metadata")
 	require.True(t, ok)
 
 	// now corrupt the file by replacing the count value without adapting the checksum
@@ -171,6 +171,7 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontCreateCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithUseBloomFilter(false),
 			},
 		},
 		{
@@ -178,6 +179,7 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontRecreateCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithUseBloomFilter(false),
 			},
 		},
 		{
@@ -185,6 +187,7 @@ func TestCNA_OFF(t *testing.T) {
 			f:    dontPrecomputeCNA,
 			opts: []BucketOption{
 				WithStrategy(StrategyReplace),
+				WithUseBloomFilter(false),
 			},
 		},
 	}
@@ -210,7 +213,7 @@ func dontCreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 		files, err := os.ReadDir(dirName)
 		require.NoError(t, err)
 
-		_, ok := findFileWithExt(files, ".cna")
+		_, ok := findFileWithExt(files, ".metadata")
 		assert.False(t, ok)
 	})
 
@@ -244,7 +247,7 @@ func dontRecreateCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 		files, err := os.ReadDir(dirName)
 		require.NoError(t, err)
 
-		_, ok := findFileWithExt(files, ".cna")
+		_, ok := findFileWithExt(files, ".metadata")
 		assert.False(t, ok)
 	})
 
@@ -279,7 +282,7 @@ func dontPrecomputeCNA(ctx context.Context, t *testing.T, opts []BucketOption) {
 		files, err := os.ReadDir(dirName)
 		require.NoError(t, err)
 
-		_, ok := findFileWithExt(files, ".cna")
+		_, ok := findFileWithExt(files, ".metadata")
 		assert.False(t, ok)
 	})
 

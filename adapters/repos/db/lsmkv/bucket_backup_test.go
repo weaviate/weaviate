@@ -86,7 +86,7 @@ func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOpti
 
 	files, err := b.ListFiles(ctx, dirName)
 	assert.NoError(t, err)
-	assert.Len(t, files, 3)
+	assert.Len(t, files, 2)
 
 	// make sure all these files are accessible to prove that the paths are correct
 	for _, file := range files {
@@ -94,13 +94,12 @@ func bucketBackup_ListFiles(ctx context.Context, t *testing.T, opts []BucketOpti
 		require.NoError(t, err)
 	}
 
-	exts := make([]string, 3)
+	exts := make([]string, 2)
 	for i, file := range files {
 		exts[i] = filepath.Ext(file)
 	}
-	assert.Contains(t, exts, ".db")    // the segment itself
-	assert.Contains(t, exts, ".bloom") // the segment's bloom filter
-	assert.Contains(t, exts, ".cna")   // the segment's count net additions
+	assert.Contains(t, exts, ".db")       // the segment itself
+	assert.Contains(t, exts, ".metadata") // the segments metadata file
 
 	require.NoError(t, b.Shutdown(context.Background()))
 }
