@@ -17,7 +17,6 @@ import (
 	"fmt"
 
 	"github.com/stretchr/testify/mock"
-
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/entities/models"
@@ -74,6 +73,10 @@ func (f *fakeSchemaManager) UpdateTenants(_ context.Context, class string, req *
 func (f *fakeSchemaManager) DeleteTenants(_ context.Context, class string, req *command.DeleteTenantsRequest) (uint64, error) {
 	args := f.Called(class, req)
 	return 0, args.Error(0)
+}
+
+func (f *fakeSchemaManager) ResolveAlias(alias string) string {
+	return ""
 }
 
 func (f *fakeSchemaManager) Join(ctx context.Context, nodeID, raftAddr string, voter bool) error {
@@ -292,11 +295,6 @@ func (f *fakeSchemaManager) DeleteAlias(ctx context.Context, alias string) (uint
 func (f *fakeSchemaManager) GetAliases(ctx context.Context, alias string, class *models.Class) ([]*models.Alias, error) {
 	args := f.Called(ctx, alias, class)
 	return args.Get(0).([]*models.Alias), args.Error(1)
-}
-
-func (f *fakeSchemaManager) ResolveAlias(alias string) string {
-	args := f.Called(alias)
-	return args.Get(0).(string)
 }
 
 type fakeStore struct {
