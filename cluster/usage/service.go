@@ -125,8 +125,8 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 					}
 
 					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &Dimensionality{
-						Dimensions: dimensions,
-						Count:      count,
+						Dimensionality: dimensions,
+						Count:          count,
 					})
 
 					shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
