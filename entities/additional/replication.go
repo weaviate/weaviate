@@ -43,9 +43,9 @@ func (left *AsyncReplicationTargetNodeOverride) Equal(right *AsyncReplicationTar
 	return left.SourceNode == right.SourceNode && left.TargetNode == right.TargetNode && left.CollectionID == right.CollectionID && left.ShardID == right.ShardID
 }
 
-func (overrides AsyncReplicationTargetNodeOverrides) ResolveDeletions(targetNode string) bool {
+func (overrides AsyncReplicationTargetNodeOverrides) NoDeletionResolution(targetNode string) bool {
 	for _, override := range overrides {
-		if override.TargetNode == targetNode && !override.NoDeletionResolution {
+		if override.TargetNode == targetNode && override.NoDeletionResolution {
 			return true
 		}
 	}
