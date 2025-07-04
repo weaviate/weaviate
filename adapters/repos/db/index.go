@@ -2971,7 +2971,6 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 					return err
 				}
 				totalObjectCount += count
-				i.logger.WithField("path", path).WithField("count", count).Info("found .cna file mooga")
 			}
 		}
 
