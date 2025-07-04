@@ -82,7 +82,16 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, aliasName string) error {
 	aliasName = schema.UppercaseClassName(aliasName)
-	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases("", aliasName)...)
+
+	aliases, err := h.schemaManager.GetAliases(ctx, aliasName, nil)
+	if err != nil {
+		return err
+	}
+	if len(aliases) == 0 {
+		return fmt.Errorf("alias not found: %w", ErrNotFound)
+	}
+
+	err = h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases("", aliasName)...)
 	if err != nil {
 		return err
 	}
