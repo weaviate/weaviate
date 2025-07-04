@@ -102,7 +102,6 @@ func (s *schema) ClassInfo(class string) ClassInfo {
 		return ClassInfo{}
 	}
 	return cl.ClassInfo()
-	strings.ToTitle
 }
 
 // ClassEqual returns the name of an existing class with a similar name, and "" otherwise
