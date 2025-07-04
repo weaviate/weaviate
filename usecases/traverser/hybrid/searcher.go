@@ -30,8 +30,6 @@ import (
 	uc "github.com/weaviate/weaviate/usecases/schema"
 )
 
-const DefaultLimit = 100
-
 type Params struct {
 	*searchparams.HybridSearch
 	Keyword *searchparams.KeywordRanking

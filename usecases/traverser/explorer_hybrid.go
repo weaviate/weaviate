@@ -50,7 +50,7 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 		return nil, "", err
 	}
 
-	enforcedMin := MaxInt(params.Pagination.Offset+hybrid.DefaultLimit, totalLimit)
+	enforcedMin := MaxInt(params.Pagination.Offset+int(e.config.QueryHybridMaximumResults), totalLimit)
 
 	oldLimit := params.Pagination.Limit
 	params.Pagination.Limit = enforcedMin - params.Pagination.Offset
@@ -74,8 +74,8 @@ func sparseSearch(ctx context.Context, e *Explorer, params dto.GetParams) ([]*se
 // Do a nearvector search.  The results will be used in the hybrid algorithm
 func denseSearch(ctx context.Context, e *Explorer, params dto.GetParams, searchname string, targetVectors []string, searchVector *searchparams.NearVector) ([]*search.Result, string, error) {
 	params.Pagination.Offset = 0
-	if params.Pagination.Limit < hybrid.DefaultLimit {
-		params.Pagination.Limit = hybrid.DefaultLimit
+	if params.Pagination.Limit < int(e.config.QueryHybridMaximumResults) {
+		params.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
 	}
 	params.Group = nil
 	params.GroupBy = nil
@@ -405,7 +405,7 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 	var pointerResultList hybrid.Results
 
 	if origParams.Pagination.Limit <= 0 {
-		origParams.Pagination.Limit = hybrid.DefaultLimit
+		origParams.Pagination.Limit = int(e.config.QueryHybridMaximumResults)
 	}
 
 	if origParams.Pagination.Offset < 0 {

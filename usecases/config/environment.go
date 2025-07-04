@@ -483,6 +483,16 @@ func FromEnv(config *Config) error {
 		config.QueryMaximumResults = DefaultQueryMaximumResults
 	}
 
+	if v := os.Getenv("QUERY_HYBRID_MAXIMUM_RESULTS"); v != "" {
+		asInt, err := strconv.Atoi(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_HYBRID_MAXIMUM_RESULTS as int: %w", err)
+		}
+		config.QueryHybridMaximumResults = int64(asInt)
+	} else {
+		config.QueryHybridMaximumResults = DefaultQueryHybridMaximumResults
+	}
+
 	if v := os.Getenv("QUERY_NESTED_CROSS_REFERENCE_LIMIT"); v != "" {
 		limit, err := strconv.ParseInt(v, 10, 64)
 		if err != nil {
@@ -1055,7 +1065,8 @@ func parseFloatVerify(envName string, defaultValue float64, cb func(val float64)
 }
 
 const (
-	DefaultQueryMaximumResults = int64(10000)
+	DefaultQueryMaximumResults       = int64(10000)
+	DefaultQueryHybridMaximumResults = int64(100)
 	// DefaultQueryNestedCrossReferenceLimit describes the max number of nested crossrefs returned for a query
 	DefaultQueryNestedCrossReferenceLimit = int64(100000)
 	// DefaultQueryCrossReferenceDepthLimit describes the max depth of nested crossrefs in a query
