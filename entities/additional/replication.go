@@ -29,12 +29,12 @@ type ReplicationProperties struct {
 }
 
 type AsyncReplicationTargetNodeOverride struct {
-	CollectionID         string
-	ShardID              string
-	SourceNode           string
-	TargetNode           string
-	UpperTimeBound       int64
-	NoDeletionResolution bool
+	CollectionID     string
+	ShardID          string
+	SourceNode       string
+	TargetNode       string
+	UpperTimeBound   int64
+	ResolveDeletions bool
 }
 
 type AsyncReplicationTargetNodeOverrides []AsyncReplicationTargetNodeOverride
@@ -43,9 +43,9 @@ func (left *AsyncReplicationTargetNodeOverride) Equal(right *AsyncReplicationTar
 	return left.SourceNode == right.SourceNode && left.TargetNode == right.TargetNode && left.CollectionID == right.CollectionID && left.ShardID == right.ShardID
 }
 
-func (overrides AsyncReplicationTargetNodeOverrides) ShouldResolveDeletions(targetNode string) bool {
+func (overrides AsyncReplicationTargetNodeOverrides) ResolveDeletions(targetNode string) bool {
 	for _, override := range overrides {
-		if override.TargetNode == targetNode && !override.NoDeletionResolution {
+		if override.TargetNode == targetNode && override.ResolveDeletions {
 			return true
 		}
 	}

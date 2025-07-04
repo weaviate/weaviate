@@ -945,7 +945,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]
 
 			if !r.Deleted ||
 				deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution ||
-				!config.targetNodeOverrides.ShouldResolveDeletions(shardDiffReader.TargetNodeName) {
+				!config.targetNodeOverrides.ResolveDeletions(shardDiffReader.TargetNodeName) {
 				objectsNotResolved++
 				continue
 			}
