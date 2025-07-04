@@ -43,7 +43,10 @@ func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, cfg segmentConfig,
 ) (*lazySegment, error) {
 	monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
-		"operation": "lazySegmentInit",
+		"operation":  "lazySegmentInit",
+		"class_name": "",
+		"shard_name": "",
+		"path":       "",
 	}).Inc()
 	return &lazySegment{
 		path:        path,
@@ -66,7 +69,10 @@ func (s *lazySegment) load() error {
 		s.segment = segment
 
 		monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
-			"operation": "lazySegmentLoad",
+			"operation":  "lazySegmentLoad",
+			"class_name": "",
+			"shard_name": "",
+			"path":       "",
 		}).Inc()
 	}
 
@@ -159,14 +165,20 @@ func (s *lazySegment) close() error {
 	defer s.mux.Unlock()
 
 	monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
-		"operation": "lazySegmentClose",
+		"operation":  "lazySegmentClose",
+		"class_name": "",
+		"shard_name": "",
+		"path":       "",
 	}).Inc()
 
 	if s.segment == nil {
 		return nil
 	}
 	monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
-		"operation": "lazySegmentUnLoad",
+		"operation":  "lazySegmentUnLoad",
+		"class_name": "",
+		"shard_name": "",
+		"path":       "",
 	}).Inc()
 
 	return s.segment.close()
