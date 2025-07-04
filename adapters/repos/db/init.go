@@ -14,12 +14,9 @@ package db
 import (
 	"context"
 	"fmt"
-	"math/rand"
 	"os"
 	"path"
 	"time"
-
-	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/weaviate/weaviate/cluster/router"
 
@@ -95,7 +92,6 @@ func (db *DB) init(ctx context.Context) error {
 				db.schemaGetter,
 				db.schemaReader,
 				db.replicationFSM,
-				routerTypes.NewDirectCandidateReplicaPicker(db.localNodeName, routerTypes.NewRandomReplicaPicker(rand.Intn)),
 			).Build()
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                                    schema.ClassName(class.Class),

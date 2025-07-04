@@ -5,10 +5,6 @@ dir: "{{ .InterfaceDir }}"
 outpkg: "{{ .PackageName }}"
 filename: "mock_{{ snakecase .InterfaceName }}.go"
 packages:
-  github.com/weaviate/weaviate/cluster/schema:
-    interfaces:
-      Parser:
-      replicationFSM:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
     interfaces:
       BucketCreator:
@@ -29,6 +25,10 @@ packages:
   github.com/weaviate/weaviate/cluster/schema/types:
     interfaces:
       SchemaReader:
+  github.com/weaviate/weaviate/cluster/schema:
+    interfaces:
+      replicationFSM:
+        Parser:
   github.com/weaviate/weaviate/usecases/auth/authorization:
     interfaces:
       Controller:
@@ -65,6 +65,8 @@ packages:
   github.com/weaviate/weaviate/cluster/router/types:
     interfaces:
       Router:
+      WriteReplicaStrategy:
+      ReadReplicaStrategy:
   github.com/weaviate/weaviate/entities/moduletools:
     interfaces:
       ModuleInitParams:

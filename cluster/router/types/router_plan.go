@@ -48,13 +48,11 @@ func (o RoutingPlanBuildOptions) String() string {
 //
 // Fields:
 //   - Shard: The (optional) shard targeted by this routing plan. If empty, all relevant shards are targeted.
-//   - Tenant: The tenant name targeted by this routing plan. Expected to be empty and ignored for single-tenant collections.
 //   - ReplicaSet: The ordered list of Replicas to contact.
 //   - ConsistencyLevel: The user-specified consistency level.
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
 type ReadRoutingPlan struct {
 	Shard               string
-	Tenant              string
 	ReplicaSet          ReadReplicaSet
 	ConsistencyLevel    ConsistencyLevel
 	IntConsistencyLevel int
@@ -64,8 +62,8 @@ type ReadRoutingPlan struct {
 // including shard, consistency level, and list of Replicas.
 func (p ReadRoutingPlan) String() string {
 	return fmt.Sprintf(
-		"ReadRoutingPlan{shard: %q, tenant: %q, consistencyLevel: %s (%d), Replicas: %v}",
-		p.Shard, p.Tenant, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
+		"ReadRoutingPlan{shard: %q, consistencyLevel: %s (%d), Replicas: %v}",
+		p.Shard, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
 	)
 }
 
@@ -74,7 +72,6 @@ func (p ReadRoutingPlan) String() string {
 // Fields:
 //   - Shard: The shard targeted by this routing plan. For writing, this is required as a write operation
 //     always targets a specific shard. Usually, the shard is determined based on the object's UUID.
-//   - Tenant: The tenant name targeted by this routing plan. Expected to be empty and ignored for single-tenant collections.
 //   - ReplicaSet: The ordered list of primary write Replicas.
 //     Write Replicas will normally also include read Replicas. A node that accepts writes is also eligible to
 //     serve reads.
@@ -83,7 +80,6 @@ func (p ReadRoutingPlan) String() string {
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
 type WriteRoutingPlan struct {
 	Shard               string
-	Tenant              string
 	ReplicaSet          WriteReplicaSet
 	ConsistencyLevel    ConsistencyLevel
 	IntConsistencyLevel int
@@ -93,9 +89,20 @@ type WriteRoutingPlan struct {
 // including shard, consistency level, write Replicas, and additional Replicas.
 func (p WriteRoutingPlan) String() string {
 	return fmt.Sprintf(
-		"WriteRoutingPlan{shard: %q, tenant: %q, consistencyLevel: %s (%d), writeReplicas: %v}",
-		p.Shard, p.Tenant, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
+		"WriteRoutingPlan{shard: %q, consistencyLevel: %s (%d), writeReplicas: %v}",
+		p.Shard, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
 	)
+}
+
+// Replicas returns the primary write Replicas for the operation.
+func (p WriteRoutingPlan) Replicas() []Replica {
+	return p.ReplicaSet.Replicas
+}
+
+// AdditionalReplicas returns secondary write Replicas,
+// typically used during shard migration or replication.
+func (p WriteRoutingPlan) AdditionalReplicas() []Replica {
+	return p.ReplicaSet.AdditionalReplicas
 }
 
 // LogFields returns a structured representation of the ReadRoutingPlan for logging purposes.
@@ -120,10 +127,40 @@ func (p WriteRoutingPlan) LogFields() logrus.Fields {
 	}
 	return logrus.Fields{
 		"shard":             p.Shard,
-		"tenant":            tenant,
 		"write_replica_set": p.ReplicaSet,
 		"consistency_level": p.ConsistencyLevel,
 	}
+}
+
+// ValidateConsistencyLevel validates that the resolved consistency level can be satisfied
+// by the number of available read Replicas.
+//
+// Returns:
+//   - The resolved numeric consistency level.
+//   - An error if the level exceeds the number of available Replicas.
+func (p ReadRoutingPlan) ValidateConsistencyLevel() (int, error) {
+	return validateConsistencyLevel(p.ConsistencyLevel, p.ReplicaSet.Replicas)
+}
+
+// ValidateConsistencyLevel validates that the resolved consistency level can be satisfied
+// by the number of available write Replicas.
+//
+// Returns:
+//   - The resolved numeric consistency level.
+//   - An error if the level exceeds the number of available Replicas.
+func (p WriteRoutingPlan) ValidateConsistencyLevel() (int, error) {
+	return validateConsistencyLevel(p.ConsistencyLevel, p.ReplicaSet.Replicas)
+}
+
+func validateConsistencyLevel(level ConsistencyLevel, replicas []Replica) (int, error) {
+	resolved := level.ToInt(len(replicas))
+	if resolved > len(replicas) {
+		return 0, fmt.Errorf(
+			"impossible to satisfy consistency level (%d) > available Replicas (%d) Replicas=%+q",
+			resolved, len(replicas), replicas,
+		)
+	}
+	return resolved, nil
 }
 
 // NodeNames returns the hostnames of the Replicas included in the ReadRoutingPlan.
@@ -140,11 +177,6 @@ func (p ReadRoutingPlan) HostAddresses() []string {
 // in the ReadRoutingPlan.
 func (p ReadRoutingPlan) Shards() []string {
 	return p.ReplicaSet.Shards()
-}
-
-// Replicas returns a list of replicas
-func (p ReadRoutingPlan) Replicas() []Replica {
-	return p.ReplicaSet.Replicas
 }
 
 // HostNames returns the hostnames of the primary write Replicas
@@ -165,11 +197,6 @@ func (p WriteRoutingPlan) Shards() []string {
 	return p.ReplicaSet.Shards()
 }
 
-// Replicas returns a list of replicas
-func (p WriteRoutingPlan) Replicas() []Replica {
-	return p.ReplicaSet.Replicas
-}
-
 // AdditionalHostNames returns the hostnames of the additional write Replicas,
 // which are not part of the primary ReplicaSet, in the WriteRoutingPlan.
 func (p WriteRoutingPlan) AdditionalHostNames() []string {
@@ -186,9 +213,4 @@ func (p WriteRoutingPlan) AdditionalHostAddresses() []string {
 // in the WriteRoutingPlan.
 func (p WriteRoutingPlan) AdditionalShards() []string {
 	return p.ReplicaSet.AdditionalShards()
-}
-
-// AdditionalReplicas returns a list of additional replicas
-func (p WriteRoutingPlan) AdditionalReplicas() []Replica {
-	return p.ReplicaSet.AdditionalReplicas
 }

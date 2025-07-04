@@ -43,11 +43,13 @@ type (
 	// coordinator coordinates replication of write and read requests
 	coordinator[T any] struct {
 		Client
-		Router router
-		log    logrus.FieldLogger
-		Class  string
-		Shard  string
-		TxID   string // transaction ID
+		Router       router
+		readPlanner  readPlanner
+		writePlanner writePlanner
+		log          logrus.FieldLogger
+		Class        string
+		Shard        string
+		TxID         string // transaction ID
 		// wait twice this duration for the first Pull backoff for each host
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
@@ -181,8 +183,10 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	ask readyOp,
 	com commitOp[T],
 ) (<-chan _Result[T], int, error) {
-	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, "")
-	writeRoutingPlan, err := c.Router.BuildWriteRoutingPlan(options)
+	writeRoutingPlan, err := c.writePlanner.Plan(types.RoutingPlanBuildOptions{
+		Shard:            c.Shard,
+		ConsistencyLevel: cl,
+	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
@@ -223,8 +227,11 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
 ) (<-chan _Result[T], int, error) {
-	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, directCandidate)
-	readRoutingPlan, err := c.Router.BuildReadRoutingPlan(options)
+	readRoutingPlan, err := c.readPlanner.Plan(types.RoutingPlanBuildOptions{
+		Shard:               c.Shard,
+		ConsistencyLevel:    cl,
+		DirectCandidateNode: directCandidate,
+	})
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}

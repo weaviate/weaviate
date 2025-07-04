@@ -63,6 +63,7 @@ type (
 // Finder finds replicated objects
 type Finder struct {
 	router       router
+	readPlanner  readPlanner
 	nodeName     string
 	finderStream // stream of objects
 	// control the op backoffs in the coordinator's Pull
@@ -319,8 +320,10 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
-	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
-	routingPlan, err := f.router.BuildReadRoutingPlan(options)
+	routingPlan, err := f.readPlanner.Plan(types.RoutingPlanBuildOptions{
+		Shard:            shardName,
+		ConsistencyLevel: types.ConsistencyLevelOne,
+	})
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}
@@ -386,7 +389,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}
 	}
 
-	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas()))
+	replicaNodeNames := make([]string, 0, len(routingPlan.ReplicaSet.NodeNames()))
 	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
 	for _, replica := range targetNodesToUse {
 		replicaNodeNames = append(replicaNodeNames, replica)

@@ -41,11 +41,16 @@ const (
 
 type (
 	router interface {
-		BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions
-		BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error)
-		BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error)
 		NodeHostname(nodeName string) (string, bool)
 		AllHostnames() []string
+	}
+
+	readPlanner interface {
+		Plan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error)
+	}
+
+	writePlanner interface {
+		Plan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error)
 	}
 
 	// _Result represents a valid value or an error ( _ prevent make it public).

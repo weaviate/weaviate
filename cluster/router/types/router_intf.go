@@ -30,8 +30,9 @@ type Router interface {
 	// Returns:
 	//   - readReplicas: a replica set serving as read Replicas.
 	//   - writeReplicas: a replica set serving as primary write Replicas.
+	//   - additionalWriteReplicas: a replica set serving as additional write Replicas.
 	//   - error: if an error occurs while retrieving Replicas.
-	GetReadWriteReplicasLocation(collection string, tenant string, shard string) (readReplicas ReadReplicaSet, writeReplicas WriteReplicaSet, err error)
+	GetReadWriteReplicasLocation(collection string, shard string) (readReplicas ReadReplicaSet, writeReplicas WriteReplicaSet, err error)
 
 	// GetWriteReplicasLocation returns the write Replicas for a given collection.
 	//
@@ -41,8 +42,9 @@ type Router interface {
 	//
 	// Returns:
 	//   - writeReplicas: a replica set serving as primary write Replicas.
+	//   - additionalWriteReplicas: a replica set serving as additional write Replicas.
 	//   - error: if an error occurs while retrieving Replicas.
-	GetWriteReplicasLocation(collection string, tenant string, shard string) (WriteReplicaSet, error)
+	GetWriteReplicasLocation(collection string, shard string) (WriteReplicaSet, error)
 
 	// GetReadReplicasLocation returns the read Replicas for a given collection.
 	//
@@ -53,54 +55,7 @@ type Router interface {
 	// Returns:
 	//   - readReplicas: a replica set serving as read Replicas.
 	//   - error: if an error occurs while retrieving Replicas.
-	GetReadReplicasLocation(collection string, tenant string, shard string) (ReadReplicaSet, error)
-
-	// BuildRoutingPlanOptions constructs routing plan build options with router-specific tenant handling.
-	//
-	// This method creates RoutingPlanBuildOptions configured appropriately for the router type:
-	//   - Single-tenant routers: ignore the tenant parameter and always set tenant to empty string
-	//   - Multi-tenant routers: preserve the tenant parameter as provided
-	//
-	// This allows callers to use the same code with different router types without needing to know
-	// the specific router implementation details.
-	//
-	// Parameters:
-	//   - tenant: the tenant identifier to target. For single-tenant routers, this parameter is
-	//     ignored and the resulting options will have an empty tenant. For multi-tenant routers,
-	//     this value is preserved in the resulting options.
-	//   - shard: the shard identifier to target. For multi-tenant collections, this should typically
-	//     match the tenant name due to partitioning constraints. For single-tenant collections,
-	//     this can be empty to target all shards or set to a specific shard name.
-	//   - cl: the desired consistency level for operations using these options.
-	//   - directCandidate: the preferred node name to contact first when executing routing plans.
-	//     If empty, the router will use the local node as the preferred candidate.
-	//
-	// Returns:
-	//   - RoutingPlanBuildOptions: configured routing plan build options with router-appropriate
-	//     tenant handling applied.
-	BuildRoutingPlanOptions(tenant, shard string, cl ConsistencyLevel, directCandidate string) RoutingPlanBuildOptions
-
-	// BuildWriteRoutingPlan constructs a routing plan for a write operation based on the provided options.
-	//
-	// Parameters:
-	//   - params: the routing plan build options containing tenant, shard, consistency level,
-	//     and direct candidate preferences for constructing the write routing plan.
-	//
-	// Returns:
-	//   - WriteRoutingPlan: a routing plan optimized for write operations.
-	//   - error: if an error occurs while building the routing plan.
-	BuildWriteRoutingPlan(params RoutingPlanBuildOptions) (WriteRoutingPlan, error)
-
-	// BuildReadRoutingPlan constructs a routing plan for a read operation based on the provided options.
-	//
-	// Parameters:
-	//   - params: the routing plan build options containing tenant, shard, consistency level,
-	//     and direct candidate preferences for constructing the read routing plan.
-	//
-	// Returns:
-	//   - ReadRoutingPlan: a routing plan optimized for read operations.
-	//   - error: if an error occurs while building the routing plan.
-	BuildReadRoutingPlan(params RoutingPlanBuildOptions) (ReadRoutingPlan, error)
+	GetReadReplicasLocation(collection string, shard string) (ReadReplicaSet, error)
 
 	// NodeHostname returns the hostname for a given node name.
 	//

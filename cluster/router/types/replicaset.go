@@ -11,13 +11,11 @@
 
 package types
 
-import (
-	"fmt"
-	"strings"
-)
+import "strings"
 
 // ReadReplicaSet contains *exactly one* replica per shard and is produced by
-// ReadReplicaStrategy implementations for read paths.
+// ReadReplicaPicker implementations for read paths.  It deliberately carries no
+// write-specific semantics.
 type ReadReplicaSet struct {
 	Replicas []Replica
 }
@@ -55,22 +53,12 @@ func (s ReadReplicaSet) HostAddresses() []string {
 	return hostAddresses
 }
 
-// Shards returns a list of unique shard names for all Replicas in the ReplicaSet.
+// Shards returns a list of shard names for all Replicas in the ReplicaSet.
 func (s ReadReplicaSet) Shards() []string {
-	if len(s.Replicas) == 0 {
-		return []string{}
-	}
-
-	seen := make(map[string]bool, len(s.Replicas))
 	shards := make([]string, 0, len(s.Replicas))
-
 	for _, replica := range s.Replicas {
-		if !seen[replica.ShardName] {
-			seen[replica.ShardName] = true
-			shards = append(shards, replica.ShardName)
-		}
+		shards = append(shards, replica.ShardName)
 	}
-
 	return shards
 }
 
@@ -101,22 +89,12 @@ func (s WriteReplicaSet) HostAddresses() []string {
 	return hostAddresses
 }
 
-// Shards returns a list of unique shard names for all Replicas in the ReplicaSet.
+// Shards returns a list of shard names for all Replicas in the ReplicaSet.
 func (s WriteReplicaSet) Shards() []string {
-	if len(s.Replicas) == 0 {
-		return []string{}
-	}
-
-	seen := make(map[string]bool, len(s.Replicas))
 	shards := make([]string, 0, len(s.Replicas))
-
 	for _, replica := range s.Replicas {
-		if !seen[replica.ShardName] {
-			seen[replica.ShardName] = true
-			shards = append(shards, replica.ShardName)
-		}
+		shards = append(shards, replica.ShardName)
 	}
-
 	return shards
 }
 
@@ -142,70 +120,15 @@ func (s WriteReplicaSet) AdditionalHostAddresses() []string {
 	return hostAddresses
 }
 
-// AdditionalShards returns a list of unique shard names for all Replicas in the AdditionalReplicaSet.
+// AdditionalShards returns a list of shard names for all Replicas in the AdditionalReplicaSet.
 func (s WriteReplicaSet) AdditionalShards() []string {
-	if len(s.AdditionalReplicas) == 0 {
-		return []string{}
-	}
-
-	seen := make(map[string]bool, len(s.AdditionalReplicas))
 	shards := make([]string, 0, len(s.AdditionalReplicas))
-
 	for _, replica := range s.AdditionalReplicas {
-		if !seen[replica.ShardName] {
-			seen[replica.ShardName] = true
-			shards = append(shards, replica.ShardName)
-		}
+		shards = append(shards, replica.ShardName)
 	}
-
 	return shards
 }
 
 func (s WriteReplicaSet) IsEmpty() bool {
 	return len(s.Replicas) == 0
-}
-
-// validateReplicaSetConsistency validates that the consistency level can be satisfied
-// by grouping replicas by shard and validating each shard independently.
-func validateReplicaSetConsistency(replicas []Replica, level ConsistencyLevel) (int, error) {
-	if len(replicas) == 0 {
-		return 0, nil
-	}
-
-	// Group replicas by shard
-	replicasByShard := make(map[string][]Replica)
-	for _, replica := range replicas {
-		replicasByShard[replica.ShardName] = append(replicasByShard[replica.ShardName], replica)
-	}
-
-	var expectedConsistencyLevel int
-	var firstShard string
-
-	for shardName, shardReplicas := range replicasByShard {
-		resolved := level.ToInt(len(shardReplicas))
-		if resolved > len(shardReplicas) {
-			return 0, fmt.Errorf(
-				"shard %s: impossible to satisfy consistency level (%d) > available replicas (%d)",
-				shardName, resolved, len(shardReplicas))
-		}
-
-		if firstShard == "" {
-			expectedConsistencyLevel = resolved
-			firstShard = shardName
-		} else if resolved != expectedConsistencyLevel {
-			return 0, fmt.Errorf(
-				"inconsistent consistency levels: shard %s resolved to %d, shard %s resolved to %d",
-				firstShard, expectedConsistencyLevel, shardName, resolved)
-		}
-	}
-
-	return expectedConsistencyLevel, nil
-}
-
-func (s ReadReplicaSet) ValidateConsistencyLevel(level ConsistencyLevel) (int, error) {
-	return validateReplicaSetConsistency(s.Replicas, level)
-}
-
-func (s WriteReplicaSet) ValidateConsistencyLevel(level ConsistencyLevel) (int, error) {
-	return validateReplicaSetConsistency(s.Replicas, level)
 }
