@@ -14,7 +14,6 @@ package lsmkv
 import (
 	"bytes"
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"hash/crc32"
 	"io"
@@ -29,11 +28,7 @@ import (
 	"github.com/weaviate/weaviate/entities/diskio"
 )
 
-type metadata struct {
-	BloomFilter          []byte   `json:"bloom_filter"`
-	SecondaryBloomFilter [][]byte `json:"secondary_bloom_filter"`
-	NetAdditions         []byte   `json:"net_additions"`
-}
+const MetadataVersion = 0
 
 func (s *segment) buildPath(template string) string {
 	isTmpFile := filepath.Ext(s.path) == ".tmp"
@@ -96,24 +91,36 @@ func (s *segment) initMetadata(metrics *Metrics, overwrite bool, exists existsOn
 	if err != nil {
 		return err
 	}
-	meta := &metadata{
-		BloomFilter:          primaryBloom,
-		SecondaryBloomFilter: secondaryBloom,
-		NetAdditions:         netAdditions,
-	}
 
-	metaBytes, err := json.Marshal(meta)
-	if err != nil {
-		return err
-	}
+	return s.writeMetadataToDisk(path, primaryBloom, secondaryBloom, netAdditions)
+}
 
-	rw := byteops.NewReadWriter(make([]byte, len(metaBytes)+byteops.Uint32Len))
+func (s *segment) writeMetadataToDisk(path string, primaryBloom []byte, secondaryBloom [][]byte, netAdditions []byte) error {
+	// Uint32 for checksum
+	// byte for version
+	// Uint32 for lengths - primary bloom filters, N secondary bloom filters and CNA
+	sizeHeader := byteops.Uint32Len + 1 + (2+s.secondaryIndexCount)*byteops.Uint32Len
+	sizeData := len(primaryBloom) + len(netAdditions)
+	for _, b := range secondaryBloom {
+		sizeData += len(b)
+	}
+	rw := byteops.NewReadWriter(make([]byte, int(sizeHeader)+sizeData))
 	rw.MoveBufferPositionForward(byteops.Uint32Len) // leave space for checksum
 
-	if err := rw.CopyBytesToBuffer(metaBytes); err != nil {
+	rw.WriteByte(MetadataVersion)
+
+	if err := rw.CopyBytesToBufferWithUint32LengthIndicator(primaryBloom); err != nil {
 		return err
 	}
 
+	if err := rw.CopyBytesToBufferWithUint32LengthIndicator(netAdditions); err != nil {
+		return err
+	}
+	for _, b := range secondaryBloom {
+		if err := rw.CopyBytesToBufferWithUint32LengthIndicator(b); err != nil {
+			return err
+		}
+	}
 	return writeWithChecksum(rw, path, s.observeMetaWrite)
 }
 
@@ -190,29 +197,37 @@ func (s *segment) loadMetaFromDisk(path string) error {
 	if err != nil {
 		return err
 	}
-	meta := metadata{}
-	if err := json.Unmarshal(data, &meta); err != nil {
+
+	rw := byteops.NewReadWriter(data)
+	version := rw.ReadUint8()
+	if version != MetadataVersion {
+		return fmt.Errorf("invalid metadata version: %d", version)
+	}
+	primaryBloom := rw.ReadBytesFromBufferWithUint32LengthIndicator()
+	netAdditions := rw.ReadBytesFromBufferWithUint32LengthIndicator()
+	secondaryBloom := make([][]byte, s.secondaryIndexCount)
+	for i := range secondaryBloom {
+		secondaryBloom[i] = rw.ReadBytesFromBufferWithUint32LengthIndicator()
+	}
+
+	if err := s.initBloomFiltersFromData(primaryBloom, secondaryBloom); err != nil {
 		return err
 	}
 
-	if err := s.initBloomFiltersFromData(meta); err != nil {
-		return err
-	}
-
-	if err := s.initCNAFromData(meta); err != nil {
+	if err := s.initCNAFromData(netAdditions); err != nil {
 		return err
 	}
 
 	return nil
 }
 
-func (s *segment) initBloomFiltersFromData(meta metadata) error {
+func (s *segment) initBloomFiltersFromData(primary []byte, secondary [][]byte) error {
 	if !s.useBloomFilter {
 		return nil
 	}
 
 	s.bloomFilter = new(bloom.BloomFilter)
-	_, err := s.bloomFilter.ReadFrom(bytes.NewReader(meta.BloomFilter))
+	_, err := s.bloomFilter.ReadFrom(bytes.NewReader(primary))
 	if err != nil {
 		return fmt.Errorf("read bloom filter: %w", err)
 	}
@@ -220,7 +235,7 @@ func (s *segment) initBloomFiltersFromData(meta metadata) error {
 	s.secondaryBloomFilters = make([]*bloom.BloomFilter, s.secondaryIndexCount)
 	for i := range s.secondaryBloomFilters {
 		s.secondaryBloomFilters[i] = new(bloom.BloomFilter)
-		_, err := s.secondaryBloomFilters[i].ReadFrom(bytes.NewReader(meta.SecondaryBloomFilter[i]))
+		_, err := s.secondaryBloomFilters[i].ReadFrom(bytes.NewReader(secondary[i]))
 		if err != nil {
 			return fmt.Errorf("read bloom filter: %w", err)
 		}

@@ -33,12 +33,12 @@ func (s *segment) countNetPath() string {
 	return s.buildPath("%s.cna")
 }
 
-func (s *segment) initCNAFromData(meta metadata) error {
+func (s *segment) initCNAFromData(netAdditions []byte) error {
 	if !s.calcCountNetAdditions || s.strategy != segmentindex.StrategyReplace {
 		return nil
 	}
 
-	s.countNetAdditions = int(binary.LittleEndian.Uint64(meta.NetAdditions[0:8]))
+	s.countNetAdditions = int(binary.LittleEndian.Uint64(netAdditions))
 
 	return nil
 }
