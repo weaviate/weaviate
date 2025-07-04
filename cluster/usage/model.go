@@ -51,7 +51,10 @@ type ShardUsage struct {
 	ObjectsCount int `json:"objects_count"`
 
 	// The storage size in bytes
-	ObjectsStorageBytes int64 `json:"objects_storage_bytes"`
+	ObjectsStorageBytes uint64 `json:"objects_storage_bytes"`
+
+	// The actual memory storage bytes used by vectors
+	VectorStorageBytes uint64 `json:"vector_storage_bytes"`
 
 	// List of named vectors and their metrics
 	NamedVectors []*VectorUsage `json:"named_vectors"`
@@ -75,11 +78,11 @@ type VectorUsage struct {
 	VectorStorageBytes int64 `json:"vector_storage_bytes"`
 
 	// List of dimensionalities and their metrics
-	Dimensionalities []*DimensionalityUsage `json:"dimensionalities"`
+	Dimensionalities []*Dimensionality `json:"dimensionalities"`
 }
 
-// DimensionalityUsage represents metrics for a specific dimensionality
-type DimensionalityUsage struct {
+// Dimensionality represents metrics for a specific dimensionality
+type Dimensionality struct {
 	// The dimensionality of the vectors
 	Dimensionality int `json:"dimensionality"`
 

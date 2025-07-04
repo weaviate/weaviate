@@ -2915,6 +2915,52 @@ func (_c *MockShardLike_VectorDistanceForQuery_Call) RunAndReturn(run func(conte
 	return _c
 }
 
+// VectorStorageSize provides a mock function with given fields: ctx
+func (_m *MockShardLike) VectorStorageSize(ctx context.Context) int64 {
+	ret := _m.Called(ctx)
+
+	if len(ret) == 0 {
+		panic("no return value specified for VectorStorageSize")
+	}
+
+	var r0 int64
+	if rf, ok := ret.Get(0).(func(context.Context) int64); ok {
+		r0 = rf(ctx)
+	} else {
+		r0 = ret.Get(0).(int64)
+	}
+
+	return r0
+}
+
+// MockShardLike_VectorStorageSize_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'VectorStorageSize'
+type MockShardLike_VectorStorageSize_Call struct {
+	*mock.Call
+}
+
+// VectorStorageSize is a helper method to define mock.On call
+//   - ctx context.Context
+func (_e *MockShardLike_Expecter) VectorStorageSize(ctx interface{}) *MockShardLike_VectorStorageSize_Call {
+	return &MockShardLike_VectorStorageSize_Call{Call: _e.mock.On("VectorStorageSize", ctx)}
+}
+
+func (_c *MockShardLike_VectorStorageSize_Call) Run(run func(ctx context.Context)) *MockShardLike_VectorStorageSize_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context))
+	})
+	return _c
+}
+
+func (_c *MockShardLike_VectorStorageSize_Call) Return(_a0 int64) *MockShardLike_VectorStorageSize_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockShardLike_VectorStorageSize_Call) RunAndReturn(run func(context.Context) int64) *MockShardLike_VectorStorageSize_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // Versioner provides a mock function with no fields
 func (_m *MockShardLike) Versioner() *shardVersioner {
 	ret := _m.Called()

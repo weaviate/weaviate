@@ -77,7 +77,8 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 					shardUsage := &ShardUsage{
 						Name:                tenantName,
 						ObjectsCount:        int(objectCount),
-						ObjectsStorageBytes: storageSize,
+						ObjectsStorageBytes: uint64(storageSize),
+						VectorStorageBytes:  uint64(index.CalculateUnloadedVectorsMetrics(ctx, tenantName)),
 						NamedVectors:        make([]*VectorUsage, 0), // Empty for cold tenants
 					}
 					coldTenants[tenantName] = shardUsage
@@ -94,7 +95,8 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 				shardUsage := &ShardUsage{
 					Name:                name,
 					ObjectsCount:        shard.ObjectCountAsync(),
-					ObjectsStorageBytes: shard.ObjectStorageSize(ctx),
+					ObjectsStorageBytes: uint64(shard.ObjectStorageSize(ctx)),
+					VectorStorageBytes:  uint64(shard.VectorStorageSize(ctx)),
 					NamedVectors:        make([]*VectorUsage, 0),
 				}
 
@@ -107,7 +109,7 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 						indexType = vectorIndexConfig.IndexType()
 					}
 
-					dimensions, objects := shard.DimensionsUsage(ctx, targetVector)
+					count, dimensions := shard.DimensionsUsage(ctx, targetVector)
 					// Get compression ratio from vector index stats
 					var compressionRatio float64
 					if compressionStats, err := vectorIndex.CompressionStats(); err == nil {
@@ -122,9 +124,9 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 						VectorCompressionRatio: compressionRatio,
 					}
 
-					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &DimensionalityUsage{
+					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &Dimensionality{
 						Dimensionality: dimensions,
-						Count:          objects,
+						Count:          count,
 					})
 
 					shardUsage.NamedVectors = append(shardUsage.NamedVectors, vectorUsage)
