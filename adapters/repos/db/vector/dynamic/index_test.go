@@ -425,7 +425,7 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	var wg sync.WaitGroup
 	wg.Add(1)
 
-	//flat -> hnsw
+	// flat -> hnsw
 	err = dynamic.Upgrade(func() {
 		wg.Done()
 	})
@@ -433,7 +433,7 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	wg.Wait()
 	wg.Add(1)
 
-	//PQ
+	// PQ
 	err = dynamic.Upgrade(func() {
 		wg.Done()
 	})
