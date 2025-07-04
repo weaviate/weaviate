@@ -21,7 +21,6 @@ import (
 	"runtime"
 	"runtime/debug"
 	golangSort "sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -2950,15 +2949,12 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 		return int64(shard.ObjectCount()), shard.ObjectStorageSize(ctx)
 	}
 
-	// Locate the tenant on disk
-	shardPath := shardPathObjectsLSM(i.path(), tenantName)
-
 	// Parse all .cna files in the object store and sum them up
 	totalObjectCount := int64(0)
 	totalDiskSize := int64(0)
 
 	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
-	if err := filepath.Walk(shardPath, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(shardPathObjectsLSM(i.path(), tenantName), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -2968,27 +2964,20 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 			totalDiskSize += info.Size()
 
 			// Look for .cna files (net count additions)
-			if strings.HasSuffix(info.Name(), ".cna") {
-				// Read the .cna file to get object count
-				data, err := os.ReadFile(path)
+			if strings.HasSuffix(info.Name(), lsmkv.CNAFileSuffix) {
+				count, err := lsmkv.ReadCNAFileCount(path)
 				if err != nil {
+					i.logger.WithField("path", path).WithError(err).Warn("failed to read .cna file")
 					return err
 				}
-
-				// Parse the count from the .cna file
-				// .cna files typically contain a simple integer count
-				count, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-				if err != nil {
-					// If parsing fails, skip this file
-					return nil
-				}
-
 				totalObjectCount += count
+				i.logger.WithField("path", path).WithField("count", count).Info("found .cna file mooga")
 			}
 		}
 
 		return nil
 	}); err != nil {
+		// TODO change interface and retrun error to avoid reporting invalid data
 		return 0, 0
 	}
 
