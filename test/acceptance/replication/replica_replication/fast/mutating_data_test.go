@@ -128,7 +128,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	opId := *res.Payload.ID
 
 	t.Log("Waiting for replication operation to complete")
-	assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
 		res, err := helper.Client(t).Replication.ReplicationDetails(
 			replication.NewReplicationDetailsParams().WithID(opId),
 			nil,
@@ -179,7 +179,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 			expectedCount = count
 			comparisonReplica = replica
 		} else {
-			assert.Equal(t, expectedCount, count, "object counts across replicas do not match. Expected %d as on %s but got %d for replica %s instead", expectedCount, comparisonReplica, count, replica)
+			require.Equal(t, expectedCount, count, "object counts across replicas do not match. Expected %d as on %s but got %d for replica %s instead", expectedCount, comparisonReplica, count, replica)
 		}
 	}
 }

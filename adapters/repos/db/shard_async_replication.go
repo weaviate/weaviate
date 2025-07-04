@@ -549,7 +549,7 @@ func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncRep
 	asyncReplicationStatsToReturn := make([]*models.AsyncReplicationStatus, 0, len(s.asyncReplicationStatsByTargetNode))
 	for targetNodeName, asyncReplicationStats := range s.asyncReplicationStatsByTargetNode {
 		asyncReplicationStatsToReturn = append(asyncReplicationStatsToReturn, &models.AsyncReplicationStatus{
-			ObjectsPropagated:       uint64(asyncReplicationStats.objectsPropagated) - uint64(asyncReplicationStats.objectsNotDeleted),
+			ObjectsPropagated:       uint64(asyncReplicationStats.objectsPropagated) - uint64(asyncReplicationStats.objectsNotResolved),
 			StartDiffTimeUnixMillis: asyncReplicationStats.diffStartTime.UnixMilli(),
 			TargetNode:              targetNodeName,
 		})
@@ -841,7 +841,7 @@ type hashBeatHostStats struct {
 	remoteObjects       int
 	objectsPropagated   int
 	objectProgationTook time.Duration
-	objectsNotDeleted   int
+	objectsNotResolved  int
 }
 
 func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]*hashBeatHostStats, error) {
@@ -928,7 +928,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]
 		}
 	}
 
-	objectsNotDeleted := 0
+	objectsNotResolved := 0
 	if len(objectsToPropagate) > 0 {
 		propagationCtx, cancel := context.WithTimeout(ctx, config.propagationTimeout)
 		defer cancel()
@@ -944,7 +944,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]
 			deletionStrategy := s.index.DeletionStrategy()
 
 			if !r.Deleted || deletionStrategy == models.ReplicationConfigDeletionStrategyNoAutomatedResolution || len(config.targetNodeOverrides) > 0 {
-				objectsNotDeleted++
+				objectsNotResolved++
 				continue
 			}
 
@@ -969,7 +969,7 @@ func (s *Shard) hashBeat(ctx context.Context, config asyncReplicationConfig) ([]
 			remoteObjects:       remoteObjectsCount,
 			objectsPropagated:   len(objectsToPropagate),
 			objectProgationTook: time.Since(objectProgationStart),
-			objectsNotDeleted:   objectsNotDeleted,
+			objectsNotResolved:  objectsNotResolved,
 		},
 	}, nil
 }
