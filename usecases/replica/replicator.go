@@ -48,6 +48,14 @@ type (
 		AllHostnames() []string
 	}
 
+	readPlanner interface {
+		Plan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error)
+	}
+
+	writePlanner interface {
+		Plan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error)
+	}
+
 	// _Result represents a valid value or an error ( _ prevent make it public).
 	_Result[T any] struct {
 		Value T

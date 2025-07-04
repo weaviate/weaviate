@@ -43,11 +43,13 @@ type (
 	// coordinator coordinates replication of write and read requests
 	coordinator[T any] struct {
 		Client
-		Router router
-		log    logrus.FieldLogger
-		Class  string
-		Shard  string
-		TxID   string // transaction ID
+		Router       router
+		readPlanner  readPlanner
+		writePlanner writePlanner
+		log          logrus.FieldLogger
+		Class        string
+		Shard        string
+		TxID         string // transaction ID
 		// wait twice this duration for the first Pull backoff for each host
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long

@@ -63,6 +63,7 @@ type (
 // Finder finds replicated objects
 type Finder struct {
 	router       router
+	readPlanner  readPlanner
 	nodeName     string
 	finderStream // stream of objects
 	// control the op backoffs in the coordinator's Pull
@@ -386,7 +387,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}
 	}
 
-	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas()))
+	replicaNodeNames := make([]string, 0, len(routingPlan.ReplicaSet.NodeNames()))
 	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
 	for _, replica := range targetNodesToUse {
 		replicaNodeNames = append(replicaNodeNames, replica)

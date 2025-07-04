@@ -66,7 +66,6 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_NoShards(t *testing.T) 
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "", "")
@@ -101,7 +100,6 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_OneShard(t *testing.T) 
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "", "")
@@ -177,7 +175,6 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_MultipleShards(t *testi
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "", "")
@@ -230,7 +227,6 @@ func TestSingleTenantRouter_GetWriteReplicasLocation(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	ws, err := r.GetWriteReplicasLocation("TestClass", "", "")
@@ -268,7 +264,6 @@ func TestSingleTenantRouter_GetReadReplicasLocation(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	readReplicas, err := r.GetReadReplicasLocation("TestClass", "", "")
@@ -304,7 +299,6 @@ func TestSingleTenantRouter_ErrorInMiddleOfShardProcessing(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "", "")
@@ -348,7 +342,6 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_Success(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "luke", "")
@@ -387,7 +380,6 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_TenantNotFound(t *testin
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "luke", "")
@@ -418,7 +410,6 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_TenantNotActive(t *testi
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "luke", "")
@@ -443,7 +434,6 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_NonTenantRequestForMulti
 		mockSchemaGetter,
 		metadataReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "", "")
@@ -480,7 +470,6 @@ func TestMultiTenantRouter_GetWriteReplicasLocation(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	ws, err := r.GetWriteReplicasLocation("TestClass", "luke", "")
@@ -521,7 +510,6 @@ func TestMultiTenantRouter_GetReadReplicasLocation(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	readReplicas, err := r.GetReadReplicasLocation("TestClass", "luke", "")
@@ -571,7 +559,6 @@ func TestMultiTenantRouter_TenantStatusChangeDuringOperation(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "luke", "")
@@ -639,7 +626,6 @@ func TestMultiTenantRouter_VariousTenantStatuses(t *testing.T) {
 				mockSchemaGetter,
 				mockSchemaReader,
 				mockReplicationFSM,
-				types.NewDirectCandidateReplicaPicker("node1", nil),
 			).Build()
 
 			rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "luke", "")
@@ -679,7 +665,6 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 	rs, err := r.GetReadReplicasLocation("TestClass", "", "shard1")
 
@@ -711,7 +696,6 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_NoReplicas(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 	rs, err := r.GetReadReplicasLocation("TestClass", "luke", "")
 	require.NoError(t, err)
@@ -741,7 +725,6 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_Success(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 	rs, err := r.GetReadReplicasLocation("TestClass", "luke", "")
 	require.NoError(t, err)
@@ -769,7 +752,6 @@ func TestMultiTenantRouter_BuildRoutingPlan_TenantNotFoundDuringBuild(t *testing
 		mockSchemaGetter,
 		metadataReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 	rs, err := r.GetReadReplicasLocation("TestClass", "nonexistent", "")
 	require.Error(t, err)
@@ -806,7 +788,6 @@ func TestRouter_NodeHostname(t *testing.T) {
 				mockSchemaGetter,
 				mockSchemaReader,
 				mockReplicationFSM,
-				types.NewDirectCandidateReplicaPicker("node1", nil),
 			).Build()
 
 			hostname, ok := r.NodeHostname("node1")
@@ -849,7 +830,6 @@ func TestRouter_AllHostnames(t *testing.T) {
 				mockSchemaGetter,
 				mockSchemaReader,
 				mockReplicationFSM,
-				types.NewDirectCandidateReplicaPicker("node1", nil),
 			).Build()
 
 			hostnames := r.AllHostnames()
@@ -882,15 +862,8 @@ func TestMultiTenantRouter_MultipleTenantsSameCollection(t *testing.T) {
 			Return([]string{replicas[0]}, replicas[1:])
 	}
 
-	r := router.NewBuilder(
-		"TestClass",
-		true,
-		mockNodeSelector,
-		mockSchemaGetter,
-		mockSchemaReader,
-		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
-	).Build()
+	r := router.NewBuilder("TestClass", true, mockNodeSelector,
+		mockSchemaGetter, mockSchemaReader, mockReplicationFSM).Build()
 
 	for tenant, expected := range tenants {
 		rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", tenant, "")
@@ -947,15 +920,8 @@ func TestMultiTenantRouter_MixedTenantStates(t *testing.T) {
 		}
 	}
 
-	r := router.NewBuilder(
-		"TestClass",
-		true,
-		mockNodeSelector,
-		mockSchemaGetter,
-		mockSchemaReader,
-		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
-	).Build()
+	r := router.NewBuilder("TestClass", true, mockNodeSelector,
+		mockSchemaGetter, mockSchemaReader, mockReplicationFSM).Build()
 
 	for tenantName, tenantsStatus := range tenants {
 		t.Run(tenantName, func(t *testing.T) {
@@ -1007,15 +973,8 @@ func TestMultiTenantRouter_SameTenantDifferentCollections(t *testing.T) {
 			mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite(collection, tenantName, expectedReplicas).
 				Return([]string{expectedReplicas[0]}, expectedReplicas[1:])
 
-			r := router.NewBuilder(
-				collection,
-				true,
-				mockNodeSelector,
-				mockSchemaGetter,
-				mockSchemaReader,
-				mockReplicationFSM,
-				types.NewDirectCandidateReplicaPicker("node1", nil),
-			).Build()
+			r := router.NewBuilder(collection, true, mockNodeSelector,
+				mockSchemaGetter, mockSchemaReader, mockReplicationFSM).Build()
 
 			rs, ws, err := r.GetReadWriteReplicasLocation(collection, tenantName, "")
 
@@ -1059,7 +1018,6 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_SpecificRandomShard(t *
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "", targetShard)
@@ -1107,7 +1065,6 @@ func TestSingleTenantRouter_GetReadWriteReplicasLocation_InvalidShard(t *testing
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "", "invalid_shard")
@@ -1167,7 +1124,6 @@ func TestSingleTenantRouter_BroadcastVsTargeted(t *testing.T) {
 				mockSchemaGetter,
 				mockSchemaReader,
 				mockReplicationFSM,
-				types.NewDirectCandidateReplicaPicker("node1", nil),
 			).Build()
 			rs, err := r.GetReadReplicasLocation("TestClass", "", testCase.shard)
 			require.NoError(t, err, "unexpected error for %s", testCase.description)
@@ -1196,7 +1152,6 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_NoWriteReplicas(t *testing.T) 
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 	ws, err := r.GetWriteReplicasLocation("TestClass", "", "shard1")
 	require.NoError(t, err)
@@ -1228,7 +1183,6 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_MultipleShards(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 	ws, err := r.GetWriteReplicasLocation("TestClass", "", "shard1")
 	require.NoError(t, err)
@@ -1270,7 +1224,6 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_Success(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 	ws, err := r.GetWriteReplicasLocation("TestClass", "alice", "")
 	require.NoError(t, err)
@@ -1307,7 +1260,6 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_NoWriteReplicas(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 	ws, err := r.GetWriteReplicasLocation("TestClass", "alice", "")
 	require.NoError(t, err)
@@ -1328,7 +1280,6 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_TenantValidation(t *testing.T) 
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 	ws, err := r.GetWriteReplicasLocation("TestClass", "", "")
 	require.Error(t, err)
@@ -1356,7 +1307,6 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_TenantNotActive(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
 	ws, err := r.GetWriteReplicasLocation("TestClass", "alice", "")
 	require.Error(t, err)
@@ -1592,8 +1542,8 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_NoReplicas(t *testing.T) {
 		mockSchemaGetter,
 		mockSchemaReader,
 		mockReplicationFSM,
-		types.NewDirectCandidateReplicaPicker("node1", nil),
 	).Build()
+	wp := router.NewWritePlanner(r, "TestClass", nil, "node1", "node1")
 
 	opts := types.RoutingPlanBuildOptions{
 		Tenant:           "alice",
