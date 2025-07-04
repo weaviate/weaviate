@@ -463,6 +463,7 @@ func (s *Shard) VectorStorageSize(ctx context.Context) int64 {
 
 		return nil
 	}); err != nil {
+		// TODO: change interface to return error to avoid reporting wrong data
 		return 0
 	}
 
