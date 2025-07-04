@@ -71,13 +71,13 @@ func NewShardReplicationStatus(state api.ShardReplicationState) ShardReplication
 }
 
 // AddError adds an error to the current state of the shard replication operation
-func (s *ShardReplicationOpStatus) AddError(error string, time time.Time) error {
+func (s *ShardReplicationOpStatus) AddError(error string, timeUnixMs int64) error {
 	if len(s.Current.Errors) >= MaxErrors {
 		return ErrMaxErrorsReached
 	}
 	s.Current.Errors = append(s.Current.Errors, api.ReplicationDetailsError{
 		Message:           error,
-		ErroredTimeUnixMs: time.UnixMilli(),
+		ErroredTimeUnixMs: timeUnixMs,
 	})
 	return nil
 }

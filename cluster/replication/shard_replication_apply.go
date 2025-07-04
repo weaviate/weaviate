@@ -52,7 +52,7 @@ func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorReque
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", c.Id)
 	}
-	if err := status.AddError(c.Error, c.Time); err != nil {
+	if err := status.AddError(c.Error, c.TimeUnixMs); err != nil {
 		return err
 	}
 	s.statusById[op.ID] = status
