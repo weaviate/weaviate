@@ -159,15 +159,15 @@ func (s *lazySegment) close() error {
 	defer s.mux.Unlock()
 
 	monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
-		"operation": "lazySegment",
+		"operation": "lazySegmentClose",
 	}).Inc()
 
 	if s.segment == nil {
 		return nil
 	}
 	monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
-		"operation": "lazySegmentLoad",
-	}).Dec()
+		"operation": "lazySegmentUnLoad",
+	}).Inc()
 
 	return s.segment.close()
 }
