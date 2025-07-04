@@ -13,6 +13,7 @@ package replication
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -21,6 +22,7 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/batch"
+	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/replication"
@@ -30,12 +32,21 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
+func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithNoAutomatedResolution() {
+	test(suite, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+}
+
+func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithDeleteOnConflict() {
+	test(suite, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+}
+
+func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithTimeBasedResolution() {
+	test(suite, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
+}
+
+func test(suite *ReplicationTestSuite, strategy string) {
 	t := suite.T()
 	helper.SetupClient(suite.compose.GetWeaviate().URI())
-
-	// func TestReplicationReplicateWhileMutatingData(t *testing.T) {
-	// 	helper.SetupClient("localhost:8080")
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -43,9 +54,10 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 		AutoTenantActivation: true,
 		AutoTenantCreation:   true,
 	}
+
 	cls.ReplicationConfig = &models.ReplicationConfig{
 		Factor:           int64(2),
-		DeletionStrategy: "DeleteOnConflict",
+		DeletionStrategy: strategy,
 	}
 
 	// Create the class
@@ -83,10 +95,10 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	)
 	require.Nil(t, err)
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	t.Log("Starting data mutation in background")
-	go mutateData(t, ctx, cls.Class, tenantName)
+	go mutateData(t, ctx, cls.Class, tenantName, 100)
 
 	// Choose other node node as the target node
 	var targetNode string
@@ -125,6 +137,12 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 		assert.True(ct, res.Payload.Status.State == models.ReplicationReplicateDetailsReplicaStatusStateREADY, "replication operation not completed yet")
 	}, 300*time.Second, 5*time.Second, "replication operations did not complete in time")
 
+	t.Log("Replication operation completed successfully, cancelling data mutation")
+	cancel() // stop mutating to allow the verification to proceed
+
+	t.Log("Waiting for a while to ensure all data is replicated")
+	time.Sleep(10 * time.Second) // Wait a bit to ensure all data is replicated
+
 	// Verify that shards all have consistent data
 	t.Log("Verifying data consistency of tenant")
 
@@ -135,14 +153,21 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	)
 	require.Nil(t, err)
 
+	nodeToAddress := map[string]string{}
+	for idx, node := range ns.Payload.Nodes {
+		nodeToAddress[node.Name] = suite.compose.GetWeaviateNode(idx).URI()
+	}
+
 	objectCountByReplica := make(map[string]int64)
-	for _, node := range ns.Payload.Nodes {
-		for _, shard := range node.Shards {
-			if shard.Name != tenantName {
-				continue
-			}
-			objectCountByReplica[node.Name] = shard.ObjectCount
-		}
+	for node, address := range nodeToAddress {
+		helper.SetupClient(address)
+		res, err := helper.Client(t).Graphql.GraphqlPost(graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{
+			Query: fmt.Sprintf(`{ Aggregate { %s(tenant: "%s") { meta { count } } } }`, cls.Class, tenantName),
+		}), nil)
+		require.Nil(t, err, "failed to get object count for tenant %s on node %s", tenantName, node)
+		val, err := res.Payload.Data["Aggregate"].(map[string]any)["Paragraph"].([]any)[0].(map[string]any)["meta"].(map[string]any)["count"].(json.Number).Int64()
+		require.Nil(t, err, "failed to parse object count for tenant %s on node %s", tenantName, node)
+		objectCountByReplica[node] = val
 	}
 
 	// Verify that all replicas have the same number of objects
@@ -159,7 +184,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	}
 }
 
-func mutateData(t *testing.T, ctx context.Context, className string, tenantName string) {
+func mutateData(t *testing.T, ctx context.Context, className string, tenantName string, wait int) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -185,7 +210,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 				t.Logf("Error creating batch objects for tenant %s: %v", tenantName, err)
 			}
 
-			time.Sleep(100 * time.Millisecond) // Sleep to simulate some delay between mutations
+			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Get the existing objects
 			limit := int64(10000)
@@ -193,13 +218,16 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 				objects.NewObjectsListParams().WithClass(&className).WithTenant(&tenantName).WithLimit(&limit),
 				nil,
 			)
-			require.Nil(t, err)
+			if err != nil {
+				t.Logf("Error listing objects for tenant %s: %v", tenantName, err)
+				continue
+			}
 			randUpdate := rand.Intn(20) + 1
 			toUpdate := random(res.Payload.Objects, randUpdate)
 			randDelete := rand.Intn(20) + 1
 			toDelete := random(symmetricDifference(res.Payload.Objects, toUpdate), randDelete)
 
-			time.Sleep(100 * time.Millisecond) // Sleep to simulate some delay between mutations
+			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Update some existing objects
 			for _, obj := range toUpdate {
@@ -217,7 +245,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 				}
 			}
 
-			time.Sleep(100 * time.Millisecond) // Sleep to simulate some delay between mutations
+			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Delete some existing objects
 			for _, obj := range toDelete {
