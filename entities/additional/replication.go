@@ -45,8 +45,8 @@ func (left *AsyncReplicationTargetNodeOverride) Equal(right *AsyncReplicationTar
 
 func (overrides AsyncReplicationTargetNodeOverrides) NoDeletionResolution(targetNode string) bool {
 	for _, override := range overrides {
-		if override.TargetNode == targetNode && override.NoDeletionResolution {
-			return true
+		if override.TargetNode == targetNode {
+			return override.NoDeletionResolution
 		}
 	}
 	return false
