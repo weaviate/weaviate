@@ -42,7 +42,10 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
-const composerUpgradedKey = "upgraded"
+const (
+	composerUpgradedKey = "upgraded"
+	flatPostfix         = "flat"
+)
 
 var dynamicBucket = []byte("dynamic")
 
@@ -97,30 +100,31 @@ type upgradableIndexer interface {
 
 type dynamic struct {
 	sync.RWMutex
-	id                    string
-	targetVector          string
-	store                 *lsmkv.Store
-	logger                logrus.FieldLogger
-	rootPath              string
-	shardName             string
-	className             string
-	prometheusMetrics     *monitoring.PrometheusMetrics
-	vectorForIDThunk      common.VectorForID[float32]
-	tempVectorForIDThunk  common.TempVectorForID[float32]
-	distanceProvider      distancer.Provider
-	makeCommitLoggerThunk hnsw.MakeCommitLogger
-	threshold             uint64
-	index                 VectorIndex
-	upgraded              atomic.Bool
-	upgradeOnce           sync.Once
-	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
-	hnswUC                hnswent.UserConfig
-	db                    *bbolt.DB
-	ctx                   context.Context
-	cancel                context.CancelFunc
-	hnswDisableSnapshots  bool
-	hnswSnapshotOnStartup bool
-	LazyLoadSegments      bool
+	id                      string
+	targetVector            string
+	store                   *lsmkv.Store
+	logger                  logrus.FieldLogger
+	rootPath                string
+	shardName               string
+	className               string
+	prometheusMetrics       *monitoring.PrometheusMetrics
+	vectorForIDThunk        common.VectorForID[float32]
+	tempVectorForIDThunk    common.TempVectorForID[float32]
+	distanceProvider        distancer.Provider
+	makeCommitLoggerThunk   hnsw.MakeCommitLogger
+	threshold               uint64
+	index                   VectorIndex
+	upgraded                atomic.Bool
+	upgradeOnce             sync.Once
+	tombstoneCallbacks      cyclemanager.CycleCallbackGroup
+	hnswUC                  hnswent.UserConfig
+	db                      *bbolt.DB
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	hnswDisableSnapshots    bool
+	hnswSnapshotOnStartup   bool
+	hnswWaitForCachePrefill bool
+	LazyLoadSegments        bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -138,10 +142,14 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		logger = l
 	}
 
+	targetVector := cfg.TargetVector
+	if len(targetVector) == 0 {
+		targetVector = flatPostfix
+	}
 	flatConfig := flat.Config{
 		ID:               cfg.ID,
 		RootPath:         cfg.RootPath,
-		TargetVector:     cfg.TargetVector,
+		TargetVector:     targetVector,
 		Logger:           cfg.Logger,
 		DistanceProvider: cfg.DistanceProvider,
 		MinMMapSize:      cfg.MinMMapSize,
@@ -153,27 +161,28 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	index := &dynamic{
-		id:                    cfg.ID,
-		targetVector:          cfg.TargetVector,
-		logger:                logger,
-		rootPath:              cfg.RootPath,
-		shardName:             cfg.ShardName,
-		className:             cfg.ClassName,
-		prometheusMetrics:     cfg.PrometheusMetrics,
-		vectorForIDThunk:      cfg.VectorForIDThunk,
-		tempVectorForIDThunk:  cfg.TempVectorForIDThunk,
-		distanceProvider:      cfg.DistanceProvider,
-		makeCommitLoggerThunk: cfg.MakeCommitLoggerThunk,
-		store:                 store,
-		threshold:             uc.Threshold,
-		tombstoneCallbacks:    cfg.TombstoneCallbacks,
-		hnswUC:                uc.HnswUC,
-		db:                    cfg.SharedDB,
-		ctx:                   ctx,
-		cancel:                cancel,
-		hnswDisableSnapshots:  cfg.HNSWDisableSnapshots,
-		hnswSnapshotOnStartup: cfg.HNSWSnapshotOnStartup,
-		LazyLoadSegments:      cfg.LazyLoadSegments,
+		id:                      cfg.ID,
+		targetVector:            cfg.TargetVector,
+		logger:                  logger,
+		rootPath:                cfg.RootPath,
+		shardName:               cfg.ShardName,
+		className:               cfg.ClassName,
+		prometheusMetrics:       cfg.PrometheusMetrics,
+		vectorForIDThunk:        cfg.VectorForIDThunk,
+		tempVectorForIDThunk:    cfg.TempVectorForIDThunk,
+		distanceProvider:        cfg.DistanceProvider,
+		makeCommitLoggerThunk:   cfg.MakeCommitLoggerThunk,
+		store:                   store,
+		threshold:               uc.Threshold,
+		tombstoneCallbacks:      cfg.TombstoneCallbacks,
+		hnswUC:                  uc.HnswUC,
+		db:                      cfg.SharedDB,
+		ctx:                     ctx,
+		cancel:                  cancel,
+		hnswDisableSnapshots:    cfg.HNSWDisableSnapshots,
+		hnswSnapshotOnStartup:   cfg.HNSWSnapshotOnStartup,
+		hnswWaitForCachePrefill: cfg.HNSWWaitForCachePrefill,
+		LazyLoadSegments:        cfg.LazyLoadSegments,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
@@ -218,6 +227,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				DisableSnapshots:      index.hnswDisableSnapshots,
 				SnapshotOnStartup:     index.hnswSnapshotOnStartup,
 				LazyLoadSegments:      index.LazyLoadSegments,
+				WaitForCachePrefill:   index.hnswWaitForCachePrefill,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
@@ -257,7 +267,7 @@ func (dynamic *dynamic) getBucketName() string {
 		return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, dynamic.targetVector)
 	}
 
-	return helpers.VectorsBucketLSM
+	return fmt.Sprintf("%s_%s", helpers.VectorsBucketLSM, flatPostfix)
 }
 
 func (dynamic *dynamic) Compressed() bool {
@@ -428,7 +438,17 @@ func (dynamic *dynamic) ValidateMultiBeforeInsert(vector [][]float32) error {
 func (dynamic *dynamic) PostStartup() {
 	dynamic.Lock()
 	defer dynamic.Unlock()
+	dynamic.upgradeBucket()
 	dynamic.index.PostStartup()
+}
+
+func (dynamic *dynamic) upgradeBucket() {
+	if len(dynamic.targetVector) == 0 {
+		bucket := dynamic.store.Bucket(dynamic.getBucketName())
+		if bucket == nil {
+			dynamic.store.RenameBucket(context.Background(), helpers.VectorsBucketLSM, dynamic.getBucketName())
+		}
+	}
 }
 
 func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {
@@ -535,6 +555,7 @@ func (dynamic *dynamic) doUpgrade() error {
 			MakeCommitLoggerThunk: dynamic.makeCommitLoggerThunk,
 			DisableSnapshots:      dynamic.hnswDisableSnapshots,
 			SnapshotOnStartup:     dynamic.hnswSnapshotOnStartup,
+			WaitForCachePrefill:   dynamic.hnswWaitForCachePrefill,
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,
