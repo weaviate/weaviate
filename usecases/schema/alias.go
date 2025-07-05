@@ -66,9 +66,11 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, err
 	}
+
 	if len(aliases) != 1 {
-		return nil, fmt.Errorf("no alias found with name: %s", aliasName)
+		return nil, fmt.Errorf("%w, no alias found with name: %s", ErrNotFound, aliasName)
 	}
+
 	alias := aliases[0]
 	targetClass := h.schemaReader.ReadOnlyClass(targetClassName)
 

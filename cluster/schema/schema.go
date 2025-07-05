@@ -699,7 +699,13 @@ func (s *schema) getAliases(alias, class string) map[string]string {
 		}
 		return aliases
 	}
-	return maps.Clone(s.aliases)
+
+	// asked for all aliases.
+	if alias == "" && class == "" {
+		return maps.Clone(s.aliases)
+	}
+	// if asked for spefic class or alias return nil, meaning not found.
+	return nil
 }
 
 func (s *schema) resolveAlias(alias string) string {
