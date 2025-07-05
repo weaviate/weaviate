@@ -66,9 +66,11 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 	if err != nil {
 		return nil, err
 	}
+
 	if len(aliases) != 1 {
-		return nil, fmt.Errorf("no alias found with name: %s", aliasName)
+		return nil, fmt.Errorf("%w, no alias found with name: %s", ErrNotFound, aliasName)
 	}
+
 	alias := aliases[0]
 	targetClass := h.schemaReader.ReadOnlyClass(targetClassName)
 
@@ -82,7 +84,16 @@ func (h *Handler) UpdateAlias(ctx context.Context, principal *models.Principal,
 
 func (h *Handler) DeleteAlias(ctx context.Context, principal *models.Principal, aliasName string) error {
 	aliasName = schema.UppercaseClassName(aliasName)
-	err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases("", aliasName)...)
+
+	aliases, err := h.schemaManager.GetAliases(ctx, aliasName, nil)
+	if err != nil {
+		return err
+	}
+	if len(aliases) == 0 {
+		return fmt.Errorf("alias not found: %w", ErrNotFound)
+	}
+
+	err = h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Aliases("", aliasName)...)
 	if err != nil {
 		return err
 	}

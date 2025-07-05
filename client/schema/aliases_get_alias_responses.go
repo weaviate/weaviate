@@ -52,6 +52,12 @@ func (o *AliasesGetAliasReader) ReadResponse(response runtime.ClientResponse, co
 			return nil, err
 		}
 		return nil, result
+	case 404:
+		result := NewAliasesGetAliasNotFound()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
 	case 422:
 		result := NewAliasesGetAliasUnprocessableEntity()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
@@ -80,7 +86,7 @@ AliasesGetAliasOK describes a response with status code 200, with default header
 Successfully retrieved the alias details.
 */
 type AliasesGetAliasOK struct {
-	Payload *models.AliasResponse
+	Payload *models.Alias
 }
 
 // IsSuccess returns true when this aliases get alias o k response has a 2xx status code
@@ -121,13 +127,13 @@ func (o *AliasesGetAliasOK) String() string {
 	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasOK  %+v", 200, o.Payload)
 }
 
-func (o *AliasesGetAliasOK) GetPayload() *models.AliasResponse {
+func (o *AliasesGetAliasOK) GetPayload() *models.Alias {
 	return o.Payload
 }
 
 func (o *AliasesGetAliasOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
-	o.Payload = new(models.AliasResponse)
+	o.Payload = new(models.Alias)
 
 	// response payload
 	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
@@ -250,6 +256,74 @@ func (o *AliasesGetAliasForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesGetAliasForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewAliasesGetAliasNotFound creates a AliasesGetAliasNotFound with default headers values
+func NewAliasesGetAliasNotFound() *AliasesGetAliasNotFound {
+	return &AliasesGetAliasNotFound{}
+}
+
+/*
+AliasesGetAliasNotFound describes a response with status code 404, with default header values.
+
+Not Found - Alias does not exist
+*/
+type AliasesGetAliasNotFound struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this aliases get alias not found response has a 2xx status code
+func (o *AliasesGetAliasNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this aliases get alias not found response has a 3xx status code
+func (o *AliasesGetAliasNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this aliases get alias not found response has a 4xx status code
+func (o *AliasesGetAliasNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this aliases get alias not found response has a 5xx status code
+func (o *AliasesGetAliasNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this aliases get alias not found response a status code equal to that given
+func (o *AliasesGetAliasNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the aliases get alias not found response
+func (o *AliasesGetAliasNotFound) Code() int {
+	return 404
+}
+
+func (o *AliasesGetAliasNotFound) Error() string {
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasNotFound  %+v", 404, o.Payload)
+}
+
+func (o *AliasesGetAliasNotFound) String() string {
+	return fmt.Sprintf("[GET /aliases/{aliasName}][%d] aliasesGetAliasNotFound  %+v", 404, o.Payload)
+}
+
+func (o *AliasesGetAliasNotFound) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *AliasesGetAliasNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

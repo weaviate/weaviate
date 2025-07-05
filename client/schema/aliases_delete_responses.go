@@ -34,8 +34,8 @@ type AliasesDeleteReader struct {
 // ReadResponse reads a server response into the received o.
 func (o *AliasesDeleteReader) ReadResponse(response runtime.ClientResponse, consumer runtime.Consumer) (interface{}, error) {
 	switch response.Code() {
-	case 200:
-		result := NewAliasesDeleteOK()
+	case 204:
+		result := NewAliasesDeleteNoContent()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -48,6 +48,12 @@ func (o *AliasesDeleteReader) ReadResponse(response runtime.ClientResponse, cons
 		return nil, result
 	case 403:
 		result := NewAliasesDeleteForbidden()
+		if err := result.readResponse(response, consumer, o.formats); err != nil {
+			return nil, err
+		}
+		return nil, result
+	case 404:
+		result := NewAliasesDeleteNotFound()
 		if err := result.readResponse(response, consumer, o.formats); err != nil {
 			return nil, err
 		}
@@ -69,58 +75,58 @@ func (o *AliasesDeleteReader) ReadResponse(response runtime.ClientResponse, cons
 	}
 }
 
-// NewAliasesDeleteOK creates a AliasesDeleteOK with default headers values
-func NewAliasesDeleteOK() *AliasesDeleteOK {
-	return &AliasesDeleteOK{}
+// NewAliasesDeleteNoContent creates a AliasesDeleteNoContent with default headers values
+func NewAliasesDeleteNoContent() *AliasesDeleteNoContent {
+	return &AliasesDeleteNoContent{}
 }
 
 /*
-AliasesDeleteOK describes a response with status code 200, with default header values.
+AliasesDeleteNoContent describes a response with status code 204, with default header values.
 
 Successfully deleted the alias.
 */
-type AliasesDeleteOK struct {
+type AliasesDeleteNoContent struct {
 }
 
-// IsSuccess returns true when this aliases delete o k response has a 2xx status code
-func (o *AliasesDeleteOK) IsSuccess() bool {
+// IsSuccess returns true when this aliases delete no content response has a 2xx status code
+func (o *AliasesDeleteNoContent) IsSuccess() bool {
 	return true
 }
 
-// IsRedirect returns true when this aliases delete o k response has a 3xx status code
-func (o *AliasesDeleteOK) IsRedirect() bool {
+// IsRedirect returns true when this aliases delete no content response has a 3xx status code
+func (o *AliasesDeleteNoContent) IsRedirect() bool {
 	return false
 }
 
-// IsClientError returns true when this aliases delete o k response has a 4xx status code
-func (o *AliasesDeleteOK) IsClientError() bool {
+// IsClientError returns true when this aliases delete no content response has a 4xx status code
+func (o *AliasesDeleteNoContent) IsClientError() bool {
 	return false
 }
 
-// IsServerError returns true when this aliases delete o k response has a 5xx status code
-func (o *AliasesDeleteOK) IsServerError() bool {
+// IsServerError returns true when this aliases delete no content response has a 5xx status code
+func (o *AliasesDeleteNoContent) IsServerError() bool {
 	return false
 }
 
-// IsCode returns true when this aliases delete o k response a status code equal to that given
-func (o *AliasesDeleteOK) IsCode(code int) bool {
-	return code == 200
+// IsCode returns true when this aliases delete no content response a status code equal to that given
+func (o *AliasesDeleteNoContent) IsCode(code int) bool {
+	return code == 204
 }
 
-// Code gets the status code for the aliases delete o k response
-func (o *AliasesDeleteOK) Code() int {
-	return 200
+// Code gets the status code for the aliases delete no content response
+func (o *AliasesDeleteNoContent) Code() int {
+	return 204
 }
 
-func (o *AliasesDeleteOK) Error() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteOK ", 200)
+func (o *AliasesDeleteNoContent) Error() string {
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNoContent ", 204)
 }
 
-func (o *AliasesDeleteOK) String() string {
-	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteOK ", 200)
+func (o *AliasesDeleteNoContent) String() string {
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNoContent ", 204)
 }
 
-func (o *AliasesDeleteOK) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+func (o *AliasesDeleteNoContent) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	return nil
 }
@@ -238,6 +244,74 @@ func (o *AliasesDeleteForbidden) GetPayload() *models.ErrorResponse {
 }
 
 func (o *AliasesDeleteForbidden) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
+
+	o.Payload = new(models.ErrorResponse)
+
+	// response payload
+	if err := consumer.Consume(response.Body(), o.Payload); err != nil && err != io.EOF {
+		return err
+	}
+
+	return nil
+}
+
+// NewAliasesDeleteNotFound creates a AliasesDeleteNotFound with default headers values
+func NewAliasesDeleteNotFound() *AliasesDeleteNotFound {
+	return &AliasesDeleteNotFound{}
+}
+
+/*
+AliasesDeleteNotFound describes a response with status code 404, with default header values.
+
+Not Found - Alias does not exist
+*/
+type AliasesDeleteNotFound struct {
+	Payload *models.ErrorResponse
+}
+
+// IsSuccess returns true when this aliases delete not found response has a 2xx status code
+func (o *AliasesDeleteNotFound) IsSuccess() bool {
+	return false
+}
+
+// IsRedirect returns true when this aliases delete not found response has a 3xx status code
+func (o *AliasesDeleteNotFound) IsRedirect() bool {
+	return false
+}
+
+// IsClientError returns true when this aliases delete not found response has a 4xx status code
+func (o *AliasesDeleteNotFound) IsClientError() bool {
+	return true
+}
+
+// IsServerError returns true when this aliases delete not found response has a 5xx status code
+func (o *AliasesDeleteNotFound) IsServerError() bool {
+	return false
+}
+
+// IsCode returns true when this aliases delete not found response a status code equal to that given
+func (o *AliasesDeleteNotFound) IsCode(code int) bool {
+	return code == 404
+}
+
+// Code gets the status code for the aliases delete not found response
+func (o *AliasesDeleteNotFound) Code() int {
+	return 404
+}
+
+func (o *AliasesDeleteNotFound) Error() string {
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNotFound  %+v", 404, o.Payload)
+}
+
+func (o *AliasesDeleteNotFound) String() string {
+	return fmt.Sprintf("[DELETE /aliases/{aliasName}][%d] aliasesDeleteNotFound  %+v", 404, o.Payload)
+}
+
+func (o *AliasesDeleteNotFound) GetPayload() *models.ErrorResponse {
+	return o.Payload
+}
+
+func (o *AliasesDeleteNotFound) readResponse(response runtime.ClientResponse, consumer runtime.Consumer, formats strfmt.Registry) error {
 
 	o.Payload = new(models.ErrorResponse)
 

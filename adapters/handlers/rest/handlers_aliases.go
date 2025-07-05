@@ -75,11 +75,21 @@ func (s *aliasesHandlers) getAlias(params schema.AliasesGetAliasParams,
 				WithPayload(errPayloadFromSingleErr(err))
 		}
 	}
-
-	aliasesResponse := &models.AliasResponse{Aliases: aliases}
+	if len(aliases) == 0 {
+		return schema.NewAliasesGetAliasNotFound()
+	}
+	if len(aliases) > 1 {
+		return schema.NewAliasesGetAliasInternalServerError().WithPayload(&models.ErrorResponse{
+			Error: []*models.ErrorResponseErrorItems0{
+				{
+					Message: "get alias returned more than one alias",
+				},
+			},
+		})
+	}
 
 	s.metricRequestsTotal.logOk("")
-	return schema.NewAliasesGetAliasOK().WithPayload(aliasesResponse)
+	return schema.NewAliasesGetAliasOK().WithPayload(aliases[0])
 }
 
 func (s *aliasesHandlers) addAlias(params schema.AliasesCreateParams,
@@ -131,6 +141,9 @@ func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, princip
 	err := s.manager.DeleteAlias(params.HTTPRequest.Context(), principal, params.AliasName)
 	if err != nil {
 		s.metricRequestsTotal.logError(params.AliasName, err)
+		if errors.Is(err, schemaUC.ErrNotFound) {
+			return schema.NewAliasesDeleteNotFound()
+		}
 		switch {
 		case errors.As(err, &authzerrors.Forbidden{}):
 			return schema.NewAliasesDeleteForbidden().
@@ -141,7 +154,7 @@ func (s *aliasesHandlers) deleteAlias(params schema.AliasesDeleteParams, princip
 	}
 
 	s.metricRequestsTotal.logOk(params.AliasName)
-	return schema.NewAliasesDeleteOK()
+	return schema.NewAliasesDeleteNoContent()
 }
 
 func setupAliasesHandlers(api *operations.WeaviateAPI,
