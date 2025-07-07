@@ -218,8 +218,8 @@ func (l *LazyLoadShard) ObjectStorageSize(ctx context.Context) (int64, error) {
 
 	// For unloaded shards, calculate storage size by walking the file system
 	// This avoids loading the shard into memory entirely
-	_, totalDiskSize, err := l.shardOpts.index.CalculateUnloadedObjectsMetrics(ctx, l.shardOpts.name)
-	return totalDiskSize, err
+	objectUsage, err := l.shardOpts.index.CalculateUnloadedObjectsMetrics(ctx, l.shardOpts.name)
+	return objectUsage.StorageBytes, err
 }
 
 func (l *LazyLoadShard) GetPropertyLengthTracker() *inverted.JsonShardMetaData {

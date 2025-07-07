@@ -2968,7 +2968,7 @@ func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, 
 }
 
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
-func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64, err error) {
+func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error) {
 	// Obtain a lock that prevents tenant activation
 	i.shardCreateLocks.Lock(tenantName)
 	defer i.shardCreateLocks.Unlock(tenantName)
@@ -3005,11 +3005,14 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 
 		return nil
 	}); err != nil {
-		return 0, 0, err
+		return usagetypes.ObjectUsage{}, err
 	}
 
 	// If we can't determine object count, return the disk size as fallback
-	return totalObjectCount, totalDiskSize, nil
+	return usagetypes.ObjectUsage{
+		Count:        totalObjectCount,
+		StorageBytes: totalDiskSize,
+	}, nil
 }
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory

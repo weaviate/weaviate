@@ -107,3 +107,8 @@ type BackupUsage struct {
 	// The list of collections included in the backup
 	Collections []string `json:"collections"`
 }
+
+type ObjectUsage struct {
+	Count        int64
+	StorageBytes int64
+}
