@@ -2992,13 +2992,13 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 }
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenanName, targetVector string) (count, dimensions int) {
+func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string) (count, dimensions int) {
 	// Obtain a lock that prevents tenant activation
-	i.shardCreateLocks.Lock(tenanName)
-	defer i.shardCreateLocks.Unlock(tenanName)
+	i.shardCreateLocks.Lock(tenantName)
+	defer i.shardCreateLocks.Unlock(tenantName)
 
 	// check if created in the meantime by concurrent call
-	if shard := i.shards.Load(tenanName); shard != nil {
+	if shard := i.shards.Load(tenantName); shard != nil {
 		// Check if it's a lazy shard that's not loaded yet to avoid recursion
 		if lazyShard, ok := shard.(*LazyLoadShard); ok && lazyShard.isLoaded() {
 			return shard.DimensionsUsage(ctx, targetVector)
@@ -3006,7 +3006,7 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenanName,
 	}
 
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
-		shardPathDimensionsLSM(i.path(), tenanName),
+		shardPathDimensionsLSM(i.path(), tenantName),
 		i.path(),
 		i.logger,
 		nil,
