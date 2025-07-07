@@ -28,17 +28,17 @@ func (_m *MockReadReplicaStrategy) EXPECT() *MockReadReplicaStrategy_Expecter {
 	return &MockReadReplicaStrategy_Expecter{mock: &_m.Mock}
 }
 
-// Apply provides a mock function with given fields: replicas, options
-func (_m *MockReadReplicaStrategy) Apply(replicas ReadReplicaSet, options RoutingPlanBuildOptions) ReadReplicaSet {
-	ret := _m.Called(replicas, options)
+// Apply provides a mock function with given fields: replicas
+func (_m *MockReadReplicaStrategy) Apply(replicas ReadReplicaSet) ReadReplicaSet {
+	ret := _m.Called(replicas)
 
 	if len(ret) == 0 {
 		panic("no return value specified for Apply")
 	}
 
 	var r0 ReadReplicaSet
-	if rf, ok := ret.Get(0).(func(ReadReplicaSet, RoutingPlanBuildOptions) ReadReplicaSet); ok {
-		r0 = rf(replicas, options)
+	if rf, ok := ret.Get(0).(func(ReadReplicaSet) ReadReplicaSet); ok {
+		r0 = rf(replicas)
 	} else {
 		r0 = ret.Get(0).(ReadReplicaSet)
 	}
@@ -53,14 +53,13 @@ type MockReadReplicaStrategy_Apply_Call struct {
 
 // Apply is a helper method to define mock.On call
 //   - replicas ReadReplicaSet
-//   - options RoutingPlanBuildOptions
-func (_e *MockReadReplicaStrategy_Expecter) Apply(replicas interface{}, options interface{}) *MockReadReplicaStrategy_Apply_Call {
-	return &MockReadReplicaStrategy_Apply_Call{Call: _e.mock.On("Apply", replicas, options)}
+func (_e *MockReadReplicaStrategy_Expecter) Apply(replicas interface{}) *MockReadReplicaStrategy_Apply_Call {
+	return &MockReadReplicaStrategy_Apply_Call{Call: _e.mock.On("Apply", replicas)}
 }
 
-func (_c *MockReadReplicaStrategy_Apply_Call) Run(run func(replicas ReadReplicaSet, options RoutingPlanBuildOptions)) *MockReadReplicaStrategy_Apply_Call {
+func (_c *MockReadReplicaStrategy_Apply_Call) Run(run func(replicas ReadReplicaSet)) *MockReadReplicaStrategy_Apply_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(ReadReplicaSet), args[1].(RoutingPlanBuildOptions))
+		run(args[0].(ReadReplicaSet))
 	})
 	return _c
 }
@@ -70,7 +69,7 @@ func (_c *MockReadReplicaStrategy_Apply_Call) Return(_a0 ReadReplicaSet) *MockRe
 	return _c
 }
 
-func (_c *MockReadReplicaStrategy_Apply_Call) RunAndReturn(run func(ReadReplicaSet, RoutingPlanBuildOptions) ReadReplicaSet) *MockReadReplicaStrategy_Apply_Call {
+func (_c *MockReadReplicaStrategy_Apply_Call) RunAndReturn(run func(ReadReplicaSet) ReadReplicaSet) *MockReadReplicaStrategy_Apply_Call {
 	_c.Call.Return(run)
 	return _c
 }
