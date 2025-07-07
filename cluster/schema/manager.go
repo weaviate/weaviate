@@ -492,7 +492,7 @@ func (s *SchemaManager) SyncShard(cmd *command.ApplyRequest, schemaOnly bool) er
 					physical, ok := state.Physical[req.Shard]
 					// shard does not exist in the sharding state
 					if !ok {
-						// drop
+						// drop it
 						s.db.DropShard(cmd.Class, req.Shard)
 						// return early
 						return nil
