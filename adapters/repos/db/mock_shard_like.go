@@ -1937,22 +1937,32 @@ func (_c *MockShardLike_ObjectCount_Call) RunAndReturn(run func() int) *MockShar
 	return _c
 }
 
-// ObjectCountAsync provides a mock function with no fields
-func (_m *MockShardLike) ObjectCountAsync() int {
-	ret := _m.Called()
+// ObjectCountAsync provides a mock function with given fields: ctx
+func (_m *MockShardLike) ObjectCountAsync(ctx context.Context) (int64, error) {
+	ret := _m.Called(ctx)
 
 	if len(ret) == 0 {
 		panic("no return value specified for ObjectCountAsync")
 	}
 
-	var r0 int
-	if rf, ok := ret.Get(0).(func() int); ok {
-		r0 = rf()
+	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context) (int64, error)); ok {
+		return rf(ctx)
+	}
+	if rf, ok := ret.Get(0).(func(context.Context) int64); ok {
+		r0 = rf(ctx)
 	} else {
-		r0 = ret.Get(0).(int)
+		r0 = ret.Get(0).(int64)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context) error); ok {
+		r1 = rf(ctx)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockShardLike_ObjectCountAsync_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ObjectCountAsync'
@@ -1961,23 +1971,24 @@ type MockShardLike_ObjectCountAsync_Call struct {
 }
 
 // ObjectCountAsync is a helper method to define mock.On call
-func (_e *MockShardLike_Expecter) ObjectCountAsync() *MockShardLike_ObjectCountAsync_Call {
-	return &MockShardLike_ObjectCountAsync_Call{Call: _e.mock.On("ObjectCountAsync")}
+//   - ctx context.Context
+func (_e *MockShardLike_Expecter) ObjectCountAsync(ctx interface{}) *MockShardLike_ObjectCountAsync_Call {
+	return &MockShardLike_ObjectCountAsync_Call{Call: _e.mock.On("ObjectCountAsync", ctx)}
 }
 
-func (_c *MockShardLike_ObjectCountAsync_Call) Run(run func()) *MockShardLike_ObjectCountAsync_Call {
+func (_c *MockShardLike_ObjectCountAsync_Call) Run(run func(ctx context.Context)) *MockShardLike_ObjectCountAsync_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run()
+		run(args[0].(context.Context))
 	})
 	return _c
 }
 
-func (_c *MockShardLike_ObjectCountAsync_Call) Return(_a0 int) *MockShardLike_ObjectCountAsync_Call {
-	_c.Call.Return(_a0)
+func (_c *MockShardLike_ObjectCountAsync_Call) Return(_a0 int64, _a1 error) *MockShardLike_ObjectCountAsync_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockShardLike_ObjectCountAsync_Call) RunAndReturn(run func() int) *MockShardLike_ObjectCountAsync_Call {
+func (_c *MockShardLike_ObjectCountAsync_Call) RunAndReturn(run func(context.Context) (int64, error)) *MockShardLike_ObjectCountAsync_Call {
 	_c.Call.Return(run)
 	return _c
 }

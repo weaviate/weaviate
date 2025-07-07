@@ -198,14 +198,18 @@ func (l *LazyLoadShard) ObjectCount() int {
 	return l.shard.ObjectCount()
 }
 
-func (l *LazyLoadShard) ObjectCountAsync() int {
+func (l *LazyLoadShard) ObjectCountAsync(ctx context.Context) (int64, error) {
 	l.mutex.Lock()
-	if !l.loaded {
+	if l.loaded {
 		l.mutex.Unlock()
-		return 0
+		return l.shard.ObjectCountAsync(ctx)
 	}
 	l.mutex.Unlock()
-	return l.shard.ObjectCountAsync()
+	objectUsage, err := l.shardOpts.index.CalculateUnloadedObjectsMetrics(ctx, l.shardOpts.name)
+	if err != nil {
+		return 0, fmt.Errorf("error while getting object count for shard %s: %w", l.shardOpts.name, err)
+	}
+	return objectUsage.Count, nil
 }
 
 func (l *LazyLoadShard) ObjectStorageSize(ctx context.Context) (int64, error) {

@@ -77,7 +77,7 @@ type ShardLike interface {
 
 	Counter() *indexcounter.Counter
 	ObjectCount() int
-	ObjectCountAsync() int
+	ObjectCountAsync(ctx context.Context) (int64, error)
 	ObjectStorageSize(ctx context.Context) (int64, error)
 	VectorStorageSize(ctx context.Context) (int64, error)
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
@@ -412,13 +412,13 @@ func (s *Shard) ObjectCount() int {
 
 // ObjectCountAsync returns the eventually consistent "async" count which is
 // much cheaper to obtain
-func (s *Shard) ObjectCountAsync() int {
+func (s *Shard) ObjectCountAsync(_ context.Context) (int64, error) {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
-		return 0
+		return 0, fmt.Errorf("bucket %s not found", helpers.ObjectsBucketLSM)
 	}
 
-	return b.CountAsync()
+	return int64(b.CountAsync()), nil
 }
 
 func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {

@@ -84,7 +84,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
+	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
 	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
@@ -209,7 +209,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().ObjectCountAsync().Return(hotObjectCount)
+	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(hotObjectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
 	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
@@ -423,7 +423,7 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
+	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
 	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
@@ -632,7 +632,7 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
+	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
 	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
@@ -733,7 +733,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
+	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
 	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
@@ -863,7 +863,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 
 	// Mock hot tenant shard
 	mockHotShard := db.NewMockShardLike(t)
-	mockHotShard.EXPECT().ObjectCountAsync().Return(hotObjectCount)
+	mockHotShard.EXPECT().ObjectCountAsync(ctx).Return(int64(hotObjectCount), nil)
 	mockHotShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize, nil)
 	mockHotShard.EXPECT().VectorStorageSize(ctx).Return(hotVectorStorageSize, nil) // Test actual vector storage size
 	mockHotShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{

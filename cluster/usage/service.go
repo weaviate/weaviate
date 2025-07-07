@@ -86,7 +86,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 
 					shardUsage := &types.ShardUsage{
 						Name:                tenantName,
-						ObjectsCount:        int(objectUsage.Count),
+						ObjectsCount:        objectUsage.Count,
 						ObjectsStorageBytes: uint64(objectUsage.StorageBytes),
 						VectorStorageBytes:  uint64(vectorStorageSize),
 						NamedVectors:        make([]*types.VectorUsage, 0), // Empty for cold tenants
@@ -106,6 +106,10 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 				if err != nil {
 					return err
 				}
+				objectCount, err := shard.ObjectCountAsync(ctx)
+				if err != nil {
+					return err
+				}
 
 				vectorStorageSize, err := shard.VectorStorageSize(ctx)
 				if err != nil {
@@ -114,7 +118,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 
 				shardUsage := &types.ShardUsage{
 					Name:                name,
-					ObjectsCount:        shard.ObjectCountAsync(),
+					ObjectsCount:        objectCount,
 					ObjectsStorageBytes: uint64(objectStorageSize),
 					VectorStorageBytes:  uint64(vectorStorageSize),
 					NamedVectors:        make([]*types.VectorUsage, 0),

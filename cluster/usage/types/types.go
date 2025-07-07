@@ -48,7 +48,7 @@ type ShardUsage struct {
 	Name string `json:"name"`
 
 	// The number of objects in the shard
-	ObjectsCount int `json:"objects_count"`
+	ObjectsCount int64 `json:"objects_count"`
 
 	// The storage size in bytes
 	ObjectsStorageBytes uint64 `json:"objects_storage_bytes"`
