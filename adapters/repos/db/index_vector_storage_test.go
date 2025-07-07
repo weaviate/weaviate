@@ -168,6 +168,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
 			// Add ShardOwner expectation for all test cases
 			mockSchema.EXPECT().ShardOwner(tt.className, tt.shardName).Maybe().Return("test-node", nil)
+			mockSchema.EXPECT().ShardReplicas(tt.className, tt.shardName).Maybe().Return([]string{"test-node"}, nil)
 
 			// Create index
 			var defaultVectorConfig schemaConfig.VectorIndexConfig
@@ -442,6 +443,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 			mockSchema.EXPECT().CopyShardingState(tt.className).Maybe().Return(shardState)
 			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return("test-shard").Maybe()
+			mockSchema.EXPECT().ShardReplicas(tt.className, tt.shardName).Maybe().Return([]string{"test-node"}, nil)
 
 			// Create index with named vector config
 			vectorConfigs := map[string]schemaConfig.VectorIndexConfig{
@@ -628,6 +630,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	mockSchema.EXPECT().CopyShardingState(className).Maybe().Return(shardState)
 	mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 	mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return("test-shard").Maybe()
+	mockSchema.EXPECT().ShardReplicas(className, shardName).Maybe().Return([]string{"test-node"}, nil)
 
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{

@@ -144,6 +144,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockSchema.EXPECT().NodeName().Maybe().Return("test-node")
 			mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tt.shardName).Maybe()
 			mockSchema.EXPECT().ShardOwner(tt.className, tt.shardName).Maybe().Return("test-node", nil)
+			mockSchema.EXPECT().ShardReplicas(tt.className, tt.shardName).Maybe().Return([]string{"test-node"}, nil)
 
 			// Create index
 			index, err := NewIndex(ctx, IndexConfig{
