@@ -444,7 +444,7 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 	if err := c.sync(ctx, op); err != nil {
 		logger.WithError(err).
 			WithField("op", op).
-			Error(fmt.Errorf("failure when syncing shards for op: %s", op.Op.UUID))
+			Error(fmt.Errorf("failure while syncing replica shard when cancelling the op"))
 	}
 
 	// If the operation is only being cancelled then notify the FSM so it can update its state
@@ -475,10 +475,10 @@ func (c *CopyOpConsumer) stopAsyncReplication(ctx context.Context, op ShardRepli
 
 func (c *CopyOpConsumer) sync(ctx context.Context, op ShardReplicationOpAndStatus) error {
 	if _, err := c.leaderClient.SyncShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId); err != nil {
-		return fmt.Errorf("failure while syncing replica shard: %w", err)
+		return err
 	}
 	if _, err := c.leaderClient.SyncShard(ctx, op.Op.SourceShard.CollectionId, op.Op.SourceShard.ShardId, op.Op.SourceShard.NodeId); err != nil {
-		return fmt.Errorf("failure while syncing replica shard: %w", err)
+		return err
 	}
 	return nil
 }
@@ -634,7 +634,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		// sync the replica shard to ensure that the schema and store are consistent on each node
 		// In a COPY this happens now, in a MOVE this happens in the DEHYDRATING state
 		if err := c.sync(ctx, op); err != nil {
-			logger.WithError(err).Error("failure while syncing replica shard")
+			logger.WithError(err).Error("failure while syncing replica shard in finalizing state")
 			return api.ShardReplicationState(""), err
 		}
 		return api.READY, nil
@@ -721,7 +721,7 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 	// sync the replica shard to ensure that the schema and store are consistent on each node
 	// In a COPY this happens in the FINALIZING state, in a MOVE this happens now
 	if err := c.sync(ctx, op); err != nil {
-		logger.WithError(err).Error("failure while syncing replica shard")
+		logger.WithError(err).Error("failure while syncing replica shard in dehydrating state")
 		return api.ShardReplicationState(""), err
 	}
 	return api.READY, nil

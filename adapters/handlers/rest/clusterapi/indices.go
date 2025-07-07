@@ -1671,6 +1671,10 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 				http.Error(w, err.Error(), http.StatusNotFound)
 				return
 			}
+			if strings.Contains(err.Error(), fmt.Sprintf("local index %q not found", indexName)) {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
