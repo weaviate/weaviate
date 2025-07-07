@@ -69,11 +69,11 @@ func (q *QueryParams) inputs(m *Manager) (*QueryInput, error) {
 func (m *Manager) Query(ctx context.Context, principal *models.Principal, params *QueryParams,
 ) ([]*models.Object, *Error) {
 	class := "*"
+	aliasName := ""
 
 	if params != nil && params.Class != "" {
-		if cls := m.schemaManager.ResolveAlias(params.Class); cls != "" {
-			params.Class = cls
-		}
+		params.Class, aliasName = m.resolveAlias(params.Class)
+		class = params.Class
 	}
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.CollectionsData(class)...); err != nil {
@@ -119,5 +119,8 @@ func (m *Manager) Query(ctx context.Context, principal *models.Principal, params
 		m.trackUsageList(res)
 	}
 
+	if aliasName != "" {
+		return m.classNamesToAliases(res.ObjectsWithVector(q.Additional.Vector), aliasName), nil
+	}
 	return res.ObjectsWithVector(q.Additional.Vector), nil
 }

@@ -35,9 +35,7 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	className := schema.UppercaseClassName(updates.Class)
-	if cls := m.schemaManager.ResolveAlias(updates.Class); cls != "" {
-		className = cls
-	}
+	className, aliasName := m.resolveAlias(className)
 	updates.Class = className
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(updates.Class, updates.Tenant, updates.ID)); err != nil {
@@ -59,6 +57,10 @@ func (m *Manager) UpdateObject(ctx context.Context, principal *models.Principal,
 		return nil, fmt.Errorf("cannot process update object: %w", err)
 	}
 
+	if aliasName != "" {
+		obj, err := m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
+		return m.classNameToAlias(obj, aliasName), err
+	}
 	return m.updateObjectToConnectorAndSchema(ctx, principal, class, id, updates, repl, fetchedClasses)
 }
 

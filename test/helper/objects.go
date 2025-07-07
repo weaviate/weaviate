@@ -148,7 +148,7 @@ func CreateObjectCL(t *testing.T, object *models.Object, cl types.ConsistencyLev
 	return nil
 }
 
-func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
+func CreateObjectsBatchWithResponse(t *testing.T, objects []*models.Object) []*models.ObjectsGetResponse {
 	t.Helper()
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{
@@ -157,6 +157,12 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	CheckObjectsBatchResponse(t, resp.Payload, err)
+	return resp.Payload
+}
+
+func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
+	t.Helper()
+	CreateObjectsBatchWithResponse(t, objects)
 }
 
 func CreateObjectsBatchAuth(t *testing.T, objects []*models.Object, key string) {
@@ -192,11 +198,20 @@ func CheckObjectsBatchResponse(t *testing.T, resp []*models.ObjectsGetResponse, 
 	}
 }
 
-func UpdateObject(t *testing.T, object *models.Object) error {
+func UpdateObjectWithResponse(t *testing.T, object *models.Object) (*models.Object, error) {
 	t.Helper()
 	params := objects.NewObjectsUpdateParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsUpdate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, err
+}
+
+func UpdateObject(t *testing.T, object *models.Object) error {
+	t.Helper()
+	_, err := UpdateObjectWithResponse(t, object)
 	return err
 }
 
@@ -271,12 +286,18 @@ func DeleteObjectCL(t *testing.T, class string, id strfmt.UUID, cl types.Consist
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete, cl types.ConsistencyLevel) {
+func DeleteObjectsBatchWithResponse(t *testing.T, body *models.BatchDelete, cl types.ConsistencyLevel) *models.BatchDeleteResponse {
 	t.Helper()
 	cls := string(cl)
 	params := batch.NewBatchObjectsDeleteParams().WithBody(body).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	return resp.GetPayload()
+}
+
+func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete, cl types.ConsistencyLevel) {
+	t.Helper()
+	DeleteObjectsBatchWithResponse(t, body, cl)
 }
 
 func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,

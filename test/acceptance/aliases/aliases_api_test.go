@@ -118,8 +118,10 @@ func Test_AliasesAPI(t *testing.T) {
 	})
 
 	defer func() {
-		for _, alias := range aliases {
-			helper.DeleteAlias(t, alias)
+		resp := helper.GetAliases(t, nil)
+		require.NotNil(t, resp)
+		for _, alias := range resp.Aliases {
+			helper.DeleteAlias(t, alias.Alias)
 		}
 		helper.DeleteClass(t, books.DefaultClassName)
 		helper.DeleteClass(t, documents.Passage)
@@ -214,11 +216,13 @@ func Test_AliasesAPI(t *testing.T) {
 			objWithClassName, err := helper.GetObject(t, books.DefaultClassName, id)
 			require.NoError(t, err)
 			require.NotNil(t, objWithClassName)
+			assert.Equal(t, books.DefaultClassName, objWithClassName.Class)
 
 			objWithAlias, err := helper.GetObject(t, aliasName, id)
 			require.NoError(t, err)
 			require.NotNil(t, objWithAlias)
 			assert.Equal(t, objWithClassName.ID, objWithAlias.ID)
+			assert.Equal(t, aliasName, objWithAlias.Class)
 		}
 
 		t.Run("create class with alias name", func(t *testing.T) {
@@ -328,8 +332,9 @@ func Test_AliasesAPI(t *testing.T) {
 					"description": "Stranded on Mars after a dust storm forces his crew to evacuate, astronaut Mark Watney is presumed dead and left alone on the hostile planet.",
 				},
 			}
-			err := helper.CreateObject(t, obj)
+			created, err := helper.CreateObjectWithResponse(t, obj)
 			require.NoError(t, err)
+			assert.Equal(t, aliasName, created.Class)
 			assertGetObject(t, objID)
 		})
 
@@ -343,8 +348,9 @@ func Test_AliasesAPI(t *testing.T) {
 					"description": "A book about an astronaut Mark Watney.",
 				},
 			}
-			err := helper.UpdateObject(t, obj)
+			updated, err := helper.UpdateObjectWithResponse(t, obj)
 			require.NoError(t, err)
+			assert.Equal(t, aliasName, updated.Class)
 			assertGetObject(t, objID)
 		})
 
@@ -403,8 +409,10 @@ func Test_AliasesAPI(t *testing.T) {
 					"description": "A book about nothing.",
 				},
 			}
-			helper.CreateObjectsBatch(t, []*models.Object{obj1, obj2})
-			require.NoError(t, err)
+			resp := helper.CreateObjectsBatchWithResponse(t, []*models.Object{obj1, obj2})
+			for _, obj := range resp {
+				assert.Equal(t, aliasName, obj.Class)
+			}
 			assertGetObject(t, objID1)
 			assertGetObject(t, objID2)
 		})
@@ -421,7 +429,10 @@ func Test_AliasesAPI(t *testing.T) {
 					},
 				},
 			}
-			helper.DeleteObjectsBatch(t, batchDelete, types.ConsistencyLevelAll)
+			resp := helper.DeleteObjectsBatchWithResponse(t, batchDelete, types.ConsistencyLevelAll)
+			require.NotNil(t, resp)
+			require.NotNil(t, resp.Match)
+			assert.Equal(t, aliasName, resp.Match.Class)
 		})
 	})
 }
