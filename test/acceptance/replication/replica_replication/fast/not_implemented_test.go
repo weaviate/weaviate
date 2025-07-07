@@ -35,14 +35,14 @@ type ReplicationNotImplementedTestSuite struct {
 
 func (suite *ReplicationNotImplementedTestSuite) SetupSuite() {
 	t := suite.T()
-	// t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
-		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "false").
+		WithWeaviateEnv("REPLICA_MOVEMENT_DISABLED", "true").
 		Start(mainCtx)
 	require.Nil(t, err)
 	suite.compose = compose

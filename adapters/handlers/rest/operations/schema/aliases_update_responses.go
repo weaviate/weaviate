@@ -28,7 +28,7 @@ import (
 const AliasesUpdateOKCode int = 200
 
 /*
-AliasesUpdateOK New alias to the target class (collection).
+AliasesUpdateOK Successfully updated the alias to point to the new collection (class).
 
 swagger:response aliasesUpdateOK
 */
@@ -188,7 +188,7 @@ func (o *AliasesUpdateNotFound) WriteResponse(rw http.ResponseWriter, producer r
 const AliasesUpdateUnprocessableEntityCode int = 422
 
 /*
-AliasesUpdateUnprocessableEntity Invalid update alias request
+AliasesUpdateUnprocessableEntity Invalid update alias request.
 
 swagger:response aliasesUpdateUnprocessableEntity
 */

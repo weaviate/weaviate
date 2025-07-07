@@ -119,7 +119,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 }
 
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
-	if !c.config.ReplicaMovementEnabled {
+	if c.config.ReplicaMovementDisabled {
 		return
 	}
 
@@ -217,7 +217,7 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	if c.config.ReplicaMovementEnabled {
+	if !c.config.ReplicaMovementDisabled {
 		c.logger.Info("closing replication engine ...")
 		if c.cancelReplicationEngine != nil {
 			c.cancelReplicationEngine()

@@ -28,7 +28,7 @@ import (
 const AliasesCreateOKCode int = 200
 
 /*
-AliasesCreateOK Added new alias to the specified class (collection).
+AliasesCreateOK Successfully created a new alias for the specified collection (class)
 
 swagger:response aliasesCreateOK
 */
@@ -143,7 +143,7 @@ func (o *AliasesCreateForbidden) WriteResponse(rw http.ResponseWriter, producer 
 const AliasesCreateUnprocessableEntityCode int = 422
 
 /*
-AliasesCreateUnprocessableEntity Invalid create alias request
+AliasesCreateUnprocessableEntity Invalid create alias request.
 
 swagger:response aliasesCreateUnprocessableEntity
 */

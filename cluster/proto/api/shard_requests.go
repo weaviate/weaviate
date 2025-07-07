@@ -11,7 +11,9 @@
 
 package api
 
-import "github.com/go-openapi/strfmt"
+import (
+	"github.com/go-openapi/strfmt"
+)
 
 const (
 	ReplicationCommandVersionV0 = iota
@@ -71,8 +73,9 @@ type ReplicationUpdateOpStateResponse struct{}
 type ReplicationRegisterErrorRequest struct {
 	Version int
 
-	Id    uint64
-	Error string
+	Id         uint64
+	Error      string
+	TimeUnixMs int64
 }
 
 type ReplicationRegisterErrorResponse struct{}
@@ -102,9 +105,15 @@ type ReplicationDetailsRequestByTargetNode struct {
 	Node string
 }
 
+type ReplicationDetailsError struct {
+	Message           string
+	ErroredTimeUnixMs int64 // Unix timestamp in milliseconds when the error occurred
+}
+
 type ReplicationDetailsState struct {
-	State  string
-	Errors []string
+	State           string
+	Errors          []ReplicationDetailsError
+	StartTimeUnixMs int64 // Unix timestamp in milliseconds when the state was first entered
 }
 
 type ReplicationDetailsResponse struct {
@@ -119,9 +128,10 @@ type ReplicationDetailsResponse struct {
 	ScheduledForCancel bool
 	ScheduledForDelete bool
 
-	Status        ReplicationDetailsState
-	StatusHistory []ReplicationDetailsState
-	TransferType  string
+	Status          ReplicationDetailsState
+	StatusHistory   []ReplicationDetailsState
+	TransferType    string
+	StartTimeUnixMs int64
 }
 
 type ReplicationCancelRequest struct {

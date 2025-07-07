@@ -24,8 +24,7 @@ import (
 	"sync"
 	"time"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/diskio"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -36,9 +35,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -131,6 +132,11 @@ type Bucket struct {
 	disableCompaction  bool
 	lazySegmentLoading bool
 
+	// if true, don't increase the segment level during compaction.
+	// useful for migrations, as it allows to merge reindex and ingest buckets
+	// without discontinuities in segment levels.
+	keepLevelCompaction bool
+
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
 	allocChecker memwatch.AllocChecker
@@ -182,6 +188,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, err
 	}
 
+	files, err := diskio.GetFileWithSizes(dir)
+	if err != nil {
+		return nil, err
+	}
+
 	b := &Bucket{
 		dir:                   dir,
 		rootDir:               rootDir,
@@ -193,7 +204,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		logger:                logger,
 		metrics:               metrics,
 		useBloomFilter:        true,
-		calcCountNetAdditions: true,
+		calcCountNetAdditions: false,
 		haltedFlushTimer:      interval.NewBackoffTimer(),
 	}
 
@@ -228,7 +239,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepSegmentsInMemory:     b.keepSegmentsInMemory,
 			MinMMapSize:              b.minMMapSize,
 			bm25config:               b.bm25Config,
-		}, b.allocChecker, b.lazySegmentLoading)
+			keepLevelCompaction:      b.keepLevelCompaction,
+		}, b.allocChecker, b.lazySegmentLoading, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
@@ -282,7 +294,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	b.disk = sg
 
-	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
+	if err := b.mayRecoverFromCommitLogs(ctx, files); err != nil {
 		return nil, err
 	}
 
@@ -1889,4 +1901,20 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 		return 0, nil
 	}
 	return float64(propLengthSum) / float64(propLengthCount), nil
+}
+
+// DiskSize returns the total size from the disk segment group (cold path)
+func (b *Bucket) DiskSize() int64 {
+	if b.disk != nil {
+		return b.disk.Size()
+	}
+	return 0
+}
+
+// MetadataSize returns the total size of metadata files (.bloom and .cna) from segments in memory
+func (b *Bucket) MetadataSize() int64 {
+	if b.disk == nil {
+		return 0
+	}
+	return b.disk.MetadataSize()
 }

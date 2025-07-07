@@ -62,7 +62,7 @@ func (m *JinaAIModule) Name() string {
 }
 
 func (m *JinaAIModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *JinaAIModule) Init(ctx context.Context,

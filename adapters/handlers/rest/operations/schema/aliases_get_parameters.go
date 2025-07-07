@@ -42,7 +42,7 @@ type AliasesGetParams struct {
 	// HTTP Request Object
 	HTTPRequest *http.Request `json:"-"`
 
-	/*class (collection) to which alias is assigned.
+	/*Optional filter to retrieve aliases for a specific collection (class) only. If not provided, returns all aliases.
 	  In: query
 	*/
 	Class *string

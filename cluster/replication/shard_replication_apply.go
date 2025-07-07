@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"time"
 
 	"github.com/go-openapi/strfmt"
 	"github.com/hashicorp/go-multierror"
@@ -29,11 +30,12 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 	defer s.opsLock.Unlock()
 
 	op := ShardReplicationOp{
-		ID:           id,
-		UUID:         c.Uuid,
-		SourceShard:  newShardFQDN(c.SourceNode, c.SourceCollection, c.SourceShard),
-		TargetShard:  newShardFQDN(c.TargetNode, c.SourceCollection, c.SourceShard),
-		TransferType: api.ShardReplicationTransferType(c.TransferType),
+		ID:              id,
+		UUID:            c.Uuid,
+		SourceShard:     newShardFQDN(c.SourceNode, c.SourceCollection, c.SourceShard),
+		TargetShard:     newShardFQDN(c.TargetNode, c.SourceCollection, c.SourceShard),
+		TransferType:    api.ShardReplicationTransferType(c.TransferType),
+		StartTimeUnixMs: time.Now().UnixMilli(),
 	}
 	return s.writeOpIntoFSM(op, NewShardReplicationStatus(api.REGISTERED))
 }
@@ -50,7 +52,7 @@ func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorReque
 	if !ok {
 		return fmt.Errorf("could not find op status for op %d", c.Id)
 	}
-	if err := status.AddError(c.Error); err != nil {
+	if err := status.AddError(c.Error, c.TimeUnixMs); err != nil {
 		return err
 	}
 	s.statusById[op.ID] = status

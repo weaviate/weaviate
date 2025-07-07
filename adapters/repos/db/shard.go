@@ -77,7 +77,7 @@ type ShardLike interface {
 	Counter() *indexcounter.Counter
 	ObjectCount() int
 	ObjectCountAsync() int
-	ObjectStorageSize() int64
+	ObjectStorageSize(ctx context.Context) int64
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
@@ -418,9 +418,13 @@ func (s *Shard) ObjectCountAsync() int {
 	return b.CountAsync()
 }
 
-func (s *Shard) ObjectStorageSize() int64 {
-	// TODO-usage: implement this storage bytes
-	return 0
+func (s *Shard) ObjectStorageSize(ctx context.Context) int64 {
+	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+	if bucket == nil {
+		return 0
+	}
+
+	return bucket.DiskSize() + bucket.MetadataSize()
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
@@ -445,6 +449,10 @@ func shardPath(indexPath, shardName string) string {
 
 func shardPathLSM(indexPath, shardName string) string {
 	return path.Join(indexPath, shardName, "lsm")
+}
+
+func shardPathObjectsLSM(indexPath, shardName string) string {
+	return path.Join(shardPathLSM(indexPath, shardName), helpers.ObjectsBucketLSM)
 }
 
 func bucketKeyPropertyLength(length int) ([]byte, error) {

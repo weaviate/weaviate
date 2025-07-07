@@ -32,7 +32,8 @@ type ShardReplicationOp struct {
 	SourceShard shardFQDN
 	TargetShard shardFQDN
 
-	TransferType api.ShardReplicationTransferType
+	TransferType    api.ShardReplicationTransferType
+	StartTimeUnixMs int64 // Unix timestamp when the operation started
 }
 
 func (s ShardReplicationOp) MarshalText() (text []byte, err error) {

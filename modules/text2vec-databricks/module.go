@@ -61,7 +61,7 @@ func (m *DatabricksModule) Name() string {
 }
 
 func (m *DatabricksModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *DatabricksModule) Init(ctx context.Context,

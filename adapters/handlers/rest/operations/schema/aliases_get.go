@@ -45,9 +45,9 @@ func NewAliasesGet(ctx *middleware.Context, handler AliasesGetHandler) *AliasesG
 /*
 	AliasesGet swagger:route GET /aliases schema aliasesGet
 
-# Get aliases
+# List aliases
 
-get all aliases or filtered by a class (collection)
+Retrieve a list of all aliases in the system. Results can be filtered by specifying a collection (class) name to get aliases for a specific collection only.
 */
 type AliasesGet struct {
 	Context *middleware.Context

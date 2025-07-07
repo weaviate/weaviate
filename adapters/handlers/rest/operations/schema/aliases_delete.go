@@ -45,7 +45,9 @@ func NewAliasesDelete(ctx *middleware.Context, handler AliasesDeleteHandler) *Al
 /*
 	AliasesDelete swagger:route DELETE /aliases/{aliasName} schema aliasesDelete
 
-delete alias from a specific class (collection).
+# Delete an alias
+
+Remove an existing alias from the system. This will delete the alias mapping but will not affect the underlying collection (class).
 */
 type AliasesDelete struct {
 	Context *middleware.Context

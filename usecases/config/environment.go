@@ -47,8 +47,9 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
-	DefaultReplicationEngineMaxWorkers     = 10
-	DefaultReplicaMovementMinimumAsyncWait = 60 * time.Second
+	DefaultReplicationEngineMaxWorkers      = 10
+	DefaultReplicaMovementMinimumAsyncWait  = 60 * time.Second
+	DefaultReplicationEngineFileCopyWorkers = 10
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 )
@@ -490,6 +491,10 @@ func FromEnv(config *Config) error {
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
 			DefaultMapToBlockmaxPauseDurationSeconds)
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PER_OBJECT_DELAY_MILLISECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds = val },
+			DefaultMapToBlockmaxPerObjectDelayMilliseconds)
+
 		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
 		if err != nil {
 			return err
@@ -795,8 +800,8 @@ func FromEnv(config *Config) error {
 		config.DistributedTasks.Enabled = entcfg.Enabled(v)
 	}
 
-	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
-		config.ReplicaMovementEnabled = entcfg.Enabled(v)
+	if v := os.Getenv("REPLICA_MOVEMENT_DISABLED"); v != "" {
+		config.ReplicaMovementDisabled = entcfg.Enabled(v)
 	}
 
 	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {
@@ -1038,6 +1043,14 @@ func (c *Config) parseMemtableConfig() error {
 		"REPLICATION_ENGINE_MAX_WORKERS",
 		func(val int) { c.ReplicationEngineMaxWorkers = val },
 		DefaultReplicationEngineMaxWorkers,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
+		"REPLICATION_ENGINE_FILE_COPY_WORKERS",
+		func(val int) { c.ReplicationEngineFileCopyWorkers = val },
+		DefaultReplicationEngineFileCopyWorkers,
 	); err != nil {
 		return err
 	}
