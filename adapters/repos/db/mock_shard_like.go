@@ -659,8 +659,8 @@ func (_c *MockShardLike_DimensionsUsage_Call) Run(run func(ctx context.Context, 
 	return _c
 }
 
-func (_c *MockShardLike_DimensionsUsage_Call) Return(count int, dimensions int) *MockShardLike_DimensionsUsage_Call {
-	_c.Call.Return(count, dimensions)
+func (_c *MockShardLike_DimensionsUsage_Call) Return(_a0 types.Dimensionality, _a1 error) *MockShardLike_DimensionsUsage_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 

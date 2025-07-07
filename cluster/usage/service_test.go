@@ -585,12 +585,114 @@ func TestService_Usage_BackupError(t *testing.T) {
 	_, err := service.Usage(ctx)
 
 	require.Error(t, err)
-	assert.Equal(t, err, assert.AnError)
+	require.ErrorIs(t, err, assert.AnError)
 
 	mockSchema.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
 	mockBackupProvider.AssertExpectations(t)
 	mockBackupBackend.AssertExpectations(t)
+}
+
+func TestService_Usage_VectorIndexError(t *testing.T) {
+	ctx := context.Background()
+
+	nodeName := "test-node"
+	className := "ErrorClass"
+	replication := 1
+	shardName := ""
+	objectCount := 1000
+	storageSize := int64(5000000)
+	vectorName := "abcd"
+	vectorType := "hnsw"
+	compression := "standard"
+	compressionRatio := 1.0
+	dimensionality := 1536
+	dimensionCount := 1000
+
+	mockSchema := schema.NewMockSchemaGetter(t)
+	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
+		Objects: &models.Schema{
+			Classes: []*models.Class{
+				{
+					Class:             className,
+					VectorIndexConfig: &hnsw.UserConfig{},
+					ReplicationConfig: &models.ReplicationConfig{Factor: int64(replication)},
+				},
+			},
+		},
+	})
+	mockSchema.EXPECT().NodeName().Return(nodeName)
+
+	shardingState := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			shardName: {
+				Name:           "",
+				BelongsToNodes: []string{nodeName},
+				Status:         models.TenantActivityStatusHOT,
+			},
+		},
+	}
+	shardingState.SetLocalName(nodeName)
+	mockSchema.EXPECT().CopyShardingState(className).Return(shardingState)
+
+	mockDB := db.NewMockIndexGetter(t)
+	mockIndex := db.NewMockIndexLike(t)
+	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
+
+	mockShard := db.NewMockShardLike(t)
+	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
+	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
+	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
+	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
+		Dimensions: dimensionality,
+		Count:      dimensionCount,
+	}, nil)
+
+	mockVectorIndex := db.NewMockVectorIndex(t)
+	mockVectorIndex.EXPECT().CompressionStats().Return(compressionhelpers.UncompressedStats{})
+
+	mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
+		f := args.Get(0).(func(string, db.ShardLike) error)
+		f(shardName, mockShard)
+	})
+
+	mockShard.On("ForEachVectorIndex", mock.AnythingOfType("func(string, db.VectorIndex) error")).Return(nil).Run(func(args mock.Arguments) {
+		f := args.Get(0).(func(string, db.VectorIndex) error)
+		f(vectorName, mockVectorIndex)
+	})
+
+	mockBackupProvider := backupusecase.NewMockBackupBackendProvider(t)
+	mockBackupProvider.EXPECT().EnabledBackupBackends().Return([]modulecapabilities.BackupBackend{})
+
+	logger, _ := logrus.NewNullLogger()
+	service := NewService(mockSchema, mockDB, mockBackupProvider, logger)
+
+	result, err := service.Usage(ctx)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	assert.Equal(t, nodeName, result.Node)
+	assert.Len(t, result.Collections, 1)
+
+	collection := result.Collections[0]
+	assert.Len(t, collection.Shards, 1)
+
+	shard := collection.Shards[0]
+	assert.Len(t, shard.NamedVectors, 1)
+
+	vector := shard.NamedVectors[0]
+	assert.Equal(t, vectorName, vector.Name)
+	assert.Equal(t, vectorType, vector.VectorIndexType)
+	assert.Equal(t, compression, vector.Compression)
+	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
+	assert.Len(t, vector.Dimensionalities, 1)
+
+	mockSchema.AssertExpectations(t)
+	mockDB.AssertExpectations(t)
+	mockIndex.AssertExpectations(t)
+	mockShard.AssertExpectations(t)
+	mockVectorIndex.AssertExpectations(t)
+	mockBackupProvider.AssertExpectations(t)
 }
 
 func TestService_Usage_NilVectorIndexConfig(t *testing.T) {

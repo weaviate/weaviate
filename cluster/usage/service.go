@@ -49,7 +49,7 @@ func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups ba
 
 // Usage service collects usage metrics for the node and shall return error in case of any error
 // to avoid reporting partial data
-func (m *service) Usage(ctx context.Context) (*Report, error) {
+func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 	collections := m.schemaManager.GetSchemaSkipAuth().Objects.Classes
 	usage := &types.Report{
 		Node:        m.schemaManager.NodeName(),
@@ -139,10 +139,10 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 						indexType = vectorIndexConfig.IndexType()
 					}
 
-					count, dimensions := shard.DimensionsUsage(ctx, targetVector)
-
-					// Get compression ratio from vector index stats
-					compressionRatio := vectorIndex.CompressionStats().CompressionRatio(dimensions)
+					dimensionality, err := shard.DimensionsUsage(ctx, targetVector)
+					if err != nil {
+						return err
+					}
 
 					vectorUsage := &types.VectorUsage{
 						Name:                   targetVector,
@@ -185,7 +185,7 @@ func (m *service) Usage(ctx context.Context) (*Report, error) {
 			if backup.Status != backupent.Success {
 				continue
 			}
-			usage.Backups = append(usage.Backups, &BackupUsage{
+			usage.Backups = append(usage.Backups, &types.BackupUsage{
 				ID:             backup.ID,
 				CompletionTime: backup.CompletedAt.Format(time.RFC3339),
 				SizeInGib:      float64(backup.PreCompressionSizeBytes) / (1024 * 1024 * 1024), // Convert bytes to GiB
