@@ -119,7 +119,7 @@ func (m *shardMap) RangeConcurrently(logger logrus.FieldLogger, f func(name stri
 
 // Load returns the shard or nil if no shard is present.
 // NOTE: this method does not check if the shard is loaded or not and it could
-// return a lazy shard that is not loaded which could result to loading it if
+// return a lazy shard that is not loaded which could result in loading it if
 // the returned shard is used.
 // Use Loaded if you want to check if the shard is loaded without loading it.
 func (m *shardMap) Load(name string) ShardLike {

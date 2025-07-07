@@ -14,6 +14,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -403,16 +404,9 @@ func generateStringOfSize(size int) string {
 
 	// Use a repeating pattern to create a string of approximately the desired size
 	pattern := "abcdefghijklmnopqrstuvwxyz0123456789"
-	repeats := size / len(pattern)
-	remainder := size % len(pattern)
-
-	result := ""
-	for i := 0; i < repeats; i++ {
-		result += pattern
-	}
-	if remainder > 0 {
+	result := strings.Repeat(pattern, size/len(pattern))
+	if remainder := size % len(pattern); remainder > 0 {
 		result += pattern[:remainder]
 	}
-
 	return result
 }
