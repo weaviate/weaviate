@@ -529,7 +529,7 @@ func GetAliasWithAuthzNotFound(t *testing.T, aliasName string, authInfo runtime.
 	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
 	resp, err := Client(t).Schema.AliasesGetAlias(params, authInfo)
 	AssertRequestFail(t, resp, err, nil)
-	return resp.GetPayload()
+	return nil
 }
 
 func UpdateAlias(t *testing.T, aliasName, targetClassName string) {
