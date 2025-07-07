@@ -115,7 +115,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, files map[string]
 			}
 			b.active = mt
 		} else {
-			if err := mt.flush(); err != nil {
+			if _, err := mt.flush(); err != nil {
 				return errors.Wrap(err, "flush memtable after WAL recovery")
 			}
 

@@ -1226,7 +1226,7 @@ func (b *Bucket) Shutdown(ctx context.Context) error {
 			return err
 		}
 	} else {
-		if err := b.active.flush(); err != nil {
+		if _, err := b.active.flush(); err != nil {
 			b.flushLock.Unlock()
 			return err
 		}
@@ -1437,7 +1437,8 @@ func (b *Bucket) FlushAndSwitch() error {
 	if b.flushing.strategy == StrategyInverted {
 		b.flushing.averagePropLength, b.flushing.propLengthCount = b.disk.GetAveragePropertyLength()
 	}
-	if err := b.flushing.flush(); err != nil {
+	segmentPath, err := b.flushing.flush()
+	if err != nil {
 		return fmt.Errorf("flush: %w", err)
 	}
 
@@ -1448,7 +1449,7 @@ func (b *Bucket) FlushAndSwitch() error {
 		}
 	}
 
-	segment, err := b.initAndPrecomputeNewSegment()
+	segment, err := b.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return fmt.Errorf("precompute metadata: %w", err)
 	}
@@ -1516,12 +1517,11 @@ func (b *Bucket) atomicallySwitchMemtable() (bool, error) {
 	return true, nil
 }
 
-func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
+func (b *Bucket) initAndPrecomputeNewSegment(segmentPath string) (*segment, error) {
 	// Note that this operation does not require the flush lock, i.e. it can
 	// happen in the background and we can accept new writes will this
 	// pre-compute is happening.
-	path := b.flushing.path
-	segment, err := b.disk.initAndPrecomputeNewSegment(path)
+	segment, err := b.disk.initAndPrecomputeNewSegment(segmentPath)
 	if err != nil {
 		return nil, err
 	}
