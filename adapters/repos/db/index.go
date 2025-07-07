@@ -118,6 +118,10 @@ func (m *shardMap) RangeConcurrently(logger logrus.FieldLogger, f func(name stri
 }
 
 // Load returns the shard or nil if no shard is present.
+// NOTE: this method does not check if the shard is loaded or not and it could
+// return a lazy shard that is not loaded which could result to loading it if
+// the returned shard is used.
+// Use Loaded if you want to check if the shard is loaded without loading it.
 func (m *shardMap) Load(name string) ShardLike {
 	v, ok := (*sync.Map)(m).Load(name)
 	if !ok {
@@ -128,6 +132,29 @@ func (m *shardMap) Load(name string) ShardLike {
 	if !ok {
 		return nil
 	}
+	return shard
+}
+
+// Loaded returns the shard or nil if no shard is present.
+// If it's a lazy shard, only return it if it's loaded.
+func (m *shardMap) Loaded(name string) ShardLike {
+	v, ok := (*sync.Map)(m).Load(name)
+	if !ok {
+		return nil
+	}
+
+	shard, ok := v.(ShardLike)
+	if !ok {
+		return nil
+	}
+
+	// If it's a lazy shard, only return it if it's loaded
+	if lazyShard, ok := shard.(*LazyLoadShard); ok {
+		if !lazyShard.isLoaded() {
+			return nil
+		}
+	}
+
 	return shard
 }
 
@@ -2945,7 +2972,7 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 	defer i.shardCreateLocks.Unlock(tenantName)
 
 	// check if created in the meantime by concurrent call
-	if shard := i.shards.Load(tenantName); shard != nil {
+	if shard := i.shards.Loaded(tenantName); shard != nil {
 		return int64(shard.ObjectCount()), shard.ObjectStorageSize(ctx)
 	}
 
@@ -2991,11 +3018,8 @@ func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName
 	defer i.shardCreateLocks.Unlock(tenantName)
 
 	// check if created in the meantime by concurrent call
-	if shard := i.shards.Load(tenantName); shard != nil {
-		// Check if it's a lazy shard that's not loaded yet to avoid recursion
-		if lazyShard, ok := shard.(*LazyLoadShard); ok && lazyShard.isLoaded() {
-			return shard.DimensionsUsage(ctx, targetVector)
-		}
+	if shard := i.shards.Loaded(tenantName); shard != nil {
+		return shard.DimensionsUsage(ctx, targetVector)
 	}
 
 	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
@@ -3024,11 +3048,8 @@ func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName 
 	defer i.shardCreateLocks.Unlock(tenantName)
 
 	// check if created in the meantime by concurrent call
-	if shard := i.shards.Load(tenantName); shard != nil {
-		// Check if it's a lazy shard that's not loaded yet to avoid recursion
-		if lazyShard, ok := shard.(*LazyLoadShard); ok && lazyShard.isLoaded() {
-			return shard.VectorStorageSize(ctx)
-		}
+	if shard := i.shards.Loaded(tenantName); shard != nil {
+		return shard.VectorStorageSize(ctx)
 	}
 
 	totalSize := int64(0)
