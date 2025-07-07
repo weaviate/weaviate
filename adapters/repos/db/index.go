@@ -839,6 +839,7 @@ func (i *Index) asyncReplicationEnabled() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
+	// TODO should we update this to use the new shardHasMultipleReplicas?
 	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
 }
 
@@ -1260,20 +1261,23 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		var objects []*storobj.Object
 		var err error
 
-		// TODO why doesn't this have a replicator branch?
+		// TODO follow up task for 1.33 to have searches optionally use CL "for real"?
 		shard, release, err := i.GetShard(ctx, shardName)
 		if err != nil {
 			return nil, err
-		} else if shard != nil {
+		}
+		if shard != nil {
 			defer release()
-			objects, err = shard.MultiObjectByID(ctx, group.ids)
-			if err != nil {
-				return nil, errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
-			}
-		} else {
+		}
+		if shard == nil || i.shardHasOngoingReplication(shardName) {
 			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
 			if err != nil {
 				return nil, errors.Wrapf(err, "remote shard %s", shardName)
+			}
+		} else {
+			objects, err = shard.MultiObjectByID(ctx, group.ids)
+			if err != nil {
+				return nil, errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
 			}
 		}
 
@@ -1480,8 +1484,8 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
-	// TODO should we add a replicator branch here or is it fine to just use replicationEnabled? May need to add a new function which checks for ongoing replication for collection (using existing collection op map)
-	if i.replicationEnabled() {
+	// TODO talk with Jero about this
+	if i.checkConsistencyForShards(shardNames) {
 		if replProps == nil {
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
@@ -1520,19 +1524,16 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			if err != nil {
 				return err
 			}
-
 			if shard != nil {
 				defer release()
-				localCtx := helpers.InitSlowQueryDetails(ctx)
-				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
-				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
-				if err != nil {
-					return fmt.Errorf(
-						"local shard object search %s: %w", shard.ID(), err)
-				}
-				nodeName = i.getSchema.NodeName()
-			} else {
-				i.logger.WithField("shardName", shardName).Debug("shard was not found locally, search for object remotely")
+			}
+			hasOngoingReplication := i.shardHasOngoingReplication(shardName)
+			if shard == nil || hasOngoingReplication {
+				i.logger.WithFields(logrus.Fields{
+					"shardName":               shardName,
+					"shard_nil":               shard == nil,
+					"has_ongoing_replication": hasOngoingReplication,
+				}).Debug("search for object locally")
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
 					ctx, shardName, nil, nil, 0, limit, filters, keywordRanking,
@@ -1541,10 +1542,18 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 					return fmt.Errorf(
 						"remote shard object search %s: %w", shardName, err)
 				}
+			} else {
+				localCtx := helpers.InitSlowQueryDetails(ctx)
+				helpers.AnnotateSlowQueryLog(localCtx, "is_coordinator", true)
+				objs, scores, err = shard.ObjectSearch(localCtx, limit, filters, keywordRanking, sort, cursor, addlProps, properties)
+				if err != nil {
+					return fmt.Errorf(
+						"local shard object search %s: %w", shard.ID(), err)
+				}
+				nodeName = i.getSchema.NodeName()
 			}
 
-			// TODO same here?
-			if i.replicationEnabled() {
+			if i.checkConsistencyForShards([]string{shardName}) {
 				storobj.AddOwnership(objs, nodeName, shardName)
 			}
 
@@ -1687,9 +1696,8 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 	if err != nil {
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
-	// TODO same here?
 	// Append result to out
-	if i.replicationEnabled() {
+	if i.checkConsistencyForShards([]string{shardName}) {
 		storobj.AddOwnership(localShardResult, i.getSchema.NodeName(), shardName)
 	}
 	return localShardResult, localShardScores, nil
@@ -1722,8 +1730,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		}
 		// Append the result of the search to the outgoing result
 		for _, remoteShardResult := range remoteSearchResults {
-			// TODO same here?
-			if i.replicationEnabled() {
+			if i.checkConsistencyForShards([]string{shardName}) {
 				storobj.AddOwnership(remoteShardResult.Objects, remoteShardResult.Node, shardName)
 			}
 			outObjects = append(outObjects, remoteShardResult.Objects...)
@@ -1738,8 +1745,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 		}
 
-		// TODO same here?
-		if i.replicationEnabled() {
+		if i.checkConsistencyForShards([]string{shardName}) {
 			storobj.AddOwnership(remoteResult, nodeName, shardName)
 		}
 		outObjects = remoteResult
@@ -1762,15 +1768,18 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 
 	if len(shardNames) == 1 && !i.Config.ForceFullReplicasSearch {
-		shard, release, err := i.GetShard(ctx, shardNames[0])
+		shardName := shardNames[0]
+		shard, release, err := i.GetShard(ctx, shardName)
 		if err != nil {
 			return nil, nil, err
 		}
 
 		if shard != nil {
 			defer release()
-			return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
-				sort, groupBy, additionalProps, shard, targetCombination, properties)
+			if !i.shardHasOngoingReplication(shardName) {
+				return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
+					sort, groupBy, additionalProps, shard, targetCombination, properties)
+			}
 		}
 	}
 
@@ -1804,12 +1813,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
-		// TODO is this right? add comment explaining
-		hasOngoingReplication := false
-		if i.replicationFSM != nil {
-			hasOngoingReplication = i.replicationFSM.HasOngoingReplication(i.Config.ClassName.String(), shardName, i.replicator.LocalNodeName())
-		}
-		if shard != nil && !hasOngoingReplication {
+		if shard != nil && !i.shardHasOngoingReplication(shardName) {
 			localSearches++
 			eg.Go(func() error {
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
@@ -1830,7 +1834,6 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		if shard == nil || i.Config.ForceFullReplicasSearch {
 			remoteSearches++
 			eg.Go(func() error {
-				// TODO can this run on a local shard if it exists locally but we run this remote search?
 				// If we have no local shard or if we force the query to reach all replicas
 				remoteShardObject, remoteShardScores, err2 := i.remoteShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
 				if err2 != nil {
@@ -1883,8 +1886,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		dists = dists[:limit]
 	}
 
-	// TODO same here?
-	if i.replicationEnabled() {
+	if i.replicationEnabled() || i.checkConsistencyForShards(shardNames) {
 		if replProps == nil {
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
@@ -1914,14 +1916,13 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 	ctx = helpers.InitSlowQueryDetails(ctx)
 	helpers.AnnotateSlowQueryLog(ctx, "is_coordinator", false)
 
-	// TODO same here?
 	// Hacky fix here
 	// shard.GetStatus() will force a lazy shard to load and we have usecases that rely on that behaviour that a search
 	// will force a lazy loaded shard to load
 	// However we also have cases (related to FORCE_FULL_REPLICAS_SEARCH) where we want to avoid waiting for a shard to
 	// load, therefore we only call GetStatusNoLoad if replication is enabled -> another replica will be able to answer
 	// the request and we want to exit early
-	if i.replicationEnabled() && shard.GetStatusNoLoad() == storagestate.StatusLoading {
+	if (i.replicationEnabled() || i.shardHasMultipleReplicas(shardName)) && shard.GetStatusNoLoad() == storagestate.StatusLoading {
 		return nil, nil, enterrors.NewErrUnprocessable(fmt.Errorf("local %s shard is not ready", shardName))
 	} else {
 		if shard.GetStatus() == storagestate.StatusLoading {
@@ -2216,19 +2217,21 @@ func (i *Index) aggregate(ctx context.Context,
 		var err error
 		var res *aggregation.Result
 
-		// TODO why doesn't this have a replicator branch?
 		var shard ShardLike
 		var release func()
 		shard, release, err = i.GetShard(ctx, shardName)
 		if err == nil {
-			if shard != nil {
-				func() {
+			// anonymous func is here to release the shard after each loop iteration
+			func() {
+				if shard != nil {
 					defer release()
+				}
+				if shard != nil && !i.shardHasOngoingReplication(shardName) {
 					res, err = shard.Aggregate(ctx, params, modules)
-				}()
-			} else {
-				res, err = i.remote.Aggregate(ctx, shardName, params)
-			}
+				} else {
+					res, err = i.remote.Aggregate(ctx, shardName, params)
+				}
+			}()
 		}
 
 		if err != nil {
@@ -2470,20 +2473,22 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 		var shard ShardLike
 		var release func()
 
-		// TODO why doesn't this have a replicator branch?
 		shard, release, err = i.GetShard(ctx, shardName)
 		if err == nil {
-			if shard != nil {
-				func() {
+			// anonymous func is here to release the shard after each loop iteration
+			func() {
+				if shard != nil {
 					defer release()
+				}
+				if shard != nil && !i.shardHasOngoingReplication(shardName) {
 					_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
 						size += queue.Size()
 						return nil
 					})
-				}()
-			} else {
-				size, err = i.remote.GetShardQueueSize(ctx, shardName)
-			}
+				} else {
+					size, err = i.remote.GetShardQueueSize(ctx, shardName)
+				}
+			}()
 		}
 
 		if err != nil {
@@ -2534,17 +2539,18 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 		var shard ShardLike
 		var release func()
 
-		// TODO why doesn't this have a replicator branch?
 		shard, release, err = i.GetShard(ctx, shardName)
 		if err == nil {
-			if shard != nil {
-				func() {
+			func() {
+				if shard != nil {
 					defer release()
+				}
+				if shard != nil && !i.shardHasOngoingReplication(shardName) {
 					status = shard.GetStatus().String()
-				}()
-			} else {
-				status, err = i.remote.GetShardStatus(ctx, shardName)
-			}
+				} else {
+					status, err = i.remote.GetShardStatus(ctx, shardName)
+				}
+			}()
 		}
 
 		if err != nil {
@@ -2571,16 +2577,17 @@ func (i *Index) IncomingGetShardStatus(ctx context.Context, shardName string) (s
 }
 
 func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
-	// TODO why doesn't this have a replicator branch?
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return err
 	}
-	if shard == nil {
-		return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
+	if shard != nil {
+		defer release()
+		if !i.shardHasOngoingReplication(shardName) {
+			return shard.UpdateStatus(targetStatus)
+		}
 	}
-	defer release()
-	return shard.UpdateStatus(targetStatus)
+	return i.remote.UpdateShardStatus(ctx, shardName, targetStatus, schemaVersion)
 }
 
 func (i *Index) IncomingUpdateShardStatus(ctx context.Context, shardName, targetStatus string, schemaVersion uint64) error {
@@ -3010,11 +3017,37 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 	return totalObjectCount, totalDiskSize
 }
 
+// shardHasOngoingReplication returns true if the shard has an ongoing replication operation
+func (i *Index) shardHasOngoingReplication(shard string) bool {
+	return i.replicationFSM != nil && i.replicationFSM.HasOngoingReplication(i.Config.ClassName.String(), shard, i.replicator.LocalNodeName())
+}
+
+// shardHasMultipleReplicas returns true if the shard has multiple replicas, using getSchema (not the configured replication factor)
+func (i *Index) shardHasMultipleReplicas(shard string) bool {
+	if i.getSchema == nil {
+		return false
+	}
+	shardReplicas, err := i.getSchema.ShardReplicas(i.Config.ClassName.String(), shard)
+	if err != nil {
+		return false
+	}
+	return len(shardReplicas) > 1
+}
+
+// checkConsistencyForShards returns true if we should check consistency for any of the provided shards
+func (i *Index) checkConsistencyForShards(shardNames []string) bool {
+	if i.replicationEnabled() {
+		return true
+	}
+	for _, shardName := range shardNames {
+		if i.shardHasMultipleReplicas(shardName) {
+			return true
+		}
+	}
+	return false
+}
+
 // useReplicator returns true if we should use the replicator to read/write to this shard
 func (i *Index) useReplicator(shard string) bool {
-	hasOngoingReplication := false
-	if i.replicationFSM != nil {
-		hasOngoingReplication = i.replicationFSM.HasOngoingReplication(i.Config.ClassName.String(), shard, i.replicator.LocalNodeName())
-	}
-	return i.replicationEnabled() || hasOngoingReplication
+	return i.replicationEnabled() || i.shardHasMultipleReplicas(shard) || i.shardHasOngoingReplication(shard)
 }
