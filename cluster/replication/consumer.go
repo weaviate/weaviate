@@ -493,19 +493,19 @@ func (c *CopyOpConsumer) startAsyncReplication(ctx context.Context, op ShardRepl
 		return
 	}
 	// Start async replication from target node to source node
-	// if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, overrides.source, op.Status.SchemaVersion); err != nil {
-	// 	logger.WithError(err).Error("failure while adding async replication from target node to source node")
-	// 	return
-	// }
+	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, overrides.source, op.Status.SchemaVersion); err != nil {
+		logger.WithError(err).Error("failure while adding async replication from target node to source node")
+		return
+	}
 }
 
 func (c *CopyOpConsumer) stopAsyncReplication(ctx context.Context, op ShardReplicationOpAndStatus, overrides overrides, logger *logrus.Entry) {
 	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, overrides.target); err != nil {
 		logger.WithError(err).Error("failure while removing async replication from source node to target node")
 	}
-	// if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, overrides.source); err != nil {
-	// 	logger.WithError(err).Error("failure while removing async replication from target node to source node")
-	// }
+	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, overrides.source); err != nil {
+		logger.WithError(err).Error("failure while removing async replication from target node to source node")
+	}
 	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
 		logger.WithError(err).Error("failure while reverting async replication on local node")
 	}
@@ -679,16 +679,15 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 		return api.ShardReplicationState(""), err
 	}
 
+	// Async replication was started in processFinalizingOp, but here we want to "increase" the upper time bound
+	// to make sure any writes received by the source node before the op entered the DEHYDRATING state are
+	// propagated to the target node. We assume writes will complete or time out (default 90s) within the
+	// asyncReplicationMinimumWait time (default 100s). The source node should not receive any writes after the op
+	// enters the DEHYDRATING state.
+	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
+	overrides := newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
+
 	if slices.Contains(nodes, op.Op.SourceShard.NodeId) {
-		asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
-
-		// Async replication was started in processFinalizingOp, but here we want to "increase" the upper time bound
-		// to make sure any writes received by the source node before the op entered the DEHYDRATING state are
-		// propagated to the target node. We assume writes will complete or time out (default 90s) within the
-		// asyncReplicationMinimumWait time (default 100s). The source node should not receive any writes after the op
-		// enters the DEHYDRATING state.
-		overrides := newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
-
 		if ctx.Err() != nil {
 			logger.WithError(ctx.Err()).Debug("context cancelled, stopping replication operation")
 			return api.ShardReplicationState(""), ctx.Err()
@@ -747,6 +746,27 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 	return DELETED, nil
 }
 
+func (c *CopyOpConsumer) handleAsyncReplErr(
+	err error,
+	retryNum int,
+	asyncStatusMaxErrors int,
+	remainingErrorsAllowed int,
+	logger *logrus.Entry,
+) (int, error) {
+	remainingErrorsAllowed--
+	if remainingErrorsAllowed < 0 {
+		// If we see this error, it means that something probably went wrong with
+		// initializing the async replication on the source/target nodes.
+		logger.WithFields(logrus.Fields{"num_errors": asyncStatusMaxErrors, "num_retries": retryNum}).WithError(err).Error("errored on all attempts to get async replication status")
+		return remainingErrorsAllowed, backoff.Permanent(err)
+	}
+	// We expect to see this warning a few times while the hashtree's are being initialized
+	// on the source/target nodes, but if this errors for longer than ~asyncStatusRetries * asyncStatusInterval
+	// then either the hashtree is taking forever to init or something has gone wrong
+	logger.WithFields(logrus.Fields{"num_errors_allowed": asyncStatusMaxErrors, "num_errors_left": remainingErrorsAllowed, "num_retries_so_far": retryNum}).WithError(err).Warn("errored when getting async replication status, hashtrees may still be initializing, retrying")
+	return remainingErrorsAllowed, err
+}
+
 // waitForAsyncReplication waits for async replication to complete by checking the status of the async
 // replication every `asyncStatusInterval` seconds.
 // It returns an error if the async replication does not complete within `asyncStatusRetries` attempts.
@@ -761,40 +781,46 @@ func (c *CopyOpConsumer) waitForAsyncReplication(
 	retryNum := -1
 	return backoff.Retry(func() error {
 		retryNum++
-		asyncReplStatus, err := c.replicaCopier.AsyncReplicationStatus(
+		asyncReplStatusSrc, err := c.replicaCopier.AsyncReplicationStatus(
 			ctx,
 			op.Op.SourceShard.NodeId,
 			op.Op.TargetShard.NodeId,
 			op.Op.SourceShard.CollectionId,
 			op.Op.SourceShard.ShardId,
 		)
-		asyncReplIsPastUpperTimeBound := asyncReplStatus.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
 		if err != nil {
-			remainingErrorsAllowed--
-			if remainingErrorsAllowed < 0 {
-				// If we see this error, it means that something probably went wrong with
-				// initializing the async replication on the source/target nodes.
-				logger.WithFields(logrus.Fields{"num_errors": asyncStatusMaxErrors, "num_retries": retryNum}).WithError(err).Error("errored on all attempts to get async replication status")
-				return backoff.Permanent(err)
-			}
-			// We expect to see this warning a few times while the hashtree's are being initialized
-			// on the source/target nodes, but if this errors for longer than ~asyncStatusRetries * asyncStatusInterval
-			// then either the hashtree is taking forever to init or something has gone wrong
-			logger.WithFields(logrus.Fields{"num_errors_allowed": asyncStatusMaxErrors, "num_errors_left": remainingErrorsAllowed, "num_retries_so_far": retryNum}).WithError(err).Warn("errored when getting async replication status, hashtrees may still be initializing, retrying")
+			remainingErrorsAllowed, err = c.handleAsyncReplErr(err, retryNum, asyncStatusMaxErrors, remainingErrorsAllowed, logger)
 			return err
 		}
+		asyncReplIsPastUpperTimeBoundSrc := asyncReplStatusSrc.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
 
+		asyncReplStatusTgt, err := c.replicaCopier.AsyncReplicationStatus(
+			ctx,
+			op.Op.TargetShard.NodeId,
+			op.Op.SourceShard.NodeId,
+			op.Op.TargetShard.CollectionId,
+			op.Op.TargetShard.ShardId,
+		)
+		if err != nil {
+			remainingErrorsAllowed, err = c.handleAsyncReplErr(err, retryNum, asyncStatusMaxErrors, remainingErrorsAllowed, logger)
+			return err
+		}
+		asyncReplIsPastUpperTimeBoundTgt := asyncReplStatusTgt.StartDiffTimeUnixMillis >= asyncReplicationUpperTimeBoundUnixMillis
+
+		objectsPropagated := asyncReplStatusSrc.ObjectsPropagated + asyncReplStatusTgt.ObjectsPropagated
+		asyncReplIsPastUpperTimeBound := asyncReplIsPastUpperTimeBoundSrc && asyncReplIsPastUpperTimeBoundTgt
 		// It can take a few minutes for async replication to complete, this log is here to
 		// help monitor the progress.
 		logger.WithFields(logrus.Fields{
-			"objects_propagated":                      asyncReplStatus.ObjectsPropagated,
-			"start_diff_time_unix_millis":             asyncReplStatus.StartDiffTimeUnixMillis,
+			"objects_propagated":                      objectsPropagated,
+			"start_diff_time_unix_millis_src":         asyncReplStatusSrc.StartDiffTimeUnixMillis,
+			"start_diff_time_unix_millis_tgt":         asyncReplStatusTgt.StartDiffTimeUnixMillis,
 			"upper_time_bound_unix_millis":            asyncReplicationUpperTimeBoundUnixMillis,
 			"async_replication_past_upper_time_bound": asyncReplIsPastUpperTimeBound,
 			"num_retries_so_far":                      retryNum,
 			"remaining_errors_allowed":                remainingErrorsAllowed,
 		}).Info("async replication status")
-		if asyncReplStatus.ObjectsPropagated == 0 && asyncReplIsPastUpperTimeBound {
+		if objectsPropagated == 0 && asyncReplIsPastUpperTimeBound {
 			return nil
 		}
 

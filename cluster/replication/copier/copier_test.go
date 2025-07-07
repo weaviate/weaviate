@@ -246,7 +246,7 @@ func TestCopierCopyReplicaFiles(t *testing.T) {
 
 		logger, _ := logrusTest.NewNullLogger()
 
-		copier := New(mockClientFactory, mockRemoteIndex, fakeNodeSelector, 1, localTmpDir, nil, logger)
+		copier := New(mockClientFactory, mockRemoteIndex, fakeNodeSelector, 1, localTmpDir, nil, "node1", logger)
 		err = copier.CopyReplicaFiles(t.Context(), "node1", "collection", "shard", 0)
 		require.NoError(t, err)
 
