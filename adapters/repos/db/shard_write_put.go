@@ -48,6 +48,10 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "store object in LSM store")
 	}
 
+	if err := s.mayUpsertObjectHashTree(object, uuid, status); err != nil {
+		return errors.Wrap(err, "object creation in hashtree")
+	}
+
 	// object was not changed, no further updates are required
 	// https://github.com/weaviate/weaviate/issues/3949
 	if status.skipUpsert {
@@ -81,10 +85,6 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 
 	if err := s.GetPropertyLengthTracker().Flush(); err != nil {
 		return errors.Wrap(err, "flush prop length tracker to disk")
-	}
-
-	if err := s.mayUpsertObjectHashTree(object, uuid, status); err != nil {
-		return errors.Wrap(err, "object creation in hashtree")
 	}
 
 	return nil
