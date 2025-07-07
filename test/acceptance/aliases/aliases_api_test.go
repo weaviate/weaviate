@@ -122,7 +122,7 @@ func Test_AliasesAPI(t *testing.T) {
 	})
 
 	t.Run("get alias not found", func(t *testing.T) {
-		resp := helper.GetAlias(t, "AliasThatDoestExist")
+		resp := helper.GetAliasNotFound(t, "AliasThatDoestExist")
 		require.Nil(t, resp)
 	})
 

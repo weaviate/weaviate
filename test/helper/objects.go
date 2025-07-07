@@ -512,11 +512,23 @@ func GetAlias(t *testing.T, aliasName string) *models.Alias {
 	return GetAliasWithAuthz(t, aliasName, nil)
 }
 
+func GetAliasNotFound(t *testing.T, aliasName string) *models.Alias {
+	return GetAliasWithAuthzNotFound(t, aliasName, nil)
+}
+
 func GetAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) *models.Alias {
 	t.Helper()
 	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
 	resp, err := Client(t).Schema.AliasesGetAlias(params, authInfo)
 	AssertRequestOk(t, resp, err, nil)
+	return resp.GetPayload()
+}
+
+func GetAliasWithAuthzNotFound(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) *models.Alias {
+	t.Helper()
+	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
+	resp, err := Client(t).Schema.AliasesGetAlias(params, authInfo)
+	AssertRequestFail(t, resp, err, nil)
 	return resp.GetPayload()
 }
 
