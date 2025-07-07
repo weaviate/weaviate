@@ -13,7 +13,6 @@ package usage
 
 import (
 	"context"
-	"errors"
 	"sort"
 	"testing"
 	"time"
@@ -96,7 +95,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
 	mockCompressionStats.EXPECT().CompressionRatio(dimensionality).Return(compressionRatio)
-	mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats, nil)
+	mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats)
 
 	mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
 		f := args.Get(0).(func(string, db.ShardLike) error)
@@ -221,7 +220,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
 	mockCompressionStats.EXPECT().CompressionRatio(dimensionality).Return(compressionRatio)
-	mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats, nil)
+	mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats)
 
 	mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
 		f := args.Get(0).(func(string, db.ShardLike) error)
@@ -443,15 +442,15 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 
 	mockDefaultCompressionStats := compressionhelpers.NewMockCompressionStats(t)
 	mockDefaultCompressionStats.EXPECT().CompressionRatio(dimensionality).Return(defaultCompressionRatio)
-	mockDefaultVectorIndex.EXPECT().CompressionStats().Return(mockDefaultCompressionStats, nil)
+	mockDefaultVectorIndex.EXPECT().CompressionStats().Return(mockDefaultCompressionStats)
 
 	mockTextCompressionStats := compressionhelpers.NewMockCompressionStats(t)
 	mockTextCompressionStats.EXPECT().CompressionRatio(textDimensionality).Return(textCompressionRatio)
-	mockTextVectorIndex.EXPECT().CompressionStats().Return(mockTextCompressionStats, nil)
+	mockTextVectorIndex.EXPECT().CompressionStats().Return(mockTextCompressionStats)
 
 	mockImageCompressionStats := compressionhelpers.NewMockCompressionStats(t)
 	mockImageCompressionStats.EXPECT().CompressionRatio(imageDimensionality).Return(imageCompressionRatio)
-	mockImageVectorIndex.EXPECT().CompressionStats().Return(mockImageCompressionStats, nil)
+	mockImageVectorIndex.EXPECT().CompressionStats().Return(mockImageCompressionStats)
 
 	mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
 		f := args.Get(0).(func(string, db.ShardLike) error)
@@ -595,10 +594,9 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	vectorName := "abcd"
 	vectorType := "hnsw"
 	compression := "standard"
-	compressionRatio := 0.0
+	compressionRatio := 1.0
 	dimensionality := 1536
 	dimensionCount := 1000
-	errorMessage := "vector index error"
 
 	mockSchema := schema.NewMockSchemaGetter(t)
 	mockSchema.EXPECT().GetSchemaSkipAuth().Return(entschema.Schema{
@@ -640,7 +638,7 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	}, nil)
 
 	mockVectorIndex := db.NewMockVectorIndex(t)
-	mockVectorIndex.EXPECT().CompressionStats().Return(nil, errors.New(errorMessage))
+	mockVectorIndex.EXPECT().CompressionStats().Return(compressionhelpers.UncompressedStats{})
 
 	mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
 		f := args.Get(0).(func(string, db.ShardLike) error)
@@ -743,7 +741,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
 	mockCompressionStats.EXPECT().CompressionRatio(dimensionality).Return(compressionRatio)
-	mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats, nil)
+	mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats)
 
 	mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
 		f := args.Get(0).(func(string, db.ShardLike) error)
@@ -873,7 +871,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
 	mockCompressionStats.EXPECT().CompressionRatio(dimensionality).Return(compressionRatio)
-	mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats, nil)
+	mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats)
 
 	// Mock cold tenant calculations
 	mockIndex.EXPECT().CalculateUnloadedObjectsMetrics(ctx, coldTenant).Return(int64(coldObjectCount), coldStorageSize, nil)

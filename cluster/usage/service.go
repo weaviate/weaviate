@@ -133,18 +133,12 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 					if err != nil {
 						return err
 					}
-					// Get compression ratio from vector index stats
-					var compressionRatio float64
-					if compressionStats, err := vectorIndex.CompressionStats(); err == nil {
-						// TODO log error
-						compressionRatio = compressionStats.CompressionRatio(dimensionality.Dimensions)
-					}
 
 					vectorUsage := &types.VectorUsage{
 						Name:                   targetVector,
 						Compression:            category.String(),
 						VectorIndexType:        indexType,
-						VectorCompressionRatio: compressionRatio,
+						VectorCompressionRatio: vectorIndex.CompressionStats().CompressionRatio(dimensionality.Dimensions),
 					}
 
 					vectorUsage.Dimensionalities = append(vectorUsage.Dimensionalities, &types.Dimensionality{
