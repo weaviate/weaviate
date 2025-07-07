@@ -115,13 +115,23 @@ func Test_AliasesAPI(t *testing.T) {
 		require.Equal(t, 6, len(resp.Aliases))
 	})
 
+	t.Run("get alias", func(t *testing.T) {
+		resp := helper.GetAlias(t, "BookAlias")
+		require.NotNil(t, resp)
+		require.Equal(t, "BookAlias", resp.Alias)
+	})
+
+	t.Run("get alias not found", func(t *testing.T) {
+		resp := helper.GetAliasNotFound(t, "AliasThatDoestExist")
+		require.Nil(t, resp)
+	})
+
 	t.Run("replace alias", func(t *testing.T) {
 		checkAlias := func(t *testing.T, aliasName, expectedClass string) {
 			resp := helper.GetAlias(t, aliasName)
 			require.NotNil(t, resp)
-			require.NotEmpty(t, resp.Aliases)
-			require.Equal(t, aliasName, resp.Aliases[0].Alias)
-			require.Equal(t, expectedClass, resp.Aliases[0].Class)
+			require.Equal(t, aliasName, resp.Alias)
+			require.Equal(t, expectedClass, resp.Class)
 		}
 		aliasName := "AliasThatWillBeReplaced"
 		checkAlias(t, aliasName, documents.Passage)
@@ -139,6 +149,12 @@ func Test_AliasesAPI(t *testing.T) {
 		checkAliasesCount(t, 6)
 		helper.DeleteAlias(t, "AliasThatWillBeReplaced")
 		checkAliasesCount(t, 5)
+	})
+
+	t.Run("delete alias that doesn't exist", func(t *testing.T) {
+		resp, err := helper.DeleteAliasWithReturn(t, "AliasThatWillBeReplaced")
+		require.Error(t, err)
+		require.Nil(t, resp)
 	})
 
 	t.Run("create with clashing names", func(t *testing.T) {

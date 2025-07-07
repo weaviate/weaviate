@@ -508,16 +508,28 @@ func GetAliasesWithAuthz(t *testing.T, className *string, authInfo runtime.Clien
 	return resp.GetPayload()
 }
 
-func GetAlias(t *testing.T, aliasName string) *models.AliasResponse {
+func GetAlias(t *testing.T, aliasName string) *models.Alias {
 	return GetAliasWithAuthz(t, aliasName, nil)
 }
 
-func GetAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) *models.AliasResponse {
+func GetAliasNotFound(t *testing.T, aliasName string) *models.Alias {
+	return GetAliasWithAuthzNotFound(t, aliasName, nil)
+}
+
+func GetAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) *models.Alias {
 	t.Helper()
 	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
 	resp, err := Client(t).Schema.AliasesGetAlias(params, authInfo)
 	AssertRequestOk(t, resp, err, nil)
 	return resp.GetPayload()
+}
+
+func GetAliasWithAuthzNotFound(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) *models.Alias {
+	t.Helper()
+	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
+	resp, err := Client(t).Schema.AliasesGetAlias(params, authInfo)
+	AssertRequestFail(t, resp, err, nil)
+	return nil
 }
 
 func UpdateAlias(t *testing.T, aliasName, targetClassName string) {
@@ -533,6 +545,13 @@ func UpdateAliasWithAuthz(t *testing.T, aliasName, targetClassName string, authI
 
 func DeleteAlias(t *testing.T, aliasName string) {
 	DeleteAliasWithAuthz(t, aliasName, nil)
+}
+
+func DeleteAliasWithReturn(t *testing.T, aliasName string) (*schema.AliasesDeleteNoContent, error) {
+	t.Helper()
+	params := schema.NewAliasesDeleteParams().WithAliasName(aliasName)
+	resp, err := Client(t).Schema.AliasesDelete(params, nil)
+	return resp, err
 }
 
 func DeleteAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) {

@@ -57,7 +57,7 @@ type schema struct {
 	// mu protects the `classes`
 	mu      sync.RWMutex
 	classes map[string]*metaClass
-	aliases map[string]string
+	aliases map[string]string // key: canonical form all in TitleCase.
 
 	// metrics
 	// collectionsCount represents the number of collections on this specific node.
@@ -632,6 +632,8 @@ func (s *schema) RestoreAlias(data []byte) error {
 }
 
 func (s *schema) createAlias(class, alias string) error {
+	alias = s.canonicalAlias(alias)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -664,12 +666,20 @@ func (s *schema) replaceAlias(newClass, alias string) error {
 
 // unsafeAliasExists is not concurrency-safe! Lock s.aliases before calling
 func (s *schema) unsafeAliasExists(alias string) bool {
-	for found := range s.aliases {
-		if found == alias {
-			return true
-		}
+	_, ok := s.aliases[alias]
+	return ok
+}
+
+func (s *schema) canonicalAlias(alias string) string {
+	if len(alias) < 1 {
+		return alias
 	}
-	return false
+
+	if len(alias) == 1 {
+		return strings.ToUpper(alias)
+	}
+
+	return strings.ToUpper(string(alias[0])) + alias[1:]
 }
 
 func (s *schema) getAliases(alias, class string) map[string]string {
@@ -689,16 +699,25 @@ func (s *schema) getAliases(alias, class string) map[string]string {
 		}
 		return aliases
 	}
-	return maps.Clone(s.aliases)
+
+	// asked for all aliases.
+	if alias == "" && class == "" {
+		return maps.Clone(s.aliases)
+	}
+	// if asked for spefic class or alias return nil, meaning not found.
+	return nil
 }
 
 func (s *schema) resolveAlias(alias string) string {
+	alias = s.canonicalAlias(alias)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.aliases[alias]
 }
 
 func (s *schema) deleteAlias(alias string) error {
+	alias = s.canonicalAlias(alias)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.aliases, alias)
