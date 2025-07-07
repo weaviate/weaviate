@@ -39,7 +39,7 @@ type lazySegment struct {
 func newLazySegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	existsLower existsOnLowerSegmentsFn, cfg segmentConfig,
 ) (*lazySegment, error) {
-	if metrics.LazySegmentInit != nil {
+	if metrics != nil && metrics.LazySegmentInit != nil {
 		metrics.LazySegmentInit.Inc()
 	}
 
@@ -62,7 +62,7 @@ func (s *lazySegment) load() error {
 			return err
 		}
 		s.segment = segment
-		if s.metrics.LazySegmentLoad != nil {
+		if s.metrics != nil && s.metrics.LazySegmentLoad != nil {
 			s.metrics.LazySegmentLoad.Inc()
 		}
 	}
@@ -155,13 +155,13 @@ func (s *lazySegment) close() error {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	if s.metrics.LazySegmentClose != nil {
+	if s.metrics != nil && s.metrics.LazySegmentClose != nil {
 		s.metrics.LazySegmentClose.Inc()
 	}
 	if s.segment == nil {
 		return nil
 	}
-	if s.metrics.LazySegmentUnLoad != nil {
+	if s.metrics != nil && s.metrics.LazySegmentUnLoad != nil {
 		s.metrics.LazySegmentUnLoad.Inc()
 	}
 	return s.segment.close()
