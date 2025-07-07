@@ -980,7 +980,7 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 			node.Lock()
 			defer node.Unlock()
 			l := node.level
-			if l == 0 && len(node.connections) == 0 {
+			if l == 0 && node.connections.Layers() == 0 {
 				return
 			}
 			c, ok := distributionLayers[l]
@@ -1011,11 +1011,6 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
-}
-
-func (h *hnsw) VectorStorageSize() int64 {
-	// TODO-usage: Implement this
-	return 0
 }
 
 func (h *hnsw) CompressionStats() (compressionhelpers.CompressionStats, error) {
