@@ -71,7 +71,8 @@ func (m *Memtable) flush() (rerr error) {
 		return nil
 	}
 
-	tmpSegmentPath := m.path + ".db.tmp"
+	// new segments are always level 0
+	tmpSegmentPath := m.path + fmt.Sprintf(".l0.s%d.db.tmp", SegmentStrategyFromString(m.strategy))
 
 	f, err := os.OpenFile(tmpSegmentPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 	if err != nil {
@@ -179,10 +180,12 @@ func (m *Memtable) flush() (rerr error) {
 		return err
 	}
 
-	err = os.Rename(tmpSegmentPath, strings.TrimSuffix(tmpSegmentPath, ".tmp"))
+	realPath := strings.TrimSuffix(tmpSegmentPath, ".tmp")
+	err = os.Rename(tmpSegmentPath, realPath)
 	if err != nil {
 		return err
 	}
+	m.path = realPath
 
 	// fsync parent directory
 	err = diskio.Fsync(filepath.Dir(m.path))

@@ -89,15 +89,15 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 
 	// as newest segments are prioritized, loop in reverse order
 	for leftId := len(sg.segments) - 2; leftId >= 0; leftId-- {
-		left, right := sg.segments[leftId].getSegment(), sg.segments[leftId+1].getSegment()
+		left, right := sg.segments[leftId], sg.segments[leftId+1]
 
-		if left.secondaryIndexCount != right.secondaryIndexCount {
-			// only pair of segments with the same secondary indexes are compacted
-			continue
-		}
-
-		if left.level == right.level {
-			if sg.compactionFitsSizeLimit(left, right) {
+		if left.getLevel() == right.getLevel() {
+			leftS, rightS := sg.segments[leftId].getSegment(), sg.segments[leftId+1].getSegment()
+			if leftS.secondaryIndexCount != rightS.secondaryIndexCount {
+				// only pair of segments with the same secondary indexes are compacted
+				continue
+			}
+			if sg.compactionFitsSizeLimit(leftS, rightS) {
 				// max size not exceeded
 				matchingPairFound = true
 				matchingLeftId = leftId
@@ -109,14 +109,14 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 				// data, the levels are all still at zero, and they can be compacted
 				// with the existing re-ingested segments.
 				if sg.keepLevelCompaction {
-					matchingLevel = left.level
+					matchingLevel = leftS.level
 				} else {
-					matchingLevel = left.level + 1
+					matchingLevel = leftS.level + 1
 				}
 			} else if matchingPairFound {
 				// older segment of same level as pair's level exist.
 				// keep unchanged level
-				matchingLevel = left.level
+				matchingLevel = leftS.level
 			}
 		} else {
 			if matchingPairFound {
@@ -125,12 +125,17 @@ func (sg *SegmentGroup) findCompactionCandidates() (pair []int, level uint16) {
 				break
 			}
 			if sg.compactLeftOverSegments && !leftoverPairFound {
-				// eftover segments enabled, none leftover pair found yet
-				if sg.compactionFitsSizeLimit(left, right) && isSimilarSegmentSizes(left.size, right.size) {
+				leftS, rightS := sg.segments[leftId].getSegment(), sg.segments[leftId+1].getSegment()
+				if leftS.secondaryIndexCount != rightS.secondaryIndexCount {
+					// only pair of segments with the same secondary indexes are compacted
+					continue
+				}
+				// leftover segments enabled, none leftover pair found yet
+				if sg.compactionFitsSizeLimit(leftS, rightS) && isSimilarSegmentSizes(leftS.size, rightS.size) {
 					// max size not exceeded, segment sizes similar despite different levels
 					leftoverPairFound = true
 					leftoverLeftId = leftId
-					leftoverLevel = left.level
+					leftoverLevel = leftS.level
 				}
 			}
 		}
@@ -235,8 +240,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
-
-	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
+	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+fmt.Sprintf(".l%d.s%d", level, leftSegment.strategy)+".db.tmp")
 
 	f, err := os.Create(path)
 	if err != nil {
