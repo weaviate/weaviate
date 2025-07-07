@@ -493,19 +493,19 @@ func (c *CopyOpConsumer) startAsyncReplication(ctx context.Context, op ShardRepl
 		return
 	}
 	// Start async replication from target node to source node
-	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, overrides.source, op.Status.SchemaVersion); err != nil {
-		logger.WithError(err).Error("failure while adding async replication from target node to source node")
-		return
-	}
+	// if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, overrides.source, op.Status.SchemaVersion); err != nil {
+	// 	logger.WithError(err).Error("failure while adding async replication from target node to source node")
+	// 	return
+	// }
 }
 
 func (c *CopyOpConsumer) stopAsyncReplication(ctx context.Context, op ShardReplicationOpAndStatus, overrides overrides, logger *logrus.Entry) {
 	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, overrides.target); err != nil {
 		logger.WithError(err).Error("failure while removing async replication from source node to target node")
 	}
-	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, overrides.source); err != nil {
-		logger.WithError(err).Error("failure while removing async replication from target node to source node")
-	}
+	// if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, overrides.source); err != nil {
+	// 	logger.WithError(err).Error("failure while removing async replication from target node to source node")
+	// }
 	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
 		logger.WithError(err).Error("failure while reverting async replication on local node")
 	}
@@ -606,14 +606,23 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	// Sanity check: directly query the local schema to see if the replica already exists.
 	// If it does we are probably recoving from a previous failure and can skip adding the replica to the sharding state again
-	replicaExists := false
 	nodes, err := c.schemaReader.ShardReplicas(op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId)
 	if err != nil {
 		logger.WithError(err).Error("failure while getting shard replicas")
 		return api.ShardReplicationState(""), err
 	}
-	if slices.Contains(nodes, op.Op.TargetShard.NodeId) {
-		replicaExists = true
+
+	if !slices.Contains(nodes, op.Op.TargetShard.NodeId) {
+		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
+			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
+				// The replica already exists, this is not an error and it got updated after our sanity check
+				// due to eventual consistency of the sharding state.
+				logger.Debug("replica already exists, skipping")
+			} else {
+				logger.WithError(err).Error("failure while adding replica to shard")
+				return api.ShardReplicationState(""), err
+			}
+		}
 	}
 
 	// this time will be used to make sure async replication has propagated any writes which
@@ -635,19 +644,6 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
 		return api.ShardReplicationState(""), ctx.Err()
-	}
-
-	if !replicaExists {
-		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
-			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
-				// The replica already exists, this is not an error and it got updated after our sanity check
-				// due to eventual consistency of the sharding state.
-				logger.Debug("replica already exists, skipping")
-			} else {
-				logger.WithError(err).Error("failure while adding replica to shard")
-				return api.ShardReplicationState(""), err
-			}
-		}
 	}
 
 	switch op.Op.TransferType {
