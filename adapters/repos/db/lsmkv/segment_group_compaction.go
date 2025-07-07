@@ -204,6 +204,10 @@ func segmentID(path string) string {
 	return strings.TrimPrefix(filename, "segment-")
 }
 
+func segmentExtraInfo(level uint16, strategy segmentindex.Strategy) string {
+	return fmt.Sprintf(".l%d.s%d", level, strategy)
+}
+
 func (sg *SegmentGroup) compactOnce() (bool, error) {
 	// Is it safe to only occasionally lock instead of the entire duration? Yes,
 	// because other than compaction the only change to the segments array could
@@ -240,7 +244,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
-	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+fmt.Sprintf(".l%d.s%d", level, leftSegment.strategy)+".db.tmp")
+	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+segmentExtraInfo(level, leftSegment.strategy)+".db.tmp")
 
 	f, err := os.Create(path)
 	if err != nil {
