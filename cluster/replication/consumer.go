@@ -432,6 +432,15 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 	// Ensure that the states of the shards on the nodes are in-sync with the state of the schema through a RAFT communication
 	// This handles cleaning up for ghost shards that are in the store but not in the schema that may have been created by index.getOptInitShard
 
+	targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
+		CollectionID:   op.Op.TargetShard.CollectionId,
+		ShardID:        op.Op.TargetShard.ShardId,
+		TargetNode:     op.Op.TargetShard.NodeId,
+		SourceNode:     op.Op.SourceShard.NodeId,
+		UpperTimeBound: time.Now().UnixMilli(),
+	}
+	c.stopAsyncReplication(ctx, op, targetNodeOverride, logger)
+
 	if err := c.sync(ctx, op); err != nil {
 		logger.WithError(err).
 			WithField("op", op).
@@ -734,13 +743,7 @@ func (c *CopyOpConsumer) processCancelledOp(ctx context.Context, op ShardReplica
 		SourceNode:     op.Op.SourceShard.NodeId,
 		UpperTimeBound: time.Now().UnixMilli(),
 	}
-	if err := c.replicaCopier.RemoveAsyncReplicationTargetNode(ctx, targetNodeOverride); err != nil {
-		logger.WithError(err).Error("failure while removing async replication target node")
-	}
-
-	if err := c.replicaCopier.RevertAsyncReplicationLocally(ctx, op.Op.TargetShard.CollectionId, op.Op.SourceShard.ShardId); err != nil {
-		logger.WithError(err).Error("failure while reverting async replication locally")
-	}
+	c.stopAsyncReplication(ctx, op, targetNodeOverride, logger)
 
 	if err := c.leaderClient.ReplicationRemoveReplicaOp(ctx, op.Op.ID); err != nil {
 		logger.WithError(err).Error("failure while removing replica operation")
