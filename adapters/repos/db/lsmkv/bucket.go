@@ -1530,7 +1530,7 @@ func (b *Bucket) initAndPrecomputeNewSegment() (*segment, error) {
 	// happen in the background and we can accept new writes will this
 	// pre-compute is happening.
 	path := b.flushing.path
-	segment, err := b.disk.initAndPrecomputeNewSegment(path + ".db")
+	segment, err := b.disk.initAndPrecomputeNewSegment(path)
 	if err != nil {
 		return nil, err
 	}
