@@ -128,7 +128,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 
 	shard := collection.Shards[0]
 	assert.Equal(t, "", shard.Name)
-	assert.Equal(t, objectCount, shard.ObjectsCount)
+	assert.Equal(t, int64(objectCount), shard.ObjectsCount)
 	assert.Equal(t, uint64(storageSize), shard.ObjectsStorageBytes)
 	assert.Len(t, shard.NamedVectors, 1)
 
@@ -264,12 +264,12 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	}
 
 	require.NotNil(t, hotShard)
-	assert.Equal(t, hotObjectCount, hotShard.ObjectsCount)
+	assert.Equal(t, int64(hotObjectCount), hotShard.ObjectsCount)
 	assert.Equal(t, uint64(hotStorageSize), hotShard.ObjectsStorageBytes)
 	assert.Len(t, hotShard.NamedVectors, 1)
 
 	require.NotNil(t, coldShard)
-	assert.Equal(t, coldObjectCount, coldShard.ObjectsCount)
+	assert.Equal(t, int64(coldObjectCount), coldShard.ObjectsCount)
 	assert.Equal(t, uint64(coldStorageSize), coldShard.ObjectsStorageBytes)
 	assert.Len(t, coldShard.NamedVectors, 0)
 
@@ -483,7 +483,7 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 
 	shard := collection.Shards[0]
 	assert.Equal(t, shardName, shard.Name)
-	assert.Equal(t, objectCount, shard.ObjectsCount)
+	assert.Equal(t, int64(objectCount), shard.ObjectsCount)
 	assert.Equal(t, uint64(storageSize), shard.ObjectsStorageBytes)
 	assert.Len(t, shard.NamedVectors, 3)
 
@@ -773,7 +773,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 
 	shard := collection.Shards[0]
 	assert.Equal(t, shardName, shard.Name)
-	assert.Equal(t, objectCount, shard.ObjectsCount)
+	assert.Equal(t, int64(objectCount), shard.ObjectsCount)
 	assert.Equal(t, uint64(storageSize), shard.ObjectsStorageBytes)
 	assert.Len(t, shard.NamedVectors, 1)
 
@@ -920,14 +920,14 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 
 	// Verify hot tenant vector storage
 	require.NotNil(t, hotShard)
-	assert.Equal(t, hotObjectCount, hotShard.ObjectsCount)
+	assert.Equal(t, int64(hotObjectCount), hotShard.ObjectsCount)
 	assert.Equal(t, uint64(hotStorageSize), hotShard.ObjectsStorageBytes)
 	assert.Equal(t, uint64(hotVectorStorageSize), hotShard.VectorStorageBytes) // Verify hot tenant vector storage
 	assert.Len(t, hotShard.NamedVectors, 1)
 
 	// Verify cold tenant vector storage
 	require.NotNil(t, coldShard)
-	assert.Equal(t, coldObjectCount, coldShard.ObjectsCount)
+	assert.Equal(t, int64(coldObjectCount), coldShard.ObjectsCount)
 	assert.Equal(t, uint64(coldStorageSize), coldShard.ObjectsStorageBytes)
 	assert.Equal(t, uint64(coldVectorStorageSize), coldShard.VectorStorageBytes) // Verify cold tenant vector storage
 	assert.Len(t, coldShard.NamedVectors, 0)                                     // Cold tenants don't have named vectors
