@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package usage
+package types
 
 // Report represents the usage metrics report from the metrics endpoint
 type Report struct {
@@ -84,7 +84,7 @@ type VectorUsage struct {
 // Dimensionality represents metrics for a specific dimensionality
 type Dimensionality struct {
 	// The dimensionality of the vectors
-	Dimensionality int `json:"dimensionality"`
+	Dimensions int `json:"dimensionality"`
 
 	// The number of objects with this dimensionality
 	Count int `json:"count"`

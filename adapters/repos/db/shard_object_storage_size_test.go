@@ -16,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/entities/storagestate"
@@ -52,7 +53,8 @@ func TestShard_ObjectStorageSize_DifferentStatuses(t *testing.T) {
 			}
 
 			ctx := context.Background()
-			result := shard.ObjectStorageSize(ctx)
+			result, err := shard.ObjectStorageSize(ctx)
+			require.NoError(t, err)
 
 			assert.Equal(t, int64(0), result, tc.description)
 		})

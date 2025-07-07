@@ -19,6 +19,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/cluster/usage/types"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 	hnswent "github.com/weaviate/weaviate/entities/vectorindex/hnsw"
@@ -51,30 +52,40 @@ func (c DimensionCategory) String() string {
 }
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (count, dimensions int) {
-	return s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (types.Dimensionality, error) {
+	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
 		return len(v), dimLength
 	})
+	if err != nil {
+		return types.Dimensionality{}, err
+	}
+	return dimensionality, nil
 }
 
 // Dimensions returns the total number of dimensions for a given vector
-func (s *Shard) Dimensions(ctx context.Context, targetVector string) int {
-	sum, _ := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+func (s *Shard) Dimensions(ctx context.Context, targetVector string) (int, error) {
+	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
 		return dimLength * len(v), dimLength
 	})
-	return sum
+	if err != nil {
+		return 0, err
+	}
+	return dimensionality.Count, nil
 }
 
 func (s *Shard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
-	sum, dimensions := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
+	dimensionality, err := s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
 		return len(v), dimLength
 	})
+	if err != nil {
+		return 0
+	}
 
-	return sum * correctEmptySegments(segments, dimensions)
+	return dimensionality.Count * correctEmptySegments(segments, dimensionality.Dimensions)
 }
 
-func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (sum int, dimensions int) {
-	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry)
+func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (types.Dimensionality, error) {
+	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry), nil
 }
 
 func (s *Shard) initDimensionTracking() {
@@ -149,14 +160,13 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) (dims int, segs int) {
 	switch category, segments := GetDimensionCategory(vecCfg); category {
 	case DimensionCategoryPQ:
-		count := s.QuantizedDimensions(ctx, vecName, segments)
-		return 0, count
+		return s.QuantizedDimensions(ctx, vecName, segments), segments
 	case DimensionCategoryBQ:
-		count := s.Dimensions(ctx, vecName) / 8 // BQ has a flat 8x reduction in the dimensions metric
-		return 0, count
+		count, _ := s.Dimensions(ctx, vecName) // BQ has a flat 8x reduction in the dimensions metric
+		return count / 8, segments             // error is ignored because it's always nil on non lazy loaded shards
 	default:
-		count := s.Dimensions(ctx, vecName)
-		return count, 0
+		count, _ := s.Dimensions(ctx, vecName) // error is ignored because it's always nil on non lazy loaded shards
+		return count, segments
 	}
 }
 

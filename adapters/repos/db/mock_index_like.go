@@ -33,7 +33,7 @@ func (_m *MockIndexLike) EXPECT() *MockIndexLike_Expecter {
 }
 
 // CalculateUnloadedObjectsMetrics provides a mock function with given fields: ctx, tenantName
-func (_m *MockIndexLike) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (int64, int64) {
+func (_m *MockIndexLike) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (int64, int64, error) {
 	ret := _m.Called(ctx, tenantName)
 
 	if len(ret) == 0 {
@@ -42,7 +42,8 @@ func (_m *MockIndexLike) CalculateUnloadedObjectsMetrics(ctx context.Context, te
 
 	var r0 int64
 	var r1 int64
-	if rf, ok := ret.Get(0).(func(context.Context, string) (int64, int64)); ok {
+	var r2 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (int64, int64, error)); ok {
 		return rf(ctx, tenantName)
 	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) int64); ok {
@@ -57,7 +58,13 @@ func (_m *MockIndexLike) CalculateUnloadedObjectsMetrics(ctx context.Context, te
 		r1 = ret.Get(1).(int64)
 	}
 
-	return r0, r1
+	if rf, ok := ret.Get(2).(func(context.Context, string) error); ok {
+		r2 = rf(ctx, tenantName)
+	} else {
+		r2 = ret.Error(2)
+	}
+
+	return r0, r1, r2
 }
 
 // MockIndexLike_CalculateUnloadedObjectsMetrics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CalculateUnloadedObjectsMetrics'
@@ -79,18 +86,18 @@ func (_c *MockIndexLike_CalculateUnloadedObjectsMetrics_Call) Run(run func(ctx c
 	return _c
 }
 
-func (_c *MockIndexLike_CalculateUnloadedObjectsMetrics_Call) Return(objectCount int64, storageSize int64) *MockIndexLike_CalculateUnloadedObjectsMetrics_Call {
-	_c.Call.Return(objectCount, storageSize)
+func (_c *MockIndexLike_CalculateUnloadedObjectsMetrics_Call) Return(objectCount int64, storageSize int64, err error) *MockIndexLike_CalculateUnloadedObjectsMetrics_Call {
+	_c.Call.Return(objectCount, storageSize, err)
 	return _c
 }
 
-func (_c *MockIndexLike_CalculateUnloadedObjectsMetrics_Call) RunAndReturn(run func(context.Context, string) (int64, int64)) *MockIndexLike_CalculateUnloadedObjectsMetrics_Call {
+func (_c *MockIndexLike_CalculateUnloadedObjectsMetrics_Call) RunAndReturn(run func(context.Context, string) (int64, int64, error)) *MockIndexLike_CalculateUnloadedObjectsMetrics_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
 // CalculateUnloadedVectorsMetrics provides a mock function with given fields: ctx, tenantName
-func (_m *MockIndexLike) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) int64 {
+func (_m *MockIndexLike) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error) {
 	ret := _m.Called(ctx, tenantName)
 
 	if len(ret) == 0 {
@@ -98,13 +105,23 @@ func (_m *MockIndexLike) CalculateUnloadedVectorsMetrics(ctx context.Context, te
 	}
 
 	var r0 int64
+	var r1 error
+	if rf, ok := ret.Get(0).(func(context.Context, string) (int64, error)); ok {
+		return rf(ctx, tenantName)
+	}
 	if rf, ok := ret.Get(0).(func(context.Context, string) int64); ok {
 		r0 = rf(ctx, tenantName)
 	} else {
 		r0 = ret.Get(0).(int64)
 	}
 
-	return r0
+	if rf, ok := ret.Get(1).(func(context.Context, string) error); ok {
+		r1 = rf(ctx, tenantName)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
 }
 
 // MockIndexLike_CalculateUnloadedVectorsMetrics_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'CalculateUnloadedVectorsMetrics'
@@ -126,12 +143,12 @@ func (_c *MockIndexLike_CalculateUnloadedVectorsMetrics_Call) Run(run func(ctx c
 	return _c
 }
 
-func (_c *MockIndexLike_CalculateUnloadedVectorsMetrics_Call) Return(_a0 int64) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
-	_c.Call.Return(_a0)
+func (_c *MockIndexLike_CalculateUnloadedVectorsMetrics_Call) Return(_a0 int64, _a1 error) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
+	_c.Call.Return(_a0, _a1)
 	return _c
 }
 
-func (_c *MockIndexLike_CalculateUnloadedVectorsMetrics_Call) RunAndReturn(run func(context.Context, string) int64) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
+func (_c *MockIndexLike_CalculateUnloadedVectorsMetrics_Call) RunAndReturn(run func(context.Context, string) (int64, error)) *MockIndexLike_CalculateUnloadedVectorsMetrics_Call {
 	_c.Call.Return(run)
 	return _c
 }

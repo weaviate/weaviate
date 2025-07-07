@@ -24,6 +24,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	types "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
 	modulecapabilities "github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -85,9 +86,12 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 
 	mockShard := db.NewMockShardLike(t)
 	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
-	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize)
-	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0))
-	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
+	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
+	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
+	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
+		Dimensions: dimensionality,
+		Count:      dimensionCount,
+	}, nil)
 
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
@@ -136,7 +140,7 @@ func TestService_Usage_SingleTenant(t *testing.T) {
 	assert.Len(t, vector.Dimensionalities, 1)
 
 	dim := vector.Dimensionalities[0]
-	assert.Equal(t, dimensionality, dim.Dimensionality)
+	assert.Equal(t, dimensionality, dim.Dimensions)
 	assert.Equal(t, dimensionCount, dim.Count)
 
 	mockSchema.AssertExpectations(t)
@@ -207,9 +211,12 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 
 	mockShard := db.NewMockShardLike(t)
 	mockShard.EXPECT().ObjectCountAsync().Return(hotObjectCount)
-	mockShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize)
-	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0))
-	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
+	mockShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize, nil)
+	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
+	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
+		Dimensions: dimensionality,
+		Count:      dimensionCount,
+	}, nil)
 
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
@@ -220,8 +227,8 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 		f := args.Get(0).(func(string, db.ShardLike) error)
 		f(hotTenant, mockShard)
 	})
-	mockIndex.EXPECT().CalculateUnloadedObjectsMetrics(ctx, coldTenant).Return(int64(coldObjectCount), coldStorageSize)
-	mockIndex.EXPECT().CalculateUnloadedVectorsMetrics(ctx, coldTenant).Return(int64(0))
+	mockIndex.EXPECT().CalculateUnloadedObjectsMetrics(ctx, coldTenant).Return(int64(coldObjectCount), coldStorageSize, nil)
+	mockIndex.EXPECT().CalculateUnloadedVectorsMetrics(ctx, coldTenant).Return(int64(0), nil)
 
 	mockShard.On("ForEachVectorIndex", mock.AnythingOfType("func(string, db.VectorIndex) error")).Return(nil).Run(func(args mock.Arguments) {
 		f := args.Get(0).(func(string, db.VectorIndex) error)
@@ -246,7 +253,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	assert.Equal(t, uniqueShards, collection.UniqueShardCount)
 	assert.Len(t, collection.Shards, 2)
 
-	var hotShard, coldShard *ShardUsage
+	var hotShard, coldShard *types.ShardUsage
 	for _, shard := range collection.Shards {
 		switch shard.Name {
 		case hotTenant:
@@ -273,7 +280,7 @@ func TestService_Usage_MultiTenant_HotAndCold(t *testing.T) {
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 	dim := vector.Dimensionalities[0]
-	assert.Equal(t, dimensionality, dim.Dimensionality)
+	assert.Equal(t, dimensionality, dim.Dimensions)
 	assert.Equal(t, dimensionCount, dim.Count)
 
 	mockSchema.AssertExpectations(t)
@@ -415,11 +422,20 @@ func TestService_Usage_WithNamedVectors(t *testing.T) {
 
 	mockShard := db.NewMockShardLike(t)
 	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
-	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize)
-	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0))
-	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
-	mockShard.EXPECT().DimensionsUsage(ctx, textVectorName).Return(dimensionCount, textDimensionality)
-	mockShard.EXPECT().DimensionsUsage(ctx, imageVectorName).Return(dimensionCount, imageDimensionality)
+	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
+	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
+	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
+		Dimensions: dimensionality,
+		Count:      dimensionCount,
+	}, nil)
+	mockShard.EXPECT().DimensionsUsage(ctx, textVectorName).Return(types.Dimensionality{
+		Dimensions: textDimensionality,
+		Count:      dimensionCount,
+	}, nil)
+	mockShard.EXPECT().DimensionsUsage(ctx, imageVectorName).Return(types.Dimensionality{
+		Dimensions: imageDimensionality,
+		Count:      dimensionCount,
+	}, nil)
 
 	mockDefaultVectorIndex := db.NewMockVectorIndex(t)
 	mockTextVectorIndex := db.NewMockVectorIndex(t)
@@ -557,13 +573,9 @@ func TestService_Usage_BackupError(t *testing.T) {
 
 	service := NewService(mockSchema, mockDB, mockBackupProvider)
 
-	result, err := service.Usage(ctx)
-
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	assert.Equal(t, nodeName, result.Node)
-	assert.Len(t, result.Collections, 0)
-	assert.Len(t, result.Backups, 0)
+	_, err := service.Usage(ctx)
+	require.Error(t, err)
+	require.ErrorIs(t, err, assert.AnError)
 
 	mockSchema.AssertExpectations(t)
 	mockDB.AssertExpectations(t)
@@ -620,9 +632,12 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 
 	mockShard := db.NewMockShardLike(t)
 	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
-	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize)
-	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0))
-	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
+	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
+	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
+	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
+		Dimensions: dimensionality,
+		Count:      dimensionCount,
+	}, nil)
 
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockVectorIndex.EXPECT().CompressionStats().Return(nil, errors.New(errorMessage))
@@ -718,9 +733,12 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 
 	mockShard := db.NewMockShardLike(t)
 	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
-	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize)
-	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0))
-	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
+	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
+	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
+	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
+		Dimensions: dimensionality,
+		Count:      dimensionCount,
+	}, nil)
 
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
@@ -766,7 +784,7 @@ func TestService_Usage_NilVectorIndexConfig(t *testing.T) {
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 	dim := vector.Dimensionalities[0]
-	assert.Equal(t, dimensionality, dim.Dimensionality)
+	assert.Equal(t, dimensionality, dim.Dimensions)
 	assert.Equal(t, dimensionCount, dim.Count)
 
 	mockSchema.AssertExpectations(t)
@@ -845,9 +863,12 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	// Mock hot tenant shard
 	mockHotShard := db.NewMockShardLike(t)
 	mockHotShard.EXPECT().ObjectCountAsync().Return(hotObjectCount)
-	mockHotShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize)
-	mockHotShard.EXPECT().VectorStorageSize(ctx).Return(hotVectorStorageSize) // Test actual vector storage size
-	mockHotShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(dimensionCount, dimensionality)
+	mockHotShard.EXPECT().ObjectStorageSize(ctx).Return(hotStorageSize, nil)
+	mockHotShard.EXPECT().VectorStorageSize(ctx).Return(hotVectorStorageSize, nil) // Test actual vector storage size
+	mockHotShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
+		Dimensions: dimensionality,
+		Count:      dimensionCount,
+	}, nil)
 
 	mockVectorIndex := db.NewMockVectorIndex(t)
 	mockCompressionStats := compressionhelpers.NewMockCompressionStats(t)
@@ -855,8 +876,8 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	mockVectorIndex.EXPECT().CompressionStats().Return(mockCompressionStats, nil)
 
 	// Mock cold tenant calculations
-	mockIndex.EXPECT().CalculateUnloadedObjectsMetrics(ctx, coldTenant).Return(int64(coldObjectCount), coldStorageSize)
-	mockIndex.EXPECT().CalculateUnloadedVectorsMetrics(ctx, coldTenant).Return(coldVectorStorageSize) // Test cold tenant vector storage
+	mockIndex.EXPECT().CalculateUnloadedObjectsMetrics(ctx, coldTenant).Return(int64(coldObjectCount), coldStorageSize, nil)
+	mockIndex.EXPECT().CalculateUnloadedVectorsMetrics(ctx, coldTenant).Return(coldVectorStorageSize, nil) // Test cold tenant vector storage
 
 	mockIndex.On("ForEachShard", mock.AnythingOfType("func(string, db.ShardLike) error")).Return(nil).Run(func(args mock.Arguments) {
 		f := args.Get(0).(func(string, db.ShardLike) error)
@@ -887,7 +908,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	assert.Len(t, collection.Shards, 2)
 
 	// Find hot and cold shards
-	var hotShard, coldShard *ShardUsage
+	var hotShard, coldShard *types.ShardUsage
 	for _, shard := range collection.Shards {
 		switch shard.Name {
 		case hotTenant:
@@ -919,7 +940,7 @@ func TestService_Usage_VectorStorageSize(t *testing.T) {
 	assert.Equal(t, compressionRatio, vector.VectorCompressionRatio)
 	assert.Len(t, vector.Dimensionalities, 1)
 	dim := vector.Dimensionalities[0]
-	assert.Equal(t, dimensionality, dim.Dimensionality)
+	assert.Equal(t, dimensionality, dim.Dimensions)
 	assert.Equal(t, dimensionCount, dim.Count)
 
 	mockSchema.AssertExpectations(t)
