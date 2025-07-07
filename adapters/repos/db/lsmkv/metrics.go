@@ -48,6 +48,10 @@ type Metrics struct {
 	DimensionSum                 *prometheus.GaugeVec
 	IOWrite                      *prometheus.SummaryVec
 	IORead                       *prometheus.SummaryVec
+	LazySegmentUnLoad            prometheus.Gauge
+	LazySegmentLoad              prometheus.Gauge
+	LazySegmentClose             prometheus.Gauge
+	LazySegmentInit              prometheus.Gauge
 
 	groupClasses        bool
 	criticalBucketsOnly bool
@@ -89,6 +93,33 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 		"operation":  "compact_lsm_segments_stratmap",
 		"class_name": className,
 		"shard_name": shardName,
+	})
+
+	lazySegmentInit := monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+		"operation":  "lazySegmentInit",
+		"class_name": className,
+		"shard_name": shardName,
+		"path":       "n/a",
+	})
+
+	lazySegmentLoad := monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+		"operation":  "lazySegmentLoad",
+		"class_name": className,
+		"shard_name": shardName,
+		"path":       "n/a",
+	})
+
+	lazySegmentClose := monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+		"operation":  "lazySegmentClose",
+		"class_name": className,
+		"shard_name": shardName,
+		"path":       "n/a",
+	})
+	lazySegmentUnload := monitoring.GetMetrics().AsyncOperations.With(prometheus.Labels{
+		"operation":  "lazySegmentUnLoad",
+		"class_name": className,
+		"shard_name": shardName,
+		"path":       "n/a",
 	})
 
 	return &Metrics{
@@ -155,8 +186,12 @@ func NewMetrics(promMetrics *monitoring.PrometheusMetrics, className,
 			"class_name": className,
 			"shard_name": shardName,
 		}),
-		IOWrite: promMetrics.FileIOWrites,
-		IORead:  promMetrics.FileIOReads,
+		IOWrite:           promMetrics.FileIOWrites,
+		IORead:            promMetrics.FileIOReads,
+		LazySegmentLoad:   lazySegmentLoad,
+		LazySegmentClose:  lazySegmentClose,
+		LazySegmentInit:   lazySegmentInit,
+		LazySegmentUnLoad: lazySegmentUnload,
 	}
 }
 
