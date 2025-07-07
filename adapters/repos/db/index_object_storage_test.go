@@ -289,6 +289,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return(tenantName).Maybe()
 	mockSchema.EXPECT().ShardOwner(className, tenantName).Maybe().Return("test-node", nil)
 	mockSchema.EXPECT().TenantsShards(ctx, className, tenantName).Maybe().Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, nil)
+	mockSchema.EXPECT().ShardReplicas(className, tenantName).Maybe().Return([]string{"test-node"}, nil)
 
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{
