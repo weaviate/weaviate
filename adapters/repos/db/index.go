@@ -2975,7 +2975,20 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 
 	// check if created in the meantime by concurrent call
 	if shard := i.shards.Loaded(tenantName); shard != nil {
-		return int64(shard.ObjectCount()), shard.ObjectStorageSize(ctx)
+		size, err := shard.ObjectStorageSize(ctx)
+		if err != nil {
+			return usagetypes.ObjectUsage{}, err
+		}
+
+		count, err := shard.ObjectCountAsync(ctx)
+		if err != nil {
+			return usagetypes.ObjectUsage{}, err
+		}
+
+		return usagetypes.ObjectUsage{
+			Count:        count,
+			StorageBytes: size,
+		}, nil
 	}
 
 	// Parse all .cna files in the object store and sum them up
@@ -3016,7 +3029,7 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 }
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName, targetVector string) (usagetypes.Dimensionality, error) {
+func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string) (usagetypes.Dimensionality, error) {
 	// Obtain a lock that prevents tenant activation
 	i.shardCreateLocks.Lock(tenantName)
 	defer i.shardCreateLocks.Unlock(tenantName)
