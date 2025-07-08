@@ -573,6 +573,13 @@ func UpdateAlias(t *testing.T, aliasName, targetClassName string) {
 	UpdateAliasWithAuthz(t, aliasName, targetClassName, nil)
 }
 
+func UpdateAliasWithReturn(t *testing.T, aliasName, targetClassName string) (*schema.AliasesUpdateOK, error) {
+	t.Helper()
+	params := schema.NewAliasesUpdateParams().WithAliasName(aliasName).WithBody(schema.AliasesUpdateBody{Class: targetClassName})
+	resp, err := Client(t).Schema.AliasesUpdate(params, nil)
+	return resp, err
+}
+
 func UpdateAliasWithAuthz(t *testing.T, aliasName, targetClassName string, authInfo runtime.ClientAuthInfoWriter) {
 	t.Helper()
 	params := schema.NewAliasesUpdateParams().WithAliasName(aliasName).WithBody(schema.AliasesUpdateBody{Class: targetClassName})
