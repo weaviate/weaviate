@@ -147,9 +147,9 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 		)
 
 		for targetVector, config := range configs {
-			dimensions, segments := s.calcDimensionsAndSegments(ctx, config, targetVector)
-			sumDimensions += dimensions
-			sumSegments += segments
+			metrics := s.calcDimensionMetrics(ctx, config, targetVector)
+			sumDimensions += metrics.Uncompressed
+			sumSegments += metrics.Compressed
 		}
 
 		sendVectorSegmentsMetric(s.promMetrics, className, s.name, sumSegments)
@@ -157,20 +157,37 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 	}
 }
 
-func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) (dims int, segs int) {
+// DimensionMetrics represents the dimension tracking metrics for a vector.
+// The metrics are used to track memory usage and performance characteristics
+// of different vector compression methods.
+//
+// Usage patterns:
+// - Standard vectors: Only Uncompressed is set (4 bytes per dimension)
+// - PQ (Product Quantization): Only Compressed is set (1 byte per segment)
+// - BQ (Binary Quantization): Only Compressed is set (1 bit per dimension, packed in uint64 blocks)
+//
+// The metrics are aggregated across all vectors in a shard and published
+// to Prometheus for monitoring and capacity planning.
+type DimensionMetrics struct {
+	Uncompressed int // Uncompressed dimensions count (for standard vectors)
+	Compressed   int // Compressed dimensions count (for PQ/BQ vectors)
+}
+
+func (s *Shard) calcDimensionMetrics(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) DimensionMetrics {
 	switch category, segments := GetDimensionCategory(vecCfg); category {
-	// Only PQ and BQ have a variable discount, so we need to calculate the dimensions metric
-	// for them and ignore the count metric
 	case DimensionCategoryPQ:
-		// PQ has a variable discount from 2x-8x, depending on the segement setting
-		return 0, s.QuantizedDimensions(ctx, vecName, segments)
+		return DimensionMetrics{Uncompressed: 0, Compressed: s.QuantizedDimensions(ctx, vecName, segments)}
 	case DimensionCategoryBQ:
-		// BQ has a fixed 8x discount
-		count, _ := s.Dimensions(ctx, vecName) // BQ has a flat 8x reduction in the dimensions metric
-		return 0, count / 8                    // error is ignored because it's always nil on non lazy loaded shards
+		// BQ: 1 bit per dimension, packed into uint64 blocks (8 bytes per 64 dimensions)
+		// [1..64] dimensions -> 8 bytes, [65..128] dimensions -> 16 bytes, etc.
+		// Roundup is required because BQ packs bits into uint64 blocks - you can't have
+		// a partial uint64 block. Even 1 dimension needs a full 8-byte uint64 block.
+		count, _ := s.Dimensions(ctx, vecName)
+		bytes := (count + 63) / 64 * 8 // Round up to next uint64 block, then multiply by 8 bytes
+		return DimensionMetrics{Uncompressed: 0, Compressed: bytes}
 	default:
-		count, _ := s.Dimensions(ctx, vecName) // error is ignored because it's always nil on non lazy loaded shards
-		return count, segments
+		count, _ := s.Dimensions(ctx, vecName)
+		return DimensionMetrics{Uncompressed: count, Compressed: 0}
 	}
 }
 
