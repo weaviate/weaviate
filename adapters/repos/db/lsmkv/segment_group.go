@@ -91,25 +91,27 @@ type SegmentGroup struct {
 
 	roaringSetRangeSegmentInMemory *roaringsetrange.SegmentInMemory
 	bm25config                     *schema.BM25Config
+	writeSegmentInfoIntoFileName   bool
 }
 
 type sgConfig struct {
-	dir                      string
-	strategy                 string
-	mapRequiresSorting       bool
-	monitorCount             bool
-	mmapContents             bool
-	keepTombstones           bool
-	useBloomFilter           bool
-	calcCountNetAdditions    bool
-	forceCompaction          bool
-	keepLevelCompaction      bool
-	maxSegmentSize           int64
-	cleanupInterval          time.Duration
-	enableChecksumValidation bool
-	keepSegmentsInMemory     bool
-	MinMMapSize              int64
-	bm25config               *models.BM25Config
+	dir                          string
+	strategy                     string
+	mapRequiresSorting           bool
+	monitorCount                 bool
+	mmapContents                 bool
+	keepTombstones               bool
+	useBloomFilter               bool
+	calcCountNetAdditions        bool
+	forceCompaction              bool
+	keepLevelCompaction          bool
+	maxSegmentSize               int64
+	cleanupInterval              time.Duration
+	enableChecksumValidation     bool
+	keepSegmentsInMemory         bool
+	MinMMapSize                  int64
+	bm25config                   *models.BM25Config
+	writeSegmentInfoIntoFileName bool
 }
 
 func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
@@ -118,25 +120,26 @@ func newSegmentGroup(logger logrus.FieldLogger, metrics *Metrics,
 ) (*SegmentGroup, error) {
 	now := time.Now()
 	sg := &SegmentGroup{
-		segments:                 make([]Segment, len(files)),
-		dir:                      cfg.dir,
-		logger:                   logger,
-		metrics:                  metrics,
-		monitorCount:             cfg.monitorCount,
-		mapRequiresSorting:       cfg.mapRequiresSorting,
-		strategy:                 cfg.strategy,
-		mmapContents:             cfg.mmapContents,
-		keepTombstones:           cfg.keepTombstones,
-		useBloomFilter:           cfg.useBloomFilter,
-		calcCountNetAdditions:    cfg.calcCountNetAdditions,
-		compactLeftOverSegments:  cfg.forceCompaction,
-		maxSegmentSize:           cfg.maxSegmentSize,
-		cleanupInterval:          cfg.cleanupInterval,
-		enableChecksumValidation: cfg.enableChecksumValidation,
-		allocChecker:             allocChecker,
-		lastCompactionCall:       now,
-		lastCleanupCall:          now,
-		MinMMapSize:              cfg.MinMMapSize,
+		segments:                     make([]Segment, len(files)),
+		dir:                          cfg.dir,
+		logger:                       logger,
+		metrics:                      metrics,
+		monitorCount:                 cfg.monitorCount,
+		mapRequiresSorting:           cfg.mapRequiresSorting,
+		strategy:                     cfg.strategy,
+		mmapContents:                 cfg.mmapContents,
+		keepTombstones:               cfg.keepTombstones,
+		useBloomFilter:               cfg.useBloomFilter,
+		calcCountNetAdditions:        cfg.calcCountNetAdditions,
+		compactLeftOverSegments:      cfg.forceCompaction,
+		maxSegmentSize:               cfg.maxSegmentSize,
+		cleanupInterval:              cfg.cleanupInterval,
+		enableChecksumValidation:     cfg.enableChecksumValidation,
+		allocChecker:                 allocChecker,
+		lastCompactionCall:           now,
+		lastCleanupCall:              now,
+		MinMMapSize:                  cfg.MinMMapSize,
+		writeSegmentInfoIntoFileName: cfg.writeSegmentInfoIntoFileName,
 	}
 
 	segmentIndex := 0

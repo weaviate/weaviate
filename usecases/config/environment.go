@@ -352,6 +352,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.LazySegmentsDisabled = true
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_ENABLED")) {
+		config.Persistence.SegmentIntoIntoFileNameEnabled = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {

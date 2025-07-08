@@ -207,6 +207,7 @@ type Config struct {
 	ResourceUsage                       config.ResourceUsage
 	MaxImportGoroutinesFactor           float64
 	LazySegmentsDisabled                bool
+	SegmentIntoIntoFileNameEnabled      bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int

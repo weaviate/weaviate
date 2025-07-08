@@ -164,6 +164,10 @@ type Bucket struct {
 	// (currently used by roaringsetrange inverted indexes)
 	bitmapBufPool roaringset.BitmapBufPool
 
+	// add information like the level and the strategy into the filename so these things can be checked without loading
+	// the segment
+	writeSegmentInfoIntoFileName bool
+
 	bm25Config *models.BM25Config
 }
 
@@ -195,18 +199,19 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	}
 
 	b := &Bucket{
-		dir:                   dir,
-		rootDir:               rootDir,
-		memtableThreshold:     defaultMemTableThreshold,
-		walThreshold:          defaultWalThreshold,
-		flushDirtyAfter:       defaultFlushAfterDirty,
-		strategy:              defaultStrategy,
-		mmapContents:          true,
-		logger:                logger,
-		metrics:               metrics,
-		useBloomFilter:        true,
-		calcCountNetAdditions: false,
-		haltedFlushTimer:      interval.NewBackoffTimer(),
+		dir:                          dir,
+		rootDir:                      rootDir,
+		memtableThreshold:            defaultMemTableThreshold,
+		walThreshold:                 defaultWalThreshold,
+		flushDirtyAfter:              defaultFlushAfterDirty,
+		strategy:                     defaultStrategy,
+		mmapContents:                 true,
+		logger:                       logger,
+		metrics:                      metrics,
+		useBloomFilter:               true,
+		calcCountNetAdditions:        false,
+		haltedFlushTimer:             interval.NewBackoffTimer(),
+		writeSegmentInfoIntoFileName: false,
 	}
 
 	for _, opt := range opts {
@@ -225,22 +230,23 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	sg, err := newSegmentGroup(logger, metrics, compactionCallbacks,
 		sgConfig{
-			dir:                      dir,
-			strategy:                 b.strategy,
-			mapRequiresSorting:       b.legacyMapSortingBeforeCompaction,
-			monitorCount:             b.monitorCount,
-			mmapContents:             b.mmapContents,
-			keepTombstones:           b.keepTombstones,
-			forceCompaction:          b.forceCompaction,
-			useBloomFilter:           b.useBloomFilter,
-			calcCountNetAdditions:    b.calcCountNetAdditions,
-			maxSegmentSize:           b.maxSegmentSize,
-			cleanupInterval:          b.segmentsCleanupInterval,
-			enableChecksumValidation: b.enableChecksumValidation,
-			keepSegmentsInMemory:     b.keepSegmentsInMemory,
-			MinMMapSize:              b.minMMapSize,
-			bm25config:               b.bm25Config,
-			keepLevelCompaction:      b.keepLevelCompaction,
+			dir:                          dir,
+			strategy:                     b.strategy,
+			mapRequiresSorting:           b.legacyMapSortingBeforeCompaction,
+			monitorCount:                 b.monitorCount,
+			mmapContents:                 b.mmapContents,
+			keepTombstones:               b.keepTombstones,
+			forceCompaction:              b.forceCompaction,
+			useBloomFilter:               b.useBloomFilter,
+			calcCountNetAdditions:        b.calcCountNetAdditions,
+			maxSegmentSize:               b.maxSegmentSize,
+			cleanupInterval:              b.segmentsCleanupInterval,
+			enableChecksumValidation:     b.enableChecksumValidation,
+			keepSegmentsInMemory:         b.keepSegmentsInMemory,
+			MinMMapSize:                  b.minMMapSize,
+			bm25config:                   b.bm25Config,
+			keepLevelCompaction:          b.keepLevelCompaction,
+			writeSegmentInfoIntoFileName: b.writeSegmentInfoIntoFileName,
 		}, b.allocChecker, b.lazySegmentLoading, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
@@ -1136,7 +1142,7 @@ func (b *Bucket) setNewActiveMemtable() error {
 	}
 
 	mt, err := newMemtable(path, b.strategy, b.secondaryIndices, cl,
-		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config)
+		b.metrics, b.logger, b.enableChecksumValidation, b.bm25Config, b.writeSegmentInfoIntoFileName)
 	if err != nil {
 		return err
 	}
