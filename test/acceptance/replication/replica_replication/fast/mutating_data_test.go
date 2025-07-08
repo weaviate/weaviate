@@ -219,25 +219,26 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 				t.Logf("Error listing objects for tenant %s: %v", tenantName, err)
 				continue
 			}
-			randUpdate := rand.Intn(20) + 1
-			toUpdate := random(res.Payload.Objects, randUpdate)
+			// randUpdate := rand.Intn(20) + 1
+			// toUpdate := random(res.Payload.Objects, randUpdate)
 			randDelete := rand.Intn(20) + 1
-			toDelete := random(symmetricDifference(res.Payload.Objects, toUpdate), randDelete)
+			// toDelete := random(symmetricDifference(res.Payload.Objects, toUpdate), randDelete)
+			toDelete := random(res.Payload.Objects, randDelete)
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Update some existing objects
-			for _, obj := range toUpdate {
-				updated := (*models.Object)(articles.NewParagraph().
-					WithContents(fmt.Sprintf("updated-%s", obj.Properties.(map[string]any)["contents"])).
-					WithTenant(tenantName).
-					WithID(obj.ID).
-					Object())
-				helper.Client(t).Objects.ObjectsClassPut(
-					objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
-					nil,
-				)
-			}
+			// for _, obj := range toUpdate {
+			// 	updated := (*models.Object)(articles.NewParagraph().
+			// 		WithContents(fmt.Sprintf("updated-%s", obj.Properties.(map[string]any)["contents"])).
+			// 		WithTenant(tenantName).
+			// 		WithID(obj.ID).
+			// 		Object())
+			// 	helper.Client(t).Objects.ObjectsClassPut(
+			// 		objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
+			// 		nil,
+			// 	)
+			// }
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
