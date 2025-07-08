@@ -21,7 +21,6 @@ import (
 	"runtime"
 	"runtime/debug"
 	golangSort "sort"
-	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -119,6 +118,10 @@ func (m *shardMap) RangeConcurrently(logger logrus.FieldLogger, f func(name stri
 }
 
 // Load returns the shard or nil if no shard is present.
+// NOTE: this method does not check if the shard is loaded or not and it could
+// return a lazy shard that is not loaded which could result in loading it if
+// the returned shard is used.
+// Use Loaded if you want to check if the shard is loaded without loading it.
 func (m *shardMap) Load(name string) ShardLike {
 	v, ok := (*sync.Map)(m).Load(name)
 	if !ok {
@@ -129,6 +132,29 @@ func (m *shardMap) Load(name string) ShardLike {
 	if !ok {
 		return nil
 	}
+	return shard
+}
+
+// Loaded returns the shard or nil if no shard is present.
+// If it's a lazy shard, only return it if it's loaded.
+func (m *shardMap) Loaded(name string) ShardLike {
+	v, ok := (*sync.Map)(m).Load(name)
+	if !ok {
+		return nil
+	}
+
+	shard, ok := v.(ShardLike)
+	if !ok {
+		return nil
+	}
+
+	// If it's a lazy shard, only return it if it's loaded
+	if lazyShard, ok := shard.(*LazyLoadShard); ok {
+		if !lazyShard.isLoaded() {
+			return nil
+		}
+	}
+
 	return shard
 }
 
@@ -2908,7 +2934,11 @@ func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store
 	if b == nil {
 		return 0, 0
 	}
+	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector, calcEntry)
+}
 
+// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
+func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) (sum int, dimensions int) {
 	c := b.MapCursor()
 	defer c.Close()
 
@@ -2935,53 +2965,23 @@ func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store
 	return sum, dimensions
 }
 
-// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
-func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, shardName, targetVector string) (dimensions int, objectCount int) {
-	// Obtain a lock that prevents tenant activation
-	i.shardTransferMutex.RLock()
-	defer i.shardTransferMutex.RUnlock()
-
-	// Locate the shard on disk
-	shardPath := shardPathLSM(i.path(), shardName)
-
-	// Create a temporary store to access the dimensions bucket
-	var promMetrics *monitoring.PrometheusMetrics
-	if i.metrics != nil && i.metrics.baseMetrics != nil {
-		promMetrics = i.metrics.baseMetrics
-	} else {
-		// Use global metrics as fallback
-		promMetrics = monitoring.GetMetrics()
-	}
-
-	lsmkvMetrics := lsmkv.NewMetrics(promMetrics, i.Config.ClassName.String(), shardName)
-	store, err := lsmkv.New(shardPath, i.path(), i.logger, lsmkvMetrics,
-		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop())
-	if err != nil {
-		// If we can't create the store, return 0 dimensions and count
-		return 0, 0
-	}
-	defer store.Shutdown(ctx)
-
-	return calcTargetVectorDimensionsFromStore(ctx, store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-		return len(v), dimLen
-	})
-}
-
 // CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
 func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64) {
 	// Obtain a lock that prevents tenant activation
 	i.shardCreateLocks.Lock(tenantName)
 	defer i.shardCreateLocks.Unlock(tenantName)
 
-	// Locate the tenant on disk
-	shardPath := shardPathObjectsLSM(i.path(), tenantName)
+	// check if created in the meantime by concurrent call
+	if shard := i.shards.Loaded(tenantName); shard != nil {
+		return int64(shard.ObjectCount()), shard.ObjectStorageSize(ctx)
+	}
 
 	// Parse all .cna files in the object store and sum them up
 	totalObjectCount := int64(0)
 	totalDiskSize := int64(0)
 
 	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
-	if err := filepath.Walk(shardPath, func(path string, info os.FileInfo, err error) error {
+	if err := filepath.Walk(shardPathObjectsLSM(i.path(), tenantName), func(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -2991,30 +2991,101 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 			totalDiskSize += info.Size()
 
 			// Look for .cna files (net count additions)
-			if strings.HasSuffix(info.Name(), ".cna") {
-				// Read the .cna file to get object count
-				data, err := os.ReadFile(path)
+			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
+				count, err := lsmkv.ReadCountNetAdditionsFile(path)
 				if err != nil {
+					i.logger.WithField("path", path).WithError(err).Warn("failed to read .cna file")
 					return err
 				}
-
-				// Parse the count from the .cna file
-				// .cna files typically contain a simple integer count
-				count, err := strconv.ParseInt(strings.TrimSpace(string(data)), 10, 64)
-				if err != nil {
-					// If parsing fails, skip this file
-					return nil
-				}
-
 				totalObjectCount += count
 			}
 		}
 
 		return nil
 	}); err != nil {
+		// TODO change interface and retrun error to avoid reporting invalid data
 		return 0, 0
 	}
 
 	// If we can't determine object count, return the disk size as fallback
 	return totalObjectCount, totalDiskSize
+}
+
+// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
+func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string) (count, dimensions int) {
+	// Obtain a lock that prevents tenant activation
+	i.shardCreateLocks.Lock(tenantName)
+	defer i.shardCreateLocks.Unlock(tenantName)
+
+	// check if created in the meantime by concurrent call
+	if shard := i.shards.Loaded(tenantName); shard != nil {
+		return shard.DimensionsUsage(ctx, targetVector)
+	}
+
+	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+		shardPathDimensionsLSM(i.path(), tenantName),
+		i.path(),
+		i.logger,
+		nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+	)
+	if err != nil {
+		// TODO : change the interface to return error to avoid reporting wrong data
+		return 0, 0
+	}
+	defer bucket.Shutdown(ctx)
+
+	return calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+		return len(v), dimLen
+	})
+}
+
+// CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
+func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) int64 {
+	// Obtain a lock that prevents tenant activation
+	i.shardCreateLocks.Lock(tenantName)
+	defer i.shardCreateLocks.Unlock(tenantName)
+
+	// check if created in the meantime by concurrent call
+	if shard := i.shards.Loaded(tenantName); shard != nil {
+		return shard.VectorStorageSize(ctx)
+	}
+
+	totalSize := int64(0)
+
+	// For each target vector, calculate storage size using dimensions bucket and config-based compression
+	for targetVector, config := range i.GetVectorIndexConfigs() {
+		// Get dimensions and object count from the dimensions bucket
+		bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+			shardPathDimensionsLSM(i.path(), tenantName),
+			i.path(),
+			i.logger,
+			nil,
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(),
+		)
+		if err != nil {
+			// TODO : change the interface to return error to avoid reporting wrong data
+			return 0
+		}
+
+		objectCount, dimensions := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+			return len(v), dimLen
+		})
+		bucket.Shutdown(ctx)
+
+		if objectCount == 0 || dimensions == 0 {
+			continue
+		}
+
+		// Calculate uncompressed size (float32 = 4 bytes per dimension)
+		uncompressedSize := int64(objectCount) * int64(dimensions) * 4
+
+		// For inactive tenants, use vector index config for dimension tracking
+		// This is similar to the original shard dimension tracking approach
+		totalSize += int64(float64(uncompressedSize) * helpers.CompressionRatioFromConfig(config, dimensions))
+	}
+
+	return totalSize
 }

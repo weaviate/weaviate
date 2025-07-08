@@ -34,7 +34,9 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	repl *additional.ReplicationProperties, tenant string,
 ) (*BatchDeleteResponse, error) {
 	class := "*"
+	aliasName := ""
 	if match != nil {
+		match.Class, aliasName = b.resolveAlias(match.Class)
 		class = match.Class
 	}
 
@@ -48,6 +50,10 @@ func (b *BatchManager) DeleteObjects(ctx context.Context, principal *models.Prin
 	b.metrics.BatchDeleteInc()
 	defer b.metrics.BatchDeleteDec()
 
+	if aliasName != "" {
+		batchDeleteResponse, err := b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
+		return b.batchDeleteWithAlias(batchDeleteResponse, aliasName), err
+	}
 	return b.deleteObjects(ctx, principal, match, deletionTimeUnixMilli, dryRun, output, repl, tenant)
 }
 

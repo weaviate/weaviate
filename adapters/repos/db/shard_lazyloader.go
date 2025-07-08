@@ -463,7 +463,7 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (int, int) {
+func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (count, dimensions int) {
 	l.mutex.Lock()
 	if l.loaded {
 		l.mutex.Unlock()
@@ -787,4 +787,17 @@ func (l *LazyLoadShard) Activity() (int32, int32) {
 
 func (l *LazyLoadShard) pathLSM() string {
 	return shardPathLSM(l.shardOpts.index.path(), l.shardOpts.name)
+}
+
+func (l *LazyLoadShard) VectorStorageSize(ctx context.Context) int64 {
+	l.mutex.Lock()
+	if l.loaded {
+		l.mutex.Unlock()
+		return l.shard.VectorStorageSize(ctx)
+	}
+	l.mutex.Unlock()
+
+	// For unloaded shards, use the existing cold tenant calculation method
+	// This avoids complex disk file calculations and uses the same logic as the index
+	return l.shardOpts.index.CalculateUnloadedVectorsMetrics(ctx, l.shardOpts.name)
 }

@@ -202,6 +202,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
 				fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
 				fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
+				fakeSchemaManager.On("GetAliases", mock.Anything, mock.Anything, mock.Anything).Return([]*models.Alias{}, nil)
 
 				var args []interface{}
 				if test.methodName == "GetSchema" || test.methodName == "GetConsistentSchema" {

@@ -37,7 +37,7 @@ type AliasesGetAliasOK struct {
 	/*
 	  In: Body
 	*/
-	Payload *models.AliasResponse `json:"body,omitempty"`
+	Payload *models.Alias `json:"body,omitempty"`
 }
 
 // NewAliasesGetAliasOK creates AliasesGetAliasOK with default headers values
@@ -47,13 +47,13 @@ func NewAliasesGetAliasOK() *AliasesGetAliasOK {
 }
 
 // WithPayload adds the payload to the aliases get alias o k response
-func (o *AliasesGetAliasOK) WithPayload(payload *models.AliasResponse) *AliasesGetAliasOK {
+func (o *AliasesGetAliasOK) WithPayload(payload *models.Alias) *AliasesGetAliasOK {
 	o.Payload = payload
 	return o
 }
 
 // SetPayload sets the payload to the aliases get alias o k response
-func (o *AliasesGetAliasOK) SetPayload(payload *models.AliasResponse) {
+func (o *AliasesGetAliasOK) SetPayload(payload *models.Alias) {
 	o.Payload = payload
 }
 
@@ -131,6 +131,51 @@ func (o *AliasesGetAliasForbidden) SetPayload(payload *models.ErrorResponse) {
 func (o *AliasesGetAliasForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// AliasesGetAliasNotFoundCode is the HTTP code returned for type AliasesGetAliasNotFound
+const AliasesGetAliasNotFoundCode int = 404
+
+/*
+AliasesGetAliasNotFound Not Found - Alias does not exist
+
+swagger:response aliasesGetAliasNotFound
+*/
+type AliasesGetAliasNotFound struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewAliasesGetAliasNotFound creates AliasesGetAliasNotFound with default headers values
+func NewAliasesGetAliasNotFound() *AliasesGetAliasNotFound {
+
+	return &AliasesGetAliasNotFound{}
+}
+
+// WithPayload adds the payload to the aliases get alias not found response
+func (o *AliasesGetAliasNotFound) WithPayload(payload *models.ErrorResponse) *AliasesGetAliasNotFound {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the aliases get alias not found response
+func (o *AliasesGetAliasNotFound) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *AliasesGetAliasNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

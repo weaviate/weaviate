@@ -51,9 +51,9 @@ func (c DimensionCategory) String() string {
 }
 
 // DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (int, int) {
+func (s *Shard) DimensionsUsage(ctx context.Context, targetVector string) (count, dimensions int) {
 	return s.calcTargetVectorDimensions(ctx, targetVector, func(dimLength int, v []lsmkv.MapPair) (int, int) {
-		return dimLength, len(v)
+		return len(v), dimLength
 	})
 }
 
