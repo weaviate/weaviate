@@ -66,7 +66,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
 			WithContents(fmt.Sprintf("paragraph#%d", j)).
 			WithTenant(tenantName).
 			Object()))
-		if len(batch) == 100000 {
+		if len(batch) == 50000 {
 			helper.CreateObjectsBatch(t, batch)
 			t.Logf("Loaded %d objects", len(batch))
 			batch = batch[:0]
