@@ -26,7 +26,9 @@ func Enabled(value string) bool {
 		return false
 	}
 }
+
 var defaultMinimumTimeout = -1 * time.Second
+
 func MinimumTimeout() time.Duration {
 	if defaultMinimumTimeout > 0 {
 		return defaultMinimumTimeout

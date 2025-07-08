@@ -124,7 +124,8 @@ func (_c *MockCompressionStats_CompressionType_Call) RunAndReturn(run func() str
 func NewMockCompressionStats(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockCompressionStats {
+},
+) *MockCompressionStats {
 	mock := &MockCompressionStats{}
 	mock.Mock.Test(t)
 

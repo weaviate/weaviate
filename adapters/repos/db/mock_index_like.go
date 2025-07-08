@@ -187,7 +187,8 @@ func (_c *MockIndexLike_ForEachShard_Call) RunAndReturn(run func(func(string, Sh
 func NewMockIndexLike(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockIndexLike {
+},
+) *MockIndexLike {
 	mock := &MockIndexLike{}
 	mock.Mock.Test(t)
 

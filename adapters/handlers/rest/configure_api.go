@@ -65,6 +65,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/concurrency"
 	entcfg "github.com/weaviate/weaviate/entities/config"
+	entconfig "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -147,7 +148,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
-	entconfig "github.com/weaviate/weaviate/entities/config"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
