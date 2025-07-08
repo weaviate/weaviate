@@ -385,7 +385,7 @@ func MakeAppState(ctx context.Context, options *swag.CommandLineOptionsGroup) *s
 		MemtablesMaxActiveSeconds:           appState.ServerConfig.Config.Persistence.MemtablesMaxActiveDurationSeconds,
 		MinMMapSize:                         appState.ServerConfig.Config.Persistence.MinMMapSize,
 		LazySegmentsDisabled:                appState.ServerConfig.Config.Persistence.LazySegmentsDisabled,
-		SegmentIntoIntoFileNameEnabled:      appState.ServerConfig.Config.Persistence.SegmentIntoIntoFileNameEnabled,
+		SegmentInfoIntoFileNameEnabled:      appState.ServerConfig.Config.Persistence.SegmentInfoIntoFileNameEnabled,
 		MaxReuseWalSize:                     appState.ServerConfig.Config.Persistence.MaxReuseWalSize,
 		SegmentsCleanupIntervalSeconds:      appState.ServerConfig.Config.Persistence.LSMSegmentsCleanupIntervalSeconds,
 		SeparateObjectsCompactions:          appState.ServerConfig.Config.Persistence.LSMSeparateObjectsCompactions,
