@@ -203,7 +203,7 @@ func TestHybridOffsets(t *testing.T) {
 					gtResults := make([]uint64, 0)
 					gtScores := make([]float32, 0)
 					for p, pagination := range paginations {
-						t.Run(fmt.Sprintf("hybrid search offset test %s %s alpha %.2f pagination %d-%d", location, query, alpha, pagination.Offset, pagination.Offset+pagination.Limit), func(t *testing.T) {
+						t.Run(fmt.Sprintf("hybrid search offset test (%s) (maximum hybrid %d) query '%s' alpha %.2f pagination %d-%d ", location, queryHybridMaximumResult, query, alpha, pagination.Offset, pagination.Offset+pagination.Limit), func(t *testing.T) {
 							params := dto.GetParams{
 								ClassName: "PaginationTest",
 								HybridSearch: &searchparams.HybridSearch{
