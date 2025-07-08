@@ -651,6 +651,7 @@ type IndexConfig struct {
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
 	LazySegmentsDisabled                bool
+	SegmentIntoIntoFileNameEnabled      bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int

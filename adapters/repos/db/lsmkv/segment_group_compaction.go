@@ -244,7 +244,12 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 
 	leftSegment := sg.segmentAtPos(pair[0])
 	rightSegment := sg.segmentAtPos(pair[1])
-	path := filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+segmentExtraInfo(level, leftSegment.strategy)+".db.tmp")
+	var path string
+	if sg.writeSegmentInfoIntoFileName {
+		path = filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+segmentExtraInfo(level, leftSegment.strategy)+".db.tmp")
+	} else {
+		path = filepath.Join(sg.dir, "segment-"+segmentID(leftSegment.path)+"_"+segmentID(rightSegment.path)+".db.tmp")
+	}
 
 	f, err := os.Create(path)
 	if err != nil {
