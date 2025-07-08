@@ -159,11 +159,15 @@ func (s *Shard) publishDimensionMetrics(ctx context.Context) {
 
 func (s *Shard) calcDimensionsAndSegments(ctx context.Context, vecCfg schemaConfig.VectorIndexConfig, vecName string) (dims int, segs int) {
 	switch category, segments := GetDimensionCategory(vecCfg); category {
+	// Only PQ and BQ have a variable discount, so we need to calculate the dimensions metric
+	// for them and ignore the count metric
 	case DimensionCategoryPQ:
-		return s.QuantizedDimensions(ctx, vecName, segments), segments
+		// PQ has a variable discount from 2x-8x, depending on the segement setting
+		return 0, s.QuantizedDimensions(ctx, vecName, segments)
 	case DimensionCategoryBQ:
+		// BQ has a fixed 8x discount
 		count, _ := s.Dimensions(ctx, vecName) // BQ has a flat 8x reduction in the dimensions metric
-		return count / 8, segments             // error is ignored because it's always nil on non lazy loaded shards
+		return 0, count / 8                    // error is ignored because it's always nil on non lazy loaded shards
 	default:
 		count, _ := s.Dimensions(ctx, vecName) // error is ignored because it's always nil on non lazy loaded shards
 		return count, segments
