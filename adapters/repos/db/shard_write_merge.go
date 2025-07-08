@@ -247,6 +247,10 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 		return out, errors.Wrap(err, "upsert object data")
 	}
 
+	if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
+		return out, fmt.Errorf("object merge in hashtree: %w", err)
+	}
+
 	// do not updated inverted index, since this requires delta analysis, which
 	// must be done by the caller!
 

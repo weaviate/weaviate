@@ -198,10 +198,6 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 		return err
 	}
 
-	if err := ob.shard.mayUpsertObjectHashTree(object, idBytes, status); err != nil {
-		return errors.Wrap(err, "object creation in hashtree")
-	}
-
 	ob.setStatusForID(status, object.ID())
 
 	if err := ctx.Err(); err != nil {
