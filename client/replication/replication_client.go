@@ -55,6 +55,8 @@ type ClientService interface {
 
 	Replicate(params *ReplicateParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateOK, error)
 
+	ReplicateMany(params *ReplicateManyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateManyOK, error)
+
 	ReplicationDetails(params *ReplicationDetailsParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicationDetailsOK, error)
 
 	SetTransport(transport runtime.ClientTransport)
@@ -342,6 +344,47 @@ func (a *Client) Replicate(params *ReplicateParams, authInfo runtime.ClientAuthI
 	// unexpected success response
 	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
 	msg := fmt.Sprintf("unexpected success response for replicate: API contract not enforced by server. Client expected to get an error, but got: %T", result)
+	panic(msg)
+}
+
+/*
+ReplicateMany initiates multiple replica movements at once
+
+Begins asynchronous operations to move or copy specific shard replicas from their current nodes to designated target nodes.
+*/
+func (a *Client) ReplicateMany(params *ReplicateManyParams, authInfo runtime.ClientAuthInfoWriter, opts ...ClientOption) (*ReplicateManyOK, error) {
+	// TODO: Validate the params before sending
+	if params == nil {
+		params = NewReplicateManyParams()
+	}
+	op := &runtime.ClientOperation{
+		ID:                 "replicateMany",
+		Method:             "POST",
+		PathPattern:        "/replication/replicate-many",
+		ProducesMediaTypes: []string{"application/json"},
+		ConsumesMediaTypes: []string{"application/json", "application/yaml"},
+		Schemes:            []string{"https"},
+		Params:             params,
+		Reader:             &ReplicateManyReader{formats: a.formats},
+		AuthInfo:           authInfo,
+		Context:            params.Context,
+		Client:             params.HTTPClient,
+	}
+	for _, opt := range opts {
+		opt(op)
+	}
+
+	result, err := a.transport.Submit(op)
+	if err != nil {
+		return nil, err
+	}
+	success, ok := result.(*ReplicateManyOK)
+	if ok {
+		return success, nil
+	}
+	// unexpected success response
+	// safeguard: normally, absent a default response, unknown success responses return an error above: so this is a codegen issue
+	msg := fmt.Sprintf("unexpected success response for replicateMany: API contract not enforced by server. Client expected to get an error, but got: %T", result)
 	panic(msg)
 }
 

@@ -966,6 +966,53 @@ func (_c *MockManager_ReplicationReplicateReplica_Call) RunAndReturn(run func(co
 	return _c
 }
 
+// ReplicationReplicateReplicas provides a mock function with given fields: ctx, ops
+func (_m *MockManager) ReplicationReplicateReplicas(ctx context.Context, ops []*ReplicationReplicateOpParams) error {
+	ret := _m.Called(ctx, ops)
+
+	if len(ret) == 0 {
+		panic("no return value specified for ReplicationReplicateReplicas")
+	}
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(context.Context, []*ReplicationReplicateOpParams) error); ok {
+		r0 = rf(ctx, ops)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
+}
+
+// MockManager_ReplicationReplicateReplicas_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReplicationReplicateReplicas'
+type MockManager_ReplicationReplicateReplicas_Call struct {
+	*mock.Call
+}
+
+// ReplicationReplicateReplicas is a helper method to define mock.On call
+//   - ctx context.Context
+//   - ops []*ReplicationReplicateOpParams
+func (_e *MockManager_Expecter) ReplicationReplicateReplicas(ctx interface{}, ops interface{}) *MockManager_ReplicationReplicateReplicas_Call {
+	return &MockManager_ReplicationReplicateReplicas_Call{Call: _e.mock.On("ReplicationReplicateReplicas", ctx, ops)}
+}
+
+func (_c *MockManager_ReplicationReplicateReplicas_Call) Run(run func(ctx context.Context, ops []*ReplicationReplicateOpParams)) *MockManager_ReplicationReplicateReplicas_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(context.Context), args[1].([]*ReplicationReplicateOpParams))
+	})
+	return _c
+}
+
+func (_c *MockManager_ReplicationReplicateReplicas_Call) Return(_a0 error) *MockManager_ReplicationReplicateReplicas_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockManager_ReplicationReplicateReplicas_Call) RunAndReturn(run func(context.Context, []*ReplicationReplicateOpParams) error) *MockManager_ReplicationReplicateReplicas_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // NewMockManager creates a new instance of MockManager. It also registers a testing interface on the mock and a cleanup function to assert the mocks expectations.
 // The first argument is typically a *testing.T value.
 func NewMockManager(t interface {

@@ -18,11 +18,21 @@ import (
 	"github.com/weaviate/weaviate/cluster/proto/api"
 )
 
+type ReplicationReplicateOpParams struct {
+	OpId             strfmt.UUID
+	SourceNode       string
+	SourceCollection string
+	SourceShard      string
+	TargetNode       string
+	TransferType     string
+}
+
 type Manager interface {
 	QueryShardingStateByCollection(ctx context.Context, collection string) (api.ShardingState, error)
 	QueryShardingStateByCollectionAndShard(ctx context.Context, collection string, shard string) (api.ShardingState, error)
 
 	ReplicationReplicateReplica(ctx context.Context, opId strfmt.UUID, sourceNode string, sourceCollection string, sourceShard string, targetNode string, transferType string) error
+	ReplicationReplicateReplicas(ctx context.Context, ops []*ReplicationReplicateOpParams) error
 
 	// GetReplicationDetailsByReplicationId retrieves the details of a replication operation by its UUID.
 	//

@@ -59,6 +59,24 @@ type ReplicationReplicateShardRequest struct {
 	TransferType string
 }
 
+type ReplicationReplicateManyShardRequest struct {
+	Uuid strfmt.UUID
+
+	SourceNode       string
+	SourceCollection string
+	SourceShard      string
+	TargetNode       string
+
+	TransferType string
+}
+
+type ReplicationReplicateManyShardsRequest struct {
+	// Version is the version with which this command was generated
+	Version int
+
+	Requests []*ReplicationReplicateManyShardRequest
+}
+
 type ReplicationReplicateShardReponse struct{}
 
 type ReplicationUpdateOpStateRequest struct {

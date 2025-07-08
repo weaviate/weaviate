@@ -66,6 +66,21 @@ func (m *Manager) Replicate(logId uint64, c *cmd.ApplyRequest) error {
 	return m.replicationFSM.Replicate(logId, req)
 }
 
+func (m *Manager) ReplicateMany(logId uint64, c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationReplicateManyShardsRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	// Validate that the command is valid and can be applied with the current schema
+	if err := ValidateReplicationReplicateManyShards(m.schemaReader, req); err != nil {
+		return err
+	}
+
+	// Store the shard replication op in the FSM
+	return m.replicationFSM.ReplicateMany(logId, req)
+}
+
 func (m *Manager) RegisterError(c *cmd.ApplyRequest) error {
 	req := &cmd.ReplicationRegisterErrorRequest{}
 	if err := json.Unmarshal(c.SubCommand, req); err != nil {

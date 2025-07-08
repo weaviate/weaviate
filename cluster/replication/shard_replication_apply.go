@@ -40,6 +40,26 @@ func (s *ShardReplicationFSM) Replicate(id uint64, c *api.ReplicationReplicateSh
 	return s.writeOpIntoFSM(op, NewShardReplicationStatus(api.REGISTERED))
 }
 
+func (s *ShardReplicationFSM) ReplicateMany(id uint64, c *api.ReplicationReplicateManyShardsRequest) error {
+	s.opsLock.Lock()
+	defer s.opsLock.Unlock()
+
+	for _, req := range c.Requests {
+		op := ShardReplicationOp{
+			ID:              id,
+			UUID:            req.Uuid,
+			SourceShard:     newShardFQDN(req.SourceNode, req.SourceCollection, req.SourceShard),
+			TargetShard:     newShardFQDN(req.TargetNode, req.SourceCollection, req.SourceShard),
+			TransferType:    api.ShardReplicationTransferType(req.TransferType),
+			StartTimeUnixMs: time.Now().UnixMilli(),
+		}
+		if err := s.writeOpIntoFSM(op, NewShardReplicationStatus(api.REGISTERED)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorRequest) error {
 	s.opsLock.Lock()
 	defer s.opsLock.Unlock()

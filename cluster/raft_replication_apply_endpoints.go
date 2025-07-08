@@ -53,6 +53,41 @@ func (s *Raft) ReplicationReplicateReplica(ctx context.Context, uuid strfmt.UUID
 	return nil
 }
 
+func (s *Raft) ReplicationReplicateReplicas(ctx context.Context, ops []*replicationTypes.ReplicationReplicateOpParams) error {
+	reqs := make([]*api.ReplicationReplicateManyShardRequest, len(ops))
+	for i, op := range ops {
+		reqs[i] = &api.ReplicationReplicateManyShardRequest{
+			SourceNode:       op.SourceNode,
+			SourceCollection: op.SourceCollection,
+			SourceShard:      op.SourceShard,
+			TargetNode:       op.TargetNode,
+			Uuid:             op.OpId,
+			TransferType:     op.TransferType,
+		}
+	}
+	req := &api.ReplicationReplicateManyShardsRequest{
+		Version:  api.ReplicationCommandVersionV0,
+		Requests: reqs,
+	}
+
+	if err := replication.ValidateReplicationReplicateManyShards(s.SchemaReader(), req); err != nil {
+		return fmt.Errorf("%w: %w", replicationTypes.ErrInvalidRequest, err)
+	}
+
+	subCommand, err := json.Marshal(req)
+	if err != nil {
+		return fmt.Errorf("marshal request: %w", err)
+	}
+	command := &api.ApplyRequest{
+		Type:       api.ApplyRequest_TYPE_REPLICATION_REPLICATE_MANY,
+		SubCommand: subCommand,
+	}
+	if _, err := s.Execute(ctx, command); err != nil {
+		return err
+	}
+	return nil
+}
+
 func (s *Raft) ReplicationUpdateReplicaOpStatus(ctx context.Context, id uint64, state api.ShardReplicationState) error {
 	req := &api.ReplicationUpdateOpStateRequest{
 		Version: api.ReplicationCommandVersionV0,

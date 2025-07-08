@@ -3826,6 +3826,78 @@ func init() {
         ]
       }
     },
+    "/replication/replicate-many": {
+      "post": {
+        "description": "Begins asynchronous operations to move or copy specific shard replicas from their current nodes to designated target nodes.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Initiate multiple replica movements at once",
+        "operationId": "replicateMany",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "$ref": "#/definitions/ReplicationReplicateReplicaRequest"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication operations registered successfully. IDs of the operation is returned.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "$ref": "#/definitions/ReplicationReplicateReplicaResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicateMany"
+        ]
+      }
+    },
     "/replication/replicate/force-delete": {
       "post": {
         "description": "USE AT OWN RISK! Synchronously force delete operations from the FSM. This will not perform any checks on which state the operation is in so may lead to data corruption or loss. It is recommended to first scale the number of replication engine workers to 0 before calling this endpoint to ensure no operations are in-flight.",
@@ -12539,6 +12611,78 @@ func init() {
         },
         "x-serviceIds": [
           "weaviate.replication.deleteAllReplications"
+        ]
+      }
+    },
+    "/replication/replicate-many": {
+      "post": {
+        "description": "Begins asynchronous operations to move or copy specific shard replicas from their current nodes to designated target nodes.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Initiate multiple replica movements at once",
+        "operationId": "replicateMany",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "required": true,
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "$ref": "#/definitions/ReplicationReplicateReplicaRequest"
+              }
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication operations registered successfully. IDs of the operation is returned.",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "$ref": "#/definitions/ReplicationReplicateReplicaResponse"
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.replicateMany"
         ]
       }
     },

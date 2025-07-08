@@ -67,6 +67,7 @@ const (
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_SYNC_SHARD                           ApplyRequest_Type = 210
 	ApplyRequest_TYPE_REPLICATION_REGISTER_SCHEMA_VERSION                        ApplyRequest_Type = 211
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD                 ApplyRequest_Type = 212
+	ApplyRequest_TYPE_REPLICATION_REPLICATE_MANY                                 ApplyRequest_Type = 213
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL                     ApplyRequest_Type = 220
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION           ApplyRequest_Type = 221
 	ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD ApplyRequest_Type = 222

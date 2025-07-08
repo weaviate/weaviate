@@ -281,6 +281,9 @@ func NewWeaviateAPI(spec *loads.Document) *WeaviateAPI {
 		ReplicationReplicateHandler: replication.ReplicateHandlerFunc(func(params replication.ReplicateParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.Replicate has not yet been implemented")
 		}),
+		ReplicationReplicateManyHandler: replication.ReplicateManyHandlerFunc(func(params replication.ReplicateManyParams, principal *models.Principal) middleware.Responder {
+			return middleware.NotImplemented("operation replication.ReplicateMany has not yet been implemented")
+		}),
 		ReplicationReplicationDetailsHandler: replication.ReplicationDetailsHandlerFunc(func(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
 			return middleware.NotImplemented("operation replication.ReplicationDetails has not yet been implemented")
 		}),
@@ -551,6 +554,8 @@ type WeaviateAPI struct {
 	AuthzRemovePermissionsHandler authz.RemovePermissionsHandler
 	// ReplicationReplicateHandler sets the operation handler for the replicate operation
 	ReplicationReplicateHandler replication.ReplicateHandler
+	// ReplicationReplicateManyHandler sets the operation handler for the replicate many operation
+	ReplicationReplicateManyHandler replication.ReplicateManyHandler
 	// ReplicationReplicationDetailsHandler sets the operation handler for the replication details operation
 	ReplicationReplicationDetailsHandler replication.ReplicationDetailsHandler
 	// AuthzRevokeRoleFromGroupHandler sets the operation handler for the revoke role from group operation
@@ -886,6 +891,9 @@ func (o *WeaviateAPI) Validate() error {
 	}
 	if o.ReplicationReplicateHandler == nil {
 		unregistered = append(unregistered, "replication.ReplicateHandler")
+	}
+	if o.ReplicationReplicateManyHandler == nil {
+		unregistered = append(unregistered, "replication.ReplicateManyHandler")
 	}
 	if o.ReplicationReplicationDetailsHandler == nil {
 		unregistered = append(unregistered, "replication.ReplicationDetailsHandler")
@@ -1330,6 +1338,10 @@ func (o *WeaviateAPI) initHandlerCache() {
 		o.handlers["POST"] = make(map[string]http.Handler)
 	}
 	o.handlers["POST"]["/replication/replicate"] = replication.NewReplicate(o.context, o.ReplicationReplicateHandler)
+	if o.handlers["POST"] == nil {
+		o.handlers["POST"] = make(map[string]http.Handler)
+	}
+	o.handlers["POST"]["/replication/replicate-many"] = replication.NewReplicateMany(o.context, o.ReplicationReplicateManyHandler)
 	if o.handlers["GET"] == nil {
 		o.handlers["GET"] = make(map[string]http.Handler)
 	}

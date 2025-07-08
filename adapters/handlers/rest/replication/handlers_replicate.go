@@ -50,7 +50,7 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	if params.Body.Type != nil {
 		replicationType = *params.Body.Type
 	}
-	if err := h.replicationManager.ReplicationReplicateReplica(params.HTTPRequest.Context(), uuid, *params.Body.SourceNode, collection, *params.Body.Shard, *params.Body.TargetNode, replicationType); err != nil {
+	if err := h.replicationManager.ReplicationReplicateReplica(ctx, uuid, *params.Body.SourceNode, collection, *params.Body.Shard, *params.Body.TargetNode, replicationType); err != nil {
 		if errors.Is(err, replicationTypes.ErrInvalidRequest) {
 			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
 		}
@@ -71,10 +71,66 @@ func (h *replicationHandler) replicate(params replication.ReplicateParams, princ
 	return h.handleReplicationReplicateResponse(uuid)
 }
 
+func (h *replicationHandler) replicateMany(params replication.ReplicateManyParams, principal *models.Principal) middleware.Responder {
+	resources := make([]string, 0, len(params.Body))
+	for _, body := range params.Body {
+		if err := body.Validate(nil /* pass nil as we don't validate formatting here*/); err != nil {
+			return replication.NewReplicateBadRequest().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+		collection := schema.UppercaseClassName(*body.Collection)
+		resources = append(resources, authorization.Replications(collection, *body.Shard))
+	}
+
+	ctx := params.HTTPRequest.Context()
+	if err := h.authorizer.Authorize(ctx, principal, authorization.CREATE, resources...); err != nil {
+		return replication.NewReplicateForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	id, err := uuid.NewRandom()
+	if err != nil {
+		return replication.NewReplicateInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(fmt.Errorf("could not generate uuid v4: %w", err)))
+	}
+
+	uuids := make([]strfmt.UUID, len(params.Body))
+	reqs := make([]*replicationTypes.ReplicationReplicateOpParams, 0, len(params.Body))
+	for _, body := range params.Body {
+		uuid := strfmt.UUID(id.String())
+		replicationType := models.ReplicationReplicateReplicaRequestTypeCOPY
+		if body.Type != nil {
+			replicationType = *body.Type
+		}
+		collection := schema.UppercaseClassName(*body.Collection)
+		reqs = append(reqs, &replicationTypes.ReplicationReplicateOpParams{
+			OpId:             uuid,
+			SourceNode:       *body.SourceNode,
+			SourceCollection: collection,
+			SourceShard:      *body.Shard,
+			TargetNode:       *body.TargetNode,
+			TransferType:     replicationType,
+		})
+		uuids = append(uuids, uuid)
+	}
+
+	if err := h.replicationManager.ReplicationReplicateReplicas(ctx, reqs); err != nil {
+		if errors.Is(err, replicationTypes.ErrInvalidRequest) {
+			return replication.NewReplicateUnprocessableEntity().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+		}
+		return replication.NewReplicateInternalServerError().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
+	}
+
+	h.logger.WithFields(logrus.Fields{
+		"action":  "replication_engine",
+		"op":      "replicate_many",
+		"howMany": len(reqs),
+	}).Info("replicate operations registered")
+
+	return h.handleReplicationReplicateManyResponse(uuids)
+}
+
 func (h *replicationHandler) getReplicationDetailsByReplicationId(params replication.ReplicationDetailsParams, principal *models.Principal) middleware.Responder {
 	ctx := params.HTTPRequest.Context()
 
-	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(params.HTTPRequest.Context(), params.ID)
+	response, err := h.replicationManager.GetReplicationDetailsByReplicationId(ctx, params.ID)
 	if errors.Is(err, replicationTypes.ErrReplicationOperationNotFound) {
 		if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Replications("*", "*")); err != nil {
 			return replication.NewReplicationDetailsForbidden().WithPayload(cerrors.ErrPayloadFromSingleErr(err))
@@ -97,6 +153,14 @@ func (h *replicationHandler) getReplicationDetailsByReplicationId(params replica
 
 func (h *replicationHandler) handleReplicationReplicateResponse(id strfmt.UUID) *replication.ReplicateOK {
 	return replication.NewReplicateOK().WithPayload(&models.ReplicationReplicateReplicaResponse{ID: &id})
+}
+
+func (h *replicationHandler) handleReplicationReplicateManyResponse(ids []strfmt.UUID) *replication.ReplicateManyOK {
+	payload := make([]*models.ReplicationReplicateReplicaResponse, len(ids))
+	for i, id := range ids {
+		payload[i] = &models.ReplicationReplicateReplicaResponse{ID: &id}
+	}
+	return replication.NewReplicateManyOK().WithPayload(payload)
 }
 
 func (h *replicationHandler) generateReplicationDetailsResponse(withHistory bool, response api.ReplicationDetailsResponse) *models.ReplicationReplicateDetailsReplicaResponse {

@@ -44,6 +44,7 @@ func SetupHandlers(enabled bool, api *operations.WeaviateAPI, replicationManager
 		metrics:            metrics,
 	}
 	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(h.replicate)
+	api.ReplicationReplicateManyHandler = replication.ReplicateManyHandlerFunc(h.replicateMany)
 	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(h.getReplicationDetailsByReplicationId)
 	api.ReplicationCancelReplicationHandler = replication.CancelReplicationHandlerFunc(h.cancelReplication)
 	api.ReplicationDeleteReplicationHandler = replication.DeleteReplicationHandlerFunc(h.deleteReplication)
@@ -60,6 +61,9 @@ func SetupHandlers(enabled bool, api *operations.WeaviateAPI, replicationManager
 func setupUnimplementedHandlers(api *operations.WeaviateAPI) {
 	api.ReplicationReplicateHandler = replication.ReplicateHandlerFunc(func(replication.ReplicateParams, *models.Principal) middleware.Responder {
 		return replication.NewReplicationDetailsNotImplemented()
+	})
+	api.ReplicationReplicateManyHandler = replication.ReplicateManyHandlerFunc(func(replication.ReplicateManyParams, *models.Principal) middleware.Responder {
+		return replication.NewReplicateManyNotImplemented()
 	})
 	api.ReplicationReplicationDetailsHandler = replication.ReplicationDetailsHandlerFunc(func(replication.ReplicationDetailsParams, *models.Principal) middleware.Responder {
 		return replication.NewReplicationDetailsNotImplemented()
