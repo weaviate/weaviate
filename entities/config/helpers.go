@@ -26,16 +26,19 @@ func Enabled(value string) bool {
 		return false
 	}
 }
-
+var defaultMinimumTimeout = -1 * time.Second
 func MinimumTimeout() time.Duration {
-	timeout := 30 * time.Second
+	if defaultMinimumTimeout > 0 {
+		return defaultMinimumTimeout
+	}
+	defaultMinimumTimeout = 30 * time.Second // default minimum timeout is 30 seconds
 	opt := os.Getenv("WEAVIATE_MINIMUM_TIMEOUT")
 	if opt != "" {
 		if parsed, err := time.ParseDuration(opt); err == nil {
-			timeout = parsed
+			defaultMinimumTimeout = parsed
 		} else {
-			fmt.Printf("Invalid WEAVIATE_MINIMUM_TIMEOUT value: %s, using default %s\n", opt, timeout)
+			fmt.Printf("Invalid WEAVIATE_MINIMUM_TIMEOUT value: %s, using default %s\n", opt, defaultMinimumTimeout)
 		}
 	}
-	return timeout
+	return defaultMinimumTimeout
 }
