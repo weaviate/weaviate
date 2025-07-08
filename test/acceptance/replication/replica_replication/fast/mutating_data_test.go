@@ -32,21 +32,35 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithNoAutomatedResolution() {
-	test(suite, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+// func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithNoAutomatedResolution() {
+// 	test(suite, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+// }
+
+// func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithDeleteOnConflict() {
+// 	test(suite, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+// }
+
+// func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithTimeBasedResolution() {
+// 	test(suite, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
+// }
+
+func TestReplicationReplicateWhileMutatingDataWithNoAutomatedResolution(t *testing.T) {
+	test(t, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
 }
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithDeleteOnConflict() {
-	test(suite, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+func TestReplicationReplicateWhileMutatingDataWithDeleteOnConflict(t *testing.T) {
+	test(t, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
 }
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithTimeBasedResolution() {
-	test(suite, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
+func TestReplicationReplicateWhileMutatingDataWithTimeBasedResolution(t *testing.T) {
+	test(t, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
 }
 
-func test(suite *ReplicationTestSuite, strategy string) {
-	t := suite.T()
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
+//	func test(suite *ReplicationTestSuite, strategy string) {
+//		t := suite.T()
+//		helper.SetupClient(suite.compose.GetWeaviate().URI())
+func test(t *testing.T, strategy string) {
+	helper.SetupClient("localhost:8080")
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -153,9 +167,14 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	)
 	require.Nil(t, err)
 
-	nodeToAddress := map[string]string{}
-	for idx, node := range ns.Payload.Nodes {
-		nodeToAddress[node.Name] = suite.compose.GetWeaviateNode(idx + 1).URI()
+	// nodeToAddress := map[string]string{}
+	// for idx, node := range ns.Payload.Nodes {
+	// 	nodeToAddress[node.Name] = suite.compose.GetWeaviateNode(idx + 1).URI()
+	// }
+	nodeToAddress := map[string]string{
+		"weaviate-voter-0": "localhost:8080",
+		"weaviate-voter-1": "localhost:8081",
+		"weaviate-1":       "localhost:8082",
 	}
 
 	objectCountByReplica := make(map[string]int64)

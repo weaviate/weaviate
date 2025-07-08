@@ -481,22 +481,23 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 	}
 }
 
-func (c *CopyOpConsumer) startAsyncReplication(ctx context.Context, op ShardReplicationOpAndStatus, overrides overrides, logger *logrus.Entry) {
+func (c *CopyOpConsumer) startAsyncReplication(ctx context.Context, op ShardReplicationOpAndStatus, overrides overrides, logger *logrus.Entry) error {
 	// Ensure async replication is started on local (target) node
 	if err := c.replicaCopier.InitAsyncReplicationLocally(ctx, op.Op.SourceShard.CollectionId, op.Op.TargetShard.ShardId); err != nil {
-		logger.WithError(err).Error("failure while initializing async replication on local node")
-		return
+		logger.WithError(err).Error("failed to initialize async replication on local node")
+		return err
 	}
 	// Start async replication from source node to target node
 	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, overrides.target, op.Status.SchemaVersion); err != nil {
-		logger.WithError(err).Error("failure while adding async replication from source node to target node")
-		return
+		logger.WithError(err).Error("failed to add async replication from source node to target node")
+		return err
 	}
 	// Start async replication from target node to source node
 	if err := c.replicaCopier.AddAsyncReplicationTargetNode(ctx, overrides.source, op.Status.SchemaVersion); err != nil {
-		logger.WithError(err).Error("failure while adding async replication from target node to source node")
-		return
+		logger.WithError(err).Error("failed to add async replication from target node to source node")
+		return err
 	}
+	return nil
 }
 
 func (c *CopyOpConsumer) stopAsyncReplication(ctx context.Context, op ShardReplicationOpAndStatus, overrides overrides, logger *logrus.Entry) {
@@ -617,7 +618,9 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 	// were received during the hydrating phase
 	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(time.Second * 5).UnixMilli()
 	overrides := newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
-	c.startAsyncReplication(ctx, op, overrides, logger)
+	if err := c.startAsyncReplication(ctx, op, overrides, logger); err != nil {
+		return api.ShardReplicationState(""), err
+	}
 
 	if ctx.Err() != nil {
 		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
@@ -694,7 +697,9 @@ func (c *CopyOpConsumer) processDehydratingOp(ctx context.Context, op ShardRepli
 			return api.ShardReplicationState(""), ctx.Err()
 		}
 
-		c.startAsyncReplication(ctx, op, overrides, logger)
+		if err := c.startAsyncReplication(ctx, op, overrides, logger); err != nil {
+			return api.ShardReplicationState(""), err
+		}
 
 		if ctx.Err() != nil {
 			logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
