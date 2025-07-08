@@ -224,10 +224,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 				WithBody(batch.BatchObjectsCreateBody{
 					Objects: btch,
 				}).WithConsistencyLevel(&all)
-			_, err := helper.Client(t).Batch.BatchObjectsCreate(params, nil)
-			if err != nil {
-				t.Logf("Error creating batch objects for tenant %s: %v", tenantName, err)
-			}
+			helper.Client(t).Batch.BatchObjectsCreate(params, nil)
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
@@ -255,26 +252,20 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 					WithTenant(tenantName).
 					WithID(obj.ID).
 					Object())
-				_, err := helper.Client(t).Objects.ObjectsClassPut(
+				helper.Client(t).Objects.ObjectsClassPut(
 					objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
 					nil,
 				)
-				if err != nil {
-					t.Logf("Error updating object %s for tenant %s: %v", obj.ID, tenantName, err)
-				}
 			}
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Delete some existing objects
 			for _, obj := range toDelete {
-				_, err := helper.Client(t).Objects.ObjectsClassDelete(
+				helper.Client(t).Objects.ObjectsClassDelete(
 					objects.NewObjectsClassDeleteParams().WithClassName(className).WithID(obj.ID).WithTenant(&tenantName).WithConsistencyLevel(&all),
 					nil,
 				)
-				if err != nil {
-					t.Logf("Error deleting object %s for tenant %s: %v", obj.ID, tenantName, err)
-				}
 			}
 		}
 	}
