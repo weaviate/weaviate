@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package slow_file_copy
+package slow
 
 import (
 	"bytes"
