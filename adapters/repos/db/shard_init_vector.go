@@ -117,14 +117,15 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 						hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
 					)
 				},
-				AllocChecker:           s.index.allocChecker,
-				WaitForCachePrefill:    s.index.Config.HNSWWaitForCachePrefill,
-				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
-				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
-				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
-				DisableSnapshots:       s.index.Config.HNSWDisableSnapshots,
-				SnapshotOnStartup:      s.index.Config.HNSWSnapshotOnStartup,
-				LazyLoadSegments:       lazyLoadSegments,
+				AllocChecker:                 s.index.allocChecker,
+				WaitForCachePrefill:          s.index.Config.HNSWWaitForCachePrefill,
+				FlatSearchConcurrency:        s.index.Config.HNSWFlatSearchConcurrency,
+				AcornFilterRatio:             s.index.Config.HNSWAcornFilterRatio,
+				VisitedListPoolMaxSize:       s.index.Config.VisitedListPoolMaxSize,
+				DisableSnapshots:             s.index.Config.HNSWDisableSnapshots,
+				SnapshotOnStartup:            s.index.Config.HNSWSnapshotOnStartup,
+				LazyLoadSegments:             lazyLoadSegments,
+				WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
@@ -147,15 +148,16 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 		vecIdxID := s.vectorIndexID(targetVector)
 
 		vi, err := flat.New(flat.Config{
-			ID:               vecIdxID,
-			TargetVector:     targetVector,
-			RootPath:         s.path(),
-			Logger:           s.index.logger,
-			DistanceProvider: distProv,
-			AllocChecker:     s.index.allocChecker,
-			MinMMapSize:      s.index.Config.MinMMapSize,
-			MaxWalReuseSize:  s.index.Config.MaxReuseWalSize,
-			LazyLoadSegments: lazyLoadSegments,
+			ID:                           vecIdxID,
+			TargetVector:                 targetVector,
+			RootPath:                     s.path(),
+			Logger:                       s.index.logger,
+			DistanceProvider:             distProv,
+			AllocChecker:                 s.index.allocChecker,
+			MinMMapSize:                  s.index.Config.MinMMapSize,
+			MaxWalReuseSize:              s.index.Config.MaxReuseWalSize,
+			LazyLoadSegments:             lazyLoadSegments,
+			WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
 		}, flatUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: flat index", s.ID())
@@ -205,14 +207,15 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 					hnsw.WithSnapshotMinDeltaCommitlogsSizePercentage(s.index.Config.HNSWSnapshotMinDeltaCommitlogsSizePercentage),
 				)
 			},
-			TombstoneCallbacks:    s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
-			SharedDB:              sharedDB,
-			HNSWDisableSnapshots:  s.index.Config.HNSWDisableSnapshots,
-			HNSWSnapshotOnStartup: s.index.Config.HNSWSnapshotOnStartup,
-			MinMMapSize:           s.index.Config.MinMMapSize,
-			MaxWalReuseSize:       s.index.Config.MaxReuseWalSize,
-			LazyLoadSegments:      lazyLoadSegments,
-			AllocChecker:          s.index.allocChecker,
+			TombstoneCallbacks:           s.cycleCallbacks.vectorTombstoneCleanupCallbacks,
+			SharedDB:                     sharedDB,
+			HNSWDisableSnapshots:         s.index.Config.HNSWDisableSnapshots,
+			HNSWSnapshotOnStartup:        s.index.Config.HNSWSnapshotOnStartup,
+			MinMMapSize:                  s.index.Config.MinMMapSize,
+			MaxWalReuseSize:              s.index.Config.MaxReuseWalSize,
+			LazyLoadSegments:             lazyLoadSegments,
+			AllocChecker:                 s.index.allocChecker,
+			WriteSegmentInfoIntoFileName: s.index.Config.SegmentInfoIntoFileNameEnabled,
 		}, dynamicUserConfig, s.store)
 		if err != nil {
 			return nil, errors.Wrapf(err, "init shard %q: dynamic index", s.ID())
