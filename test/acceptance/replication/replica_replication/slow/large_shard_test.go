@@ -12,38 +12,36 @@
 package slow
 
 import (
+	"context"
 	"fmt"
-	"testing"
 	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestReplicationReplicateOfLargeShard(t *testing.T) {
-	// func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
-	// 	t := suite.T()
-	// 	mainCtx := context.Background()
+func (suite *ReplicationTestSuite) TestReplicationReplicateOfLargeShard() {
+	t := suite.T()
+	mainCtx := context.Background()
 
-	// 	compose, err := docker.New().
-	// 		WithWeaviateCluster(3).
-	// 		Start(mainCtx)
-	// 	require.Nil(t, err)
-	// 	defer func() {
-	// 		if err := compose.Terminate(mainCtx); err != nil {
-	// 			t.Fatalf("failed to terminate test containers: %s", err.Error())
-	// 		}
-	// 	}()
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
 
-	// 	helper.SetupClient(compose.GetWeaviate().URI())
-	helper.SetupClient("localhost:8080")
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	cls := articles.ParagraphsClass()
-	// cls.VectorIndexType = "flat"
 	cls.ReplicationConfig = &models.ReplicationConfig{
 		Factor: 1,
 	}
