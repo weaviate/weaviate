@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"os"
 	"runtime/debug"
+	"strings"
 	"sync"
 	"time"
 
@@ -39,11 +40,13 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 ) (_ *Shard, err error) {
 	start := time.Now()
 
-	index.logger.WithFields(logrus.Fields{
+	logBase := index.logger.WithFields(logrus.Fields{
 		"action": "init_shard",
 		"shard":  shardName,
 		"index":  index.ID(),
-	}).Debugf("initializing shard %q", shardName)
+	})
+	initLvl := extractInitLogLevel(logBase, index)
+	logBase.Logf(initLvl, "initializing shard %q", shardName)
 
 	s := &Shard{
 		index:       index,
@@ -66,6 +69,7 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 		searchableBlockmaxPropNamesLock: new(sync.Mutex),
 		reindexer:                       reindexer,
 		usingBlockMaxWAND:               index.invertedIndexConfig.UsingBlockMaxWAND,
+		initLogLevel:                    initLvl,
 	}
 
 	index.metrics.UpdateShardStatus("", storagestate.StatusLoading.String())
@@ -153,9 +157,9 @@ func NewShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	s.NotifyReady()
 
 	if exists {
-		s.index.logger.Printf("Completed loading shard %s in %s", s.ID(), time.Since(start))
+		logBase.Logf(initLvl, "Completed loading shard %s in %s", s.ID(), time.Since(start))
 	} else {
-		s.index.logger.Printf("Created shard %s in %s", s.ID(), time.Since(start))
+		logBase.Logf(initLvl, "Created shard %s in %s", s.ID(), time.Since(start))
 	}
 
 	_ = s.reindexer.RunAfterLsmInit(ctx, s)
@@ -179,4 +183,16 @@ func (s *Shard) NotifyReady() {
 	s.index.logger.
 		WithField("action", "startup").
 		Debugf("shard=%s is ready", s.name)
+}
+
+func extractInitLogLevel(logBase logrus.FieldLogger, index *Index) logrus.Level {
+	lvlStr := index.Config.ShardInitLogLevel.Get()
+	level, err := logrus.ParseLevel(strings.ToLower(lvlStr))
+	if err != nil {
+		level = logrus.DebugLevel
+		logBase.WithField("invalid_level", lvlStr).
+			Warn("unknown shard init log level, defaulting to debug")
+	}
+
+	return level
 }

@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 
 	"github.com/pkg/errors"
+	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/dynamic"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -47,6 +48,7 @@ func (s *Shard) initShardVectors(ctx context.Context) error {
 
 func (s *Shard) initVectorIndex(ctx context.Context,
 	targetVector string, vectorIndexUserConfig schemaConfig.VectorIndexConfig,
+	initLogLevel logrus.Level,
 ) (VectorIndex, error) {
 	var distProv distancer.Provider
 
@@ -117,6 +119,7 @@ func (s *Shard) initVectorIndex(ctx context.Context,
 				FlatSearchConcurrency:  s.index.Config.HNSWFlatSearchConcurrency,
 				AcornFilterRatio:       s.index.Config.HNSWAcornFilterRatio,
 				VisitedListPoolMaxSize: s.index.Config.VisitedListPoolMaxSize,
+				InitLogLevel:           initLogLevel,
 			}, hnswUserConfig, s.cycleCallbacks.vectorTombstoneCleanupCallbacks, s.store)
 			if err != nil {
 				return nil, errors.Wrapf(err, "init shard %q: hnsw index", s.ID())
@@ -235,14 +238,18 @@ func (s *Shard) initTargetVectors(ctx context.Context) error {
 	return nil
 }
 
-func (s *Shard) initTargetVector(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig) error {
+func (s *Shard) initTargetVector(ctx context.Context, targetVector string,
+	cfg schemaConfig.VectorIndexConfig,
+) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
 	return s.initTargetVectorWithLock(ctx, targetVector, cfg)
 }
 
-func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector string, cfg schemaConfig.VectorIndexConfig) error {
-	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg)
+func (s *Shard) initTargetVectorWithLock(ctx context.Context, targetVector string,
+	cfg schemaConfig.VectorIndexConfig,
+) error {
+	vectorIndex, err := s.initVectorIndex(ctx, targetVector, cfg, s.initLogLevel)
 	if err != nil {
 		return fmt.Errorf("cannot create vector index for %q: %w", targetVector, err)
 	}
@@ -260,7 +267,7 @@ func (s *Shard) initLegacyVector(ctx context.Context) error {
 	s.vectorIndexMu.Lock()
 	defer s.vectorIndexMu.Unlock()
 
-	vectorIndex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig)
+	vectorIndex, err := s.initVectorIndex(ctx, "", s.index.vectorIndexUserConfig, s.initLogLevel)
 	if err != nil {
 		return err
 	}

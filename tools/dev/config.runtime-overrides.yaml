@@ -6,6 +6,7 @@ tenant_activity_write_log_level: info
 query_slow_log_enabled: true
 query_slow_log_threshold: 100ms
 inverted_sorter_disabled: false
+shard_init_log_level: debug
 
 # exp_oidc_username_claim: "sub"
 # exp_oidc_client_id: "<client_id>"
