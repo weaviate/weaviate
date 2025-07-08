@@ -13,11 +13,11 @@ package nodes
 
 import (
 	"context"
-	"time"
 
 	"github.com/weaviate/weaviate/usecases/auth/authorization/filter"
 	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac/rbacconf"
 
+	"github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/verbosity"
 
 	"github.com/sirupsen/logrus"
@@ -25,8 +25,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	schemaUC "github.com/weaviate/weaviate/usecases/schema"
 )
-
-const GetNodeStatusTimeout = 30 * time.Second
 
 type db interface {
 	GetNodeStatus(ctx context.Context, className, shardName, verbosity string) ([]*models.NodeStatus, error)
@@ -52,7 +50,7 @@ func NewManager(logger logrus.FieldLogger, authorizer authorization.Authorizer,
 func (m *Manager) GetNodeStatus(ctx context.Context,
 	principal *models.Principal, className, shardName, verbosityString string,
 ) ([]*models.NodeStatus, error) {
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, config.MinimumTimeout())
 	defer cancel()
 
 	// filter output after getting results if info about all shards is requested
