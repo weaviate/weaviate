@@ -27,6 +27,7 @@ import (
 	storageapi "google.golang.org/api/storage/v1"
 
 	clusterusage "github.com/weaviate/weaviate/cluster/usage"
+	"github.com/weaviate/weaviate/cluster/usage/types"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -286,7 +287,7 @@ func (m *module) collectAndUploadUsage(ctx context.Context) error {
 	return m.uploadUsageData(ctx, usage)
 }
 
-func (m *module) collectUsageData(ctx context.Context) (*clusterusage.Report, error) {
+func (m *module) collectUsageData(ctx context.Context) (*types.Report, error) {
 	usage, err := m.usageService.Usage(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get usage data: %w", err)
@@ -310,7 +311,7 @@ func (m *module) collectUsageData(ctx context.Context) (*clusterusage.Report, er
 	return usage, nil
 }
 
-func (m *module) uploadUsageData(ctx context.Context, usage *clusterusage.Report) error {
+func (m *module) uploadUsageData(ctx context.Context, usage *types.Report) error {
 	if m.storageClient == nil {
 		return fmt.Errorf("storage client is not initialized")
 	}
