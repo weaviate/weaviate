@@ -161,8 +161,7 @@ func Test_AliasesAPI(t *testing.T) {
 
 	t.Run("replace non existing alias", func(t *testing.T) {
 		checkAlias := func(t *testing.T, aliasName, expectedClass string) {
-			resp := helper.GetAlias(t, aliasName)
-			require.Error(t, err)
+			resp := helper.GetAliasNotFound(t, aliasName)
 			require.Nil(t, resp)
 		}
 		aliasName := "AliasThatDoesntExist"
