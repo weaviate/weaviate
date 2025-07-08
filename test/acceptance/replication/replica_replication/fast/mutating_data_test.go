@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/nodes"
@@ -63,6 +64,17 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	// Create the class
 	t.Log("Creating class", cls.Class)
 	helper.DeleteClass(t, cls.Class)
+
+	// Wait for all replication ops to be deleted
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		res, err := helper.Client(t).Replication.ListReplication(
+			replication.NewListReplicationParams().WithCollection(&cls.Class),
+			nil,
+		)
+		require.Nil(ct, err, "failed to list replication operations for class %s", cls.Class)
+		assert.Empty(ct, res.Payload, "there are still replication operations for class %s", cls.Class)
+	}, 30*time.Second, 5*time.Second, "replication operations for class %s did not finish in time", cls.Class)
+
 	helper.CreateClass(t, cls)
 
 	// Load data
@@ -98,7 +110,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	t.Log("Starting data mutation in background")
-	go mutateData(t, ctx, cls.Class, tenantName, 100)
+	go mutateData(t, ctx, helper.Client(t), cls.Class, tenantName, 100)
 
 	// Choose other node node as the target node
 	var targetNode string
@@ -184,7 +196,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	}
 }
 
-func mutateData(t *testing.T, ctx context.Context, className string, tenantName string, wait int) {
+func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, className string, tenantName string, wait int) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -205,13 +217,13 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 				WithBody(batch.BatchObjectsCreateBody{
 					Objects: btch,
 				}).WithConsistencyLevel(&all)
-			helper.Client(t).Batch.BatchObjectsCreate(params, nil)
+			client.Batch.BatchObjectsCreate(params, nil)
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Get the existing objects
 			limit := int64(10000)
-			res, err := helper.Client(t).Objects.ObjectsList(
+			res, err := client.Objects.ObjectsList(
 				objects.NewObjectsListParams().WithClass(&className).WithTenant(&tenantName).WithLimit(&limit),
 				nil,
 			)
@@ -234,7 +246,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			// 		WithTenant(tenantName).
 			// 		WithID(obj.ID).
 			// 		Object())
-			// 	helper.Client(t).Objects.ObjectsClassPut(
+			// 	client.Objects.ObjectsClassPut(
 			// 		objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
 			// 		nil,
 			// 	)
@@ -244,7 +256,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 
 			// Delete some existing objects
 			for _, obj := range toDelete {
-				helper.Client(t).Objects.ObjectsClassDelete(
+				client.Objects.ObjectsClassDelete(
 					objects.NewObjectsClassDeleteParams().WithClassName(className).WithID(obj.ID).WithTenant(&tenantName).WithConsistencyLevel(&all),
 					nil,
 				)
