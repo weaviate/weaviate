@@ -60,6 +60,10 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 		return fmt.Errorf("delete object from bucket: %w", err)
 	}
 
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+		return fmt.Errorf("object deletion in hashtree: %w", err)
+	}
+
 	err = s.cleanupInvertedIndexOnDelete(existing, docID)
 	if err != nil {
 		return fmt.Errorf("delete object from bucket: %w", err)
@@ -87,10 +91,6 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	})
 	if err != nil {
 		return err
-	}
-
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
-		return fmt.Errorf("object deletion in hashtree: %w", err)
 	}
 
 	return nil

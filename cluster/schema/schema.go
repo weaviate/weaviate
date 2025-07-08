@@ -57,7 +57,7 @@ type schema struct {
 	// mu protects the `classes`
 	mu      sync.RWMutex
 	classes map[string]*metaClass
-	aliases map[string]string
+	aliases map[string]string // key: canonical form all in TitleCase.
 
 	// metrics
 	// collectionsCount represents the number of collections on this specific node.
@@ -113,14 +113,14 @@ func (s *schema) ClassEqual(name string) string {
 }
 
 func (s *schema) unsafeClassEqual(name string) string {
-	for k := range s.classes {
-		if strings.EqualFold(k, name) {
-			return k
-		}
-	}
 	for alias := range s.aliases {
 		if strings.EqualFold(alias, name) {
 			return alias
+		}
+	}
+	for k := range s.classes {
+		if strings.EqualFold(k, name) {
+			return k
 		}
 	}
 	return ""
@@ -143,7 +143,7 @@ func (s *schema) Read(class string, reader func(*models.Class, *sharding.State) 
 func (s *schema) metaClass(class string) *metaClass {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.classes[class]
+	return s.unsafeResolveClass(class)
 }
 
 // ReadOnlyClass returns a shallow copy of a class.
@@ -155,7 +155,7 @@ func (s *schema) ReadOnlyClass(class string) (*models.Class, uint64) {
 }
 
 func (s *schema) unsafeReadOnlyClass(class string) (*models.Class, uint64) {
-	meta := s.classes[class]
+	meta := s.unsafeResolveClass(class)
 	if meta == nil {
 		return nil, 0
 	}
@@ -174,7 +174,7 @@ func (s *schema) ReadOnlyClasses(classes ...string) map[string]versioned.Class {
 	defer s.mu.RUnlock()
 
 	for _, class := range classes {
-		meta := s.classes[class]
+		meta := s.unsafeResolveClass(class)
 		if meta == nil {
 			continue
 		}
@@ -248,7 +248,7 @@ func (s *schema) TenantsShards(class string, tenants ...string) (map[string]stri
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	meta := s.classes[class]
+	meta := s.unsafeResolveClass(class)
 	if meta == nil {
 		return nil, 0
 	}
@@ -284,11 +284,11 @@ func (s *schema) multiTenancyEnabled(class string) (bool, *metaClass, ClassInfo,
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	meta := s.classes[class]
+	meta := s.unsafeResolveClass(class)
 	if meta == nil {
 		return false, nil, ClassInfo{}, ErrClassNotFound
 	}
-	info := s.classes[class].ClassInfo()
+	info := s.unsafeResolveClass(class).ClassInfo()
 	if !info.MultiTenancy.Enabled {
 		return false, nil, ClassInfo{}, fmt.Errorf("%w for class %q", ErrMTDisabled, class)
 	}
@@ -322,7 +322,7 @@ func (s *schema) updateClass(name string, f func(*metaClass) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	meta := s.classes[name]
+	meta := s.unsafeResolveClass(name)
 	if meta == nil {
 		return ErrClassNotFound
 	}
@@ -410,7 +410,7 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	meta := s.classes[class]
+	meta := s.unsafeResolveClass(class)
 	if meta == nil {
 		return ErrClassNotFound
 	}
@@ -420,7 +420,7 @@ func (s *schema) addProperty(class string, v uint64, props ...*models.Property) 
 func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	meta := s.classes[class]
+	meta := s.unsafeResolveClass(class)
 	if meta == nil {
 		return ErrClassNotFound
 	}
@@ -430,7 +430,7 @@ func (s *schema) addReplicaToShard(class string, v uint64, shard string, replica
 func (s *schema) deleteReplicaFromShard(class string, v uint64, shard string, replica string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	meta := s.classes[class]
+	meta := s.unsafeResolveClass(class)
 	if meta == nil {
 		return ErrClassNotFound
 	}
@@ -632,6 +632,8 @@ func (s *schema) RestoreAlias(data []byte) error {
 }
 
 func (s *schema) createAlias(class, alias string) error {
+	alias = s.canonicalAlias(alias)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -664,12 +666,20 @@ func (s *schema) replaceAlias(newClass, alias string) error {
 
 // unsafeAliasExists is not concurrency-safe! Lock s.aliases before calling
 func (s *schema) unsafeAliasExists(alias string) bool {
-	for found := range s.aliases {
-		if found == alias {
-			return true
-		}
+	_, ok := s.aliases[alias]
+	return ok
+}
+
+func (s *schema) canonicalAlias(alias string) string {
+	if len(alias) < 1 {
+		return alias
 	}
-	return false
+
+	if len(alias) == 1 {
+		return strings.ToUpper(alias)
+	}
+
+	return strings.ToUpper(string(alias[0])) + alias[1:]
 }
 
 func (s *schema) getAliases(alias, class string) map[string]string {
@@ -689,19 +699,39 @@ func (s *schema) getAliases(alias, class string) map[string]string {
 		}
 		return aliases
 	}
-	return maps.Clone(s.aliases)
+
+	// asked for all aliases.
+	if alias == "" && class == "" {
+		return maps.Clone(s.aliases)
+	}
+	// if asked for spefic class or alias return nil, meaning not found.
+	return nil
 }
 
-func (s *schema) resolveAlias(alias string) string {
+func (s *schema) ResolveAlias(alias string) string {
+	alias = s.canonicalAlias(alias)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	return s.unsafeResolveAlias(alias)
+}
+
+func (s *schema) unsafeResolveAlias(alias string) string {
 	return s.aliases[alias]
 }
 
 func (s *schema) deleteAlias(alias string) error {
+	alias = s.canonicalAlias(alias)
+
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.aliases, alias)
 	// purposefully idempotent
 	return nil
+}
+
+func (s *schema) unsafeResolveClass(class string) *metaClass {
+	if cls := s.unsafeResolveAlias(class); cls != "" {
+		return s.classes[cls]
+	}
+	return s.classes[class]
 }

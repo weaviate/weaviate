@@ -102,3 +102,7 @@ func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class stri
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
 }
+
+func (f *fakeSchemaManager) ResolveAlias(string) string {
+	return ""
+}

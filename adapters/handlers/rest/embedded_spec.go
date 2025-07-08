@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.32.0-rc.0"
+    "version": "1.32.0-rc.1"
   },
   "basePath": "/v1",
   "paths": {
@@ -264,7 +264,7 @@ func init() {
           "200": {
             "description": "Successfully retrieved the alias details.",
             "schema": {
-              "$ref": "#/definitions/AliasResponse"
+              "$ref": "#/definitions/Alias"
             }
           },
           "401": {
@@ -272,6 +272,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -371,7 +377,7 @@ func init() {
           }
         ],
         "responses": {
-          "200": {
+          "204": {
             "description": "Successfully deleted the alias."
           },
           "401": {
@@ -379,6 +385,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8642,7 +8654,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.32.0-rc.0"
+    "version": "1.32.0-rc.1"
   },
   "basePath": "/v1",
   "paths": {
@@ -8858,7 +8870,7 @@ func init() {
           "200": {
             "description": "Successfully retrieved the alias details.",
             "schema": {
-              "$ref": "#/definitions/AliasResponse"
+              "$ref": "#/definitions/Alias"
             }
           },
           "401": {
@@ -8866,6 +8878,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -8965,7 +8983,7 @@ func init() {
           }
         ],
         "responses": {
-          "200": {
+          "204": {
             "description": "Successfully deleted the alias."
           },
           "401": {
@@ -8973,6 +8991,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "Not Found - Alias does not exist",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
