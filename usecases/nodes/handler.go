@@ -90,7 +90,7 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 func (m *Manager) GetNodeStatistics(ctx context.Context,
 	principal *models.Principal,
 ) ([]*models.Statistics, error) {
-	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
+	ctxWithTimeout, cancel := context.WithTimeout(ctx, config.MinimumTimeout())
 	defer cancel()
 
 	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Cluster()); err != nil {
