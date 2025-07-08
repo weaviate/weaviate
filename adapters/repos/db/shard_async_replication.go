@@ -317,6 +317,9 @@ func (s *Shard) initAsyncReplication() error {
 		return err
 	}
 
+	s.hashtreeFullyInitialized = false
+	s.minimalHashtreeInitializationCh = make(chan struct{})
+
 	// sync hashtree with current object states
 
 	enterrors.GoWrapper(func() {
@@ -334,7 +337,16 @@ func (s *Shard) initAsyncReplication() error {
 		objCount := 0
 		prevProgressLogging := time.Now()
 
-		err = bucket.ApplyToObjectDigests(ctx, func(object *storobj.Object) error {
+		beforeOnDiskCallback := func(_ context.Context) error {
+			s.asyncReplicationRWMux.RLock()
+			defer s.asyncReplicationRWMux.RUnlock()
+
+			close(s.minimalHashtreeInitializationCh)
+
+			return nil
+		}
+
+		err = bucket.ApplyToObjectDigests(ctx, beforeOnDiskCallback, func(object *storobj.Object) error {
 			if time.Since(prevProgressLogging) >= config.loggingFrequency {
 				s.index.logger.
 					WithField("action", "async_replication").
@@ -415,6 +427,19 @@ func (s *Shard) initAsyncReplication() error {
 	}, s.index.logger)
 
 	return nil
+}
+
+func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error {
+	if s.hashtree == nil || s.hashtreeFullyInitialized {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.minimalHashtreeInitializationCh:
+		return nil
+	}
 }
 
 func (s *Shard) mayStopAsyncReplication() {
