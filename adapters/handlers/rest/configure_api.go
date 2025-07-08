@@ -147,6 +147,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 	"github.com/weaviate/weaviate/usecases/telemetry"
 	"github.com/weaviate/weaviate/usecases/traverser"
+	entconfig "github.com/weaviate/weaviate/entities/config"
 )
 
 const MinimumRequiredContextionaryVersion = "1.0.2"
@@ -1723,7 +1724,7 @@ func reasonableHttpClient(authConfig cluster.AuthConfig) *http.Client {
 	t := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
+			Timeout:   entconfig.MinimumTimeout(),
 			KeepAlive: 120 * time.Second,
 		}).DialContext,
 		MaxIdleConnsPerHost:   100,
