@@ -677,24 +677,25 @@ func (i *Index) DeletionStrategy() string {
 }
 
 type IndexConfig struct {
-	RootPath                            string
-	ClassName                           schema.ClassName
-	QueryMaximumResults                 int64
-	QueryNestedRefLimit                 int64
-	ResourceUsage                       config.ResourceUsage
-	LazySegmentsDisabled                bool
-	MemtablesFlushDirtyAfter            int
-	MemtablesInitialSizeMB              int
-	MemtablesMaxSizeMB                  int
-	MemtablesMinActiveSeconds           int
-	MemtablesMaxActiveSeconds           int
-	MinMMapSize                         int64
-	MaxReuseWalSize                     int64
-	SegmentsCleanupIntervalSeconds      int
-	SeparateObjectsCompactions          bool
-	CycleManagerRoutinesFactor          int
-	IndexRangeableInMemory              bool
-	MaxSegmentSize                      int64
+	RootPath                       string
+	ClassName                      schema.ClassName
+	QueryMaximumResults            int64
+	QueryNestedRefLimit            int64
+	ResourceUsage                  config.ResourceUsage
+	LazySegmentsDisabled           bool
+	MemtablesFlushDirtyAfter       int
+	MemtablesInitialSizeMB         int
+	MemtablesMaxSizeMB             int
+	MemtablesMinActiveSeconds      int
+	MemtablesMaxActiveSeconds      int
+	MinMMapSize                    int64
+	MaxReuseWalSize                int64
+	SegmentsCleanupIntervalSeconds int
+	SeparateObjectsCompactions     bool
+	CycleManagerRoutinesFactor     int
+	IndexRangeableInMemory         bool
+	MaxSegmentSize                 int64
+	// TODO are there other users of this (or other places with "static" replication factor) that need to be updated?
 	ReplicationFactor                   int64
 	DeletionStrategy                    string
 	AsyncReplicationEnabled             bool
