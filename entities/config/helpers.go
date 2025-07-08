@@ -38,8 +38,6 @@ func MinimumTimeout() time.Duration {
 	if opt != "" {
 		if parsed, err := time.ParseDuration(opt); err == nil {
 			defaultMinimumTimeout = parsed
-		} else {
-			fmt.Printf("Invalid WEAVIATE_MINIMUM_TIMEOUT value: %s, using default %s\n", opt, defaultMinimumTimeout)
 		}
 	}
 	return defaultMinimumTimeout
