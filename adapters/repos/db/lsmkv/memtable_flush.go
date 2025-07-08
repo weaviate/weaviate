@@ -70,9 +70,13 @@ func (m *Memtable) flush() (segmentPath string, rerr error) {
 		}
 		return "", nil
 	}
-
-	// new segments are always level 0
-	tmpSegmentPath := m.path + segmentExtraInfo(0, SegmentStrategyFromString(m.strategy)) + "db.tmp"
+	var tmpSegmentPath string
+	if m.writeSegmentInfoIntoFileName {
+		// new segments are always level 0
+		tmpSegmentPath = m.path + segmentExtraInfo(0, SegmentStrategyFromString(m.strategy)) + ".db.tmp"
+	} else {
+		tmpSegmentPath = m.path + ".db.tmp"
+	}
 
 	f, err := os.OpenFile(tmpSegmentPath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o666)
 	if err != nil {

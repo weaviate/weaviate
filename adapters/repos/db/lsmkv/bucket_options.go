@@ -127,6 +127,13 @@ func WithAllocChecker(mm memwatch.AllocChecker) BucketOption {
 	}
 }
 
+func WithWriteSegmentInfoIntoFileName(writeSegmentInfoIntoFileName bool) BucketOption {
+	return func(b *Bucket) error {
+		b.writeSegmentInfoIntoFileName = writeSegmentInfoIntoFileName
+		return nil
+	}
+}
+
 type secondaryIndexKeys [][]byte
 
 type SecondaryKeyOption func(s secondaryIndexKeys) error
