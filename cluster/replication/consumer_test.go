@@ -849,6 +849,12 @@ func TestConsumerOpCancellation(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(0, nil)
+	mockReplicaCopier.EXPECT().
+		RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil)
+	mockReplicaCopier.EXPECT().
+		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+		Return(nil)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once
@@ -979,6 +985,12 @@ func TestConsumerOpDeletion(t *testing.T) {
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
 		Return(0, nil)
+	mockReplicaCopier.EXPECT().
+		RevertAsyncReplicationLocally(mock.Anything, mock.Anything, mock.Anything).
+		Return(nil)
+	mockReplicaCopier.EXPECT().
+		RemoveAsyncReplicationTargetNode(mock.Anything, mock.Anything).
+		Return(nil)
 
 	var completionWg sync.WaitGroup
 	var once sync.Once
