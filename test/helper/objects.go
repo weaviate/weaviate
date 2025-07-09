@@ -526,6 +526,13 @@ func CreateAlias(t *testing.T, alias *models.Alias) {
 	CreateAliasWithAuthz(t, alias, nil)
 }
 
+func CreateAliasWithReturn(t *testing.T, alias *models.Alias) (*schema.AliasesCreateOK, error) {
+	t.Helper()
+	params := schema.NewAliasesCreateParams().WithBody(alias)
+	resp, err := Client(t).Schema.AliasesCreate(params, nil)
+	return resp, err
+}
+
 func CreateAliasWithAuthz(t *testing.T, alias *models.Alias, authInfo runtime.ClientAuthInfoWriter) {
 	t.Helper()
 	params := schema.NewAliasesCreateParams().WithBody(alias)
