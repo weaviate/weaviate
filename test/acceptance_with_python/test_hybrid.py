@@ -153,7 +153,7 @@ def test_hybrid_search_vector_distance_more_objects(
     assert ret.has_errors is False
 
     objs = collection.query.near_text(
-        query, return_metadata=wvc.query.MetadataQuery.full(), limit=98
+        query, return_metadata=wvc.query.MetadataQuery.full(), limit=100
     ).objects
     middle_distance = objs[len(objs) // 2].metadata.distance
 
@@ -162,7 +162,7 @@ def test_hybrid_search_vector_distance_more_objects(
         query,
         distance=middle_distance,
         return_metadata=wvc.query.MetadataQuery.full(),
-        limit=98,
+        limit=100,
         offset=offset,
     ).objects
     objs_hy_cutoff = collection.query.hybrid(
@@ -170,7 +170,7 @@ def test_hybrid_search_vector_distance_more_objects(
         max_vector_distance=middle_distance,
         alpha=1,
         return_metadata=wvc.query.MetadataQuery.full(),
-        limit=98,
+        limit=100,
         offset=offset,
     ).objects
 

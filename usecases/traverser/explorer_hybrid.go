@@ -191,10 +191,6 @@ func (e *Explorer) Hybrid(ctx context.Context, params dto.GetParams) ([]search.R
 		return nil, fmt.Errorf("hybrid search cannot have both nearText and nearVector parameters")
 	}
 
-	if params.Pagination.Limit+params.Pagination.Offset > int(e.config.QueryHybridMaximumResults) && params.Pagination.Limit > 0 && params.Pagination.Offset > 0 {
-		return nil, fmt.Errorf("hybrid pagination limit exceeded, maximum is %d, got %d (limit %d + offset %d). Set the env var QUERY_HYBRID_MAXIMUM_RESULTS to a value equal to your maximum desired pagination limit (limit + offset)", e.config.QueryHybridMaximumResults, params.Pagination.Limit+params.Pagination.Offset, params.Pagination.Limit, params.Pagination.Offset)
-	}
-
 	origParams := params
 	params.Pagination = &filters.Pagination{
 		Limit:   params.Pagination.Limit,

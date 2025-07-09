@@ -219,8 +219,8 @@ func TestHybridOffsets(t *testing.T) {
 							}
 
 							hybridResults, err := explorer.Hybrid(context.TODO(), params)
-							if err != nil && pagination.Offset+pagination.Limit > int(queryHybridMaximumResult) {
-								t.Logf("Getting expected error for pagination offset %d + limit %d > %d: %v", pagination.Offset, pagination.Limit, int(queryHybridMaximumResult), err)
+							if pagination.Offset+pagination.Limit > int(queryHybridMaximumResult) {
+								t.Logf("Not validating the results for pagination as offset %d + limit %d > %d: %v", pagination.Offset, pagination.Limit, int(queryHybridMaximumResult), err)
 								return
 							}
 							require.Nil(t, err)
