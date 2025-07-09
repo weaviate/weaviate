@@ -14,8 +14,7 @@ package types
 // DirectCandidate organizes replicas by prioritizing the
 // direct candidate node first, falling back to the local node if no direct
 // candidate is specified. This strategy aims to minimize network latency by
-// preferring local operations when possible. This strategy can be used for
-// both read and write operations.
+// preferring local operations when possible.
 type DirectCandidate struct {
 	PreferredNodeName string
 }
@@ -49,27 +48,6 @@ type ReadReplicaStrategy interface {
 	// according to the strategy's logic and routing options. The returned ReadReplicaSet contains the
 	// same number of unique shards but with only the selected replica for each shard.
 	Apply(replicas ReadReplicaSet, options RoutingPlanBuildOptions) ReadReplicaSet
-}
-
-// DirectCandidateWriteStrategy organizes write replicas using the DirectCandidate
-// logic to prioritize the preferred node. This strategy places replicas from the
-// preferred node first in the replica list, maintaining the original order for
-// all other replicas.
-type DirectCandidateWriteStrategy struct {
-	directCandidate DirectCandidate
-}
-
-// Apply organizes the write replicas by placing the preferred node first for each shard.
-// The preferred node is determined by options.DirectCandidateNode if provided,
-// falling back to the strategy's configured directCandidate, and finally to
-// localNodeName if directCandidate is empty.
-func (s *DirectCandidateWriteStrategy) Apply(ws WriteReplicaSet, options RoutingPlanBuildOptions) WriteReplicaSet {
-	preferredNode := s.determinePreferredNode(options)
-
-	return WriteReplicaSet{
-		Replicas:           byPreferredNode(ws.Replicas, preferredNode),
-		AdditionalReplicas: byPreferredNode(ws.AdditionalReplicas, preferredNode),
-	}
 }
 
 // DirectCandidateReadStrategy selects read replicas using the DirectCandidate
@@ -106,15 +84,6 @@ func (s *DirectCandidateReadStrategy) Apply(rs ReadReplicaSet, options RoutingPl
 
 // Helper method to determine the preferred node from options and strategy configuration
 func (s *DirectCandidateReadStrategy) determinePreferredNode(options RoutingPlanBuildOptions) string {
-	// Priority: options.DirectCandidateNode > strategy.directCandidate.PreferredNodeName
-	if options.DirectCandidateNode != "" {
-		return options.DirectCandidateNode
-	}
-	return s.directCandidate.PreferredNodeName
-}
-
-// Helper method to determine the preferred node from options and strategy configuration
-func (s *DirectCandidateWriteStrategy) determinePreferredNode(options RoutingPlanBuildOptions) string {
 	// Priority: options.DirectCandidateNode > strategy.directCandidate.PreferredNodeName
 	if options.DirectCandidateNode != "" {
 		return options.DirectCandidateNode
