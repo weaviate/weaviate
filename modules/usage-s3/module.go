@@ -20,14 +20,12 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go/aws"
-	"github.com/aws/aws-sdk-go/aws/credentials"
 	"github.com/aws/aws-sdk-go/aws/session"
 	"github.com/aws/aws-sdk-go/service/s3"
 	"github.com/sirupsen/logrus"
 
 	clusterusage "github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/cluster/usage/types"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -104,14 +102,8 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	m.metrics = NewMetrics(params.GetMetricsRegisterer())
 
 	// Configure AWS session
-	var awsConfig *aws.Config
-	if m.config.Usage.S3Auth != nil && m.config.Usage.S3Auth.Get() {
-		// Use AWS credentials from environment or IAM role
-		awsConfig = aws.NewConfig()
-	} else {
-		// Use anonymous access for testing
-		awsConfig = aws.NewConfig().WithCredentials(credentials.AnonymousCredentials)
-	}
+	// Use AWS credentials from environment or IAM role
+	awsConfig := aws.NewConfig()
 
 	sess, err := session.NewSession(awsConfig)
 	if err != nil {
@@ -135,7 +127,6 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	m.logger.WithFields(logrus.Fields{
 		"node_id":             m.nodeID,
 		"collection_interval": m.interval,
-		"s3_auth_enabled":     m.config.Usage.S3Auth != nil && m.config.Usage.S3Auth.Get(),
 		"s3_bucket":           m.config.Usage.S3Bucket.Get(),
 		"s3_prefix":           m.config.Usage.S3Prefix.Get(),
 	}).Info("initializing usage-s3 module with configuration")
@@ -377,9 +368,6 @@ func (m *module) reloadConfig(ticker *time.Ticker) {
 }
 
 func parseUsageConfig(config *config.Config) error {
-	if v := os.Getenv("USAGE_S3_USE_AUTH"); v != "" {
-		config.Usage.S3Auth = runtime.NewDynamicValue(entcfg.Enabled(v))
-	}
 	if v := os.Getenv("USAGE_S3_BUCKET"); v != "" {
 		config.Usage.S3Bucket = runtime.NewDynamicValue(v)
 	}
