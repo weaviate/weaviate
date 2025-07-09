@@ -183,15 +183,9 @@ func test(suite *ReplicationTestSuite, strategy string) {
 
 	// Verify that all replicas have the same number of objects
 	t.Log("Verifying object counts across replicas")
-	var expectedCount int64
-	var comparisonReplica string
-	for replica, count := range objectCountByReplica {
-		if expectedCount == 0 {
-			expectedCount = count
-			comparisonReplica = replica
-		} else {
-			require.Equal(t, expectedCount, count, "object counts across replicas do not match. Expected %d as on %s but got %d for replica %s instead", expectedCount, comparisonReplica, count, replica)
-		}
+	for node, count := range objectCountByReplica {
+		t.Logf("Node %s has %d objects for tenant %s", node, count, tenantName)
+		assert.Equal(t, objectCountByReplica[nodeNames[0]], count, "object count mismatch for tenant %s on node %s", tenantName, node)
 	}
 }
 
