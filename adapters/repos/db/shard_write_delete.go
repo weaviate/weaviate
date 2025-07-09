@@ -34,6 +34,13 @@ func (s *Shard) DeleteObject(ctx context.Context, id strfmt.UUID, deletionTime t
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	// see comment in shard_write_put.go::putObjectLSM
+	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+
+	lock.Lock()
+	defer lock.Unlock()
+
 	existing, err := bucket.Get([]byte(idBytes))
 	if err != nil {
 		return fmt.Errorf("unexpected error on previous lookup: %w", err)
