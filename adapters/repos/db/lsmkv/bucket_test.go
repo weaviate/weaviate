@@ -504,7 +504,8 @@ func TestBucketInfoInFileName(t *testing.T) {
 			require.NoError(t, err)
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
 			require.NoError(t, b.FlushMemtable())
-			require.Equal(t, countDbFiles(t, dirName), 1)
+			dbFiles, _ := countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
 		})
 	}
 }
@@ -535,7 +536,8 @@ func TestBucketCompactionFileName(t *testing.T) {
 			require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
 			require.NoError(t, b.FlushMemtable())
 			require.NoError(t, b.Shutdown(ctx))
-			require.Equal(t, countDbFiles(t, dirName), 1)
+			dbFiles, _ := countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
 			oldNames := verifyFileInfo(t, dirName, nil, tt.firstSegment, 0)
 
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
@@ -546,7 +548,8 @@ func TestBucketCompactionFileName(t *testing.T) {
 			require.NoError(t, b.FlushMemtable())
 			require.NoError(t, b.Shutdown(ctx))
 
-			require.Equal(t, countDbFiles(t, dirName), 2)
+			dbFiles, _ = countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 2)
 			oldNames = verifyFileInfo(t, dirName, oldNames, tt.secondSegment, 0)
 
 			b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
@@ -556,13 +559,14 @@ func TestBucketCompactionFileName(t *testing.T) {
 			compact, err := b.disk.compactOnce()
 			require.NoError(t, err)
 			require.True(t, compact)
-			require.Equal(t, countDbFiles(t, dirName), 1)
+			dbFiles, _ = countDbAndWalFiles(t, dirName)
+			require.Equal(t, dbFiles, 1)
 			verifyFileInfo(t, dirName, oldNames, tt.compaction, 1)
 		})
 	}
 }
 
-func countDbFiles(t *testing.T, path string) int {
+func countDbAndWalFiles(t *testing.T, path string) (int, int) {
 	t.Helper()
 	fileTypes := map[string]int{}
 	entries, err := os.ReadDir(path)
@@ -570,7 +574,7 @@ func countDbFiles(t *testing.T, path string) int {
 	for _, entry := range entries {
 		fileTypes[filepath.Ext(entry.Name())] += 1
 	}
-	return fileTypes[".db"]
+	return fileTypes[".db"], fileTypes[".wal"]
 }
 
 func verifyFileInfo(t *testing.T, path string, oldEntries []string, segmentInfo bool, level int) []string {
@@ -594,4 +598,56 @@ func verifyFileInfo(t *testing.T, path string, oldEntries []string, segmentInfo 
 		}
 	}
 	return fileNames
+}
+
+func TestBucketRecovery(t *testing.T) {
+	logger, _ := test.NewNullLogger()
+
+	ctx := context.Background()
+	dirName := t.TempDir()
+	tmpDir := t.TempDir()
+	b, err := NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+	)
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("hello1"), []byte("world1"), WithSecondaryKey(0, []byte("bonjour1"))))
+	require.NoError(t, b.Shutdown(ctx))
+	dbFiles, walFiles := countDbAndWalFiles(t, dirName)
+	require.Equal(t, dbFiles, 0)
+	require.Equal(t, walFiles, 1)
+
+	// move .wal file somewhere else to recover later
+	var oldPath, tmpPath string
+	entries, err := os.ReadDir(dirName)
+	require.NoError(t, err)
+	for _, entry := range entries {
+		if filepath.Ext(entry.Name()) == ".wal" {
+			oldPath = dirName + "/" + entry.Name()
+			tmpPath = tmpDir + "/" + entry.Name()
+			require.NoError(t, os.Rename(oldPath, tmpPath))
+		}
+	}
+	_, walFiles = countDbAndWalFiles(t, dirName)
+	require.Equal(t, walFiles, 0)
+
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+	)
+	require.NoError(t, err)
+	require.NoError(t, b.Put([]byte("hello2"), []byte("world2"), WithSecondaryKey(0, []byte("bonjour2"))))
+	require.NoError(t, b.Shutdown(ctx))
+	dbFiles, walFiles = countDbAndWalFiles(t, dirName)
+	require.Equal(t, dbFiles, 0)
+	require.Equal(t, walFiles, 1)
+
+	// move .wal file back so we can recover one
+	require.NoError(t, os.Rename(tmpPath, oldPath))
+
+	b, err = NewBucketCreator().NewBucket(ctx, dirName, "", logger, nil,
+		cyclemanager.NewCallbackGroupNoop(), cyclemanager.NewCallbackGroupNoop(), WithWriteSegmentInfoIntoFileName(true), WithMinWalThreshold(4096),
+	)
+	require.NoError(t, err)
+	get, err := b.Get([]byte("hello1"))
+	require.NoError(t, err)
+	require.Equal(t, []byte("world1"), get)
 }
