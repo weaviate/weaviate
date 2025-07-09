@@ -63,7 +63,18 @@ func test(suite *ReplicationTestSuite, strategy string) {
 
 	// Create the class
 	t.Log("Creating class", cls.Class)
+	helper.DeleteClass(t, cls.Class)
 	helper.CreateClass(t, cls)
+
+	// Wait for all replication ops to be deleted
+	require.EventuallyWithT(t, func(ct *assert.CollectT) {
+		res, err := helper.Client(t).Replication.ListReplication(
+			replication.NewListReplicationParams().WithCollection(&cls.Class),
+			nil,
+		)
+		require.Nil(ct, err, "failed to list replication operations for class %s", cls.Class)
+		assert.Empty(ct, res.Payload, "there are still replication operations for class %s", cls.Class)
+	}, 30*time.Second, 5*time.Second, "replication operations for class %s did not finish in time", cls.Class)
 
 	// Load data
 	t.Log("Loading data into tenant")
