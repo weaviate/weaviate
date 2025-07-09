@@ -185,23 +185,14 @@ func TestReadPlanner_IntegrationWithDirectCandidateStrategy(t *testing.T) {
 	// THEN
 	require.NoError(t, err)
 	require.Equal(t, shard, plan.Shard)
-
-	// NEW: Now expecting ALL replicas, not just one per shard
 	require.Len(t, plan.ReplicaSet.Replicas, 4) // All replicas from testReadReplicaSet()
 
-	// Verify that replicas are ordered with direct candidate first within each shard
 	s1Replicas := findReplicasByShard(plan.ReplicaSet.Replicas, "S1")
 	s2Replicas := findReplicasByShard(plan.ReplicaSet.Replicas, "S2")
-
-	require.Len(t, s1Replicas, 2) // S1 has replicas A and B
-	require.Len(t, s2Replicas, 2) // S2 has replicas C and D
-
-	// Within each shard, direct candidate should be first
+	require.Len(t, s1Replicas, 2)                 // S1 has replicas A and B
+	require.Len(t, s2Replicas, 2)                 // S2 has replicas C and D
 	require.Equal(t, "B", s1Replicas[0].NodeName) // B (direct candidate) should be first for S1
 	require.Equal(t, "A", s1Replicas[1].NodeName) // A should be second for S1
-
-	// For S2, since neither C nor D is the direct candidate, order should be preserved
-	// (assuming testReadReplicaSet() returns them in C, D order)
 }
 
 func findReplicasByShard(replicas []types.Replica, shardName string) []types.Replica {
