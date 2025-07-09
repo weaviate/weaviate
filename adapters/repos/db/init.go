@@ -84,15 +84,15 @@ func (db *DB) init(ctx context.Context) error {
 
 			shardingState := db.schemaGetter.CopyShardingState(class.Class)
 			collection := schema.ClassName(class.Class).String()
-			multiTenancyEnabled := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 			indexRouter := router.NewBuilder(
 				collection,
-				multiTenancyEnabled,
+				shardingState.PartitioningEnabled,
 				db.nodeSelector,
 				db.schemaGetter,
 				db.schemaReader,
 				db.replicationFSM,
 			).Build()
+			readPlanner := router.NewReadPlanner(indexRouter, collection, nil /* default strategy */, "", db.localNodeName)
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                                    schema.ClassName(class.Class),
 				RootPath:                                     db.config.RootPath,
@@ -145,7 +145,7 @@ func (db *DB) init(ctx context.Context) error {
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
-				indexRouter, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
+				indexRouter, readPlanner, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
 				db.memMonitor, db.reindexer, db.bitmapBufPool)
 			if err != nil {

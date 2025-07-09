@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -44,7 +45,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -258,8 +258,8 @@ type Index struct {
 
 	shardReindexer ShardReindexerV3
 
-	router        routerTypes.Router
-	bitmapBufPool roaringset.BitmapBufPool
+	router      routerTypes.Router
+	readPlanner clusterRouter.ReadPlanner
 }
 
 func (i *Index) ID() string {
@@ -281,8 +281,8 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig,
-	router types.Router, sg schemaUC.SchemaGetter,
-	cs inverted.ClassSearcher, logger logrus.FieldLogger,
+	router routerTypes.Router, readPlanner clusterRouter.ReadPlanner,
+	sg schemaUC.SchemaGetter, cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
 	globalReplicationConfig *replication.GlobalConfig,
@@ -327,7 +327,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
 		router:                  router,
-		bitmapBufPool:           bitmapBufPool,
+		readPlanner:             readPlanner,
 	}
 
 	getDeletionStrategy := func() string {
@@ -803,10 +803,11 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 			return objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
 	}
-	if replProps == nil {
-		replProps = defaultConsistency()
-	}
-	if i.shardHasMultipleReplicasWrite(shardName, shardName) {
+
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = defaultConsistency()
+		}
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
@@ -1236,7 +1237,7 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 
 	for shardName, group := range byShard {
 		var errs []error
-		if i.shardHasMultipleReplicasWrite(shardName, shardName) {
+		if i.replicationEnabled() {
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else {
 			// anonymous function to ensure that the shard is released after each loop iteration
@@ -1520,10 +1521,17 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	cl := i.consistencyLevel(replProps)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	if replProps == nil {
+		replProps = defaultConsistency()
+	}
+	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+	planOptions := routerTypes.RoutingPlanBuildOptions{
+		Shard:            tenant,
+		ConsistencyLevel: cl,
+	}
+	readPlan, err := i.readPlanner.Plan(planOptions)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
 	}
 
 	// If the request is a BM25F with no properties selected, use all possible properties
@@ -1550,7 +1558,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
-		filters, keywordRanking, sort, cursor, addlProps, tenant, readPlan.Shards(), properties)
+		filters, keywordRanking, sort, cursor, addlProps, readPlan.Shards(), properties)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1620,8 +1628,12 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
-	if i.anyShardHasMultipleReplicasRead(tenant, readPlan.Shards()) {
-		err = i.replicator.CheckConsistency(ctx, cl, outObjects)
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = defaultConsistency(routerTypes.ConsistencyLevelOne)
+		}
+		l := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+		err = i.replicator.CheckConsistency(ctx, l, outObjects)
 		if err != nil {
 			i.logger.WithField("action", "object_search").
 				Errorf("failed to check consistency of search results: %v", err)
@@ -1858,15 +1870,21 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	cl := i.consistencyLevel(replProps)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	if replProps == nil {
+		replProps = defaultConsistency()
+	}
+	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+	planOptions := routerTypes.RoutingPlanBuildOptions{
+		Shard:            tenant,
+		ConsistencyLevel: cl,
+	}
+	readPlan, err := i.readPlanner.Plan(planOptions)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
 	}
 
 	if len(readPlan.Shards()) == 1 && !i.Config.ForceFullReplicasSearch {
-		shard, release, err := i.getShardForDirectLocalOperation(ctx, tenant, readPlan.Shards()[0], localShardOperationRead)
-		defer release()
+		shard, release, err := i.GetShard(ctx, readPlan.Shards()[0])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1977,8 +1995,12 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		dists = dists[:limit]
 	}
 
-	if i.anyShardHasMultipleReplicasRead(tenant, readPlan.Shards()) {
-		err = i.replicator.CheckConsistency(ctx, cl, out)
+	if i.replicationEnabled() {
+		if replProps == nil {
+			replProps = defaultConsistency(routerTypes.ConsistencyLevelOne)
+		}
+		l := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+		err = i.replicator.CheckConsistency(ctx, l, out)
 		if err != nil {
 			i.logger.WithField("action", "object_vector_search").
 				Errorf("failed to check consistency of search results: %v", err)
@@ -2316,10 +2338,17 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
 	params aggregation.Params, modules *modules.Provider, tenant string,
 ) (*aggregation.Result, error) {
-	cl := i.consistencyLevel(replProps)
-	readPlan, err := i.buildReadRoutingPlan(cl, tenant)
+	if replProps == nil {
+		replProps = defaultConsistency()
+	}
+	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+	planOptions := routerTypes.RoutingPlanBuildOptions{
+		Shard:            tenant,
+		ConsistencyLevel: cl,
+	}
+	readPlan, err := i.readPlanner.Plan(planOptions)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
 	}
 
 	results := make([]*aggregation.Result, len(readPlan.Shards()))
@@ -2721,7 +2750,11 @@ func (i *Index) findUUIDs(ctx context.Context,
 		var release func()
 		var err error
 
-		if i.shardHasMultipleReplicasRead(tenant, shardName) {
+		if i.replicationEnabled() {
+			if repl == nil {
+				repl = defaultConsistency()
+			}
+
 			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, routerTypes.ConsistencyLevel(repl.ConsistencyLevel))
 		} else {
 			// anonymous func is here to ensure release is executed after each loop iteration

@@ -62,10 +62,12 @@ packages:
   github.com/weaviate/weaviate/cluster/replication/copier/types:
     interfaces:
       RemoteIndex:
+  github.com/weaviate/weaviate/cluster/router:
+    interfaces:
+      ReadPlanner:
   github.com/weaviate/weaviate/cluster/router/types:
     interfaces:
       Router:
-      WriteReplicaStrategy:
       ReadReplicaStrategy:
   github.com/weaviate/weaviate/entities/moduletools:
     interfaces:

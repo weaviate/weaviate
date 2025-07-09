@@ -214,7 +214,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 		preRoutingPlanAction func(fsm *replication.ShardReplicationFSM)
 		directCandidate      string
 		localNodeName        string
-		expectedReplicas     types.WriteReplicaSet
+		expectedReplicas     []types.Replica
 		expectedErrorStr     string
 	}{
 		{
@@ -222,7 +222,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.REGISTERED,
-			expectedReplicas:    types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}},
 			directCandidate:     "node1",
 			localNodeName:       "node1",
 		},
@@ -231,7 +231,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			partitioningEnabled: true,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.HYDRATING,
-			expectedReplicas:    types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}},
 			directCandidate:     "node1",
 			localNodeName:       "node1",
 		},
@@ -240,7 +240,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.FINALIZING,
-			expectedReplicas:    types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}},
 			directCandidate:     "node1",
 			localNodeName:       "node1",
 		},
@@ -249,7 +249,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.READY,
-			expectedReplicas:    types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}},
 			directCandidate:     "node1",
 			localNodeName:       "node1",
 		},
@@ -258,7 +258,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.DEHYDRATING,
-			expectedReplicas:    types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}},
 			directCandidate:     "node1",
 			localNodeName:       "node1",
 		},
@@ -267,7 +267,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2"},
 			opStatus:            api.CANCELLED,
-			expectedReplicas:    types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}},
 			directCandidate:     "node1",
 			localNodeName:       "node1",
 		},
@@ -282,7 +282,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 					Uuid:    "00000000-0000-0000-0000-000000000000",
 				})
 			},
-			expectedReplicas: types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}}},
+			expectedReplicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node2", ShardName: "shard1", HostAddr: "node2"}},
 			directCandidate:  "node1",
 			localNodeName:    "node1",
 		},
@@ -291,7 +291,7 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 			partitioningEnabled: rand.Uint64()%2 == 0,
 			allShardNodes:       []string{"node1", "node2", "node3"},
 			opStatus:            api.REGISTERED,
-			expectedReplicas:    types.WriteReplicaSet{Replicas: []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node3", ShardName: "shard1", HostAddr: "node3"}}},
+			expectedReplicas:    []types.Replica{{NodeName: "node1", ShardName: "shard1", HostAddr: "node1"}, {NodeName: "node3", ShardName: "shard1", HostAddr: "node3"}},
 			directCandidate:     "node1",
 			localNodeName:       "node1",
 		},
@@ -328,7 +328,6 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				return testCase.allShardNodes, nil
 			})
 			myRouter := router.NewBuilder("collection1", testCase.partitioningEnabled, clusterState, schemaGetterMock, schemaReaderMock, shardReplicationFSM).Build()
-			wp := router.NewWritePlanner(myRouter, "collection1", nil, testCase.directCandidate, testCase.localNodeName)
 
 			// Setup the FSM with the right state
 			shardReplicationFSM.Replicate(1, &api.ReplicationReplicateShardRequest{
@@ -349,16 +348,13 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				testCase.preRoutingPlanAction(shardReplicationFSM)
 			}
 
-			// Build the routing plan
-			writePlan, err := wp.Plan(types.RoutingPlanBuildOptions{
-				Shard: "shard1",
-			})
+			ws, err := myRouter.GetWriteReplicasLocation("collection1", "shard1")
 			if testCase.expectedErrorStr != "" {
 				require.Error(t, err)
 				require.Contains(t, err.Error(), testCase.expectedErrorStr)
 			} else {
 				require.NoError(t, err)
-				require.Equal(t, testCase.expectedReplicas, writePlan.ReplicaSet, "test case: %s", testCase.name)
+				require.Equal(t, testCase.expectedReplicas, ws.Replicas, "test case: %s", testCase.name)
 			}
 		})
 	}

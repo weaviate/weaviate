@@ -91,12 +91,15 @@ func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
-	schemaReader := types.NewMockSchemaReader(t)
-	schemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
-	schemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return(names, nil).Maybe()
-	replicationFSM := replicationTypes.NewMockReplicationFSMReader(t)
-	replicationFSM.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return(names).Maybe()
-	replicationFSM.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return(names, nil).Maybe()
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return(names, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return(names).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return(names, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 	n.repo, err = db.New(logger, n.name, db.Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  localDir,
