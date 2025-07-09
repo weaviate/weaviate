@@ -255,6 +255,8 @@ type Index struct {
 	closed    bool
 
 	shardReindexer ShardReindexerV3
+
+	router router.Router
 }
 
 func (i *Index) ID() string {
@@ -321,6 +323,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		shardCreateLocks:        esync.NewKeyLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
+		router:                  router,
 	}
 
 	getDeletionStrategy := func() string {
@@ -645,6 +648,7 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
+	// TODO use router?
 	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
@@ -788,11 +792,11 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 			return objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
 	}
-
-	if i.replicationEnabled() {
-		if replProps == nil {
-			replProps = defaultConsistency()
-		}
+	if replProps == nil {
+		replProps = defaultConsistency()
+	}
+	// TODO we could pass routing plan/router through into PutObject, maybe as part of salvatorre refactor?
+	if i.shardHasMultipleReplicas(shardName) {
 		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
@@ -800,15 +804,13 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		return nil
 	}
 
-	// TODO how to support "additional host writes" with RF 1 during shard replica movement?
-
 	// no replication, remote shard (or local not yet inited)
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return err
 	}
 
-	if shard == nil {
+	if shard == nil && !i.shardHasOnlyLocalReplica(shardName) {
 		if err := i.remote.PutObject(ctx, shardName, object, schemaVersion); err != nil {
 			return fmt.Errorf("put remote object: shard=%q: %w", shardName, err)
 		}
@@ -859,6 +861,37 @@ func (i *Index) replicationEnabled() bool {
 	defer i.replicationConfigLock.RUnlock()
 
 	return i.Config.ReplicationFactor > 1
+}
+
+func (i *Index) shardHasMultipleReplicas(shardName string) bool {
+	if i.replicationEnabled() {
+		return true
+	}
+	if i.router == nil {
+		return false
+	}
+	replicas, additionalReplicas, err := i.router.GetWriteReplicasLocation(i.Config.ClassName.String(), shardName)
+	if err != nil {
+		return false
+	}
+	allReplicas := append(replicas.NodeNames(), additionalReplicas.NodeNames()...)
+	return len(allReplicas) > 1
+}
+
+func (i *Index) shardHasOnlyLocalReplica(shardName string) bool {
+	if i.replicationEnabled() {
+		return false
+	}
+	if i.router == nil {
+		return false
+	}
+	replicas, additionalReplicas, err := i.router.GetWriteReplicasLocation(i.Config.ClassName.String(), shardName)
+	if err != nil {
+		return false
+	}
+	return (len(replicas.NodeNames()) == 1 &&
+		len(additionalReplicas.NodeNames()) == 0 &&
+		replicas.NodeNames()[0] == i.replicator.LocalNodeName())
 }
 
 func (i *Index) asyncReplicationEnabled() bool {
