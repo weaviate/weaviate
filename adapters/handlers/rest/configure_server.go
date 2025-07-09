@@ -46,8 +46,8 @@ import (
 // are only available within there
 var configureServer func(*http.Server, string, string)
 
-func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
-	return func(updatedSchema schema.Schema) {
+func makeUpdateSchemaCall(appState *state.State) func(aliases schema.SchemaWithAliases) {
+	return func(updatedSchema schema.SchemaWithAliases) {
 		if appState.ServerConfig.Config.DisableGraphQL {
 			return
 		}
@@ -71,7 +71,7 @@ func makeUpdateSchemaCall(appState *state.State) func(schema.Schema) {
 	}
 }
 
-func rebuildGraphQL(updatedSchema schema.Schema, logger logrus.FieldLogger,
+func rebuildGraphQL(updatedSchema schema.SchemaWithAliases, logger logrus.FieldLogger,
 	config config.Config, traverser *traverser.Traverser, modulesProvider *modules.Provider, authorizer authorization.Authorizer,
 ) (graphql.GraphQL, error) {
 	updatedGraphQL, err := graphql.Build(&updatedSchema, traverser, logger, config, modulesProvider, authorizer)

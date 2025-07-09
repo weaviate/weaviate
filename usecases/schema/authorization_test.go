@@ -124,6 +124,42 @@ func Test_Schema_Authorization(t *testing.T) {
 			expectedVerb:      authorization.READ,
 			expectedResources: authorization.ShardsMetadata("className", "P1"),
 		},
+		{
+			methodName:        "AddAlias",
+			additionalArgs:    []interface{}{&models.Alias{Class: "classname"}},
+			expectedVerb:      authorization.CREATE,
+			expectedResources: authorization.Aliases("Classname"),
+		},
+		{
+			methodName:        "UpdateAlias",
+			additionalArgs:    []interface{}{"aliasName", "class"},
+			expectedVerb:      authorization.UPDATE,
+			expectedResources: authorization.Aliases("class", "aliasName"),
+		},
+		{
+			methodName:        "DeleteAlias",
+			additionalArgs:    []interface{}{"aliasName"},
+			expectedVerb:      authorization.DELETE,
+			expectedResources: authorization.Aliases("", "aliasName"),
+		},
+		{
+			methodName:        "GetAliases",
+			additionalArgs:    []interface{}{"", ""},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.Aliases("", ""),
+		},
+		{
+			methodName:        "GetAliases",
+			additionalArgs:    []interface{}{"aliasName", ""},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.Aliases("", "aliasName"),
+		},
+		{
+			methodName:        "GetAliases",
+			additionalArgs:    []interface{}{"", "className"},
+			expectedVerb:      authorization.READ,
+			expectedResources: authorization.Aliases("className", ""),
+		},
 	}
 
 	t.Run("verify that a test for every public method exists", func(t *testing.T) {
@@ -166,6 +202,7 @@ func Test_Schema_Authorization(t *testing.T) {
 				handler, fakeSchemaManager := newTestHandlerWithCustomAuthorizer(t, &fakeDB{}, authorizer)
 				fakeSchemaManager.On("ReadOnlySchema").Return(models.Schema{})
 				fakeSchemaManager.On("ReadOnlyClass", mock.Anything).Return(models.Class{})
+				fakeSchemaManager.On("GetAliases", mock.Anything, mock.Anything, mock.Anything).Return([]*models.Alias{}, nil)
 
 				var args []interface{}
 				if test.methodName == "GetSchema" || test.methodName == "GetConsistentSchema" {

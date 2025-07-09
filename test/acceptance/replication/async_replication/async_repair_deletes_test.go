@@ -83,15 +83,11 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 		common.StopNodeAt(ctx, t, compose, node)
 	})
 
+	host := compose.GetWeaviate().URI()
+	helper.SetupClient(host)
+
 	for _, id := range paragraphIDs {
-		host := compose.GetWeaviate().URI()
-
-		helper.SetupClient(host)
-
-		toDelete, err := helper.GetObjectCL(t, paragraphClass.Class, id, types.ConsistencyLevelOne)
-		require.NoError(t, err)
-
-		helper.DeleteObjectCL(t, toDelete.Class, toDelete.ID, types.ConsistencyLevelQuorum)
+		helper.DeleteObjectCL(t, paragraphClass.Class, id, types.ConsistencyLevelQuorum)
 	}
 
 	t.Run(fmt.Sprintf("restart node %d", node), func(t *testing.T) {
@@ -99,7 +95,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
@@ -110,15 +106,15 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectDeleteScenario() {
 			require.Len(ct, resp.Nodes, clusterSize)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)
-				assert.Equal(ct, "HEALTHY", *n.Status)
+				require.Equal(ct, "HEALTHY", *n.Status)
 			}
 		}, 15*time.Second, 500*time.Millisecond)
 	})
 
-	t.Run("assert node has objects already deleted", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+	t.Run(fmt.Sprintf("all the objects should have been deleted from node %d", node), func(t *testing.T) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			resp := common.GQLGet(t, compose.ContainerURI(node), "Paragraph", types.ConsistencyLevelOne)
-			assert.Len(ct, resp, 0)
+			require.Len(ct, resp, 0)
 		}, 120*time.Second, 5*time.Second, "not all the objects have been asynchronously replicated")
 	})
 }

@@ -60,6 +60,13 @@ func ClassesContextionaryVectorizer(multishard bool) []*models.Class {
 	}
 }
 
+func ClassesModel2VecVectorizer(multishard bool) []*models.Class {
+	return []*models.Class{
+		document("text2vec-model2vec", multishard),
+		passage("text2vec-model2vec", multishard),
+	}
+}
+
 func document(vectorizer string, multishard bool) *models.Class {
 	class := &models.Class{
 		Class: Document,

@@ -21,7 +21,12 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/multivector"
+)
+
+const (
+	maxConnectionsPerNode = 4096 // max number of connections per node, used to truncate links
 )
 
 type Deserializer struct {
@@ -40,6 +45,7 @@ type DeserializationResult struct {
 	EntrypointChanged bool
 	CompressionPQData *compressionhelpers.PQData
 	CompressionSQData *compressionhelpers.SQData
+	CompressionRQData *compressionhelpers.RQData
 	MuveraEnabled     bool
 	EncoderMuvera     *multivector.MuveraData
 	Compressed        bool
@@ -154,6 +160,10 @@ func (d *Deserializer) Do(fd *bufio.Reader, initialState *DeserializationResult,
 		case AddSQ:
 			err = d.ReadSQ(fd, out)
 			readThisRound = 10
+		case AddRQ:
+			var totalRead int
+			totalRead, err = d.ReadRQ(fd, out)
+			readThisRound = 16 + totalRead
 		case AddMuvera:
 			var totalRead int
 			totalRead, err = d.ReadMuvera(fd, out)
@@ -195,9 +205,20 @@ func (d *Deserializer) ReadNode(r io.Reader, res *DeserializationResult) error {
 	}
 
 	if res.Nodes[id] == nil {
-		res.Nodes[id] = &vertex{level: int(level), id: id, connections: make([][]uint64, level+1)}
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[id] = &vertex{level: int(level), id: id, connections: conns}
 	} else {
-		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
+		if res.Nodes[id].connections == nil {
+			res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(level))
+			if err != nil {
+				return err
+			}
+		} else {
+			res.Nodes[id].connections.GrowLayersTo(uint8(level))
+		}
 		res.Nodes[id].level = int(level)
 	}
 	return nil
@@ -243,12 +264,23 @@ func (d *Deserializer) ReadLink(r io.Reader, res *DeserializationResult) error {
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[int(source)] = &vertex{id: source, connections: conns}
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-
-	res.Nodes[int(source)].connections[int(level)] = append(res.Nodes[int(source)].connections[int(level)], target)
+	if res.Nodes[source].connections == nil {
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[source].connections = conns
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
+	}
+	res.Nodes[source].connections.InsertAtLayer(target, uint8(level))
 	return nil
 }
 
@@ -270,6 +302,12 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 		return 0, err
 	}
 
+	if len(targets) >= maxConnectionsPerNode {
+		d.logger.Warnf("read ReplaceLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d", len(targets), maxConnectionsPerNode, source, level, maxConnectionsPerNode)
+		targets = targets[:maxConnectionsPerNode]
+		length = uint16(len(targets))
+	}
+
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
 	if err != nil {
 		return 0, err
@@ -280,12 +318,15 @@ func (d *Deserializer) ReadLinks(r io.Reader, res *DeserializationResult,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		res.Nodes[int(source)] = &vertex{id: source}
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-	res.Nodes[int(source)].connections[int(level)] = make([]uint64, len(targets))
-	copy(res.Nodes[int(source)].connections[int(level)], targets)
+	if res.Nodes[source].connections == nil {
+		res.Nodes[source].connections = &packedconn.Connections{}
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
+	}
+	res.Nodes[source].connections.ReplaceLayer(uint8(level), targets)
 
 	if keepReplaceInfo {
 		// mark the replace flag for this node and level, so that new commit logs
@@ -319,6 +360,12 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 		return 0, err
 	}
 
+	if len(targets) >= maxConnectionsPerNode {
+		d.logger.Warnf("read AddLinksAtLevel with %v (>= %d) connections for node %d at level %d, truncating to %d", len(targets), maxConnectionsPerNode, source, level, maxConnectionsPerNode)
+		targets = targets[:maxConnectionsPerNode]
+		length = uint16(len(targets))
+	}
+
 	newNodes, changed, err := growIndexToAccomodateNode(res.Nodes, source, d.logger)
 	if err != nil {
 		return 0, err
@@ -329,13 +376,15 @@ func (d *Deserializer) ReadAddLinks(r io.Reader,
 	}
 
 	if res.Nodes[int(source)] == nil {
-		res.Nodes[int(source)] = &vertex{id: source, connections: make([][]uint64, level+1)}
+		res.Nodes[int(source)] = &vertex{id: source}
+	}
+	if res.Nodes[source].connections == nil {
+		res.Nodes[source].connections = &packedconn.Connections{}
+	} else {
+		res.Nodes[source].connections.GrowLayersTo(uint8(level))
 	}
 
-	maybeGrowConnectionsForLevel(&res.Nodes[int(source)].connections, level)
-
-	res.Nodes[int(source)].connections[int(level)] = append(
-		res.Nodes[int(source)].connections[int(level)], targets...)
+	res.Nodes[source].connections.BulkInsertAtLayer(targets, uint8(level))
 
 	return 12 + int(length)*8, nil
 }
@@ -392,8 +441,8 @@ func (d *Deserializer) ReadClearLinks(r io.Reader, res *DeserializationResult,
 		return nil
 	}
 
-	res.Nodes[id].connections = make([][]uint64, len(res.Nodes[id].connections))
-	return nil
+	res.Nodes[id].connections, err = packedconn.NewWithMaxLayer(uint8(res.Nodes[id].level))
+	return err
 }
 
 func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationResult,
@@ -439,17 +488,28 @@ func (d *Deserializer) ReadClearLinksAtLevel(r io.Reader, res *DeserializationRe
 		// we need to keep the replace info, meaning we have to explicitly create
 		// this node in order to be able to store the "clear links" information for
 		// it
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
 		res.Nodes[id] = &vertex{
 			id:          id,
-			connections: make([][]uint64, level+1),
+			connections: conns,
 		}
 	}
 
 	if res.Nodes[id].connections == nil {
-		res.Nodes[id].connections = make([][]uint64, level+1)
+		conns, err := packedconn.NewWithMaxLayer(uint8(level))
+		if err != nil {
+			return err
+		}
+		res.Nodes[id].connections = conns
 	} else {
-		maybeGrowConnectionsForLevel(&res.Nodes[id].connections, level)
-		res.Nodes[id].connections[int(level)] = []uint64{}
+		res.Nodes[id].connections.GrowLayersTo(uint8(level))
+		// Only clear if the layer is not already empty
+		if res.Nodes[id].connections.LenAtLayer(uint8(level)) > 0 {
+			res.Nodes[id].connections.ClearLayer(uint8(level))
+		}
 	}
 
 	if keepReplaceInfo {
@@ -629,6 +689,78 @@ func (d *Deserializer) ReadSQ(r io.Reader, res *DeserializationResult) error {
 	return nil
 }
 
+/*
+buf.WriteByte(byte(AddRQ))                                       // 1
+binary.Write(&buf, binary.LittleEndian, data.Dimension)          // 4
+binary.Write(&buf, binary.LittleEndian, data.DataBits)           // 1
+binary.Write(&buf, binary.LittleEndian, data.QueryBits)          // 1
+binary.Write(&buf, binary.LittleEndian, data.Rotation.OutputDim) // 4
+binary.Write(&buf, binary.LittleEndian, data.Rotation.Rounds)    // 4
+*/
+func (d *Deserializer) ReadRQ(r io.Reader, res *DeserializationResult) (int, error) {
+	inputDim, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	bits, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	outputDim, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+	rounds, err := readUint32(r)
+	if err != nil {
+		return 0, err
+	}
+
+	swapSize := 2 * rounds * (outputDim / 2) * 2
+	signSize := 4 * rounds * outputDim
+	totalRead := int(swapSize) + int(signSize)
+
+	swaps := make([][]compressionhelpers.Swap, rounds)
+	for i := uint32(0); i < rounds; i++ {
+		swaps[i] = make([]compressionhelpers.Swap, outputDim/2)
+		for j := uint32(0); j < outputDim/2; j++ {
+			swaps[i][j].I, err = readUint16(r)
+			if err != nil {
+				return 0, err
+			}
+			swaps[i][j].J, err = readUint16(r)
+			if err != nil {
+				return 0, err
+			}
+		}
+	}
+
+	signs := make([][]float32, rounds)
+	for i := uint32(0); i < rounds; i++ {
+		signs[i] = make([]float32, outputDim)
+		for j := uint32(0); j < outputDim; j++ {
+			sign, err := readFloat32(r)
+			if err != nil {
+				return 0, err
+			}
+			signs[i][j] = sign
+		}
+	}
+
+	res.CompressionRQData = &compressionhelpers.RQData{
+		InputDim: inputDim,
+		Bits:     bits,
+		Rotation: compressionhelpers.FastRotation{
+			OutputDim: outputDim,
+			Rounds:    rounds,
+			Swaps:     swaps,
+			Signs:     signs,
+		},
+	}
+	res.Compressed = true
+
+	return totalRead, nil
+}
+
 func (d *Deserializer) ReadMuvera(r io.Reader, res *DeserializationResult) (int, error) {
 	kSim, err := readUint32(r)
 	if err != nil {
@@ -782,16 +914,4 @@ func (d *Deserializer) readUint64Slice(r io.Reader, length int) ([]uint64, error
 	}
 
 	return d.reusableConnectionsSlice, nil
-}
-
-// If the connections array is to small to contain the current target-levelit
-// will be grown. Otherwise, nothing happens.
-func maybeGrowConnectionsForLevel(connsPtr *[][]uint64, level uint16) {
-	conns := *connsPtr
-	if len(conns) <= int(level) {
-		// we need to grow the connections slice
-		newConns := make([][]uint64, level+1)
-		copy(newConns, conns)
-		*connsPtr = newConns
-	}
 }

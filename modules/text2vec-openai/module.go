@@ -64,7 +64,7 @@ func (m *OpenAIModule) Name() string {
 }
 
 func (m *OpenAIModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *OpenAIModule) Init(ctx context.Context,

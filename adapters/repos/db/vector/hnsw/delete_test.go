@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/packedconn"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/testinghelpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -1270,63 +1271,72 @@ func TestDelete_EntrypointIssues(t *testing.T) {
 	index.entryPointID = 6
 	index.currentMaximumLayer = 1
 	index.nodes = make([]*vertex, 50)
+	conns, _ := packedconn.NewWithElements([][]uint64{
+		{1, 2, 3, 4, 5, 6, 7, 8},
+	})
 	index.nodes[0] = &vertex{
-		id: 0,
-		connections: [][]uint64{
-			{1, 2, 3, 4, 5, 6, 7, 8},
-		},
+		id:          0,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{0, 2, 3, 4, 5, 6, 7, 8},
+	})
 	index.nodes[1] = &vertex{
-		id: 1,
-		connections: [][]uint64{
-			{0, 2, 3, 4, 5, 6, 7, 8},
-		},
+		id:          1,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{1, 0, 3, 4, 5, 6, 7, 8},
+	})
 	index.nodes[2] = &vertex{
-		id: 2,
-		connections: [][]uint64{
-			{1, 0, 3, 4, 5, 6, 7, 8},
-		},
+		id:          2,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{2, 1, 0, 4, 5, 6, 7, 8},
+	})
 	index.nodes[3] = &vertex{
-		id: 3,
-		connections: [][]uint64{
-			{2, 1, 0, 4, 5, 6, 7, 8},
-		},
+		id:          3,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{3, 2, 1, 0, 5, 6, 7, 8},
+	})
 	index.nodes[4] = &vertex{
-		id: 4,
-		connections: [][]uint64{
-			{3, 2, 1, 0, 5, 6, 7, 8},
-		},
+		id:          4,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{3, 4, 2, 1, 0, 6, 7, 8},
+	})
 	index.nodes[5] = &vertex{
-		id: 5,
-		connections: [][]uint64{
-			{3, 4, 2, 1, 0, 6, 7, 8},
-		},
+		id:          5,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{4, 3, 1, 3, 5, 0, 7, 8},
+		{7},
+	})
 	index.nodes[6] = &vertex{
-		id: 6,
-		connections: [][]uint64{
-			{4, 3, 1, 3, 5, 0, 7, 8},
-			{7},
-		},
-		level: 1,
+		id:          6,
+		connections: conns,
+		level:       1,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{6, 4, 3, 5, 2, 1, 0, 8},
+		{6},
+	})
 	index.nodes[7] = &vertex{
-		id: 7,
-		connections: [][]uint64{
-			{6, 4, 3, 5, 2, 1, 0, 8},
-			{6},
-		},
-		level: 1,
+		id:          7,
+		connections: conns,
+		level:       1,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		{7, 6, 4, 3, 5, 2, 1, 0},
+	})
 	index.nodes[8] = &vertex{
-		id: 8,
-		connections: [][]uint64{
-			8: {7, 6, 4, 3, 5, 2, 1, 0},
-		},
+		id:          8,
+		connections: conns,
 	}
 
 	dumpIndex(index, "before delete")
@@ -1419,25 +1429,28 @@ func TestDelete_MoreEntrypointIssues(t *testing.T) {
 		1: {},
 	}
 	index.nodes = make([]*vertex, 50)
+	conns, _ := packedconn.NewWithElements([][]uint64{
+		{1},
+	})
 	index.nodes[0] = &vertex{
-		id: 0,
-		connections: [][]uint64{
-			0: {1},
-		},
+		id:          0,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		0: {0, 2},
+		1: {2},
+	})
 	index.nodes[1] = &vertex{
-		id: 1,
-		connections: [][]uint64{
-			0: {0, 2},
-			1: {2},
-		},
+		id:          1,
+		connections: conns,
 	}
+	conns, _ = packedconn.NewWithElements([][]uint64{
+		0: {1},
+		1: {1},
+	})
 	index.nodes[2] = &vertex{
-		id: 2,
-		connections: [][]uint64{
-			0: {1},
-			1: {1},
-		},
+		id:          2,
+		connections: conns,
 	}
 
 	dumpIndex(index, "before adding another element")
@@ -1735,8 +1748,8 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 		if node == nil {
 			continue
 		}
-		require.LessOrEqual(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
-		some = some || len(node.connections[0]) > index.maximumConnections
+		require.LessOrEqual(t, len(node.connections.GetLayer(0)), index.maximumConnectionsLayerZero)
+		some = some || len(node.connections.GetLayer(0)) > index.maximumConnections
 	}
 	require.True(t, some)
 
@@ -1757,8 +1770,8 @@ func TestDelete_WithCleaningUpTombstonesOncePreservesMaxConnections(t *testing.T
 		if node == nil {
 			continue
 		}
-		require.LessOrEqual(t, len(node.connections[0]), index.maximumConnectionsLayerZero)
-		some = some || len(node.connections[0]) > index.maximumConnections
+		require.LessOrEqual(t, len(node.connections.GetLayer(0)), index.maximumConnectionsLayerZero)
+		some = some || len(node.connections.GetLayer(0)) > index.maximumConnections
 	}
 	require.True(t, some)
 
@@ -1817,7 +1830,9 @@ func TestDelete_WithCleaningUpTombstonesOnceRemovesAllRelatedConnections(t *test
 			continue
 		}
 		assert.NotEqual(t, 0, i%2)
-		for level, connections := range node.connections {
+		iter := node.connections.Iterator()
+		for iter.Next() {
+			level, connections := iter.Current()
 			for _, id := range connections {
 				assert.NotEqual(t, uint64(0), id%2)
 				if id%2 == 0 {

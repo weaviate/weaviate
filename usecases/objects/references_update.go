@@ -51,13 +51,14 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 
 	ctx = classcache.ContextWithClassCache(ctx)
 	input.Class = schema.UppercaseClassName(input.Class)
+	input.Class, _ = m.resolveAlias(input.Class)
 
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(input.Class, tenant)...); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
 
 	if input.Class == "" {
-		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Collections()...); err != nil {
+		if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Collections()...); err != nil {
 			return &Error{err.Error(), StatusForbidden, err}
 		}
 	}
@@ -113,7 +114,7 @@ func (m *Manager) UpdateObjectReferences(ctx context.Context, principal *models.
 		// only check authZ once per class/tenant combination
 		checkName := parsedTargetRefs[i].Class + "#" + tenant
 		if _, ok := previouslyAuthorized[checkName]; !ok {
-			if err := m.authorizer.Authorize(principal, authorization.READ, authorization.ShardsData(parsedTargetRefs[i].Class, tenant)...); err != nil {
+			if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsData(parsedTargetRefs[i].Class, tenant)...); err != nil {
 				return &Error{err.Error(), StatusForbidden, err}
 			}
 			previouslyAuthorized[checkName] = struct{}{}

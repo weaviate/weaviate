@@ -29,7 +29,7 @@ func newDummyModule(name string, t modulecapabilities.ModuleType) modulecapabili
 	switch t {
 	case modulecapabilities.Text2Vec:
 		return newDummyText2VecModule(name, nil)
-	case modulecapabilities.Text2ColBERT:
+	case modulecapabilities.Text2Multivec:
 		return newDummyText2ColBERTModule(name, nil)
 	case modulecapabilities.Ref2Vec:
 		return newDummyRef2VecModule(name)
@@ -100,7 +100,7 @@ func (m dummyText2ColBERTModuleNoCapabilities) Init(ctx context.Context,
 }
 
 func (m dummyText2ColBERTModuleNoCapabilities) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2ColBERT
+	return modulecapabilities.Text2Multivec
 }
 
 func (m dummyText2ColBERTModuleNoCapabilities) VectorizeObject(ctx context.Context,

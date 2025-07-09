@@ -43,11 +43,17 @@ func BatchFromProto(req *pb.BatchObjectsRequest, authorizedGetClass func(string,
 	for i, obj := range objectsBatch {
 		var props map[string]interface{}
 
-		obj.Collection = schema.UppercaseClassName(obj.Collection)
-		class, err := authorizedGetClass(obj.Collection, obj.Tenant)
+		collection := schema.UppercaseClassName(obj.Collection)
+		class, err := authorizedGetClass(collection, obj.Tenant)
 		if err != nil {
 			objectErrors[i] = err
 			continue
+		}
+		obj.Collection = collection
+		if class != nil {
+			// class is nil when we are relying on auto schema to create a collection
+			// aliases cannot be created for non-existent classes
+			obj.Collection = class.Class
 		}
 
 		if obj.Properties != nil {

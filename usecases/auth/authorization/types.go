@@ -49,6 +49,7 @@ const (
 	TenantsDomain     = "tenants"
 	DataDomain        = "data"
 	ReplicateDomain   = "replicate"
+	AliasesDomain     = "aliases"
 )
 
 var (
@@ -83,6 +84,10 @@ var (
 	AllReplicate = &models.PermissionReplicate{
 		Collection: All,
 		Shard:      All,
+	}
+	AllAliases = &models.PermissionAliases{
+		Collection: All,
+		Alias:      All,
 	}
 
 	ComponentName = "RBAC"
@@ -125,6 +130,11 @@ var (
 	ReadReplicate   = "read_replicate"
 	UpdateReplicate = "update_replicate"
 	DeleteReplicate = "delete_replicate"
+
+	CreateAliases = "create_aliases"
+	ReadAliases   = "read_aliases"
+	UpdateAliases = "update_aliases"
+	DeleteAliases = "delete_aliases"
 
 	availableWeaviateActions = []string{
 		// Roles domain
@@ -172,6 +182,12 @@ var (
 		ReadReplicate,
 		UpdateReplicate,
 		DeleteReplicate,
+
+		// Aliases domain
+		CreateAliases,
+		ReadAliases,
+		UpdateAliases,
+		DeleteAliases,
 	}
 )
 
@@ -307,6 +323,30 @@ func CollectionsMetadata(classes ...string) []string {
 			resources[idx] = fmt.Sprintf("%s/collections/*/shards/#", SchemaDomain)
 		} else {
 			resources[idx] = fmt.Sprintf("%s/collections/%s/shards/#", SchemaDomain, classes[idx])
+		}
+	}
+
+	return resources
+}
+
+func Aliases(class string, aliases ...string) []string {
+	class = schema.UppercaseClassName(class)
+	aliases = schema.UppercaseClassesNames(aliases...)
+
+	if class == "" {
+		class = "*"
+	}
+
+	if len(aliases) == 0 || (len(aliases) == 1 && (aliases[0] == "" || aliases[0] == "*")) {
+		return []string{fmt.Sprintf("%s/collections/%s/aliases/*", AliasesDomain, class)}
+	}
+
+	resources := make([]string, len(aliases))
+	for idx := range aliases {
+		if aliases[idx] == "" {
+			resources[idx] = fmt.Sprintf("%s/collections/%s/aliases/*", AliasesDomain, class)
+		} else {
+			resources[idx] = fmt.Sprintf("%s/collections/%s/aliases/%s", AliasesDomain, class, aliases[idx])
 		}
 	}
 
@@ -483,6 +523,7 @@ func viewerPermissions() []*models.Permission {
 			Collections: AllCollections,
 			Tenants:     AllTenants,
 			Users:       AllUsers,
+			Aliases:     AllAliases,
 		})
 	}
 
@@ -503,6 +544,7 @@ func adminPermissions() []*models.Permission {
 			Collections: AllCollections,
 			Tenants:     AllTenants,
 			Users:       AllUsers,
+			Aliases:     AllAliases,
 		})
 	}
 

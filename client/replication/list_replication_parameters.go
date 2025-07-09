@@ -85,17 +85,17 @@ type ListReplicationParams struct {
 	*/
 	IncludeHistory *bool
 
-	/* NodeID.
-
-	   The ID of the target node to get details for.
-	*/
-	NodeID *string
-
 	/* Shard.
 
 	   The shard to get details for.
 	*/
 	Shard *string
+
+	/* TargetNode.
+
+	   The name of the target node to get details for.
+	*/
+	TargetNode *string
 
 	timeout    time.Duration
 	Context    context.Context
@@ -172,17 +172,6 @@ func (o *ListReplicationParams) SetIncludeHistory(includeHistory *bool) {
 	o.IncludeHistory = includeHistory
 }
 
-// WithNodeID adds the nodeID to the list replication params
-func (o *ListReplicationParams) WithNodeID(nodeID *string) *ListReplicationParams {
-	o.SetNodeID(nodeID)
-	return o
-}
-
-// SetNodeID adds the nodeId to the list replication params
-func (o *ListReplicationParams) SetNodeID(nodeID *string) {
-	o.NodeID = nodeID
-}
-
 // WithShard adds the shard to the list replication params
 func (o *ListReplicationParams) WithShard(shard *string) *ListReplicationParams {
 	o.SetShard(shard)
@@ -192,6 +181,17 @@ func (o *ListReplicationParams) WithShard(shard *string) *ListReplicationParams 
 // SetShard adds the shard to the list replication params
 func (o *ListReplicationParams) SetShard(shard *string) {
 	o.Shard = shard
+}
+
+// WithTargetNode adds the targetNode to the list replication params
+func (o *ListReplicationParams) WithTargetNode(targetNode *string) *ListReplicationParams {
+	o.SetTargetNode(targetNode)
+	return o
+}
+
+// SetTargetNode adds the targetNode to the list replication params
+func (o *ListReplicationParams) SetTargetNode(targetNode *string) {
+	o.TargetNode = targetNode
 }
 
 // WriteToRequest writes these params to a swagger request
@@ -236,23 +236,6 @@ func (o *ListReplicationParams) WriteToRequest(r runtime.ClientRequest, reg strf
 		}
 	}
 
-	if o.NodeID != nil {
-
-		// query param nodeId
-		var qrNodeID string
-
-		if o.NodeID != nil {
-			qrNodeID = *o.NodeID
-		}
-		qNodeID := qrNodeID
-		if qNodeID != "" {
-
-			if err := r.SetQueryParam("nodeId", qNodeID); err != nil {
-				return err
-			}
-		}
-	}
-
 	if o.Shard != nil {
 
 		// query param shard
@@ -265,6 +248,23 @@ func (o *ListReplicationParams) WriteToRequest(r runtime.ClientRequest, reg strf
 		if qShard != "" {
 
 			if err := r.SetQueryParam("shard", qShard); err != nil {
+				return err
+			}
+		}
+	}
+
+	if o.TargetNode != nil {
+
+		// query param targetNode
+		var qrTargetNode string
+
+		if o.TargetNode != nil {
+			qrTargetNode = *o.TargetNode
+		}
+		qTargetNode := qrTargetNode
+		if qTargetNode != "" {
+
+			if err := r.SetQueryParam("targetNode", qTargetNode); err != nil {
 				return err
 			}
 		}

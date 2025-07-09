@@ -130,8 +130,17 @@ func (rs SchemaReader) metaClass(class string) (meta *metaClass) {
 func (rs SchemaReader) ReadOnlySchema() models.Schema {
 	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ReadOnlySchema"))
 	defer t.ObserveDuration()
-
 	return rs.schema.ReadOnlySchema()
+}
+
+func (rs SchemaReader) ResolveAlias(alias string) string {
+	t := prometheus.NewTimer(monitoring.GetMetrics().SchemaReadsLocal.WithLabelValues("ResolveAlias"))
+	defer t.ObserveDuration()
+	return rs.schema.ResolveAlias(alias)
+}
+
+func (rs SchemaReader) Aliases() map[string]string {
+	return rs.schema.getAliases("", "")
 }
 
 // ShardOwner returns the node owner of the specified shard

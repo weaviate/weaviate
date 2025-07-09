@@ -22,6 +22,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
 func Test_Middleware_NotConfigured(t *testing.T) {
@@ -72,10 +73,10 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
 					Enabled:           true,
-					Issuer:            server.URL,
-					ClientID:          "best_client",
-					SkipClientIDCheck: false,
-					UsernameClaim:     "sub",
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("sub"),
 				},
 			},
 		}
@@ -97,11 +98,11 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
 					Enabled:           true,
-					Issuer:            server.URL,
-					ClientID:          "best_client",
-					SkipClientIDCheck: false,
-					UsernameClaim:     "email",
-					GroupsClaim:       "groups",
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("email"),
+					GroupsClaim:       runtime.NewDynamicValue("groups"),
 				},
 			},
 		}
@@ -123,11 +124,11 @@ func Test_Middleware_WithValidToken(t *testing.T) {
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
 					Enabled:           true,
-					Issuer:            server.URL,
-					ClientID:          "best_client",
-					SkipClientIDCheck: false,
-					UsernameClaim:     "sub",
-					GroupsClaim:       "groups",
+					Issuer:            runtime.NewDynamicValue(server.URL),
+					ClientID:          runtime.NewDynamicValue("best_client"),
+					SkipClientIDCheck: runtime.NewDynamicValue(false),
+					UsernameClaim:     runtime.NewDynamicValue("sub"),
+					GroupsClaim:       runtime.NewDynamicValue("groups"),
 				},
 			},
 		}
@@ -183,12 +184,12 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 			Authentication: config.Authentication{
 				OIDC: config.OIDC{
 					Enabled:     true,
-					Certificate: certificate,
+					Certificate: runtime.NewDynamicValue(certificate),
 				},
 			},
 		}
 		client := &Client{
-			config: cfg.Authentication.OIDC,
+			Config: cfg.Authentication.OIDC,
 		}
 		return client
 	}
@@ -207,5 +208,13 @@ func Test_Middleware_CertificateDownload(t *testing.T) {
 		clientWithCertificate, err := client.useCertificate()
 		require.NoError(t, err)
 		require.NotNil(t, clientWithCertificate)
+	})
+
+	t.Run("unparseable string", func(t *testing.T) {
+		client := newClientWithCertificate("unparseable")
+		clientWithCertificate, err := client.useCertificate()
+		require.Nil(t, clientWithCertificate)
+		require.Error(t, err)
+		assert.ErrorContains(t, err, "failed to decode certificate")
 	})
 }

@@ -35,7 +35,7 @@ type executor struct {
 	migrator     Migrator
 
 	callbacksLock sync.RWMutex
-	callbacks     []func(updatedSchema schema.Schema)
+	callbacks     []func(updatedSchema schema.SchemaWithAliases)
 
 	logger          logrus.FieldLogger
 	restoreClassDir func(string) error
@@ -266,7 +266,7 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates, req.ImplicitUpdateRequest); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "update_tenants",
 			"class":  class,
@@ -298,7 +298,7 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates, false); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",
@@ -350,16 +350,19 @@ func (e *executor) TriggerSchemaUpdateCallbacks() {
 	defer e.callbacksLock.RUnlock()
 
 	s := e.schemaReader.ReadOnlySchema()
-	schema := schema.Schema{Objects: &s}
+	body := schema.SchemaWithAliases{
+		Schema:  schema.Schema{Objects: &s},
+		Aliases: e.schemaReader.Aliases(),
+	}
 	for _, cb := range e.callbacks {
-		cb(schema)
+		cb(body)
 	}
 }
 
 // RegisterSchemaUpdateCallback allows other usecases to register a primitive
 // type update callback. The callbacks will be called any time we persist a
 // schema update
-func (e *executor) RegisterSchemaUpdateCallback(callback func(updatedSchema schema.Schema)) {
+func (e *executor) RegisterSchemaUpdateCallback(callback func(updatedSchema schema.SchemaWithAliases)) {
 	e.callbacksLock.Lock()
 	defer e.callbacksLock.Unlock()
 

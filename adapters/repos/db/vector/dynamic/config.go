@@ -22,6 +22,7 @@ import (
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	schemaconfig "github.com/weaviate/weaviate/entities/schema/config"
 	ent "github.com/weaviate/weaviate/entities/vectorindex/dynamic"
+	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	bolt "go.etcd.io/bbolt"
 )
@@ -44,6 +45,8 @@ type Config struct {
 	HNSWSnapshotOnStartup bool
 	MinMMapSize           int64
 	MaxWalReuseSize       int64
+	LazyLoadSegments      bool
+	AllocChecker          memwatch.AllocChecker
 }
 
 func (c Config) Validate() error {

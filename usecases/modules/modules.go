@@ -30,7 +30,6 @@ import (
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/search"
-	modusagegcs "github.com/weaviate/weaviate/modules/usage-gcs"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
 )
@@ -266,7 +265,7 @@ func (p *Provider) validateModules(name string, properties map[string][]string, 
 }
 
 func (p *Provider) moduleProvidesMultipleVectorizers(moduleType modulecapabilities.ModuleType) bool {
-	return moduleType == modulecapabilities.Text2MultiVec
+	return moduleType == modulecapabilities.Text2ManyVec
 }
 
 func (p *Provider) isOnlyOneModuleEnabledOfAGivenType(moduleType modulecapabilities.ModuleType) bool {
@@ -300,7 +299,7 @@ func (p *Provider) IsMultiVector(modName string) bool {
 	if mod == nil {
 		return false
 	}
-	return mod.Type() == modulecapabilities.Text2ColBERT
+	return mod.Type() == modulecapabilities.Text2Multivec
 }
 
 func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) bool {
@@ -308,9 +307,9 @@ func (p *Provider) isVectorizerModule(moduleType modulecapabilities.ModuleType) 
 	case modulecapabilities.Text2Vec,
 		modulecapabilities.Img2Vec,
 		modulecapabilities.Multi2Vec,
-		modulecapabilities.Text2MultiVec,
+		modulecapabilities.Text2ManyVec,
 		modulecapabilities.Ref2Vec,
-		modulecapabilities.Text2ColBERT:
+		modulecapabilities.Text2Multivec:
 		return true
 	default:
 		return false
@@ -1142,7 +1141,7 @@ func (p *Provider) EnabledBackupBackends() []modulecapabilities.BackupBackend {
 }
 
 func (p *Provider) UsageEnabled() bool {
-	if module := p.GetByName(modusagegcs.Name); module != nil {
+	for _, module := range p.GetAll() {
 		if module.Type() == modulecapabilities.Usage {
 			return true
 		}

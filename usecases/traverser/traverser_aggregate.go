@@ -18,6 +18,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/modules"
 )
 
@@ -30,8 +31,12 @@ func (t *Traverser) Aggregate(ctx context.Context, principal *models.Principal,
 
 	inspector := newTypeInspector(t.schemaGetter.ReadOnlyClass)
 
+	if cls := t.schemaGetter.ResolveAlias(params.ClassName.String()); cls != "" {
+		params.ClassName = schema.ClassName(cls)
+	}
+
 	// validate here, because filters can contain references that need to be authorized
-	if err := t.validateFilters(principal, params.Filters); err != nil {
+	if err := t.validateFilters(ctx, principal, params.Filters); err != nil {
 		return nil, errors.Wrap(err, "invalid 'where' filter")
 	}
 

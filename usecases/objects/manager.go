@@ -35,6 +35,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/memwatch"
+	"github.com/weaviate/weaviate/usecases/objects/alias"
 )
 
 type schemaManager interface {
@@ -66,7 +67,10 @@ type schemaManager interface {
 	WaitForUpdate(ctx context.Context, schemaVersion uint64) error
 
 	// GetConsistentSchema retrieves a locally cached copy of the schema
-	GetConsistentSchema(principal *models.Principal, consistency bool) (schema.Schema, error)
+	GetConsistentSchema(ctx context.Context, principal *models.Principal, consistency bool) (schema.Schema, error)
+
+	// ResolveAlias returns a class name associated with a given alias, empty string if doesn't exist
+	ResolveAlias(alias string) string
 }
 
 // Manager manages kind changes at a use-case level, i.e. agnostic of
@@ -176,6 +180,19 @@ func NewManager(schemaManager schemaManager,
 		metrics:           metrics,
 		allocChecker:      allocChecker,
 	}
+}
+
+// Alias
+func (m *Manager) resolveAlias(class string) (className, aliasName string) {
+	return alias.ResolveAlias(m.schemaManager, class)
+}
+
+func (m *Manager) classNameToAlias(obj *models.Object, aliasName string) *models.Object {
+	return alias.ClassNameToAlias(obj, aliasName)
+}
+
+func (m *Manager) classNamesToAliases(objs []*models.Object, aliasName string) []*models.Object {
+	return alias.ClassNamesToAliases(objs, aliasName)
 }
 
 func generateUUID() (strfmt.UUID, error) {

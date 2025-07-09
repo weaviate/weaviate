@@ -184,6 +184,7 @@ func TestMigrator_UpdateIndex(t *testing.T) {
 							Name:           "tenant1",
 							OwnsVirtual:    []string{"virtual1", "virtual2"},
 							BelongsToNodes: []string{"node1"},
+							Status:         models.TenantActivityStatusHOT,
 						},
 					},
 					PartitioningEnabled: true,

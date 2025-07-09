@@ -45,9 +45,9 @@ func NewObjectsGet(ctx *middleware.Context, handler ObjectsGetHandler) *ObjectsG
 /*
 	ObjectsGet swagger:route GET /objects/{id} objects objectsGet
 
-Get a specific Object based on its UUID and a Object UUID. Also available as Websocket bus.
+Get a specific Object based on its UUID.
 
-Get a specific object based on its UUID. Also available as Websocket bus.
+Get a specific object based on its UUID. Also available as Websocket bus. <br/><br/>**Note**: This endpoint is deprecated and will be removed in a future version. Use the `/objects/{className}/{id}` endpoint instead.
 */
 type ObjectsGet struct {
 	Context *middleware.Context

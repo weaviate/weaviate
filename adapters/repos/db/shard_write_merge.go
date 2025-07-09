@@ -111,10 +111,6 @@ func (s *Shard) merge(ctx context.Context, idBytes []byte, doc objects.MergeDocu
 		return errors.Wrap(err, "flush all buffered WALs")
 	}
 
-	if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
-		return errors.Wrap(err, "object merge in hashtree")
-	}
-
 	return nil
 }
 
@@ -166,6 +162,10 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 
 		if err := s.upsertObjectDataLSM(bucket, idBytes, objBytes, status.docID); err != nil {
 			return errors.Wrap(err, "upsert object data")
+		}
+
+		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
+			return errors.Wrap(err, "object merge in hashtree")
 		}
 
 		return nil
@@ -245,6 +245,10 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 
 	if err := s.upsertObjectDataLSM(bucket, idBytes, objBytes, status.docID); err != nil {
 		return out, errors.Wrap(err, "upsert object data")
+	}
+
+	if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
+		return out, fmt.Errorf("object merge in hashtree: %w", err)
 	}
 
 	// do not updated inverted index, since this requires delta analysis, which

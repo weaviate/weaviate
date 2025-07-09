@@ -26,14 +26,14 @@ import (
 
 type classBuilder struct {
 	authorizer      authorization.Authorizer
-	schema          *schema.Schema
+	schema          *schema.SchemaWithAliases
 	knownClasses    map[string]*graphql.Object
 	beaconClass     *graphql.Object
 	logger          logrus.FieldLogger
 	modulesProvider ModulesProvider
 }
 
-func newClassBuilder(schema *schema.Schema, logger logrus.FieldLogger,
+func newClassBuilder(schema *schema.SchemaWithAliases, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) *classBuilder {
 	b := &classBuilder{}
@@ -89,6 +89,14 @@ func (b *classBuilder) kinds(kindSchema *models.Schema) (*graphql.Object, error)
 			return nil, fmt.Errorf("could not build class for %s", class.Class)
 		}
 		classFields[class.Class] = classField
+	}
+
+	// Include alias as top level class name in gql schema
+	for alias, aliasedClassName := range b.schema.Aliases {
+		field, ok := classFields[aliasedClassName]
+		if ok {
+			classFields[alias] = field
+		}
 	}
 
 	classes := graphql.NewObject(graphql.ObjectConfig{

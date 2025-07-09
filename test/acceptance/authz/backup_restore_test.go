@@ -50,7 +50,7 @@ func TestBackupAndRestoreRBAC(t *testing.T) {
 		New().
 		WithWeaviate().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, "custom-key").
-		WithRBAC().WithRbacAdmins(adminUser).WithDbUsers().
+		WithRBAC().WithRbacRoots(adminUser).WithDbUsers().
 		WithBackendS3("bucket", s3BackupJourneyRegion).
 		WithWeaviateCluster(3).
 		Start(ctx)

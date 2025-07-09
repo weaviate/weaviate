@@ -135,7 +135,7 @@ func TestAuthnGetOwnInfoWithRBAC(t *testing.T) {
 		WithApiKey().
 		WithUserApiKey(customUser, customKey).
 		WithUserApiKey(adminUser, adminKey).
-		WithRbacAdmins(adminUser).
+		WithRbacRoots(adminUser).
 		WithRbacViewers(customUser).
 		Start(ctx)
 	require.Nil(t, err)
@@ -199,7 +199,7 @@ func TestAuthnGetOwnInfoWithRBACAndOIDC(t *testing.T) {
 		WithWeaviate().
 		WithRBAC().
 		WithApiKey().
-		WithRbacAdmins(adminUser).
+		WithRbacRoots(adminUser).
 		WithRbacViewers(customUser).
 		WithMockOIDC().
 		Start(ctx)

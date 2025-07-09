@@ -41,16 +41,18 @@ func TestBuild_GraphQLNetwork(t *testing.T) {
 		// This tests asserts that an action-only schema doesn't lead to errors.
 		testCase{
 			name: "with only objects locally",
-			localSchema: schema.Schema{
-				Objects: &models.Schema{
-					Classes: []*models.Class{
-						{
-							Class: "BestLocalAction",
-							Properties: []*models.Property{
-								{
-									DataType:     schema.DataTypeText.PropString(),
-									Name:         "myStringProp",
-									Tokenization: models.PropertyTokenizationWhitespace,
+			localSchema: schema.SchemaWithAliases{
+				Schema: schema.Schema{
+					Objects: &models.Schema{
+						Classes: []*models.Class{
+							{
+								Class: "BestLocalAction",
+								Properties: []*models.Property{
+									{
+										DataType:     schema.DataTypeText.PropString(),
+										Name:         "myStringProp",
+										Tokenization: models.PropertyTokenizationWhitespace,
+									},
 								},
 							},
 						},
@@ -62,16 +64,18 @@ func TestBuild_GraphQLNetwork(t *testing.T) {
 		// This tests asserts that a things-only schema doesn't lead to errors.
 		testCase{
 			name: "with only objects locally",
-			localSchema: schema.Schema{
-				Objects: &models.Schema{
-					Classes: []*models.Class{
-						{
-							Class: "BestLocalThing",
-							Properties: []*models.Property{
-								{
-									DataType:     schema.DataTypeText.PropString(),
-									Name:         "myStringProp",
-									Tokenization: models.PropertyTokenizationWhitespace,
+			localSchema: schema.SchemaWithAliases{
+				Schema: schema.Schema{
+					Objects: &models.Schema{
+						Classes: []*models.Class{
+							{
+								Class: "BestLocalThing",
+								Properties: []*models.Property{
+									{
+										DataType:     schema.DataTypeText.PropString(),
+										Name:         "myStringProp",
+										Tokenization: models.PropertyTokenizationWhitespace,
+									},
 								},
 							},
 						},
@@ -84,12 +88,14 @@ func TestBuild_GraphQLNetwork(t *testing.T) {
 		// // errors.
 		testCase{
 			name: "with things without properties locally",
-			localSchema: schema.Schema{
-				Objects: &models.Schema{
-					Classes: []*models.Class{
-						{
-							Class:      "BestLocalThing",
-							Properties: []*models.Property{},
+			localSchema: schema.SchemaWithAliases{
+				Schema: schema.Schema{
+					Objects: &models.Schema{
+						Classes: []*models.Class{
+							{
+								Class:      "BestLocalThing",
+								Properties: []*models.Property{},
+							},
 						},
 					},
 				},
@@ -110,15 +116,17 @@ func TestBuild_RefProps(t *testing.T) {
 		tests := testCases{
 			{
 				name: "build class with nonexistent ref prop",
-				localSchema: schema.Schema{
-					Objects: &models.Schema{
-						Classes: []*models.Class{
-							{
-								Class: "ThisClassExists",
-								Properties: []*models.Property{
-									{
-										DataType: []string{"ThisClassDoesNotExist"},
-										Name:     "ofNonexistentClass",
+				localSchema: schema.SchemaWithAliases{
+					Schema: schema.Schema{
+						Objects: &models.Schema{
+							Classes: []*models.Class{
+								{
+									Class: "ThisClassExists",
+									Properties: []*models.Property{
+										{
+											DataType: []string{"ThisClassDoesNotExist"},
+											Name:     "ofNonexistentClass",
+										},
 									},
 								},
 							},
@@ -138,25 +146,27 @@ func TestBuild_RefProps(t *testing.T) {
 		tests := testCases{
 			{
 				name: "build class with existing non-circular ref prop",
-				localSchema: schema.Schema{
-					Objects: &models.Schema{
-						Classes: []*models.Class{
-							{
-								Class: "ThisClassExists",
-								Properties: []*models.Property{
-									{
-										DataType: []string{"ThisClassAlsoExists"},
-										Name:     "ofExistingClass",
+				localSchema: schema.SchemaWithAliases{
+					Schema: schema.Schema{
+						Objects: &models.Schema{
+							Classes: []*models.Class{
+								{
+									Class: "ThisClassExists",
+									Properties: []*models.Property{
+										{
+											DataType: []string{"ThisClassAlsoExists"},
+											Name:     "ofExistingClass",
+										},
 									},
 								},
-							},
-							{
-								Class: "ThisClassAlsoExists",
-								Properties: []*models.Property{
-									{
-										DataType:     schema.DataTypeText.PropString(),
-										Name:         "stringProp",
-										Tokenization: models.PropertyTokenizationWhitespace,
+								{
+									Class: "ThisClassAlsoExists",
+									Properties: []*models.Property{
+										{
+											DataType:     schema.DataTypeText.PropString(),
+											Name:         "stringProp",
+											Tokenization: models.PropertyTokenizationWhitespace,
+										},
 									},
 								},
 							},
@@ -166,24 +176,26 @@ func TestBuild_RefProps(t *testing.T) {
 			},
 			{
 				name: "build class with existing circular ref prop",
-				localSchema: schema.Schema{
-					Objects: &models.Schema{
-						Classes: []*models.Class{
-							{
-								Class: "ThisClassExists",
-								Properties: []*models.Property{
-									{
-										DataType: []string{"ThisClassAlsoExists"},
-										Name:     "ofExistingClass",
+				localSchema: schema.SchemaWithAliases{
+					Schema: schema.Schema{
+						Objects: &models.Schema{
+							Classes: []*models.Class{
+								{
+									Class: "ThisClassExists",
+									Properties: []*models.Property{
+										{
+											DataType: []string{"ThisClassAlsoExists"},
+											Name:     "ofExistingClass",
+										},
 									},
 								},
-							},
-							{
-								Class: "ThisClassAlsoExists",
-								Properties: []*models.Property{
-									{
-										DataType: []string{"ThisClassExists"},
-										Name:     "ofExistingClass",
+								{
+									Class: "ThisClassAlsoExists",
+									Properties: []*models.Property{
+										{
+											DataType: []string{"ThisClassExists"},
+											Name:     "ofExistingClass",
+										},
 									},
 								},
 							},
@@ -199,7 +211,7 @@ func TestBuild_RefProps(t *testing.T) {
 
 type testCase struct {
 	name        string
-	localSchema schema.Schema
+	localSchema schema.SchemaWithAliases
 }
 
 type testCases []testCase
@@ -271,17 +283,19 @@ func (tests testCases) AssertErrorLogs(t *testing.T, expectedMsg string) {
 	}
 }
 
-func validSchema() schema.Schema {
-	return schema.Schema{
-		Objects: &models.Schema{
-			Classes: []*models.Class{
-				{
-					Class: "BestLocalThing",
-					Properties: []*models.Property{
-						{
-							DataType:     schema.DataTypeText.PropString(),
-							Name:         "myStringProp",
-							Tokenization: models.PropertyTokenizationWhitespace,
+func validSchema() schema.SchemaWithAliases {
+	return schema.SchemaWithAliases{
+		Schema: schema.Schema{
+			Objects: &models.Schema{
+				Classes: []*models.Class{
+					{
+						Class: "BestLocalThing",
+						Properties: []*models.Property{
+							{
+								DataType:     schema.DataTypeText.PropString(),
+								Name:         "myStringProp",
+								Tokenization: models.PropertyTokenizationWhitespace,
+							},
 						},
 					},
 				},
