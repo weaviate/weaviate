@@ -455,18 +455,11 @@ func (c *CopyOpConsumer) cancelOp(op ShardReplicationOpAndStatus, logger *logrus
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second) // Ensure sync shards timesout reasonbly in case of hang
 	defer cancel()
 
+	overrides := newOverrides(op, time.Now().UnixMilli())
+	c.stopAsyncReplication(ctx, op, overrides, logger)
+
 	// Ensure that the states of the shards on the nodes are in-sync with the state of the schema through a RAFT communication
 	// This handles cleaning up for ghost shards that are in the store but not in the schema that may have been created by index.getOptInitShard
-
-	targetNodeOverride := additional.AsyncReplicationTargetNodeOverride{
-		CollectionID:   op.Op.TargetShard.CollectionId,
-		ShardID:        op.Op.TargetShard.ShardId,
-		TargetNode:     op.Op.TargetShard.NodeId,
-		SourceNode:     op.Op.SourceShard.NodeId,
-		UpperTimeBound: time.Now().UnixMilli(),
-	}
-	c.stopAsyncReplication(ctx, op, targetNodeOverride, logger)
-
 	if err := c.sync(ctx, op); err != nil {
 		logger.WithError(err).
 			WithField("op", op).
