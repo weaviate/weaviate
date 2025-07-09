@@ -132,13 +132,13 @@ func upgradeBucket(path, targetVector string) {
 	newPath := filepath.Join(path, fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, targetVector))
 	path = filepath.Join(path, helpers.VectorsCompressedBucketLSM)
 
-	info, err := os.Stat(newPath)
+	info, _ := os.Stat(newPath)
 	if info != nil && info.IsDir() {
 		return
 	}
 
-	info, err = os.Stat(path)
-	if err != nil {
+	info, _ = os.Stat(path)
+	if info == nil {
 		return
 	}
 
