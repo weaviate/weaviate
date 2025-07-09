@@ -64,7 +64,6 @@ func TestModule_Init_Success(t *testing.T) {
 			Hostname: "test-node",
 		},
 		Usage: config.UsageConfig{
-
 			S3Bucket:       runtime.NewDynamicValue("test-bucket"),
 			S3Prefix:       runtime.NewDynamicValue("test-prefix"),
 			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
@@ -136,7 +135,6 @@ func TestModule_ConfigBasedIntervalUpdate(t *testing.T) {
 			Hostname: "test-node",
 		},
 		Usage: config.UsageConfig{
-
 			S3Bucket:       runtime.NewDynamicValue("test-bucket"),
 			S3Prefix:       runtime.NewDynamicValue("test-prefix"),
 			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
@@ -397,7 +395,6 @@ func TestModule_ConfigurationChanges(t *testing.T) {
 			Hostname: "test-node",
 		},
 		Usage: config.UsageConfig{
-
 			S3Bucket:       runtime.NewDynamicValue("new-bucket"),
 			S3Prefix:       runtime.NewDynamicValue("new-prefix"),
 			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
