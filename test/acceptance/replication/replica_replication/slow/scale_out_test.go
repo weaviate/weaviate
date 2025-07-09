@@ -101,7 +101,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 		replication.NewGetCollectionShardingStateParams().WithCollection(&cls.Class), nil,
 	)
 	require.Nil(t, err)
-	require.Len(t, shardingState.Payload.ShardingState.Shards, 100)
+	require.Len(t, shardingState.Payload.ShardingState.Shards, 1000)
 
 	movements := []movement{}
 	for _, state := range shardingState.Payload.ShardingState.Shards {
