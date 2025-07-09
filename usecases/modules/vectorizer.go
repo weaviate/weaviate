@@ -202,12 +202,11 @@ func (p *Provider) batchUpdateVector(ctx context.Context, objects []*models.Obje
 				skipRevectorization[i] = true
 				continue
 			}
-            if ctx.Err() != nil {
+			if ctx.Err() != nil {
 				return nil, fmt.Errorf("context is done: %w", ctx.Err())
 			}
 			reVectorize, addProps, vector, err := reVectorize(ctx, cfg, vectorizer, obj,
 				class, nil, targetVector, findObjectFn, p.cfg.RevectorizeCheckDisabled.Get())
-
 			if err != nil {
 				return nil, fmt.Errorf("cannot vectorize class %q: %w", class.Class, err)
 			}
