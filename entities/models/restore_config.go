@@ -18,6 +18,7 @@ package models
 
 import (
 	"context"
+	"encoding/json"
 
 	"github.com/go-openapi/errors"
 	"github.com/go-openapi/strfmt"
@@ -43,6 +44,14 @@ type RestoreConfig struct {
 
 	// Path within the bucket
 	Path string `json:"Path,omitempty"`
+
+	// How roles should be restored
+	// Enum: [noRestore all]
+	RolesOptions *string `json:"rolesOptions,omitempty"`
+
+	// How users should be restored
+	// Enum: [noRestore all]
+	UsersOptions *string `json:"usersOptions,omitempty"`
 }
 
 // Validate validates this restore config
@@ -50,6 +59,14 @@ func (m *RestoreConfig) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateCPUPercentage(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateRolesOptions(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateUsersOptions(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -69,6 +86,90 @@ func (m *RestoreConfig) validateCPUPercentage(formats strfmt.Registry) error {
 	}
 
 	if err := validate.MaximumInt("CPUPercentage", "body", m.CPUPercentage, 80, false); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var restoreConfigTypeRolesOptionsPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["noRestore","all"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		restoreConfigTypeRolesOptionsPropEnum = append(restoreConfigTypeRolesOptionsPropEnum, v)
+	}
+}
+
+const (
+
+	// RestoreConfigRolesOptionsNoRestore captures enum value "noRestore"
+	RestoreConfigRolesOptionsNoRestore string = "noRestore"
+
+	// RestoreConfigRolesOptionsAll captures enum value "all"
+	RestoreConfigRolesOptionsAll string = "all"
+)
+
+// prop value enum
+func (m *RestoreConfig) validateRolesOptionsEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, restoreConfigTypeRolesOptionsPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *RestoreConfig) validateRolesOptions(formats strfmt.Registry) error {
+	if swag.IsZero(m.RolesOptions) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateRolesOptionsEnum("rolesOptions", "body", *m.RolesOptions); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+var restoreConfigTypeUsersOptionsPropEnum []interface{}
+
+func init() {
+	var res []string
+	if err := json.Unmarshal([]byte(`["noRestore","all"]`), &res); err != nil {
+		panic(err)
+	}
+	for _, v := range res {
+		restoreConfigTypeUsersOptionsPropEnum = append(restoreConfigTypeUsersOptionsPropEnum, v)
+	}
+}
+
+const (
+
+	// RestoreConfigUsersOptionsNoRestore captures enum value "noRestore"
+	RestoreConfigUsersOptionsNoRestore string = "noRestore"
+
+	// RestoreConfigUsersOptionsAll captures enum value "all"
+	RestoreConfigUsersOptionsAll string = "all"
+)
+
+// prop value enum
+func (m *RestoreConfig) validateUsersOptionsEnum(path, location string, value string) error {
+	if err := validate.EnumCase(path, location, value, restoreConfigTypeUsersOptionsPropEnum, true); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (m *RestoreConfig) validateUsersOptions(formats strfmt.Registry) error {
+	if swag.IsZero(m.UsersOptions) { // not required
+		return nil
+	}
+
+	// value enum
+	if err := m.validateUsersOptionsEnum("usersOptions", "body", *m.UsersOptions); err != nil {
 		return err
 	}
 

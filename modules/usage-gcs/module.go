@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package usage
+package usagegcs
 
 import (
 	"context"
@@ -26,6 +26,8 @@ import (
 	"google.golang.org/api/option"
 	storageapi "google.golang.org/api/storage/v1"
 
+	clusterusage "github.com/weaviate/weaviate/cluster/usage"
+	"github.com/weaviate/weaviate/cluster/usage/types"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
@@ -54,12 +56,23 @@ type module struct {
 	nodeID        string
 	metrics       *metrics
 	policyVersion string
+	usageService  clusterusage.Service
 }
 
 func New() *module {
 	return &module{
 		interval: DefaultCollectionInterval,
 		stopChan: make(chan struct{}),
+	}
+}
+
+func (m *module) Logger() logrus.FieldLogger {
+	return m.logger
+}
+
+func (m *module) SetUsageService(usageService any) {
+	if service, ok := usageService.(clusterusage.Service); ok {
+		m.usageService = service
 	}
 }
 
@@ -92,6 +105,7 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	}
 
 	m.logger = params.GetLogger()
+	m.logger = m.logger.WithField("component", Name)
 	m.metrics = NewMetrics(params.GetMetricsRegisterer())
 
 	options := []option.ClientOption{}
@@ -270,24 +284,26 @@ func (m *module) collectAndUploadUsage(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	// set version
+	usage.Version = m.policyVersion
 
 	// Upload the collected data
 	return m.uploadUsageData(ctx, usage)
 }
 
-func (m *module) collectUsageData(ctx context.Context) (*UsageResponse, error) {
-	usage, err := m.usage(ctx)
+func (m *module) collectUsageData(ctx context.Context) (*types.Report, error) {
+	usage, err := m.usageService.Usage(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get usage data: %w", err)
 	}
 
 	// Compute total collections (from usage.SingleTenantCollections) and update gauge.
-	totalCollections := float64(len(usage.SingleTenantCollections))
+	totalCollections := float64(len(usage.Collections))
 	m.metrics.ResourceCount.WithLabelValues("collections").Set(totalCollections)
 
 	// Compute total shards (by summing usage.SingleTenantCollections[i].UniqueShardCount) and update gauge.
 	var totalShards float64
-	for _, coll := range usage.SingleTenantCollections {
+	for _, coll := range usage.Collections {
 		totalShards += float64(coll.UniqueShardCount)
 	}
 	m.metrics.ResourceCount.WithLabelValues("shards").Set(totalShards)
@@ -299,7 +315,7 @@ func (m *module) collectUsageData(ctx context.Context) (*UsageResponse, error) {
 	return usage, nil
 }
 
-func (m *module) uploadUsageData(ctx context.Context, usage *UsageResponse) error {
+func (m *module) uploadUsageData(ctx context.Context, usage *types.Report) error {
 	if m.storageClient == nil {
 		return fmt.Errorf("storage client is not initialized")
 	}
@@ -386,20 +402,6 @@ func (m *module) reloadConfig(ticker *time.Ticker) {
 	}
 }
 
-func (m *module) usage(ctx context.Context) (*UsageResponse, error) {
-	// TODO: Implement usage collection
-	return &UsageResponse{
-		Version: m.policyVersion,
-		Node:    m.nodeID,
-		SingleTenantCollections: []*CollectionUsage{
-			{
-				Name:             "test-collection",
-				UniqueShardCount: 1,
-			},
-		},
-	}, nil
-}
-
 func parseUsageConfig(config *config.Config) error {
 	if v := os.Getenv("USAGE_GCS_USE_AUTH"); v != "" {
 		config.Usage.GCSAuth = runtime.NewDynamicValue(entcfg.Enabled(v))
@@ -426,4 +428,5 @@ func parseUsageConfig(config *config.Config) error {
 // verify we implement the modules.ModuleWithClose interface
 var (
 	_ = modulecapabilities.ModuleWithClose(New())
+	_ = modulecapabilities.ModuleWithUsageService(New())
 )

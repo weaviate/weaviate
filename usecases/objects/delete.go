@@ -36,7 +36,7 @@ func (m *Manager) DeleteObject(ctx context.Context,
 	principal *models.Principal, className string, id strfmt.UUID,
 	repl *additional.ReplicationProperties, tenant string,
 ) error {
-	err := m.authorizer.Authorize(principal, authorization.DELETE, authorization.Objects(className, tenant, id))
+	err := m.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Objects(className, tenant, id))
 	if err != nil {
 		return err
 	}

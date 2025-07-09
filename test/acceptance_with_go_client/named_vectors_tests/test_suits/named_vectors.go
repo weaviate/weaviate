@@ -46,6 +46,6 @@ func ComposeModules() (composeModules *docker.Compose) {
 		WithText2VecCohere(os.Getenv("COHERE_APIKEY")).
 		WithGenerativeOpenAI(os.Getenv("OPENAI_APIKEY"), os.Getenv("OPENAI_ORGANIZATION"), os.Getenv("AZURE_APIKEY")).
 		WithGenerativeCohere(os.Getenv("COHERE_APIKEY")).
-		WithText2ColBERTJinaAI(os.Getenv("JINAAI_APIKEY"))
+		WithText2MultivecJinaAI(os.Getenv("JINAAI_APIKEY"))
 	return
 }

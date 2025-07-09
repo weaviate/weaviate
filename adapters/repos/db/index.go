@@ -13,9 +13,11 @@ package db
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path"
+	"path/filepath"
 	"runtime"
 	"runtime/debug"
 	golangSort "sort"
@@ -39,10 +41,12 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/cluster/router"
-	"github.com/weaviate/weaviate/cluster/router/types"
+	types "github.com/weaviate/weaviate/cluster/router/types"
+	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
@@ -115,6 +119,10 @@ func (m *shardMap) RangeConcurrently(logger logrus.FieldLogger, f func(name stri
 }
 
 // Load returns the shard or nil if no shard is present.
+// NOTE: this method does not check if the shard is loaded or not and it could
+// return a lazy shard that is not loaded which could result in loading it if
+// the returned shard is used.
+// Use Loaded if you want to check if the shard is loaded without loading it.
 func (m *shardMap) Load(name string) ShardLike {
 	v, ok := (*sync.Map)(m).Load(name)
 	if !ok {
@@ -125,6 +133,29 @@ func (m *shardMap) Load(name string) ShardLike {
 	if !ok {
 		return nil
 	}
+	return shard
+}
+
+// Loaded returns the shard or nil if no shard is present.
+// If it's a lazy shard, only return it if it's loaded.
+func (m *shardMap) Loaded(name string) ShardLike {
+	v, ok := (*sync.Map)(m).Load(name)
+	if !ok {
+		return nil
+	}
+
+	shard, ok := v.(ShardLike)
+	if !ok {
+		return nil
+	}
+
+	// If it's a lazy shard, only return it if it's loaded
+	if lazyShard, ok := shard.(*LazyLoadShard); ok {
+		if !lazyShard.isLoaded() {
+			return nil
+		}
+	}
+
 	return shard
 }
 
@@ -245,7 +276,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig,
-	router *router.Router, sg schemaUC.SchemaGetter,
+	router router.Router, sg schemaUC.SchemaGetter,
 	cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
@@ -346,7 +377,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 				defer i.shardLoadLimiter.Release()
 
 				shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-					i.indexCheckpoints, i.shardReindexer)
+					i.indexCheckpoints, i.shardReindexer, false)
 				if err != nil {
 					return fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 				}
@@ -376,7 +407,7 @@ func (i *Index) initAndStoreShards(ctx context.Context, class *models.Class,
 		}
 
 		shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-			i.allocChecker, i.shardLoadLimiter, i.shardReindexer)
+			i.allocChecker, i.shardLoadLimiter, i.shardReindexer, true)
 		i.shards.Store(shardName, shard)
 	}
 
@@ -452,7 +483,7 @@ func (i *Index) loadLocalShardIfActive(shardName string) error {
 // used to init/create shard in different moments of index's lifecycle, therefore it needs to be called
 // within shardCreateLocks to prevent parallel create/init of the same shard
 func (i *Index) initShard(ctx context.Context, shardName string, class *models.Class,
-	promMetrics *monitoring.PrometheusMetrics, disableLazyLoad bool,
+	promMetrics *monitoring.PrometheusMetrics, disableLazyLoad bool, implicitShardLoading bool,
 ) (ShardLike, error) {
 	if disableLazyLoad {
 		if err := i.allocChecker.CheckMappingAndReserve(3, int(lsmkv.FlushAfterDirtyDefault.Seconds())); err != nil {
@@ -465,7 +496,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 		defer i.shardLoadLimiter.Release()
 
 		shard, err := NewShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.scheduler,
-			i.indexCheckpoints, i.shardReindexer)
+			i.indexCheckpoints, i.shardReindexer, false)
 		if err != nil {
 			return nil, fmt.Errorf("init shard %s of index %s: %w", shardName, i.ID(), err)
 		}
@@ -474,7 +505,7 @@ func (i *Index) initShard(ctx context.Context, shardName string, class *models.C
 	}
 
 	shard := NewLazyLoadShard(ctx, promMetrics, shardName, i, class, i.centralJobQueue, i.indexCheckpoints,
-		i.allocChecker, i.shardLoadLimiter, i.shardReindexer)
+		i.allocChecker, i.shardLoadLimiter, i.shardReindexer, implicitShardLoading)
 	return shard, nil
 }
 
@@ -528,7 +559,7 @@ func (i *Index) addProperty(ctx context.Context, props ...*models.Property) erro
 	eg.SetLimit(_NUMCPU)
 
 	i.ForEachShard(func(key string, shard ShardLike) error {
-		shard.initPropertyBuckets(ctx, eg, props...)
+		shard.initPropertyBuckets(ctx, eg, false, props...)
 		return nil
 	})
 
@@ -649,6 +680,7 @@ type IndexConfig struct {
 	QueryMaximumResults                 int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
+	LazySegmentsDisabled                bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int
@@ -686,6 +718,7 @@ type IndexConfig struct {
 	QuerySlowLogEnabled    *configRuntime.DynamicValue[bool]
 	QuerySlowLogThreshold  *configRuntime.DynamicValue[time.Duration]
 	InvertedSorterDisabled *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled func() bool
 }
 
 func indexID(class schema.ClassName) string {
@@ -2008,14 +2041,15 @@ func (i *Index) getClass() *models.Class {
 // Method first tries to get shard from Index::shards map,
 // or inits shard and adds it to the map if shard was not found
 func (i *Index) initLocalShard(ctx context.Context, shardName string) error {
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false)
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, false, false)
 }
 
-func (i *Index) LoadLocalShard(ctx context.Context, shardName string) error {
-	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, true)
+func (i *Index) LoadLocalShard(ctx context.Context, shardName string, implicitShardLoading bool) error {
+	mustLoad := !implicitShardLoading
+	return i.initLocalShardWithForcedLoading(ctx, i.getClass(), shardName, mustLoad, implicitShardLoading)
 }
 
-func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool) error {
+func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *models.Class, shardName string, mustLoad bool, implicitShardLoading bool) error {
 	i.closeLock.RLock()
 	defer i.closeLock.RUnlock()
 
@@ -2041,12 +2075,38 @@ func (i *Index) initLocalShardWithForcedLoading(ctx context.Context, class *mode
 
 	disableLazyLoad := mustLoad || i.Config.DisableLazyLoadShards
 
-	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad)
+	shard, err := i.initShard(ctx, shardName, class, i.metrics.baseMetrics, disableLazyLoad, implicitShardLoading)
 	if err != nil {
 		return err
 	}
 
 	i.shards.Store(shardName, shard)
+
+	return nil
+}
+
+func (i *Index) UnloadLocalShard(ctx context.Context, shardName string) error {
+	i.closeLock.RLock()
+	defer i.closeLock.RUnlock()
+
+	if i.closed {
+		return errAlreadyShutdown
+	}
+
+	i.shardCreateLocks.Lock(shardName)
+	defer i.shardCreateLocks.Unlock(shardName)
+
+	shardLike, ok := i.shards.LoadAndDelete(shardName)
+	if !ok {
+		return nil // shard was not found, nothing to unload
+	}
+
+	if err := shardLike.Shutdown(ctx); err != nil {
+		if !errors.Is(err, errAlreadyShutdown) {
+			return errors.Wrapf(err, "shutdown shard %q", shardName)
+		}
+		return errors.Wrapf(errAlreadyShutdown, "shutdown shard %q", shardName)
+	}
 
 	return nil
 }
@@ -2094,7 +2154,7 @@ func (i *Index) getOptInitLocalShard(ctx context.Context, shardName string, ensu
 			return nil, func() {}, fmt.Errorf("class %s not found in schema", className)
 		}
 
-		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true)
+		shard, err = i.initShard(ctx, shardName, class, i.metrics.baseMetrics, true, false)
 		if err != nil {
 			return nil, func() {}, err
 		}
@@ -2867,4 +2927,182 @@ func (i *Index) DebugRepairIndex(ctx context.Context, shardName, targetVector st
 	}, i.logger)
 
 	return nil
+}
+
+// calcTargetVectorDimensionsFromStore calculates dimensions and object count for a target vector from an LSMKV store
+func calcTargetVectorDimensionsFromStore(ctx context.Context, store *lsmkv.Store, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
+	b := store.Bucket(helpers.DimensionsBucketLSM)
+	if b == nil {
+		return usagetypes.Dimensionality{}
+	}
+	return calcTargetVectorDimensionsFromBucket(ctx, b, targetVector, calcEntry)
+}
+
+// calcTargetVectorDimensionsFromBucket calculates dimensions and object count for a target vector from an LSMKV bucket
+func calcTargetVectorDimensionsFromBucket(ctx context.Context, b *lsmkv.Bucket, targetVector string, calcEntry func(dimLen int, v []lsmkv.MapPair) (int, int)) usagetypes.Dimensionality {
+	c := b.MapCursor()
+	defer c.Close()
+
+	var (
+		nameLen        = len(targetVector)
+		expectedKeyLen = 4 + nameLen
+		dimensionality = usagetypes.Dimensionality{}
+	)
+
+	for k, v := c.First(ctx); k != nil; k, v = c.Next(ctx) {
+		// for named vectors we have to additionally check if the key is prefixed with the vector name
+		keyMatches := len(k) == expectedKeyLen && (nameLen == 4 || strings.HasPrefix(string(k), targetVector))
+		if !keyMatches {
+			continue
+		}
+
+		dimLength := int(binary.LittleEndian.Uint32(k[nameLen:]))
+		size, dim := calcEntry(dimLength, v)
+		if dimensionality.Dimensions == 0 && dim > 0 {
+			dimensionality.Dimensions = dim
+		}
+		dimensionality.Count += size
+	}
+
+	return dimensionality
+}
+
+// CalculateUnloadedObjectsMetrics calculates both object count and storage size for a cold tenant without loading it into memory
+func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error) {
+	// Obtain a lock that prevents tenant activation
+	i.shardCreateLocks.Lock(tenantName)
+	defer i.shardCreateLocks.Unlock(tenantName)
+
+	// check if created in the meantime by concurrent call
+	if shard := i.shards.Loaded(tenantName); shard != nil {
+		size, err := shard.ObjectStorageSize(ctx)
+		if err != nil {
+			return usagetypes.ObjectUsage{}, err
+		}
+
+		count, err := shard.ObjectCountAsync(ctx)
+		if err != nil {
+			return usagetypes.ObjectUsage{}, err
+		}
+
+		return usagetypes.ObjectUsage{
+			Count:        count,
+			StorageBytes: size,
+		}, nil
+	}
+
+	// Parse all .cna files in the object store and sum them up
+	totalObjectCount := int64(0)
+	totalDiskSize := int64(0)
+
+	// Use a single walk to avoid multiple filepath.Walk calls and reduce file descriptors
+	if err := filepath.Walk(shardPathObjectsLSM(i.path(), tenantName), func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		// Only count files, not directories
+		if !info.IsDir() {
+			totalDiskSize += info.Size()
+
+			// Look for .cna files (net count additions)
+			if strings.HasSuffix(info.Name(), lsmkv.CountNetAdditionsFileSuffix) {
+				count, err := lsmkv.ReadCountNetAdditionsFile(path)
+				if err != nil {
+					i.logger.WithField("path", path).WithError(err).Warn("failed to read .cna file")
+					return err
+				}
+				totalObjectCount += count
+			}
+		}
+
+		return nil
+	}); err != nil {
+		return usagetypes.ObjectUsage{}, err
+	}
+
+	// If we can't determine object count, return the disk size as fallback
+	return usagetypes.ObjectUsage{
+		Count:        totalObjectCount,
+		StorageBytes: totalDiskSize,
+	}, nil
+}
+
+// CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
+func (i *Index) CalculateUnloadedDimensionsUsage(ctx context.Context, tenantName, targetVector string) (usagetypes.Dimensionality, error) {
+	// Obtain a lock that prevents tenant activation
+	i.shardCreateLocks.Lock(tenantName)
+	defer i.shardCreateLocks.Unlock(tenantName)
+
+	// check if created in the meantime by concurrent call
+	if shard := i.shards.Loaded(tenantName); shard != nil {
+		return shard.DimensionsUsage(ctx, targetVector)
+	}
+
+	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+		shardPathDimensionsLSM(i.path(), tenantName),
+		i.path(),
+		i.logger,
+		nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+	)
+	if err != nil {
+		return usagetypes.Dimensionality{}, err
+	}
+	defer bucket.Shutdown(ctx)
+
+	dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+		return len(v), dimLen
+	})
+
+	return dimensionality, nil
+}
+
+// CalculateUnloadedVectorsMetrics calculates vector storage size for a cold tenant without loading it into memory
+func (i *Index) CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error) {
+	// Obtain a lock that prevents tenant activation
+	i.shardCreateLocks.Lock(tenantName)
+	defer i.shardCreateLocks.Unlock(tenantName)
+
+	// check if created in the meantime by concurrent call
+	if shard := i.shards.Loaded(tenantName); shard != nil {
+		return shard.VectorStorageSize(ctx)
+	}
+
+	totalSize := int64(0)
+
+	// For each target vector, calculate storage size using dimensions bucket and config-based compression
+	for targetVector, config := range i.GetVectorIndexConfigs() {
+		// Get dimensions and object count from the dimensions bucket
+		bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+			shardPathDimensionsLSM(i.path(), tenantName),
+			i.path(),
+			i.logger,
+			nil,
+			cyclemanager.NewCallbackGroupNoop(),
+			cyclemanager.NewCallbackGroupNoop(),
+		)
+		if err != nil {
+			return 0, err
+		}
+
+		dimensionality := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+			return len(v), dimLen
+		})
+		bucket.Shutdown(ctx)
+
+		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
+			continue
+		}
+
+		// Calculate uncompressed size (float32 = 4 bytes per dimension)
+		uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
+
+		// For inactive tenants, use vector index config for dimension tracking
+		// This is similar to the original shard dimension tracking approach
+		totalSize += int64(float64(uncompressedSize) * helpers.CompressionRatioFromConfig(config, dimensionality.Dimensions))
+	}
+
+	return totalSize, nil
 }

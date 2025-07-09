@@ -25,7 +25,7 @@ import (
 )
 
 func TestCompactionReplaceStrategyStraggler(t *testing.T) {
-	opts := []BucketOption{WithStrategy(StrategyReplace)}
+	opts := []BucketOption{WithStrategy(StrategyReplace), WithCalcCountNetAdditions(true)}
 	size := 200
 
 	type kv struct {

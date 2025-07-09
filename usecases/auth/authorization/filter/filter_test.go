@@ -12,6 +12,7 @@
 package filter
 
 import (
+	"context"
 	"testing"
 
 	"github.com/sirupsen/logrus/hooks/test"
@@ -47,6 +48,7 @@ func TestFilter(t *testing.T) {
 		t.Run(tt.Name, func(t *testing.T) {
 			resourceFilter := New[*models.Object](authorizer, tt.Config)
 			filteredObjects := resourceFilter.Filter(
+				context.Background(),
 				l,
 				&models.Principal{Username: "user"},
 				tt.Items,

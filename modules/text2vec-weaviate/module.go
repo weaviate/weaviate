@@ -59,7 +59,7 @@ func (m *WeaviateEmbedModule) Name() string {
 }
 
 func (m *WeaviateEmbedModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *WeaviateEmbedModule) Init(ctx context.Context,

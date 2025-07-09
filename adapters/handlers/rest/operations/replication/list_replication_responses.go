@@ -187,51 +187,6 @@ func (o *ListReplicationForbidden) WriteResponse(rw http.ResponseWriter, produce
 	}
 }
 
-// ListReplicationNotFoundCode is the HTTP code returned for type ListReplicationNotFound
-const ListReplicationNotFoundCode int = 404
-
-/*
-ListReplicationNotFound Shard replica operation not found.
-
-swagger:response listReplicationNotFound
-*/
-type ListReplicationNotFound struct {
-
-	/*
-	  In: Body
-	*/
-	Payload *models.ErrorResponse `json:"body,omitempty"`
-}
-
-// NewListReplicationNotFound creates ListReplicationNotFound with default headers values
-func NewListReplicationNotFound() *ListReplicationNotFound {
-
-	return &ListReplicationNotFound{}
-}
-
-// WithPayload adds the payload to the list replication not found response
-func (o *ListReplicationNotFound) WithPayload(payload *models.ErrorResponse) *ListReplicationNotFound {
-	o.Payload = payload
-	return o
-}
-
-// SetPayload sets the payload to the list replication not found response
-func (o *ListReplicationNotFound) SetPayload(payload *models.ErrorResponse) {
-	o.Payload = payload
-}
-
-// WriteResponse to the client
-func (o *ListReplicationNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
-
-	rw.WriteHeader(404)
-	if o.Payload != nil {
-		payload := o.Payload
-		if err := producer.Produce(rw, payload); err != nil {
-			panic(err) // let the recovery middleware deal with this
-		}
-	}
-}
-
 // ListReplicationInternalServerErrorCode is the HTTP code returned for type ListReplicationInternalServerError
 const ListReplicationInternalServerErrorCode int = 500
 

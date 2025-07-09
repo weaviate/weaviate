@@ -22,7 +22,7 @@ import (
 func BenchmarkCommitlogWriter(b *testing.B) {
 	for _, val := range []int{10, 100, 1000, 10000} {
 		b.Run(fmt.Sprintf("%d", val), func(b *testing.B) {
-			cl, err := newCommitLogger(b.TempDir(), "n/a")
+			cl, err := newCommitLogger(b.TempDir(), "n/a", 0)
 			require.NoError(b, err)
 
 			data := make([]byte, val)

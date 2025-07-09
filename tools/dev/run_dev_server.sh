@@ -444,6 +444,9 @@ case $CONFIG in
       AUTHORIZATION_ADMINLIST_USERS=etienne@semi.technology \
       AUTHORIZATION_ADMINLIST_READONLY_USERS=etienne+read-only@semi.technology \
       DEFAULT_VECTORIZER_MODULE=none \
+      RUNTIME_OVERRIDES_ENABLED=true \
+      RUNTIME_OVERRIDES_PATH="${PWD}/tools/dev/config.runtime-overrides.yaml" \
+      RUNTIME_OVERRIDES_LOAD_INTERVAL=30s \
       go_run ./cmd/weaviate-server \
         --scheme http \
         --host "127.0.0.1" \
@@ -896,7 +899,10 @@ create-gcs-bucket)
       echo "make sure that you ran docker-compose up backup-gcs"
       curl -X POST "http://localhost:9090/storage/v1/b" \
       -H "Content-Type: application/json" \
-      -d '{"name": "weaviate-usage"}'
+      -d '{"name": "weaviate-usage"}'      
+      curl -X POST "http://localhost:9090/storage/v1/b" \
+      -H "Content-Type: application/json" \
+      -d '{"name": "weaviate-backups"}'
       ;;
 
 local-usage-gcs)

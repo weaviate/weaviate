@@ -8,6 +8,7 @@ packages:
   github.com/weaviate/weaviate/cluster/schema:
     interfaces:
       Parser:
+      replicationFSM:
   github.com/weaviate/weaviate/adapters/repos/db/lsmkv:
     interfaces:
       BucketCreator:
@@ -19,15 +20,15 @@ packages:
       BackupBackendProvider:
       NodeResolver:
       Selector:
+  github.com/weaviate/weaviate/usecases/cluster:
+    interfaces:
+      NodeSelector:
   github.com/weaviate/weaviate/usecases/schema:
     interfaces:
       SchemaGetter:
   github.com/weaviate/weaviate/cluster/schema/types:
     interfaces:
       SchemaReader:
-  github.com/weaviate/weaviate/cluster/schema:
-    interfaces:
-      replicationFSM:
   github.com/weaviate/weaviate/usecases/auth/authorization:
     interfaces:
       Controller:
@@ -53,9 +54,26 @@ packages:
     interfaces:
       TaskCleaner:
       TaskCompletionRecorder:
+  github.com/weaviate/weaviate/cluster/replication/copier:
+    interfaces:
+      FileReplicationServiceClient:
+      FileMetadataStream:
+      FileChunkStream:
   github.com/weaviate/weaviate/cluster/replication/copier/types:
     interfaces:
       RemoteIndex:
   github.com/weaviate/weaviate/entities/moduletools:
     interfaces:
       ModuleInitParams:
+  github.com/weaviate/weaviate/cluster/usage:
+    interfaces:
+      Service:
+  github.com/weaviate/weaviate/adapters/repos/db:
+    interfaces:
+      ShardLike:
+      IndexGetter:
+      IndexLike:
+      VectorIndex:
+  github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers:
+    interfaces:
+      CompressionStats:

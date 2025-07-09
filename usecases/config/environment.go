@@ -47,8 +47,9 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
-	DefaultReplicationEngineMaxWorkers     = 10
-	DefaultReplicaMovementMinimumAsyncWait = 60 * time.Second
+	DefaultReplicationEngineMaxWorkers      = 10
+	DefaultReplicaMovementMinimumAsyncWait  = 60 * time.Second
+	DefaultReplicationEngineFileCopyWorkers = 10
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 )
@@ -166,34 +167,51 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
+		var (
+			skipClientCheck bool
+			issuer          string
+			clientID        string
+			scopes          []string
+			userClaim       string
+			groupsClaim     string
+			certificate     string
+		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
-			config.Authentication.OIDC.SkipClientIDCheck = true
+			skipClientCheck = true
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
-			config.Authentication.OIDC.Issuer = v
+			issuer = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_CLIENT_ID"); v != "" {
-			config.Authentication.OIDC.ClientID = v
+			clientID = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_SCOPES"); v != "" {
-			config.Authentication.OIDC.Scopes = strings.Split(v, ",")
+			scopes = strings.Split(v, ",")
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_USERNAME_CLAIM"); v != "" {
-			config.Authentication.OIDC.UsernameClaim = v
+			userClaim = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
-			config.Authentication.OIDC.GroupsClaim = v
+			groupsClaim = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
-			config.Authentication.OIDC.Certificate = v
+			certificate = v
 		}
+
+		config.Authentication.OIDC.SkipClientIDCheck = runtime.NewDynamicValue(skipClientCheck)
+		config.Authentication.OIDC.Issuer = runtime.NewDynamicValue(issuer)
+		config.Authentication.OIDC.ClientID = runtime.NewDynamicValue(clientID)
+		config.Authentication.OIDC.Scopes = runtime.NewDynamicValue(scopes)
+		config.Authentication.OIDC.UsernameClaim = runtime.NewDynamicValue(userClaim)
+		config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(groupsClaim)
+		config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(certificate)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -242,6 +260,10 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) || entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_ENABLED")) {
 		config.Authorization.Rbac.Enabled = true
 
+		if entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_IP_IN_AUDIT_LOG_DISABLED")) {
+			config.Authorization.Rbac.IpInAuditDisabled = true
+		}
+
 		adminsString, ok := os.LookupEnv("AUTHORIZATION_RBAC_ROOT_USERS")
 		if ok {
 			config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
@@ -257,9 +279,25 @@ func FromEnv(config *Config) error {
 			config.Authorization.Rbac.RootGroups = strings.Split(groupString, ",")
 		}
 
-		viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
+		viewerGroupString, ok := os.LookupEnv("AUTHORIZATION_RBAC_READONLY_GROUPS")
 		if ok {
-			config.Authorization.Rbac.ViewerRootGroups = strings.Split(viewerGroupString, ",")
+			config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+		} else {
+			// delete this after 1.30.11 + 1.31.3 is the minimum version in WCD
+			viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
+			if ok {
+				config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+			}
+		}
+
+		readOnlyUsersString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_USERS")
+		if ok {
+			config.Authorization.Rbac.ViewerUsers = strings.Split(readOnlyUsersString, ",")
+		}
+
+		adminUsersString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_ADMIN_USERS")
+		if ok {
+			config.Authorization.Rbac.AdminUsers = strings.Split(adminUsersString, ",")
 		}
 	}
 
@@ -309,6 +347,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.MinMMapSize = parsed
 	} else {
 		config.Persistence.MinMMapSize = DefaultPersistenceMinMMapSize
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LAZY_SEGMENTS_DISABLED")) {
+		config.Persistence.LazySegmentsDisabled = true
 	}
 
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
@@ -449,6 +491,10 @@ func FromEnv(config *Config) error {
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
 			DefaultMapToBlockmaxPauseDurationSeconds)
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PER_OBJECT_DELAY_MILLISECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds = val },
+			DefaultMapToBlockmaxPerObjectDelayMilliseconds)
+
 		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
 		if err != nil {
 			return err
@@ -750,8 +796,12 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
-	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
-		config.ReplicaMovementEnabled = entcfg.Enabled(v)
+	if v := os.Getenv("DISTRIBUTED_TASKS_ENABLED"); v != "" {
+		config.DistributedTasks.Enabled = entcfg.Enabled(v)
+	}
+
+	if v := os.Getenv("REPLICA_MOVEMENT_DISABLED"); v != "" {
+		config.ReplicaMovementDisabled = entcfg.Enabled(v)
 	}
 
 	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {
@@ -993,6 +1043,14 @@ func (c *Config) parseMemtableConfig() error {
 		"REPLICATION_ENGINE_MAX_WORKERS",
 		func(val int) { c.ReplicationEngineMaxWorkers = val },
 		DefaultReplicationEngineMaxWorkers,
+	); err != nil {
+		return err
+	}
+
+	if err := parsePositiveInt(
+		"REPLICATION_ENGINE_FILE_COPY_WORKERS",
+		func(val int) { c.ReplicationEngineFileCopyWorkers = val },
+		DefaultReplicationEngineFileCopyWorkers,
 	); err != nil {
 		return err
 	}
@@ -1243,11 +1301,6 @@ func parseClusterConfig() (cluster.Config, error) {
 		// it is convention in this server that the data bind point is
 		// equal to the data bind port + 1
 		cfg.DataBindPort = cfg.GossipBindPort + 1
-	}
-
-	if cfg.DataBindPort != cfg.GossipBindPort+1 {
-		return cfg, fmt.Errorf("CLUSTER_DATA_BIND_PORT must be one port " +
-			"number greater than CLUSTER_GOSSIP_BIND_PORT")
 	}
 
 	cfg.IgnoreStartupSchemaSync = entcfg.Enabled(

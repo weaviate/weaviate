@@ -51,14 +51,14 @@ type ListReplicationParams struct {
 	  In: query
 	*/
 	IncludeHistory *bool
-	/*The ID of the target node to get details for.
-	  In: query
-	*/
-	NodeID *string
 	/*The shard to get details for.
 	  In: query
 	*/
 	Shard *string
+	/*The name of the target node to get details for.
+	  In: query
+	*/
+	TargetNode *string
 }
 
 // BindRequest both binds and validates a request, it assumes that complex things implement a Validatable(strfmt.Registry) error interface
@@ -82,13 +82,13 @@ func (o *ListReplicationParams) BindRequest(r *http.Request, route *middleware.M
 		res = append(res, err)
 	}
 
-	qNodeID, qhkNodeID, _ := qs.GetOK("nodeId")
-	if err := o.bindNodeID(qNodeID, qhkNodeID, route.Formats); err != nil {
+	qShard, qhkShard, _ := qs.GetOK("shard")
+	if err := o.bindShard(qShard, qhkShard, route.Formats); err != nil {
 		res = append(res, err)
 	}
 
-	qShard, qhkShard, _ := qs.GetOK("shard")
-	if err := o.bindShard(qShard, qhkShard, route.Formats); err != nil {
+	qTargetNode, qhkTargetNode, _ := qs.GetOK("targetNode")
+	if err := o.bindTargetNode(qTargetNode, qhkTargetNode, route.Formats); err != nil {
 		res = append(res, err)
 	}
 	if len(res) > 0 {
@@ -138,24 +138,6 @@ func (o *ListReplicationParams) bindIncludeHistory(rawData []string, hasKey bool
 	return nil
 }
 
-// bindNodeID binds and validates parameter NodeID from query.
-func (o *ListReplicationParams) bindNodeID(rawData []string, hasKey bool, formats strfmt.Registry) error {
-	var raw string
-	if len(rawData) > 0 {
-		raw = rawData[len(rawData)-1]
-	}
-
-	// Required: false
-	// AllowEmptyValue: false
-
-	if raw == "" { // empty values pass all other validations
-		return nil
-	}
-	o.NodeID = &raw
-
-	return nil
-}
-
 // bindShard binds and validates parameter Shard from query.
 func (o *ListReplicationParams) bindShard(rawData []string, hasKey bool, formats strfmt.Registry) error {
 	var raw string
@@ -170,6 +152,24 @@ func (o *ListReplicationParams) bindShard(rawData []string, hasKey bool, formats
 		return nil
 	}
 	o.Shard = &raw
+
+	return nil
+}
+
+// bindTargetNode binds and validates parameter TargetNode from query.
+func (o *ListReplicationParams) bindTargetNode(rawData []string, hasKey bool, formats strfmt.Registry) error {
+	var raw string
+	if len(rawData) > 0 {
+		raw = rawData[len(rawData)-1]
+	}
+
+	// Required: false
+	// AllowEmptyValue: false
+
+	if raw == "" { // empty values pass all other validations
+		return nil
+	}
+	o.TargetNode = &raw
 
 	return nil
 }

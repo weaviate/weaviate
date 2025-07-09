@@ -117,3 +117,19 @@ type QueryClassVersionsResponse struct {
 	// Classes is a map of class name to the class version
 	Classes map[string]uint64
 }
+
+type QueryResolveAliasRequest struct {
+	Alias string
+}
+
+type QueryResolveAliasResponse struct {
+	Class string
+}
+
+type QueryGetAliasesRequest struct {
+	Alias, Class string
+}
+
+type QueryGetAliasesResponse struct {
+	Aliases map[string]string
+}

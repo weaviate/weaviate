@@ -23,10 +23,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 
 	"github.com/weaviate/weaviate/entities/backup"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
 )
 
@@ -148,6 +148,11 @@ func Test_Authorization(t *testing.T) {
 
 				modcapabilities.On("Initialize", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil).Maybe()
 
+				// AllBackups mock expectation for List method
+				if test.methodName == "List" {
+					modcapabilities.On("AllBackups", mock.Anything).Return([]*backup.DistributedBackupDescriptor{&dd}, nil)
+				}
+
 				nodeResolver.On("NodeCount").Return(1).Maybe()
 				nodeResolver.On("LeaderID").Return("node-0").Maybe()
 				nodeResolver.On("AllNames").Return([]string{"node-0"}).Maybe()
@@ -161,7 +166,7 @@ func Test_Authorization(t *testing.T) {
 				require.NotNil(t, s)
 
 				if !test.ignoreAuthZ {
-					authorizer.On("Authorize", mock.Anything, test.expectedVerb, test.expectedResource).Return(nil)
+					authorizer.On("Authorize", mock.Anything, mock.Anything, test.expectedVerb, test.expectedResource).Return(nil)
 				}
 
 				args := append([]interface{}{context.Background(), &models.Principal{}}, test.additionalArgs...)

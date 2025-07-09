@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -119,6 +120,7 @@ type dynamic struct {
 	cancel                context.CancelFunc
 	hnswDisableSnapshots  bool
 	hnswSnapshotOnStartup bool
+	LazyLoadSegments      bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -144,6 +146,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		DistanceProvider: cfg.DistanceProvider,
 		MinMMapSize:      cfg.MinMMapSize,
 		MaxWalReuseSize:  cfg.MaxWalReuseSize,
+		LazyLoadSegments: cfg.LazyLoadSegments,
+		AllocChecker:     cfg.AllocChecker,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -169,6 +173,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		cancel:                cancel,
 		hnswDisableSnapshots:  cfg.HNSWDisableSnapshots,
 		hnswSnapshotOnStartup: cfg.HNSWSnapshotOnStartup,
+		LazyLoadSegments:      cfg.LazyLoadSegments,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
@@ -212,6 +217,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				MakeCommitLoggerThunk: index.makeCommitLoggerThunk,
 				DisableSnapshots:      index.hnswDisableSnapshots,
 				SnapshotOnStartup:     index.hnswSnapshotOnStartup,
+				LazyLoadSegments:      index.LazyLoadSegments,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
@@ -596,7 +602,22 @@ func (dynamic *dynamic) Iterate(fn func(id uint64) bool) {
 }
 
 func (dynamic *dynamic) Stats() (common.IndexStats, error) {
-	return &DynamicStats{}, errors.New("Stats() is not implemented for dynamic index")
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Stats()
+}
+
+func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+
+	// Delegate to the underlying index (flat or hnsw)
+	if vectorIndex, ok := dynamic.index.(compressionhelpers.CompressionStats); ok {
+		return vectorIndex
+	}
+
+	// Fallback: return uncompressed stats if the underlying index doesn't support CompressionStats
+	return compressionhelpers.UncompressedStats{}
 }
 
 type DynamicStats struct{}

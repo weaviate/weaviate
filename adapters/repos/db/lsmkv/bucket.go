@@ -24,8 +24,7 @@ import (
 	"sync"
 	"time"
 
-	entcfg "github.com/weaviate/weaviate/entities/config"
-	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/diskio"
 
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
@@ -36,9 +35,11 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/interval"
 	"github.com/weaviate/weaviate/entities/lsmkv"
+	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	"github.com/weaviate/weaviate/entities/storobj"
@@ -127,8 +128,14 @@ type Bucket struct {
 	// ON by default
 	calcCountNetAdditions bool
 
-	forceCompaction   bool
-	disableCompaction bool
+	forceCompaction    bool
+	disableCompaction  bool
+	lazySegmentLoading bool
+
+	// if true, don't increase the segment level during compaction.
+	// useful for migrations, as it allows to merge reindex and ingest buckets
+	// without discontinuities in segment levels.
+	keepLevelCompaction bool
 
 	// optionally supplied to prevent starting memory-intensive
 	// processes when memory pressure is high
@@ -181,6 +188,11 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		return nil, err
 	}
 
+	files, err := diskio.GetFileWithSizes(dir)
+	if err != nil {
+		return nil, err
+	}
+
 	b := &Bucket{
 		dir:                   dir,
 		rootDir:               rootDir,
@@ -192,7 +204,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 		logger:                logger,
 		metrics:               metrics,
 		useBloomFilter:        true,
-		calcCountNetAdditions: true,
+		calcCountNetAdditions: false,
 		haltedFlushTimer:      interval.NewBackoffTimer(),
 	}
 
@@ -227,7 +239,8 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 			keepSegmentsInMemory:     b.keepSegmentsInMemory,
 			MinMMapSize:              b.minMMapSize,
 			bm25config:               b.bm25Config,
-		}, b.allocChecker)
+			keepLevelCompaction:      b.keepLevelCompaction,
+		}, b.allocChecker, b.lazySegmentLoading, files)
 	if err != nil {
 		return nil, fmt.Errorf("init disk segments: %w", err)
 	}
@@ -239,7 +252,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	// (memtables will be created later on, with already modified strategy)
 	// TODO what if only WAL files exists, and there is no segment to get actual strategy?
 	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategySetCollection {
+		sg.segments[0].getStrategy() == segmentindex.StrategySetCollection {
 		b.strategy = StrategySetCollection
 		b.desiredStrategy = StrategyRoaringSet
 		sg.strategy = StrategySetCollection
@@ -252,7 +265,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	// renamed on startup by migrator. Here actual strategy is set based on
 	// data found in segment files
 	if b.strategy == StrategyRoaringSet && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+		sg.segments[0].getStrategy() == segmentindex.StrategyMapCollection {
 		b.strategy = StrategyMapCollection
 		b.desiredStrategy = StrategyRoaringSet
 		sg.strategy = StrategyMapCollection
@@ -265,12 +278,12 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	// The changes only apply when we have segments on disk,
 	// as the memtables will always be created with the MapCollection strategy.
 	if b.strategy == StrategyInverted && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyMapCollection {
+		sg.segments[0].getStrategy() == segmentindex.StrategyMapCollection {
 		b.strategy = StrategyMapCollection
 		b.desiredStrategy = StrategyInverted
 		sg.strategy = StrategyMapCollection
 	} else if b.strategy == StrategyMapCollection && len(sg.segments) > 0 &&
-		sg.segments[0].strategy == segmentindex.StrategyInverted {
+		sg.segments[0].getStrategy() == segmentindex.StrategyInverted {
 		// TODO amourao: blockmax "else" to be removed before final release
 		// in case bucket was created as inverted and default strategy was reverted to map
 		// by unsetting corresponding env variable
@@ -281,7 +294,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 
 	b.disk = sg
 
-	if err := b.mayRecoverFromCommitLogs(ctx); err != nil {
+	if err := b.mayRecoverFromCommitLogs(ctx, files); err != nil {
 		return nil, err
 	}
 
@@ -296,7 +309,7 @@ func (*Bucket) NewBucket(ctx context.Context, dir, rootDir string, logger logrus
 	// and other operations are based on the creation order of the segments
 
 	sort.Slice(b.disk.segments, func(i, j int) bool {
-		return b.disk.segments[i].path < b.disk.segments[j].path
+		return b.disk.segments[i].getPath() < b.disk.segments[j].getPath()
 	})
 
 	if b.active == nil {
@@ -386,6 +399,8 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 	onDiskCursor := b.CursorOnDisk()
 	defer onDiskCursor.Close()
 
+	inmemProcessedDocIDs := make(map[uint64]struct{})
+
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
 	err := func() error {
 		inMemCursor := b.CursorInMem()
@@ -403,6 +418,8 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 				if err := f(obj); err != nil {
 					return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 				}
+
+				inmemProcessedDocIDs[obj.DocID] = struct{}{}
 			}
 		}
 
@@ -421,6 +438,11 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context, f func(object *storob
 			if err != nil {
 				return fmt.Errorf("cannot unmarshal object: %w", err)
 			}
+
+			if _, ok := inmemProcessedDocIDs[obj.DocID]; ok {
+				continue
+			}
+
 			if err := f(obj); err != nil {
 				return fmt.Errorf("callback on object '%d' failed: %w", obj.DocID, err)
 			}
@@ -891,8 +913,9 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		}
 
 		propLengths := make(map[uint64]uint32)
-		if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
-			propLengths, err = segmentsDisk[i].GetPropertyLengths()
+		if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
+			sgm := segmentsDisk[i].getSegment()
+			propLengths, err = sgm.GetPropertyLengths()
 			if err != nil {
 				return nil, err
 			}
@@ -902,7 +925,7 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 		for j, v := range disk[i] {
 			// Inverted segments have a slightly different internal format
 			// and separate property lengths that need to be read.
-			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+			if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
 				if err := segmentDecoded[j].FromBytesInverted(v.value, false); err != nil {
 					return nil, err
 				}
@@ -974,11 +997,11 @@ func (b *Bucket) MapList(ctx context.Context, key []byte, cfgs ...MapListOption)
 	return newSortedMapMerger().do(ctx, segments)
 }
 
-func (b *Bucket) loadAllTombstones(segmentsDisk []*segment) ([]*sroar.Bitmap, error) {
+func (b *Bucket) loadAllTombstones(segmentsDisk []Segment) ([]*sroar.Bitmap, error) {
 	hasTombstones := false
 	allTombstones := make([]*sroar.Bitmap, len(segmentsDisk)+2)
 	for i, segment := range segmentsDisk {
-		if segment.strategy == segmentindex.StrategyInverted {
+		if segment.getStrategy() == segmentindex.StrategyInverted {
 			tombstones, err := segment.ReadOnlyTombstones()
 			if err != nil {
 				return nil, err
@@ -1585,8 +1608,10 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 			return nil, ctx.Err()
 		}
 		propLengths := make(map[uint64]uint32)
-		if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
-			propLengths, err = segmentsDisk[i].GetPropertyLengths()
+		if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
+			sgm := segmentsDisk[i].getSegment()
+
+			propLengths, err = sgm.GetPropertyLengths()
 			if err != nil {
 				return nil, err
 			}
@@ -1594,7 +1619,7 @@ func (b *Bucket) DocPointerWithScoreList(ctx context.Context, key []byte, propBo
 
 		segmentDecoded := make([]terms.DocPointerWithScore, len(disk[i]))
 		for j, v := range disk[i] {
-			if segmentsDisk[i].strategy == segmentindex.StrategyInverted {
+			if segmentsDisk[i].getStrategy() == segmentindex.StrategyInverted {
 				docId := binary.BigEndian.Uint64(v.value[:8])
 				propLen := propLengths[docId]
 				if err := segmentDecoded[j].FromBytesInverted(v.value, propBoost, float32(propLen)); err != nil {
@@ -1745,8 +1770,9 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 
 		for _, segment := range segmentsDisk {
-			if segment.strategy == segmentindex.StrategyInverted && segment.hasKey(key) {
-				n += segment.getDocCount(key)
+			sgm := segment.getSegment()
+			if segment.getStrategy() == segmentindex.StrategyInverted && sgm.hasKey(key) {
+				n += sgm.getDocCount(key)
 			}
 		}
 
@@ -1777,7 +1803,7 @@ func (b *Bucket) CreateDiskTerm(N float64, filterDocIds helpers.AllowList, query
 		}
 
 		for i, key := range query {
-			term := NewSegmentBlockMax(segment, []byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
+			term := NewSegmentBlockMax(segment.getSegment(), []byte(key), i, idfs[i], propertyBoost, allTombstones, filterDocIds, averagePropLength, config)
 			if term != nil {
 				output[j] = append(output[j], term)
 			}
@@ -1884,4 +1910,20 @@ func (b *Bucket) GetAveragePropertyLength() (float64, error) {
 		return 0, nil
 	}
 	return float64(propLengthSum) / float64(propLengthCount), nil
+}
+
+// DiskSize returns the total size from the disk segment group (cold path)
+func (b *Bucket) DiskSize() int64 {
+	if b.disk != nil {
+		return b.disk.Size()
+	}
+	return 0
+}
+
+// MetadataSize returns the total size of metadata files (.bloom and .cna) from segments in memory
+func (b *Bucket) MetadataSize() int64 {
+	if b.disk == nil {
+		return 0
+	}
+	return b.disk.MetadataSize()
 }

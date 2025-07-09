@@ -74,6 +74,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		"/replication/replicate/{id}", // for the same reason as backups above
 		"/replication/replicate/{id}/cancel",
 		"/replication/sharding-state",
+		"/tasks",                // tasks is internal endpoint
 		"/classifications/{id}", // requires to get classification by id first before checking of authz permissions
 	}
 
@@ -99,6 +100,7 @@ func TestAuthzAllEndpointsNoPermissionDynamically(t *testing.T) {
 		url = strings.ReplaceAll(url, "{propertyName}", "someProperty")
 		url = strings.ReplaceAll(url, "{user_id}", "admin-user")
 		url = strings.ReplaceAll(url, "{userType}", "db")
+		url = strings.ReplaceAll(url, "{aliasName}", "alias")
 
 		t.Run(url+"("+strings.ToUpper(endpoint.method)+")", func(t *testing.T) {
 			require.NotContains(t, url, "{")

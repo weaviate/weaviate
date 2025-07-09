@@ -29,8 +29,8 @@ import (
 
 func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperations() {
 	t := suite.T()
-
 	helper.SetupClient(suite.compose.GetWeaviate().URI())
+
 	paragraphClass := articles.ParagraphsClass()
 
 	stateToDeleteIn := []api.ShardReplicationState{
@@ -82,7 +82,7 @@ func (suite *ReplicationTestSuite) TestReplicationDeletingClassCleansUpOperation
 				_, err := helper.Client(t).Replication.ReplicationDetails(replication.NewReplicationDetailsParams().WithID(id), nil)
 				require.NotNil(ct, err)
 				assert.IsType(ct, replication.NewReplicationDetailsNotFound(), err)
-			}, 30*time.Second, 1*time.Second, "replication operation should be deleted")
+			}, 60*time.Second, 1*time.Second, fmt.Sprintf("replication operation should be deleted: %s", id))
 		})
 
 		t.Run("assert that async replication is not running in any of the nodes", func(t *testing.T) {

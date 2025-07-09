@@ -42,7 +42,7 @@ func TestAuthZTenants(t *testing.T) {
 	ctx := context.Background()
 	compose, err := docker.New().WithWeaviateWithGRPC().
 		WithApiKey().WithUserApiKey(adminUser, adminKey).WithUserApiKey(customUser, customKey).
-		WithRBAC().WithRbacAdmins(adminUser).
+		WithRBAC().WithRbacRoots(adminUser).
 		WithBackendFilesystem().
 		Start(ctx)
 	require.NoError(t, err)

@@ -55,7 +55,7 @@ func TestHandler_ListTasks(t *testing.T) {
 		h = NewHandler(authorizer, lister)
 	)
 
-	authorizer.EXPECT().Authorize(mock.Anything, authorization.READ, authorization.Cluster()).Return(nil)
+	authorizer.EXPECT().Authorize(mock.Anything, mock.Anything, authorization.READ, authorization.Cluster()).Return(nil)
 
 	tasks, err := h.ListTasks(context.Background(), &models.Principal{})
 	require.NoError(t, err)

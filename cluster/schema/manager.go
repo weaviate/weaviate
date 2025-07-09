@@ -21,11 +21,10 @@ import (
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
-	gproto "google.golang.org/protobuf/proto"
-
 	command "github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/usecases/sharding"
+	gproto "google.golang.org/protobuf/proto"
 )
 
 var (
@@ -89,15 +88,26 @@ func (s *SchemaManager) SetReplicationFSM(fsm replicationFSM) {
 	s.replicationFSM = fsm
 }
 
-func (s *SchemaManager) Snapshot() ([]byte, error) {
+func (s *SchemaManager) SchemaSnapshot() ([]byte, error) {
 	var buf bytes.Buffer
 
 	err := json.NewEncoder(&buf).Encode(s.schema.MetaClasses())
 	return buf.Bytes(), err
 }
 
+func (s *SchemaManager) AliasSnapshot() ([]byte, error) {
+	var buf bytes.Buffer
+
+	err := json.NewEncoder(&buf).Encode(s.schema.aliases)
+	return buf.Bytes(), err
+}
+
 func (s *SchemaManager) Restore(data []byte, parser Parser) error {
 	return s.schema.Restore(data, parser)
+}
+
+func (s *SchemaManager) RestoreAliases(data []byte) error {
+	return s.schema.RestoreAlias(data)
 }
 
 func (s *SchemaManager) RestoreLegacy(data []byte, parser Parser) error {
@@ -153,6 +163,7 @@ func (s *SchemaManager) Close(ctx context.Context) (err error) {
 
 func (s *SchemaManager) AddClass(cmd *command.ApplyRequest, nodeID string, schemaOnly bool, enableSchemaCallback bool) error {
 	req := command.AddClassRequest{}
+	// dupa
 	if err := json.Unmarshal(cmd.SubCommand, &req); err != nil {
 		return fmt.Errorf("%w: %w", ErrBadRequest, err)
 	}

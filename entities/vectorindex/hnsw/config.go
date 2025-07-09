@@ -38,8 +38,9 @@ const (
 	DefaultFilterStrategy = FilterStrategySweeping
 
 	// Fail validation if those criteria are not met
-	MinmumMaxConnections = 4
-	MinmumEFConstruction = 4
+	MinmumMaxConnections  = 4
+	MaximumMaxConnections = 2047
+	MinmumEFConstruction  = 4
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -58,6 +59,7 @@ type UserConfig struct {
 	PQ                     PQConfig          `json:"pq"`
 	BQ                     BQConfig          `json:"bq"`
 	SQ                     SQConfig          `json:"sq"`
+	RQ                     RQConfig          `json:"rq"`
 	FilterStrategy         string            `json:"filterStrategy"`
 	Multivector            MultivectorConfig `json:"multivector"`
 }
@@ -107,6 +109,11 @@ func (u *UserConfig) SetDefaults() {
 		Enabled:       DefaultSQEnabled,
 		TrainingLimit: DefaultSQTrainingLimit,
 		RescoreLimit:  DefaultSQRescoreLimit,
+	}
+	u.RQ = RQConfig{
+		Enabled:      DefaultRQEnabled,
+		Bits:         DefaultRQBits,
+		RescoreLimit: DefaultRQRescoreLimit,
 	}
 	if strategy := os.Getenv("HNSW_DEFAULT_FILTER_STRATEGY"); strategy == FilterStrategyAcorn {
 		u.FilterStrategy = FilterStrategyAcorn
@@ -218,6 +225,10 @@ func ParseAndValidateConfig(input interface{}, isMultiVector bool) (config.Vecto
 		return uc, err
 	}
 
+	if err := parseRQMap(asMap, &uc.RQ); err != nil {
+		return uc, err
+	}
+
 	if err := vectorIndexCommon.OptionalStringFromMap(asMap, "filterStrategy", func(v string) {
 		uc.FilterStrategy = v
 	}); err != nil {
@@ -237,6 +248,13 @@ func (u *UserConfig) validate() error {
 		errMsgs = append(errMsgs, fmt.Sprintf(
 			"maxConnections must be a positive integer with a minimum of %d",
 			MinmumMaxConnections,
+		))
+	}
+
+	if u.MaxConnections > MaximumMaxConnections {
+		errMsgs = append(errMsgs, fmt.Sprintf(
+			"maxConnections must be less than %d",
+			MaximumMaxConnections+1,
 		))
 	}
 
@@ -264,6 +282,9 @@ func (u *UserConfig) validate() error {
 		enabled++
 	}
 	if u.SQ.Enabled {
+		enabled++
+	}
+	if u.RQ.Enabled {
 		enabled++
 	}
 	if enabled > 1 {

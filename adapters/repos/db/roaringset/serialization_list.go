@@ -146,19 +146,10 @@ func NewSegmentNodeList(
 		return nil, fmt.Errorf("key too long, max length is %d", math.MaxUint32)
 	}
 
-	// convert the additions and deletions []uint64 to byte slices
-	additionsBuf := make([]byte, 8*len(additions))
-	for i, v := range additions {
-		binary.LittleEndian.PutUint64(additionsBuf[i*8:], v)
-	}
-
-	deletionsBuf := make([]byte, 8*len(deletions))
-	for i, v := range deletions {
-		binary.LittleEndian.PutUint64(deletionsBuf[i*8:], v)
-	}
-
 	// offset + 2*uint64 length indicators + uint32 length indicator + payloads
-	expectedSize := 8 + 8 + 8 + 4 + len(additionsBuf) + len(deletionsBuf) + len(key)
+	lenAdditions := 8 * len(additions)
+	lenDeletions := 8 * len(deletions)
+	expectedSize := 8 + 8 + 8 + 4 + lenAdditions + lenDeletions + len(key)
 	sn := SegmentNodeList{
 		data: make([]byte, expectedSize),
 	}
@@ -168,12 +159,13 @@ func NewSegmentNodeList(
 	// reserve the first 8 bytes for the offset, which we will write at the very
 	// end
 	rw.MoveBufferPositionForward(8)
-	if err := rw.CopyBytesToBufferWithUint64LengthIndicator(additionsBuf); err != nil {
-		return nil, err
+	rw.WriteUint64(uint64(lenAdditions))
+	for _, v := range additions {
+		rw.WriteUint64(v)
 	}
-
-	if err := rw.CopyBytesToBufferWithUint64LengthIndicator(deletionsBuf); err != nil {
-		return nil, err
+	rw.WriteUint64(uint64(lenDeletions))
+	for _, v := range deletions {
+		rw.WriteUint64(v)
 	}
 
 	if err := rw.CopyBytesToBufferWithUint32LengthIndicator(key); err != nil {

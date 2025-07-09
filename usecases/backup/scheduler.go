@@ -127,7 +127,7 @@ func (s *Scheduler) Backup(ctx context.Context, pr *models.Principal, req *Backu
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Backups(classes...)...); err != nil {
+	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(classes...)...); err != nil {
 		return nil, err
 	}
 
@@ -181,7 +181,7 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 		return nil, backup.NewErrUnprocessable(err)
 	}
 
-	if err := s.authorizer.Authorize(pr, authorization.CREATE, authorization.Backups(meta.Classes()...)...); err != nil {
+	if err := s.authorizer.Authorize(ctx, pr, authorization.CREATE, authorization.Backups(meta.Classes()...)...); err != nil {
 		return nil, err
 	}
 
@@ -198,13 +198,15 @@ func (s *Scheduler) Restore(ctx context.Context, pr *models.Principal,
 	}
 
 	rReq := Request{
-		Method:      OpRestore,
-		ID:          req.ID,
-		Backend:     req.Backend,
-		Compression: req.Compression,
-		Classes:     meta.Classes(),
-		Bucket:      req.Bucket,
-		Path:        req.Path,
+		Method:            OpRestore,
+		ID:                req.ID,
+		Backend:           req.Backend,
+		Compression:       req.Compression,
+		Classes:           meta.Classes(),
+		Bucket:            req.Bucket,
+		Path:              req.Path,
+		UserRestoreOption: req.UserRestoreOption,
+		RbacRestoreOption: req.RbacRestoreOption,
 	}
 	err = s.restorer.Restore(ctx, store, &rReq, meta, schema)
 	if err != nil {
@@ -278,7 +280,7 @@ func (s *Scheduler) Cancel(ctx context.Context, principal *models.Principal, bac
 
 	meta, _ := store.Meta(ctx, GlobalBackupFile, overrideBucket, overridePath)
 	if meta != nil {
-		if err := s.authorizer.Authorize(principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
+		if err := s.authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.Backups(meta.Classes()...)...); err != nil {
 			return err
 		}
 		// if existed meta and not in the next cases shall be cancellable
@@ -313,8 +315,26 @@ func (s *Scheduler) List(ctx context.Context, principal *models.Principal, backe
 		logOperation(s.logger, "list_backup", "", backend, time.Now(), err)
 	}(time.Now())
 
-	// TODO : wire it with newly implemented list backups
-	return nil, fmt.Errorf("not implemented")
+	backupBackend, err := s.backends.BackupBackend(backend)
+	if err != nil {
+		return nil, err
+	}
+
+	backups, err := backupBackend.AllBackups(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	response := make(models.BackupListResponse, len(backups))
+	for i, b := range backups {
+		response[i] = &models.BackupListResponseItems0{
+			ID:      b.ID,
+			Status:  string(b.Status),
+			Classes: b.Classes(),
+		}
+	}
+
+	return &response, nil
 }
 
 func coordBackend(provider BackupBackendProvider, backend, id, overrideBucket, overridePath string) (coordStore, error) {

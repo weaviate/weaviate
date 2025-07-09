@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package usage
+package usagegcs
 
 import (
 	"github.com/prometheus/client_golang/prometheus"

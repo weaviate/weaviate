@@ -59,7 +59,7 @@ func (m *HuggingFaceModule) Name() string {
 }
 
 func (m *HuggingFaceModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *HuggingFaceModule) Init(ctx context.Context,

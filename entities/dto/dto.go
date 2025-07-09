@@ -65,7 +65,8 @@ type GetParams struct {
 	AdditionalProperties    additional.Properties
 	ReplicationProperties   *additional.ReplicationProperties
 	Tenant                  string
-	IsRefOrigin             bool // is created by ref filter
+	IsRefOrigin             bool   // is created by ref filter
+	Alias                   string // used only to transfer alias passed in search request, not used for actual search
 }
 
 type Embedding interface {

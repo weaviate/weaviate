@@ -43,6 +43,10 @@ func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
 	return f.schema.GetClass(class)
 }
 
+func (f *fakeSchemaGetter) ResolveAlias(string) string {
+	return ""
+}
+
 func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {
 	panic("not implemented")
 }

@@ -12,6 +12,7 @@
 package rbac
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,7 +39,7 @@ func TestAuthorize(t *testing.T) {
 		verb          string
 		resources     []string
 		skipAudit     bool
-		setupPolicies func(*manager) error
+		setupPolicies func(*Manager) error
 		wantErr       bool
 		errContains   string
 	}{
@@ -69,7 +70,7 @@ func TestAuthorize(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"), "*", authorization.SchemaDomain, authorization.READ)
 				if err != nil {
 					return err
@@ -105,7 +106,7 @@ func TestAuthorize(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("partial"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
 				if err != nil {
 					return err
@@ -131,7 +132,7 @@ func TestAuthorize(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("group-role"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
 				if err != nil {
 					return err
@@ -157,7 +158,7 @@ func TestAuthorize(t *testing.T) {
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1"),
 			skipAudit: true,
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("audit-role"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
 				if err != nil {
 					return err
@@ -189,7 +190,7 @@ func TestAuthorize(t *testing.T) {
 			}
 
 			// Execute
-			err = m.authorize(tt.principal, tt.verb, tt.skipAudit, tt.resources...)
+			err = m.authorize(context.Background(), tt.principal, tt.verb, tt.skipAudit, tt.resources...)
 
 			// Assert error conditions
 			if tt.wantErr {
@@ -234,7 +235,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 		principal     *models.Principal
 		verb          string
 		resources     []string
-		setupPolicies func(*manager) error
+		setupPolicies func(*Manager) error
 		wantResources []string
 		wantErr       bool
 		errType       error
@@ -255,7 +256,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("admin"),
 					"*", authorization.READ, authorization.SchemaDomain)
 				if err != nil {
@@ -281,7 +282,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("limited"),
 					authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain)
 				if err != nil {
@@ -316,7 +317,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				_, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("collections-admin"),
 					authorization.CollectionsMetadata()[0], authorization.READ, authorization.SchemaDomain)
 				if err != nil {
@@ -353,7 +354,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			},
 			verb:      authorization.READ,
 			resources: authorization.CollectionsMetadata("Test1", "Test2", "Test3"),
-			setupPolicies: func(m *manager) error {
+			setupPolicies: func(m *Manager) error {
 				if _, err := m.casbin.AddNamedPolicy("p", conv.PrefixRoleName("role1"), authorization.CollectionsMetadata("Test1")[0], authorization.READ, authorization.SchemaDomain); err != nil {
 					return err
 				}
@@ -390,7 +391,7 @@ func TestFilterAuthorizedResources(t *testing.T) {
 			}
 
 			// Execute
-			got, err := m.FilterAuthorizedResources(tt.principal, tt.verb, tt.resources...)
+			got, err := m.FilterAuthorizedResources(context.Background(), tt.principal, tt.verb, tt.resources...)
 
 			// Assert
 			if tt.wantErr {
@@ -427,7 +428,7 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	require.NoError(t, err)
 
 	// Call the function
-	allowedResources, err := m.FilterAuthorizedResources(principal, authorization.READ, testResources...)
+	allowedResources, err := m.FilterAuthorizedResources(context.Background(), principal, authorization.READ, testResources...)
 	require.NoError(t, err)
 
 	// Verify logging
@@ -447,14 +448,14 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 	firstPerm := permissions[0]
 	assert.Contains(t, firstPerm, "resource", "First permission entry should contain resource field")
 	assert.Contains(t, firstPerm, "results", "First permission entry should contain results field")
-	assert.Equal(t, "Collection: Test1", firstPerm["resource"])
+	assert.Equal(t, "[Domain: collections, Collection: Test1]", firstPerm["resource"])
 	assert.Equal(t, "success", firstPerm["results"])
 
 	// Check the second permission entry
 	secondPerm := permissions[1]
 	assert.Contains(t, secondPerm, "resource", "Second permission entry should contain resource field")
 	assert.Contains(t, secondPerm, "results", "Second permission entry should contain results field")
-	assert.Equal(t, "Collection: Test2", secondPerm["resource"])
+	assert.Equal(t, "[Domain: collections, Collection: Test2]", secondPerm["resource"])
 	assert.Equal(t, "success", secondPerm["results"])
 
 	// Check other required fields
@@ -469,7 +470,7 @@ func TestFilterAuthorizedResourcesLogging(t *testing.T) {
 		"Allowed resources should match input resources")
 }
 
-func setupTestManager(t *testing.T, logger *logrus.Logger) (*manager, error) {
+func setupTestManager(t *testing.T, logger *logrus.Logger) (*Manager, error) {
 	tmpDir, err := os.MkdirTemp("", "rbac-test-*")
 	if err != nil {
 		return nil, err

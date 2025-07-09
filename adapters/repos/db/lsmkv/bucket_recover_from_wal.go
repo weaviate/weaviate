@@ -28,7 +28,7 @@ import (
 
 var logOnceWhenRecoveringFromWAL sync.Once
 
-func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
+func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, files map[string]int64) error {
 	beforeAll := time.Now()
 	defer b.metrics.TrackStartupBucketRecovery(beforeAll)
 
@@ -42,26 +42,16 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		return errors.Wrap(err, "recover commit log")
 	}
 
-	list, err := os.ReadDir(b.dir)
-	if err != nil {
-		return err
-	}
-
 	var walFileNames []string
-	for _, fileInfo := range list {
-		if filepath.Ext(fileInfo.Name()) != ".wal" {
+	for file, size := range files {
+		if filepath.Ext(file) != ".wal" {
 			// skip, this could be disk segments, etc.
 			continue
 		}
 
-		path := filepath.Join(b.dir, fileInfo.Name())
+		path := filepath.Join(b.dir, file)
 
-		stat, err := os.Stat(path)
-		if err != nil {
-			return errors.Wrap(err, "stat commit log")
-		}
-
-		if stat.Size() == 0 {
+		if size == 0 {
 			err := os.Remove(path)
 			if err != nil {
 				return errors.Wrap(err, "remove empty wal file")
@@ -69,7 +59,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 			continue
 		}
 
-		walFileNames = append(walFileNames, fileInfo.Name())
+		walFileNames = append(walFileNames, file)
 	}
 
 	if len(walFileNames) > 0 {
@@ -86,7 +76,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 
 		path := filepath.Join(b.dir, strings.TrimSuffix(fname, ".wal"))
 
-		cl, err := newCommitLogger(path, b.strategy)
+		cl, err := newCommitLogger(path, b.strategy, files[fname])
 		if err != nil {
 			return errors.Wrap(err, "init commit logger")
 		}
@@ -109,9 +99,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context) error {
 		}
 
 		meteredReader := diskio.NewMeteredReader(cl.file, b.metrics.TrackStartupReadWALDiskIO)
-		bufio.NewReaderSize(meteredReader, 32*1024)
-		err = newCommitLoggerParser(b.strategy, meteredReader, mt).Do()
-		if err != nil {
+		if err := newCommitLoggerParser(b.strategy, bufio.NewReaderSize(meteredReader, 32*1024), mt).Do(); err != nil {
 			b.logger.WithField("action", "lsm_recover_from_active_wal_corruption").
 				WithField("path", filepath.Join(b.dir, fname)).
 				Error(errors.Wrap(err, "write-ahead-log ended abruptly, some elements may not have been recovered"))

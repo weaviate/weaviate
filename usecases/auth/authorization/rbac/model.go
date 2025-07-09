@@ -184,6 +184,43 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
+	// temporary to enable import of existing keys to WCD (Admin + readonly)
+	for i := range conf.AdminUsers {
+		if strings.TrimSpace(conf.AdminUsers[i]) == "" {
+			continue
+		}
+
+		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.AdminUsers[i]) {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], models.UserTypeInputDb), conv.PrefixRoleName(authorization.Admin)); err != nil {
+				return fmt.Errorf("add role for user: %w", err)
+			}
+		}
+
+		if authNconf.OIDC.Enabled {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.AdminUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Admin)); err != nil {
+				return fmt.Errorf("add role for user: %w", err)
+			}
+		}
+	}
+
+	for i := range conf.ViewerUsers {
+		if strings.TrimSpace(conf.ViewerUsers[i]) == "" {
+			continue
+		}
+
+		if authNconf.APIKey.Enabled && slices.Contains(authNconf.APIKey.Users, conf.ViewerUsers[i]) {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], models.UserTypeInputDb), conv.PrefixRoleName(authorization.Viewer)); err != nil {
+				return fmt.Errorf("add role for user: %w", err)
+			}
+		}
+
+		if authNconf.OIDC.Enabled {
+			if _, err := enforcer.AddRoleForUser(conv.UserNameWithTypeFromId(conf.ViewerUsers[i], models.UserTypeInputOidc), conv.PrefixRoleName(authorization.Viewer)); err != nil {
+				return fmt.Errorf("add role for user: %w", err)
+			}
+		}
+	}
+
 	for _, group := range conf.RootGroups {
 		if strings.TrimSpace(group) == "" {
 			continue
@@ -193,7 +230,7 @@ func applyPredefinedRoles(enforcer *casbin.SyncedCachedEnforcer, conf rbacconf.C
 		}
 	}
 
-	for _, viewerGroup := range conf.ViewerRootGroups {
+	for _, viewerGroup := range conf.ViewerGroups {
 		if strings.TrimSpace(viewerGroup) == "" {
 			continue
 		}

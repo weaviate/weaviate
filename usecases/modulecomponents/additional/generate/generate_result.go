@@ -145,6 +145,12 @@ func (p *GenerateProvider) getProperties(result search.Result,
 		if len(properties) > 0 && !p.containsProperty(property, properties) {
 			continue
 		}
+
+		// Nil property is not useful as an input to a generative model.
+		if value == nil {
+			continue
+		}
+
 		if dt, ok := propertyDataTypes[property]; ok {
 			switch dt {
 			// todo: add rest of types

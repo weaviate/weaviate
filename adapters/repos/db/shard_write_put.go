@@ -83,10 +83,6 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 		return errors.Wrap(err, "flush prop length tracker to disk")
 	}
 
-	if err := s.mayUpsertObjectHashTree(object, uuid, status); err != nil {
-		return errors.Wrap(err, "object creation in hashtree")
-	}
-
 	return nil
 }
 
@@ -278,6 +274,10 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 			return errors.Wrap(err, "upsert object data")
 		}
 		s.metrics.PutObjectUpsertObject(before)
+
+		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
+			return errors.Wrap(err, "object creation in hashtree")
+		}
 
 		return nil
 	}(); err != nil {

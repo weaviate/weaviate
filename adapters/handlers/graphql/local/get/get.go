@@ -34,7 +34,7 @@ type ModulesProvider interface {
 }
 
 // Build the Local.Get part of the graphql tree
-func Build(schema *schema.Schema, logger logrus.FieldLogger,
+func Build(schema *schema.SchemaWithAliases, logger logrus.FieldLogger,
 	modulesProvider ModulesProvider, authorizer authorization.Authorizer,
 ) (*graphql.Field, error) {
 	if len(schema.Objects.Classes) == 0 {

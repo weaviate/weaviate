@@ -36,10 +36,11 @@ func (sg *SegmentGroup) newMapCursors() ([]innerCursorMap, func()) {
 	out := make([]innerCursorMap, len(segments))
 
 	for i, segment := range segments {
-		if segment.strategy == segmentindex.StrategyInverted {
-			out[i] = segment.newInvertedCursorReusable()
+		sgm := segment.getSegment()
+		if sgm.getStrategy() == segmentindex.StrategyInverted {
+			out[i] = sgm.newInvertedCursorReusable()
 		} else {
-			out[i] = segment.newMapCursor()
+			out[i] = sgm.newMapCursor()
 		}
 	}
 

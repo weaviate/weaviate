@@ -110,7 +110,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 
 	h.acornSearch.Store(parsed.FilterStrategy == ent.FilterStrategyAcorn)
 
-	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled {
+	if !parsed.PQ.Enabled && !parsed.BQ.Enabled && !parsed.SQ.Enabled && !parsed.RQ.Enabled {
 		callback()
 		return nil
 	}
@@ -118,6 +118,7 @@ func (h *hnsw) UpdateUserConfig(updated config.VectorIndexConfig, callback func(
 	h.pqConfig = parsed.PQ
 	h.sqConfig = parsed.SQ
 	h.bqConfig = parsed.BQ
+	h.rqConfig = parsed.RQ
 	if asyncEnabled() {
 		callback()
 		return nil
@@ -146,6 +147,12 @@ func (h *hnsw) Upgrade(callback func()) error {
 		return err
 	}
 
+	err = ent.ValidateRQConfig(h.rqConfig)
+	if err != nil {
+		callback()
+		return err
+	}
+
 	enterrors.GoWrapper(func() { h.compressThenCallback(callback) }, h.logger)
 
 	return nil
@@ -158,6 +165,7 @@ func (h *hnsw) compressThenCallback(callback func()) {
 		PQ: h.pqConfig,
 		BQ: h.bqConfig,
 		SQ: h.sqConfig,
+		RQ: h.rqConfig,
 	}
 	if err := h.compress(uc); err != nil {
 		h.logger.Error(err)
