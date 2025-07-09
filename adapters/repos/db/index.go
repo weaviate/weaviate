@@ -27,6 +27,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	clusterRouter "github.com/weaviate/weaviate/cluster/router"
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/pkg/errors"
@@ -41,7 +44,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/sorter"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
-	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/autocut"
@@ -227,6 +229,9 @@ type Index struct {
 	closed    bool
 
 	shardReindexer ShardReindexerV3
+
+	router      routerTypes.Router
+	readPlanner clusterRouter.ReadPlanner
 }
 
 func (i *Index) ID() string {
@@ -248,8 +253,8 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig,
-	router types.Router, sg schemaUC.SchemaGetter,
-	cs inverted.ClassSearcher, logger logrus.FieldLogger,
+	router routerTypes.Router, readPlanner clusterRouter.ReadPlanner,
+	sg schemaUC.SchemaGetter, cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
 	globalReplicationConfig *replication.GlobalConfig,
@@ -271,7 +276,6 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	if vectorIndexUserConfigs == nil {
 		vectorIndexUserConfigs = map[string]schemaConfig.VectorIndexConfig{}
 	}
-
 	index := &Index{
 		Config:                  cfg,
 		globalreplicationConfig: globalReplicationConfig,
@@ -293,6 +297,8 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		shardCreateLocks:        esync.NewKeyLocker(),
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
+		router:                  router,
+		readPlanner:             readPlanner,
 	}
 
 	getDeletionStrategy := func() string {
@@ -765,7 +771,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
+		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
 		}
@@ -995,7 +1001,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 			var errs []error
 			if replProps != nil {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
-					types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+					routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
 				shard, release, err := i.GetShard(ctx, shardName)
 				if err != nil {
@@ -1096,7 +1102,7 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 	for shardName, group := range byShard {
 		var errs []error
 		if i.replicationEnabled() {
-			errs = i.replicator.AddReferences(ctx, shardName, group.refs, types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+			errs = i.replicator.AddReferences(ctx, shardName, group.refs, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else {
 			shard, release, err := i.GetShard(ctx, shardName)
 			if err != nil {
@@ -1165,7 +1171,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 		if replProps.NodeName != "" {
 			obj, err = i.replicator.NodeObject(ctx, replProps.NodeName, shardName, id, props, addl)
 		} else {
-			obj, err = i.replicator.GetOne(ctx, types.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl)
+			obj, err = i.replicator.GetOne(ctx, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), shardName, id, props, addl)
 		}
 		return obj, err
 	}
@@ -1329,7 +1335,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
+		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		return i.replicator.Exists(ctx, cl, shardName, id)
 	}
 
@@ -1376,13 +1382,17 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	if err := i.validateMultiTenancy(tenant); err != nil {
-		return nil, nil, err
+	if replProps == nil {
+		replProps = defaultConsistency()
 	}
-
-	shardNames, err := i.targetShardNames(ctx, tenant)
-	if err != nil || len(shardNames) == 0 {
-		return nil, nil, err
+	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+	planOptions := routerTypes.RoutingPlanBuildOptions{
+		Shard:            tenant,
+		ConsistencyLevel: cl,
+	}
+	readPlan, err := i.readPlanner.Plan(planOptions)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
 	}
 
 	// If the request is a BM25F with no properties selected, use all possible properties
@@ -1409,7 +1419,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	outObjects, outScores, err := i.objectSearchByShard(ctx, limit,
-		filters, keywordRanking, sort, cursor, addlProps, shardNames, properties)
+		filters, keywordRanking, sort, cursor, addlProps, readPlan.Shards(), properties)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1442,7 +1452,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	if len(sort) > 0 {
-		if len(shardNames) > 1 {
+		if len(readPlan.Shards()) > 1 {
 			var err error
 			outObjects, outScores, err = i.sort(outObjects, outScores, sort, limit)
 			if err != nil {
@@ -1451,7 +1461,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		}
 	} else if keywordRanking != nil {
 		outObjects, outScores = i.sortKeywordRanking(outObjects, outScores)
-	} else if len(shardNames) > 1 && !addlProps.ReferenceQuery {
+	} else if len(readPlan.Shards()) > 1 && !addlProps.ReferenceQuery {
 		// sort only for multiple shards (already sorted for single)
 		// and for not reference nested query (sort is applied for root query)
 		outObjects, outScores = i.sortByID(outObjects, outScores)
@@ -1481,9 +1491,9 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = defaultConsistency(types.ConsistencyLevelOne)
+			replProps = defaultConsistency(routerTypes.ConsistencyLevelOne)
 		}
-		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
+		l := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		err = i.replicator.CheckConsistency(ctx, l, outObjects)
 		if err != nil {
 			i.logger.WithField("action", "object_search").
@@ -1747,16 +1757,21 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	groupBy *searchparams.GroupBy, additionalProps additional.Properties,
 	replProps *additional.ReplicationProperties, tenant string, targetCombination *dto.TargetCombination, properties []string,
 ) ([]*storobj.Object, []float32, error) {
-	if err := i.validateMultiTenancy(tenant); err != nil {
-		return nil, nil, err
+	if replProps == nil {
+		replProps = defaultConsistency()
 	}
-	shardNames, err := i.targetShardNames(ctx, tenant)
-	if err != nil || len(shardNames) == 0 {
-		return nil, nil, err
+	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+	planOptions := routerTypes.RoutingPlanBuildOptions{
+		Shard:            tenant,
+		ConsistencyLevel: cl,
+	}
+	readPlan, err := i.readPlanner.Plan(planOptions)
+	if err != nil {
+		return nil, nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
 	}
 
-	if len(shardNames) == 1 && !i.Config.ForceFullReplicasSearch {
-		shard, release, err := i.GetShard(ctx, shardNames[0])
+	if len(readPlan.Shards()) == 1 && !i.Config.ForceFullReplicasSearch {
+		shard, release, err := i.GetShard(ctx, readPlan.Shards()[0])
 		if err != nil {
 			return nil, nil, err
 		}
@@ -1772,9 +1787,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	// the case we have to adjust how we calculate the output capacity
 	var shardCap int
 	if limit < 0 {
-		shardCap = len(shardNames) * hnsw.DefaultSearchByDistInitialLimit
+		shardCap = len(readPlan.Shards()) * hnsw.DefaultSearchByDistInitialLimit
 	} else {
-		shardCap = len(shardNames) * limit
+		shardCap = len(readPlan.Shards()) * limit
 	}
 
 	eg := enterrors.NewErrorGroupWrapper(i.logger, "tenant:", tenant)
@@ -1788,7 +1803,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	var remoteSearches int64
 	var remoteResponses atomic.Int64
 
-	for _, sn := range shardNames {
+	for _, sn := range readPlan.Shards() {
 		shardName := sn
 		shard, release, err := i.GetShard(ctx, shardName)
 		if err != nil {
@@ -1853,15 +1868,15 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		}
 	}
 
-	if len(shardNames) == 1 {
+	if len(readPlan.Shards()) == 1 {
 		return out, dists, nil
 	}
 
-	if len(shardNames) > 1 && groupBy != nil {
-		return i.mergeGroups(out, dists, groupBy, limit, len(shardNames))
+	if len(readPlan.Shards()) > 1 && groupBy != nil {
+		return i.mergeGroups(out, dists, groupBy, limit, len(readPlan.Shards()))
 	}
 
-	if len(shardNames) > 1 && len(sort) > 0 {
+	if len(readPlan.Shards()) > 1 && len(sort) > 0 {
 		return i.sort(out, dists, sort, limit)
 	}
 
@@ -1873,9 +1888,9 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 	if i.replicationEnabled() {
 		if replProps == nil {
-			replProps = defaultConsistency(types.ConsistencyLevelOne)
+			replProps = defaultConsistency(routerTypes.ConsistencyLevelOne)
 		}
-		l := types.ConsistencyLevel(replProps.ConsistencyLevel)
+		l := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		err = i.replicator.CheckConsistency(ctx, l, out)
 		if err != nil {
 			i.logger.WithField("action", "object_vector_search").
@@ -1958,7 +1973,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
+		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.DeleteObject(ctx, shardName, id, deletionTime, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate deletion: shard=%q %w", shardName, err)
 		}
@@ -2165,7 +2180,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
-		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
+		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.MergeObject(ctx, shardName, &merge, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate single update: %w", err)
 		}
@@ -2211,20 +2226,24 @@ func (i *Index) IncomingMergeObject(ctx context.Context, shardName string,
 	return shard.MergeObject(ctx, mergeDoc)
 }
 
-func (i *Index) aggregate(ctx context.Context,
-	params aggregation.Params, modules *modules.Provider,
+func (i *Index) aggregate(ctx context.Context, replProps *additional.ReplicationProperties,
+	params aggregation.Params, modules *modules.Provider, tenant string,
 ) (*aggregation.Result, error) {
-	if err := i.validateMultiTenancy(params.Tenant); err != nil {
-		return nil, err
+	if replProps == nil {
+		replProps = defaultConsistency()
+	}
+	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
+	planOptions := routerTypes.RoutingPlanBuildOptions{
+		Shard:            tenant,
+		ConsistencyLevel: cl,
+	}
+	readPlan, err := i.readPlanner.Plan(planOptions)
+	if err != nil {
+		return nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
 	}
 
-	shardNames, err := i.targetShardNames(ctx, params.Tenant)
-	if err != nil || len(shardNames) == 0 {
-		return nil, err
-	}
-
-	results := make([]*aggregation.Result, len(shardNames))
-	for j, shardName := range shardNames {
+	results := make([]*aggregation.Result, len(readPlan.Shards()))
+	for j, shardName := range readPlan.Shards() {
 		var err error
 		var res *aggregation.Result
 
@@ -2629,7 +2648,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 				repl = defaultConsistency()
 			}
 
-			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, types.ConsistencyLevel(repl.ConsistencyLevel))
+			results[shardName], err = i.replicator.FindUUIDs(ctx, className, shardName, filters, routerTypes.ConsistencyLevel(repl.ConsistencyLevel))
 		} else {
 			shard, release, err = i.GetShard(ctx, shardName)
 			if err == nil {
@@ -2694,7 +2713,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 			var objs objects.BatchSimpleObjects
 			if i.replicationEnabled() {
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
-					dryRun, types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
+					dryRun, routerTypes.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
 				shard, release, err := i.GetShard(ctx, shardName)
 				if err != nil {
@@ -2745,12 +2764,12 @@ func (i *Index) IncomingDeleteObjectBatch(ctx context.Context, shardName string,
 	return shard.DeleteObjectBatch(ctx, uuids, deletionTime, dryRun)
 }
 
-func defaultConsistency(l ...types.ConsistencyLevel) *additional.ReplicationProperties {
+func defaultConsistency(l ...routerTypes.ConsistencyLevel) *additional.ReplicationProperties {
 	rp := &additional.ReplicationProperties{}
 	if len(l) != 0 {
 		rp.ConsistencyLevel = string(l[0])
 	} else {
-		rp.ConsistencyLevel = string(types.ConsistencyLevelQuorum)
+		rp.ConsistencyLevel = string(routerTypes.ConsistencyLevelQuorum)
 	}
 	return rp
 }

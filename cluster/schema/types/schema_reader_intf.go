@@ -33,6 +33,7 @@ type SchemaReader interface {
 	ReadOnlyClass(name string) *models.Class
 	ReadOnlyVersionedClass(name string) versioned.Class
 	ReadOnlySchema() models.Schema
+	Aliases() map[string]string
 	CopyShardingState(class string) *sharding.State
 	ShardReplicas(class, shard string) ([]string, error)
 	ShardFromUUID(class string, uuid []byte) string

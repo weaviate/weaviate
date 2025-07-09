@@ -60,9 +60,6 @@ type DB struct {
 	startupComplete   atomic.Bool
 	resourceScanState *resourceScanState
 	memMonitor        *memwatch.Monitor
-	nodeSelector      cluster.NodeSelector
-	schemaReader      schemaUC.SchemaReader
-	replicationFSM    types.ReplicationFSMReader
 
 	// indexLock is an RWMutex which allows concurrent access to various indexes,
 	// but only one modification at a time. R/W can be a bit confusing here,
@@ -100,7 +97,10 @@ type DB struct {
 
 	shardLoadLimiter ShardLoadLimiter
 
-	reindexer ShardReindexerV3
+	reindexer      ShardReindexerV3
+	nodeSelector   cluster.NodeSelector
+	schemaReader   schemaUC.SchemaReader
+	replicationFSM types.ReplicationFSMReader
 }
 
 func (db *DB) GetSchemaGetter() schemaUC.SchemaGetter {
@@ -140,6 +140,7 @@ func (db *DB) WaitForStartup(ctx context.Context) error {
 }
 
 func (db *DB) StartupComplete() bool { return db.startupComplete.Load() }
+
 // IndexGetter interface defines the methods that the service uses from db.IndexGetter
 // This allows for better testability by using interfaces instead of concrete types
 type IndexGetter interface {
@@ -152,10 +153,12 @@ type IndexLike interface {
 	ForEachShard(f func(name string, shard ShardLike) error) error
 	CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64)
 }
+
 func New(logger logrus.FieldLogger, localNodeName string, config Config,
 	remoteIndex sharding.RemoteIndexClient, nodeResolver nodeResolver,
 	remoteNodesClient sharding.RemoteNodeClient, replicaClient replica.Client,
 	promMetrics *monitoring.PrometheusMetrics, memMonitor *memwatch.Monitor,
+	nodeSelector cluster.NodeSelector, schemaReader schemaUC.SchemaReader, replicationFSM types.ReplicationFSMReader,
 ) (*DB, error) {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -181,6 +184,9 @@ func New(logger logrus.FieldLogger, localNodeName string, config Config,
 		memMonitor:          memMonitor,
 		shardLoadLimiter:    NewShardLoadLimiter(metricsRegisterer, config.MaximumConcurrentShardLoads),
 		reindexer:           NewShardReindexerV3Noop(),
+		nodeSelector:        nodeSelector,
+		schemaReader:        schemaReader,
+		replicationFSM:      replicationFSM,
 	}
 
 	if db.maxNumberGoroutines == 0 {

@@ -39,6 +39,53 @@ func (_m *MockSchemaReader) EXPECT() *MockSchemaReader_Expecter {
 	return &MockSchemaReader_Expecter{mock: &_m.Mock}
 }
 
+// Aliases provides a mock function with no fields
+func (_m *MockSchemaReader) Aliases() map[string]string {
+	ret := _m.Called()
+
+	if len(ret) == 0 {
+		panic("no return value specified for Aliases")
+	}
+
+	var r0 map[string]string
+	if rf, ok := ret.Get(0).(func() map[string]string); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(map[string]string)
+		}
+	}
+
+	return r0
+}
+
+// MockSchemaReader_Aliases_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'Aliases'
+type MockSchemaReader_Aliases_Call struct {
+	*mock.Call
+}
+
+// Aliases is a helper method to define mock.On call
+func (_e *MockSchemaReader_Expecter) Aliases() *MockSchemaReader_Aliases_Call {
+	return &MockSchemaReader_Aliases_Call{Call: _e.mock.On("Aliases")}
+}
+
+func (_c *MockSchemaReader_Aliases_Call) Run(run func()) *MockSchemaReader_Aliases_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run()
+	})
+	return _c
+}
+
+func (_c *MockSchemaReader_Aliases_Call) Return(_a0 map[string]string) *MockSchemaReader_Aliases_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockSchemaReader_Aliases_Call) RunAndReturn(run func() map[string]string) *MockSchemaReader_Aliases_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // ClassEqual provides a mock function with given fields: name
 func (_m *MockSchemaReader) ClassEqual(name string) string {
 	ret := _m.Called(name)
@@ -631,10 +678,6 @@ func (_m *MockSchemaReader) ReadOnlySchema() models.Schema {
 	}
 
 	return r0
-}
-
-func (_m *MockSchemaReader) Aliases() map[string]string {
-	return nil
 }
 
 // MockSchemaReader_ReadOnlySchema_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'ReadOnlySchema'

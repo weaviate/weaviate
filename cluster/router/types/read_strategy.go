@@ -46,18 +46,9 @@ func NewDirectCandidate(directCandidate, localNodeName string) DirectCandidate {
 // per shard to avoid reading duplicate data.
 type ReadReplicaStrategy interface {
 	// Apply selects exactly one replica per shard from the provided ReadReplicaSet
-	// according to the strategy's logic. The returned ReadReplicaSet contains the
+	// according to the strategy's logic and routing options. The returned ReadReplicaSet contains the
 	// same number of unique shards but with only the selected replica for each shard.
-	Apply(replicas ReadReplicaSet) ReadReplicaSet
-}
-
-// WriteReplicaStrategy defines how to organize write replicas for optimal routing.
-// Different strategies can prioritize local nodes, distribute load, or implement
-// other replica ordering policies.
-type WriteReplicaStrategy interface {
-	// Apply organizes the provided WriteReplicaSet according to the strategy's logic.
-	// The returned WriteReplicaSet contains the same replicas but potentially reordered.
-	Apply(replicas WriteReplicaSet) WriteReplicaSet
+	Apply(replicas ReadReplicaSet, options RoutingPlanBuildOptions) ReadReplicaSet
 }
 
 // DirectCandidateWriteStrategy organizes write replicas using the DirectCandidate
@@ -68,46 +59,16 @@ type DirectCandidateWriteStrategy struct {
 	directCandidate DirectCandidate
 }
 
-// NewDirectCandidateWriteStrategy creates a new write strategy that uses the
-// provided DirectCandidate to organize write replicas with preferred node priority.
-//
-// Parameters:
-//   - directCandidate: the DirectCandidate strategy containing preferred node logic
-//
-// Returns:
-//   - DirectCandidateWriteStrategy: a strategy instance ready to organize write replicas
-func NewDirectCandidateWriteStrategy(directCandidate DirectCandidate) WriteReplicaStrategy {
-	return &DirectCandidateWriteStrategy{directCandidate: directCandidate}
-}
+// Apply organizes the write replicas by placing the preferred node first for each shard.
+// The preferred node is determined by options.DirectCandidateNode if provided,
+// falling back to the strategy's configured directCandidate, and finally to
+// localNodeName if directCandidate is empty.
+func (s *DirectCandidateWriteStrategy) Apply(ws WriteReplicaSet, options RoutingPlanBuildOptions) WriteReplicaSet {
+	preferredNode := s.determinePreferredNode(options)
 
-// Apply organizes the write replicas by placing the preferred node first.
-// The preferred node is determined by directCandidate, falling back to
-// localNodeName if directCandidate is empty. If no preferred node is
-// specified, the original ordering is preserved.
-func (s *DirectCandidateWriteStrategy) Apply(ws WriteReplicaSet) WriteReplicaSet {
-	if len(ws.Replicas) == 0 {
-		return ws
-	}
-
-	preferredNodeName := s.directCandidate.PreferredNodeName
-	if preferredNodeName == "" {
-		return ws
-	}
-
-	var orderedReplicas []Replica
-	var otherReplicas []Replica
-	for _, replica := range ws.Replicas {
-		if replica.NodeName == preferredNodeName {
-			orderedReplicas = append(orderedReplicas, replica)
-		} else {
-			otherReplicas = append(otherReplicas, replica)
-		}
-	}
-
-	orderedReplicas = append(orderedReplicas, otherReplicas...)
 	return WriteReplicaSet{
-		Replicas:           orderedReplicas,
-		AdditionalReplicas: ws.AdditionalReplicas,
+		Replicas:           byPreferredNode(ws.Replicas, preferredNode),
+		AdditionalReplicas: byPreferredNode(ws.AdditionalReplicas, preferredNode),
 	}
 }
 
@@ -131,50 +92,34 @@ func NewDirectCandidateReadStrategy(directCandidate DirectCandidate) ReadReplica
 	return &DirectCandidateReadStrategy{directCandidate: directCandidate}
 }
 
-// Apply selects exactly one replica per shard, preferring the preferred node when
-// available. If the preferred node is not available for a shard, the first available
-// replica is selected from the available replicas for that shard. If no preferred
-// node is specified, the first replica is selected for all shards.
-func (s *DirectCandidateReadStrategy) Apply(rs ReadReplicaSet) ReadReplicaSet {
-	replicas := rs.Replicas
-	if len(replicas) == 0 {
-		return rs
+// Apply selects exactly one replica per shard, preferring the node specified in
+// options.DirectCandidateNode if provided, falling back to the strategy's configured
+// preferred node when available. Uses the same organizing logic as the write strategy,
+// then selects the first replica from each shard group.
+func (s *DirectCandidateReadStrategy) Apply(rs ReadReplicaSet, options RoutingPlanBuildOptions) ReadReplicaSet {
+	preferredNode := s.determinePreferredNode(options)
+
+	return ReadReplicaSet{
+		Replicas: byPreferredNode(rs.Replicas, preferredNode),
 	}
+}
 
-	// If only one replica total, return it
-	if len(replicas) <= 1 {
-		return rs
+// Helper method to determine the preferred node from options and strategy configuration
+func (s *DirectCandidateReadStrategy) determinePreferredNode(options RoutingPlanBuildOptions) string {
+	// Priority: options.DirectCandidateNode > strategy.directCandidate.PreferredNodeName
+	if options.DirectCandidateNode != "" {
+		return options.DirectCandidateNode
 	}
+	return s.directCandidate.PreferredNodeName
+}
 
-	buckets := groupByShard(replicas)
-	out := make([]Replica, 0, len(buckets))
-
-	for _, ids := range buckets {
-		if len(ids) == 1 {
-			out = append(out, replicas[ids[0]])
-			continue
-		}
-
-		// Try to find preferred node for this shard
-		preferredFound := false
-		preferredNodeName := s.directCandidate.PreferredNodeName
-		if preferredNodeName != "" {
-			for _, i := range ids {
-				if replicas[i].NodeName == preferredNodeName {
-					out = append(out, replicas[i])
-					preferredFound = true
-					break
-				}
-			}
-		}
-
-		// If preferred node not found, select the first available replica
-		if !preferredFound {
-			out = append(out, replicas[ids[0]])
-		}
+// Helper method to determine the preferred node from options and strategy configuration
+func (s *DirectCandidateWriteStrategy) determinePreferredNode(options RoutingPlanBuildOptions) string {
+	// Priority: options.DirectCandidateNode > strategy.directCandidate.PreferredNodeName
+	if options.DirectCandidateNode != "" {
+		return options.DirectCandidateNode
 	}
-
-	return ReadReplicaSet{Replicas: out}
+	return s.directCandidate.PreferredNodeName
 }
 
 // groupByShard builds a map of shard names to indices in the original slice.
@@ -186,4 +131,49 @@ func groupByShard(replicas []Replica) map[string][]int {
 		m[replica.ShardName] = append(m[replica.ShardName], i)
 	}
 	return m
+}
+
+// byPreferredNode applies the preferred node logic to a slice of replicas.
+// It groups replicas by shard and places the preferred node first within each shard group,
+// maintaining the original order for other replicas.
+func byPreferredNode(replicas []Replica, preferredNodeName string) []Replica {
+	if len(replicas) == 0 {
+		return []Replica{}
+	}
+
+	if preferredNodeName == "" {
+		return replicas
+	}
+
+	buckets := groupByShard(replicas)
+	out := make([]Replica, 0, len(replicas))
+
+	processedShards := make(map[string]bool)
+	for _, replica := range replicas {
+		if processedShards[replica.ShardName] {
+			continue
+		}
+		processedShards[replica.ShardName] = true
+
+		indices := buckets[replica.ShardName]
+
+		var preferredReplicas []Replica
+		var otherReplicas []Replica
+
+		// Separate preferred node replicas from others within this shard to keep the preferred node first
+		for _, i := range indices {
+			replica := replicas[i]
+			if replica.NodeName == preferredNodeName {
+				preferredReplicas = append(preferredReplicas, replica)
+			} else {
+				otherReplicas = append(otherReplicas, replica)
+			}
+		}
+
+		// Add preferred replicas first, then others
+		out = append(out, preferredReplicas...)
+		out = append(out, otherReplicas...)
+	}
+
+	return out
 }

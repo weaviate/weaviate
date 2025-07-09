@@ -19,6 +19,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
+	"github.com/weaviate/weaviate/usecases/cluster"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/google/uuid"
 	"github.com/sirupsen/logrus"
@@ -40,12 +45,22 @@ func Test_Aggregations(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
@@ -85,16 +100,27 @@ func Test_Aggregations_MultiShard(t *testing.T) {
 		schema:     schema.Schema{Objects: &models.Schema{Classes: nil}},
 		shardState: shardState,
 	}
+	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return([]string{"node1"}, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
 	repo, err := New(logger, "node1", Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  dirName,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor())
+	}, &fakeRemoteClient{}, &fakeNodeResolver{}, &fakeRemoteNodeClient{}, &fakeReplicationClient{}, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	require.Nil(t, err)
 	repo.SetSchemaGetter(schemaGetter)
 	require.Nil(t, repo.WaitForStartup(testCtx()))
-	migrator := NewMigrator(repo, logger, "node1")
+	migrator := NewMigrator(repo, logger, mockNodeSelector.LocalName())
 
 	t.Run("prepare test schema and data ",
 		prepareCompanyTestSchemaAndData(repo, migrator, schemaGetter))
@@ -260,7 +286,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -327,7 +353,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -437,7 +463,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -671,7 +697,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -888,7 +914,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1037,7 +1063,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 			require.NotNil(t, res)
 
@@ -1127,7 +1153,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				IncludeMetaCount: true,
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1175,7 +1201,7 @@ func testNumericalAggregationsWithGrouping(repo *DB, exact bool) func(t *testing
 				IncludeMetaCount: true,
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1237,7 +1263,7 @@ func testDateAggregationsWithFilters(repo *DB) func(t *testing.T) {
 					},
 				},
 			}
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 
 			// No results match the filter, so only a count of 0 is included
 			require.Nil(t, err)
@@ -1274,7 +1300,7 @@ func testNumericalAggregationsWithFilters(repo *DB) func(t *testing.T) {
 					},
 				},
 			}
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 
 			// No results match the filter, so only a count of 0 is included
 			require.Nil(t, err)
@@ -1297,7 +1323,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				GroupBy:          nil, // explicitly set to nil
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1325,7 +1351,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			if exact {
@@ -1425,7 +1451,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1656,7 +1682,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			actualDivYield := res.Groups[0].Properties["dividendYield"]
@@ -1891,7 +1917,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -1976,7 +2002,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				GroupBy:          nil, // explicitly set to nil
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -2013,7 +2039,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -2060,7 +2086,7 @@ func testNumericalAggregationsWithoutGrouping(repo *DB,
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			expectedResult := &aggregation.Result{
@@ -2103,7 +2129,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			require.NotNil(t, res)
@@ -2133,7 +2159,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			require.NotNil(t, res)
@@ -2173,7 +2199,7 @@ func testDateAggregationsWithGrouping(repo *DB, exact bool) func(t *testing.T) {
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			require.NotNil(t, res)
@@ -2245,7 +2271,7 @@ func testDateAggregationsWithoutGrouping(repo *DB, exact bool) func(t *testing.T
 				},
 			}
 
-			res, err := repo.Aggregate(context.Background(), params, nil)
+			res, err := repo.Aggregate(context.Background(), params, nil, nil)
 			require.Nil(t, err)
 
 			require.NotNil(t, res)
