@@ -38,19 +38,6 @@ func testSelectedReadReplicas() types.ReadReplicaSet {
 	}}
 }
 
-func testOrderedWriteReplicas() types.WriteReplicaSet {
-	return types.WriteReplicaSet{
-		Replicas: []types.Replica{
-			{NodeName: "B", ShardName: "S1", HostAddr: "10.12.135.20"}, // B first
-			{NodeName: "A", ShardName: "S1", HostAddr: "10.12.135.19"},
-			{NodeName: "C", ShardName: "S2", HostAddr: "10.12.135.21"},
-		},
-		AdditionalReplicas: []types.Replica{
-			{NodeName: "E", ShardName: "S1", HostAddr: "10.12.135.23"},
-		},
-	}
-}
-
 func TestNewReadPlanner_WithCustomStrategy(t *testing.T) {
 	// GIVEN
 	mockRouter := types.NewMockRouter(t)
