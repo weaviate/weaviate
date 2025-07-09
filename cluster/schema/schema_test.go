@@ -360,6 +360,7 @@ func TestCreateAlias(t *testing.T) {
 	)
 
 	require.Nil(t, sc.addClass(&models.Class{Class: "C"}, ss, 1))
+	require.Nil(t, sc.addClass(&models.Class{Class: "AnotherClass"}, ss, 1))
 
 	t.Run("successfully create alias", func(t *testing.T) {
 		err := sc.createAlias("C", "A1")
@@ -379,6 +380,13 @@ func TestCreateAlias(t *testing.T) {
 	t.Run("fail on non-existing alias", func(t *testing.T) {
 		err := sc.createAlias("D", "A1")
 		require.EqualError(t, err, "create alias: alias A1 already exists")
+	})
+	t.Run("fail on creating alias with existing class name", func(t *testing.T) {
+		// We have two collection. "C" and "AnotherClass"
+		// 1. We try to create alias with name "AnotherClass" to class "C".
+		// 2. Should fail saying class with "AnotherClass" already exists.
+		err := sc.createAlias("C", "AnotherClass")
+		require.EqualError(t, err, "create alias: class AnotherClass already exists")
 	})
 }
 
