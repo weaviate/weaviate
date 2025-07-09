@@ -25,7 +25,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/handlers/rest/state"
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/entities/config"
-	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 )
@@ -744,7 +743,7 @@ func setupDebugHandlers(appState *state.State) {
 		}
 	}))
 
-	if entcfg.EnvEnabled("DEBUG_LOGS_IN_API_ENABLED") {
+	if config.EnvEnabled("DEBUG_LOGS_IN_API_ENABLED") {
 		// Debug endpoint to retrieve recent logs from the ring buffer
 		// Call via: curl "localhost:6060/debug/logs?limit=100&level=error&component=backup&since=5m"
 		http.HandleFunc("/debug/logs", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
