@@ -129,6 +129,7 @@ import (
 	modvoyageai "github.com/weaviate/weaviate/modules/text2vec-voyageai"
 	modweaviateembed "github.com/weaviate/weaviate/modules/text2vec-weaviate"
 	modusagegcs "github.com/weaviate/weaviate/modules/usage-gcs"
+	modusages3 "github.com/weaviate/weaviate/modules/usage-s3"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/composer"
 	"github.com/weaviate/weaviate/usecases/backup"
@@ -1664,6 +1665,14 @@ func registerModules(appState *state.State) error {
 			Debug("enabled module")
 	}
 
+	if _, ok := enabledModules[modusages3.Name]; ok {
+		appState.Modules.Register(modusages3.New())
+		appState.Logger.
+			WithField("action", "startup").
+			WithField("module", modusages3.Name).
+			Debug("enabled module")
+	}
+
 	appState.Logger.
 		WithField("action", "startup").
 		Debug("completed registering modules")
@@ -1674,8 +1683,18 @@ func registerModules(appState *state.State) error {
 func postInitModules(appState *state.State) {
 	// Initialize usage service after all components are ready
 	if appState.Modules.UsageEnabled() {
-		if usageModule := appState.Modules.GetByName(modusagegcs.Name); usageModule != nil {
-			if usageModuleWithService, ok := usageModule.(modulecapabilities.ModuleWithUsageService); ok {
+		appState.Logger.WithField("action", "startup").Debug("initializing usage service")
+
+		// Initialize usage service for GCS
+		if usageGCSModule := appState.Modules.GetByName(modusagegcs.Name); usageGCSModule != nil {
+			if usageModuleWithService, ok := usageGCSModule.(modulecapabilities.ModuleWithUsageService); ok {
+				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
+				usageModuleWithService.SetUsageService(usageService)
+			}
+		}
+		// Initialize usage service for S3
+		if usageS3Module := appState.Modules.GetByName(modusages3.Name); usageS3Module != nil {
+			if usageModuleWithService, ok := usageS3Module.(modulecapabilities.ModuleWithUsageService); ok {
 				usageService := usage.NewService(appState.SchemaManager, appState.DB, appState.Modules, usageModuleWithService.Logger())
 				usageModuleWithService.SetUsageService(usageService)
 			}

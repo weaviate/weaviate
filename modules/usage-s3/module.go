@@ -342,6 +342,10 @@ func (m *module) Close() error {
 	return nil
 }
 
+func (m *module) Logger() logrus.FieldLogger {
+	return m.logger
+}
+
 func (m *module) reloadConfig(ticker *time.Ticker) {
 	// Check for interval updates
 	if interval := m.config.Usage.ScrapeInterval.Get(); interval > 0 && m.interval != interval {
