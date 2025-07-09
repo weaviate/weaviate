@@ -41,6 +41,11 @@ const (
 	MinmumMaxConnections  = 4
 	MaximumMaxConnections = 2047
 	MinmumEFConstruction  = 4
+
+	CompressionBQ = "bq"
+	CompressionPQ = "pq"
+	CompressionSQ = "sq"
+	CompressionRQ = "rq"
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -129,6 +134,20 @@ func (u *UserConfig) SetDefaults() {
 			DProjections: DefaultMultivectorDProjections,
 			Repetitions:  DefaultMultivectorRepetitions,
 		},
+	}
+
+	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
+	if defaultCompression != "" {
+		switch defaultCompression {
+		case CompressionBQ:
+			u.BQ.Enabled = true
+		case CompressionPQ:
+			u.PQ.Enabled = true
+		case CompressionSQ:
+			u.SQ.Enabled = true
+		case CompressionRQ:
+			u.RQ.Enabled = true
+		}
 	}
 }
 
