@@ -186,6 +186,12 @@ func Test_AliasesAPI(t *testing.T) {
 		require.Nil(t, resp)
 	})
 
+	t.Run("try to use updateAlias with existing collection name", func(t *testing.T) {
+		resp, err := helper.UpdateAliasWithReturn(t, documents.Document, documents.Passage)
+		require.Error(t, err)
+		require.Nil(t, resp)
+	})
+
 	t.Run("delete alias", func(t *testing.T) {
 		checkAliasesCount := func(t *testing.T, count int) {
 			resp := helper.GetAliases(t, nil)
@@ -234,6 +240,13 @@ func Test_AliasesAPI(t *testing.T) {
 				})
 			}
 		})
+	})
+
+	t.Run("create alias to non existing collection", func(t *testing.T) {
+		alias := &models.Alias{Alias: "NonExistingAlias", Class: "NonExistingCollection"}
+		resp, err := helper.CreateAliasWithReturn(t, alias)
+		require.Error(t, err)
+		require.Nil(t, resp)
 	})
 
 	t.Run("tests with BookAlias", func(t *testing.T) {

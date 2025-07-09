@@ -22,11 +22,16 @@ import (
 )
 
 func (s *Raft) CreateAlias(ctx context.Context, alias string, class *models.Class) (uint64, error) {
-	if class == nil || class.Class == "" {
-		return 0, fmt.Errorf("nil class or empty class name: %w", schema.ErrBadRequest)
-	}
 	if alias == "" {
 		return 0, fmt.Errorf("empty alias name: %w", schema.ErrBadRequest)
+	}
+
+	if class == nil {
+		return 0, fmt.Errorf("class does not exist: %w", schema.ErrBadRequest)
+	}
+
+	if class.Class == "" {
+		return 0, fmt.Errorf("empty class name: %w", schema.ErrBadRequest)
 	}
 
 	req := cmd.CreateAliasRequest{Collection: class.Class, Alias: alias}

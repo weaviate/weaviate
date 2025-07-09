@@ -15,6 +15,8 @@ import (
 	"context"
 	"time"
 
+	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db"
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	backupent "github.com/weaviate/weaviate/entities/backup"
@@ -33,16 +35,20 @@ type service struct {
 	schemaManager schema.SchemaGetter
 	db            db.IndexGetter
 	backups       backup.BackupBackendProvider
+	logger        logrus.FieldLogger
 }
 
-func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups backup.BackupBackendProvider) Service {
+func NewService(schemaManager schema.SchemaGetter, db db.IndexGetter, backups backup.BackupBackendProvider, logger logrus.FieldLogger) Service {
 	return &service{
 		schemaManager: schemaManager,
 		db:            db,
 		backups:       backups,
+		logger:        logger,
 	}
 }
 
+// Usage service collects usage metrics for the node and shall return error in case of any error
+// to avoid reporting partial data
 func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 	collections := m.schemaManager.GetSchemaSkipAuth().Objects.Classes
 	usage := &types.Report{
@@ -171,6 +177,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 	for _, backend := range m.backups.EnabledBackupBackends() {
 		backups, err := backend.AllBackups(ctx)
 		if err != nil {
+			m.logger.WithError(err).WithFields(logrus.Fields{"backend": backend}).Error("failed to get backups from backend")
 			return nil, err
 		}
 
