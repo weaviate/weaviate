@@ -74,13 +74,26 @@ func NewDirectCandidateReadStrategy(directCandidate DirectCandidate) ReadReplica
 // options.DirectCandidateNode if provided, falling back to the strategy's configured
 // preferred node when available.
 func (s *DirectCandidateReadStrategy) Apply(rs ReadReplicaSet, options RoutingPlanBuildOptions) ReadReplicaSet {
-	preferredNode := s.determinePreferredNode(options)
-	organizedReplicas := byPreferredNode(rs.Replicas, preferredNode)
-	shardGroups := groupByShard(organizedReplicas)
-	var selectedReplicas []Replica
+	if len(rs.Replicas) == 0 {
+		return rs
+	}
 
-	for _, indices := range shardGroups {
-		selectedReplicas = append(selectedReplicas, organizedReplicas[indices[0]])
+	preferredNode := s.determinePreferredNode(options)
+	shardToSelectedReplica := make(map[string]Replica)
+
+	for _, replica := range rs.Replicas {
+		existing, exists := shardToSelectedReplica[replica.ShardName]
+
+		if !exists {
+			shardToSelectedReplica[replica.ShardName] = replica
+		} else if preferredNode != "" && replica.NodeName == preferredNode && existing.NodeName != preferredNode {
+			shardToSelectedReplica[replica.ShardName] = replica
+		}
+	}
+
+	selectedReplicas := make([]Replica, 0, len(shardToSelectedReplica))
+	for _, replica := range shardToSelectedReplica {
+		selectedReplicas = append(selectedReplicas, replica)
 	}
 
 	return ReadReplicaSet{
@@ -95,60 +108,4 @@ func (s *DirectCandidateReadStrategy) determinePreferredNode(options RoutingPlan
 		return options.DirectCandidateNode
 	}
 	return s.directCandidate.PreferredNodeName
-}
-
-// groupByShard builds a map of shard names to indices in the original slice.
-// This helper function organizes replicas by their shard membership for
-// efficient per-shard processing.
-func groupByShard(replicas []Replica) map[string][]int {
-	m := make(map[string][]int, len(replicas))
-	for i, replica := range replicas {
-		m[replica.ShardName] = append(m[replica.ShardName], i)
-	}
-	return m
-}
-
-// byPreferredNode applies the preferred node logic to a slice of replicas.
-// It groups replicas by shard and places the preferred node first within each shard group,
-// maintaining the original order for other replicas.
-func byPreferredNode(replicas []Replica, preferredNodeName string) []Replica {
-	if len(replicas) == 0 {
-		return []Replica{}
-	}
-
-	if preferredNodeName == "" {
-		return replicas
-	}
-
-	buckets := groupByShard(replicas)
-	out := make([]Replica, 0, len(replicas))
-
-	processedShards := make(map[string]bool)
-	for _, replica := range replicas {
-		if processedShards[replica.ShardName] {
-			continue
-		}
-		processedShards[replica.ShardName] = true
-
-		indices := buckets[replica.ShardName]
-
-		var preferredReplicas []Replica
-		var otherReplicas []Replica
-
-		// Separate preferred node replicas from others within this shard to keep the preferred node first
-		for _, i := range indices {
-			replica := replicas[i]
-			if replica.NodeName == preferredNodeName {
-				preferredReplicas = append(preferredReplicas, replica)
-			} else {
-				otherReplicas = append(otherReplicas, replica)
-			}
-		}
-
-		// Add preferred replicas first, then others
-		out = append(out, preferredReplicas...)
-		out = append(out, otherReplicas...)
-	}
-
-	return out
 }
