@@ -241,7 +241,7 @@ func (r *singleTenantRouter) GetReadReplicasLocation(collection string, tenant s
 // validateTenant for a multi-tenant router checks the tenant is not empty and returns an error if it is.
 func (r *singleTenantRouter) validateTenant(tenant string) error {
 	if tenant != "" {
-		return fmt.Errorf("tenant is not required for single-tenant collections")
+		return fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", r.collection)
 	}
 	return nil
 }
@@ -453,7 +453,7 @@ func (r *multiTenantRouter) AllHostnames() []string {
 // validateTenant for a multi-tenant router checks the tenant is not empty and returns an error if it is.
 func (r *multiTenantRouter) validateTenant(tenant string) error {
 	if tenant == "" {
-		return fmt.Errorf("tenant is required for multi-tenant collections")
+		return fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", r.collection)
 	}
 	return nil
 }
