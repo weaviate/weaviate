@@ -37,16 +37,10 @@ type readPlanner struct {
 
 var _ ReadPlanner = (*readPlanner)(nil)
 
-// NewReadPlanner returns a ready-to-use read planner suitable for read operations. By default
-// it spreads reads randomly across replicas to favor read load distribution across the cluster;
-// passing option WithDirectCandidate will result in a planner that favor reading shards from the
-// local node rather than making remote read operations.
-//
-//	// default random picker (does not use option WithDirectCandidate)
-//	p := types.NewReadPlanner(router)
-//
-//	// prefer reads from the local node when available
-//	p := types.NewReadPlanner(router, types.WithDirectCandidate(myNode))
+// NewReadPlanner returns a ready-to-use read planner suitable for read operations.
+// If no ReadReplicaStrategy is provided a default one will be used which will select
+// replicas based on direct candidate preference or fallback to local node if no
+// direct candidate is provided.
 func NewReadPlanner(router types.Router, collection string, strategy types.ReadReplicaStrategy, directCandidate, localNodeName string) ReadPlanner {
 	if strategy == nil {
 		strategy = types.NewDirectCandidateReadStrategy(types.NewDirectCandidate(directCandidate, localNodeName))
@@ -58,7 +52,7 @@ func NewReadPlanner(router types.Router, collection string, strategy types.ReadR
 	}
 }
 
-// Plan asks the router for candidate replicas, applies the picker to select a suitable subset of
+// Plan asks the router for candidate replicas, applies the read strategy to select a suitable subset of
 // replicas, and returns a fully-formed ReadRoutingPlan with one replica per shard.
 func (p *readPlanner) Plan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
 	readReplicas, err := p.router.GetReadReplicasLocation(p.collection, params.Shard)
