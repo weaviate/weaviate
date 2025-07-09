@@ -130,14 +130,6 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateScaleOut() {
 			}),
 			nil,
 		)
-		if err != nil {
-			parsed, ok := err.(*replication.ReplicateInternalServerError)
-			if ok {
-				t.Logf("Replication error: %s", parsed.Payload.Error[0].Message)
-			} else {
-				t.Logf("Replication error: %s", err.Error())
-			}
-		}
 		require.Nil(t, err, "failed to start replication from %s to %s for shard %s", movement.source, movement.target, movement.shard)
 		time.Sleep(10 * time.Millisecond) // Give some time to avoid overwhelming the server with requests
 	}
