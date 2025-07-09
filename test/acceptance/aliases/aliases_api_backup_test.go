@@ -134,13 +134,28 @@ func Test_AliasesAPI_Backup(t *testing.T) {
 		helper.DeleteClass(t, books.DefaultClassName)
 	})
 
+	t.Run("delete alias", func(t *testing.T) {
+		helper.DeleteAlias(t, "BookAlias")
+	})
+
+	t.Run("check alias count after deletion", func(t *testing.T) {
+		resp := helper.GetAliases(t, nil)
+		require.NotNil(t, resp)
+		require.Empty(t, resp.Aliases)
+	})
+
 	t.Run("restore with local filesystem backend", func(t *testing.T) {
 		restoreResp, err := helper.RestoreBackup(t, helper.DefaultRestoreConfig(), books.DefaultClassName, backend, backupID, map[string]string{})
 		assert.Nil(t, err)
 		assert.NotNil(t, restoreResp)
 	})
 
-	t.Run("check alias count", func(t *testing.T) {
+	t.Run("check class after restore", func(t *testing.T) {
+		resp := helper.GetClass(t, books.DefaultClassName)
+		require.NotNil(t, resp)
+	})
+
+	t.Run("check alias count after restore", func(t *testing.T) {
 		checkAliasesCount := func(t *testing.T, count int) {
 			resp := helper.GetAliases(t, nil)
 			require.NotNil(t, resp)
