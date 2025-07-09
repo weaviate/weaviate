@@ -3061,9 +3061,6 @@ func (i *Index) useReplicator(shardName string) bool {
 // useOnlyLocalReplica returns true if the shard has only one replica and it is the local node
 func (i *Index) useOnlyLocalReplica(shardName string) bool {
 	shardReplicas := i.replicasForShard(shardName)
-	if i.replicator == nil {
-		return true
-	}
 	return len(shardReplicas) == 1 && shardReplicas[0] == i.replicator.LocalNodeName()
 }
 
