@@ -1890,7 +1890,6 @@ func initRuntimeOverrides(appState *state.State) {
 			registered.UsageS3Bucket = appState.ServerConfig.Config.Usage.S3Bucket
 			registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
 			registered.UsageS3Auth = appState.ServerConfig.Config.Usage.S3Auth
-			registered.UsageS3Region = appState.ServerConfig.Config.Usage.S3Region
 			registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
 			registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 		}

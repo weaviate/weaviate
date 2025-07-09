@@ -113,11 +113,6 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 		awsConfig = aws.NewConfig().WithCredentials(credentials.AnonymousCredentials)
 	}
 
-	// Add region if specified
-	if m.config.Usage.S3Region != nil && m.config.Usage.S3Region.Get() != "" {
-		awsConfig = awsConfig.WithRegion(m.config.Usage.S3Region.Get())
-	}
-
 	sess, err := session.NewSession(awsConfig)
 	if err != nil {
 		return fmt.Errorf("failed to create AWS session: %w", err)
@@ -143,7 +138,6 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 		"s3_auth_enabled":     m.config.Usage.S3Auth != nil && m.config.Usage.S3Auth.Get(),
 		"s3_bucket":           m.config.Usage.S3Bucket.Get(),
 		"s3_prefix":           m.config.Usage.S3Prefix.Get(),
-		"s3_region":           m.config.Usage.S3Region.Get(),
 	}).Info("initializing usage-s3 module with configuration")
 
 	// Verify bucket permissions by attempting to access the bucket
@@ -380,13 +374,6 @@ func (m *module) reloadConfig(ticker *time.Ticker) {
 		}).Info("upload prefix updated")
 		m.prefix = prefix
 	}
-
-	// Check for region changes
-	if region := m.config.Usage.S3Region.Get(); region != "" {
-		m.logger.WithFields(logrus.Fields{
-			"region": region,
-		}).Debug("S3 region configured")
-	}
 }
 
 func parseUsageConfig(config *config.Config) error {
@@ -398,9 +385,6 @@ func parseUsageConfig(config *config.Config) error {
 	}
 	if v := os.Getenv("USAGE_S3_PREFIX"); v != "" {
 		config.Usage.S3Prefix = runtime.NewDynamicValue(v)
-	}
-	if v := os.Getenv("USAGE_S3_REGION"); v != "" {
-		config.Usage.S3Region = runtime.NewDynamicValue(v)
 	}
 	if v := os.Getenv("USAGE_SCRAPE_INTERVAL"); v != "" {
 		duration, err := time.ParseDuration(v)
