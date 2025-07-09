@@ -892,7 +892,7 @@ func (f *fakeFactory) newReadPlanner(router types.Router, collection string, dir
 
 func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Replicator {
 	router := f.newRouter(thisNode)
-	readPlanner := f.newReadPlanner(router, "TestClass", thisNode, thisNode)
+	readPlanner := f.newReadPlanner(router, f.CLS, thisNode, thisNode)
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
@@ -912,7 +912,7 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 
 func (f *fakeFactory) newReplicator() *replica.Replicator {
 	router := f.newRouter("")
-	readPlanner := f.newReadPlanner(router, "TestClass", "", "")
+	readPlanner := f.newReadPlanner(router, f.CLS, "", "")
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
@@ -932,7 +932,7 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 
 func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Duration, tMax time.Duration) *replica.Finder {
 	router := f.newRouter(thisNode)
-	readPlanner := f.newReadPlanner(router, "TestClass", thisNode, thisNode)
+	readPlanner := f.newReadPlanner(router, f.CLS, thisNode, thisNode)
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
