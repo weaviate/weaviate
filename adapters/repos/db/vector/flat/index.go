@@ -1050,9 +1050,9 @@ func (index *flat) Stats() (common.IndexStats, error) {
 	return &FlatStats{}, errors.New("Stats() is not implemented for flat index")
 }
 
-func (index *flat) CompressionStats() (compressionhelpers.CompressionStats, error) {
+func (index *flat) CompressionStats() compressionhelpers.CompressionStats {
 	// Flat index doesn't have detailed compression stats, return uncompressed stats
-	return compressionhelpers.UncompressedStats{}, nil
+	return compressionhelpers.UncompressedStats{}
 }
 
 type FlatStats struct{}

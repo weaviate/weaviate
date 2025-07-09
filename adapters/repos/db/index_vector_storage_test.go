@@ -265,11 +265,14 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				vectorStorageSize := shard.VectorStorageSize(ctx)
-				dimensions := shard.Dimensions(ctx, "")
+				vectorStorageSize, err := shard.VectorStorageSize(ctx)
+				require.NoError(t, err)
+				dimensions, err := shard.Dimensions(ctx, "")
+				require.NoError(t, err)
 				if len(tt.vectorConfigs) > 0 && tt.vectorConfigs["text"] != nil {
 					// Named vector
-					dimensions = shard.Dimensions(ctx, "text")
+					dimensions, err = shard.Dimensions(ctx, "text")
+					require.NoError(t, err)
 				}
 				objectCount := shard.ObjectCount()
 
@@ -314,8 +317,10 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				vectorStorageSize := shard.VectorStorageSize(ctx)
-				dimensions := shard.Dimensions(ctx, "")
+				vectorStorageSize, err := shard.VectorStorageSize(ctx)
+				require.NoError(t, err)
+				dimensions, err := shard.Dimensions(ctx, "")
+				require.NoError(t, err)
 				objectCount := shard.ObjectCount()
 
 				assert.Equal(t, tt.expectedVectorStorageSize, vectorStorageSize)
@@ -520,10 +525,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				objectCount, dimensions := shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, err := shard.DimensionsUsage(ctx, tt.targetVector)
+				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, objectCount)
-				assert.Equal(t, tt.expectedDims, dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.Count)
+				assert.Equal(t, tt.expectedDims, dimensionality.Dimensions)
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -546,10 +552,11 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				require.NotNil(t, shard)
 
 				// Get active metrics BEFORE releasing the shard
-				objectCount, dimensions := shard.DimensionsUsage(ctx, tt.targetVector)
+				dimensionality, err := shard.DimensionsUsage(ctx, tt.targetVector)
+				require.NoError(t, err)
 
-				assert.Equal(t, tt.expectedCount, objectCount)
-				assert.Equal(t, tt.expectedDims, dimensions)
+				assert.Equal(t, tt.expectedCount, dimensionality.Count)
+				assert.Equal(t, tt.expectedDims, dimensionality.Dimensions)
 
 				// Release the shard (this will flush all data to disk)
 				release()
@@ -685,16 +692,18 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, activeShard)
 
-	activeVectorStorageSize := activeShard.VectorStorageSize(ctx)
-	activeCount, activeDimensions := activeShard.DimensionsUsage(ctx, "")
+	activeVectorStorageSize, err := activeShard.VectorStorageSize(ctx)
+	require.NoError(t, err)
+	dimensionality, err := activeShard.DimensionsUsage(ctx, "")
+	require.NoError(t, err)
 	activeObjectCount := activeShard.ObjectCount()
 	assert.Greater(t, activeVectorStorageSize, int64(0), "Active shard calculation should have vector storage size > 0")
 
 	// Test that active calculations are correct
 	expectedSize := int64(objectCount * vectorDimensions * 4)
 	assert.Equal(t, expectedSize, activeVectorStorageSize, "Active vector storage size should be close to expected")
-	assert.Equal(t, objectCount, activeCount, "Active shard object count should match")
-	assert.Equal(t, vectorDimensions, activeDimensions, "Active shard dimensions should match")
+	assert.Equal(t, objectCount, dimensionality.Count, "Active shard object count should match")
+	assert.Equal(t, vectorDimensions, dimensionality.Dimensions, "Active shard dimensions should match")
 	assert.Equal(t, objectCount, activeObjectCount, "Active object count should match")
 
 	// Release the shard (this will flush all data to disk)
@@ -737,13 +746,15 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	}))
 	newIndex.shards.LoadAndDelete(shardName)
 
-	inactiveVectorStorageSize := newIndex.CalculateUnloadedVectorsMetrics(ctx, shardName)
-	inactiveCount, inactiveDimensions := newIndex.CalculateUnloadedDimensionsUsage(ctx, shardName, "")
+	inactiveVectorStorageSize, err := newIndex.CalculateUnloadedVectorsMetrics(ctx, shardName)
+	require.NoError(t, err)
+	dimensionality, err = newIndex.CalculateUnloadedDimensionsUsage(ctx, shardName, "")
+	require.NoError(t, err)
 
 	// Compare active and inactive metrics
 	assert.Equal(t, activeVectorStorageSize, inactiveVectorStorageSize, "Active and inactive vector storage size should be very similar")
-	assert.Equal(t, activeCount, inactiveCount, "Active and inactive object count should match")
-	assert.Equal(t, activeDimensions, inactiveDimensions, "Active and inactive dimensions should match")
+	assert.Equal(t, objectCount, dimensionality.Count, "Active and inactive object count should match")
+	assert.Equal(t, vectorDimensions, dimensionality.Dimensions, "Active and inactive dimensions should match")
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)
 }

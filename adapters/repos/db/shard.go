@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/cluster/router/types"
+	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -76,9 +77,9 @@ type ShardLike interface {
 
 	Counter() *indexcounter.Counter
 	ObjectCount() int
-	ObjectCountAsync() int
-	ObjectStorageSize(ctx context.Context) int64
-	VectorStorageSize(ctx context.Context) int64
+	ObjectCountAsync(ctx context.Context) (int64, error)
+	ObjectStorageSize(ctx context.Context) (int64, error)
+	VectorStorageSize(ctx context.Context) (int64, error)
 	GetPropertyLengthTracker() *inverted.JsonShardMetaData
 
 	PutObject(context.Context, *storobj.Object) error
@@ -142,10 +143,10 @@ type ShardLike interface {
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	// Dimensions returns the total number of dimensions for a given vector
-	Dimensions(ctx context.Context, targetVector string) int // dim(vector)*number vectors
+	Dimensions(ctx context.Context, targetVector string) (int, error)
 	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
 	// TODO: rename to DimensionsUsage struct and find a better way because of import cycle
-	DimensionsUsage(ctx context.Context, targetVector string) (count, dimensions int)
+	DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error)
 	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
@@ -411,63 +412,57 @@ func (s *Shard) ObjectCount() int {
 
 // ObjectCountAsync returns the eventually consistent "async" count which is
 // much cheaper to obtain
-func (s *Shard) ObjectCountAsync() int {
+func (s *Shard) ObjectCountAsync(_ context.Context) (int64, error) {
 	b := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if b == nil {
-		return 0
+		return 0, fmt.Errorf("bucket %s not found", helpers.ObjectsBucketLSM)
 	}
 
-	return b.CountAsync()
+	return int64(b.CountAsync()), nil
 }
 
-func (s *Shard) ObjectStorageSize(ctx context.Context) int64 {
+func (s *Shard) ObjectStorageSize(ctx context.Context) (int64, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	if bucket == nil {
-		return 0
+		return 0, fmt.Errorf("bucket %s not found", helpers.ObjectsBucketLSM)
 	}
 
-	return bucket.DiskSize() + bucket.MetadataSize()
+	return bucket.DiskSize() + bucket.MetadataSize(), nil
 }
 
 // VectorStorageSize calculates the total storage size of all vector indexes in the shard
 // Always use the dimensions bucket for tracking total vectors and dimensions
 // This ensures we get accurate counts regardless of cache size or shard state
 // This method is only called for active tenants, so we can always use direct vector index compression.
-func (s *Shard) VectorStorageSize(ctx context.Context) int64 {
+func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 	totalSize := int64(0)
 
 	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// Get dimensions and object count from the dimensions bucket for this specific target vector
-		count, dimensions := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
+		dimensionality := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
 			return len(v), dimLen
 		})
 
-		if count == 0 || dimensions == 0 {
+		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
 			return nil
 		}
 
 		// Calculate uncompressed size (float32 = 4 bytes per dimension)
-		uncompressedSize := int64(count) * int64(dimensions) * 4
+		uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
 
 		// For active tenants, always use the direct vector index compression rate
-		// Get the actual compression rate from the vector index
-		compressionRate := float64(1.0) // default to no compression
-
-		if stats, err := index.CompressionStats(); err == nil {
-			compressionRate = stats.CompressionRatio(dimensions)
-		}
+		compressionRate := index.CompressionStats().CompressionRatio(dimensionality.Dimensions)
 
 		// Calculate total size using actual compression rate
 		totalSize += int64(float64(uncompressedSize) * compressionRate)
 
 		return nil
 	}); err != nil {
-		// TODO: change interface to return error to avoid reporting wrong data
-		return 0
+		return 0, err
 	}
 
-	return totalSize
+	return totalSize, nil
 }
 
 func (s *Shard) isFallbackToSearchable() bool {
