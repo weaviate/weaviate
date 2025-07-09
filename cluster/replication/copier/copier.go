@@ -475,9 +475,11 @@ func depth(path string) int {
 // AddAsyncReplicationTargetNode adds a target node override for a shard.
 func (c *Copier) AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
 	if targetNodeOverride.SourceNode == c.nodeName {
-		return c.dbWrapper.
-			GetIndex(schema.ClassName(targetNodeOverride.CollectionID)).
-			IncomingAddAsyncReplicationTargetNode(ctx, targetNodeOverride.ShardID, targetNodeOverride)
+		index := c.dbWrapper.GetIndex(schema.ClassName(targetNodeOverride.CollectionID))
+		if index == nil {
+			return nil
+		}
+		return index.IncomingAddAsyncReplicationTargetNode(ctx, targetNodeOverride.ShardID, targetNodeOverride)
 	}
 
 	srcNodeHostname, ok := c.nodeSelector.NodeHostname(targetNodeOverride.SourceNode)
@@ -491,9 +493,11 @@ func (c *Copier) AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOv
 // RemoveAsyncReplicationTargetNode removes a target node override for a shard.
 func (c *Copier) RemoveAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	if targetNodeOverride.SourceNode == c.nodeName {
-		return c.dbWrapper.
-			GetIndex(schema.ClassName(targetNodeOverride.CollectionID)).
-			IncomingRemoveAsyncReplicationTargetNode(ctx, targetNodeOverride.ShardID, targetNodeOverride)
+		index := c.dbWrapper.GetIndex(schema.ClassName(targetNodeOverride.CollectionID))
+		if index == nil {
+			return nil
+		}
+		return index.IncomingRemoveAsyncReplicationTargetNode(ctx, targetNodeOverride.ShardID, targetNodeOverride)
 	}
 
 	srcNodeHostname, ok := c.nodeSelector.NodeHostname(targetNodeOverride.SourceNode)
