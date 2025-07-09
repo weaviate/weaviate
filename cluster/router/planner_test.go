@@ -88,7 +88,7 @@ func TestReadPlanner_Plan_Success(t *testing.T) {
 	readReplicas := testReadReplicaSet()
 	selectedReplicas := testSelectedReadReplicas()
 
-	mockRouter.EXPECT().GetReadReplicasLocation(collection, shard).Return(readReplicas, nil)
+	mockRouter.EXPECT().GetReadReplicasLocation(collection, "", shard).Return(readReplicas, nil)
 	mockStrategy.EXPECT().Apply(readReplicas, mock.Anything).Return(selectedReplicas)
 
 	planner := router.NewReadPlanner(mockRouter, collection, mockStrategy, "", "")
@@ -116,7 +116,7 @@ func TestReadPlanner_Plan_RouterError(t *testing.T) {
 	shard := "TestShard"
 
 	expectedError := errors.New("router error")
-	mockRouter.EXPECT().GetReadReplicasLocation(collection, shard).Return(types.ReadReplicaSet{}, expectedError)
+	mockRouter.EXPECT().GetReadReplicasLocation(collection, "", shard).Return(types.ReadReplicaSet{}, expectedError)
 
 	planner := router.NewReadPlanner(mockRouter, collection, mockStrategy, "", "")
 
@@ -143,7 +143,7 @@ func TestReadPlanner_Plan_EmptyReplicas(t *testing.T) {
 	shard := "TestShard"
 
 	emptyReplicas := types.ReadReplicaSet{Replicas: []types.Replica{}}
-	mockRouter.EXPECT().GetReadReplicasLocation(collection, shard).Return(emptyReplicas, nil)
+	mockRouter.EXPECT().GetReadReplicasLocation(collection, "", shard).Return(emptyReplicas, nil)
 
 	planner := router.NewReadPlanner(mockRouter, collection, mockStrategy, "", "")
 
@@ -170,7 +170,7 @@ func TestReadPlanner_IntegrationWithDirectCandidateStrategy(t *testing.T) {
 	localNode := "local-node"
 
 	readReplicas := testReadReplicaSet()
-	mockRouter.EXPECT().GetReadReplicasLocation(collection, shard).Return(readReplicas, nil)
+	mockRouter.EXPECT().GetReadReplicasLocation(collection, "", shard).Return(readReplicas, nil)
 
 	planner := router.NewReadPlanner(mockRouter, collection, nil, directCandidate, localNode)
 
