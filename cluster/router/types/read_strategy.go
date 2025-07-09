@@ -72,8 +72,7 @@ func NewDirectCandidateReadStrategy(directCandidate DirectCandidate) ReadReplica
 
 // Apply selects exactly one replica per shard, preferring the node specified in
 // options.DirectCandidateNode if provided, falling back to the strategy's configured
-// preferred node when available. Uses the same organizing logic as the write strategy,
-// then selects the first replica from each shard group.
+// preferred node when available.
 func (s *DirectCandidateReadStrategy) Apply(rs ReadReplicaSet, options RoutingPlanBuildOptions) ReadReplicaSet {
 	preferredNode := s.determinePreferredNode(options)
 	organizedReplicas := byPreferredNode(rs.Replicas, preferredNode)
