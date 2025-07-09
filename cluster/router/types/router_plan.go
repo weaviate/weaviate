@@ -29,6 +29,7 @@ import (
 //     If empty, the local node is used as the default candidate.
 type RoutingPlanBuildOptions struct {
 	Shard               string
+	Tenant              string
 	ConsistencyLevel    ConsistencyLevel
 	DirectCandidateNode string
 }
@@ -37,8 +38,8 @@ type RoutingPlanBuildOptions struct {
 // Useful for debugging and logging.
 func (o RoutingPlanBuildOptions) String() string {
 	return fmt.Sprintf(
-		"RoutingPlanBuildOptions{shard: %q, consistencyLevel: %s, directCandidateNode: %q}",
-		o.Shard, o.ConsistencyLevel, o.DirectCandidateNode,
+		"RoutingPlanBuildOptions{shard: %q, tenant: %q, consistencyLevel: %s, directCandidateNode: %q}",
+		o.Shard, o.Tenant, o.ConsistencyLevel, o.DirectCandidateNode,
 	)
 }
 
@@ -51,6 +52,7 @@ func (o RoutingPlanBuildOptions) String() string {
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
 type ReadRoutingPlan struct {
 	Shard               string
+	Tenant              string
 	ReplicaSet          ReadReplicaSet
 	ConsistencyLevel    ConsistencyLevel
 	IntConsistencyLevel int
@@ -60,8 +62,8 @@ type ReadRoutingPlan struct {
 // including shard, consistency level, and list of Replicas.
 func (p ReadRoutingPlan) String() string {
 	return fmt.Sprintf(
-		"ReadRoutingPlan{shard: %q, consistencyLevel: %s (%d), Replicas: %v}",
-		p.Shard, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
+		"ReadRoutingPlan{shard: %q, tenant: %q, consistencyLevel: %s (%d), Replicas: %v}",
+		p.Shard, p.Tenant, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
 	)
 }
 
@@ -78,6 +80,7 @@ func (p ReadRoutingPlan) String() string {
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
 type WriteRoutingPlan struct {
 	Shard               string
+	Tenant              string
 	ReplicaSet          WriteReplicaSet
 	ConsistencyLevel    ConsistencyLevel
 	IntConsistencyLevel int
@@ -87,8 +90,8 @@ type WriteRoutingPlan struct {
 // including shard, consistency level, write Replicas, and additional Replicas.
 func (p WriteRoutingPlan) String() string {
 	return fmt.Sprintf(
-		"WriteRoutingPlan{shard: %q, consistencyLevel: %s (%d), writeReplicas: %v}",
-		p.Shard, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
+		"WriteRoutingPlan{shard: %q, tenant: %q, consistencyLevel: %s (%d), writeReplicas: %v}",
+		p.Shard, p.Tenant, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
 	)
 }
 
@@ -105,8 +108,13 @@ func (p WriteRoutingPlan) AdditionalReplicas() []Replica {
 
 // LogFields returns a structured representation of the ReadRoutingPlan for logging purposes.
 func (p ReadRoutingPlan) LogFields() logrus.Fields {
+	tenant := p.Tenant
+	if tenant == "" {
+		tenant = "no tenant"
+	}
 	return logrus.Fields{
 		"shard":             p.Shard,
+		"tenant":            tenant,
 		"read_replica_set":  p.ReplicaSet,
 		"consistency_level": p.ConsistencyLevel,
 	}
@@ -114,8 +122,13 @@ func (p ReadRoutingPlan) LogFields() logrus.Fields {
 
 // LogFields returns a structured representation of the WriteRoutingPlan for logging purposes.
 func (p WriteRoutingPlan) LogFields() logrus.Fields {
+	tenant := p.Tenant
+	if tenant == "" {
+		tenant = "no tenant"
+	}
 	return logrus.Fields{
 		"shard":             p.Shard,
+		"tenant":            tenant,
 		"write_replica_set": p.ReplicaSet,
 		"consistency_level": p.ConsistencyLevel,
 	}

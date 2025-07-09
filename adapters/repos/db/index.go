@@ -1414,7 +1414,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Shard:            tenant,
+		Tenant:           tenant,
 		ConsistencyLevel: cl,
 	}
 	readPlan, err := i.readPlanner.Plan(planOptions)
@@ -1789,7 +1789,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Shard:            tenant,
+		Tenant:           tenant,
 		ConsistencyLevel: cl,
 	}
 	readPlan, err := i.readPlanner.Plan(planOptions)
@@ -2261,7 +2261,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	}
 	cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 	planOptions := routerTypes.RoutingPlanBuildOptions{
-		Shard:            tenant,
+		Tenant:           tenant,
 		ConsistencyLevel: cl,
 	}
 	readPlan, err := i.readPlanner.Plan(planOptions)

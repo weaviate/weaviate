@@ -131,9 +131,9 @@ func (_c *MockRouter_BuildWriteRoutingPlan_Call) RunAndReturn(run func(RoutingPl
 	return _c
 }
 
-// GetReadReplicasLocation provides a mock function with given fields: collection, shard
-func (_m *MockRouter) GetReadReplicasLocation(collection string, shard string) (ReadReplicaSet, error) {
-	ret := _m.Called(collection, shard)
+// GetReadReplicasLocation provides a mock function with given fields: collection, tenant, shard
+func (_m *MockRouter) GetReadReplicasLocation(collection string, tenant string, shard string) (ReadReplicaSet, error) {
+	ret := _m.Called(collection, tenant, shard)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetReadReplicasLocation")
@@ -141,17 +141,17 @@ func (_m *MockRouter) GetReadReplicasLocation(collection string, shard string) (
 
 	var r0 ReadReplicaSet
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (ReadReplicaSet, error)); ok {
-		return rf(collection, shard)
+	if rf, ok := ret.Get(0).(func(string, string, string) (ReadReplicaSet, error)); ok {
+		return rf(collection, tenant, shard)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) ReadReplicaSet); ok {
-		r0 = rf(collection, shard)
+	if rf, ok := ret.Get(0).(func(string, string, string) ReadReplicaSet); ok {
+		r0 = rf(collection, tenant, shard)
 	} else {
 		r0 = ret.Get(0).(ReadReplicaSet)
 	}
 
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(collection, shard)
+	if rf, ok := ret.Get(1).(func(string, string, string) error); ok {
+		r1 = rf(collection, tenant, shard)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -166,14 +166,15 @@ type MockRouter_GetReadReplicasLocation_Call struct {
 
 // GetReadReplicasLocation is a helper method to define mock.On call
 //   - collection string
+//   - tenant string
 //   - shard string
-func (_e *MockRouter_Expecter) GetReadReplicasLocation(collection interface{}, shard interface{}) *MockRouter_GetReadReplicasLocation_Call {
-	return &MockRouter_GetReadReplicasLocation_Call{Call: _e.mock.On("GetReadReplicasLocation", collection, shard)}
+func (_e *MockRouter_Expecter) GetReadReplicasLocation(collection interface{}, tenant interface{}, shard interface{}) *MockRouter_GetReadReplicasLocation_Call {
+	return &MockRouter_GetReadReplicasLocation_Call{Call: _e.mock.On("GetReadReplicasLocation", collection, tenant, shard)}
 }
 
-func (_c *MockRouter_GetReadReplicasLocation_Call) Run(run func(collection string, shard string)) *MockRouter_GetReadReplicasLocation_Call {
+func (_c *MockRouter_GetReadReplicasLocation_Call) Run(run func(collection string, tenant string, shard string)) *MockRouter_GetReadReplicasLocation_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string))
+		run(args[0].(string), args[1].(string), args[2].(string))
 	})
 	return _c
 }
@@ -183,14 +184,14 @@ func (_c *MockRouter_GetReadReplicasLocation_Call) Return(_a0 ReadReplicaSet, _a
 	return _c
 }
 
-func (_c *MockRouter_GetReadReplicasLocation_Call) RunAndReturn(run func(string, string) (ReadReplicaSet, error)) *MockRouter_GetReadReplicasLocation_Call {
+func (_c *MockRouter_GetReadReplicasLocation_Call) RunAndReturn(run func(string, string, string) (ReadReplicaSet, error)) *MockRouter_GetReadReplicasLocation_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetReadWriteReplicasLocation provides a mock function with given fields: collection, shard
-func (_m *MockRouter) GetReadWriteReplicasLocation(collection string, shard string) (ReadReplicaSet, WriteReplicaSet, error) {
-	ret := _m.Called(collection, shard)
+// GetReadWriteReplicasLocation provides a mock function with given fields: collection, tenant, shard
+func (_m *MockRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (ReadReplicaSet, WriteReplicaSet, error) {
+	ret := _m.Called(collection, tenant, shard)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetReadWriteReplicasLocation")
@@ -199,23 +200,23 @@ func (_m *MockRouter) GetReadWriteReplicasLocation(collection string, shard stri
 	var r0 ReadReplicaSet
 	var r1 WriteReplicaSet
 	var r2 error
-	if rf, ok := ret.Get(0).(func(string, string) (ReadReplicaSet, WriteReplicaSet, error)); ok {
-		return rf(collection, shard)
+	if rf, ok := ret.Get(0).(func(string, string, string) (ReadReplicaSet, WriteReplicaSet, error)); ok {
+		return rf(collection, tenant, shard)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) ReadReplicaSet); ok {
-		r0 = rf(collection, shard)
+	if rf, ok := ret.Get(0).(func(string, string, string) ReadReplicaSet); ok {
+		r0 = rf(collection, tenant, shard)
 	} else {
 		r0 = ret.Get(0).(ReadReplicaSet)
 	}
 
-	if rf, ok := ret.Get(1).(func(string, string) WriteReplicaSet); ok {
-		r1 = rf(collection, shard)
+	if rf, ok := ret.Get(1).(func(string, string, string) WriteReplicaSet); ok {
+		r1 = rf(collection, tenant, shard)
 	} else {
 		r1 = ret.Get(1).(WriteReplicaSet)
 	}
 
-	if rf, ok := ret.Get(2).(func(string, string) error); ok {
-		r2 = rf(collection, shard)
+	if rf, ok := ret.Get(2).(func(string, string, string) error); ok {
+		r2 = rf(collection, tenant, shard)
 	} else {
 		r2 = ret.Error(2)
 	}
@@ -230,14 +231,15 @@ type MockRouter_GetReadWriteReplicasLocation_Call struct {
 
 // GetReadWriteReplicasLocation is a helper method to define mock.On call
 //   - collection string
+//   - tenant string
 //   - shard string
-func (_e *MockRouter_Expecter) GetReadWriteReplicasLocation(collection interface{}, shard interface{}) *MockRouter_GetReadWriteReplicasLocation_Call {
-	return &MockRouter_GetReadWriteReplicasLocation_Call{Call: _e.mock.On("GetReadWriteReplicasLocation", collection, shard)}
+func (_e *MockRouter_Expecter) GetReadWriteReplicasLocation(collection interface{}, tenant interface{}, shard interface{}) *MockRouter_GetReadWriteReplicasLocation_Call {
+	return &MockRouter_GetReadWriteReplicasLocation_Call{Call: _e.mock.On("GetReadWriteReplicasLocation", collection, tenant, shard)}
 }
 
-func (_c *MockRouter_GetReadWriteReplicasLocation_Call) Run(run func(collection string, shard string)) *MockRouter_GetReadWriteReplicasLocation_Call {
+func (_c *MockRouter_GetReadWriteReplicasLocation_Call) Run(run func(collection string, tenant string, shard string)) *MockRouter_GetReadWriteReplicasLocation_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string))
+		run(args[0].(string), args[1].(string), args[2].(string))
 	})
 	return _c
 }
@@ -247,14 +249,14 @@ func (_c *MockRouter_GetReadWriteReplicasLocation_Call) Return(readReplicas Read
 	return _c
 }
 
-func (_c *MockRouter_GetReadWriteReplicasLocation_Call) RunAndReturn(run func(string, string) (ReadReplicaSet, WriteReplicaSet, error)) *MockRouter_GetReadWriteReplicasLocation_Call {
+func (_c *MockRouter_GetReadWriteReplicasLocation_Call) RunAndReturn(run func(string, string, string) (ReadReplicaSet, WriteReplicaSet, error)) *MockRouter_GetReadWriteReplicasLocation_Call {
 	_c.Call.Return(run)
 	return _c
 }
 
-// GetWriteReplicasLocation provides a mock function with given fields: collection, shard
-func (_m *MockRouter) GetWriteReplicasLocation(collection string, shard string) (WriteReplicaSet, error) {
-	ret := _m.Called(collection, shard)
+// GetWriteReplicasLocation provides a mock function with given fields: collection, tenant, shard
+func (_m *MockRouter) GetWriteReplicasLocation(collection string, tenant string, shard string) (WriteReplicaSet, error) {
+	ret := _m.Called(collection, tenant, shard)
 
 	if len(ret) == 0 {
 		panic("no return value specified for GetWriteReplicasLocation")
@@ -262,17 +264,17 @@ func (_m *MockRouter) GetWriteReplicasLocation(collection string, shard string) 
 
 	var r0 WriteReplicaSet
 	var r1 error
-	if rf, ok := ret.Get(0).(func(string, string) (WriteReplicaSet, error)); ok {
-		return rf(collection, shard)
+	if rf, ok := ret.Get(0).(func(string, string, string) (WriteReplicaSet, error)); ok {
+		return rf(collection, tenant, shard)
 	}
-	if rf, ok := ret.Get(0).(func(string, string) WriteReplicaSet); ok {
-		r0 = rf(collection, shard)
+	if rf, ok := ret.Get(0).(func(string, string, string) WriteReplicaSet); ok {
+		r0 = rf(collection, tenant, shard)
 	} else {
 		r0 = ret.Get(0).(WriteReplicaSet)
 	}
 
-	if rf, ok := ret.Get(1).(func(string, string) error); ok {
-		r1 = rf(collection, shard)
+	if rf, ok := ret.Get(1).(func(string, string, string) error); ok {
+		r1 = rf(collection, tenant, shard)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -287,14 +289,15 @@ type MockRouter_GetWriteReplicasLocation_Call struct {
 
 // GetWriteReplicasLocation is a helper method to define mock.On call
 //   - collection string
+//   - tenant string
 //   - shard string
-func (_e *MockRouter_Expecter) GetWriteReplicasLocation(collection interface{}, shard interface{}) *MockRouter_GetWriteReplicasLocation_Call {
-	return &MockRouter_GetWriteReplicasLocation_Call{Call: _e.mock.On("GetWriteReplicasLocation", collection, shard)}
+func (_e *MockRouter_Expecter) GetWriteReplicasLocation(collection interface{}, tenant interface{}, shard interface{}) *MockRouter_GetWriteReplicasLocation_Call {
+	return &MockRouter_GetWriteReplicasLocation_Call{Call: _e.mock.On("GetWriteReplicasLocation", collection, tenant, shard)}
 }
 
-func (_c *MockRouter_GetWriteReplicasLocation_Call) Run(run func(collection string, shard string)) *MockRouter_GetWriteReplicasLocation_Call {
+func (_c *MockRouter_GetWriteReplicasLocation_Call) Run(run func(collection string, tenant string, shard string)) *MockRouter_GetWriteReplicasLocation_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(string), args[1].(string))
+		run(args[0].(string), args[1].(string), args[2].(string))
 	})
 	return _c
 }
@@ -304,7 +307,7 @@ func (_c *MockRouter_GetWriteReplicasLocation_Call) Return(_a0 WriteReplicaSet, 
 	return _c
 }
 
-func (_c *MockRouter_GetWriteReplicasLocation_Call) RunAndReturn(run func(string, string) (WriteReplicaSet, error)) *MockRouter_GetWriteReplicasLocation_Call {
+func (_c *MockRouter_GetWriteReplicasLocation_Call) RunAndReturn(run func(string, string, string) (WriteReplicaSet, error)) *MockRouter_GetWriteReplicasLocation_Call {
 	_c.Call.Return(run)
 	return _c
 }

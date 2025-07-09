@@ -54,7 +54,7 @@ func NewReadPlanner(router types.Router, collection string, strategy types.ReadR
 // Plan asks the router for candidate replicas, applies the read strategy to select a suitable subset of
 // replicas, and returns a fully-formed ReadRoutingPlan with one replica per shard.
 func (p *readPlanner) Plan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	readReplicas, err := p.router.GetReadReplicasLocation(p.collection, params.Shard)
+	readReplicas, err := p.router.GetReadReplicasLocation(p.collection, params.Tenant, params.Shard)
 	if err != nil {
 		return types.ReadRoutingPlan{}, fmt.Errorf("failed to get read replicas for collection %q shard %q: %w", p.collection, params.Shard, err)
 	}
