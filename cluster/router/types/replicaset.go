@@ -14,8 +14,7 @@ package types
 import "strings"
 
 // ReadReplicaSet contains *exactly one* replica per shard and is produced by
-// ReadReplicaPicker implementations for read paths.  It deliberately carries no
-// write-specific semantics.
+// ReadReplicaStrategy implementations for read paths.
 type ReadReplicaSet struct {
 	Replicas []Replica
 }
