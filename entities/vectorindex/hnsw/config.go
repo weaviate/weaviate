@@ -42,6 +42,11 @@ const (
 	MinmumMaxConnections  = 4
 	MaximumMaxConnections = 2047
 	MinmumEFConstruction  = 4
+
+	CompressionBQ = "bq"
+	CompressionPQ = "pq"
+	CompressionSQ = "sq"
+	CompressionRQ = "rq"
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
