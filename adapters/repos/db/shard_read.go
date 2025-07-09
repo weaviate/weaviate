@@ -143,6 +143,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	cursor := bucket.CursorOnDisk()
 	defer cursor.Close()
 
+	inmemProcessedDocIDs := make(map[uint64]struct{})
+
 	n := 0
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
@@ -169,6 +171,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 
 				objs = append(objs, replicaObj)
 
+				inmemProcessedDocIDs[obj.DocID] = struct{}{}
+
 				n++
 			}
 		}
@@ -187,6 +191,10 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 			obj, err := storobj.FromBinaryUUIDOnly(v)
 			if err != nil {
 				return objs, fmt.Errorf("cannot unmarshal object: %w", err)
+			}
+
+			if _, ok := inmemProcessedDocIDs[obj.DocID]; ok {
+				continue
 			}
 
 			replicaObj := types.RepairResponse{
@@ -719,12 +727,27 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	err := s.waitForMinimalHashTreeInitialization(ctx)
+	if err != nil {
+		return err
+	}
+
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return err
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	// see comment in shard_write_put.go::putObjectLSM
+	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+
+	lock.Lock()
+	defer lock.Unlock()
+
 	existing, err := bucket.Get(idBytes)
 	if err != nil {
 		return errors.Wrap(err, "unexpected error on previous lookup")

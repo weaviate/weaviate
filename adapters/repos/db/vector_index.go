@@ -63,5 +63,5 @@ type VectorIndex interface {
 	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
 	Stats() (common.IndexStats, error)
 	// CompressionStats returns the compression statistics for this index
-	CompressionStats() (compressionhelpers.CompressionStats, error)
+	CompressionStats() compressionhelpers.CompressionStats
 }
