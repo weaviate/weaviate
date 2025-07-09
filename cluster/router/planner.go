@@ -19,14 +19,14 @@ import (
 
 // ReadPlanner builds a routing plan for one read request.  The plan contains
 // exactly one replica per shard, chosen according to the configured strategy
-// selected by a specific implementation of ReadReplicaPicker
+// selected by a specific implementation of ReadReplicaStrategy
 // (random by default, or “prefer local node” when WithDirectCandidate is used).
 type ReadPlanner interface {
 	Plan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error)
 }
 
 // readPlanner is the concrete, unexported implementation.  It uses a Router
-// to discover all available replicas and a ReadReplicaPicker to choose one
+// to discover all available replicas and a ReadReplicaStrategy to choose one
 // replica per shard to select the replica to hit for a read operation among
 // all available replicas.
 type readPlanner struct {
