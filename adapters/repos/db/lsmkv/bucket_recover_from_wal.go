@@ -115,7 +115,8 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, files map[string]
 			}
 			b.active = mt
 		} else {
-			if _, err := mt.flush(); err != nil {
+			segmentPath, err := mt.flush()
+			if err != nil {
 				return errors.Wrap(err, "flush memtable after WAL recovery")
 			}
 
@@ -123,7 +124,7 @@ func (b *Bucket) mayRecoverFromCommitLogs(ctx context.Context, files map[string]
 				continue
 			}
 
-			if err := b.disk.add(path + ".db"); err != nil {
+			if err := b.disk.add(segmentPath); err != nil {
 				return err
 			}
 		}
