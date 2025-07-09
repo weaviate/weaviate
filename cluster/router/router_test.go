@@ -439,7 +439,7 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_NonTenantRequestForMulti
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "", "")
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "tenant is required for multi-tenant collections")
+	require.Contains(t, err.Error(), "class TestClass has multi-tenancy enabled, but request was without tenant")
 	require.Empty(t, rs.Replicas)
 	require.Empty(t, ws.Replicas)
 	require.Empty(t, ws.AdditionalReplicas)

@@ -48,6 +48,7 @@ func (o RoutingPlanBuildOptions) String() string {
 //
 // Fields:
 //   - Shard: The (optional) shard targeted by this routing plan. If empty, all relevant shards are targeted.
+//   - Tenant: The tenant name targeted by this routing plan. Expected to be empty and ignored for single-tenant collections.
 //   - ReplicaSet: The ordered list of Replicas to contact.
 //   - ConsistencyLevel: The user-specified consistency level.
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
@@ -73,6 +74,7 @@ func (p ReadRoutingPlan) String() string {
 // Fields:
 //   - Shard: The shard targeted by this routing plan. For writing, this is required as a write operation
 //     always targets a specific shard. Usually, the shard is determined based on the object's UUID.
+//   - Tenant: The tenant name targeted by this routing plan. Expected to be empty and ignored for single-tenant collections.
 //   - ReplicaSet: The ordered list of primary write Replicas.
 //     Write Replicas will normally also include read Replicas. A node that accepts writes is also eligible to
 //     serve reads.
