@@ -126,7 +126,7 @@ func newOverrides(op ShardReplicationOpAndStatus, upperTimeBound int64) override
 			TargetNode:           op.Op.SourceShard.NodeId,
 			SourceNode:           op.Op.TargetShard.NodeId,
 			UpperTimeBound:       upperTimeBound,
-			NoDeletionResolution: false,
+			NoDeletionResolution: true,
 		},
 		target: additional.AsyncReplicationTargetNodeOverride{
 			CollectionID:         op.Op.SourceShard.CollectionId,
