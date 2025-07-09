@@ -75,6 +75,62 @@ func (_c *MockRouter_AllHostnames_Call) RunAndReturn(run func() []string) *MockR
 	return _c
 }
 
+// BuildWriteRoutingPlan provides a mock function with given fields: params
+func (_m *MockRouter) BuildWriteRoutingPlan(params RoutingPlanBuildOptions) (WriteRoutingPlan, error) {
+	ret := _m.Called(params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for BuildWriteRoutingPlan")
+	}
+
+	var r0 WriteRoutingPlan
+	var r1 error
+	if rf, ok := ret.Get(0).(func(RoutingPlanBuildOptions) (WriteRoutingPlan, error)); ok {
+		return rf(params)
+	}
+	if rf, ok := ret.Get(0).(func(RoutingPlanBuildOptions) WriteRoutingPlan); ok {
+		r0 = rf(params)
+	} else {
+		r0 = ret.Get(0).(WriteRoutingPlan)
+	}
+
+	if rf, ok := ret.Get(1).(func(RoutingPlanBuildOptions) error); ok {
+		r1 = rf(params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockRouter_BuildWriteRoutingPlan_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'BuildWriteRoutingPlan'
+type MockRouter_BuildWriteRoutingPlan_Call struct {
+	*mock.Call
+}
+
+// BuildWriteRoutingPlan is a helper method to define mock.On call
+//   - params RoutingPlanBuildOptions
+func (_e *MockRouter_Expecter) BuildWriteRoutingPlan(params interface{}) *MockRouter_BuildWriteRoutingPlan_Call {
+	return &MockRouter_BuildWriteRoutingPlan_Call{Call: _e.mock.On("BuildWriteRoutingPlan", params)}
+}
+
+func (_c *MockRouter_BuildWriteRoutingPlan_Call) Run(run func(params RoutingPlanBuildOptions)) *MockRouter_BuildWriteRoutingPlan_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(RoutingPlanBuildOptions))
+	})
+	return _c
+}
+
+func (_c *MockRouter_BuildWriteRoutingPlan_Call) Return(_a0 WriteRoutingPlan, _a1 error) *MockRouter_BuildWriteRoutingPlan_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockRouter_BuildWriteRoutingPlan_Call) RunAndReturn(run func(RoutingPlanBuildOptions) (WriteRoutingPlan, error)) *MockRouter_BuildWriteRoutingPlan_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // GetReadReplicasLocation provides a mock function with given fields: collection, shard
 func (_m *MockRouter) GetReadReplicasLocation(collection string, shard string) (ReadReplicaSet, error) {
 	ret := _m.Called(collection, shard)

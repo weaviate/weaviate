@@ -76,6 +76,7 @@ type Finder struct {
 // NewFinder constructs a new finder instance
 func NewFinder(className string,
 	router router,
+	readPlanner readPlanner,
 	nodeName string,
 	client RClient,
 	l logrus.FieldLogger,
@@ -85,8 +86,9 @@ func NewFinder(className string,
 ) *Finder {
 	cl := FinderClient{client}
 	return &Finder{
-		router:   router,
-		nodeName: nodeName,
+		router:      router,
+		readPlanner: readPlanner,
+		nodeName:    nodeName,
 		finderStream: finderStream{
 			repairer: repairer{
 				class:               className,
