@@ -331,7 +331,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	}
 
 	// TODO: Fix replica router instantiation to be at the top level
-	index.replicator = replica.NewReplicator(cfg.ClassName.String(), router, sg.NodeName(), getDeletionStrategy, replicaClient, logger)
+	index.replicator = replica.NewReplicator(cfg.ClassName.String(), router, readPlanner, sg.NodeName(), getDeletionStrategy, replicaClient, logger)
 
 	index.closingCtx, index.closingCancel = context.WithCancel(context.Background())
 

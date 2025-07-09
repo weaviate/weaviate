@@ -886,14 +886,20 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 	return clusterRouter.NewBuilder(f.CLS, f.isMultiTenant, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
 }
 
+func (f *fakeFactory) newReadPlanner(router types.Router, collection string, directCandidate string, localNodeName string) clusterRouter.ReadPlanner {
+	return clusterRouter.NewReadPlanner(router, collection, nil, directCandidate, localNodeName)
+}
+
 func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Replicator {
 	router := f.newRouter(thisNode)
+	readPlanner := f.newReadPlanner(router, "TestClass", thisNode, thisNode)
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 	return replica.NewReplicator(
 		f.CLS,
 		router,
+		readPlanner,
 		"A",
 		getDeletionStrategy,
 		&struct {
@@ -906,12 +912,14 @@ func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Repl
 
 func (f *fakeFactory) newReplicator() *replica.Replicator {
 	router := f.newRouter("")
+	readPlanner := f.newReadPlanner(router, "TestClass", "", "")
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
 	return replica.NewReplicator(
 		f.CLS,
 		router,
+		readPlanner,
 		"A",
 		getDeletionStrategy,
 		&struct {
@@ -924,10 +932,11 @@ func (f *fakeFactory) newReplicator() *replica.Replicator {
 
 func (f *fakeFactory) newFinderWithTimings(thisNode string, tInitial time.Duration, tMax time.Duration) *replica.Finder {
 	router := f.newRouter(thisNode)
+	readPlanner := f.newReadPlanner(router, "TestClass", thisNode, thisNode)
 	getDeletionStrategy := func() string {
 		return models.ReplicationConfigDeletionStrategyNoAutomatedResolution
 	}
-	return replica.NewFinder(f.CLS, router, thisNode, f.RClient, f.log, tInitial, tMax, getDeletionStrategy)
+	return replica.NewFinder(f.CLS, router, readPlanner, thisNode, f.RClient, f.log, tInitial, tMax, getDeletionStrategy)
 }
 
 func (f *fakeFactory) newFinder(thisNode string) *replica.Finder {

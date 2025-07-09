@@ -43,13 +43,12 @@ type (
 	// coordinator coordinates replication of write and read requests
 	coordinator[T any] struct {
 		Client
-		Router       router
-		readPlanner  readPlanner
-		writePlanner writePlanner
-		log          logrus.FieldLogger
-		Class        string
-		Shard        string
-		TxID         string // transaction ID
+		Router      router
+		ReadPlanner readPlanner
+		log         logrus.FieldLogger
+		Class       string
+		Shard       string
+		TxID        string // transaction ID
 		// wait twice this duration for the first Pull backoff for each host
 		pullBackOffPreInitialInterval time.Duration
 		pullBackOffMaxElapsedTime     time.Duration // stop retrying after this long
@@ -63,6 +62,7 @@ func newCoordinator[T any](r *Replicator, shard, requestID string, l logrus.Fiel
 	return &coordinator[T]{
 		Client:                        r.client,
 		Router:                        r.router,
+		ReadPlanner:                   r.readPlanner,
 		log:                           l,
 		Class:                         r.class,
 		Shard:                         shard,
@@ -80,6 +80,7 @@ func newReadCoordinator[T any](f *Finder, shard string,
 ) *coordinator[T] {
 	return &coordinator[T]{
 		Router:                        f.router,
+		ReadPlanner:                   f.readPlanner,
 		Class:                         f.class,
 		Shard:                         shard,
 		pullBackOffPreInitialInterval: pullBackOffInitivalInterval / 2,
@@ -203,7 +204,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	// where we don't wait for a response because they are not part of the
 	// replicas used to reach level consistency
 	if len(writeRoutingPlan.AdditionalHostAddresses()) > 0 {
-		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, writeRoutingPlan.AdditionalHostAddresses(), ask, len(writeRoutingPlan.AdditionalHostAddresses()))
+		additionalHostsBroadcast := c.broadcast(ctxWithTimeout, writeRoutingPlan.AdditionalHostAddresses(), ask, level)
 		c.commitAll(context.Background(), additionalHostsBroadcast, com)
 	}
 	return commitCh, level, nil
