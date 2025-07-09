@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package slow
+package replication
 
 import (
 	"context"
@@ -29,7 +29,6 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
-	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
@@ -48,20 +47,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWith
 
 func test(suite *ReplicationTestSuite, strategy string) {
 	t := suite.T()
-	mainCtx := context.Background()
-
-	compose, err := docker.New().
-		WithWeaviateCluster(3).
-		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "10").
-		Start(mainCtx)
-	require.Nil(t, err)
-	defer func() {
-		if err := compose.Terminate(mainCtx); err != nil {
-			t.Fatalf("failed to terminate test containers: %s", err.Error())
-		}
-	}()
-
-	helper.SetupClient(compose.GetWeaviate().URI())
+	helper.SetupClient(suite.compose.GetWeaviate().URI())
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -169,7 +155,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 
 	nodeToAddress := map[string]string{}
 	for idx, node := range ns.Payload.Nodes {
-		nodeToAddress[node.Name] = compose.GetWeaviateNode(idx + 1).URI()
+		nodeToAddress[node.Name] = suite.compose.GetWeaviateNode(idx + 1).URI()
 	}
 
 	objectCountByReplica := make(map[string]int64)
@@ -283,18 +269,6 @@ func symmetricDifference[T comparable](a, b []T) []T {
 		if v == 1 {
 			result = append(result, k)
 		}
-	}
-	return result
-}
-
-func random[T any](s []T, k int) []T {
-	if k > len(s) {
-		k = len(s)
-	}
-	indices := rand.Perm(len(s))[:k]
-	result := make([]T, k)
-	for i, idx := range indices {
-		result[i] = s[idx]
 	}
 	return result
 }
