@@ -1296,7 +1296,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		if shard != nil {
 			defer release()
 		}
-		if shard == nil || i.shardHasOngoingReplication(shardName) {
+		if shard == nil || !i.useOnlyLocalReplica(shardName) {
 			objects, err = i.remote.MultiGetObjects(ctx, shardName, extractIDsFromMulti(group.ids))
 			if err != nil {
 				return nil, errors.Wrapf(err, "remote shard %s", shardName)
@@ -1512,7 +1512,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 
 	// TODO talk with Jero about this
-	if i.checkConsistencyForShards(shardNames) {
+	if i.shouldCheckConsistencyForShards(shardNames) {
 		if replProps == nil {
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
@@ -1554,12 +1554,12 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 			if shard != nil {
 				defer release()
 			}
-			hasOngoingReplication := i.shardHasOngoingReplication(shardName)
-			if shard == nil || hasOngoingReplication {
+			useOnlyLocalReplica := i.useOnlyLocalReplica(shardName)
+			if shard == nil || !useOnlyLocalReplica {
 				i.logger.WithFields(logrus.Fields{
-					"shardName":               shardName,
-					"shard_nil":               shard == nil,
-					"has_ongoing_replication": hasOngoingReplication,
+					"shardName":           shardName,
+					"shard_nil":           shard == nil,
+					"useOnlyLocalReplica": useOnlyLocalReplica,
 				}).Debug("search for object locally")
 
 				objs, scores, nodeName, err = i.remote.SearchShard(
@@ -1580,7 +1580,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				nodeName = i.getSchema.NodeName()
 			}
 
-			if i.checkConsistencyForShards([]string{shardName}) {
+			if i.shouldCheckConsistencyForShards([]string{shardName}) {
 				storobj.AddOwnership(objs, nodeName, shardName)
 			}
 
@@ -1724,7 +1724,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	// Append result to out
-	if i.checkConsistencyForShards([]string{shardName}) {
+	if i.shouldCheckConsistencyForShards([]string{shardName}) {
 		storobj.AddOwnership(localShardResult, i.getSchema.NodeName(), shardName)
 	}
 	return localShardResult, localShardScores, nil
@@ -1757,7 +1757,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		}
 		// Append the result of the search to the outgoing result
 		for _, remoteShardResult := range remoteSearchResults {
-			if i.checkConsistencyForShards([]string{shardName}) {
+			if i.shouldCheckConsistencyForShards([]string{shardName}) {
 				storobj.AddOwnership(remoteShardResult.Objects, remoteShardResult.Node, shardName)
 			}
 			outObjects = append(outObjects, remoteShardResult.Objects...)
@@ -1772,7 +1772,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 		}
 
-		if i.checkConsistencyForShards([]string{shardName}) {
+		if i.shouldCheckConsistencyForShards([]string{shardName}) {
 			storobj.AddOwnership(remoteResult, nodeName, shardName)
 		}
 		outObjects = remoteResult
@@ -1803,7 +1803,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 
 		if shard != nil {
 			defer release()
-			if !i.shardHasOngoingReplication(shardName) {
+			if i.useOnlyLocalReplica(shardName) {
 				return i.singleLocalShardObjectVectorSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters,
 					sort, groupBy, additionalProps, shard, targetCombination, properties)
 			}
@@ -1840,7 +1840,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 			defer release()
 		}
 
-		if shard != nil && !i.shardHasOngoingReplication(shardName) {
+		if shard != nil && i.useOnlyLocalReplica(shardName) {
 			localSearches++
 			eg.Go(func() error {
 				localShardResult, localShardScores, err1 := i.localShardSearch(ctx, searchVectors, targetVectors, dist, limit, localFilters, sort, groupBy, additionalProps, targetCombination, properties, shardName)
@@ -1913,7 +1913,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		dists = dists[:limit]
 	}
 
-	if i.replicationEnabled() || i.checkConsistencyForShards(shardNames) {
+	if i.replicationEnabled() || i.shouldCheckConsistencyForShards(shardNames) {
 		if replProps == nil {
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
@@ -2279,7 +2279,7 @@ func (i *Index) aggregate(ctx context.Context,
 				if shard != nil {
 					defer release()
 				}
-				if shard != nil && !i.shardHasOngoingReplication(shardName) {
+				if shard != nil && i.useOnlyLocalReplica(shardName) {
 					res, err = shard.Aggregate(ctx, params, modules)
 				} else {
 					res, err = i.remote.Aggregate(ctx, shardName, params)
@@ -2533,7 +2533,7 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 				if shard != nil {
 					defer release()
 				}
-				if shard != nil && !i.shardHasOngoingReplication(shardName) {
+				if shard != nil && i.useOnlyLocalReplica(shardName) {
 					_ = shard.ForEachVectorQueue(func(_ string, queue *VectorIndexQueue) error {
 						size += queue.Size()
 						return nil
@@ -2598,7 +2598,7 @@ func (i *Index) getShardsStatus(ctx context.Context, tenant string) (map[string]
 				if shard != nil {
 					defer release()
 				}
-				if shard != nil && !i.shardHasOngoingReplication(shardName) {
+				if shard != nil && i.useOnlyLocalReplica(shardName) {
 					status = shard.GetStatus().String()
 				} else {
 					status, err = i.remote.GetShardStatus(ctx, shardName)
@@ -2636,7 +2636,7 @@ func (i *Index) updateShardStatus(ctx context.Context, shardName, targetStatus s
 	}
 	if shard != nil {
 		defer release()
-		if !i.shardHasOngoingReplication(shardName) {
+		if i.useOnlyLocalReplica(shardName) {
 			return shard.UpdateStatus(targetStatus)
 		}
 	}
@@ -3036,25 +3036,19 @@ func (i *Index) CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName 
 	return totalObjectCount, totalDiskSize
 }
 
-// shardHasOngoingReplication returns true if the shard has an ongoing replication operation
-func (i *Index) shardHasOngoingReplication(shard string) bool {
-	return i.replicationFSM != nil && i.replicationFSM.HasOngoingReplication(i.Config.ClassName.String(), shard, i.replicator.LocalNodeName())
+// useReplicator returns true if we should use the replicator to read/write to this shard
+func (i *Index) useReplicator(shardName string) bool {
+	return i.replicationEnabled() || i.shardHasMultipleReplicas(shardName) || !i.useOnlyLocalReplica(shardName)
 }
 
-// shardHasMultipleReplicas returns true if the shard has multiple replicas, using getSchema (not the configured replication factor)
-func (i *Index) shardHasMultipleReplicas(shard string) bool {
-	if i.getSchema == nil {
-		return false
-	}
-	shardReplicas, err := i.getSchema.ShardReplicas(i.Config.ClassName.String(), shard)
-	if err != nil {
-		return false
-	}
-	return len(shardReplicas) > 1
+// useOnlyLocalReplica returns true if the shard has only one replica and it is the local node
+func (i *Index) useOnlyLocalReplica(shardName string) bool {
+	shardReplicas := i.replicasForShard(shardName)
+	return len(shardReplicas) == 1 && shardReplicas[0] == i.replicator.LocalNodeName()
 }
 
-// checkConsistencyForShards returns true if we should check consistency for any of the provided shards
-func (i *Index) checkConsistencyForShards(shardNames []string) bool {
+// shouldCheckConsistencyForShards returns true if we should check consistency for any of the provided shards
+func (i *Index) shouldCheckConsistencyForShards(shardNames []string) bool {
 	if i.replicationEnabled() {
 		return true
 	}
@@ -3066,9 +3060,20 @@ func (i *Index) checkConsistencyForShards(shardNames []string) bool {
 	return false
 }
 
-// useReplicator returns true if we should use the replicator to read/write to this shard
-func (i *Index) useReplicator(shard string) bool {
-	return i.replicationEnabled() || i.shardHasMultipleReplicas(shard) || i.shardHasOngoingReplication(shard)
+func (i *Index) shardHasMultipleReplicas(shardName string) bool {
+	return len(i.replicasForShard(shardName)) > 1
+}
+
+// replicasForShard returns true if the shard has multiple replicas, using getSchema (not the configured replication factor)
+func (i *Index) replicasForShard(shardName string) []string {
+	if i.getSchema == nil {
+		return []string{}
+	}
+	shardReplicas, err := i.getSchema.ShardReplicas(i.Config.ClassName.String(), shardName)
+	if err != nil {
+		return []string{}
+	}
+	return shardReplicas
 }
 
 // CalculateUnloadedDimensionsUsage calculates dimensions and object count for an unloaded shard without loading it into memory
