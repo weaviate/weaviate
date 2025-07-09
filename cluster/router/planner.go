@@ -70,7 +70,7 @@ func (p *readPlanner) Plan(params types.RoutingPlanBuildOptions) (types.ReadRout
 		return types.ReadRoutingPlan{}, fmt.Errorf("no replicas available for collection %q shard %q", p.collection, params.Shard)
 	}
 
-	chosen := p.strategy.Apply(readReplicas)
+	chosen := p.strategy.Apply(readReplicas, params)
 	plan := types.ReadRoutingPlan{
 		Shard:            params.Shard,
 		ReplicaSet:       chosen,
@@ -80,78 +80,6 @@ func (p *readPlanner) Plan(params types.RoutingPlanBuildOptions) (types.ReadRout
 	cl, err := plan.ValidateConsistencyLevel()
 	if err != nil {
 		return types.ReadRoutingPlan{}, fmt.Errorf("consistency validation failed: %w", err)
-	}
-	plan.IntConsistencyLevel = cl
-
-	return plan, nil
-}
-
-// WritePlanner builds a routing plan for one write request. The plan contains
-// all appropriate write replicas as returned by the router.
-type WritePlanner interface {
-	Plan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error)
-}
-
-// writePlanner is the concrete implementation of WritePlanner. It uses a Router
-// to discover all available write replicas and a WriteReplicaStrategy to organize
-// them according to routing preferences (e.g., local node preference).
-type writePlanner struct {
-	router     types.Router
-	collection string
-	strategy   types.WriteReplicaStrategy
-}
-
-var _ WritePlanner = (*writePlanner)(nil)
-
-// NewWritePlanner creates a new write planner for the specified collection.
-// By default, it uses a DirectCandidate that prioritizes
-// the direct candidate node and falls back to the local node. Custom strategies
-// can be provided via WithWriteReplicaStrategy option.
-//
-// Parameters:
-//   - router: provides access to replica location information
-//   - collection: the target collection name
-//   - strategy: a strategy to organize write replicas
-//   - directCandidate: preferred node for write operations (can be empty)
-//   - localNodeName: fallback node when directCandidate is empty
-//
-// Returns:
-//   - WritePlanner: a planner ready to create write routing plans
-func NewWritePlanner(router types.Router, collection string, strategy types.WriteReplicaStrategy, directCandidate, localNodeName string) WritePlanner {
-	if strategy == nil {
-		strategy = types.NewDirectCandidateWriteStrategy(types.NewDirectCandidate(directCandidate, localNodeName))
-	}
-	return &writePlanner{
-		router:     router,
-		collection: collection,
-		strategy:   strategy,
-	}
-}
-
-// Plan asks the router for write replicas and returns a fully-formed WriteRoutingPlan.
-func (p *writePlanner) Plan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
-	// Get write replicas from router
-	writeReplicas, err := p.router.GetWriteReplicasLocation(p.collection, params.Shard)
-	if err != nil {
-		return types.WriteRoutingPlan{}, fmt.Errorf("error while getting write replicas for shard %q: %w", params.Shard, err)
-	}
-
-	if len(writeReplicas.Replicas) == 0 {
-		return types.WriteRoutingPlan{}, fmt.Errorf("no write replicas available for collection %q shard %q", p.collection, params.Shard)
-	}
-
-	// Apply the replica organization strategy
-	writeReplicas = p.strategy.Apply(writeReplicas)
-
-	plan := types.WriteRoutingPlan{
-		Shard:            params.Shard,
-		ReplicaSet:       writeReplicas,
-		ConsistencyLevel: params.ConsistencyLevel,
-	}
-
-	cl, err := plan.ValidateConsistencyLevel()
-	if err != nil {
-		return types.WriteRoutingPlan{}, fmt.Errorf("error while validating consistency level: %w", err)
 	}
 	plan.IntConsistencyLevel = cl
 

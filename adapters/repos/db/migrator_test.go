@@ -18,6 +18,7 @@ import (
 	"slices"
 	"testing"
 
+	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -92,6 +93,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 			}
 
 			router := routerTypes.NewMockRouter(t)
+			readPlanner := clusterRouter.NewMockReadPlanner(t)
 
 			index, err := NewIndex(context.Background(), IndexConfig{
 				ClassName:         schema.ClassName("TestClass"),
@@ -314,6 +316,7 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	}
 
 	router := routerTypes.NewMockRouter(t)
+	readPlanner := clusterRouter.NewMockReadPlanner(t)
 	index, err := NewIndex(context.Background(), IndexConfig{
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),

@@ -329,7 +329,6 @@ func TestWriteRoutingWithFSM(t *testing.T) {
 				return testCase.allShardNodes, nil
 			})
 			myRouter := router.NewBuilder("collection1", testCase.partitioningEnabled, clusterState, schemaGetterMock, schemaReaderMock, shardReplicationFSM).Build()
-			wp := router.NewWritePlanner(myRouter, "collection1", nil, testCase.directCandidate, testCase.localNodeName)
 
 			// Setup the FSM with the right state
 			shardReplicationFSM.Replicate(1, &api.ReplicationReplicateShardRequest{

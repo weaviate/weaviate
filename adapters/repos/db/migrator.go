@@ -120,6 +120,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		m.db.schemaReader,
 		m.db.replicationFSM,
 	).Build()
+	readPlanner := router.NewReadPlanner(indexRouter, collection, nil /* default strategy */, "", m.localNodeName)
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                                    schema.ClassName(class.Class),
@@ -175,7 +176,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		indexRouter, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		indexRouter, readPlanner, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor, m.db.reindexer, m.db.bitmapBufPool)
 	if err != nil {
