@@ -19,15 +19,16 @@ import (
 )
 
 type Config struct {
-	ID               string
-	RootPath         string
-	TargetVector     string
-	MinMMapSize      int64
-	MaxWalReuseSize  int64
-	Logger           logrus.FieldLogger
-	DistanceProvider distancer.Provider
-	AllocChecker     memwatch.AllocChecker
-	LazyLoadSegments bool
+	ID                           string
+	RootPath                     string
+	TargetVector                 string
+	MinMMapSize                  int64
+	MaxWalReuseSize              int64
+	Logger                       logrus.FieldLogger
+	DistanceProvider             distancer.Provider
+	AllocChecker                 memwatch.AllocChecker
+	LazyLoadSegments             bool
+	WriteSegmentInfoIntoFileName bool
 }
 
 func (c Config) Validate() error {

@@ -15,6 +15,8 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"regexp"
+	"strconv"
 	"sync"
 
 	"github.com/weaviate/sroar"
@@ -87,6 +89,10 @@ func (s *lazySegment) setPath(path string) {
 }
 
 func (s *lazySegment) getStrategy() segmentindex.Strategy {
+	strategy, found := s.numberFromPath("s")
+	if found {
+		return segmentindex.Strategy(strategy)
+	}
 	s.mustLoad()
 	return s.segment.getStrategy()
 }
@@ -102,6 +108,11 @@ func (s *lazySegment) getCountNetAdditions() int {
 }
 
 func (s *lazySegment) getLevel() uint16 {
+	level, found := s.numberFromPath("l")
+	if found {
+		return uint16(level)
+	}
+
 	s.mustLoad()
 	return s.segment.getLevel()
 }
@@ -367,4 +378,17 @@ func (s *lazySegment) storeBloomFilterSecondaryOnDisk(path string, pos int) erro
 func (s *lazySegment) storeCountNetOnDisk() error {
 	s.mustLoad()
 	return s.segment.storeCountNetOnDisk()
+}
+
+func (s *lazySegment) numberFromPath(str string) (int, bool) {
+	template := fmt.Sprintf(`\.%s(\d+)\.`, str)
+	re := regexp.MustCompile(template)
+	match := re.FindStringSubmatch(s.path)
+	if len(match) > 1 {
+		num, err := strconv.Atoi(match[1])
+		if err == nil {
+			return num, true
+		}
+	}
+	return 0, false
 }
