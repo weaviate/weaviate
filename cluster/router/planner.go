@@ -73,6 +73,7 @@ func (p *readPlanner) Plan(params types.RoutingPlanBuildOptions) (types.ReadRout
 	chosen := p.strategy.Apply(readReplicas, params)
 	plan := types.ReadRoutingPlan{
 		Shard:            params.Shard,
+		Tenant:           params.Tenant,
 		ReplicaSet:       chosen,
 		ConsistencyLevel: params.ConsistencyLevel,
 	}
