@@ -766,13 +766,11 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			} else {
 				for _, id := range entryPointNode.connections[0] {
 					if isMultivec {
-						var docID uint64
 						if h.compressed.Load() {
-							docID, _ = h.compressor.GetKeys(id)
+							id, _ = h.compressor.GetKeys(id)
 						} else {
-							docID, _ = h.cache.GetKeys(id)
+							id, _ = h.cache.GetKeys(id)
 						}
-						id = docID
 					}
 					if allowList.Contains(id) {
 						counter++
