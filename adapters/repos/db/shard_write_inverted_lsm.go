@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
@@ -93,7 +94,10 @@ func (s *Shard) addToPropertyValueIndex(docID uint64, property inverted.Property
 		propLen := float32(len(property.Items))
 		for _, item := range property.Items {
 			key := item.Data
-			pair := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
+			pair, err := s.pairPropertyWithFrequency(docID, item.TermFrequency, propLen)
+			if err != nil {
+				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
+			}
 			if err := s.addToPropertyMapBucket(bucketValue, pair, key); err != nil {
 				return errors.Wrapf(err, "failed adding to prop '%s' value bucket", property.Name)
 			}
@@ -149,7 +153,7 @@ func (s *Shard) addToPropertyNullIndex(propName string, docID uint64, isNull boo
 	return nil
 }
 
-func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) lsmkv.MapPair {
+func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) (lsmkv.MapPair, error) {
 	// 8 bytes for doc id, 4 bytes for frequency, 4 bytes for prop term length
 	buf := make([]byte, 16)
 
@@ -166,7 +170,7 @@ func (s *Shard) pairPropertyWithFrequency(docID uint64, freq, propLen float32) l
 	return lsmkv.MapPair{
 		Key:   buf[:8],
 		Value: buf[8:],
-	}
+	}, nil
 }
 
 func (s *Shard) addToPropertyMapBucket(bucket *lsmkv.Bucket, pair lsmkv.MapPair, key []byte) error {

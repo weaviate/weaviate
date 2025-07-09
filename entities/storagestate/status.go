@@ -20,6 +20,7 @@ const (
 	StatusReadOnly Status = "READONLY"
 	StatusIndexing Status = "INDEXING"
 	StatusLoading  Status = "LOADING"
+	StatusError    Status = "ERROR"
 	StatusReady    Status = "READY"
 	StatusShutdown Status = "SHUTDOWN"
 )
