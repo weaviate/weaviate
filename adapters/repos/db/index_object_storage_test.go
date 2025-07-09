@@ -193,7 +193,8 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				require.NotNil(t, shard)
 				defer release()
 
-				objectStorageSize := shard.ObjectStorageSize(ctx)
+				objectStorageSize, err := shard.ObjectStorageSize(ctx)
+				require.NoError(t, err)
 				objectCount := shard.ObjectCount()
 
 				// Verify object count
@@ -212,7 +213,8 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 				require.NotNil(t, shard)
 				defer release()
 
-				objectStorageSize := shard.ObjectStorageSize(ctx)
+				objectStorageSize, err := shard.ObjectStorageSize(ctx)
+				require.NoError(t, err)
 				objectCount := shard.ObjectCount()
 
 				assert.Equal(t, tt.expectedObjectCount, objectCount, "Empty shard should have 0 objects")
@@ -340,7 +342,8 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	require.NotNil(t, objectsBucket)
 	require.NoError(t, objectsBucket.FlushMemtable())
 
-	activeObjectStorageSize := activeShard.ObjectStorageSize(ctx)
+	activeObjectStorageSize, err := activeShard.ObjectStorageSize(ctx)
+	require.NoError(t, err)
 	activeObjectCount := activeShard.ObjectCount()
 	assert.Greater(t, activeObjectStorageSize, int64(0), "Active shard calculation should have object storage size > 0")
 
@@ -388,11 +391,11 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}))
 	newIndex.shards.LoadAndDelete(tenantName)
 
-	inactiveObjectCount, inactiveObjectStorageSize := newIndex.CalculateUnloadedObjectsMetrics(ctx, tenantName)
-
+	inactiveObjectUsage, err := newIndex.CalculateUnloadedObjectsMetrics(ctx, tenantName)
+	require.NoError(t, err)
 	// Compare active and inactive metrics
-	assert.Equal(t, activeObjectCount, int(inactiveObjectCount), "Active and inactive object count should match")
-	assert.InDelta(t, activeObjectStorageSize, inactiveObjectStorageSize, 1024, "Active and inactive object storage size should be close")
+	assert.Equal(t, int64(activeObjectCount), inactiveObjectUsage.Count, "Active and inactive object count should match")
+	assert.InDelta(t, activeObjectStorageSize, inactiveObjectUsage.StorageBytes, 1024, "Active and inactive object storage size should be close")
 
 	// Verify all mock expectations were met
 	mockSchema.AssertExpectations(t)

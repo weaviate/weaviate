@@ -189,9 +189,9 @@ func (i *Index) VectorStorageSize(_ context.Context) int64 {
 	return 0
 }
 
-func (i *Index) CompressionStats() (compressionhelpers.CompressionStats, error) {
+func (i *Index) CompressionStats() compressionhelpers.CompressionStats {
 	// Noop index doesn't compress vectors
-	return compressionhelpers.UncompressedStats{}, nil
+	return compressionhelpers.UncompressedStats{}
 }
 
 type NoopStats struct{}

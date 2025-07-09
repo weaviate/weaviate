@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package usage
+package types
 
 // Report represents the usage metrics report from the metrics endpoint
 type Report struct {
@@ -48,7 +48,7 @@ type ShardUsage struct {
 	Name string `json:"name"`
 
 	// The number of objects in the shard
-	ObjectsCount int `json:"objects_count"`
+	ObjectsCount int64 `json:"objects_count"`
 
 	// The storage size in bytes
 	ObjectsStorageBytes uint64 `json:"objects_storage_bytes"`
@@ -84,7 +84,7 @@ type VectorUsage struct {
 // Dimensionality represents metrics for a specific dimensionality
 type Dimensionality struct {
 	// The dimensionality of the vectors
-	Dimensionality int `json:"dimensionality"`
+	Dimensions int `json:"dimensionality"`
 
 	// The number of objects with this dimensionality
 	Count int `json:"count"`
@@ -106,4 +106,9 @@ type BackupUsage struct {
 
 	// The list of collections included in the backup
 	Collections []string `json:"collections"`
+}
+
+type ObjectUsage struct {
+	Count        int64
+	StorageBytes int64
 }

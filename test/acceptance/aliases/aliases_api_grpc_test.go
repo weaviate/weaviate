@@ -73,6 +73,13 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 		require.NotEmpty(t, resp.Aliases)
 	})
 
+	assertTargetCollectionName := func(res []*pb.SearchResult, collection string) {
+		for _, r := range res {
+			require.NotNil(t, r.GetProperties())
+			assert.Equal(t, collection, r.GetProperties().GetTargetCollection())
+		}
+	}
+
 	tests := []struct {
 		name       string
 		collection string
@@ -99,6 +106,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 					require.NoError(t, err)
 					require.NotNil(t, resp)
 					assert.Len(t, resp.Results, 3)
+					assertTargetCollectionName(resp.Results, tt.collection)
 				})
 				t.Run("get with filters", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
@@ -118,6 +126,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 					assert.Len(t, resp.Results, 1)
 					assert.Equal(t, resp.Results[0].Metadata.Id, books.Dune.String())
 					assert.NotEmpty(t, resp.Results[0].Metadata.GetVectorBytes())
+					assertTargetCollectionName(resp.Results, tt.collection)
 				})
 				t.Run("nearText", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
@@ -134,6 +143,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 					require.NotNil(t, resp)
 					assert.Len(t, resp.Results, 3)
 					assert.Equal(t, resp.Results[0].Metadata.Id, books.Dune.String())
+					assertTargetCollectionName(resp.Results, tt.collection)
 				})
 				t.Run("bm25", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
@@ -151,6 +161,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 					require.NotNil(t, resp)
 					assert.Len(t, resp.Results, 1)
 					assert.Equal(t, resp.Results[0].Metadata.Id, books.Dune.String())
+					assertTargetCollectionName(resp.Results, tt.collection)
 				})
 				t.Run("hybrid", func(t *testing.T) {
 					resp, err := grpcClient.Search(ctx, &pb.SearchRequest{
@@ -171,6 +182,7 @@ func Test_AliasesAPI_gRPC(t *testing.T) {
 					require.NotNil(t, resp)
 					assert.Len(t, resp.Results, 3)
 					assert.Equal(t, resp.Results[0].Metadata.Id, books.ProjectHailMary.String())
+					assertTargetCollectionName(resp.Results, tt.collection)
 				})
 			})
 			t.Run("aggregate using alias", func(t *testing.T) {
