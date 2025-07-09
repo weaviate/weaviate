@@ -143,6 +143,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 	cursor := bucket.CursorOnDisk()
 	defer cursor.Close()
 
+	inmemProcessedDocIDs := make(map[uint64]struct{})
+
 	n := 0
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
@@ -169,6 +171,8 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 
 				objs = append(objs, replicaObj)
 
+				inmemProcessedDocIDs[obj.DocID] = struct{}{}
+
 				n++
 			}
 		}
@@ -187,6 +191,10 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 			obj, err := storobj.FromBinaryUUIDOnly(v)
 			if err != nil {
 				return objs, fmt.Errorf("cannot unmarshal object: %w", err)
+			}
+
+			if _, ok := inmemProcessedDocIDs[obj.DocID]; ok {
+				continue
 			}
 
 			replicaObj := types.RepairResponse{
