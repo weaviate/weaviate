@@ -101,6 +101,7 @@ type SchemaReader interface {
 	ShardOwner(class, shard string) (string, error)
 	Read(class string, reader func(*models.Class, *sharding.State) error) error
 	GetShardsStatus(class, tenant string) (models.ShardStatusList, error)
+	ResolveAlias(alias string) string
 
 	// These schema reads function (...WithVersion) return the metadata once the local schema has caught up to the
 	// version parameter. If version is 0 is behaves exactly the same as eventual consistent reads.

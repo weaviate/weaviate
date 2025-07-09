@@ -29,6 +29,7 @@ import (
 	clusterReplication "github.com/weaviate/weaviate/cluster/replication"
 	"github.com/weaviate/weaviate/cluster/replication/types"
 	clusterSchema "github.com/weaviate/weaviate/cluster/schema"
+	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/cluster/utils"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/replication"
@@ -151,7 +152,8 @@ type IndexGetter interface {
 // This allows for better testability by using interfaces instead of concrete types
 type IndexLike interface {
 	ForEachShard(f func(name string, shard ShardLike) error) error
-	CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (objectCount int64, storageSize int64)
+	CalculateUnloadedObjectsMetrics(ctx context.Context, tenantName string) (usagetypes.ObjectUsage, error)
+	CalculateUnloadedVectorsMetrics(ctx context.Context, tenantName string) (int64, error)
 }
 
 func New(logger logrus.FieldLogger, localNodeName string, config Config,

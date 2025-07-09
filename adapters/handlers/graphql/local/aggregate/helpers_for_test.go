@@ -14,6 +14,7 @@ package aggregate
 import (
 	"context"
 	"fmt"
+
 	"github.com/weaviate/weaviate/entities/additional"
 
 	testhelper "github.com/weaviate/weaviate/adapters/handlers/graphql/test/helper"

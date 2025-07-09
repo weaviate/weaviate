@@ -328,7 +328,6 @@ func Test_Traverser_Aggregate(t *testing.T) {
 		res, err := traverser.Aggregate(context.Background(), principal, &params, nil)
 		require.Nil(t, err)
 		assert.Equal(t, &agg, res)
-		t.Logf("res: %+v", res)
 	})
 }
 

@@ -45,8 +45,13 @@ func (s *Raft) ReplaceAlias(ctx context.Context, alias *models.Alias, newClass *
 	if alias == nil {
 		return 0, fmt.Errorf("empty alias: %w", schema.ErrBadRequest)
 	}
-	if newClass == nil || newClass.Class == "" {
-		return 0, fmt.Errorf("nil new class or empty class name: %w", schema.ErrBadRequest)
+
+	if newClass == nil {
+		return 0, fmt.Errorf("class does not exist: %w", schema.ErrBadRequest)
+	}
+
+	if newClass.Class == "" {
+		return 0, fmt.Errorf("empty class name: %w", schema.ErrBadRequest)
 	}
 
 	req := cmd.ReplaceAliasRequest{Collection: newClass.Class, Alias: alias.Alias}

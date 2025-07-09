@@ -32,7 +32,6 @@ import (
 	"github.com/weaviate/weaviate/cluster/schema/types"
 
 	"github.com/sirupsen/logrus/hooks/test"
-
 	"github.com/weaviate/weaviate/adapters/clients"
 	"github.com/weaviate/weaviate/adapters/handlers/rest/clusterapi"
 	"github.com/weaviate/weaviate/adapters/repos/db"
@@ -182,6 +181,10 @@ func (f *fakeSchemaManager) ReadOnlyClass(class string) *models.Class {
 func (f *fakeSchemaManager) ReadOnlyClassWithVersion(ctx context.Context, class string, version uint64,
 ) (*models.Class, error) {
 	return f.schema.GetClass(class), nil
+}
+
+func (f *fakeSchemaManager) ResolveAlias(string) string {
+	return ""
 }
 
 func (f *fakeSchemaManager) CopyShardingState(class string) *sharding.State {

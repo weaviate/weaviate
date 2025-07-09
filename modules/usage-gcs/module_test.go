@@ -26,6 +26,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	clusterusage "github.com/weaviate/weaviate/cluster/usage"
+	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/cluster"
@@ -235,14 +236,14 @@ func TestModule_CollectAndUploadPeriodically_StopSignal(t *testing.T) {
 
 // TestUsageResponse_Marshaling tests the JSON marshaling of usage response
 func TestUsageResponse_Marshaling(t *testing.T) {
-	u := &clusterusage.Report{
+	u := &types.Report{
 		Node: "test-node",
-		Collections: []*clusterusage.CollectionUsage{
+		Collections: []*types.CollectionUsage{
 			{
 				Name:              "test-collection",
 				ReplicationFactor: 3,
 				UniqueShardCount:  5,
-				Shards: []*clusterusage.ShardUsage{
+				Shards: []*types.ShardUsage{
 					{
 						Name:                "test-shard",
 						ObjectsCount:        1000,
@@ -251,7 +252,7 @@ func TestUsageResponse_Marshaling(t *testing.T) {
 				},
 			},
 		},
-		Backups: []*clusterusage.BackupUsage{
+		Backups: []*types.BackupUsage{
 			{
 				ID:             "test-backup",
 				CompletionTime: "2024-01-01T00:00:00Z",
@@ -266,7 +267,7 @@ func TestUsageResponse_Marshaling(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, data)
 
-	var unmarshaledUsage clusterusage.Report
+	var unmarshaledUsage types.Report
 	err = json.Unmarshal(data, &unmarshaledUsage)
 	assert.NoError(t, err)
 	assert.Equal(t, u.Node, unmarshaledUsage.Node)
@@ -307,7 +308,7 @@ func TestModule_CollectUsageData(t *testing.T) {
 	mod := New()
 	usageService := clusterusage.NewMockService(t)
 	usageService.EXPECT().Usage(mock.Anything).
-		Return(&clusterusage.Report{Node: expectedNodeID, Collections: []*clusterusage.CollectionUsage{}}, nil)
+		Return(&types.Report{Node: expectedNodeID, Collections: []*types.CollectionUsage{}}, nil)
 	mod.SetUsageService(usageService)
 	mod.nodeID = expectedNodeID
 	logger := logrus.New()
@@ -331,9 +332,9 @@ func TestModule_UploadUsageData(t *testing.T) {
 	mod.bucketName = "test-bucket"
 	mod.metrics = NewMetrics(prometheus.NewRegistry())
 
-	u := &clusterusage.Report{
+	u := &types.Report{
 		Node: "test-node",
-		Collections: []*clusterusage.CollectionUsage{
+		Collections: []*types.CollectionUsage{
 			{
 				Name:             "test-collection",
 				UniqueShardCount: 1,
@@ -352,7 +353,7 @@ func TestModule_UploadUsageData(t *testing.T) {
 	assert.NotEmpty(t, data)
 
 	// Verify the JSON structure
-	var unmarshaled clusterusage.Report
+	var unmarshaled types.Report
 	err = json.Unmarshal(data, &unmarshaled)
 	assert.NoError(t, err)
 	assert.Equal(t, u.Node, unmarshaled.Node)
@@ -378,7 +379,7 @@ func TestModule_UploadUsageData(t *testing.T) {
 func TestModule_CollectAndUploadUsage(t *testing.T) {
 	mod := New()
 	usageService := clusterusage.NewMockService(t)
-	usageService.EXPECT().Usage(mock.Anything).Return(&clusterusage.Report{}, nil)
+	usageService.EXPECT().Usage(mock.Anything).Return(&types.Report{}, nil)
 	mod.SetUsageService(usageService)
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)
@@ -468,9 +469,9 @@ func TestModule_Metrics_Updates(t *testing.T) {
 	mod.metrics = metrics
 
 	// Test usage data collection updates metrics
-	usage := &clusterusage.Report{
+	usage := &types.Report{
 		Node: "test-node",
-		Collections: []*clusterusage.CollectionUsage{
+		Collections: []*types.CollectionUsage{
 			{
 				Name:             "test-collection",
 				UniqueShardCount: 5,
@@ -480,7 +481,7 @@ func TestModule_Metrics_Updates(t *testing.T) {
 				UniqueShardCount: 3,
 			},
 		},
-		Backups: []*clusterusage.BackupUsage{
+		Backups: []*types.BackupUsage{
 			{
 				ID: "test-backup",
 			},
@@ -509,7 +510,7 @@ func TestModule_Metrics_Updates(t *testing.T) {
 func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
 	mod := New()
 	usageService := clusterusage.NewMockService(t)
-	usageService.EXPECT().Usage(mock.Anything).Return(&clusterusage.Report{}, nil)
+	usageService.EXPECT().Usage(mock.Anything).Return(&types.Report{}, nil)
 	mod.SetUsageService(usageService)
 	logger := logrus.New()
 	logger.SetOutput(os.Stdout)

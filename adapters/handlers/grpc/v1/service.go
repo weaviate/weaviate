@@ -219,6 +219,10 @@ func (s *Service) batchObjects(ctx context.Context, req *pb.BatchObjectsRequest)
 	knownClasses := map[string]versioned.Class{}
 	knownClassesAuthCheck := map[string]*models.Class{}
 	classGetter := func(classname, shard string) (*models.Class, error) {
+		// classname might be an alias
+		if cls := s.schemaManager.ResolveAlias(classname); cls != "" {
+			classname = cls
+		}
 		// use a letter that cannot be in class/shard name to not allow different combinations leading to the same combined name
 		classTenantName := classname + "#" + shard
 		class, ok := knownClassesAuthCheck[classTenantName]
@@ -305,6 +309,7 @@ func (s *Service) search(ctx context.Context, req *pb.SearchRequest) (*pb.Search
 	parser := NewParser(
 		req.Uses_127Api,
 		s.classGetterWithAuthzFunc(ctx, principal, req.Tenant),
+		s.aliasGetter(),
 	)
 	replier := NewReplier(
 		req.Uses_125Api || req.Uses_127Api,
@@ -371,6 +376,17 @@ func (s *Service) classGetterWithAuthzFunc(ctx context.Context, principal *model
 			return nil, fmt.Errorf("could not find class %s in schema", name)
 		}
 		return class, nil
+	}
+}
+
+type aliasGetter func(string) string
+
+func (s *Service) aliasGetter() aliasGetter {
+	return func(name string) string {
+		if cls := s.schemaManager.ResolveAlias(name); cls != "" {
+			return name // name is an alias
+		}
+		return ""
 	}
 }
 

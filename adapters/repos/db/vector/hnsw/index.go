@@ -1013,14 +1013,9 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	return &stats, nil
 }
 
-func (h *hnsw) VectorStorageSize() int64 {
-	// TODO-usage: Implement this
-	return 0
-}
-
-func (h *hnsw) CompressionStats() (compressionhelpers.CompressionStats, error) {
+func (h *hnsw) CompressionStats() compressionhelpers.CompressionStats {
 	if h.compressed.Load() {
-		return h.compressor.Stats(), nil
+		return h.compressor.Stats()
 	}
-	return compressionhelpers.UncompressedStats{}, nil
+	return compressionhelpers.UncompressedStats{}
 }

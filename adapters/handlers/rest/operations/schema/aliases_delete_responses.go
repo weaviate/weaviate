@@ -24,29 +24,29 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 )
 
-// AliasesDeleteOKCode is the HTTP code returned for type AliasesDeleteOK
-const AliasesDeleteOKCode int = 200
+// AliasesDeleteNoContentCode is the HTTP code returned for type AliasesDeleteNoContent
+const AliasesDeleteNoContentCode int = 204
 
 /*
-AliasesDeleteOK Successfully deleted the alias.
+AliasesDeleteNoContent Successfully deleted the alias.
 
-swagger:response aliasesDeleteOK
+swagger:response aliasesDeleteNoContent
 */
-type AliasesDeleteOK struct {
+type AliasesDeleteNoContent struct {
 }
 
-// NewAliasesDeleteOK creates AliasesDeleteOK with default headers values
-func NewAliasesDeleteOK() *AliasesDeleteOK {
+// NewAliasesDeleteNoContent creates AliasesDeleteNoContent with default headers values
+func NewAliasesDeleteNoContent() *AliasesDeleteNoContent {
 
-	return &AliasesDeleteOK{}
+	return &AliasesDeleteNoContent{}
 }
 
 // WriteResponse to the client
-func (o *AliasesDeleteOK) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+func (o *AliasesDeleteNoContent) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.Header().Del(runtime.HeaderContentType) //Remove Content-Type on empty responses
 
-	rw.WriteHeader(200)
+	rw.WriteHeader(204)
 }
 
 // AliasesDeleteUnauthorizedCode is the HTTP code returned for type AliasesDeleteUnauthorized
@@ -111,6 +111,51 @@ func (o *AliasesDeleteForbidden) SetPayload(payload *models.ErrorResponse) {
 func (o *AliasesDeleteForbidden) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
 
 	rw.WriteHeader(403)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}
+
+// AliasesDeleteNotFoundCode is the HTTP code returned for type AliasesDeleteNotFound
+const AliasesDeleteNotFoundCode int = 404
+
+/*
+AliasesDeleteNotFound Not Found - Alias does not exist
+
+swagger:response aliasesDeleteNotFound
+*/
+type AliasesDeleteNotFound struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewAliasesDeleteNotFound creates AliasesDeleteNotFound with default headers values
+func NewAliasesDeleteNotFound() *AliasesDeleteNotFound {
+
+	return &AliasesDeleteNotFound{}
+}
+
+// WithPayload adds the payload to the aliases delete not found response
+func (o *AliasesDeleteNotFound) WithPayload(payload *models.ErrorResponse) *AliasesDeleteNotFound {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the aliases delete not found response
+func (o *AliasesDeleteNotFound) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *AliasesDeleteNotFound) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(404)
 	if o.Payload != nil {
 		payload := o.Payload
 		if err := producer.Produce(rw, payload); err != nil {

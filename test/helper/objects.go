@@ -148,7 +148,7 @@ func CreateObjectCL(t *testing.T, object *models.Object, cl types.ConsistencyLev
 	return nil
 }
 
-func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
+func CreateObjectsBatchWithResponse(t *testing.T, objects []*models.Object) []*models.ObjectsGetResponse {
 	t.Helper()
 	params := batch.NewBatchObjectsCreateParams().
 		WithBody(batch.BatchObjectsCreateBody{
@@ -157,6 +157,12 @@ func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
 	resp, err := Client(t).Batch.BatchObjectsCreate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	CheckObjectsBatchResponse(t, resp.Payload, err)
+	return resp.Payload
+}
+
+func CreateObjectsBatch(t *testing.T, objects []*models.Object) {
+	t.Helper()
+	CreateObjectsBatchWithResponse(t, objects)
 }
 
 func CreateObjectsBatchAuth(t *testing.T, objects []*models.Object, key string) {
@@ -192,11 +198,20 @@ func CheckObjectsBatchResponse(t *testing.T, resp []*models.ObjectsGetResponse, 
 	}
 }
 
-func UpdateObject(t *testing.T, object *models.Object) error {
+func UpdateObjectWithResponse(t *testing.T, object *models.Object) (*models.Object, error) {
 	t.Helper()
 	params := objects.NewObjectsUpdateParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsUpdate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	if err != nil {
+		return nil, err
+	}
+	return resp.Payload, err
+}
+
+func UpdateObject(t *testing.T, object *models.Object) error {
+	t.Helper()
+	_, err := UpdateObjectWithResponse(t, object)
 	return err
 }
 
@@ -214,6 +229,22 @@ func PatchObject(t *testing.T, object *models.Object) error {
 	t.Helper()
 	params := objects.NewObjectsPatchParams().WithID(object.ID).WithBody(object)
 	resp, err := Client(t).Objects.ObjectsPatch(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return err
+}
+
+func HeadObject(t *testing.T, id strfmt.UUID) error {
+	t.Helper()
+	params := objects.NewObjectsHeadParams().WithID(id)
+	resp, err := Client(t).Objects.ObjectsHead(params, nil)
+	AssertRequestOk(t, resp, err, nil)
+	return err
+}
+
+func ValidateObject(t *testing.T, object *models.Object) error {
+	t.Helper()
+	params := objects.NewObjectsValidateParams().WithBody(object)
+	resp, err := Client(t).Objects.ObjectsValidate(params, nil)
 	AssertRequestOk(t, resp, err, nil)
 	return err
 }
@@ -255,12 +286,18 @@ func DeleteObjectCL(t *testing.T, class string, id strfmt.UUID, cl types.Consist
 	AssertRequestOk(t, resp, err, nil)
 }
 
-func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete, cl types.ConsistencyLevel) {
+func DeleteObjectsBatchWithResponse(t *testing.T, body *models.BatchDelete, cl types.ConsistencyLevel) *models.BatchDeleteResponse {
 	t.Helper()
 	cls := string(cl)
 	params := batch.NewBatchObjectsDeleteParams().WithBody(body).WithConsistencyLevel(&cls)
 	resp, err := Client(t).Batch.BatchObjectsDelete(params, nil)
 	AssertRequestOk(t, resp, err, nil)
+	return resp.GetPayload()
+}
+
+func DeleteObjectsBatch(t *testing.T, body *models.BatchDelete, cl types.ConsistencyLevel) {
+	t.Helper()
+	DeleteObjectsBatchWithResponse(t, body, cl)
 }
 
 func DeleteTenantObjectsBatch(t *testing.T, body *models.BatchDelete,
@@ -508,11 +545,15 @@ func GetAliasesWithAuthz(t *testing.T, className *string, authInfo runtime.Clien
 	return resp.GetPayload()
 }
 
-func GetAlias(t *testing.T, aliasName string) *models.AliasResponse {
+func GetAlias(t *testing.T, aliasName string) *models.Alias {
 	return GetAliasWithAuthz(t, aliasName, nil)
 }
 
-func GetAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) *models.AliasResponse {
+func GetAliasNotFound(t *testing.T, aliasName string) *models.Alias {
+	return GetAliasWithAuthzNotFound(t, aliasName, nil)
+}
+
+func GetAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) *models.Alias {
 	t.Helper()
 	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
 	resp, err := Client(t).Schema.AliasesGetAlias(params, authInfo)
@@ -520,8 +561,23 @@ func GetAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAu
 	return resp.GetPayload()
 }
 
+func GetAliasWithAuthzNotFound(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) *models.Alias {
+	t.Helper()
+	params := schema.NewAliasesGetAliasParams().WithAliasName(aliasName)
+	resp, err := Client(t).Schema.AliasesGetAlias(params, authInfo)
+	AssertRequestFail(t, resp, err, nil)
+	return nil
+}
+
 func UpdateAlias(t *testing.T, aliasName, targetClassName string) {
 	UpdateAliasWithAuthz(t, aliasName, targetClassName, nil)
+}
+
+func UpdateAliasWithReturn(t *testing.T, aliasName, targetClassName string) (*schema.AliasesUpdateOK, error) {
+	t.Helper()
+	params := schema.NewAliasesUpdateParams().WithAliasName(aliasName).WithBody(schema.AliasesUpdateBody{Class: targetClassName})
+	resp, err := Client(t).Schema.AliasesUpdate(params, nil)
+	return resp, err
 }
 
 func UpdateAliasWithAuthz(t *testing.T, aliasName, targetClassName string, authInfo runtime.ClientAuthInfoWriter) {
@@ -533,6 +589,13 @@ func UpdateAliasWithAuthz(t *testing.T, aliasName, targetClassName string, authI
 
 func DeleteAlias(t *testing.T, aliasName string) {
 	DeleteAliasWithAuthz(t, aliasName, nil)
+}
+
+func DeleteAliasWithReturn(t *testing.T, aliasName string) (*schema.AliasesDeleteNoContent, error) {
+	t.Helper()
+	params := schema.NewAliasesDeleteParams().WithAliasName(aliasName)
+	resp, err := Client(t).Schema.AliasesDelete(params, nil)
+	return resp, err
 }
 
 func DeleteAliasWithAuthz(t *testing.T, aliasName string, authInfo runtime.ClientAuthInfoWriter) {
