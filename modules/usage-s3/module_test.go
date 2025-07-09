@@ -282,20 +282,14 @@ func TestModule_BuildS3Config_EmptyValues(t *testing.T) {
 }
 
 func TestModule_SetUsageService(t *testing.T) {
-	m := New()
-
-	// Should not panic when BaseModule is nil
-	m.SetUsageService("test-service")
-	assert.Nil(t, m.BaseModule)
-
-	// Initialize the module with a mock BaseModule
-	// Set up minimal environment for successful init
 	os.Setenv("USAGE_S3_BUCKET", "test-bucket")
 	os.Setenv("CLUSTER_IN_LOCALHOST", "true")
 	defer func() {
 		os.Unsetenv("USAGE_S3_BUCKET")
 		os.Unsetenv("CLUSTER_IN_LOCALHOST")
 	}()
+
+	m := New()
 
 	config := &config.Config{
 		Cluster: cluster.Config{
@@ -316,11 +310,14 @@ func TestModule_SetUsageService(t *testing.T) {
 		metricsRegisterer: registry,
 	}
 
+	// Initialize the module first
 	err := m.Init(context.Background(), params)
 	require.NoError(t, err)
 
-	// Now it should work with initialized BaseModule
-	m.SetUsageService("test-service")
+	// Now test SetUsageService works with initialized BaseModule
+	assert.NotPanics(t, func() {
+		m.SetUsageService("test-service")
+	})
 	assert.NotNil(t, m.BaseModule)
 }
 

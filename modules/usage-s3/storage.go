@@ -14,7 +14,6 @@ package usages3
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"strings"
@@ -31,39 +30,33 @@ import (
 
 // S3Storage implements the StorageBackend interface for S3
 type S3Storage struct {
-	s3Client   *s3.Client
-	bucketName string
-	prefix     string
-	nodeID     string
-	logger     logrus.FieldLogger
-	metrics    *common.Metrics
+	*common.BaseStorage
+	s3Client *s3.Client
 }
 
 // NewS3Storage creates a new S3 storage backend
-func NewS3Storage(logger logrus.FieldLogger, metrics *common.Metrics) (*S3Storage, error) {
-	// Load default AWS configuration (handles region, credentials automatically)
-	cfg, err := config.LoadDefaultConfig(context.Background())
+func NewS3Storage(ctx context.Context, logger logrus.FieldLogger, metrics *common.Metrics) (*S3Storage, error) {
+
+	// Load default AWS configuration
+	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
 	// Create S3 client with MinIO endpoint support
 	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
-		// Handle custom endpoint for MinIO
 		if endpoint := os.Getenv("AWS_ENDPOINT"); endpoint != "" {
-			// Add protocol if missing
 			if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
-				endpoint = "http://" + endpoint // Default to HTTP for localhost
+				endpoint = "http://" + endpoint
 			}
 			o.BaseEndpoint = aws.String(endpoint)
-			o.UsePathStyle = true // Required for MinIO compatibility
+			o.UsePathStyle = true
 		}
 	})
 
 	return &S3Storage{
-		s3Client: s3Client,
-		logger:   logger,
-		metrics:  metrics,
+		BaseStorage: common.NewBaseStorage(logger, metrics),
+		s3Client:    s3Client,
 	}, nil
 }
 
@@ -73,36 +66,27 @@ func (s *S3Storage) VerifyPermissions(ctx context.Context) error {
 		return fmt.Errorf("S3 client is not initialized")
 	}
 
-	s.logger.WithFields(logrus.Fields{
-		"action": "verify_bucket_permissions",
-		"bucket": s.bucketName,
-		"prefix": s.prefix,
-	}).Info("")
+	s.LogVerificationStart()
 
-	// Skip permission check for local testing environments
-	if os.Getenv("CLUSTER_IN_LOCALHOST") != "" {
-		s.logger.Info("bucket access verification ignored for localhost")
+	if s.IsLocalhostEnvironment() {
+		s.LogVerificationSkipped("localhost environment")
 		return nil
 	}
 
-	// Create context with timeout for permission check
+	// Create context with timeout to report early in case of invalid permissions
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Test bucket access by listing objects (limited to 1)
+	// S3-specific permission check
 	_, err := s.s3Client.ListObjectsV2(timeoutCtx, &s3.ListObjectsV2Input{
-		Bucket:  aws.String(s.bucketName),
+		Bucket:  aws.String(s.BucketName),
 		MaxKeys: aws.Int32(1),
 	})
 	if err != nil {
-		return fmt.Errorf("S3 permission check failed for bucket %s: %w", s.bucketName, err)
+		return fmt.Errorf("S3 permission check failed for bucket %s: %w", s.BucketName, err)
 	}
 
-	s.logger.WithFields(logrus.Fields{
-		"bucket": s.bucketName,
-		"prefix": s.prefix,
-	}).Info("S3 permissions verified successfully")
-
+	s.LogVerificationSuccess()
 	return nil
 }
 
@@ -112,76 +96,40 @@ func (s *S3Storage) UploadUsageData(ctx context.Context, usage *types.Report) er
 		return fmt.Errorf("S3 client is not initialized")
 	}
 
-	data, err := json.MarshalIndent(usage, "", "  ")
+	data, err := s.MarshalUsageData(usage)
 	if err != nil {
-		return fmt.Errorf("failed to marshal usage data: %w", err)
+		return err
 	}
 
-	// Create filename with timestamp only - keeping minutes and seconds sharp at 00
-	now := time.Now().UTC()
-	timestamp := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
-	filename := fmt.Sprintf("%s.json", timestamp)
-
-	s3Key := fmt.Sprintf("%s/%s", s.nodeID, filename)
-	if s.prefix != "" {
-		s3Key = fmt.Sprintf("%s/%s/%s", s.prefix, s.nodeID, filename)
-	}
-
-	// Upload to S3
 	_, err = s.s3Client.PutObject(ctx, &s3.PutObjectInput{
-		Bucket:      aws.String(s.bucketName),
-		Key:         aws.String(s3Key),
+		Bucket:      aws.String(s.BucketName),
+		Key:         aws.String(s.ConstructObjectKey()),
 		Body:        bytes.NewReader(data),
 		ContentType: aws.String("application/json"),
 		Metadata: map[string]string{
-			"timestamp": timestamp,
+			"version": usage.Version,
 		},
 	})
 	if err != nil {
 		return fmt.Errorf("failed to upload to S3: %w", err)
 	}
 
-	// Set uploaded file size metric
-	s.metrics.UploadedFileSize.Set(float64(len(data)))
-
+	s.RecordUploadMetrics(len(data))
 	return nil
 }
 
-// Close cleans up any resources used by the storage backend
+// Close cleans up resources
 func (s *S3Storage) Close() error {
-	// S3 client doesn't need explicit closing
 	return nil
 }
 
 // UpdateConfig updates the backend configuration from the provided config
 func (s *S3Storage) UpdateConfig(config common.StorageConfig) (bool, error) {
-	changed := false
-
-	// Check for bucket name changes
-	if config.Bucket != "" && s.bucketName != config.Bucket {
-		s.logger.WithFields(logrus.Fields{
-			"old_bucket": s.bucketName,
-			"new_bucket": config.Bucket,
-		}).Warn("bucket name changed - this may require re-authentication")
-		s.bucketName = config.Bucket
-		changed = true
-	}
-
-	// Check for prefix changes
-	if s.prefix != config.Prefix {
-		s.logger.WithFields(logrus.Fields{
-			"old_prefix": s.prefix,
-			"new_prefix": config.Prefix,
-		}).Info("upload prefix updated")
-		s.prefix = config.Prefix
-		changed = true
-	}
-
-	return changed, nil
+	return s.UpdateCommonConfig(config), nil
 }
 
 // verify we implement the required interfaces
 var (
-	storage, _ = NewS3Storage(logrus.New(), &common.Metrics{})
-	_          = common.StorageBackend(storage)
+	s3Storage, _ = NewS3Storage(context.Background(), logrus.New(), &common.Metrics{})
+	_            = common.StorageBackend(s3Storage)
 )

@@ -75,13 +75,13 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	m.gcsStorage = gcsStorage
 
 	// Set nodeID directly during initialization
-	m.gcsStorage.nodeID = config.Cluster.Hostname
+	m.gcsStorage.NodeID = config.Cluster.Hostname
 
 	// Create base module with GCS storage
 	m.BaseModule = common.NewBaseModule(Name, gcsStorage)
 
 	// Initialize base module with metrics
-	if err := m.BaseModule.InitializeCommon(ctx, config, logger, metrics); err != nil {
+	if err := m.InitializeCommon(ctx, config, logger, metrics); err != nil {
 		return err
 	}
 

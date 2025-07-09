@@ -13,9 +13,7 @@ package usagegcs
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os"
 	"time"
 
 	"cloud.google.com/go/storage"
@@ -32,19 +30,18 @@ import (
 
 // GCSStorage implements the StorageBackend interface for GCS
 type GCSStorage struct {
+	*common.BaseStorage
 	storageClient *storage.Client
-	bucketName    string
-	prefix        string
-	nodeID        string
-	logger        logrus.FieldLogger
-	metrics       *common.Metrics
 }
 
 // NewGCSStorage creates a new GCS storage backend
 func NewGCSStorage(ctx context.Context, logger logrus.FieldLogger, metrics *common.Metrics) (*GCSStorage, error) {
 	options := []option.ClientOption{}
 
-	if os.Getenv("CLUSTER_IN_LOCALHOST") != "" {
+	// Use base storage localhost check for authentication
+	baseStorage := common.NewBaseStorage(logger, metrics)
+
+	if baseStorage.IsLocalhostEnvironment() {
 		options = append(options, option.WithoutAuthentication())
 	} else {
 		scopes := []string{
@@ -62,8 +59,9 @@ func NewGCSStorage(ctx context.Context, logger logrus.FieldLogger, metrics *comm
 		return nil, fmt.Errorf("failed to create GCP storage client: %w", err)
 	}
 
+	// Configure retry policy
 	client.SetRetry(storage.WithBackoff(gax.Backoff{
-		Initial:    2 * time.Second, // Note: the client uses a jitter internally
+		Initial:    2 * time.Second,
 		Max:        60 * time.Second,
 		Multiplier: 3,
 	}),
@@ -71,9 +69,8 @@ func NewGCSStorage(ctx context.Context, logger logrus.FieldLogger, metrics *comm
 	)
 
 	return &GCSStorage{
+		BaseStorage:   baseStorage,
 		storageClient: client,
-		logger:        logger,
-		metrics:       metrics,
 	}, nil
 }
 
@@ -83,42 +80,32 @@ func (g *GCSStorage) VerifyPermissions(ctx context.Context) error {
 		return fmt.Errorf("storage client is not initialized")
 	}
 
-	g.logger.WithFields(logrus.Fields{
-		"action": "verify_bucket_permissions",
-		"bucket": g.bucketName,
-		"prefix": g.prefix,
-	}).Info("")
+	g.LogVerificationStart()
 
-	// Skip IAM permission check for emulator testing environments
-	if os.Getenv("CLUSTER_IN_LOCALHOST") != "" {
-		g.logger.Info("bucket access verification ignored for emulator")
+	if g.IsLocalhostEnvironment() {
+		g.LogVerificationSkipped("emulator environment")
 		return nil
 	}
 
+	// Create context with timeout to report early in case of invalid permissions
 	timeoutCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	// Create storage API client to test IAM permissions
+	// GCS-specific permission check using IAM
 	storageService, err := storageapi.NewService(timeoutCtx)
 	if err != nil {
 		return fmt.Errorf("failed to create storage API client: %w", err)
 	}
 
-	// Test IAM permissions by calling the testIamPermissions API
-	// This tests if we have storage.objects.create permission without creating any objects
 	permissions := []string{"storage.objects.create"}
-
-	_, err = storageService.Buckets.TestIamPermissions(g.bucketName, permissions).Context(timeoutCtx).Do()
+	_, err = storageService.Buckets.TestIamPermissions(g.BucketName, permissions).Context(timeoutCtx).Do()
 	if err != nil {
-		return fmt.Errorf("IAM permission check failed for bucket %s: %w", g.bucketName, err)
+		return fmt.Errorf("IAM permission check failed for bucket %s: %w", g.BucketName, err)
 	}
 
-	g.logger.WithFields(logrus.Fields{
-		"bucket":      g.bucketName,
-		"prefix":      g.prefix,
+	g.LogVerificationSuccess(logrus.Fields{
 		"permissions": permissions,
-	}).Info("IAM permissions verified successfully")
-
+	})
 	return nil
 }
 
@@ -128,27 +115,16 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 		return fmt.Errorf("storage client is not initialized")
 	}
 
-	data, err := json.MarshalIndent(usage, "", "  ")
+	data, err := g.MarshalUsageData(usage)
 	if err != nil {
-		return fmt.Errorf("failed to marshal usage data: %w", err)
+		return err
 	}
 
-	// Create filename with timestamp only - keeping minutes and seconds sharp at 00
-	now := time.Now().UTC()
-	timestamp := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
-	filename := fmt.Sprintf("%s.json", timestamp)
-
-	gcsFilename := fmt.Sprintf("%s/%s", g.nodeID, filename)
-	if g.prefix != "" {
-		gcsFilename = fmt.Sprintf("%s/%s/%s", g.prefix, g.nodeID, filename)
-	}
-
-	obj := g.storageClient.Bucket(g.bucketName).Object(gcsFilename)
+	obj := g.storageClient.Bucket(g.BucketName).Object(g.ConstructObjectKey())
 	writer := obj.NewWriter(ctx)
 	writer.ContentType = "application/json"
 	writer.Metadata = map[string]string{
-		"timestamp": timestamp,
-		"version":   usage.Version,
+		"version": usage.Version,
 	}
 
 	if _, err := writer.Write(data); err != nil {
@@ -160,13 +136,11 @@ func (g *GCSStorage) UploadUsageData(ctx context.Context, usage *types.Report) e
 		return fmt.Errorf("failed to close GCS writer: %w", err)
 	}
 
-	// Set uploaded file size metric
-	g.metrics.UploadedFileSize.Set(float64(len(data)))
-
+	g.RecordUploadMetrics(len(data))
 	return nil
 }
 
-// Close cleans up any resources used by the storage backend
+// Close cleans up resources
 func (g *GCSStorage) Close() error {
 	if g.storageClient != nil {
 		return g.storageClient.Close()
@@ -176,28 +150,7 @@ func (g *GCSStorage) Close() error {
 
 // UpdateConfig updates the backend configuration from the provided config
 func (g *GCSStorage) UpdateConfig(config common.StorageConfig) (bool, error) {
-	changed := false
-	// Check for bucket name changes
-	if config.Bucket != "" && g.bucketName != config.Bucket {
-		g.logger.WithFields(logrus.Fields{
-			"old_bucket": g.bucketName,
-			"new_bucket": config.Bucket,
-		}).Warn("bucket name changed - this may require re-authentication")
-		g.bucketName = config.Bucket
-		changed = true
-	}
-
-	// Check for prefix changes
-	if g.prefix != config.Prefix {
-		g.logger.WithFields(logrus.Fields{
-			"old_prefix": g.prefix,
-			"new_prefix": config.Prefix,
-		}).Info("upload prefix updated")
-		g.prefix = config.Prefix
-		changed = true
-	}
-
-	return changed, nil
+	return g.UpdateCommonConfig(config), nil
 }
 
 // verify we implement the required interfaces

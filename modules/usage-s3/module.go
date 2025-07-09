@@ -69,20 +69,20 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	metrics := common.NewMetrics(params.GetMetricsRegisterer(), Name)
 
 	// Create S3 storage backend with metrics
-	s3Storage, err := NewS3Storage(logger, metrics)
+	s3Storage, err := NewS3Storage(ctx, logger, metrics)
 	if err != nil {
 		return fmt.Errorf("failed to create S3 storage: %w", err)
 	}
 	m.s3Storage = s3Storage
 
 	// Set nodeID directly during initialization
-	m.s3Storage.nodeID = config.Cluster.Hostname
+	m.s3Storage.NodeID = config.Cluster.Hostname
 
 	// Create base module with S3 storage
 	m.BaseModule = common.NewBaseModule(Name, s3Storage)
 
 	// Initialize base module with metrics
-	if err := m.BaseModule.InitializeCommon(ctx, config, logger, metrics); err != nil {
+	if err := m.InitializeCommon(ctx, config, logger, metrics); err != nil {
 		return err
 	}
 

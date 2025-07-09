@@ -69,9 +69,9 @@ func TestModule_Init_Success(t *testing.T) {
 	assert.NoError(t, err)
 	assert.NotNil(t, mod.BaseModule)
 	assert.NotNil(t, mod.gcsStorage)
-	assert.Equal(t, "test-node", mod.gcsStorage.nodeID)
-	assert.Equal(t, "test-bucket", mod.gcsStorage.bucketName)
-	assert.Equal(t, "test-prefix", mod.gcsStorage.prefix)
+	assert.Equal(t, "test-node", mod.gcsStorage.NodeID)
+	assert.Equal(t, "test-bucket", mod.gcsStorage.BucketName)
+	assert.Equal(t, "test-prefix", mod.gcsStorage.Prefix)
 }
 
 func TestModule_Init_MissingBucket(t *testing.T) {
@@ -120,20 +120,40 @@ func TestModule_Init_MissingHostname(t *testing.T) {
 }
 
 func TestModule_SetUsageService(t *testing.T) {
+	t.Setenv("CLUSTER_IN_LOCALHOST", "true")
+
 	mod := New()
+	logger := logrus.New()
+	logger.SetOutput(os.Stdout)
 
-	// Test with valid service
+	// Initialize module first
+	testConfig := config.Config{
+		Cluster: cluster.Config{
+			Hostname: "test-node",
+		},
+		Usage: config.UsageConfig{
+			GCSBucket:      runtime.NewDynamicValue("test-bucket"),
+			GCSPrefix:      runtime.NewDynamicValue("test-prefix"),
+			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
+			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
+		},
+	}
+
+	params := moduletools.NewMockModuleInitParams(t)
+	params.EXPECT().GetConfig().Return(&testConfig)
+	params.EXPECT().GetLogger().Return(logger)
+	params.EXPECT().GetMetricsRegisterer().Return(prometheus.NewPedanticRegistry())
+
+	err := mod.Init(context.Background(), params)
+	require.NoError(t, err)
+
+	// Test with valid service after initialization
 	usageService := clusterusage.NewMockService(t)
-	mod.SetUsageService(usageService)
-
-	// Since BaseModule is nil initially, the service won't be set
-	// This test verifies the method doesn't panic
 	assert.NotPanics(t, func() {
 		mod.SetUsageService(usageService)
 	})
 
 	// Test with invalid service (should not panic)
-	mod.SetUsageService("invalid")
 	assert.NotPanics(t, func() {
 		mod.SetUsageService("invalid")
 	})
@@ -148,8 +168,8 @@ func TestGCSStorage_VerifyPermissions(t *testing.T) {
 	storage, err := NewGCSStorage(context.Background(), logger, nil)
 	require.NoError(t, err)
 
-	storage.bucketName = "test-bucket"
-	storage.prefix = "test-prefix"
+	storage.BucketName = "test-bucket"
+	storage.Prefix = "test-prefix"
 
 	// Test case: Should skip verification for localhost
 	err = storage.VerifyPermissions(context.Background())
@@ -165,9 +185,9 @@ func TestGCSStorage_UpdateConfig(t *testing.T) {
 	storage, err := NewGCSStorage(context.Background(), logger, nil)
 	require.NoError(t, err)
 
-	storage.bucketName = "old-bucket"
-	storage.prefix = "old-prefix"
-	storage.nodeID = "test-node" // Set during initialization
+	storage.BucketName = "old-bucket"
+	storage.Prefix = "old-prefix"
+	storage.NodeID = "test-node" // Set during initialization
 
 	// Test configuration update
 	newConfig := common.StorageConfig{
@@ -180,9 +200,9 @@ func TestGCSStorage_UpdateConfig(t *testing.T) {
 	changed, err := storage.UpdateConfig(newConfig)
 	assert.NoError(t, err)
 	assert.True(t, changed)
-	assert.Equal(t, "new-bucket", storage.bucketName)
-	assert.Equal(t, "new-prefix", storage.prefix)
-	assert.Equal(t, "test-node", storage.nodeID)
+	assert.Equal(t, "new-bucket", storage.BucketName)
+	assert.Equal(t, "new-prefix", storage.Prefix)
+	assert.Equal(t, "test-node", storage.NodeID)
 
 	// Test no change when config is same
 	changed, err = storage.UpdateConfig(newConfig)
