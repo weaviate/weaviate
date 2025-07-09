@@ -103,9 +103,14 @@ type RuntimeOverrides struct {
 
 // UsageConfig holds configuration for usage data collection and upload
 type UsageConfig struct {
-	GCSAuth        *runtime.DynamicValue[bool]          `json:"usage_gcs_auth" yaml:"usage_gcs_auth"`
-	GCSBucket      *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
-	GCSPrefix      *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
+	GCSAuth   *runtime.DynamicValue[bool]   `json:"usage_gcs_auth" yaml:"usage_gcs_auth"`
+	GCSBucket *runtime.DynamicValue[string] `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
+	GCSPrefix *runtime.DynamicValue[string] `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
+
+	S3Auth         *runtime.DynamicValue[bool]          `json:"usage_s3_auth" yaml:"usage_s3_auth"`
+	S3Bucket       *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
+	S3Prefix       *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
+	S3Region       *runtime.DynamicValue[string]        `json:"usage_s3_region" yaml:"usage_s3_region"`
 	ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
 	PolicyVersion  *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 }

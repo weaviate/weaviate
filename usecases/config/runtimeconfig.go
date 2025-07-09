@@ -42,6 +42,10 @@ type WeaviateRuntimeConfig struct {
 	UsageGCSBucket                  *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
 	UsageGCSPrefix                  *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
 	UsageGCSAuth                    *runtime.DynamicValue[bool]          `json:"usage_gcs_auth" yaml:"usage_gcs_auth"`
+	UsageS3Bucket                   *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
+	UsageS3Prefix                   *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
+	UsageS3Auth                     *runtime.DynamicValue[bool]          `json:"usage_s3_auth" yaml:"usage_s3_auth"`
+	UsageS3Region                   *runtime.DynamicValue[string]        `json:"usage_s3_region" yaml:"usage_s3_region"`
 	UsageScrapeInterval             *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
 	UsagePolicyVersion              *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 
