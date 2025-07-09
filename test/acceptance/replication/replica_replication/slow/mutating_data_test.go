@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package slow
 
 import (
 	"context"
@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
@@ -47,7 +48,20 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWith
 
 func test(suite *ReplicationTestSuite, strategy string) {
 	t := suite.T()
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
+	mainCtx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "10").
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -63,18 +77,6 @@ func test(suite *ReplicationTestSuite, strategy string) {
 
 	// Create the class
 	t.Log("Creating class", cls.Class)
-	helper.DeleteClass(t, cls.Class)
-
-	// Wait for all replication ops to be deleted
-	require.EventuallyWithT(t, func(ct *assert.CollectT) {
-		res, err := helper.Client(t).Replication.ListReplication(
-			replication.NewListReplicationParams().WithCollection(&cls.Class),
-			nil,
-		)
-		require.Nil(ct, err, "failed to list replication operations for class %s", cls.Class)
-		assert.Empty(ct, res.Payload, "there are still replication operations for class %s", cls.Class)
-	}, 30*time.Second, 5*time.Second, "replication operations for class %s did not finish in time", cls.Class)
-
 	helper.CreateClass(t, cls)
 
 	// Load data
@@ -167,7 +169,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 
 	nodeToAddress := map[string]string{}
 	for idx, node := range ns.Payload.Nodes {
-		nodeToAddress[node.Name] = suite.compose.GetWeaviateNode(idx + 1).URI()
+		nodeToAddress[node.Name] = compose.GetWeaviateNode(idx + 1).URI()
 	}
 
 	objectCountByReplica := make(map[string]int64)
@@ -281,6 +283,18 @@ func symmetricDifference[T comparable](a, b []T) []T {
 		if v == 1 {
 			result = append(result, k)
 		}
+	}
+	return result
+}
+
+func random[T any](s []T, k int) []T {
+	if k > len(s) {
+		k = len(s)
+	}
+	indices := rand.Perm(len(s))[:k]
+	result := make([]T, k)
+	for i, idx := range indices {
+		result[i] = s[idx]
 	}
 	return result
 }
