@@ -41,7 +41,6 @@ type WeaviateRuntimeConfig struct {
 	InvertedSorterDisabled          *runtime.DynamicValue[bool]          `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 	UsageGCSBucket                  *runtime.DynamicValue[string]        `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
 	UsageGCSPrefix                  *runtime.DynamicValue[string]        `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
-	UsageGCSAuth                    *runtime.DynamicValue[bool]          `json:"usage_gcs_auth" yaml:"usage_gcs_auth"`
 	UsageS3Bucket                   *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
 	UsageS3Prefix                   *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
 	UsageScrapeInterval             *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`

@@ -13,8 +13,6 @@ package usages3
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -25,674 +23,374 @@ import (
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
-	clusterusage "github.com/weaviate/weaviate/cluster/usage"
-	"github.com/weaviate/weaviate/cluster/usage/types"
-	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-func TestNew(t *testing.T) {
-	mod := New()
-	assert.NotNil(t, mod)
-	assert.Equal(t, DefaultCollectionInterval, mod.interval)
-	assert.NotNil(t, mod.stopChan)
+// Mock moduletools.ModuleInitParams for testing
+type MockModuleInitParams struct {
+	mock.Mock
+	config            *config.Config
+	logger            logrus.FieldLogger
+	metricsRegisterer prometheus.Registerer
+	appState          interface{}
+	storageProvider   moduletools.StorageProvider
+}
+
+func (m *MockModuleInitParams) GetConfig() *config.Config {
+	return m.config
+}
+
+func (m *MockModuleInitParams) GetLogger() logrus.FieldLogger {
+	return m.logger
+}
+
+func (m *MockModuleInitParams) GetMetricsRegisterer() prometheus.Registerer {
+	return m.metricsRegisterer
+}
+
+func (m *MockModuleInitParams) GetAppState() interface{} {
+	return m.appState
+}
+
+func (m *MockModuleInitParams) GetStorageProvider() moduletools.StorageProvider {
+	return m.storageProvider
 }
 
 func TestModule_Name(t *testing.T) {
-	mod := New()
-	assert.Equal(t, Name, mod.Name())
-}
-
-func TestModule_Type(t *testing.T) {
-	mod := New()
-	assert.Equal(t, modulecapabilities.Usage, mod.Type())
+	m := New()
+	assert.Equal(t, "usage-s3", m.Name())
 }
 
 func TestModule_Init_Success(t *testing.T) {
-	t.Setenv("CLUSTER_IN_LOCALHOST", "true")
+	// Set up environment for S3 bucket
+	os.Setenv("USAGE_S3_BUCKET", "test-bucket")
+	defer os.Unsetenv("USAGE_S3_BUCKET")
 
-	mod := New()
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
+	// Set up localhost environment to avoid real AWS authentication
+	os.Setenv("CLUSTER_IN_LOCALHOST", "true")
+	defer os.Unsetenv("CLUSTER_IN_LOCALHOST")
 
-	// Create test config
-	testConfig := config.Config{
+	config := &config.Config{
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
 		Usage: config.UsageConfig{
-			S3Bucket:       runtime.NewDynamicValue("test-bucket"),
-			S3Prefix:       runtime.NewDynamicValue("test-prefix"),
-			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
+			ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute),
 			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
 	}
 
-	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(&testConfig)
-	params.EXPECT().GetLogger().Return(logger)
-	params.EXPECT().GetMetricsRegisterer().Return(prometheus.NewPedanticRegistry())
-
-	err := mod.Init(context.Background(), params)
-	assert.NoError(t, err)
-	assert.Equal(t, "test-node", mod.nodeID)
-	assert.Equal(t, "test-bucket", mod.bucketName)
-	assert.Equal(t, "test-prefix", mod.prefix)
-	assert.NotNil(t, mod.metrics)
-}
-
-func TestModule_Init_MissingHostname(t *testing.T) {
-	mod := New()
 	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
+	registry := prometheus.NewRegistry()
 
-	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(&config.Config{
-		Cluster: cluster.Config{
-			Hostname: "",
-		},
-	})
-	err := mod.Init(context.Background(), params)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "cluster hostname is not set")
+	params := &MockModuleInitParams{
+		config:            config,
+		logger:            logger,
+		metricsRegisterer: registry,
+	}
+
+	m := New()
+	err := m.Init(context.Background(), params)
+	require.NoError(t, err)
+
+	assert.NotNil(t, m.BaseModule)
+	assert.NotNil(t, m.s3Storage)
 }
 
 func TestModule_Init_MissingBucket(t *testing.T) {
-	mod := New()
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-
-	testConfig := config.Config{
+	config := &config.Config{
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
 		Usage: config.UsageConfig{
-			S3Bucket: runtime.NewDynamicValue(""), // Missing bucket
+			ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute),
+			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
 	}
 
-	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(&testConfig)
+	logger := logrus.New()
+	registry := prometheus.NewRegistry()
 
-	err := mod.Init(context.Background(), params)
-	assert.Error(t, err)
+	params := &MockModuleInitParams{
+		config:            config,
+		logger:            logger,
+		metricsRegisterer: registry,
+	}
+
+	m := New()
+	err := m.Init(context.Background(), params)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "S3 bucket name not configured")
 }
 
-func TestModule_ConfigBasedIntervalUpdate(t *testing.T) {
-	mod := New()
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-	mod.logger = logger
-	mod.interval = 1 * time.Hour // Set initial interval
+func TestModule_Init_MissingHostname(t *testing.T) {
+	// Set up environment for S3 bucket
+	os.Setenv("USAGE_S3_BUCKET", "test-bucket")
+	defer os.Unsetenv("USAGE_S3_BUCKET")
 
-	// Create test config with new interval
-	testConfig := config.Config{
+	// Set up localhost environment to avoid real AWS authentication
+	os.Setenv("CLUSTER_IN_LOCALHOST", "true")
+	defer os.Unsetenv("CLUSTER_IN_LOCALHOST")
+
+	config := &config.Config{
 		Cluster: cluster.Config{
-			Hostname: "test-node",
+			Hostname: "", // Empty hostname
 		},
 		Usage: config.UsageConfig{
-			S3Bucket:       runtime.NewDynamicValue("test-bucket"),
-			S3Prefix:       runtime.NewDynamicValue("test-prefix"),
-			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
-		},
-	}
-	mod.config = &testConfig
-
-	// Test that interval gets updated from config
-	oldInterval := mod.interval
-	if interval := mod.config.Usage.ScrapeInterval.Get(); interval > 0 && mod.interval != interval {
-		mod.interval = interval
-	}
-
-	assert.Equal(t, 2*time.Hour, mod.interval)
-	assert.NotEqual(t, oldInterval, mod.interval)
-}
-
-func TestModule_CollectAndUploadPeriodically_ContextCancellation(t *testing.T) {
-	mod := New()
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-	mod.logger = logger
-	mod.interval = 100 * time.Millisecond // Short interval for testing
-
-	// Set up config with proper RuntimeOverrides to prevent panic
-	mod.config = &config.Config{
-		RuntimeOverrides: config.RuntimeOverrides{
-			LoadInterval: 2 * time.Minute, // Use default value
-		},
-	}
-
-	// Create context with cancellation
-	ctx, cancel := context.WithCancel(context.Background())
-
-	// Start the periodic collection in a goroutine
-	done := make(chan struct{})
-	go func() {
-		mod.collectAndUploadPeriodically(ctx)
-		close(done)
-	}()
-
-	// Cancel context after a short delay
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	// Wait for goroutine to finish
-	select {
-	case <-done:
-		// Success - goroutine exited
-	case <-time.After(1 * time.Second):
-		t.Fatal("Goroutine did not exit within timeout")
-	}
-}
-
-func TestModule_CollectAndUploadPeriodically_StopSignal(t *testing.T) {
-	mod := New()
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-	mod.logger = logger
-	mod.interval = 100 * time.Millisecond // Short interval for testing
-
-	// Set up config with proper RuntimeOverrides to prevent panic
-	mod.config = &config.Config{
-		RuntimeOverrides: config.RuntimeOverrides{
-			LoadInterval: 2 * time.Minute, // Use default value
-		},
-	}
-
-	// Start the periodic collection in a goroutine
-	done := make(chan struct{})
-	go func() {
-		mod.collectAndUploadPeriodically(context.Background())
-		close(done)
-	}()
-
-	// Send stop signal after a short delay
-	time.Sleep(50 * time.Millisecond)
-	close(mod.stopChan)
-
-	// Wait for goroutine to finish
-	select {
-	case <-done:
-		// Success - goroutine exited
-	case <-time.After(1 * time.Second):
-		t.Fatal("Goroutine did not exit within timeout")
-	}
-}
-
-// TestUsageResponse_Marshaling tests the JSON marshaling of usage response
-func TestUsageResponse_Marshaling(t *testing.T) {
-	u := &types.Report{
-		Node: "test-node",
-		Collections: []*types.CollectionUsage{
-			{
-				Name:              "test-collection",
-				ReplicationFactor: 3,
-				UniqueShardCount:  5,
-				Shards: []*types.ShardUsage{
-					{
-						Name:                "test-shard",
-						ObjectsCount:        1000,
-						ObjectsStorageBytes: 1024 * 1024,
-					},
-				},
-			},
-		},
-		Backups: []*types.BackupUsage{
-			{
-				ID:             "test-backup",
-				CompletionTime: "2024-01-01T00:00:00Z",
-				SizeInGib:      1.5,
-				Type:           "full",
-				Collections:    []string{"test-collection"},
-			},
-		},
-	}
-
-	data, err := json.Marshal(u)
-	assert.NoError(t, err)
-	assert.NotNil(t, data)
-
-	var unmarshaledUsage types.Report
-	err = json.Unmarshal(data, &unmarshaledUsage)
-	assert.NoError(t, err)
-	assert.Equal(t, u.Node, unmarshaledUsage.Node)
-	assert.Len(t, unmarshaledUsage.Collections, 1)
-	assert.Len(t, unmarshaledUsage.Backups, 1)
-}
-
-// TestMetrics_Initialization tests that metrics are properly initialized
-func TestMetrics_Initialization(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	metrics := NewMetrics(registry)
-
-	assert.NotNil(t, metrics)
-	assert.NotNil(t, metrics.OperationTotal)
-	assert.NotNil(t, metrics.ResourceCount)
-	assert.NotNil(t, metrics.UploadedFileSize)
-}
-
-// TestModule_VerifyBucketPermissions tests the S3 permission check functionality
-func TestModule_VerifyBucketPermissions(t *testing.T) {
-	mod := New()
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-	mod.logger = logger
-	mod.bucketName = "test-bucket"
-	mod.prefix = "test-prefix"
-
-	// Test case: No S3 client
-	err := mod.verifyBucketPermissions(context.Background())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "S3 client is not initialized")
-}
-
-// TestModule_CollectUsageData tests the usage data collection functionality
-func TestModule_CollectUsageData(t *testing.T) {
-	expectedNodeID := "test-node"
-	mod := New()
-	usageService := clusterusage.NewMockService(t)
-	usageService.EXPECT().Usage(mock.Anything).
-		Return(&types.Report{Node: expectedNodeID, Collections: []*types.CollectionUsage{}}, nil)
-	mod.SetUsageService(usageService)
-	mod.nodeID = expectedNodeID
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-	mod.logger = logger
-	mod.metrics = NewMetrics(prometheus.NewRegistry())
-
-	usage, err := mod.collectUsageData(context.Background())
-	assert.NoError(t, err)
-	assert.NotNil(t, usage)
-	assert.Equal(t, expectedNodeID, usage.Node)
-}
-
-// TestModule_UploadUsageData tests the uploadUsageData function logic
-func TestModule_UploadUsageData(t *testing.T) {
-	mod := New()
-	mod.nodeID = "test-node"
-	mod.prefix = "test-prefix"
-	mod.bucketName = "test-bucket"
-	mod.metrics = NewMetrics(prometheus.NewRegistry())
-	mod.policyVersion = "2025-06-01"
-
-	u := &types.Report{
-		Node: "test-node",
-		Collections: []*types.CollectionUsage{
-			{
-				Name:             "test-collection",
-				UniqueShardCount: 1,
-			},
-		},
-	}
-
-	// Test 1: S3 client not initialized
-	err := mod.uploadUsageData(context.Background(), u)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "S3 client is not initialized")
-
-	// Test 2: Verify that JSON marshaling works (this is the main logic we can test)
-	data, err := json.MarshalIndent(u, "", "  ")
-	assert.NoError(t, err)
-	assert.NotEmpty(t, data)
-
-	// Verify the JSON structure
-	var unmarshaled types.Report
-	err = json.Unmarshal(data, &unmarshaled)
-	assert.NoError(t, err)
-	assert.Equal(t, u.Node, unmarshaled.Node)
-	assert.Len(t, unmarshaled.Collections, 1)
-
-	// Test 3: Verify filename generation logic
-	now := time.Now().UTC()
-	timestamp := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
-	filename := fmt.Sprintf("%s.json", timestamp)
-	s3Key := fmt.Sprintf("%s/%s/%s", mod.prefix, mod.nodeID, filename)
-
-	assert.Contains(t, s3Key, mod.prefix)
-	assert.Contains(t, s3Key, mod.nodeID)
-	assert.Contains(t, s3Key, ".json")
-	assert.Contains(t, s3Key, timestamp)
-
-	// Test 4: Verify metrics would be set (we can't test the actual Set call without a real client)
-	expectedFileSize := float64(len(data))
-	assert.Greater(t, expectedFileSize, float64(0))
-}
-
-// TestModule_CollectAndUploadUsage tests the combined collect and upload functionality
-func TestModule_CollectAndUploadUsage(t *testing.T) {
-	mod := New()
-	usageService := clusterusage.NewMockService(t)
-	usageService.EXPECT().Usage(mock.Anything).Return(&types.Report{}, nil)
-	mod.SetUsageService(usageService)
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-	mod.logger = logger
-	mod.metrics = NewMetrics(prometheus.NewRegistry())
-
-	// Test case: No S3 client
-	err := mod.collectAndUploadUsage(context.Background())
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "S3 client is not initialized")
-}
-
-// TestModule_ConfigurationChanges tests dynamic configuration updates
-func TestModule_ConfigurationChanges(t *testing.T) {
-	mod := New()
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-	mod.logger = logger
-	mod.interval = 1 * time.Hour
-	mod.bucketName = "old-bucket"
-	mod.prefix = "old-prefix"
-
-	// Create test config with new values
-	testConfig := config.Config{
-		Cluster: cluster.Config{
-			Hostname: "test-node",
-		},
-		Usage: config.UsageConfig{
-			S3Bucket:       runtime.NewDynamicValue("new-bucket"),
-			S3Prefix:       runtime.NewDynamicValue("new-prefix"),
-			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
+			ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute),
 			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
 	}
-	mod.config = &testConfig
 
-	// Test interval update
-	if interval := mod.config.Usage.ScrapeInterval.Get(); interval > 0 && mod.interval != interval {
-		mod.interval = interval
-	}
-	assert.Equal(t, 2*time.Hour, mod.interval)
-
-	// Test bucket name update
-	if bucketName := mod.config.Usage.S3Bucket.Get(); bucketName != "" && mod.bucketName != bucketName {
-		mod.bucketName = bucketName
-	}
-	assert.Equal(t, "new-bucket", mod.bucketName)
-
-	// Test prefix update
-	if prefix := mod.config.Usage.S3Prefix.Get(); mod.prefix != prefix {
-		mod.prefix = prefix
-	}
-	assert.Equal(t, "new-prefix", mod.prefix)
-}
-
-// TestModule_Close tests the module close functionality
-func TestModule_Close(t *testing.T) {
-	mod := New()
-	err := mod.Close()
-	assert.NoError(t, err)
-}
-
-// TestModule_Init_MissingConfig tests initialization with missing configuration
-func TestModule_Init_MissingConfig(t *testing.T) {
-	mod := New()
 	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
+	registry := prometheus.NewRegistry()
 
-	// Test with missing hostname
-	params := moduletools.NewMockModuleInitParams(t)
-	params.EXPECT().GetConfig().Return(&config.Config{
-		Cluster: cluster.Config{
-			Hostname: "",
-		},
-	})
-	err := mod.Init(context.Background(), params)
-	assert.Error(t, err)
+	params := &MockModuleInitParams{
+		config:            config,
+		logger:            logger,
+		metricsRegisterer: registry,
+	}
+
+	m := New()
+	err := m.Init(context.Background(), params)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "cluster hostname is not set")
 }
 
-// TestModule_Metrics_Updates tests that metrics are properly updated
-func TestModule_Metrics_Updates(t *testing.T) {
-	registry := prometheus.NewRegistry()
-	metrics := NewMetrics(registry)
-	mod := New()
-	mod.metrics = metrics
+func TestModule_Init_ConfigurationParsing(t *testing.T) {
+	// Set up environment variables
+	os.Setenv("USAGE_S3_BUCKET", "env-bucket")
+	os.Setenv("USAGE_S3_PREFIX", "env-prefix")
+	os.Setenv("USAGE_SCRAPE_INTERVAL", "10m")
+	os.Setenv("USAGE_POLICY_VERSION", "2025-06-01")
+	os.Setenv("CLUSTER_IN_LOCALHOST", "true")
+	defer func() {
+		os.Unsetenv("USAGE_S3_BUCKET")
+		os.Unsetenv("USAGE_S3_PREFIX")
+		os.Unsetenv("USAGE_SCRAPE_INTERVAL")
+		os.Unsetenv("USAGE_POLICY_VERSION")
+		os.Unsetenv("CLUSTER_IN_LOCALHOST")
+	}()
 
-	// Test usage data collection updates metrics
-	usage := &types.Report{
-		Node: "test-node",
-		Collections: []*types.CollectionUsage{
-			{
-				Name:             "test-collection",
-				UniqueShardCount: 5,
-			},
-			{
-				Name:             "test-collection-2",
-				UniqueShardCount: 3,
-			},
-		},
-		Backups: []*types.BackupUsage{
-			{
-				ID: "test-backup",
-			},
-		},
-	}
-
-	// Simulate metrics updates
-	totalCollections := float64(len(usage.Collections))
-	metrics.ResourceCount.WithLabelValues("collections").Set(totalCollections)
-
-	var totalShards float64
-	for _, coll := range usage.Collections {
-		totalShards += float64(coll.UniqueShardCount)
-	}
-	metrics.ResourceCount.WithLabelValues("shards").Set(totalShards)
-
-	totalBackups := float64(len(usage.Backups))
-	metrics.ResourceCount.WithLabelValues("backups").Set(totalBackups)
-
-	// Verify metrics were set correctly
-	assert.Equal(t, float64(2), totalCollections)
-	assert.Equal(t, float64(8), totalShards)
-	assert.Equal(t, float64(1), totalBackups)
-}
-
-func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
-	mod := New()
-	usageService := clusterusage.NewMockService(t)
-	usageService.EXPECT().Usage(mock.Anything).Return(&types.Report{}, nil)
-	mod.SetUsageService(usageService)
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-	mod.logger = logger
-	mod.metrics = NewMetrics(prometheus.NewRegistry())
-	mod.interval = 10 * time.Millisecond // Fast ticker for test
-
-	// Use a dynamic config that we can mutate
-	testConfig := config.Config{
+	config := &config.Config{
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
 		Usage: config.UsageConfig{
-			S3Bucket:       runtime.NewDynamicValue("bucket1"),
-			S3Prefix:       runtime.NewDynamicValue("prefix1"),
-			ScrapeInterval: runtime.NewDynamicValue(10 * time.Millisecond),
-			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
-		},
-		RuntimeOverrides: config.RuntimeOverrides{
-			LoadInterval: 2 * time.Minute, // Use default value
+			ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute), // Will be overridden
+			PolicyVersion:  runtime.NewDynamicValue("2025-01-01"),    // Will be overridden
 		},
 	}
-	mod.config = &testConfig
-	mod.bucketName = "bucket1"
-	mod.prefix = "prefix1"
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Run the loop in a goroutine
-	done := make(chan struct{})
-	go func() {
-		mod.collectAndUploadPeriodically(ctx)
-		close(done)
-	}()
-
-	// Let it run for a few cycles
-	time.Sleep(30 * time.Millisecond)
-
-	// Change config values
-	mod.config.Usage.S3Bucket.SetValue("bucket2")
-	mod.config.Usage.S3Prefix.SetValue("prefix2")
-	mod.config.Usage.ScrapeInterval.SetValue(20 * time.Millisecond)
-
-	// Let it run for a few more cycles
-	time.Sleep(50 * time.Millisecond)
-
-	// Stop the loop
-	close(mod.stopChan)
-
-	// Wait for goroutine to exit
-	select {
-	case <-done:
-	case <-time.After(1 * time.Second):
-		t.Fatal("collectAndUploadPeriodically did not exit in time")
-	}
-
-	// Assert the mod fields were updated
-	assert.Equal(t, "bucket2", mod.bucketName)
-	assert.Equal(t, "prefix2", mod.prefix)
-	assert.Equal(t, 20*time.Millisecond, mod.interval)
-}
-
-// TestModule_ZeroIntervalProtection tests that the module handles zero intervals gracefully
-func TestModule_ZeroIntervalProtection(t *testing.T) {
-	mod := New()
 	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-	mod.logger = logger
-	mod.interval = 0 // Set invalid interval
+	registry := prometheus.NewRegistry()
 
-	// Set up config with zero runtime overrides interval
-	mod.config = &config.Config{
-		RuntimeOverrides: config.RuntimeOverrides{
-			LoadInterval: 0, // Invalid interval
-		},
+	params := &MockModuleInitParams{
+		config:            config,
+		logger:            logger,
+		metricsRegisterer: registry,
 	}
 
-	// This should not panic and should use default values
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start the periodic collection in a goroutine
-	done := make(chan struct{})
-	go func() {
-		mod.collectAndUploadPeriodically(ctx)
-		close(done)
-	}()
-
-	// Cancel context after a short delay
-	time.Sleep(50 * time.Millisecond)
-	cancel()
-
-	// Wait for goroutine to finish
-	select {
-	case <-done:
-		// Success - goroutine exited without panic
-	case <-time.After(1 * time.Second):
-		t.Fatal("Goroutine did not exit within timeout")
-	}
-
-	// Verify that the interval was set to a valid value
-	assert.Greater(t, mod.interval, time.Duration(0))
-}
-
-// TestModule_ReloadConfig tests the reloadConfig function
-func TestModule_ReloadConfig(t *testing.T) {
-	mod := New()
-	logger := logrus.New()
-	logger.SetOutput(os.Stdout)
-	mod.logger = logger
-	mod.interval = 1 * time.Hour
-	mod.bucketName = "old-bucket"
-	mod.prefix = "old-prefix"
-
-	// Create test config with new values
-	testConfig := config.Config{
-		Usage: config.UsageConfig{
-			S3Bucket:       runtime.NewDynamicValue("new-bucket"),
-			S3Prefix:       runtime.NewDynamicValue("new-prefix"),
-			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
-		},
-	}
-	mod.config = &testConfig
-
-	// Create a ticker to pass to reloadConfig
-	ticker := time.NewTicker(1 * time.Hour)
-	defer ticker.Stop()
-
-	// Call reloadConfig
-	mod.reloadConfig(ticker)
-
-	// Verify updates
-	assert.Equal(t, 2*time.Hour, mod.interval)
-	assert.Equal(t, "new-bucket", mod.bucketName)
-	assert.Equal(t, "new-prefix", mod.prefix)
-}
-
-// TestParseUsageConfig tests the parseUsageConfig function
-func TestParseUsageConfig(t *testing.T) {
-	// Save original environment
-	originalEnv := map[string]string{
-		"USAGE_S3_USE_AUTH":     os.Getenv("USAGE_S3_USE_AUTH"),
-		"USAGE_S3_BUCKET":       os.Getenv("USAGE_S3_BUCKET"),
-		"USAGE_S3_PREFIX":       os.Getenv("USAGE_S3_PREFIX"),
-		"USAGE_SCRAPE_INTERVAL": os.Getenv("USAGE_SCRAPE_INTERVAL"),
-		"USAGE_POLICY_VERSION":  os.Getenv("USAGE_POLICY_VERSION"),
-	}
-
-	// Clean up after test
-	defer func() {
-		for key, value := range originalEnv {
-			if value == "" {
-				os.Unsetenv(key)
-			} else {
-				os.Setenv(key, value)
-			}
-		}
-	}()
-
-	// Test with environment variables set
-	os.Setenv("USAGE_S3_USE_AUTH", "true")
-	os.Setenv("USAGE_S3_BUCKET", "test-bucket")
-	os.Setenv("USAGE_S3_PREFIX", "test-prefix")
-	os.Setenv("USAGE_SCRAPE_INTERVAL", "30m")
-	os.Setenv("USAGE_POLICY_VERSION", "2025-06-01")
-
-	testConfig := &config.Config{
-		Usage: config.UsageConfig{},
-	}
-
-	err := parseUsageConfig(testConfig)
+	m := New()
+	err := m.Init(context.Background(), params)
 	require.NoError(t, err)
 
-	assert.Equal(t, "test-bucket", testConfig.Usage.S3Bucket.Get())
-	assert.Equal(t, "test-prefix", testConfig.Usage.S3Prefix.Get())
-	assert.Equal(t, 30*time.Minute, testConfig.Usage.ScrapeInterval.Get())
-	assert.Equal(t, "2025-06-01", testConfig.Usage.PolicyVersion.Get())
+	// Verify environment variables were parsed correctly
+	assert.Equal(t, "env-bucket", config.Usage.S3Bucket.Get())
+	assert.Equal(t, "env-prefix", config.Usage.S3Prefix.Get())
+	assert.Equal(t, 10*time.Minute, config.Usage.ScrapeInterval.Get())
+	assert.Equal(t, "2025-06-01", config.Usage.PolicyVersion.Get())
+}
 
-	// Test with invalid duration
-	os.Setenv("USAGE_SCRAPE_INTERVAL", "invalid")
-	err = parseUsageConfig(testConfig)
-	assert.Error(t, err)
+func TestModule_Init_InvalidScrapeInterval(t *testing.T) {
+	// Set up environment with invalid scrape interval
+	os.Setenv("USAGE_S3_BUCKET", "test-bucket")
+	os.Setenv("USAGE_SCRAPE_INTERVAL", "invalid-duration")
+	defer func() {
+		os.Unsetenv("USAGE_S3_BUCKET")
+		os.Unsetenv("USAGE_SCRAPE_INTERVAL")
+	}()
+
+	config := &config.Config{
+		Cluster: cluster.Config{
+			Hostname: "test-node",
+		},
+		Usage: config.UsageConfig{
+			ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute),
+			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
+		},
+	}
+
+	logger := logrus.New()
+	registry := prometheus.NewRegistry()
+
+	params := &MockModuleInitParams{
+		config:            config,
+		logger:            logger,
+		metricsRegisterer: registry,
+	}
+
+	m := New()
+	err := m.Init(context.Background(), params)
+	require.Error(t, err)
 	assert.Contains(t, err.Error(), "invalid USAGE_SCRAPE_INTERVAL")
 }
 
-// TestModule_SetUsageService tests the SetUsageService method
+func TestModule_BuildS3Config(t *testing.T) {
+	m := New()
+
+	config := &config.Config{
+		Cluster: cluster.Config{
+			Hostname: "test-node",
+		},
+		Usage: config.UsageConfig{
+			S3Bucket:      runtime.NewDynamicValue("test-bucket"),
+			S3Prefix:      runtime.NewDynamicValue("test-prefix"),
+			PolicyVersion: runtime.NewDynamicValue("2025-06-01"),
+		},
+	}
+
+	storageConfig := m.buildS3Config(config)
+
+	assert.Equal(t, "test-node", storageConfig.NodeID)
+	assert.Equal(t, "test-bucket", storageConfig.Bucket)
+	assert.Equal(t, "test-prefix", storageConfig.Prefix)
+	assert.Equal(t, "2025-06-01", storageConfig.Version)
+}
+
+func TestModule_BuildS3Config_EmptyValues(t *testing.T) {
+	m := New()
+
+	config := &config.Config{
+		Cluster: cluster.Config{
+			Hostname: "test-node",
+		},
+		Usage: config.UsageConfig{
+			// All values are nil/empty
+		},
+	}
+
+	storageConfig := m.buildS3Config(config)
+
+	assert.Equal(t, "test-node", storageConfig.NodeID)
+	assert.Equal(t, "", storageConfig.Bucket)
+	assert.Equal(t, "", storageConfig.Prefix)
+	assert.Equal(t, "", storageConfig.Version)
+}
+
 func TestModule_SetUsageService(t *testing.T) {
-	mod := New()
+	m := New()
 
-	// Test with valid service
-	usageService := clusterusage.NewMockService(t)
-	mod.SetUsageService(usageService)
-	assert.Equal(t, usageService, mod.usageService)
+	// Should not panic when BaseModule is nil
+	m.SetUsageService("test-service")
+	assert.Nil(t, m.BaseModule)
 
-	// Test with invalid service (should not panic)
-	mod.SetUsageService("invalid")
-	assert.NotEqual(t, "invalid", mod.usageService)
+	// Initialize the module with a mock BaseModule
+	// Set up minimal environment for successful init
+	os.Setenv("USAGE_S3_BUCKET", "test-bucket")
+	os.Setenv("CLUSTER_IN_LOCALHOST", "true")
+	defer func() {
+		os.Unsetenv("USAGE_S3_BUCKET")
+		os.Unsetenv("CLUSTER_IN_LOCALHOST")
+	}()
+
+	config := &config.Config{
+		Cluster: cluster.Config{
+			Hostname: "test-node",
+		},
+		Usage: config.UsageConfig{
+			ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute),
+			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
+		},
+	}
+
+	logger := logrus.New()
+	registry := prometheus.NewRegistry()
+
+	params := &MockModuleInitParams{
+		config:            config,
+		logger:            logger,
+		metricsRegisterer: registry,
+	}
+
+	err := m.Init(context.Background(), params)
+	require.NoError(t, err)
+
+	// Now it should work with initialized BaseModule
+	m.SetUsageService("test-service")
+	assert.NotNil(t, m.BaseModule)
+}
+
+func TestParseUsageConfig(t *testing.T) {
+	t.Run("all environment variables set", func(t *testing.T) {
+		os.Setenv("USAGE_S3_BUCKET", "env-bucket")
+		os.Setenv("USAGE_S3_PREFIX", "env-prefix")
+		os.Setenv("USAGE_SCRAPE_INTERVAL", "15m")
+		os.Setenv("USAGE_POLICY_VERSION", "2025-06-01")
+		defer func() {
+			os.Unsetenv("USAGE_S3_BUCKET")
+			os.Unsetenv("USAGE_S3_PREFIX")
+			os.Unsetenv("USAGE_SCRAPE_INTERVAL")
+			os.Unsetenv("USAGE_POLICY_VERSION")
+		}()
+
+		config := &config.Config{
+			Usage: config.UsageConfig{},
+		}
+
+		err := parseUsageConfig(config)
+		require.NoError(t, err)
+
+		assert.Equal(t, "env-bucket", config.Usage.S3Bucket.Get())
+		assert.Equal(t, "env-prefix", config.Usage.S3Prefix.Get())
+		assert.Equal(t, 15*time.Minute, config.Usage.ScrapeInterval.Get())
+		assert.Equal(t, "2025-06-01", config.Usage.PolicyVersion.Get())
+	})
+
+	t.Run("no environment variables set", func(t *testing.T) {
+		config := &config.Config{
+			Usage: config.UsageConfig{},
+		}
+
+		err := parseUsageConfig(config)
+		require.NoError(t, err)
+
+		// Should be nil when not set
+		assert.Nil(t, config.Usage.S3Bucket)
+		assert.Nil(t, config.Usage.S3Prefix)
+		assert.Nil(t, config.Usage.ScrapeInterval)
+		assert.Nil(t, config.Usage.PolicyVersion)
+	})
+
+	t.Run("invalid scrape interval", func(t *testing.T) {
+		os.Setenv("USAGE_SCRAPE_INTERVAL", "not-a-duration")
+		defer os.Unsetenv("USAGE_SCRAPE_INTERVAL")
+
+		config := &config.Config{
+			Usage: config.UsageConfig{},
+		}
+
+		err := parseUsageConfig(config)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid USAGE_SCRAPE_INTERVAL")
+	})
+}
+
+func TestModule_Type(t *testing.T) {
+	m := New()
+	assert.Equal(t, "Usage", string(m.Type()))
+}
+
+func TestModule_InterfaceCompliance(t *testing.T) {
+	// Test that module implements required interfaces
+	m := New()
+	assert.NotNil(t, m)
+
+	// These should compile without errors if interfaces are implemented correctly
+	_ = m.Name()
+	_ = m.Type()
+	m.SetUsageService("test")
 }

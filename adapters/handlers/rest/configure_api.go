@@ -1884,11 +1884,13 @@ func initRuntimeOverrides(appState *state.State) {
 		registered.InvertedSorterDisabled = appState.ServerConfig.Config.InvertedSorterDisabled
 
 		if appState.Modules.UsageEnabled() {
+			// gcs config
 			registered.UsageGCSBucket = appState.ServerConfig.Config.Usage.GCSBucket
 			registered.UsageGCSPrefix = appState.ServerConfig.Config.Usage.GCSPrefix
-			registered.UsageGCSAuth = appState.ServerConfig.Config.Usage.GCSAuth
+			// s3 config
 			registered.UsageS3Bucket = appState.ServerConfig.Config.Usage.S3Bucket
 			registered.UsageS3Prefix = appState.ServerConfig.Config.Usage.S3Prefix
+			// common config
 			registered.UsageScrapeInterval = appState.ServerConfig.Config.Usage.ScrapeInterval
 			registered.UsagePolicyVersion = appState.ServerConfig.Config.Usage.PolicyVersion
 		}

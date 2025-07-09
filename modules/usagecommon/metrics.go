@@ -9,38 +9,53 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package usages3
+package usagecommon
 
 import (
+	"strings"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 )
 
-type metrics struct {
+type Metrics struct {
+	// Operation metrics
 	OperationTotal   *prometheus.CounterVec
+	OperationLatency *prometheus.HistogramVec
+
+	// Resource metrics
 	ResourceCount    *prometheus.GaugeVec
 	UploadedFileSize prometheus.Gauge
 }
 
-func NewMetrics(reg prometheus.Registerer) *metrics {
-	return &metrics{
+func NewMetrics(reg prometheus.Registerer, moduleName string) *Metrics {
+	moduleName = strings.ToLower(moduleName)
+	return &Metrics{
 		OperationTotal: promauto.With(reg).NewCounterVec(
 			prometheus.CounterOpts{
-				Name: "usage_s3_operations_total",
-				Help: "Total number of usage-s3 operations",
+				Name: moduleName + "_operations_total",
+				Help: "Total number of " + moduleName + " operations",
 			},
 			[]string{"operation", "status"},
 		),
+		OperationLatency: prometheus.NewHistogramVec(
+			prometheus.HistogramOpts{
+				Name:    moduleName + "_operation_latency_seconds",
+				Help:    "Latency of usage operations in seconds",
+				Buckets: prometheus.DefBuckets,
+			},
+			[]string{"operation"}, // collect/upload
+		),
 		ResourceCount: promauto.With(reg).NewGaugeVec(
 			prometheus.GaugeOpts{
-				Name: "usage_s3_resource_count",
-				Help: "Number of resources tracked by usage-s3",
+				Name: moduleName + "_resource_count",
+				Help: "Number of resources tracked by " + moduleName,
 			},
 			[]string{"resource_type"},
 		),
 		UploadedFileSize: promauto.With(reg).NewGauge(
 			prometheus.GaugeOpts{
-				Name: "usage_s3_uploaded_file_size_bytes",
+				Name: moduleName + "_uploaded_file_size_bytes",
 				Help: "Size of the last uploaded usage file in bytes",
 			},
 		),
