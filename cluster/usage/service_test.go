@@ -640,7 +640,7 @@ func TestService_Usage_VectorIndexError(t *testing.T) {
 	mockDB.EXPECT().GetIndexLike(entschema.ClassName(className)).Return(mockIndex)
 
 	mockShard := db.NewMockShardLike(t)
-	mockShard.EXPECT().ObjectCountAsync().Return(objectCount)
+	mockShard.EXPECT().ObjectCountAsync(ctx).Return(int64(objectCount), nil)
 	mockShard.EXPECT().ObjectStorageSize(ctx).Return(storageSize, nil)
 	mockShard.EXPECT().VectorStorageSize(ctx).Return(int64(0), nil)
 	mockShard.EXPECT().DimensionsUsage(ctx, vectorName).Return(types.Dimensionality{
