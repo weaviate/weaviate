@@ -43,14 +43,11 @@ type (
 	router interface {
 		NodeHostname(nodeName string) (string, bool)
 		AllHostnames() []string
+		BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error)
 	}
 
 	readPlanner interface {
 		Plan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error)
-	}
-
-	writePlanner interface {
-		Plan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error)
 	}
 
 	// _Result represents a valid value or an error ( _ prevent make it public).
@@ -73,6 +70,7 @@ type Replicator struct {
 
 func NewReplicator(className string,
 	router router,
+	readPlanner readPlanner,
 	nodeName string,
 	getDeletionStrategy func() string,
 	client Client,
@@ -87,6 +85,7 @@ func NewReplicator(className string,
 		Finder: NewFinder(
 			className,
 			router,
+			readPlanner,
 			nodeName,
 			client,
 			l,

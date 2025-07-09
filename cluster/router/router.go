@@ -430,3 +430,105 @@ func (r *multiTenantRouter) validateTenant(tenant string) error {
 	}
 	return nil
 }
+
+// BuildWriteRoutingPlan constructs a write routing plan for single-tenant collections.
+func (r *singleTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
+	return r.buildWriteRoutingPlan(params)
+}
+
+func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
+	_, writeReplicas, err := r.getReadWriteReplicasLocation(r.collection, params.Shard)
+	if err != nil {
+		return types.WriteRoutingPlan{}, fmt.Errorf("error while getting read replicas for collection %s shard %s: %w", r.collection, params.Shard, err)
+	}
+
+	if len(writeReplicas.Replicas) == 0 {
+		return types.WriteRoutingPlan{}, fmt.Errorf("error while checking replica availability for collection %q shard %q", r.collection, params.Shard)
+	}
+
+	// Order replicas with direct candidate first
+	sortedWriteReplicas := sort(writeReplicas.Replicas, params.DirectCandidateNode, r.nodeSelector.LocalName())
+
+	plan := types.WriteRoutingPlan{
+		Shard: params.Shard,
+		ReplicaSet: types.WriteReplicaSet{
+			Replicas:           sortedWriteReplicas,
+			AdditionalReplicas: writeReplicas.AdditionalReplicas,
+		},
+		ConsistencyLevel: params.ConsistencyLevel,
+	}
+
+	cl, err := plan.ValidateConsistencyLevel()
+	if err != nil {
+		return types.WriteRoutingPlan{}, fmt.Errorf("error while validating consistency level: %w", err)
+	}
+	plan.IntConsistencyLevel = cl
+	return plan, nil
+}
+
+// BuildWriteRoutingPlan constructs a write routing plan for multi-tenant collections.
+func (r *multiTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
+	return r.buildWriteRoutingPlan(params)
+}
+
+func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
+	// Multi-tenant routing requires a specific tenant shard target to enforce isolation of tenants to specific shards.
+	// Unlike single-tenant collections, broadcast writes (empty shard) are prohibited to prevent
+	// cross-tenant data leakage. Each tenant maps to exactly one shard using the tenant name as key.
+	if params.Shard == "" {
+		return types.WriteRoutingPlan{}, fmt.Errorf("error while creating routing plan for collection %q", r.collection)
+	}
+	_, writeReplicas, err := r.getReadWriteReplicasLocation(r.collection, params.Shard)
+	if err != nil {
+		return types.WriteRoutingPlan{}, fmt.Errorf("error while getting write replicas for collection %s shard %s: %w", r.collection, params.Shard, err)
+	}
+
+	if len(writeReplicas.Replicas) == 0 {
+		return types.WriteRoutingPlan{}, fmt.Errorf("error while checking write replica availability for collection %q shard %q", r.collection, params.Shard)
+	}
+
+	// Order replicas with direct candidate first
+	orderedReplicas := sort(writeReplicas.Replicas, params.DirectCandidateNode, r.nodeSelector.LocalName())
+
+	plan := types.WriteRoutingPlan{
+		Shard: params.Shard,
+		ReplicaSet: types.WriteReplicaSet{
+			Replicas:           orderedReplicas,
+			AdditionalReplicas: writeReplicas.AdditionalReplicas,
+		},
+		ConsistencyLevel: params.ConsistencyLevel,
+	}
+
+	cl, err := plan.ValidateConsistencyLevel()
+	if err != nil {
+		return types.WriteRoutingPlan{}, err
+	}
+	plan.IntConsistencyLevel = cl
+	return plan, nil
+}
+
+// sort orders replicas with the direct candidate first, followed by the remaining replicas
+func sort(replicas []types.Replica, directCandidate string, localNodeName string) []types.Replica {
+	if len(replicas) == 0 {
+		return replicas
+	}
+
+	preferredNodeName := directCandidate
+	if preferredNodeName == "" {
+		preferredNodeName = localNodeName
+	}
+
+	var orderedReplicas []types.Replica
+	var otherReplicas []types.Replica
+
+	for _, replica := range replicas {
+		if replica.NodeName == preferredNodeName {
+			orderedReplicas = append(orderedReplicas, replica)
+		} else {
+			otherReplicas = append(otherReplicas, replica)
+		}
+	}
+
+	orderedReplicas = append(orderedReplicas, otherReplicas...)
+	return orderedReplicas
+}
