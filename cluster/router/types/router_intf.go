@@ -32,7 +32,7 @@ type Router interface {
 	//   - writeReplicas: a replica set serving as primary write Replicas.
 	//   - additionalWriteReplicas: a replica set serving as additional write Replicas.
 	//   - error: if an error occurs while retrieving Replicas.
-	GetReadWriteReplicasLocation(collection string, shard string) (readReplicas ReadReplicaSet, writeReplicas WriteReplicaSet, err error)
+	GetReadWriteReplicasLocation(collection string, tenant string, shard string) (readReplicas ReadReplicaSet, writeReplicas WriteReplicaSet, err error)
 
 	// GetWriteReplicasLocation returns the write Replicas for a given collection.
 	//
@@ -44,7 +44,7 @@ type Router interface {
 	//   - writeReplicas: a replica set serving as primary write Replicas.
 	//   - additionalWriteReplicas: a replica set serving as additional write Replicas.
 	//   - error: if an error occurs while retrieving Replicas.
-	GetWriteReplicasLocation(collection string, shard string) (WriteReplicaSet, error)
+	GetWriteReplicasLocation(collection string, tenant string, shard string) (WriteReplicaSet, error)
 
 	// GetReadReplicasLocation returns the read Replicas for a given collection.
 	//
@@ -55,7 +55,7 @@ type Router interface {
 	// Returns:
 	//   - readReplicas: a replica set serving as read Replicas.
 	//   - error: if an error occurs while retrieving Replicas.
-	GetReadReplicasLocation(collection string, shard string) (ReadReplicaSet, error)
+	GetReadReplicasLocation(collection string, tenant string, shard string) (ReadReplicaSet, error)
 
 	// BuildWriteRoutingPlan constructs a routing plan for a write operation based on the provided options.
 	BuildWriteRoutingPlan(params RoutingPlanBuildOptions) (WriteRoutingPlan, error)

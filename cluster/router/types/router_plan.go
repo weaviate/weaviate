@@ -53,6 +53,7 @@ func (o RoutingPlanBuildOptions) String() string {
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
 type ReadRoutingPlan struct {
 	Shard               string
+	Tenant              string
 	ReplicaSet          ReadReplicaSet
 	ConsistencyLevel    ConsistencyLevel
 	IntConsistencyLevel int
@@ -62,8 +63,8 @@ type ReadRoutingPlan struct {
 // including shard, consistency level, and list of Replicas.
 func (p ReadRoutingPlan) String() string {
 	return fmt.Sprintf(
-		"ReadRoutingPlan{shard: %q, consistencyLevel: %s (%d), Replicas: %v}",
-		p.Shard, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
+		"ReadRoutingPlan{shard: %q, tenant: %q, consistencyLevel: %s (%d), Replicas: %v}",
+		p.Shard, p.Tenant, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
 	)
 }
 
@@ -80,6 +81,7 @@ func (p ReadRoutingPlan) String() string {
 //   - IntConsistencyLevel: The resolved numeric value for the consistency level.
 type WriteRoutingPlan struct {
 	Shard               string
+	Tenant              string
 	ReplicaSet          WriteReplicaSet
 	ConsistencyLevel    ConsistencyLevel
 	IntConsistencyLevel int
@@ -89,8 +91,8 @@ type WriteRoutingPlan struct {
 // including shard, consistency level, write Replicas, and additional Replicas.
 func (p WriteRoutingPlan) String() string {
 	return fmt.Sprintf(
-		"WriteRoutingPlan{shard: %q, consistencyLevel: %s (%d), writeReplicas: %v}",
-		p.Shard, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
+		"WriteRoutingPlan{shard: %q, tenant: %q, consistencyLevel: %s (%d), writeReplicas: %v}",
+		p.Shard, p.Tenant, p.ConsistencyLevel, p.IntConsistencyLevel, p.ReplicaSet,
 	)
 }
 
@@ -127,6 +129,7 @@ func (p WriteRoutingPlan) LogFields() logrus.Fields {
 	}
 	return logrus.Fields{
 		"shard":             p.Shard,
+		"tenant":            tenant,
 		"write_replica_set": p.ReplicaSet,
 		"consistency_level": p.ConsistencyLevel,
 	}

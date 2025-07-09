@@ -207,13 +207,19 @@ func (r *singleTenantRouter) AllHostnames() []string {
 
 // GetReadWriteReplicasLocation returns read and write replicas for single-tenant collections.
 // In single-tenant mode, this method aggregates replicas from all physical shards of the collection.
-func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, shard string) (readReplicas types.ReadReplicaSet, writeReplicas types.WriteReplicaSet, err error) {
-	return r.getReadWriteReplicasLocation(collection, shard)
+func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (readReplicas types.ReadReplicaSet, writeReplicas types.WriteReplicaSet, err error) {
+	if err := r.validateTenant(tenant); err != nil {
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, fmt.Errorf("error while validating tenant for collection %q tenant %q shard %q: %w", collection, tenant, shard, err)
+	}
+	return r.getReadWriteReplicasLocation(collection, tenant, shard)
 }
 
 // GetWriteReplicasLocation returns write replicas for single-tenant collections.
-func (r *singleTenantRouter) GetWriteReplicasLocation(collection string, shard string) (types.WriteReplicaSet, error) {
-	_, writeReplicas, err := r.getReadWriteReplicasLocation(collection, shard)
+func (r *singleTenantRouter) GetWriteReplicasLocation(collection string, tenant string, shard string) (types.WriteReplicaSet, error) {
+	if err := r.validateTenant(tenant); err != nil {
+		return types.WriteReplicaSet{}, fmt.Errorf("error while validating tenant for collection %q tenant %q shard: %q: %w", collection, tenant, shard, err)
+	}
+	_, writeReplicas, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
 	if err != nil {
 		return types.WriteReplicaSet{}, err
 	}
@@ -221,15 +227,26 @@ func (r *singleTenantRouter) GetWriteReplicasLocation(collection string, shard s
 }
 
 // GetReadReplicasLocation returns read replicas for single-tenant collections.
-func (r *singleTenantRouter) GetReadReplicasLocation(collection string, tenant string) (types.ReadReplicaSet, error) {
-	readReplicas, _, err := r.getReadWriteReplicasLocation(collection, tenant)
+func (r *singleTenantRouter) GetReadReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, error) {
+	if err := r.validateTenant(tenant); err != nil {
+		return types.ReadReplicaSet{}, fmt.Errorf("error while validating tenant for collection %q tenant %q shard: %q: %w", collection, tenant, shard, err)
+	}
+	readReplicas, _, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
 	if err != nil {
 		return types.ReadReplicaSet{}, err
 	}
 	return readReplicas, nil
 }
 
-func (r *singleTenantRouter) getReadWriteReplicasLocation(collection string, shard string) (readReplicas types.ReadReplicaSet, writeReplicas types.WriteReplicaSet, err error,
+// validateTenant for a multi-tenant router checks the tenant is not empty and returns an error if it is.
+func (r *singleTenantRouter) validateTenant(tenant string) error {
+	if tenant != "" {
+		return fmt.Errorf("tenant is not required for single-tenant collections")
+	}
+	return nil
+}
+
+func (r *singleTenantRouter) getReadWriteReplicasLocation(collection string, tenant string, shard string) (readReplicas types.ReadReplicaSet, writeReplicas types.WriteReplicaSet, err error,
 ) {
 	targetShards, err := r.targetShards(collection, shard)
 	if err != nil {
@@ -334,10 +351,14 @@ func (r *singleTenantRouter) AllHostnames() []string {
 }
 
 // GetReadWriteReplicasLocation returns read and write replicas for multi-tenant collections.
-func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, shard string) (readReplicas types.ReadReplicaSet, writeReplicas types.WriteReplicaSet, err error) {
-	if err := r.validateTenant(shard); err != nil {
+func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (readReplicas types.ReadReplicaSet, writeReplicas types.WriteReplicaSet, err error) {
+	if err := r.validateTenant(tenant); err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, fmt.Errorf("error while validating tenant for collection %q shard %q: %w", collection, shard, err)
 	}
+	if shard == "" {
+		shard = tenant
+	}
+	return r.getReadWriteReplicasLocation(collection, shard)
 }
 
 func (r *multiTenantRouter) getReadWriteReplicasLocation(collection string, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
@@ -396,20 +417,26 @@ func (r *multiTenantRouter) tenantExistsAndIsActive(tenantStatus map[string]stri
 }
 
 // GetWriteReplicasLocation returns write replicas for multi-tenant collections.
-func (r *multiTenantRouter) GetWriteReplicasLocation(collection string, tenant string) (types.WriteReplicaSet, error) {
+func (r *multiTenantRouter) GetWriteReplicasLocation(collection string, tenant string, shard string) (types.WriteReplicaSet, error) {
 	if err := r.validateTenant(tenant); err != nil {
-		return types.WriteReplicaSet{}, fmt.Errorf("error while validating tenant for collection %q tenant %q: %w", collection, tenant, err)
+		return types.WriteReplicaSet{}, fmt.Errorf("error while validating tenant for collection %q tenant %q shard: %q: %w", collection, tenant, shard, err)
 	}
-	_, writeReplicas, err := r.getReadWriteReplicasLocation(collection, tenant)
+	if shard == "" {
+		shard = tenant
+	}
+	_, writeReplicas, err := r.getReadWriteReplicasLocation(collection, shard)
 	return writeReplicas, err
 }
 
 // GetReadReplicasLocation returns read replicas for multi-tenant collections.
-func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant string) (types.ReadReplicaSet, error) {
+func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, error) {
 	if err := r.validateTenant(tenant); err != nil {
 		return types.ReadReplicaSet{}, fmt.Errorf("error while validating tenant for collection %q tenant %q: %w", collection, tenant, err)
 	}
-	readReplicas, _, err := r.getReadWriteReplicasLocation(collection, tenant)
+	if shard == "" {
+		shard = tenant
+	}
+	readReplicas, _, err := r.getReadWriteReplicasLocation(collection, shard)
 	return readReplicas, err
 }
 
@@ -437,9 +464,9 @@ func (r *singleTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuild
 }
 
 func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
-	_, writeReplicas, err := r.getReadWriteReplicasLocation(r.collection, params.Shard)
+	_, writeReplicas, err := r.getReadWriteReplicasLocation(r.collection, params.Tenant, params.Shard)
 	if err != nil {
-		return types.WriteRoutingPlan{}, fmt.Errorf("error while getting read replicas for collection %s shard %s: %w", r.collection, params.Shard, err)
+		return types.WriteRoutingPlan{}, fmt.Errorf("error while getting write replicas for collection %s shard %s: %w", r.collection, params.Shard, err)
 	}
 
 	if len(writeReplicas.Replicas) == 0 {
@@ -468,6 +495,9 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 
 // BuildWriteRoutingPlan constructs a write routing plan for multi-tenant collections.
 func (r *multiTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
+	if params.Shard == "" {
+		params.Shard = params.Tenant
+	}
 	return r.buildWriteRoutingPlan(params)
 }
 
