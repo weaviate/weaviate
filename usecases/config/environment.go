@@ -354,6 +354,8 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("PERSISTENCE_SEGMENT_INFO_FROM_FILE_ENABLED")) {
 		config.Persistence.SegmentInfoIntoFileNameEnabled = true
+	} else {
+		config.Persistence.SegmentInfoIntoFileNameEnabled = true
 	}
 
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
