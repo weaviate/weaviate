@@ -142,7 +142,7 @@ func Test_AliasesAPI(t *testing.T) {
 	})
 
 	t.Run("get alias not found", func(t *testing.T) {
-		resp := helper.GetAliasNotFound(t, "AliasThatDoestExist")
+		resp := helper.GetAliasNotFound(t, "AliasThatDoesntExist")
 		require.Nil(t, resp)
 	})
 
@@ -157,6 +157,33 @@ func Test_AliasesAPI(t *testing.T) {
 		checkAlias(t, aliasName, documents.Passage)
 		helper.UpdateAlias(t, aliasName, documents.Document)
 		checkAlias(t, aliasName, documents.Document)
+	})
+
+	t.Run("replace non existing alias", func(t *testing.T) {
+		checkAlias := func(t *testing.T, aliasName, expectedClass string) {
+			resp := helper.GetAliasNotFound(t, aliasName)
+			require.Nil(t, resp)
+		}
+		aliasName := "AliasThatDoesntExist"
+		checkAlias(t, aliasName, documents.Document)
+		resp, err := helper.UpdateAliasWithReturn(t, aliasName, documents.Document)
+		require.Error(t, err)
+		require.Nil(t, resp)
+		checkAlias(t, aliasName, documents.Document)
+	})
+
+	t.Run("replace alias of non existing collection", func(t *testing.T) {
+		checkAlias := func(t *testing.T, aliasName, expectedClass string) {
+			resp := helper.GetAlias(t, aliasName)
+			require.NotNil(t, resp)
+			require.Equal(t, aliasName, resp.Alias)
+			require.Equal(t, expectedClass, resp.Class)
+		}
+		aliasName := "AliasThatWillBeReplaced"
+		checkAlias(t, aliasName, documents.Document)
+		resp, err := helper.UpdateAliasWithReturn(t, aliasName, "errorCollection")
+		require.Error(t, err)
+		require.Nil(t, resp)
 	})
 
 	t.Run("delete alias", func(t *testing.T) {
