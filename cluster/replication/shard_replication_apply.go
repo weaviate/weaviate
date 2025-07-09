@@ -64,7 +64,7 @@ func (s *ShardReplicationFSM) RegisterError(c *api.ReplicationRegisterErrorReque
 // is held
 func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status ShardReplicationOpStatus) error {
 	if _, ok := s.opsByTargetFQDN[op.TargetShard]; ok {
-		return fmt.Errorf("op in targetFQDN: %w", ErrShardAlreadyReplicating)
+		return fmt.Errorf("op %s in targetFQDN: %w", op.UUID, ErrShardAlreadyReplicating)
 	}
 
 	if existingOps, ok := s.opsBySourceFQDN[op.SourceShard]; ok {
@@ -83,12 +83,12 @@ func (s *ShardReplicationFSM) writeOpIntoFSM(op ShardReplicationOp, status Shard
 
 			// If any of the ops we're handling is a move we can't accept any new op
 			if existingOp.TransferType == api.MOVE {
-				return fmt.Errorf("existing op is a MOVE: %w", ErrShardAlreadyReplicating)
+				return fmt.Errorf("existing op %s is a MOVE: %w", op.UUID, ErrShardAlreadyReplicating)
 			}
 
 			// At this point we know the existing op is a copy, if our new op is a move we can't accept it
 			if op.TransferType == api.MOVE {
-				return fmt.Errorf("existing op is a COPY, but new op is a MOVE: %w", ErrShardAlreadyReplicating)
+				return fmt.Errorf("existing op %s is a COPY, but new op is a MOVE: %w", op.UUID, ErrShardAlreadyReplicating)
 			}
 
 			// Existing op is an ongoing copy, our new op is also a copy, we can accept it
