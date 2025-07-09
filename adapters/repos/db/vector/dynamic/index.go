@@ -127,6 +127,36 @@ type dynamic struct {
 	LazyLoadSegments        bool
 }
 
+func upgradeBucket(path, targetVector string) {
+	path = filepath.Join(path, "lsm")
+	newPath := filepath.Join(path, fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, targetVector))
+	path = filepath.Join(path, helpers.VectorsCompressedBucketLSM)
+	info, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+
+	if !info.IsDir() {
+		return
+	}
+
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		return
+	}
+
+	containsFiles := false
+	for _, entry := range entries {
+		if !entry.IsDir() {
+			containsFiles = true
+			break
+		}
+	}
+	if containsFiles {
+		os.Rename(path, newPath)
+	}
+}
+
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	if !entcfg.Enabled(os.Getenv("ASYNC_INDEXING")) {
 		return nil, errors.New("the dynamic index can only be created under async indexing environment")
@@ -145,6 +175,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	targetVector := cfg.TargetVector
 	if len(targetVector) == 0 {
 		targetVector = flatPostfix
+		upgradeBucket(cfg.RootPath, targetVector)
 	}
 	flatConfig := flat.Config{
 		ID:               cfg.ID,
@@ -438,17 +469,7 @@ func (dynamic *dynamic) ValidateMultiBeforeInsert(vector [][]float32) error {
 func (dynamic *dynamic) PostStartup() {
 	dynamic.Lock()
 	defer dynamic.Unlock()
-	dynamic.upgradeBucket()
 	dynamic.index.PostStartup()
-}
-
-func (dynamic *dynamic) upgradeBucket() {
-	if len(dynamic.targetVector) == 0 {
-		bucket := dynamic.store.Bucket(dynamic.getBucketName())
-		if bucket == nil {
-			dynamic.store.RenameBucket(context.Background(), helpers.VectorsBucketLSM, dynamic.getBucketName())
-		}
-	}
 }
 
 func (dynamic *dynamic) DistanceBetweenVectors(x, y []float32) (float32, error) {

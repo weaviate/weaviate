@@ -13,6 +13,7 @@ package dynamic
 
 import (
 	"context"
+	"encoding/binary"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -24,6 +25,7 @@ import (
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
@@ -463,4 +465,103 @@ func TestDynamicWithDifferentCompressionSchema(t *testing.T) {
 	dynamic.PostStartup()
 	recall2, _ := testinghelpers.RecallAndLatency(ctx, queries, k, dynamic, truths)
 	assert.Equal(t, recall, recall2)
+}
+
+func TestDynamicWithDifferentCompressionSchemaUpgrade(t *testing.T) {
+	t.Setenv("ASYNC_INDEXING", "true")
+	dimensions := 20
+	vectors_size := 10
+	threshold := 2_000
+	queries_size := 1
+	k := 10
+
+	tempDir := t.TempDir()
+
+	db, err := bbolt.Open(filepath.Join(tempDir, "index.db"), 0o666, nil)
+	require.NoError(t, err)
+	t.Cleanup(func() {
+		db.Close()
+	})
+
+	vectors, queries := testinghelpers.RandomVecs(vectors_size, queries_size, dimensions)
+	rootPath := tempDir
+	distancer := distancer.NewL2SquaredProvider()
+	noopCallback := cyclemanager.NewCallbackGroupNoop()
+	fuc := flatent.UserConfig{}
+	fuc.SetDefaults()
+	fuc.BQ = flatent.CompressionUserConfig{
+		Enabled: true,
+		Cache:   true,
+	}
+	hnswuc := hnswent.UserConfig{
+		MaxConnections:        30,
+		EFConstruction:        64,
+		EF:                    32,
+		VectorCacheMaxObjects: 1_000_000,
+		PQ: hnswent.PQConfig{
+			Enabled:        true,
+			BitCompression: false,
+			Segments:       5,
+			Centroids:      255,
+			TrainingLimit:  threshold - 1,
+			Encoder: hnswent.PQEncoder{
+				Type:         hnswent.PQEncoderTypeKMeans,
+				Distribution: hnswent.PQEncoderDistributionLogNormal,
+			},
+		},
+	}
+
+	config := Config{
+		TargetVector: "",
+		RootPath:     rootPath,
+		ID:           "vector-test_0",
+		MakeCommitLoggerThunk: func() (hnsw.CommitLogger, error) {
+			return hnsw.NewCommitLogger(tempDir, "vector-test_0", logger, noopCallback)
+		},
+		DistanceProvider: distancer,
+		VectorForIDThunk: func(ctx context.Context, id uint64) ([]float32, error) {
+			vec := vectors[int(id)]
+			if vec == nil {
+				return nil, storobj.NewErrNotFoundf(id, "nil vec")
+			}
+			return vec, nil
+		},
+		TempVectorForIDThunk:    TempVectorForIDThunk(vectors),
+		TombstoneCallbacks:      noopCallback,
+		SharedDB:                db,
+		HNSWWaitForCachePrefill: true,
+	}
+	uc := ent.UserConfig{
+		Threshold: uint64(threshold),
+		Distance:  distancer.Type(),
+		HnswUC:    hnswuc,
+		FlatUC:    fuc,
+	}
+
+	tempDirLsm := filepath.Join(tempDir, "lsm")
+	dummyStore, _ := lsmkv.New(tempDirLsm, tempDirLsm, logger, nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop())
+
+	testinghelpers.NewDummyStore(t)
+	oldName := "vectors_compressed"
+	dummyStore.CreateBucket(t.Context(), oldName)
+	bucket := dummyStore.Bucket(oldName)
+	compressor := compressionhelpers.NewBinaryQuantizer(distancer)
+	for i, vector := range vectors {
+		keys := make([]byte, 8)
+		values := make([]byte, 8)
+		binary.BigEndian.PutUint64(keys, uint64(i))
+		compressed := compressor.Encode(vector)
+		binary.LittleEndian.PutUint64(values, compressed[0])
+		bucket.Put(keys, values)
+	}
+	dummyStore.FlushMemtables(t.Context())
+	dummyStore.ShutdownBucket(t.Context(), oldName)
+	dynamic, err := New(config, uc, dummyStore)
+	require.NoError(t, err)
+	dynamic.PostStartup()
+	ids, _, _ := dynamic.SearchByVector(t.Context(), queries[0], k, nil)
+	assert.Equal(t, k, len(ids))
 }
