@@ -23,9 +23,11 @@ type Config struct {
 	RootPath         string
 	TargetVector     string
 	MinMMapSize      int64
+	MaxWalReuseSize  int64
 	Logger           logrus.FieldLogger
 	DistanceProvider distancer.Provider
 	AllocChecker     memwatch.AllocChecker
+	LazyLoadSegments bool
 }
 
 func (c Config) Validate() error {

@@ -41,6 +41,12 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 	// Format: uuid
 	ID *strfmt.UUID `json:"id"`
 
+	// Whether the replica operation is scheduled for cancellation.
+	ScheduledForCancel bool `json:"scheduledForCancel,omitempty"`
+
+	// Whether the replica operation is scheduled for deletion.
+	ScheduledForDelete bool `json:"scheduledForDelete,omitempty"`
+
 	// The identifier of the shard involved in this replication operation.
 	// Required: true
 	ShardID *string `json:"shardId"`
@@ -64,6 +70,9 @@ type ReplicationReplicateDetailsReplicaResponse struct {
 	// Required: true
 	// Enum: [COPY MOVE]
 	TransferType *string `json:"transferType"`
+
+	// Whether the replica operation is uncancelable.
+	Uncancelable bool `json:"uncancelable,omitempty"`
 }
 
 // Validate validates this replication replicate details replica response

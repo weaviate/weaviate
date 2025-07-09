@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/replication"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/config"
+	configRuntime "github.com/weaviate/weaviate/usecases/config/runtime"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 	"github.com/weaviate/weaviate/usecases/replica"
@@ -205,6 +206,7 @@ type Config struct {
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
 	MaxImportGoroutinesFactor           float64
+	LazySegmentsDisabled                bool
 	MemtablesFlushDirtyAfter            int
 	MemtablesInitialSizeMB              int
 	MemtablesMaxSizeMB                  int
@@ -238,6 +240,13 @@ type Config struct {
 	HNSWFlatSearchConcurrency                    int
 	HNSWAcornFilterRatio                         float64
 	VisitedListPoolMaxSize                       int
+
+	TenantActivityReadLogLevel  *configRuntime.DynamicValue[string]
+	TenantActivityWriteLogLevel *configRuntime.DynamicValue[string]
+	QuerySlowLogEnabled         *configRuntime.DynamicValue[bool]
+	QuerySlowLogThreshold       *configRuntime.DynamicValue[time.Duration]
+	InvertedSorterDisabled      *configRuntime.DynamicValue[bool]
+	MaintenanceModeEnabled      func() bool
 }
 
 // GetIndex returns the index if it exists or nil if it doesn't

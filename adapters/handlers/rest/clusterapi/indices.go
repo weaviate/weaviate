@@ -20,6 +20,7 @@ import (
 	"net/http"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/router/types"
@@ -1665,6 +1666,11 @@ func (i *indices) deleteAsyncReplicationTargetNode() http.Handler {
 
 		err := i.shards.RemoveAsyncReplicationTargetNode(r.Context(), indexName, shardName, targetNodeOverride)
 		if err != nil {
+			// There's no easy to have a re-usable error type via all our interfaces to reach the shard/index
+			if strings.Contains(err.Error(), "shard not found") {
+				http.Error(w, err.Error(), http.StatusNotFound)
+				return
+			}
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}

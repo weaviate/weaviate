@@ -11,27 +11,20 @@
 
 package rbacconf
 
-import "fmt"
-
 // Config makes every subject on the list an admin, whereas everyone else
 // has no rights whatsoever
 type Config struct {
-	Enabled          bool     `json:"enabled" yaml:"enabled"`
-	RootUsers        []string `json:"root_users" yaml:"root_users"`
-	RootGroups       []string `json:"root_groups" yaml:"root_groups"`
-	ViewerRootGroups []string `json:"experimental_readonly_root_groups" yaml:"experimental_readonly_root_groups"`
+	Enabled           bool     `json:"enabled" yaml:"enabled"`
+	RootUsers         []string `json:"root_users" yaml:"root_users"`
+	RootGroups        []string `json:"root_groups" yaml:"root_groups"`
+	ViewerGroups      []string `json:"readonly_groups" yaml:"readonly_groups"`
+	ViewerUsers       []string `json:"viewer_users" yaml:"viewer_users"`
+	AdminUsers        []string `json:"admin_users" yaml:"admin_users"`
+	IpInAuditDisabled bool     `json:"ip_in_audit" yaml:"ip_in_audit"`
 }
 
 // Validate admin list config for viability, can be called from the central
 // config package
 func (c Config) Validate() error {
-	return c.validateOverlap()
-}
-
-func (c Config) validateOverlap() error {
-	if len(c.RootUsers) == 0 {
-		return fmt.Errorf("at least one root user is required")
-	}
-
 	return nil
 }

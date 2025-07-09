@@ -119,6 +119,10 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 }
 
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
+	if !c.config.ReplicaMovementEnabled {
+		return
+	}
+
 	ticker := time.NewTicker(catchUpInterval)
 	defer ticker.Stop()
 	for {
@@ -213,9 +217,13 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	c.logger.Info("closing replication engine ...")
-	c.cancelReplicationEngine()
-	c.replicationEngine.Stop()
+	if c.config.ReplicaMovementEnabled {
+		c.logger.Info("closing replication engine ...")
+		if c.cancelReplicationEngine != nil {
+			c.cancelReplicationEngine()
+		}
+		c.replicationEngine.Stop()
+	}
 
 	c.logger.Info("closing raft FSM store ...")
 	if err := c.Raft.Close(ctx); err != nil {

@@ -28,7 +28,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-
 	"github.com/weaviate/weaviate/cluster/distributedtask"
 	"github.com/weaviate/weaviate/cluster/dynusers"
 	"github.com/weaviate/weaviate/cluster/fsm"
@@ -42,6 +41,7 @@ import (
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/usecases/auth/authentication/apikey"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
+	"github.com/weaviate/weaviate/usecases/auth/authorization/rbac"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -91,6 +91,12 @@ type Config struct {
 	// ElectionTimeout specifies the time in candidate state without contact
 	// from a leader before we attempt an election.
 	ElectionTimeout time.Duration
+	// LeaderLeaseTimeout specifies the time in leader state without contact
+	// from a follower before we attempt an election.
+	LeaderLeaseTimeout time.Duration
+	// TimeoutsMultiplier is the multiplier for the timeout values for
+	// raft election, heartbeat, and leader lease
+	TimeoutsMultiplier int
 
 	// Raft snapshot related settings
 
@@ -156,8 +162,10 @@ type Config struct {
 	ForceOneNodeRecovery bool
 
 	// 	AuthzController to manage RBAC commands and apply it to casbin
-	AuthzController       authorization.Controller
-	AuthNConfig           config.Authentication
+	AuthzController authorization.Controller
+	AuthNConfig     config.Authentication
+	RBAC            *rbac.Manager
+
 	DynamicUserController *apikey.DBUser
 
 	// ReplicaCopier copies shard replicas between nodes
@@ -168,6 +176,8 @@ type Config struct {
 
 	// DistributedTasks is the configuration for the distributed task manager.
 	DistributedTasks config.DistributedTasksConfig
+
+	ReplicaMovementEnabled bool
 
 	// ReplicaMovementMinimumAsyncWait is the minimum time bound that replica movement operations will wait before
 	// async replication can complete.
@@ -312,7 +322,7 @@ func NewFSM(cfg Config, authZController authorization.Controller, snapshotter fs
 		schemaManager:      schemaManager,
 		snapshotter:        snapshotter,
 		authZController:    authZController,
-		authZManager:       rbacRaft.NewManager(authZController, cfg.AuthNConfig, snapshotter, cfg.Logger),
+		authZManager:       rbacRaft.NewManager(cfg.RBAC, cfg.AuthNConfig, snapshotter, cfg.Logger),
 		dynUserManager:     dynusers.NewManager(cfg.DynamicUserController, cfg.Logger),
 		replicationManager: replicationManager,
 		distributedTasksManager: distributedtask.NewManager(distributedtask.ManagerParameters{
@@ -420,7 +430,7 @@ func (st *Store) init() error {
 	}
 
 	// file snapshot store
-	st.snapshotStore, err = raft.NewFileSnapshotStore(st.cfg.WorkDir, nRetainedSnapShots, os.Stdout)
+	st.snapshotStore, err = raft.NewFileSnapshotStore(st.cfg.WorkDir, nRetainedSnapShots, st.log.Out)
 	if err != nil {
 		return fmt.Errorf("file snapshot store: %w", err)
 	}
@@ -710,11 +720,25 @@ func (st *Store) assertFuture(fut raft.IndexFuture) error {
 
 func (st *Store) raftConfig() *raft.Config {
 	cfg := raft.DefaultConfig()
+	// If the TimeoutsMultiplier is set, use it to multiply the timeout values
+	// This is used to speed up the raft election, heartbeat, and leader lease
+	// in a multi-node cluster.
+	// the default value is 1
+	// for production requirement,it's recommended to set it to 5
+	// this in order to tolerate the network delay and avoid extensive leader election triggered more frequently
+	// example : https://developer.hashicorp.com/consul/docs/reference/architecture/server#production-server-requirements
+	timeOutMultiplier := 1
+	if st.cfg.TimeoutsMultiplier > 1 {
+		timeOutMultiplier = st.cfg.TimeoutsMultiplier
+	}
 	if st.cfg.HeartbeatTimeout > 0 {
 		cfg.HeartbeatTimeout = st.cfg.HeartbeatTimeout
 	}
 	if st.cfg.ElectionTimeout > 0 {
 		cfg.ElectionTimeout = st.cfg.ElectionTimeout
+	}
+	if st.cfg.LeaderLeaseTimeout > 0 {
+		cfg.LeaderLeaseTimeout = st.cfg.LeaderLeaseTimeout
 	}
 	if st.cfg.SnapshotInterval > 0 {
 		cfg.SnapshotInterval = st.cfg.SnapshotInterval
@@ -725,7 +749,9 @@ func (st *Store) raftConfig() *raft.Config {
 	if st.cfg.TrailingLogs > 0 {
 		cfg.TrailingLogs = st.cfg.TrailingLogs
 	}
-
+	cfg.HeartbeatTimeout *= time.Duration(timeOutMultiplier)
+	cfg.ElectionTimeout *= time.Duration(timeOutMultiplier)
+	cfg.LeaderLeaseTimeout *= time.Duration(timeOutMultiplier)
 	cfg.LocalID = raft.ServerID(st.cfg.NodeID)
 	cfg.LogLevel = st.cfg.Logger.GetLevel().String()
 	cfg.NoLegacyTelemetry = true
@@ -796,8 +822,12 @@ type Response struct {
 
 var _ raft.FSM = &Store{}
 
-func lastSnapshotIndex(ss *raft.FileSnapshotStore) uint64 {
-	ls, err := ss.List()
+func lastSnapshotIndex(snapshotStore *raft.FileSnapshotStore) uint64 {
+	if snapshotStore == nil {
+		return 0
+	}
+
+	ls, err := snapshotStore.List()
 	if err != nil || len(ls) == 0 {
 		return 0
 	}

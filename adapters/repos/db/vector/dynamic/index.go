@@ -119,6 +119,7 @@ type dynamic struct {
 	cancel                context.CancelFunc
 	hnswDisableSnapshots  bool
 	hnswSnapshotOnStartup bool
+	LazyLoadSegments      bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -142,6 +143,10 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		TargetVector:     cfg.TargetVector,
 		Logger:           cfg.Logger,
 		DistanceProvider: cfg.DistanceProvider,
+		MinMMapSize:      cfg.MinMMapSize,
+		MaxWalReuseSize:  cfg.MaxWalReuseSize,
+		LazyLoadSegments: cfg.LazyLoadSegments,
+		AllocChecker:     cfg.AllocChecker,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -167,6 +172,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		cancel:                cancel,
 		hnswDisableSnapshots:  cfg.HNSWDisableSnapshots,
 		hnswSnapshotOnStartup: cfg.HNSWSnapshotOnStartup,
+		LazyLoadSegments:      cfg.LazyLoadSegments,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
@@ -210,6 +216,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				MakeCommitLoggerThunk: index.makeCommitLoggerThunk,
 				DisableSnapshots:      index.hnswDisableSnapshots,
 				SnapshotOnStartup:     index.hnswSnapshotOnStartup,
+				LazyLoadSegments:      index.LazyLoadSegments,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,

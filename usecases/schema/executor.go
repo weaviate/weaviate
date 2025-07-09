@@ -131,7 +131,7 @@ func (e *executor) LoadShard(class string, shard string) {
 			"action": "load_shard",
 			"class":  class,
 			"shard":  shard,
-		}).WithError(err).Error("migrator")
+		}).WithError(err).Warn("migrator")
 	}
 }
 
@@ -142,7 +142,7 @@ func (e *executor) ShutdownShard(class string, shard string) {
 			"action": "shutdown_shard",
 			"class":  class,
 			"shard":  shard,
-		}).WithError(err).Error("migrator")
+		}).WithError(err).Warn("migrator")
 	}
 }
 
@@ -153,7 +153,7 @@ func (e *executor) DropShard(class string, shard string) {
 			"action": "drop_shard",
 			"class":  class,
 			"shard":  shard,
-		}).WithError(err).Error("migrator")
+		}).WithError(err).Warn("migrator")
 	}
 }
 
@@ -266,7 +266,7 @@ func (e *executor) UpdateTenants(class string, req *api.UpdateTenantsRequest) er
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates, req.ImplicitUpdateRequest); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action": "update_tenants",
 			"class":  class,
@@ -298,7 +298,7 @@ func (e *executor) UpdateTenantsProcess(class string, req *api.TenantProcessRequ
 		})
 	}
 
-	if err := e.migrator.UpdateTenants(ctx, cls, updates); err != nil {
+	if err := e.migrator.UpdateTenants(ctx, cls, updates, false); err != nil {
 		e.logger.WithFields(logrus.Fields{
 			"action":     "update_tenants_process",
 			"sub-action": "update_tenants",

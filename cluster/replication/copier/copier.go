@@ -20,6 +20,8 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/sirupsen/logrus"
@@ -94,7 +96,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		time.Sleep(sleepTime)
 	}
 
-	err = c.prepareLocalFolder(relativeFilePaths)
+	err = c.prepareLocalFolder(collectionName, shardName, relativeFilePaths)
 	if err != nil {
 		return fmt.Errorf("failed to prepare local folder: %w", err)
 	}
@@ -113,12 +115,7 @@ func (c *Copier) CopyReplicaFiles(ctx context.Context, srcNodeId, collectionName
 		return fmt.Errorf("failed to sync files: %w", err)
 	}
 
-	err = diskio.Fsync(c.rootDataPath)
-	if err != nil {
-		return fmt.Errorf("failed to fsync local folder: %w", err)
-	}
-
-	err = c.validateLocalFolder(relativeFilePaths)
+	err = c.validateLocalFolder(collectionName, shardName, relativeFilePaths)
 	if err != nil {
 		return fmt.Errorf("failed to validate local folder: %w", err)
 	}
@@ -132,67 +129,145 @@ func (c *Copier) LoadLocalShard(ctx context.Context, collectionName, shardName s
 		return fmt.Errorf("index for collection %s not found", collectionName)
 	}
 
-	return idx.LoadLocalShard(ctx, shardName)
+	return idx.LoadLocalShard(ctx, shardName, false)
 }
 
-func (c *Copier) prepareLocalFolder(relativeFilePaths []string) error {
-	relativeFilePathsMap := make(map[string]struct{}, len(relativeFilePaths))
-	for _, path := range relativeFilePaths {
-		relativeFilePathsMap[path] = struct{}{}
+func (c *Copier) shardPath(collectionName, shardName string) string {
+	return path.Join(c.rootDataPath, strings.ToLower(collectionName), shardName)
+}
+
+func (c *Copier) prepareLocalFolder(collectionName, shardName string, fileNames []string) error {
+	fileNamesMap := make(map[string]struct{}, len(fileNames))
+	for _, fileName := range fileNames {
+		fileNamesMap[fileName] = struct{}{}
 	}
 
-	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
+	var dirs []string
+
+	// remove files that are not in the source node
+	basePath := c.shardPath(collectionName, shardName)
+
+	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return fmt.Errorf("walking local folder: %w", err)
+			if errors.Is(err, fs.ErrNotExist) {
+				return nil
+			}
+			return fmt.Errorf("preparing local folder: %w", err)
 		}
 
 		if d.IsDir() {
+			dirs = append(dirs, path)
 			return nil
 		}
 
-		relativeFilePath := filepath.Join(c.rootDataPath, d.Name())
+		localRelFilePath, err := filepath.Rel(c.rootDataPath, path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path: %w", err)
+		}
 
-		if _, ok := relativeFilePathsMap[relativeFilePath]; !ok {
-			err := os.Remove(relativeFilePath)
+		if _, ok := fileNamesMap[localRelFilePath]; !ok {
+			err := os.Remove(path)
 			if err != nil {
-				return fmt.Errorf("removing local file %q not present in source node: %w", d.Name(), err)
+				return fmt.Errorf("removing local file %q not present in source node: %w", path, err)
 			}
 		}
 
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("preparing local folder: %w", err)
+	}
+
+	// sort dirs by depth, so that we delete the deepest directories first
+	sortPathsByDepthDescending(dirs)
+	for _, dir := range dirs {
+		isEmpty, err := diskio.IsDirEmpty(dir)
+		if err != nil {
+			return fmt.Errorf("checking if local folder is empty: %s: %w", dir, err)
+		}
+		if !isEmpty {
+			continue
+		}
+
+		err = os.Remove(dir)
+		if err != nil {
+			return fmt.Errorf("failed to remove empty local folder: %s: %w", dir, err)
+		}
+	}
 
 	return nil
 }
 
-func (c *Copier) validateLocalFolder(relativeFilePaths []string) error {
-	i := 0
+func (c *Copier) validateLocalFolder(collectionName, shardName string, fileNames []string) error {
+	fileNamesMap := make(map[string]struct{}, len(fileNames))
+	for _, fileName := range fileNames {
+		fileNamesMap[fileName] = struct{}{}
+	}
 
-	filepath.WalkDir(c.rootDataPath, func(path string, d fs.DirEntry, err error) error {
+	var dirs []string
+
+	basePath := c.shardPath(collectionName, shardName)
+
+	err := filepath.WalkDir(basePath, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
-			return fmt.Errorf("walking local folder: %w", err)
+			return fmt.Errorf("validating local folder: %w", err)
 		}
 
 		if d.IsDir() {
+			dirs = append(dirs, path)
 			return nil
 		}
 
-		localRelFilePath := filepath.Join(c.rootDataPath, d.Name())
-
-		if relativeFilePaths[i] != localRelFilePath {
-			return fmt.Errorf("unexpected: local folder contains unexpected content")
+		localRelFilePath, err := filepath.Rel(c.rootDataPath, path)
+		if err != nil {
+			return fmt.Errorf("failed to get relative path: %w", err)
 		}
 
-		i++
-		// exit WalkDir early if we have more files in the local folder than expected
-		if len(relativeFilePaths) < i {
-			return fmt.Errorf("unexpected: local folder has more files than source node")
+		if _, ok := fileNamesMap[localRelFilePath]; !ok {
+			return fmt.Errorf("file %q not found in source node, but exists locally", localRelFilePath)
 		}
 
 		return nil
 	})
+	if err != nil {
+		return fmt.Errorf("validating local folder: %w", err)
+	}
+
+	// sort dirs by depth, so that we fsync the deepest directories first
+	sortPathsByDepthDescending(dirs)
+
+	for _, dir := range dirs {
+		if err := diskio.Fsync(dir); err != nil {
+			return fmt.Errorf("failed to fsync local folder: %s: %w", dir, err)
+		}
+	}
 
 	return nil
+}
+
+// sortPathsByDepthDescending sorts paths by depth in descending order.
+// Paths with the same depth may be sorted in any order.
+// For example:
+//
+//	/a/b
+//	/a/b/c
+//	/a/b/d
+//	/a
+//
+// may be sorted to:
+//
+//	/a/b/d
+//	/a/b/c
+//	/a/b
+//	/a
+func sortPathsByDepthDescending(paths []string) {
+	sort.Slice(paths, func(i, j int) bool {
+		return depth(paths[i]) > depth(paths[j])
+	})
+}
+
+func depth(path string) int {
+	return strings.Count(filepath.Clean(path), string(filepath.Separator))
 }
 
 func (c *Copier) syncFile(ctx context.Context, sourceNodeHostname, collectionName, shardName, relativeFilePath string) error {
@@ -224,7 +299,7 @@ func (c *Copier) syncFile(ctx context.Context, sourceNodeHostname, collectionNam
 		return fmt.Errorf("create parent folder for %s: %w", relativeFilePath, err)
 	}
 
-	f, err := os.Create(finalLocalPath)
+	f, err := os.Create(finalLocalPath + ".tmp")
 	if err != nil {
 		return fmt.Errorf("open file %q for writing: %w", relativeFilePath, err)
 	}
@@ -240,13 +315,18 @@ func (c *Copier) syncFile(ctx context.Context, sourceNodeHostname, collectionNam
 		return fmt.Errorf("fsyncing file %q for writing: %w", relativeFilePath, err)
 	}
 
-	_, checksum, err = integrity.CRC32(finalLocalPath)
+	_, checksum, err = integrity.CRC32(finalLocalPath + ".tmp")
 	if err != nil {
 		return err
 	}
 
 	if checksum != md.CRC32 {
 		return fmt.Errorf("checksum validation of file %q failed", relativeFilePath)
+	}
+
+	err = os.Rename(finalLocalPath+".tmp", finalLocalPath)
+	if err != nil {
+		return fmt.Errorf("rename file %q to final location: %w", relativeFilePath, err)
 	}
 
 	return nil
@@ -287,7 +367,7 @@ func (c *Copier) InitAsyncReplicationLocally(ctx context.Context, collectionName
 	}
 	defer release()
 
-	return shard.UpdateAsyncReplicationConfig(ctx, true)
+	return shard.SetAsyncReplicationEnabled(ctx, true)
 }
 
 func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionName, shardName string) error {
@@ -305,14 +385,13 @@ func (c *Copier) RevertAsyncReplicationLocally(ctx context.Context, collectionNa
 	}
 	defer release()
 
-	return shard.UpdateAsyncReplicationConfig(ctx, shard.Index().Config.AsyncReplicationEnabled)
+	return shard.SetAsyncReplicationEnabled(ctx, shard.Index().Config.AsyncReplicationEnabled)
 }
 
 // AsyncReplicationStatus returns the async replication status for a shard.
 // The first two return values are the number of objects propagated and the start diff time in unix milliseconds.
 func (c *Copier) AsyncReplicationStatus(ctx context.Context, srcNodeId, targetNodeId, collectionName, shardName string) (models.AsyncReplicationStatus, error) {
-	// TODO can using verbose here blow up if the node has many shards/tenants? i could add a new method to get only one shard?
-	status, err := c.dbWrapper.GetOneNodeStatus(ctx, srcNodeId, collectionName, "verbose")
+	status, err := c.dbWrapper.GetOneNodeStatus(ctx, srcNodeId, collectionName, shardName, "verbose")
 	if err != nil {
 		return models.AsyncReplicationStatus{}, err
 	}

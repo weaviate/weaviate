@@ -23,7 +23,7 @@ import (
 	"github.com/go-openapi/swag"
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
-	"gopkg.in/yaml.v2"
+	"gopkg.in/yaml.v3"
 
 	"github.com/weaviate/weaviate/deprecations"
 	entcfg "github.com/weaviate/weaviate/entities/config"
@@ -163,19 +163,65 @@ type Config struct {
 
 	RuntimeOverrides RuntimeOverrides `json:"runtime_overrides" yaml:"runtime_overrides"`
 
+	ReplicaMovementEnabled          bool                                 `json:"replica_movement_enabled" yaml:"replica_movement_enabled"`
 	ReplicaMovementMinimumAsyncWait *runtime.DynamicValue[time.Duration] `json:"REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT" yaml:"REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"`
+
+	// TenantActivityReadLogLevel is 'debug' by default as every single READ
+	// interaction with a tenant leads to a log line. However, this may
+	// temporarily be desired, e.g. for analysis or debugging purposes. In this
+	// case the log level can be elevated, e.g. to 'info'. This is overall less
+	// noisy than changing the global log level, but still allows to see all
+	// tenant read activity.
+	TenantActivityReadLogLevel *runtime.DynamicValue[string] `json:"tenant_activity_read_log_level" yaml:"tenant_activity_read_log_level"`
+	// TenantActivityWriteLogLevel is 'debug' by default as every single WRITE
+	// interaction with a tenant leads to a log line. However, this may
+	// temporarily be desired, e.g. for analysis or debugging purposes. In this
+	// case the log level can be elevated, e.g. to 'info'. This is overall less
+	// noisy than changing the global log level, but still allows to see all
+	// tenant write activity.
+	TenantActivityWriteLogLevel *runtime.DynamicValue[string] `json:"tenant_activity_write_log_level" yaml:"tenant_activity_write_log_level"`
+
+	// RevectorizeCheck is an optimization where Weaviate checks if a vector can
+	// be reused from a previous version of the object, for example because the
+	// only change was an update of a property that is excluded from
+	// vectorization. This check is on by default (backward-compatibility).
+	//
+	// However, this check comes at a cost, it means that every single insert
+	// will turn into a read-before-write pattern, even if the inserted object is
+	// new. That is because the logic first needs to check if the object even
+	// exists. In cases where write throughput matters and the overwhelming
+	// majority of inserts are new, unique objects, it might be advisable to turn
+	// this feature off using the provided flag.
+	RevectorizeCheckDisabled *runtime.DynamicValue[bool] `json:"revectorize_check_disabled" yaml:"revectorize_check_disabled"`
+
+	QuerySlowLogEnabled   *runtime.DynamicValue[bool]          `json:"query_slow_log_enabled" yaml:"query_slow_log_enabled"`
+	QuerySlowLogThreshold *runtime.DynamicValue[time.Duration] `json:"query_slow_log_threshold" yaml:"query_slow_log_threshold"`
+
+	// InvertedSorterDisabled forces the "objects bucket" strategy and doesn't
+	// not consider inverted sorting, even when the query planner thinks this is
+	// the better option.
+	//
+	// Most users should never set this flag, it exists for two reasons:
+	//  - For benchmarking reasons, this flag can be used to evaluate the
+	//		(positive) impact of the inverted sorter.
+	//  - As a safety net to revert to the old behavior in case there is a bug
+	//		in the inverted indexer despite the very extensive testing.
+	//
+	// This flat may be removed in the future.
+	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 }
 
 type MapToBlockamaxConfig struct {
-	SwapBuckets               bool                     `json:"swap_buckets" yaml:"swap_buckets"`
-	UnswapBuckets             bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
-	TidyBuckets               bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
-	ReloadShards              bool                     `json:"reload_shards" yaml:"reload_shards"`
-	Rollback                  bool                     `json:"rollback" yaml:"rollback"`
-	ConditionalStart          bool                     `json:"conditional_start" yaml:"conditional_start"`
-	ProcessingDurationSeconds int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
-	PauseDurationSeconds      int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
-	Selected                  []CollectionPropsTenants `json:"selected" yaml:"selected"`
+	SwapBuckets                bool                     `json:"swap_buckets" yaml:"swap_buckets"`
+	UnswapBuckets              bool                     `json:"unswap_buckets" yaml:"unswap_buckets"`
+	TidyBuckets                bool                     `json:"tidy_buckets" yaml:"tidy_buckets"`
+	ReloadShards               bool                     `json:"reload_shards" yaml:"reload_shards"`
+	Rollback                   bool                     `json:"rollback" yaml:"rollback"`
+	ConditionalStart           bool                     `json:"conditional_start" yaml:"conditional_start"`
+	ProcessingDurationSeconds  int                      `json:"processing_duration_seconds" yaml:"processing_duration_seconds"`
+	PauseDurationSeconds       int                      `json:"pause_duration_seconds" yaml:"pause_duration_seconds"`
+	PerObjectDelayMilliseconds int                      `json:"per_object_delay_milliseconds" yaml:"per_object_delay_milliseconds"`
+	Selected                   []CollectionPropsTenants `json:"selected" yaml:"selected"`
 }
 
 type CollectionPropsTenants struct {
@@ -304,6 +350,7 @@ type Profiling struct {
 }
 
 type DistributedTasksConfig struct {
+	Enabled               bool          `json:"enabled" yaml:"enabled"`
 	CompletedTaskTTL      time.Duration `json:"completedTaskTTL" yaml:"completedTaskTTL"`
 	SchedulerTickInterval time.Duration `json:"schedulerTickInterval" yaml:"schedulerTickInterval"`
 }
@@ -321,6 +368,7 @@ type Persistence struct {
 	LSMCycleManagerRoutinesFactor                int    `json:"lsmCycleManagerRoutinesFactor" yaml:"lsmCycleManagerRoutinesFactor"`
 	IndexRangeableInMemory                       bool   `json:"indexRangeableInMemory" yaml:"indexRangeableInMemory"`
 	MinMMapSize                                  int64  `json:"minMMapSize" yaml:"minMMapSize"`
+	LazySegmentsDisabled                         bool   `json:"lazySegmentsDisabled" yaml:"lazySegmentsDisabled"`
 	MaxReuseWalSize                              int64  `json:"MaxReuseWalSize" yaml:"MaxReuseWalSize"`
 	HNSWMaxLogSize                               int64  `json:"hnswMaxLogSize" yaml:"hnswMaxLogSize"`
 	HNSWDisableSnapshots                         bool   `json:"hnswDisableSnapshots" yaml:"hnswDisableSnapshots"`
@@ -360,8 +408,9 @@ const (
 const (
 	DefaultReindexerGoroutinesFactor = 0.5
 
-	DefaultMapToBlockmaxProcessingDurationSeconds = 3 * 60
-	DefaultMapToBlockmaxPauseDurationSeconds      = 60
+	DefaultMapToBlockmaxProcessingDurationSeconds  = 3 * 60
+	DefaultMapToBlockmaxPauseDurationSeconds       = 60
+	DefaultMapToBlockmaxPerObjectDelayMilliseconds = 0
 )
 
 // MetadataServer is experimental.
@@ -470,6 +519,8 @@ type Raft struct {
 
 	HeartbeatTimeout       time.Duration
 	ElectionTimeout        time.Duration
+	LeaderLeaseTimeout     time.Duration
+	TimeoutsMultiplier     int
 	ConsistencyWaitTimeout time.Duration
 
 	BootstrapTimeout   time.Duration

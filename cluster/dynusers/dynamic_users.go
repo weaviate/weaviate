@@ -44,6 +44,18 @@ func (m *Manager) CreateUser(c *cmd.ApplyRequest) error {
 	return m.dynUser.CreateUser(req.UserId, req.SecureHash, req.UserIdentifier, req.ApiKeyFirstLetters, req.CreatedAt)
 }
 
+func (m *Manager) CreateUserWithKeyRequest(c *cmd.ApplyRequest) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	req := &cmd.CreateUserWithKeyRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.dynUser.CreateUserWithKey(req.UserId, req.ApiKeyFirstLetters, req.WeakHash, req.CreatedAt)
+}
+
 func (m *Manager) DeleteUser(c *cmd.ApplyRequest) error {
 	if m.dynUser == nil {
 		return nil
@@ -135,4 +147,24 @@ func (m *Manager) CheckUserIdentifierExists(req *cmd.QueryRequest) ([]byte, erro
 		return []byte{}, fmt.Errorf("could not marshal query response: %w", err)
 	}
 	return payload, nil
+}
+
+func (m *Manager) Snapshot() ([]byte, error) {
+	if m.dynUser == nil {
+		return nil, nil
+	}
+	return m.dynUser.Snapshot()
+}
+
+func (m *Manager) Restore(snapshot []byte) error {
+	if m.dynUser == nil {
+		return nil
+	}
+	err := m.dynUser.Restore(snapshot)
+	if err != nil {
+		m.logger.Errorf("restored db users from snapshot failed with: %v", err)
+		return err
+	}
+	m.logger.Info("successfully restored dynamic users from snapshot")
+	return nil
 }

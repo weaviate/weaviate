@@ -16,7 +16,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/hashicorp/raft"
@@ -146,6 +145,28 @@ func (s *Raft) DeleteReplicaFromShard(ctx context.Context, class, shard, targetN
 	}
 	command := &cmd.ApplyRequest{
 		Type:       cmd.ApplyRequest_TYPE_DELETE_REPLICA_FROM_SHARD,
+		Class:      req.Class,
+		SubCommand: subCommand,
+	}
+	return s.Execute(ctx, command)
+}
+
+func (s *Raft) ReplicationAddReplicaToShard(ctx context.Context, class, shard, targetNode string, opId uint64) (uint64, error) {
+	if class == "" || shard == "" || targetNode == "" {
+		return 0, fmt.Errorf("empty class or shard or sourceNode or targetNode: %w", schema.ErrBadRequest)
+	}
+	req := cmd.ReplicationAddReplicaToShard{
+		Class:      class,
+		Shard:      shard,
+		TargetNode: targetNode,
+		OpId:       opId,
+	}
+	subCommand, err := json.Marshal(&req)
+	if err != nil {
+		return 0, fmt.Errorf("marshal request: %w", err)
+	}
+	command := &cmd.ApplyRequest{
+		Type:       cmd.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD,
 		Class:      req.Class,
 		SubCommand: subCommand,
 	}
@@ -305,8 +326,8 @@ func (s *Raft) Execute(ctx context.Context, req *cmd.ApplyRequest) (uint64, erro
 		}
 		schemaVersion = resp.Version
 		return nil
-		// Retry at most for 2 seconds, it shouldn't take longer for an election to take place
-	}, backoff.WithContext(backoff.WithMaxRetries(backoff.NewConstantBackOff(200*time.Millisecond), 10), ctx))
+		// pass in the election timeout after applying multiplier
+	}, backoffConfig(ctx, s.store.raftConfig().ElectionTimeout))
 
 	return schemaVersion, err
 }

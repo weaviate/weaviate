@@ -13,9 +13,12 @@ package db
 
 import (
 	"context"
+	"hash/crc32"
+	"io"
 	"slices"
 	"testing"
 
+	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 
@@ -24,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/entities/storagestate"
+	"github.com/weaviate/weaviate/entities/storobj"
 	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/usecases/memwatch"
 	"github.com/weaviate/weaviate/usecases/monitoring"
@@ -93,7 +97,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 				hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 			require.NoError(t, err)
 
-			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil, NewShardReindexerV3Noop())
+			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil, NewShardReindexerV3Noop(), false)
 			require.NoError(t, err)
 
 			index.shards.Store("shard1", shard)
@@ -224,7 +228,7 @@ func TestUpdateIndexShards(t *testing.T) {
 
 			// Initialize shards
 			for _, shardName := range tt.initialShards {
-				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad)
+				err := index.initLocalShardWithForcedLoading(ctx, class, shardName, tt.mustLoad, false)
 				require.NoError(t, err)
 			}
 
@@ -270,4 +274,97 @@ func TestUpdateIndexShards(t *testing.T) {
 			mockSchemaGetter.AssertExpectations(t)
 		})
 	}
+}
+
+func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
+	mockSchemaGetter := schemaUC.NewMockSchemaGetter(t)
+	mockSchemaGetter.On("NodeName").Return("node1")
+
+	class := &models.Class{
+		Class:               "TestClass",
+		InvertedIndexConfig: &models.InvertedIndexConfig{},
+	}
+	mockSchemaGetter.On("ReadOnlyClass", "TestClass").Return(class).Maybe()
+
+	mockSchemaGetter.On("ShardOwner", "TestClass", "shard1").Return("node1", nil)
+
+	logger := logrus.New()
+	scheduler := queue.NewScheduler(queue.SchedulerOptions{
+		Logger:  logger,
+		Workers: 1,
+	})
+
+	// Create original index state
+	originalSS := &sharding.State{
+		Physical: map[string]sharding.Physical{
+			"shard1": {
+				Name:           "shard1",
+				BelongsToNodes: []string{"node1"},
+				Status:         models.TenantActivityStatusHOT,
+			},
+		},
+		PartitioningEnabled: true,
+	}
+
+	index, err := NewIndex(context.Background(), IndexConfig{
+		ClassName:         schema.ClassName("TestClass"),
+		RootPath:          t.TempDir(),
+		ReplicationFactor: 1,
+		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
+	}, originalSS, inverted.ConfigFromModel(class.InvertedIndexConfig),
+		hnsw.NewDefaultUserConfig(), nil, nil, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+	require.NoError(t, err)
+
+	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil, NewShardReindexerV3Noop(), false)
+	require.NoError(t, err)
+
+	index.shards.Store("shard1", shard)
+
+	ctx := context.Background()
+
+	err = index.IncomingPutObject(ctx, "shard1", &storobj.Object{
+		MarshallerVersion: 1,
+		DocID:             0,
+		Object: models.Object{
+			ID:    strfmt.UUID("40d3be3e-2ecc-49c8-b37c-d8983164848b"),
+			Class: "TestClass",
+		},
+	}, 0)
+	require.NoError(t, err)
+
+	err = index.IncomingPauseFileActivity(ctx, "shard1")
+	require.NoError(t, err)
+
+	files, err := index.IncomingListFiles(ctx, "shard1")
+	require.NoError(t, err)
+	require.NotEmpty(t, files)
+
+	for i, f := range files {
+		md, err := index.IncomingGetFileMetadata(ctx, "shard1", f)
+		require.NoError(t, err)
+
+		// object insertion should not affect file copy process
+		err = index.IncomingPutObject(ctx, "shard1", &storobj.Object{
+			MarshallerVersion: 1,
+			DocID:             uint64(i) + 1,
+			Object: models.Object{
+				ID:    strfmt.UUID("40d3be3e-2ecc-49c8-b37c-d8983164848b"),
+				Class: "TestClass",
+			},
+		}, 0)
+		require.NoError(t, err)
+
+		r, err := index.IncomingGetFile(ctx, "shard1", f)
+		require.NoError(t, err)
+
+		h := crc32.NewIEEE()
+
+		_, err = io.Copy(h, r)
+		require.NoError(t, err)
+
+		require.Equal(t, md.CRC32, h.Sum32())
+	}
+
+	err = index.IncomingResumeFileActivity(ctx, "shard1")
+	require.NoError(t, err)
 }

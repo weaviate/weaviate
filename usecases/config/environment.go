@@ -21,6 +21,7 @@ import (
 	"strings"
 	"time"
 
+	dbhelpers "github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	entcfg "github.com/weaviate/weaviate/entities/config"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -46,8 +47,8 @@ const (
 	DefaultDistributedTasksSchedulerTickInterval = time.Minute
 	DefaultDistributedTasksCompletedTaskTTL      = 5 * 24 * time.Hour
 
-	DefaultReplicationEngineMaxWorkers     = 5
-	DefaultReplicaMovementMinimumAsyncWait = 100 * time.Second
+	DefaultReplicationEngineMaxWorkers     = 10
+	DefaultReplicaMovementMinimumAsyncWait = 60 * time.Second
 
 	DefaultTransferInactivityTimeout = 5 * time.Minute
 )
@@ -165,30 +166,51 @@ func FromEnv(config *Config) error {
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_ENABLED")) {
 		config.Authentication.OIDC.Enabled = true
+		var (
+			skipClientCheck bool
+			issuer          string
+			clientID        string
+			scopes          []string
+			userClaim       string
+			groupsClaim     string
+			certificate     string
+		)
 
 		if entcfg.Enabled(os.Getenv("AUTHENTICATION_OIDC_SKIP_CLIENT_ID_CHECK")) {
-			config.Authentication.OIDC.SkipClientIDCheck = true
+			skipClientCheck = true
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_ISSUER"); v != "" {
-			config.Authentication.OIDC.Issuer = v
+			issuer = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_CLIENT_ID"); v != "" {
-			config.Authentication.OIDC.ClientID = v
+			clientID = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_SCOPES"); v != "" {
-			config.Authentication.OIDC.Scopes = strings.Split(v, ",")
+			scopes = strings.Split(v, ",")
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_USERNAME_CLAIM"); v != "" {
-			config.Authentication.OIDC.UsernameClaim = v
+			userClaim = v
 		}
 
 		if v := os.Getenv("AUTHENTICATION_OIDC_GROUPS_CLAIM"); v != "" {
-			config.Authentication.OIDC.GroupsClaim = v
+			groupsClaim = v
 		}
+
+		if v := os.Getenv("AUTHENTICATION_OIDC_CERTIFICATE"); v != "" {
+			certificate = v
+		}
+
+		config.Authentication.OIDC.SkipClientIDCheck = runtime.NewDynamicValue(skipClientCheck)
+		config.Authentication.OIDC.Issuer = runtime.NewDynamicValue(issuer)
+		config.Authentication.OIDC.ClientID = runtime.NewDynamicValue(clientID)
+		config.Authentication.OIDC.Scopes = runtime.NewDynamicValue(scopes)
+		config.Authentication.OIDC.UsernameClaim = runtime.NewDynamicValue(userClaim)
+		config.Authentication.OIDC.GroupsClaim = runtime.NewDynamicValue(groupsClaim)
+		config.Authentication.OIDC.Certificate = runtime.NewDynamicValue(certificate)
 	}
 
 	if entcfg.Enabled(os.Getenv("AUTHENTICATION_DB_USERS_ENABLED")) {
@@ -237,6 +259,10 @@ func FromEnv(config *Config) error {
 	if entcfg.Enabled(os.Getenv("AUTHORIZATION_ENABLE_RBAC")) || entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_ENABLED")) {
 		config.Authorization.Rbac.Enabled = true
 
+		if entcfg.Enabled(os.Getenv("AUTHORIZATION_RBAC_IP_IN_AUDIT_LOG_DISABLED")) {
+			config.Authorization.Rbac.IpInAuditDisabled = true
+		}
+
 		adminsString, ok := os.LookupEnv("AUTHORIZATION_RBAC_ROOT_USERS")
 		if ok {
 			config.Authorization.Rbac.RootUsers = strings.Split(adminsString, ",")
@@ -252,9 +278,25 @@ func FromEnv(config *Config) error {
 			config.Authorization.Rbac.RootGroups = strings.Split(groupString, ",")
 		}
 
-		viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
+		viewerGroupString, ok := os.LookupEnv("AUTHORIZATION_RBAC_READONLY_GROUPS")
 		if ok {
-			config.Authorization.Rbac.ViewerRootGroups = strings.Split(viewerGroupString, ",")
+			config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+		} else {
+			// delete this after 1.30.11 + 1.31.3 is the minimum version in WCD
+			viewerGroupString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_ROOT_GROUPS")
+			if ok {
+				config.Authorization.Rbac.ViewerGroups = strings.Split(viewerGroupString, ",")
+			}
+		}
+
+		readOnlyUsersString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_READONLY_USERS")
+		if ok {
+			config.Authorization.Rbac.ViewerUsers = strings.Split(readOnlyUsersString, ",")
+		}
+
+		adminUsersString, ok := os.LookupEnv("EXPERIMENTAL_AUTHORIZATION_RBAC_ADMIN_USERS")
+		if ok {
+			config.Authorization.Rbac.AdminUsers = strings.Split(adminUsersString, ",")
 		}
 	}
 
@@ -304,6 +346,10 @@ func FromEnv(config *Config) error {
 		config.Persistence.MinMMapSize = parsed
 	} else {
 		config.Persistence.MinMMapSize = DefaultPersistenceMinMMapSize
+	}
+
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LAZY_SEGMENTS_DISABLED")) {
+		config.Persistence.LazySegmentsDisabled = true
 	}
 
 	if v := os.Getenv("PERSISTENCE_MAX_REUSE_WAL_SIZE"); v != "" {
@@ -444,6 +490,10 @@ func FromEnv(config *Config) error {
 		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PAUSE_DURATION_SECONDS",
 			func(val int) { config.ReindexMapToBlockmaxConfig.PauseDurationSeconds = val },
 			DefaultMapToBlockmaxPauseDurationSeconds)
+		parsePositiveInt("REINDEX_MAP_TO_BLOCKMAX_PER_OBJECT_DELAY_MILLISECONDS",
+			func(val int) { config.ReindexMapToBlockmaxConfig.PerObjectDelayMilliseconds = val },
+			DefaultMapToBlockmaxPerObjectDelayMilliseconds)
+
 		cptSelected, err := cptParser.parse(os.Getenv("REINDEX_MAP_TO_BLOCKMAX_SELECT"))
 		if err != nil {
 			return err
@@ -574,6 +624,18 @@ func FromEnv(config *Config) error {
 	if v := os.Getenv("AUTOSCHEMA_DEFAULT_DATE"); v != "" {
 		config.AutoSchema.DefaultDate = v
 	}
+
+	tenantActivityReadLogLevel := "debug"
+	if v := os.Getenv("TENANT_ACTIVITY_READ_LOG_LEVEL"); v != "" {
+		tenantActivityReadLogLevel = v
+	}
+	config.TenantActivityReadLogLevel = runtime.NewDynamicValue(tenantActivityReadLogLevel)
+
+	tenantActivityWriteLogLevel := "debug"
+	if v := os.Getenv("TENANT_ACTIVITY_WRITE_LOG_LEVEL"); v != "" {
+		tenantActivityWriteLogLevel = v
+	}
+	config.TenantActivityWriteLogLevel = runtime.NewDynamicValue(tenantActivityWriteLogLevel)
 
 	ru, err := parseResourceUsageEnvVars()
 	if err != nil {
@@ -733,6 +795,14 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if v := os.Getenv("DISTRIBUTED_TASKS_ENABLED"); v != "" {
+		config.DistributedTasks.Enabled = entcfg.Enabled(v)
+	}
+
+	if v := os.Getenv("REPLICA_MOVEMENT_ENABLED"); v != "" {
+		config.ReplicaMovementEnabled = entcfg.Enabled(v)
+	}
+
 	if v := os.Getenv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT"); v != "" {
 		duration, err := time.ParseDuration(v)
 		if err != nil {
@@ -745,6 +815,30 @@ func FromEnv(config *Config) error {
 	} else {
 		config.ReplicaMovementMinimumAsyncWait = runtime.NewDynamicValue(DefaultReplicaMovementMinimumAsyncWait)
 	}
+	revoctorizeCheckDisabled := false
+	if v := os.Getenv("REVECTORIZE_CHECK_DISABLED"); v != "" {
+		revoctorizeCheckDisabled = !(strings.ToLower(v) == "false")
+	}
+	config.RevectorizeCheckDisabled = runtime.NewDynamicValue(revoctorizeCheckDisabled)
+
+	querySlowLogEnabled := entcfg.Enabled(os.Getenv("QUERY_SLOW_LOG_ENABLED"))
+	config.QuerySlowLogEnabled = runtime.NewDynamicValue(querySlowLogEnabled)
+
+	querySlowLogThreshold := dbhelpers.DefaultSlowLogThreshold
+	if v := os.Getenv("QUERY_SLOW_LOG_THRESHOLD"); v != "" {
+		threshold, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("parse QUERY_SLOW_LOG_THRESHOLD as time.Duration: %w", err)
+		}
+		querySlowLogThreshold = threshold
+	}
+	config.QuerySlowLogThreshold = runtime.NewDynamicValue(querySlowLogThreshold)
+
+	invertedSorterDisabled := false
+	if v := os.Getenv("INVERTED_SORTER_DISABLED"); v != "" {
+		invertedSorterDisabled = !(strings.ToLower(v) == "false")
+	}
+	config.InvertedSorterDisabled = runtime.NewDynamicValue(invertedSorterDisabled)
 
 	return nil
 }
@@ -813,6 +907,22 @@ func parseRAFTConfig(hostname string) (Raft, error) {
 	if err := parsePositiveInt(
 		"RAFT_ELECTION_TIMEOUT",
 		func(val int) { cfg.ElectionTimeout = time.Second * time.Duration(val) },
+		1, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveFloat(
+		"RAFT_LEADER_LEASE_TIMEOUT",
+		func(val float64) { cfg.LeaderLeaseTimeout = time.Second * time.Duration(val) },
+		0.5, // raft default
+	); err != nil {
+		return cfg, err
+	}
+
+	if err := parsePositiveInt(
+		"RAFT_TIMEOUTS_MULTIPLIER",
+		func(val int) { cfg.TimeoutsMultiplier = val },
 		1, // raft default
 	); err != nil {
 		return cfg, err

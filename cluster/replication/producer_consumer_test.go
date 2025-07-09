@@ -54,6 +54,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
 				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
+				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 					Return(api.REGISTERED, nil).
 					Times(1)
@@ -86,7 +89,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -104,6 +107,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 					Return(api.REGISTERED, nil).
@@ -141,7 +147,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -159,6 +165,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 					Return(api.REGISTERED, nil).
@@ -199,7 +208,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -217,6 +226,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.COPY,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 					Return(api.REGISTERED, nil)
@@ -268,7 +280,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -286,6 +298,9 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			transferType: api.MOVE,
 			setupMocksFunc: func(wg *sync.WaitGroup, mockFSMUpdater *types.MockFSMUpdater, mockReplicaCopier *types.MockReplicaCopier) {
 				wg.Add(1)
+				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
 				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 					Return(api.REGISTERED, nil).
@@ -319,7 +334,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 					// Simulate that the async replication is already done
 					Return(models.AsyncReplicationStatus{StartDiffTimeUnixMillis: time.Now().Add(time.Second * 200).UnixMilli(), ObjectsPropagated: 0}, nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+					ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 					Return(uint64(0), nil)
 				mockFSMUpdater.EXPECT().
 					SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -386,17 +401,17 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			// Setup the class + shard in the schema
 			// We only use the manager + fsm + schema to "kickstart" the producer/consumer read loop, all the subsequent
 			// operations are triggered by the producer/consumer themselves and we use the mocks to verify the state changes
-			schemaManager.AddClass(buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
-				Class: &models.Class{Class: "TestCollection", MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
+			schemaManager.AddClass(buildApplyRequest(replicateRequest.SourceCollection, api.ApplyRequest_TYPE_ADD_CLASS, api.AddClassRequest{
+				Class: &models.Class{Class: replicateRequest.SourceCollection, MultiTenancyConfig: &models.MultiTenancyConfig{Enabled: false}},
 				State: &sharding.State{
 					Physical: map[string]sharding.Physical{
-						"shard1": {BelongsToNodes: []string{replicateRequest.SourceNode}},
-						"shard2": {BelongsToNodes: []string{replicateRequest.TargetNode}},
+						replicateRequest.SourceShard: {BelongsToNodes: []string{replicateRequest.SourceNode}},
+						"shard2":                     {BelongsToNodes: []string{replicateRequest.TargetNode}},
 					},
 				},
 			}), "node1", true, false)
 			// Start a replicate operation
-			err := manager.Replicate(0, buildApplyRequest("TestCollection", api.ApplyRequest_TYPE_REPLICATION_REPLICATE, replicateRequest))
+			err := manager.Replicate(0, buildApplyRequest(replicateRequest.SourceCollection, api.ApplyRequest_TYPE_REPLICATION_REPLICATE, replicateRequest))
 			require.NoError(t, err)
 
 			targetOpsChan := make(chan replication.ShardReplicationOpAndStatus, 1)
@@ -420,6 +435,7 @@ func TestConsumerStateChangeOrder(t *testing.T) {
 			}()
 			select {
 			case <-time.After(30 * time.Second):
+				cancel()
 				t.Fatal("Test timed out waiting for operation completion")
 			case <-waitChan:
 				cancel()

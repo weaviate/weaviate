@@ -7,12 +7,19 @@
   "definitions": {
     "UserTypeInput": {
       "type": "string",
-      "enum": ["db", "oidc"],
+      "enum": [
+        "db",
+        "oidc"
+      ],
       "description": "the type of user"
     },
     "UserTypeOutput": {
       "type": "string",
-      "enum": ["db_user", "db_env_user", "oidc"],
+      "enum": [
+        "db_user",
+        "db_env_user",
+        "oidc"
+      ],
       "description": "the type of user"
     },
     "UserOwnInfo": {
@@ -56,7 +63,7 @@
           "type": "string",
           "description": "The user id of the given user"
         },
-        "dbUserType":{
+        "dbUserType": {
           "type": "string",
           "enum": [
             "db_user",
@@ -64,12 +71,15 @@
           ],
           "description": "type of the returned user"
         },
-        "active":{
+        "active": {
           "type": "boolean",
           "description": "activity status of the returned user"
         },
         "createdAt": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time",
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)"
         },
@@ -82,13 +92,20 @@
           "description": "First 3 letters of the associated API-key"
         },
         "lastUsedAt": {
-          "type": ["string", "null"],
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time",
           "description": "Date and time in ISO 8601 format (YYYY-MM-DDTHH:MM:SSZ)"
         }
       },
       "required": [
-        "userId", "dbUserType", "roles", "active"]
+        "userId",
+        "dbUserType",
+        "roles",
+        "active"
+      ]
     },
     "UserApiKey": {
       "type": "object",
@@ -98,7 +115,9 @@
           "description": "The apikey"
         }
       },
-      "required": ["apikey"]
+      "required": [
+        "apikey"
+      ]
     },
     "Role": {
       "type": "object",
@@ -1054,6 +1073,18 @@
             "MOVE"
           ]
         },
+        "uncancelable": {
+          "description": "Whether the replica operation is uncancelable.",
+          "type": "boolean"
+        },
+        "scheduledForCancel": {
+          "description": "Whether the replica operation is scheduled for cancellation.",
+          "type": "boolean"
+        },
+        "scheduledForDelete": {
+          "description": "Whether the replica operation is scheduled for deletion.",
+          "type": "boolean"
+        },
         "status": {
           "description": "An object detailing the current operational state of the replica movement and any errors encountered.",
           "type": "object",
@@ -1068,6 +1099,52 @@
         }
       },
       "required": ["id", "shardId", "sourceNodeId", "targetNodeId", "collection", "status", "transferType"]
+    },
+    "ReplicationReplicateForceDeleteRequest": {
+      "description": "Specifies the parameters available when force deleting replication operations.",
+      "properties": {
+        "id": {
+          "description": "The unique identifier (ID) of the replication operation to be forcefully deleted.",
+          "format": "uuid",
+          "type": "string"
+        },
+        "collection": {
+          "description": "The name of the collection to which the shard being replicated belongs.",
+          "type": "string"
+        },
+        "shard": {
+          "description": "The identifier of the shard involved in the replication operations.",
+          "type": "string"
+        },
+        "node": {
+          "description": "The name of the target node where the replication operations are registered.",
+          "type": "string"
+        },
+        "dryRun": {
+          "description": "If true, the operation will not actually delete anything but will return the expected outcome of the deletion.",
+          "type": "boolean",
+          "default": false
+        }
+      },
+      "type": "object"
+    },
+    "ReplicationReplicateForceDeleteResponse": {
+      "description": "Provides the UUIDs that were successfully force deleted as part of the replication operation. If dryRun is true, this will return the expected outcome without actually deleting anything.",
+      "properties": {
+        "deleted": {
+          "description": "The unique identifiers (IDs) of the replication operations that were forcefully deleted.",
+          "type": "array",
+          "items": {
+            "format": "uuid",
+            "type": "string"
+          }
+        },
+        "dryRun": {
+          "description": "Indicates whether the operation was a dry run (true) or an actual deletion (false).",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
     },
     "PeerUpdate": {
       "description": "A single peer in the network.",
@@ -1524,6 +1601,24 @@
           "minimum": 1,
           "maximum": 80,
           "x-nullable": false
+        },
+        "rolesOptions" : {
+          "description": "How roles should be restored",
+          "type": "string",
+          "enum": [
+            "noRestore",
+            "all"
+          ],
+          "default": "noRestore"
+        },
+        "usersOptions" : {
+          "description": "How users should be restored",
+          "type": "string",
+          "enum": [
+            "noRestore",
+            "all"
+          ],
+          "default": "noRestore"
         }
       }
     },
@@ -2820,7 +2915,7 @@
           ]
         }
       }
-    }    
+    }
   },
   "externalDocs": {
     "url": "https://github.com/weaviate/weaviate"
@@ -2833,7 +2928,7 @@
     },
     "description": "# Introduction\n Weaviate is an open source, AI-native vector database that helps developers create intuitive and reliable AI-powered applications. \n ### Base Path \nThe base path for the Weaviate server is structured as `[YOUR-WEAVIATE-HOST]:[PORT]/v1`. As an example, if you wish to access the `schema` endpoint on a local instance, you would navigate to `http://localhost:8080/v1/schema`. Ensure you replace `[YOUR-WEAVIATE-HOST]` and `[PORT]` with your actual server host and port number respectively. \n ### Questions? \nIf you have any comments or questions, please feel free to reach out to us at the community forum [https://forum.weaviate.io/](https://forum.weaviate.io/). \n### Issues? \nIf you find a bug or want to file a feature request, please open an issue on our GitHub repository for [Weaviate](https://github.com/weaviate/weaviate). \n### Want more documentation? \nFor a quickstart, code examples, concepts and more, please visit our [documentation page](https://weaviate.io/developers/weaviate).",
     "title": "Weaviate",
-    "version": "1.31.0-rc.0"
+    "version": "1.31.5"
   },
   "parameters": {
     "CommonAfterParameterQuery": {
@@ -3071,6 +3166,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       },
@@ -3086,6 +3187,69 @@
         "responses": {
           "204": {
             "description": "Replication operation registered successfully"
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "/replication/replicate/force-delete": {
+      "post": {
+        "summary": "Force delete replication operations",
+        "description": "USE AT OWN RISK! Synchronously force delete operations from the FSM. This will not perform any checks on which state the operation is in so may lead to data corruption or loss. It is recommended to first scale the number of replication engine workers to 0 before calling this endpoint to ensure no operations are in-flight.",
+        "operationId": "forceDeleteReplications",
+        "x-serviceIds": [
+          "weaviate.replication.forceDeleteReplications"
+        ],
+        "tags": [
+          "replication"
+        ],
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateForceDeleteRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication operations force deleted successfully.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateForceDeleteResponse"
+            }
           },
           "400": {
             "description": "Malformed request.",
@@ -3164,8 +3328,20 @@
           "404": {
             "description": "Shard replica operation not found."
           },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3208,8 +3384,26 @@
           "404": {
             "description": "Shard replica operation not found."
           },
+          "409": {
+            "description": "The operation is not in a deletable state, e.g. it is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3295,6 +3489,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -3336,8 +3536,26 @@
           "404": {
             "description": "Shard replica operation not found."
           },
+          "409": {
+            "description": "The operation is not in a cancellable state, e.g. it is READY or is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3405,6 +3623,12 @@
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         }
       }
@@ -3431,6 +3655,12 @@
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3562,6 +3792,26 @@
             "name": "user_id",
             "required": true,
             "type": "string"
+          },
+          {
+            "in": "body",
+            "name": "body",
+            "required": false,
+            "schema": {
+              "type": "object",
+              "properties": {
+                "import": {
+                  "type":"boolean",
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
+                  "default": false
+                },
+                "createTime": {
+                  "type":"string",
+                  "format": "date-time",
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time"
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -3582,6 +3832,12 @@
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3805,7 +4061,7 @@
               "type": "object",
               "properties": {
                 "revoke_key": {
-                  "type":"boolean",
+                  "type": "boolean",
                   "description": "if the key should be revoked when deactivating the user",
                   "default": false
                 }
@@ -4358,7 +4614,10 @@
                     "$ref": "#/definitions/UserTypeOutput"
                   }
                 },
-                "required": ["name", "userType"]
+                "required": [
+                  "name",
+                  "userType"
+                ]
               }
             }
           },
@@ -4472,7 +4731,10 @@
             "name": "userType",
             "required": true,
             "type": "string",
-            "enum": ["oidc", "db"],
+            "enum": [
+              "oidc",
+              "db"
+            ],
             "description": "The type of user"
           },
           {
@@ -4557,7 +4819,7 @@
                   }
                 },
                 "userType": {
-                   "$ref": "#/definitions/UserTypeInput"
+                  "$ref": "#/definitions/UserTypeInput"
                 }
               }
             }
@@ -7801,6 +8063,12 @@
             "name": "className",
             "in": "path",
             "required": true,
+            "type": "string"
+          },
+          {
+            "name": "shardName",
+            "in": "query",
+            "required": false,
             "type": "string"
           },
           {

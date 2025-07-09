@@ -394,7 +394,7 @@ func (t *Terms) FindFirstNonExhausted() (int, bool) {
 	return -1, false
 }
 
-func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool, minimumShouldMatch int) (uint64, float64, []*DocPointerWithScore, bool) {
+func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool, minimumOrTokensMatch int) (uint64, float64, []*DocPointerWithScore, bool) {
 	var docInfos []*DocPointerWithScore
 
 	pos, ok := t.FindFirstNonExhausted()
@@ -416,7 +416,7 @@ func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool
 
 	matchedTerms := 0
 
-	if len(t.T)-pos < minimumShouldMatch {
+	if len(t.T)-pos < minimumOrTokensMatch {
 		return 0, 0, docInfos, false
 	}
 
@@ -434,7 +434,7 @@ func (t *Terms) ScoreNext(averagePropLength float64, additionalExplanations bool
 		cumScore += score
 	}
 
-	if matchedTerms < minimumShouldMatch {
+	if matchedTerms < minimumOrTokensMatch {
 		// not enough terms matched, return 0
 		return 0, 0, docInfos, false
 	}

@@ -112,6 +112,27 @@ func GetObject(t *testing.T, class string, uuid strfmt.UUID, include ...string) 
 	return getResp.Payload, nil
 }
 
+func AssertCreateObjectTenantVector(t *testing.T, className string, schema map[string]interface{}, tenant string, vector []float32) strfmt.UUID {
+	t.Helper()
+	params := objects.NewObjectsCreateParams().WithBody(
+		&models.Object{
+			Class:      className,
+			Properties: schema,
+			Tenant:     tenant,
+			Vector:     vector,
+		})
+
+	resp, err := Client(t).Objects.ObjectsCreate(params, nil)
+
+	var objectID strfmt.UUID
+
+	AssertRequestOk(t, resp, err, func() {
+		objectID = resp.Payload.ID
+	})
+
+	return objectID
+}
+
 func TenantObject(t *testing.T, class string, id strfmt.UUID, tenant string) (*models.Object, error) {
 	req := objects.NewObjectsClassGetParams().
 		WithClassName(class).WithID(id).WithTenant(&tenant)

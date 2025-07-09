@@ -58,12 +58,13 @@ type LazyLoadShard struct {
 	mutex            sync.Mutex
 	memMonitor       memwatch.AllocChecker
 	shardLoadLimiter ShardLoadLimiter
+	lazyLoadSegments bool
 }
 
 func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMetrics,
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
-	shardLoadLimiter ShardLoadLimiter, shardReindexer ShardReindexerV3,
+	shardLoadLimiter ShardLoadLimiter, shardReindexer ShardReindexerV3, lazyLoadSegments bool,
 ) *LazyLoadShard {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -82,6 +83,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 		},
 		memMonitor:       memMonitor,
 		shardLoadLimiter: shardLoadLimiter,
+		lazyLoadSegments: lazyLoadSegments,
 	}
 }
 
@@ -125,7 +127,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
-		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer)
+		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.lazyLoadSegments)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
@@ -273,11 +275,11 @@ func (l *LazyLoadShard) UpdateVectorIndexConfigs(ctx context.Context, updated ma
 	return l.shard.UpdateVectorIndexConfigs(ctx, updated)
 }
 
-func (l *LazyLoadShard) UpdateAsyncReplicationConfig(ctx context.Context, enabled bool) error {
+func (l *LazyLoadShard) SetAsyncReplicationEnabled(ctx context.Context, enabled bool) error {
 	if err := l.Load(ctx); err != nil {
 		return err
 	}
-	return l.shard.UpdateAsyncReplicationConfig(ctx, enabled)
+	return l.shard.SetAsyncReplicationEnabled(ctx, enabled)
 }
 
 func (l *LazyLoadShard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
@@ -397,9 +399,9 @@ func (l *LazyLoadShard) DebugResetVectorIndex(ctx context.Context, targetVector 
 	return l.shard.DebugResetVectorIndex(ctx, targetVector)
 }
 
-func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, props ...*models.Property) {
+func (l *LazyLoadShard) initPropertyBuckets(ctx context.Context, eg *enterrors.ErrorGroupWrapper, lazyLoadSegments bool, props ...*models.Property) {
 	l.mustLoad()
-	l.shard.initPropertyBuckets(ctx, eg, props...)
+	l.shard.initPropertyBuckets(ctx, eg, lazyLoadSegments, props...)
 }
 
 func (l *LazyLoadShard) HaltForTransfer(ctx context.Context, offloading bool, inactivityTimeout time.Duration) error {
@@ -733,7 +735,7 @@ func (l *LazyLoadShard) isLoaded() bool {
 	return l.loaded
 }
 
-func (l *LazyLoadShard) Activity() int32 {
+func (l *LazyLoadShard) Activity() (int32, int32) {
 	var loaded bool
 	l.mutex.Lock()
 	loaded = l.loaded
@@ -742,7 +744,7 @@ func (l *LazyLoadShard) Activity() int32 {
 	if !loaded {
 		// don't force-load the shard, just report the same number every time, so
 		// the caller can figure out there was no activity
-		return 0
+		return 0, 0
 	}
 
 	return l.shard.Activity()

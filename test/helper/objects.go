@@ -88,12 +88,12 @@ func GetClass(t *testing.T, class string) *models.Class {
 	return resp.Payload
 }
 
-func GetSchemaAuth(t *testing.T, class string, authInfo runtime.ClientAuthInfoWriter) []*models.Class {
+func GetClassAuth(t *testing.T, class string, key string) *models.Class {
 	t.Helper()
-	params := schema.NewSchemaDumpParams()
-	resp, err := Client(t).Schema.SchemaDump(params, authInfo)
+	params := schema.NewSchemaObjectsGetParams().WithClassName(class)
+	resp, err := Client(t).Schema.SchemaObjectsGet(params, CreateAuth(key))
 	AssertRequestOk(t, resp, err, nil)
-	return resp.Payload.Classes
+	return resp.Payload
 }
 
 func GetClassWithoutAssert(t *testing.T, class string) (*models.Class, error) {

@@ -289,12 +289,11 @@ func (p *AggregateParser) Aggregate(req *pb.AggregateRequest) (*aggregation.Para
 				WithDistance:    withDistance,
 			}
 
-			if hs.MinimumShouldMatch != nil {
-				params.Hybrid.MinimumShouldMatch = int(*hs.MinimumShouldMatch)
-			}
-
-			if hs.SearchOperator != nil {
-				params.Hybrid.SearchOperator = hs.SearchOperator.String()
+			if hs.Bm25SearchOperator != nil {
+				if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
+					params.Hybrid.MinimumOrTokensMatch = int(*hs.Bm25SearchOperator.MinimumOrTokensMatch)
+				}
+				params.Hybrid.SearchOperator = hs.Bm25SearchOperator.Operator.String()
 			}
 
 			if nearVec != nil {

@@ -52,11 +52,11 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 		knownClasses[className] = vClass[className]
 
-		if err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 
-		if err := b.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 	}

@@ -108,7 +108,9 @@ func (st *Store) Apply(l *raft.Log) any {
 		// that means we're done doing schema only.
 		// we do this at the beginning to handle situation were schema was catching up
 		// and to make sure no matter is the error status we are going to open the db on startup
-		if l.Index != 0 && l.Index == st.lastAppliedIndexToDB.Load() {
+		// we reload the db only if we have a previous state and the db is not loaded
+		dbReloadRequired := st.lastAppliedIndexToDB.Load() != 0 && !st.dbLoaded.Load()
+		if dbReloadRequired && l.Index != 0 && l.Index >= st.lastAppliedIndexToDB.Load() {
 			st.log.WithFields(logrus.Fields{
 				"log_type":                     l.Type,
 				"log_name":                     l.Type.String(),
@@ -272,7 +274,10 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.dynUserManager.ActivateUser(&cmd)
 		}
-
+	case api.ApplyRequest_TYPE_CREATE_USER_WITH_KEY:
+		f = func() {
+			ret.Error = st.dynUserManager.CreateUserWithKeyRequest(&cmd)
+		}
 	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE:
 		f = func() {
 			ret.Error = st.replicationManager.Replicate(l.Index, &cmd)
@@ -317,6 +322,30 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.replicationManager.StoreSchemaVersion(&cmd)
 		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_ADD_REPLICA_TO_SHARD:
+		f = func() {
+			ret.Error = st.schemaManager.ReplicationAddReplicaToShard(&cmd, schemaOnly)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_ALL:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteAll(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByCollection(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_COLLECTION_AND_SHARD:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByCollectionAndShard(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_TARGET_NODE:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByTargetNode(&cmd)
+		}
+	case api.ApplyRequest_TYPE_REPLICATION_REPLICATE_FORCE_DELETE_BY_UUID:
+		f = func() {
+			ret.Error = st.replicationManager.ForceDeleteByUuid(&cmd)
+		}
 
 	case api.ApplyRequest_TYPE_DISTRIBUTED_TASK_ADD:
 		f = func() {
@@ -334,6 +363,7 @@ func (st *Store) Apply(l *raft.Log) any {
 		f = func() {
 			ret.Error = st.distributedTasksManager.CleanUpTask(&cmd)
 		}
+
 	default:
 		// This could occur when a new command has been introduced in a later app version
 		// At this point, we need to panic so that the app undergo an upgrade during restart

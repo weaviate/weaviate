@@ -42,11 +42,12 @@ func TestAuthzReplicationReplicate(t *testing.T) {
 
 	compose, err := docker.New().
 		WithWeaviateEnv("AUTOSCHEMA_ENABLED", "false").
+		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "true").
 		With3NodeCluster().
 		WithRBAC().
 		WithApiKey().
 		WithUserApiKey(adminUser, adminKey).
-		WithRbacAdmins(adminUser).
+		WithRbacRoots(adminUser).
 		WithUserApiKey(customUser, customKey).
 		Start(ctx)
 	require.Nil(t, err)

@@ -73,8 +73,8 @@ func testGenerativeGoogle(rest, grpc, gcpProject, generativeGoogle string) func(
 				absentModuleConfig: true,
 			},
 			{
-				name:            "gemini-1.0-pro-vision",
-				generativeModel: "gemini-1.0-pro-vision",
+				name:            "gemini-2.0-flash-001",
+				generativeModel: "gemini-2.0-flash-001",
 				withImages:      true,
 			},
 		}

@@ -43,6 +43,7 @@ type Config struct {
 	AcornFilterRatio          float64
 	DisableSnapshots          bool
 	SnapshotOnStartup         bool
+	LazyLoadSegments          bool
 
 	// metadata for monitoring
 	ShardName string

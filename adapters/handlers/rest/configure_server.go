@@ -126,6 +126,7 @@ func configureAuthorizer(appState *state.State) error {
 
 		appState.AuthzController = rbacController
 		appState.AuthzSnapshotter = rbacController
+		appState.RBAC = rbacController
 		appState.Authorizer = rbacController
 	} else if appState.ServerConfig.Config.Authorization.AdminList.Enabled {
 		appState.Authorizer = adminlist.New(appState.ServerConfig.Config.Authorization.AdminList)
@@ -133,7 +134,7 @@ func configureAuthorizer(appState *state.State) error {
 		appState.Authorizer = &authorization.DummyAuthorizer{}
 	}
 
-	if appState.ServerConfig.Config.Authorization.Rbac.Enabled && appState.AuthzController == nil {
+	if appState.ServerConfig.Config.Authorization.Rbac.Enabled && appState.RBAC == nil {
 		// this in general shall not happen, it's to catch cases were RBAC expected but we weren't able
 		// to assign it.
 		return fmt.Errorf("RBAC is expected to be enabled, but the controller wasn't initialized")

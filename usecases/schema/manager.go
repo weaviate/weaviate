@@ -405,8 +405,9 @@ func (m *Manager) activateTenantIfInactive(ctx context.Context, class string,
 	status map[string]string,
 ) (map[string]string, error) {
 	req := &api.UpdateTenantsRequest{
-		Tenants:      make([]*api.Tenant, 0, len(status)),
-		ClusterNodes: m.schemaManager.StorageCandidates(),
+		Tenants:               make([]*api.Tenant, 0, len(status)),
+		ClusterNodes:          m.schemaManager.StorageCandidates(),
+		ImplicitUpdateRequest: true,
 	}
 	for tenant, s := range status {
 		if s != models.TenantActivityStatusHOT {

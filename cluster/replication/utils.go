@@ -33,6 +33,6 @@ func logFieldsForStatus(state ShardReplicationOpStatus) logrus.Fields {
 	}
 }
 
-func getLoggerForOpAndStatus(logger *logrus.Logger, op ShardReplicationOp, state ShardReplicationOpStatus) *logrus.Entry {
+func getLoggerForOpAndStatus(logger *logrus.Entry, op ShardReplicationOp, state ShardReplicationOpStatus) *logrus.Entry {
 	return logger.WithFields(logFieldsForOp(op)).WithFields(logFieldsForStatus(state))
 }

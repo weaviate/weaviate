@@ -331,7 +331,7 @@ func (rii *RemoteIndexIncoming) PauseFileActivity(ctx context.Context,
 ) error {
 	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
-		return errors.Errorf("local index %q not found", indexName)
+		return fmt.Errorf("local index %q not found: %w", indexName, err)
 	}
 
 	return index.IncomingPauseFileActivity(ctx, shardName)
@@ -452,7 +452,7 @@ func (rii *RemoteIndexIncoming) AddAsyncReplicationTargetNode(
 ) error {
 	index, err := rii.indexForIncomingWrite(ctx, indexName, schemaVersion)
 	if err != nil {
-		return fmt.Errorf("local index %q not found", indexName)
+		return fmt.Errorf("local index %q not found: %w", indexName, err)
 	}
 
 	return index.IncomingAddAsyncReplicationTargetNode(ctx, shardName, targetNodeOverride)

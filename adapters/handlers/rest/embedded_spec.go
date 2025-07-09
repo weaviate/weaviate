@@ -48,7 +48,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.0-rc.0"
+    "version": "1.31.5"
   },
   "basePath": "/v1",
   "paths": {
@@ -2087,6 +2087,11 @@ func init() {
             "required": true
           },
           {
+            "type": "string",
+            "name": "shardName",
+            "in": "query"
+          },
+          {
             "$ref": "#/parameters/CommonOutputVerbosityParameterQuery"
           }
         ],
@@ -3500,6 +3505,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -3542,10 +3553,73 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
           "weaviate.replication.deleteAllReplications"
+        ]
+      }
+    },
+    "/replication/replicate/force-delete": {
+      "post": {
+        "description": "USE AT OWN RISK! Synchronously force delete operations from the FSM. This will not perform any checks on which state the operation is in so may lead to data corruption or loss. It is recommended to first scale the number of replication engine workers to 0 before calling this endpoint to ensure no operations are in-flight.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Force delete replication operations",
+        "operationId": "forceDeleteReplications",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateForceDeleteRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication operations force deleted successfully.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateForceDeleteResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.forceDeleteReplications"
         ]
       }
     },
@@ -3620,6 +3694,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -3670,8 +3750,20 @@ func init() {
           "404": {
             "description": "Shard replica operation not found."
           },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3714,8 +3806,26 @@ func init() {
           "404": {
             "description": "Shard replica operation not found."
           },
+          "409": {
+            "description": "The operation is not in a deletable state, e.g. it is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3760,8 +3870,26 @@ func init() {
           "404": {
             "description": "Shard replica operation not found."
           },
+          "409": {
+            "description": "The operation is not in a cancellable state, e.g. it is READY or is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3824,6 +3952,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4770,6 +4904,25 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "createTime": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time",
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "import": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -4790,6 +4943,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5082,6 +5241,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -7250,6 +7415,14 @@ func init() {
           "type": "string",
           "format": "uuid"
         },
+        "scheduledForCancel": {
+          "description": "Whether the replica operation is scheduled for cancellation.",
+          "type": "boolean"
+        },
+        "scheduledForDelete": {
+          "description": "Whether the replica operation is scheduled for deletion.",
+          "type": "boolean"
+        },
         "shardId": {
           "description": "The identifier of the shard involved in this replication operation.",
           "type": "string"
@@ -7281,6 +7454,10 @@ func init() {
             "COPY",
             "MOVE"
           ]
+        },
+        "uncancelable": {
+          "description": "Whether the replica operation is uncancelable.",
+          "type": "boolean"
         }
       }
     },
@@ -7306,6 +7483,52 @@ func init() {
             "READY",
             "CANCELLED"
           ]
+        }
+      }
+    },
+    "ReplicationReplicateForceDeleteRequest": {
+      "description": "Specifies the parameters available when force deleting replication operations.",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "The name of the collection to which the shard being replicated belongs.",
+          "type": "string"
+        },
+        "dryRun": {
+          "description": "If true, the operation will not actually delete anything but will return the expected outcome of the deletion.",
+          "type": "boolean",
+          "default": false
+        },
+        "id": {
+          "description": "The unique identifier (ID) of the replication operation to be forcefully deleted.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "node": {
+          "description": "The name of the target node where the replication operations are registered.",
+          "type": "string"
+        },
+        "shard": {
+          "description": "The identifier of the shard involved in the replication operations.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateForceDeleteResponse": {
+      "description": "Provides the UUIDs that were successfully force deleted as part of the replication operation. If dryRun is true, this will return the expected outcome without actually deleting anything.",
+      "type": "object",
+      "properties": {
+        "deleted": {
+          "description": "The unique identifiers (IDs) of the replication operations that were forcefully deleted.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "dryRun": {
+          "description": "Indicates whether the operation was a dry run (true) or an actual deletion (false).",
+          "type": "boolean"
         }
       }
     },
@@ -7424,6 +7647,24 @@ func init() {
         "Path": {
           "description": "Path within the bucket",
           "type": "string"
+        },
+        "rolesOptions": {
+          "description": "How roles should be restored",
+          "type": "string",
+          "default": "noRestore",
+          "enum": [
+            "noRestore",
+            "all"
+          ]
+        },
+        "usersOptions": {
+          "description": "How users should be restored",
+          "type": "string",
+          "default": "noRestore",
+          "enum": [
+            "noRestore",
+            "all"
+          ]
         }
       }
     },
@@ -8087,7 +8328,7 @@ func init() {
       "url": "https://github.com/weaviate",
       "email": "hello@weaviate.io"
     },
-    "version": "1.31.0-rc.0"
+    "version": "1.31.5"
   },
   "basePath": "/v1",
   "paths": {
@@ -10131,6 +10372,11 @@ func init() {
           },
           {
             "type": "string",
+            "name": "shardName",
+            "in": "query"
+          },
+          {
+            "type": "string",
             "default": "minimal",
             "description": "Controls the verbosity of the output, possible values are: \"minimal\", \"verbose\". Defaults to \"minimal\".",
             "name": "output",
@@ -11649,6 +11895,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -11691,10 +11943,73 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
           "weaviate.replication.deleteAllReplications"
+        ]
+      }
+    },
+    "/replication/replicate/force-delete": {
+      "post": {
+        "description": "USE AT OWN RISK! Synchronously force delete operations from the FSM. This will not perform any checks on which state the operation is in so may lead to data corruption or loss. It is recommended to first scale the number of replication engine workers to 0 before calling this endpoint to ensure no operations are in-flight.",
+        "tags": [
+          "replication"
+        ],
+        "summary": "Force delete replication operations",
+        "operationId": "forceDeleteReplications",
+        "parameters": [
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateForceDeleteRequest"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Replication operations force deleted successfully.",
+            "schema": {
+              "$ref": "#/definitions/ReplicationReplicateForceDeleteResponse"
+            }
+          },
+          "400": {
+            "description": "Malformed request.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "401": {
+            "description": "Unauthorized or invalid credentials."
+          },
+          "403": {
+            "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "500": {
+            "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          }
+        },
+        "x-serviceIds": [
+          "weaviate.replication.forceDeleteReplications"
         ]
       }
     },
@@ -11769,6 +12084,12 @@ func init() {
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
           }
         },
         "x-serviceIds": [
@@ -11819,8 +12140,20 @@ func init() {
           "404": {
             "description": "Shard replica operation not found."
           },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11863,8 +12196,26 @@ func init() {
           "404": {
             "description": "Shard replica operation not found."
           },
+          "409": {
+            "description": "The operation is not in a deletable state, e.g. it is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11909,8 +12260,26 @@ func init() {
           "404": {
             "description": "Shard replica operation not found."
           },
+          "409": {
+            "description": "The operation is not in a cancellable state, e.g. it is READY or is a MOVE op in the DEHYDRATING state.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "422": {
+            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -11973,6 +12342,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -12919,6 +13294,25 @@ func init() {
             "name": "user_id",
             "in": "path",
             "required": true
+          },
+          {
+            "name": "body",
+            "in": "body",
+            "schema": {
+              "type": "object",
+              "properties": {
+                "createTime": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - set the given time as creation time",
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "import": {
+                  "description": "EXPERIMENTAL, DONT USE. THIS WILL BE REMOVED AGAIN. - import api key from static user",
+                  "type": "boolean",
+                  "default": false
+                }
+              }
+            }
           }
         ],
         "responses": {
@@ -12939,6 +13333,12 @@ func init() {
           },
           "403": {
             "description": "Forbidden",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "404": {
+            "description": "user not found",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -13231,6 +13631,12 @@ func init() {
           },
           "500": {
             "description": "An error has occurred while trying to fulfill the request. Most likely the ErrorResponse will contain more information about the error.",
+            "schema": {
+              "$ref": "#/definitions/ErrorResponse"
+            }
+          },
+          "501": {
+            "description": "Replica movement operations are disabled.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -15718,6 +16124,14 @@ func init() {
           "type": "string",
           "format": "uuid"
         },
+        "scheduledForCancel": {
+          "description": "Whether the replica operation is scheduled for cancellation.",
+          "type": "boolean"
+        },
+        "scheduledForDelete": {
+          "description": "Whether the replica operation is scheduled for deletion.",
+          "type": "boolean"
+        },
         "shardId": {
           "description": "The identifier of the shard involved in this replication operation.",
           "type": "string"
@@ -15749,6 +16163,10 @@ func init() {
             "COPY",
             "MOVE"
           ]
+        },
+        "uncancelable": {
+          "description": "Whether the replica operation is uncancelable.",
+          "type": "boolean"
         }
       }
     },
@@ -15774,6 +16192,52 @@ func init() {
             "READY",
             "CANCELLED"
           ]
+        }
+      }
+    },
+    "ReplicationReplicateForceDeleteRequest": {
+      "description": "Specifies the parameters available when force deleting replication operations.",
+      "type": "object",
+      "properties": {
+        "collection": {
+          "description": "The name of the collection to which the shard being replicated belongs.",
+          "type": "string"
+        },
+        "dryRun": {
+          "description": "If true, the operation will not actually delete anything but will return the expected outcome of the deletion.",
+          "type": "boolean",
+          "default": false
+        },
+        "id": {
+          "description": "The unique identifier (ID) of the replication operation to be forcefully deleted.",
+          "type": "string",
+          "format": "uuid"
+        },
+        "node": {
+          "description": "The name of the target node where the replication operations are registered.",
+          "type": "string"
+        },
+        "shard": {
+          "description": "The identifier of the shard involved in the replication operations.",
+          "type": "string"
+        }
+      }
+    },
+    "ReplicationReplicateForceDeleteResponse": {
+      "description": "Provides the UUIDs that were successfully force deleted as part of the replication operation. If dryRun is true, this will return the expected outcome without actually deleting anything.",
+      "type": "object",
+      "properties": {
+        "deleted": {
+          "description": "The unique identifiers (IDs) of the replication operations that were forcefully deleted.",
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "dryRun": {
+          "description": "Indicates whether the operation was a dry run (true) or an actual deletion (false).",
+          "type": "boolean"
         }
       }
     },
@@ -15892,6 +16356,24 @@ func init() {
         "Path": {
           "description": "Path within the bucket",
           "type": "string"
+        },
+        "rolesOptions": {
+          "description": "How roles should be restored",
+          "type": "string",
+          "default": "noRestore",
+          "enum": [
+            "noRestore",
+            "all"
+          ]
+        },
+        "usersOptions": {
+          "description": "How users should be restored",
+          "type": "string",
+          "default": "noRestore",
+          "enum": [
+            "noRestore",
+            "all"
+          ]
         }
       }
     },

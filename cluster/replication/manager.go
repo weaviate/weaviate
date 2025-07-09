@@ -300,15 +300,18 @@ func (m *Manager) QueryShardingStateByCollectionAndShard(c *cmd.QueryRequest) ([
 
 func makeReplicationDetailsResponse(op *ShardReplicationOp, status *ShardReplicationOpStatus) cmd.ReplicationDetailsResponse {
 	return cmd.ReplicationDetailsResponse{
-		Uuid:          op.UUID,
-		Id:            op.ID,
-		ShardId:       op.SourceShard.ShardId,
-		Collection:    op.SourceShard.CollectionId,
-		SourceNodeId:  op.SourceShard.NodeId,
-		TargetNodeId:  op.TargetShard.NodeId,
-		TransferType:  op.TransferType.String(),
-		Status:        status.GetCurrent().ToAPIFormat(),
-		StatusHistory: status.GetHistory().ToAPIFormat(),
+		Uuid:               op.UUID,
+		Id:                 op.ID,
+		ShardId:            op.SourceShard.ShardId,
+		Collection:         op.SourceShard.CollectionId,
+		SourceNodeId:       op.SourceShard.NodeId,
+		TargetNodeId:       op.TargetShard.NodeId,
+		TransferType:       op.TransferType.String(),
+		Uncancelable:       status.UnCancellable,
+		ScheduledForCancel: status.ShouldCancel,
+		ScheduledForDelete: status.ShouldDelete,
+		Status:             status.GetCurrent().ToAPIFormat(),
+		StatusHistory:      status.GetHistory().ToAPIFormat(),
 	}
 }
 
@@ -380,4 +383,49 @@ func (m *Manager) DeleteReplicationsByTenants(c *cmd.ApplyRequest) error {
 
 	// Trigger deletion of all replication operations for the specified class in the FSM
 	return m.replicationFSM.DeleteReplicationsByTenants(req.Collection, req.Tenants)
+}
+
+func (m *Manager) ForceDeleteAll(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationForceDeleteAllRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.replicationFSM.ForceDeleteAll()
+}
+
+func (m *Manager) ForceDeleteByCollection(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationForceDeleteByCollectionRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.replicationFSM.ForceDeleteByCollection(req.Collection)
+}
+
+func (m *Manager) ForceDeleteByCollectionAndShard(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationForceDeleteByCollectionAndShardRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.replicationFSM.ForceDeleteByCollectionAndShard(req.Collection, req.Shard)
+}
+
+func (m *Manager) ForceDeleteByTargetNode(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationForceDeleteByTargetNodeRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.replicationFSM.ForceDeleteByTargetNode(req.Node)
+}
+
+func (m *Manager) ForceDeleteByUuid(c *cmd.ApplyRequest) error {
+	req := &cmd.ReplicationForceDeleteByUuidRequest{}
+	if err := json.Unmarshal(c.SubCommand, req); err != nil {
+		return fmt.Errorf("%w: %w", ErrBadRequest, err)
+	}
+
+	return m.replicationFSM.ForceDeleteByUuid(req.Uuid)
 }

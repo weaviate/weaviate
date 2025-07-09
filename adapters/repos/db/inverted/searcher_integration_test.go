@@ -120,7 +120,7 @@ func TestObjects(t *testing.T) {
 					},
 				}}
 				objs, err := searcher.Objects(context.Background(), numObjects,
-					filter, nil, additional.Properties{}, className, []string{propName})
+					filter, nil, additional.Properties{}, className, []string{propName}, nil)
 				assert.Nil(t, err)
 				assert.Len(t, objs, numObjects-multiplier)
 			}
@@ -140,7 +140,7 @@ func TestObjects(t *testing.T) {
 					},
 				}}
 				objs, err := searcher.Objects(context.Background(), numObjects,
-					filter, nil, additional.Properties{}, className, []string{propName})
+					filter, nil, additional.Properties{}, className, []string{propName}, nil)
 				assert.Nil(t, err)
 				assert.Len(t, objs, multiplier)
 			}

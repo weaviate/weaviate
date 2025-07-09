@@ -26,10 +26,6 @@ func bm25Fields(prefix string) graphql.InputObjectConfigFieldMap {
 			Description: "The properties to search in",
 			Type:        graphql.NewList(graphql.String),
 		},
-		"minimumShouldMatch": &graphql.InputObjectFieldConfig{
-			Description: "Minimum number of term matches required",
-			Type:        graphql.Int,
-		},
 		"searchOperator": common_filters.GenerateBM25SearchOperatorFields(prefix),
 	}
 }

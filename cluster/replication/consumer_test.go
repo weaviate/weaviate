@@ -59,6 +59,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		require.NoError(t, err, "error generating random operation id")
 
 		mockFSMUpdater.EXPECT().
+			WaitForUpdate(mock.Anything, mock.Anything).
+			Return(nil)
+		mockFSMUpdater.EXPECT().
 			ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 			Return(api.REGISTERED, nil).
 			Times(1)
@@ -72,7 +75,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 			ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(opId), api.READY).
 			Return(nil)
 		mockFSMUpdater.EXPECT().
-			AddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2").
+			ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(opId)).
 			Return(uint64(0), nil)
 		mockFSMUpdater.EXPECT().
 			SyncShard(mock.Anything, "TestCollection", "shard1", "node1").
@@ -365,6 +368,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 		for i := 0; i < randomNumberOfOps; i++ {
 			opId := uint64(randomStartOpId + i)
 			mockFSMUpdater.EXPECT().
+				WaitForUpdate(mock.Anything, mock.Anything).
+				Return(nil)
+			mockFSMUpdater.EXPECT().
 				ReplicationGetReplicaOpStatus(mock.Anything, uint64(opId)).
 				Return(api.REGISTERED, nil).
 				Times(1)
@@ -384,7 +390,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 				Return(nil)
 			mockFSMUpdater.EXPECT().
-				AddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).
+				ReplicationAddReplicaToShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything, uint64(opId)).
 				Return(uint64(i), nil)
 			mockReplicaCopier.EXPECT().
 				AsyncReplicationStatus(mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything).
@@ -676,6 +682,9 @@ func TestConsumerWithCallbacks(t *testing.T) {
 				expectedStarted++
 				expectedCompleted++
 				mockFSMUpdater.EXPECT().
+					WaitForUpdate(mock.Anything, mock.Anything).
+					Return(nil)
+				mockFSMUpdater.EXPECT().
 					ReplicationGetReplicaOpStatus(mock.Anything, uint64(opID)).
 					Return(api.REGISTERED, nil).
 					Times(1)
@@ -695,7 +704,7 @@ func TestConsumerWithCallbacks(t *testing.T) {
 					LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
 					Return(nil)
 				mockFSMUpdater.EXPECT().
-					AddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, mock.Anything).
+					ReplicationAddReplicaToShard(mock.Anything, "TestCollection", mock.Anything, mock.Anything, uint64(opID)).
 					Return(uint64(i), nil)
 				mockReplicaCopier.EXPECT().
 					AsyncReplicationStatus(mock.Anything, "node1", mock.Anything, "TestCollection", mock.Anything).
@@ -1155,6 +1164,9 @@ func TestConsumerOpDuplication(t *testing.T) {
 	}()
 
 	mockFSMUpdater.EXPECT().
+		WaitForUpdate(mock.Anything, mock.Anything).
+		Return(nil)
+	mockFSMUpdater.EXPECT().
 		ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).
 		Return(api.FINALIZING, nil)
 	mockFSMUpdater.EXPECT().
@@ -1164,7 +1176,7 @@ func TestConsumerOpDuplication(t *testing.T) {
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
 		Return(nil)
 	mockFSMUpdater.EXPECT().
-		AddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2").
+		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
 		Return(uint64(1), nil)
 	mockReplicaCopier.EXPECT().
 		LoadLocalShard(mock.Anything, mock.Anything, mock.Anything).
@@ -1301,6 +1313,9 @@ func TestConsumerOpSkip(t *testing.T) {
 	}()
 
 	mockFSMUpdater.EXPECT().
+		WaitForUpdate(mock.Anything, mock.Anything).
+		Return(nil)
+	mockFSMUpdater.EXPECT().
 		ReplicationGetReplicaOpStatus(mock.Anything, uint64(1)).
 		Return(api.FINALIZING, nil)
 	mockFSMUpdater.EXPECT().
@@ -1313,7 +1328,7 @@ func TestConsumerOpSkip(t *testing.T) {
 		ReplicationUpdateReplicaOpStatus(mock.Anything, uint64(1), api.READY).
 		Return(nil)
 	mockFSMUpdater.EXPECT().
-		AddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2").
+		ReplicationAddReplicaToShard(mock.Anything, "TestCollection", "shard1", "node2", uint64(1)).
 		Return(uint64(1), nil)
 	mockReplicaCopier.EXPECT().
 		AsyncReplicationStatus(mock.Anything, "node1", "node2", "TestCollection", "shard1").
@@ -1335,7 +1350,6 @@ func TestConsumerOpSkip(t *testing.T) {
 		RevertAsyncReplicationLocally(mock.Anything, "TestCollection", "shard1").Return(nil)
 	mockFSMUpdater.EXPECT().
 		SyncShard(mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(uint64(1), nil)
-
 	op := replication.NewShardReplicationOp(1, "node1", "node2", "TestCollection", "shard1", api.COPY)
 	status := replication.NewShardReplicationStatus(api.FINALIZING)
 

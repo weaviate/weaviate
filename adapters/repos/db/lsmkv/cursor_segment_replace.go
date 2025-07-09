@@ -106,12 +106,12 @@ func (sg *SegmentGroup) newCursorsWithFlushingSupport() ([]innerCursorReplace, f
 
 	sg.maintenanceLock.RLock()
 
-	var segments []*segment
+	var segments []Segment
 
 	if len(sg.enqueuedSegments) == 0 {
 		segments = sg.segments
 	} else {
-		segments = make([]*segment, 0, len(sg.segments)+len(sg.enqueuedSegments))
+		segments = make([]Segment, 0, len(sg.segments)+len(sg.enqueuedSegments))
 		segments = append(segments, sg.segments...)
 		segments = append(segments, sg.enqueuedSegments...)
 	}
@@ -147,7 +147,7 @@ func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorRepl
 	out := make([]innerCursorReplace, 0, len(segments))
 
 	for _, segment := range segments {
-		if int(segment.secondaryIndexCount) <= pos {
+		if int(segment.getSecondaryIndexCount()) <= pos {
 			continue
 		}
 		out = append(out, segment.newCursorWithSecondaryIndex(pos))
@@ -246,7 +246,7 @@ func (s *segmentCursorReplace) firstWithAllKeys() (n segmentReplaceNode, err err
 }
 
 func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentReplaceNode, error) {
-	r, err := s.segment.newNodeReader(offset)
+	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
 	if err != nil {
 		return segmentReplaceNode{}, err
 	}
@@ -258,11 +258,11 @@ func (s *segmentCursorReplace) parseReplaceNode(offset nodeOffset) (segmentRepla
 }
 
 func (s *segmentCursorReplace) parseReplaceNodeInto(offset nodeOffset, buf []byte) error {
-	if s.segment.mmapContents {
+	if s.segment.readFromMemory {
 		return s.parse(buf)
 	}
 
-	r, err := s.segment.newNodeReader(offset)
+	r, err := s.segment.newNodeReader(offset, "segmentCursorReplace")
 	if err != nil {
 		return err
 	}

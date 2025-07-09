@@ -105,12 +105,12 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 
 	if bm25 := req.Bm25Search; bm25 != nil {
 		out.KeywordRanking = &searchparams.KeywordRanking{Query: bm25.Query, Properties: schema.LowercaseFirstLetterOfStrings(bm25.Properties), Type: "bm25", AdditionalExplanations: out.AdditionalProperties.ExplainScore}
-		if bm25.SearchOperator != nil {
-			out.KeywordRanking.SearchOperator = bm25.SearchOperator.String()
-		}
 
-		if bm25.MinimumShouldMatch != nil {
-			out.KeywordRanking.MinimumShouldMatch = int(*bm25.MinimumShouldMatch)
+		if bm25.SearchOperator != nil {
+			if bm25.SearchOperator.MinimumOrTokensMatch != nil {
+				out.KeywordRanking.MinimumOrTokensMatch = int(*bm25.SearchOperator.MinimumOrTokensMatch)
+			}
+			out.KeywordRanking.SearchOperator = bm25.SearchOperator.Operator.String()
 		}
 	}
 
@@ -297,12 +297,11 @@ func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetPa
 			WithDistance:    withDistance,
 		}
 
-		if hs.MinimumShouldMatch != nil {
-			out.HybridSearch.MinimumShouldMatch = int(*hs.MinimumShouldMatch)
-		}
-
-		if hs.SearchOperator != nil {
-			out.HybridSearch.SearchOperator = hs.SearchOperator.String()
+		if hs.Bm25SearchOperator != nil {
+			if hs.Bm25SearchOperator.MinimumOrTokensMatch != nil {
+				out.HybridSearch.MinimumOrTokensMatch = int(*hs.Bm25SearchOperator.MinimumOrTokensMatch)
+			}
+			out.HybridSearch.SearchOperator = hs.Bm25SearchOperator.Operator.String()
 		}
 
 		if nearVec != nil {

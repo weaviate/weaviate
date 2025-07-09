@@ -41,7 +41,7 @@ const (
 )
 
 type nodesStatusGetter interface {
-	LocalNodeStatus(ctx context.Context, className, output string) *models.NodeStatus
+	LocalNodeStatus(ctx context.Context, className, shardName, output string) *models.NodeStatus
 }
 
 type schemaManager interface {
@@ -249,7 +249,7 @@ func (tel *Telemeter) determineModule(name string, cfg interface{}) string {
 }
 
 func (tel *Telemeter) getObjectCount(ctx context.Context) (int64, error) {
-	status := tel.nodesStatusGetter.LocalNodeStatus(ctx, "", verbosity.OutputVerbose)
+	status := tel.nodesStatusGetter.LocalNodeStatus(ctx, "", "", verbosity.OutputVerbose)
 	if status == nil || status.Stats == nil {
 		return 0, fmt.Errorf("received nil node stats")
 	}

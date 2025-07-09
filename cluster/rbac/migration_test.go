@@ -339,6 +339,10 @@ func TestMigrateRevokeRoles(t *testing.T) {
 }
 
 func TestMigrateAssignRoles(t *testing.T) {
+	oidc := config.OIDC{
+		Enabled: true,
+	}
+
 	tests := []struct {
 		name           string
 		input          *cmd.AddRolesForUsersRequest
@@ -349,7 +353,7 @@ func TestMigrateAssignRoles(t *testing.T) {
 			name:           "current request",
 			input:          &cmd.AddRolesForUsersRequest{Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1},
 			expectedOutput: []*cmd.AddRolesForUsersRequest{{Version: cmd.RBACAssignRevokeCommandPolicyVersionV0 + 1}},
-			authNconfig:    config.Authentication{OIDC: config.OIDC{Enabled: true}},
+			authNconfig:    config.Authentication{OIDC: oidc},
 		},
 		{
 			name: "Request to update with OIDC+apikey enabled",
@@ -370,7 +374,7 @@ func TestMigrateAssignRoles(t *testing.T) {
 					User:    "oidc:some-user",
 				},
 			},
-			authNconfig: config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"some-user"}}},
+			authNconfig: config.Authentication{OIDC: oidc, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"some-user"}}},
 		},
 		{
 			name: "only oidc",
@@ -386,7 +390,7 @@ func TestMigrateAssignRoles(t *testing.T) {
 					User:    "oidc:some-user",
 				},
 			},
-			authNconfig: config.Authentication{OIDC: config.OIDC{Enabled: true}},
+			authNconfig: config.Authentication{OIDC: oidc},
 		},
 		{
 			name: "Request to update with OIDC+apikey enabled, but missing user",
@@ -402,7 +406,7 @@ func TestMigrateAssignRoles(t *testing.T) {
 					User:    "oidc:some-user",
 				},
 			},
-			authNconfig: config.Authentication{OIDC: config.OIDC{Enabled: true}, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"wrong-user"}}},
+			authNconfig: config.Authentication{OIDC: oidc, APIKey: config.StaticAPIKey{Enabled: true, Users: []string{"wrong-user"}}},
 		},
 		{
 			name: "Only apikey enabled",

@@ -273,3 +273,48 @@ func (o *ReplicateInternalServerError) WriteResponse(rw http.ResponseWriter, pro
 		}
 	}
 }
+
+// ReplicateNotImplementedCode is the HTTP code returned for type ReplicateNotImplemented
+const ReplicateNotImplementedCode int = 501
+
+/*
+ReplicateNotImplemented Replica movement operations are disabled.
+
+swagger:response replicateNotImplemented
+*/
+type ReplicateNotImplemented struct {
+
+	/*
+	  In: Body
+	*/
+	Payload *models.ErrorResponse `json:"body,omitempty"`
+}
+
+// NewReplicateNotImplemented creates ReplicateNotImplemented with default headers values
+func NewReplicateNotImplemented() *ReplicateNotImplemented {
+
+	return &ReplicateNotImplemented{}
+}
+
+// WithPayload adds the payload to the replicate not implemented response
+func (o *ReplicateNotImplemented) WithPayload(payload *models.ErrorResponse) *ReplicateNotImplemented {
+	o.Payload = payload
+	return o
+}
+
+// SetPayload sets the payload to the replicate not implemented response
+func (o *ReplicateNotImplemented) SetPayload(payload *models.ErrorResponse) {
+	o.Payload = payload
+}
+
+// WriteResponse to the client
+func (o *ReplicateNotImplemented) WriteResponse(rw http.ResponseWriter, producer runtime.Producer) {
+
+	rw.WriteHeader(501)
+	if o.Payload != nil {
+		payload := o.Payload
+		if err := producer.Produce(rw, payload); err != nil {
+			panic(err) // let the recovery middleware deal with this
+		}
+	}
+}

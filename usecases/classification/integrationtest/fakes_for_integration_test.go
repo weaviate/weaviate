@@ -541,7 +541,7 @@ func (f *fakeNodeResolver) NodeHostname(string) (string, bool) {
 
 type fakeRemoteNodeClient struct{}
 
-func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, output string) (*models.NodeStatus, error) {
+func (f *fakeRemoteNodeClient) GetNodeStatus(ctx context.Context, hostName, className, shardName, output string) (*models.NodeStatus, error) {
 	return &models.NodeStatus{}, nil
 }
 
@@ -606,13 +606,13 @@ func (c *fakeReplicationClient) Exists(ctx context.Context, host, index,
 func (f *fakeReplicationClient) FetchObject(_ context.Context, host, index,
 	shard string, id strfmt.UUID, props search.SelectProperties,
 	additional additional.Properties, numRetries int,
-) (objects.Replica, error) {
-	return objects.Replica{}, nil
+) (replica.Replica, error) {
+	return replica.Replica{}, nil
 }
 
 func (c *fakeReplicationClient) FetchObjects(ctx context.Context, host,
 	index, shard string, ids []strfmt.UUID,
-) ([]objects.Replica, error) {
+) ([]replica.Replica, error) {
 	return nil, nil
 }
 

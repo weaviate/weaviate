@@ -36,7 +36,7 @@ func NewHandler(authorizer authorization.Authorizer, taskLister distributedtask.
 }
 
 func (h *Handler) ListTasks(ctx context.Context, principal *models.Principal) (models.DistributedTasks, error) {
-	if err := h.authorizer.Authorize(principal, authorization.READ, authorization.Cluster()); err != nil {
+	if err := h.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Cluster()); err != nil {
 		return nil, err
 	}
 

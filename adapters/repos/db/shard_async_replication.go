@@ -96,6 +96,7 @@ type asyncReplicationConfig struct {
 	propagationConcurrency      int
 	propagationBatchSize        int
 	targetNodeOverrides         []additional.AsyncReplicationTargetNodeOverride
+	maintenanceModeEnabled      func() bool
 }
 
 func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err error) {
@@ -183,6 +184,8 @@ func (s *Shard) getAsyncReplicationConfig() (config asyncReplicationConfig, err 
 	if err != nil {
 		return asyncReplicationConfig{}, fmt.Errorf("%s: %w", "ASYNC_REPLICATION_PROPAGATION_BATCH_SIZE", err)
 	}
+
+	config.maintenanceModeEnabled = s.index.Config.MaintenanceModeEnabled
 
 	return
 }
@@ -321,10 +324,13 @@ func (s *Shard) initAsyncReplication() error {
 		return err
 	}
 
+	s.hashtreeFullyInitialized = false
+	s.minimalHashtreeInitializationCh = make(chan struct{})
+
 	// sync hashtree with current object states
 
 	enterrors.GoWrapper(func() {
-		err := s.store.PauseCompaction(ctx)
+		err := s.HaltForTransfer(ctx, false, 0)
 		if err != nil {
 			s.index.logger.
 				WithField("action", "async_replication").
@@ -333,12 +339,21 @@ func (s *Shard) initAsyncReplication() error {
 				Errorf("pausing compaction during hashtree initialization: %v", err)
 			return
 		}
-		defer s.store.ResumeCompaction(ctx)
+		defer s.resumeMaintenanceCycles(ctx)
 
 		objCount := 0
 		prevProgressLogging := time.Now()
 
-		err = bucket.ApplyToObjectDigests(ctx, func(object *storobj.Object) error {
+		beforeOnDiskCallback := func(_ context.Context) error {
+			s.asyncReplicationRWMux.RLock()
+			defer s.asyncReplicationRWMux.RUnlock()
+
+			close(s.minimalHashtreeInitializationCh)
+
+			return nil
+		}
+
+		err = bucket.ApplyToObjectDigests(ctx, beforeOnDiskCallback, func(object *storobj.Object) error {
 			if time.Since(prevProgressLogging) >= config.loggingFrequency {
 				s.index.logger.
 					WithField("action", "async_replication").
@@ -421,6 +436,19 @@ func (s *Shard) initAsyncReplication() error {
 	return nil
 }
 
+func (s *Shard) waitForMinimalHashTreeInitialization(ctx context.Context) error {
+	if s.hashtree == nil || s.hashtreeFullyInitialized {
+		return nil
+	}
+
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-s.minimalHashtreeInitializationCh:
+		return nil
+	}
+}
+
 func (s *Shard) mayStopAsyncReplication() {
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
@@ -447,7 +475,7 @@ func (s *Shard) mayStopAsyncReplication() {
 	s.hashtreeFullyInitialized = false
 }
 
-func (s *Shard) UpdateAsyncReplicationConfig(_ context.Context, enabled bool) error {
+func (s *Shard) SetAsyncReplicationEnabled(_ context.Context, enabled bool) error {
 	s.asyncReplicationRWMux.Lock()
 	defer s.asyncReplicationRWMux.Unlock()
 
@@ -474,7 +502,7 @@ func (s *Shard) UpdateAsyncReplicationConfig(_ context.Context, enabled bool) er
 func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
 	func() {
 		s.asyncReplicationRWMux.Lock()
-		// unlock before calling UpdateAsyncReplicationConfig because it will lock again
+		// unlock before calling SetAsyncReplicationEnabled because it will lock again
 		defer s.asyncReplicationRWMux.Unlock()
 
 		for i, existing := range s.asyncReplicationConfig.targetNodeOverrides {
@@ -497,14 +525,14 @@ func (s *Shard) addTargetNodeOverride(ctx context.Context, targetNodeOverride ad
 	}()
 	// we call update async replication config here to ensure that async replication starts
 	// if it's not already running
-	return s.UpdateAsyncReplicationConfig(ctx, true)
+	return s.SetAsyncReplicationEnabled(ctx, true)
 }
 
 func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverrideToRemove additional.AsyncReplicationTargetNodeOverride) error {
 	targetNodeOverrideLen := 0
 	func() {
 		s.asyncReplicationRWMux.Lock()
-		// unlock before calling UpdateAsyncReplicationConfig because it will lock again
+		// unlock before calling SetAsyncReplicationEnabled because it will lock again
 		defer s.asyncReplicationRWMux.Unlock()
 
 		newTargetNodeOverrides := make([]additional.AsyncReplicationTargetNodeOverride, 0, len(s.asyncReplicationConfig.targetNodeOverrides))
@@ -524,7 +552,7 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 	// if there are no overrides left, return the async replication config to what it
 	// was before overrides were added
 	if targetNodeOverrideLen == 0 {
-		return s.UpdateAsyncReplicationConfig(ctx, s.index.Config.AsyncReplicationEnabled)
+		return s.SetAsyncReplicationEnabled(ctx, s.index.Config.AsyncReplicationEnabled)
 	}
 	return nil
 }
@@ -532,11 +560,11 @@ func (s *Shard) removeTargetNodeOverride(ctx context.Context, targetNodeOverride
 func (s *Shard) removeAllTargetNodeOverrides(ctx context.Context) error {
 	func() {
 		s.asyncReplicationRWMux.Lock()
-		// unlock before calling UpdateAsyncReplicationConfig because it will lock again
+		// unlock before calling SetAsyncReplicationEnabled because it will lock again
 		defer s.asyncReplicationRWMux.Unlock()
 		s.asyncReplicationConfig.targetNodeOverrides = make([]additional.AsyncReplicationTargetNodeOverride, 0)
 	}()
-	return s.UpdateAsyncReplicationConfig(ctx, s.index.Config.AsyncReplicationEnabled)
+	return s.SetAsyncReplicationEnabled(ctx, s.index.Config.AsyncReplicationEnabled)
 }
 
 func (s *Shard) getAsyncReplicationStats(ctx context.Context) []*models.AsyncReplicationStatus {
@@ -645,6 +673,32 @@ func (s *Shard) initHashBeater(ctx context.Context, config asyncReplicationConfi
 			case <-ctx.Done():
 				return
 			case <-propagationRequired:
+				// Reload target node overrides
+				func() {
+					s.asyncReplicationRWMux.Lock()
+					defer s.asyncReplicationRWMux.Unlock()
+					config.targetNodeOverrides = s.asyncReplicationConfig.targetNodeOverrides
+				}()
+
+				if (!s.index.asyncReplicationEnabled() && len(config.targetNodeOverrides) == 0) ||
+					(config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled()) {
+					// skip hashbeat iteration when async replication is disabled and no target node overrides are set
+					// or maintenance mode is enabled for localhost
+					if config.maintenanceModeEnabled != nil && config.maintenanceModeEnabled() {
+						s.index.logger.
+							WithField("action", "async_replication").
+							WithField("class_name", s.class.Class).
+							WithField("shard_name", s.name).
+							Info("skipping async replication in maintenance mode")
+					}
+					backoffTimer.Reset()
+					lastHashbeatMux.Lock()
+					lastHashbeat = time.Now()
+					lastHashbeatPropagatedObjects = false
+					lastHashbeatMux.Unlock()
+					continue
+				}
+
 				stats, err := s.hashBeat(ctx, config)
 				// update the shard stats for the target node
 				// anonymous func only here so we can use defer unlock
