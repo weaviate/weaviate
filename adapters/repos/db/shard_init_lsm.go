@@ -37,7 +37,8 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 		s.index.logger.WithFields(logrus.Fields{
 			"action":   "init_shard_non_vector",
 			"duration": took,
-		}).Debugf("loaded non-vector (lsm, object, inverted) in %s for shard %q", took, s.ID())
+			"shard":    s.ID(),
+		}).Logf(s.initLogLevel, "loaded non-vector (lsm, object, inverted) in %s for shard %q", took, s.ID())
 	}()
 
 	// the shard versioner is also dependency of some of the bucket
@@ -101,7 +102,7 @@ func (s *Shard) initNonVector(ctx context.Context, class *models.Class) error {
 			return fmt.Errorf("init async replication on shard %q: %w", s.ID(), err)
 		}
 	} else if s.index.replicationEnabled() {
-		s.index.logger.Infof("async replication disabled on shard %q", s.ID())
+		s.index.logger.WithField("shard", s.ID()).Logf(s.initLogLevel, "async replication disabled on shard %q", s.ID())
 	}
 
 	// check if we need to set Inverted Index config to use BlockMax inverted format for new properties
