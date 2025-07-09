@@ -172,22 +172,119 @@ func TestReadPlanner_IntegrationWithDirectCandidateStrategy(t *testing.T) {
 	// THEN
 	require.NoError(t, err)
 	require.Equal(t, shard, plan.Shard)
-	require.Len(t, plan.ReplicaSet.Replicas, 4) // All replicas from testReadReplicaSet()
+	require.Len(t, plan.ReplicaSet.Replicas, 2, "should have exactly one replica per shard")
+	shardCounts := make(map[string]int)
+	for _, replica := range plan.ReplicaSet.Replicas {
+		shardCounts[replica.ShardName]++
+	}
+	require.Equal(t, 1, shardCounts["S1"], "should have exactly one replica for shard S1")
+	require.Equal(t, 1, shardCounts["S2"], "should have exactly one replica for shard S2")
 
-	s1Replicas := findReplicasByShard(plan.ReplicaSet.Replicas, "S1")
-	s2Replicas := findReplicasByShard(plan.ReplicaSet.Replicas, "S2")
-	require.Len(t, s1Replicas, 2)                 // S1 has replicas A and B
-	require.Len(t, s2Replicas, 2)                 // S2 has replicas C and D
-	require.Equal(t, "B", s1Replicas[0].NodeName) // B (direct candidate) should be first for S1
-	require.Equal(t, "A", s1Replicas[1].NodeName) // A should be second for S1
+	s1Replica := findReplicaByShard(plan.ReplicaSet.Replicas, "S1")
+	s2Replica := findReplicaByShard(plan.ReplicaSet.Replicas, "S2")
+	require.NotNil(t, s1Replica, "should have one replica for S1")
+	require.NotNil(t, s2Replica, "should have one replica for S2")
+
+	// S1 should select B (the direct candidate)
+	require.Equal(t, "B", s1Replica.NodeName, "S1 should select direct candidate B")
+
+	// S2 should select C (first available since B is not available in S2)
+	require.Equal(t, "C", s2Replica.NodeName, "S2 should select first available replica C")
 }
 
-func findReplicasByShard(replicas []types.Replica, shardName string) []types.Replica {
-	var result []types.Replica
+func findReplicaByShard(replicas []types.Replica, shardName string) *types.Replica {
 	for _, replica := range replicas {
 		if replica.ShardName == shardName {
-			result = append(result, replica)
+			return &replica
 		}
 	}
-	return result
+	return nil
+}
+
+func TestReadPlanner_IntegrationWithEmptyShard(t *testing.T) {
+	// GIVEN
+	mockRouter := types.NewMockRouter(t)
+	collection := "TestCollection"
+	shard := ""
+	directCandidate := "B"
+	localNode := "local-node"
+
+	readReplicas := testReadReplicaSet()
+	mockRouter.EXPECT().GetReadReplicasLocation(collection, "", shard).Return(readReplicas, nil)
+
+	planner := router.NewReadPlanner(mockRouter, collection, nil, directCandidate, localNode)
+
+	params := types.RoutingPlanBuildOptions{
+		Shard:            shard,
+		ConsistencyLevel: types.ConsistencyLevelOne,
+	}
+
+	// WHEN
+	plan, err := planner.Plan(params)
+
+	// THEN
+	require.NoError(t, err)
+	require.Equal(t, shard, plan.Shard)
+	require.Len(t, plan.ReplicaSet.Replicas, 2, "should have exactly one replica per shard even when querying all shards")
+
+	s1Replica := findReplicaByShard(plan.ReplicaSet.Replicas, "S1")
+	s2Replica := findReplicaByShard(plan.ReplicaSet.Replicas, "S2")
+	require.Equal(t, "B", s1Replica.NodeName, "S1 should select direct candidate B")
+	require.Equal(t, "C", s2Replica.NodeName, "S2 should select first available replica C")
+}
+
+func TestReadPlanner_NoReplicasAvailable(t *testing.T) {
+	// GIVEN
+	mockRouter := types.NewMockRouter(t)
+	collection := "TestCollection"
+	shard := "TestShard"
+	directCandidate := "B"
+	localNode := "local-node"
+
+	emptyReplicas := types.ReadReplicaSet{Replicas: []types.Replica{}}
+	mockRouter.EXPECT().GetReadReplicasLocation(collection, "", shard).Return(emptyReplicas, nil)
+
+	planner := router.NewReadPlanner(mockRouter, collection, nil, directCandidate, localNode)
+
+	params := types.RoutingPlanBuildOptions{
+		Shard:            shard,
+		ConsistencyLevel: types.ConsistencyLevelOne,
+	}
+
+	// WHEN
+	plan, err := planner.Plan(params)
+
+	// THEN
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "no replicas available")
+	require.Empty(t, plan.ReplicaSet.Replicas)
+}
+
+// Test to verify router error propagation
+func TestReadPlanner_RouterError(t *testing.T) {
+	// GIVEN
+	mockRouter := types.NewMockRouter(t)
+	collection := "TestCollection"
+	shard := "TestShard"
+	directCandidate := "B"
+	localNode := "local-node"
+
+	routerError := errors.New("router connection failed")
+	mockRouter.EXPECT().GetReadReplicasLocation(collection, "", shard).Return(types.ReadReplicaSet{}, routerError)
+
+	planner := router.NewReadPlanner(mockRouter, collection, nil, directCandidate, localNode)
+
+	params := types.RoutingPlanBuildOptions{
+		Shard:            shard,
+		ConsistencyLevel: types.ConsistencyLevelOne,
+	}
+
+	// WHEN
+	plan, err := planner.Plan(params)
+
+	// THEN
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "failed to get read replicas")
+	require.Contains(t, err.Error(), "router connection failed")
+	require.Empty(t, plan.ReplicaSet.Replicas)
 }

@@ -76,9 +76,16 @@ func NewDirectCandidateReadStrategy(directCandidate DirectCandidate) ReadReplica
 // then selects the first replica from each shard group.
 func (s *DirectCandidateReadStrategy) Apply(rs ReadReplicaSet, options RoutingPlanBuildOptions) ReadReplicaSet {
 	preferredNode := s.determinePreferredNode(options)
+	organizedReplicas := byPreferredNode(rs.Replicas, preferredNode)
+	shardGroups := groupByShard(organizedReplicas)
+	var selectedReplicas []Replica
+
+	for _, indices := range shardGroups {
+		selectedReplicas = append(selectedReplicas, organizedReplicas[indices[0]])
+	}
 
 	return ReadReplicaSet{
-		Replicas: byPreferredNode(rs.Replicas, preferredNode),
+		Replicas: selectedReplicas,
 	}
 }
 
