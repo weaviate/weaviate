@@ -33,14 +33,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding/config"
 )
 
-func createRoutingPlanBuildOptions(partitioningKey string) types.RoutingPlanBuildOptions {
-	return types.RoutingPlanBuildOptions{
-		Shard:               partitioningKey,
-		ConsistencyLevel:    types.ConsistencyLevelOne,
-		DirectCandidateNode: "",
-	}
-}
-
 func createShardingStateWithShards(shards []string) *sharding.State {
 	state := &sharding.State{
 		Physical: make(map[string]sharding.Physical),
