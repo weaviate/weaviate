@@ -36,14 +36,11 @@ type S3Storage struct {
 
 // NewS3Storage creates a new S3 storage backend
 func NewS3Storage(ctx context.Context, logger logrus.FieldLogger, metrics *common.Metrics) (*S3Storage, error) {
-
-	// Load default AWS configuration
 	cfg, err := config.LoadDefaultConfig(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("failed to load AWS config: %w", err)
 	}
 
-	// Create S3 client with MinIO endpoint support
 	s3Client := s3.NewFromConfig(cfg, func(o *s3.Options) {
 		if endpoint := os.Getenv("AWS_ENDPOINT"); endpoint != "" {
 			if !strings.HasPrefix(endpoint, "http://") && !strings.HasPrefix(endpoint, "https://") {
