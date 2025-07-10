@@ -15,14 +15,12 @@ import (
 	"context"
 	"fmt"
 	"slices"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
-	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
@@ -614,6 +612,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		logger.WithError(err).Error("failure while getting shard replicas")
 		return api.ShardReplicationState(""), err
 	}
+	replicaExists := slices.Contains(nodes, op.Op.TargetShard.NodeId)
 
 	// this time will be used to make sure async replication has propagated any writes which
 	// were received during the hydrating phase
@@ -623,9 +622,24 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), err
 	}
 
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
+		return api.ShardReplicationState(""), ctx.Err()
+	}
+
+	if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger); err != nil {
+		logger.WithError(err).Error("failure while waiting for async replication to complete while finalizing")
+		return api.ShardReplicationState(""), err
+	}
+
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
+		return api.ShardReplicationState(""), ctx.Err()
+	}
+
 	if !slices.Contains(nodes, op.Op.TargetShard.NodeId) {
 		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
-			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
+			if replicaExists {
 				// The replica already exists, this is not an error and it got updated after our sanity check
 				// due to eventual consistency of the sharding state.
 				logger.Debug("replica already exists, skipping")
@@ -634,6 +648,14 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 				return api.ShardReplicationState(""), err
 			}
 		}
+	}
+
+	// this time will be used to make sure async replication has propagated any writes which
+	// were received during the hydrating phase
+	asyncReplicationUpperTimeBoundUnixMillis = time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
+	overrides = newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
+	if err := c.startAsyncReplication(ctx, op, overrides, logger); err != nil {
+		return api.ShardReplicationState(""), err
 	}
 
 	if ctx.Err() != nil {
