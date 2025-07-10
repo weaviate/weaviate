@@ -795,7 +795,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
-	if i.shardHasMultipleReplicas(shardName) {
+	if i.shardHasMultipleReplicasWrite(shardName) {
 		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
@@ -862,7 +862,7 @@ func (i *Index) replicationEnabled() bool {
 	return i.Config.ReplicationFactor > 1
 }
 
-func (i *Index) shardHasMultipleReplicas(shardName string) bool {
+func (i *Index) shardHasMultipleReplicasWrite(shardName string) bool {
 	if i.replicationEnabled() {
 		return true
 	}
@@ -877,12 +877,26 @@ func (i *Index) shardHasMultipleReplicas(shardName string) bool {
 	return len(allReplicas) > 1
 }
 
-func (i *Index) anyShardHasMultipleReplicas(shardNames []string) bool {
+func (i *Index) shardHasMultipleReplicasRead(shardName string) bool {
+	if i.replicationEnabled() {
+		return true
+	}
+	if i.router == nil {
+		return false
+	}
+	replicas, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), shardName)
+	if err != nil {
+		return false
+	}
+	return len(replicas.NodeNames()) > 1
+}
+
+func (i *Index) anyShardHasMultipleReplicasRead(shardNames []string) bool {
 	if i.replicationEnabled() {
 		return true
 	}
 	for _, shardName := range shardNames {
-		if i.shardHasMultipleReplicas(shardName) {
+		if i.shardHasMultipleReplicasRead(shardName) {
 			return true
 		}
 	}
@@ -1093,7 +1107,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				}
 			}()
 			var errs []error
-			if i.shardHasMultipleReplicas(shardName) {
+			if i.shardHasMultipleReplicasWrite(shardName) {
 				errs = i.replicator.PutObjects(ctx, shardName, group.objects,
 					types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
@@ -1195,7 +1209,7 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 
 	for shardName, group := range byShard {
 		var errs []error
-		if i.shardHasMultipleReplicas(shardName) {
+		if i.shardHasMultipleReplicasWrite(shardName) {
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs, types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else {
 			// anonymous function to ensure that the shard is released after each loop iteration
@@ -1261,7 +1275,7 @@ func (i *Index) objectByID(ctx context.Context, id strfmt.UUID,
 
 	var obj *storobj.Object
 
-	if i.shardHasMultipleReplicas(shardName) {
+	if i.shardHasMultipleReplicasRead(shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
@@ -1428,7 +1442,7 @@ func (i *Index) exists(ctx context.Context, id strfmt.UUID,
 	}
 
 	var exists bool
-	if i.shardHasMultipleReplicas(shardName) {
+	if i.shardHasMultipleReplicasRead(shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
@@ -1582,7 +1596,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		outObjects = outObjects[:limit]
 	}
 
-	if i.anyShardHasMultipleReplicas(shardNames) {
+	if i.anyShardHasMultipleReplicasRead(shardNames) {
 		if replProps == nil {
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
@@ -1644,7 +1658,7 @@ func (i *Index) objectSearchByShard(ctx context.Context, limit int, filters *fil
 				}
 			}
 
-			if i.shardHasMultipleReplicas(shardName) {
+			if i.shardHasMultipleReplicasRead(shardName) {
 				storobj.AddOwnership(objs, nodeName, shardName)
 			}
 
@@ -1788,7 +1802,7 @@ func (i *Index) localShardSearch(ctx context.Context, searchVectors []models.Vec
 		return nil, nil, errors.Wrapf(err, "shard %s", shard.ID())
 	}
 	// Append result to out
-	if i.shardHasMultipleReplicas(shardName) {
+	if i.shardHasMultipleReplicasRead(shardName) {
 		storobj.AddOwnership(localShardResult, i.getSchema.NodeName(), shardName)
 	}
 	return localShardResult, localShardScores, nil
@@ -1821,7 +1835,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 		}
 		// Append the result of the search to the outgoing result
 		for _, remoteShardResult := range remoteSearchResults {
-			if i.shardHasMultipleReplicas(shardName) {
+			if i.shardHasMultipleReplicasRead(shardName) {
 				storobj.AddOwnership(remoteShardResult.Objects, remoteShardResult.Node, shardName)
 			}
 			outObjects = append(outObjects, remoteShardResult.Objects...)
@@ -1836,7 +1850,7 @@ func (i *Index) remoteShardSearch(ctx context.Context, searchVectors []models.Ve
 			return nil, nil, errors.Wrapf(err, "remote shard %s", shardName)
 		}
 
-		if i.shardHasMultipleReplicas(shardName) {
+		if i.shardHasMultipleReplicasRead(shardName) {
 			storobj.AddOwnership(remoteResult, nodeName, shardName)
 		}
 		outObjects = remoteResult
@@ -1971,7 +1985,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		dists = dists[:limit]
 	}
 
-	if i.anyShardHasMultipleReplicas(shardNames) {
+	if i.anyShardHasMultipleReplicasRead(shardNames) {
 		if replProps == nil {
 			replProps = defaultConsistency(types.ConsistencyLevelOne)
 		}
@@ -2054,7 +2068,7 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		}
 	}
 
-	if i.shardHasMultipleReplicas(shardName) {
+	if i.shardHasMultipleReplicasWrite(shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
@@ -2261,7 +2275,7 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		}
 	}
 
-	if i.shardHasMultipleReplicas(shardName) {
+	if i.shardHasMultipleReplicasWrite(shardName) {
 		if replProps == nil {
 			replProps = defaultConsistency()
 		}
@@ -2727,7 +2741,7 @@ func (i *Index) findUUIDs(ctx context.Context,
 		var release func()
 		var err error
 
-		if i.shardHasMultipleReplicas(shardName) {
+		if i.shardHasMultipleReplicasRead(shardName) {
 			if repl == nil {
 				repl = defaultConsistency()
 			}
@@ -2796,7 +2810,7 @@ func (i *Index) batchDeleteObjects(ctx context.Context, shardUUIDs map[string][]
 			defer wg.Done()
 
 			var objs objects.BatchSimpleObjects
-			if i.shardHasMultipleReplicas(shardName) {
+			if i.shardHasMultipleReplicasWrite(shardName) {
 				objs = i.replicator.DeleteObjects(ctx, shardName, uuids, deletionTime,
 					dryRun, types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 			} else {
