@@ -72,10 +72,6 @@ func TestModule_Init_Success(t *testing.T) {
 }
 
 func TestModule_Init_MissingEnvVars(t *testing.T) {
-	// Explicitly unset environment variables to test failure case
-	t.Setenv("USAGE_GCS_BUCKET", "")
-	t.Setenv("USAGE_GCS_PREFIX", "")
-
 	mod := New()
 
 	testConfig := config.Config{
@@ -93,7 +89,7 @@ func TestModule_Init_MissingEnvVars(t *testing.T) {
 
 	err := mod.Init(context.Background(), params)
 	require.Error(t, err)
-	assert.Contains(t, err.Error(), "GCP bucket name not configured")
+	assert.Contains(t, err.Error(), "GCS bucket name not configured")
 }
 
 func TestModule_Init_MissingBucket(t *testing.T) {
@@ -115,7 +111,7 @@ func TestModule_Init_MissingBucket(t *testing.T) {
 
 	err := mod.Init(context.Background(), params)
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "GCP bucket name not configured")
+	assert.Contains(t, err.Error(), "GCS bucket name not configured")
 }
 
 func TestModule_Init_MissingHostname(t *testing.T) {

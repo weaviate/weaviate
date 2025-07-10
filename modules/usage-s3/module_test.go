@@ -91,9 +91,6 @@ func TestModule_Init_MissingBucket(t *testing.T) {
 }
 
 func TestModule_Init_MissingEnvVars(t *testing.T) {
-	// Explicitly unset environment variables to test failure case
-	os.Unsetenv("USAGE_S3_BUCKET")
-
 	config := &config.Config{
 		Cluster: cluster.Config{
 			Hostname: "test-node",
