@@ -12,6 +12,7 @@
 package usagecommon
 
 import (
+	"fmt"
 	"strings"
 
 	"github.com/prometheus/client_golang/prometheus"
@@ -29,14 +30,14 @@ type Metrics struct {
 }
 
 func NewMetrics(reg prometheus.Registerer, moduleName string) *Metrics {
-	moduleName = strings.ToLower(moduleName)
+	moduleName = fmt.Sprintf("weaviate_%s", strings.ReplaceAll(strings.ToLower(moduleName), "-", "_"))
 	return &Metrics{
 		OperationTotal: promauto.With(reg).NewCounterVec(
 			prometheus.CounterOpts{
 				Name: moduleName + "_operations_total",
 				Help: "Total number of " + moduleName + " operations",
 			},
-			[]string{"operation", "status"},
+			[]string{"operation", "status"}, // operation: collect/upload, status: success/error
 		),
 		OperationLatency: prometheus.NewHistogramVec(
 			prometheus.HistogramOpts{
@@ -51,7 +52,7 @@ func NewMetrics(reg prometheus.Registerer, moduleName string) *Metrics {
 				Name: moduleName + "_resource_count",
 				Help: "Number of resources tracked by " + moduleName,
 			},
-			[]string{"resource_type"},
+			[]string{"resource_type"}, // type: collections/shards/backups
 		),
 		UploadedFileSize: promauto.With(reg).NewGauge(
 			prometheus.GaugeOpts{

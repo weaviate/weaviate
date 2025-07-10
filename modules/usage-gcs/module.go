@@ -122,12 +122,22 @@ func (m *module) buildGCSConfig(config *config.Config) common.StorageConfig {
 }
 
 func parseGCSConfig(config *config.Config) error {
-	if v := os.Getenv("USAGE_GCS_BUCKET"); v != "" {
-		config.Usage.GCSBucket = runtime.NewDynamicValue(v)
+	gcsBucket := ""
+	if config.Usage.GCSBucket != nil {
+		gcsBucket = config.Usage.GCSBucket.Get()
+	} else if v := os.Getenv("USAGE_GCS_BUCKET"); v != "" {
+		gcsBucket = v
 	}
-	if v := os.Getenv("USAGE_GCS_PREFIX"); v != "" {
-		config.Usage.GCSPrefix = runtime.NewDynamicValue(v)
+	config.Usage.GCSBucket = runtime.NewDynamicValue(gcsBucket)
+
+	gcsPrefix := ""
+	if config.Usage.GCSPrefix != nil {
+		gcsPrefix = config.Usage.GCSPrefix.Get()
+	} else if v := os.Getenv("USAGE_GCS_PREFIX"); v != "" {
+		gcsPrefix = v
 	}
+	config.Usage.GCSPrefix = runtime.NewDynamicValue(gcsPrefix)
+
 	return nil
 }
 

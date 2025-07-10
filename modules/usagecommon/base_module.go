@@ -105,7 +105,7 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 		b.collectAndUploadPeriodically(context.Background())
 	}, b.logger)
 
-	b.logger.Info("%s module initialized successfully", b.moduleName)
+	b.logger.Infof("%s module initialized successfully", b.moduleName)
 	return nil
 }
 

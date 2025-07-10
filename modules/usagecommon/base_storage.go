@@ -141,15 +141,25 @@ func (b *BaseStorage) RecordUploadMetrics(dataSize int) {
 // ParseCommonUsageConfig parses common environment variables shared by all usage modules
 func ParseCommonUsageConfig(config *config.Config) error {
 	// Parse common environment variables that both S3 and GCS modules use
-	if v := os.Getenv("USAGE_SCRAPE_INTERVAL"); v != "" {
+	scrapeInterval := DefaultCollectionInterval
+	if config.Usage.ScrapeInterval != nil {
+		scrapeInterval = config.Usage.ScrapeInterval.Get()
+	} else if v := os.Getenv("USAGE_SCRAPE_INTERVAL"); v != "" {
 		duration, err := time.ParseDuration(v)
 		if err != nil {
 			return fmt.Errorf("invalid %s: %w", "USAGE_SCRAPE_INTERVAL", err)
 		}
-		config.Usage.ScrapeInterval = runtime.NewDynamicValue(duration)
+		scrapeInterval = duration
 	}
-	if v := os.Getenv("USAGE_POLICY_VERSION"); v != "" {
-		config.Usage.PolicyVersion = runtime.NewDynamicValue(v)
+	config.Usage.ScrapeInterval = runtime.NewDynamicValue(scrapeInterval)
+
+	policyVersion := DefaultPolicyVersion
+	if config.Usage.PolicyVersion != nil {
+		policyVersion = config.Usage.PolicyVersion.Get()
+	} else if v := os.Getenv("USAGE_POLICY_VERSION"); v != "" {
+		policyVersion = v
 	}
+	config.Usage.PolicyVersion = runtime.NewDynamicValue(policyVersion)
+
 	return nil
 }
