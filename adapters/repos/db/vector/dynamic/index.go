@@ -96,30 +96,31 @@ type upgradableIndexer interface {
 
 type dynamic struct {
 	sync.RWMutex
-	id                    string
-	targetVector          string
-	store                 *lsmkv.Store
-	logger                logrus.FieldLogger
-	rootPath              string
-	shardName             string
-	className             string
-	prometheusMetrics     *monitoring.PrometheusMetrics
-	vectorForIDThunk      common.VectorForID[float32]
-	tempVectorForIDThunk  common.TempVectorForID[float32]
-	distanceProvider      distancer.Provider
-	makeCommitLoggerThunk hnsw.MakeCommitLogger
-	threshold             uint64
-	index                 VectorIndex
-	upgraded              atomic.Bool
-	upgradeOnce           sync.Once
-	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
-	hnswUC                hnswent.UserConfig
-	db                    *bbolt.DB
-	ctx                   context.Context
-	cancel                context.CancelFunc
-	hnswDisableSnapshots  bool
-	hnswSnapshotOnStartup bool
-	LazyLoadSegments      bool
+	id                      string
+	targetVector            string
+	store                   *lsmkv.Store
+	logger                  logrus.FieldLogger
+	rootPath                string
+	shardName               string
+	className               string
+	prometheusMetrics       *monitoring.PrometheusMetrics
+	vectorForIDThunk        common.VectorForID[float32]
+	tempVectorForIDThunk    common.TempVectorForID[float32]
+	distanceProvider        distancer.Provider
+	makeCommitLoggerThunk   hnsw.MakeCommitLogger
+	threshold               uint64
+	index                   VectorIndex
+	upgraded                atomic.Bool
+	upgradeOnce             sync.Once
+	tombstoneCallbacks      cyclemanager.CycleCallbackGroup
+	hnswUC                  hnswent.UserConfig
+	db                      *bbolt.DB
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	hnswDisableSnapshots    bool
+	hnswSnapshotOnStartup   bool
+	hnswWaitForCachePrefill bool
+	LazyLoadSegments        bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -152,27 +153,28 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 	ctx, cancel := context.WithCancel(context.Background())
 
 	index := &dynamic{
-		id:                    cfg.ID,
-		targetVector:          cfg.TargetVector,
-		logger:                logger,
-		rootPath:              cfg.RootPath,
-		shardName:             cfg.ShardName,
-		className:             cfg.ClassName,
-		prometheusMetrics:     cfg.PrometheusMetrics,
-		vectorForIDThunk:      cfg.VectorForIDThunk,
-		tempVectorForIDThunk:  cfg.TempVectorForIDThunk,
-		distanceProvider:      cfg.DistanceProvider,
-		makeCommitLoggerThunk: cfg.MakeCommitLoggerThunk,
-		store:                 store,
-		threshold:             uc.Threshold,
-		tombstoneCallbacks:    cfg.TombstoneCallbacks,
-		hnswUC:                uc.HnswUC,
-		db:                    cfg.SharedDB,
-		ctx:                   ctx,
-		cancel:                cancel,
-		hnswDisableSnapshots:  cfg.HNSWDisableSnapshots,
-		hnswSnapshotOnStartup: cfg.HNSWSnapshotOnStartup,
-		LazyLoadSegments:      cfg.LazyLoadSegments,
+		id:                      cfg.ID,
+		targetVector:            cfg.TargetVector,
+		logger:                  logger,
+		rootPath:                cfg.RootPath,
+		shardName:               cfg.ShardName,
+		className:               cfg.ClassName,
+		prometheusMetrics:       cfg.PrometheusMetrics,
+		vectorForIDThunk:        cfg.VectorForIDThunk,
+		tempVectorForIDThunk:    cfg.TempVectorForIDThunk,
+		distanceProvider:        cfg.DistanceProvider,
+		makeCommitLoggerThunk:   cfg.MakeCommitLoggerThunk,
+		store:                   store,
+		threshold:               uc.Threshold,
+		tombstoneCallbacks:      cfg.TombstoneCallbacks,
+		hnswUC:                  uc.HnswUC,
+		db:                      cfg.SharedDB,
+		ctx:                     ctx,
+		cancel:                  cancel,
+		hnswDisableSnapshots:    cfg.HNSWDisableSnapshots,
+		hnswSnapshotOnStartup:   cfg.HNSWSnapshotOnStartup,
+		hnswWaitForCachePrefill: cfg.HNSWWaitForCachePrefill,
+		LazyLoadSegments:        cfg.LazyLoadSegments,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
@@ -217,6 +219,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				DisableSnapshots:      index.hnswDisableSnapshots,
 				SnapshotOnStartup:     index.hnswSnapshotOnStartup,
 				LazyLoadSegments:      index.LazyLoadSegments,
+				WaitForCachePrefill:   index.hnswWaitForCachePrefill,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
@@ -534,6 +537,7 @@ func (dynamic *dynamic) doUpgrade() error {
 			MakeCommitLoggerThunk: dynamic.makeCommitLoggerThunk,
 			DisableSnapshots:      dynamic.hnswDisableSnapshots,
 			SnapshotOnStartup:     dynamic.hnswSnapshotOnStartup,
+			WaitForCachePrefill:   dynamic.hnswWaitForCachePrefill,
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,
