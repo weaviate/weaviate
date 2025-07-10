@@ -43,6 +43,10 @@ func (suite *ReplicationTestSuite) SetupTest() {
 	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 }
 
+func TestReplicationTestSuite(t *testing.T) {
+	suite.Run(t, new(ReplicationTestSuite))
+}
+
 func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	t := suite.T()
 	mainCtx := context.Background()
