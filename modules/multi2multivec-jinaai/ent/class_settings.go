@@ -109,14 +109,9 @@ func (ic *classSettings) field(name, property string) bool {
 		return false
 	}
 
-	fieldNames := make([]string, len(fieldsArray))
-	for i, value := range fieldsArray {
-		fieldNames[i] = value.(string)
-	}
-
-	for i := range fieldNames {
-		if fieldNames[i] == property {
-			return true
+	for i, field := range fieldsArray {
+		if property == field.(string) {
+		    return true
 		}
 	}
 
