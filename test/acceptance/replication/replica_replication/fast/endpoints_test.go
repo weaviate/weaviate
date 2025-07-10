@@ -39,7 +39,7 @@ type ReplicationTestSuite struct {
 
 func (suite *ReplicationTestSuite) SetupSuite() {
 	t := suite.T()
-	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+	// t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 
 	mainCtx := context.Background()
 

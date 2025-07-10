@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package replication
+package slow
 
 import (
 	"context"
@@ -29,25 +29,52 @@ import (
 	"github.com/weaviate/weaviate/client/replication"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/verbosity"
+	"github.com/weaviate/weaviate/test/docker"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithNoAutomatedResolution() {
-	test(suite, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-}
-
-func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithDeleteOnConflict() {
-	test(suite, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
-}
-
-func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingDataWithTimeBasedResolution() {
-	test(suite, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
-}
-
-func test(suite *ReplicationTestSuite, strategy string) {
+func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	t := suite.T()
-	helper.SetupClient(suite.compose.GetWeaviate().URI())
+	mainCtx := context.Background()
+
+	compose, err := docker.New().
+		WithWeaviateCluster(3).
+		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "100").
+		Start(mainCtx)
+	require.Nil(t, err)
+	defer func() {
+		if err := compose.Terminate(mainCtx); err != nil {
+			t.Fatalf("failed to terminate test containers: %s", err.Error())
+		}
+	}()
+
+	move := "MOVE"
+	copy := "COPY"
+
+	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	})
+	t.Run("MOVE, rf=2, delete on conflict", func(t *testing.T) {
+		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+	})
+	t.Run("MOVE, rf=2, time-based resolution", func(t *testing.T) {
+		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
+	})
+
+	t.Run("COPY, rf=1, no automated resolution", func(t *testing.T) {
+		test(t, compose, copy, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	})
+	t.Run("COPY, rf=1, delete on conflict", func(t *testing.T) {
+		test(t, compose, copy, 1, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+	})
+	t.Run("COPY, rf=1, time-based resolution", func(t *testing.T) {
+		test(t, compose, copy, 1, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
+	})
+}
+
+func test(t *testing.T, compose *docker.DockerCompose, replicationType string, factor int, strategy string) {
+	helper.SetupClient(compose.GetWeaviate().URI())
 
 	cls := articles.ParagraphsClass()
 	cls.MultiTenancyConfig = &models.MultiTenancyConfig{
@@ -57,7 +84,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	}
 
 	cls.ReplicationConfig = &models.ReplicationConfig{
-		Factor:           int64(2),
+		Factor:           int64(factor),
 		DeletionStrategy: strategy,
 	}
 
@@ -111,7 +138,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	t.Log("Starting data mutation in background")
 	go mutateData(t, ctx, helper.Client(t), cls.Class, tenantName, 100)
 
-	// Choose other node node as the target node
+	// Choose other node as the target node
 	var targetNode string
 	var sourceNode string
 	for _, shard := range shardingState.Payload.ShardingState.Shards {
@@ -123,15 +150,14 @@ func test(suite *ReplicationTestSuite, strategy string) {
 	}
 
 	// Start replication
-	t.Logf("Starting replication for tenant %s from node %s to target node %s", tenantName, sourceNode, targetNode)
-	move := "MOVE"
+	t.Logf("Starting %s replication for tenant %s from node %s to target node %s", replicationType, tenantName, sourceNode, targetNode)
 	res, err := helper.Client(t).Replication.Replicate(
 		replication.NewReplicateParams().WithBody(&models.ReplicationReplicateReplicaRequest{
 			SourceNode: &sourceNode,
 			TargetNode: &targetNode,
 			Collection: &cls.Class,
 			Shard:      &tenantName,
-			Type:       &move,
+			Type:       &replicationType,
 		}),
 		nil,
 	)
@@ -166,7 +192,7 @@ func test(suite *ReplicationTestSuite, strategy string) {
 
 	nodeToAddress := map[string]string{}
 	for idx, node := range ns.Payload.Nodes {
-		nodeToAddress[node.Name] = suite.compose.GetWeaviateNode(idx + 1).URI()
+		nodeToAddress[node.Name] = compose.GetWeaviateNode(idx + 1).URI()
 	}
 
 	objectCountByReplica := make(map[string]int64)
@@ -274,6 +300,18 @@ func symmetricDifference[T comparable](a, b []T) []T {
 		if v == 1 {
 			result = append(result, k)
 		}
+	}
+	return result
+}
+
+func random[T any](s []T, k int) []T {
+	if k > len(s) {
+		k = len(s)
+	}
+	indices := rand.Perm(len(s))[:k]
+	result := make([]T, k)
+	for i, idx := range indices {
+		result[i] = s[idx]
 	}
 	return result
 }
