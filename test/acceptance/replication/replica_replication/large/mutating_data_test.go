@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client"
-	apiclient "github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/nodes"
@@ -340,5 +339,5 @@ func random[T any](s []T, k int) []T {
 
 func newClient(address string) *client.Weaviate {
 	transport := httptransport.New(address, "/v1", []string{"http"})
-	return apiclient.New(transport, strfmt.Default)
+	return client.New(transport, strfmt.Default)
 }
