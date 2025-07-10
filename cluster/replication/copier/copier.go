@@ -56,13 +56,15 @@ type Copier struct {
 	// dbWrapper is used to load the index for the collection so that we can create/interact
 	// with the shard on this node
 	dbWrapper types.DbWrapper
+	// nodeName is the name of this node
+	nodeName string
 
 	logger logrus.FieldLogger
 }
 
 // New creates a new shard replica Copier.
 func New(clientFactory FileReplicationServiceClientFactory, remoteIndex types.RemoteIndex, nodeSelector cluster.NodeSelector,
-	concurrentWorkers int, rootPath string, dbWrapper types.DbWrapper, logger logrus.FieldLogger,
+	concurrentWorkers int, rootPath string, dbWrapper types.DbWrapper, nodeName string, logger logrus.FieldLogger,
 ) *Copier {
 	return &Copier{
 		clientFactory:     clientFactory,
@@ -71,6 +73,7 @@ func New(clientFactory FileReplicationServiceClientFactory, remoteIndex types.Re
 		concurrentWorkers: concurrentWorkers,
 		rootDataPath:      rootPath,
 		dbWrapper:         dbWrapper,
+		nodeName:          nodeName,
 		logger:            logger,
 	}
 }
@@ -471,6 +474,14 @@ func depth(path string) int {
 
 // AddAsyncReplicationTargetNode adds a target node override for a shard.
 func (c *Copier) AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride, schemaVersion uint64) error {
+	if targetNodeOverride.SourceNode == c.nodeName {
+		index := c.dbWrapper.GetIndex(schema.ClassName(targetNodeOverride.CollectionID))
+		if index == nil {
+			return nil
+		}
+		return index.IncomingAddAsyncReplicationTargetNode(ctx, targetNodeOverride.ShardID, targetNodeOverride)
+	}
+
 	srcNodeHostname, ok := c.nodeSelector.NodeHostname(targetNodeOverride.SourceNode)
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", targetNodeOverride.SourceNode)
@@ -481,6 +492,14 @@ func (c *Copier) AddAsyncReplicationTargetNode(ctx context.Context, targetNodeOv
 
 // RemoveAsyncReplicationTargetNode removes a target node override for a shard.
 func (c *Copier) RemoveAsyncReplicationTargetNode(ctx context.Context, targetNodeOverride additional.AsyncReplicationTargetNodeOverride) error {
+	if targetNodeOverride.SourceNode == c.nodeName {
+		index := c.dbWrapper.GetIndex(schema.ClassName(targetNodeOverride.CollectionID))
+		if index == nil {
+			return nil
+		}
+		return index.IncomingRemoveAsyncReplicationTargetNode(ctx, targetNodeOverride.ShardID, targetNodeOverride)
+	}
+
 	srcNodeHostname, ok := c.nodeSelector.NodeHostname(targetNodeOverride.SourceNode)
 	if !ok {
 		return fmt.Errorf("source node address not found in cluster membership for node %s", targetNodeOverride.SourceNode)

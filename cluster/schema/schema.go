@@ -643,8 +643,9 @@ func (s *schema) createAlias(class, alias string) error {
 	if cls, _ := s.unsafeReadOnlyClass(class); cls == nil {
 		return fmt.Errorf("create alias: class %s does not exist", class)
 	}
+	// trying to check if any class exists with passed 'alias' name
 	if other := s.unsafeClassEqual(alias); other == alias {
-		return fmt.Errorf("create alias: class %s already exists", class)
+		return fmt.Errorf("create alias: class %s already exists", alias)
 	}
 	s.aliases[alias] = class
 	return nil
