@@ -109,9 +109,9 @@ func (ic *classSettings) field(name, property string) bool {
 		return false
 	}
 
-	for i, field := range fieldsArray {
+	for _, field := range fieldsArray {
 		if property == field.(string) {
-		    return true
+			return true
 		}
 	}
 

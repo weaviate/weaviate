@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modclip
+package modm2mvjinaai
 
 import (
 	"context"

@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package modclip
+package modm2mvjinaai
 
 import (
 	"github.com/weaviate/weaviate/entities/modulecapabilities"

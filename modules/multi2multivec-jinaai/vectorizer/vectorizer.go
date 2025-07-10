@@ -111,5 +111,5 @@ func (v *Vectorizer) object(ctx context.Context, object *models.Object,
 		return vectors[0], nil
 	}
 
-	return nil, errors.New("empty vector")
+	return nil, errors.New("configured properties don't exist or are not of text or blob type")
 }
