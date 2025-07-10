@@ -894,12 +894,6 @@ func (i *Index) anyShardHasMultipleReplicas(shardNames []string) bool {
 // If the caller should not write to the local shard directly, the returned shard will be nil.
 // The caller should always call the release function.
 func (i *Index) getShardForDirectLocalWrite(ctx context.Context, shardName string) (ShardLike, func(), error) {
-
-	// if replication is enabled, we can't just write to the local shard directly
-	if i.replicationEnabled() {
-		return nil, func() {}, nil
-	}
-
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, release, err
@@ -933,12 +927,6 @@ func (i *Index) getShardForDirectLocalWrite(ctx context.Context, shardName strin
 // If the caller should not read from the local shard directly, the returned shard will be nil.
 // The caller should always call the release function.
 func (i *Index) getShardForDirectLocalRead(ctx context.Context, shardName string) (ShardLike, func(), error) {
-
-	// if replication is enabled, we can't just read from the local shard directly
-	if i.replicationEnabled() {
-		return nil, func() {}, nil
-	}
-
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
 		return nil, release, err
@@ -2630,7 +2618,6 @@ func (i *Index) getShardsQueueSize(ctx context.Context, tenant string) (map[stri
 						size += queue.Size()
 						return nil
 					})
-
 				} else {
 					size, err = i.remote.GetShardQueueSize(ctx, shardName)
 				}
