@@ -112,6 +112,7 @@ func (m *service) Usage(ctx context.Context) (*types.Report, error) {
 				if err != nil {
 					return err
 				}
+
 				objectCount, err := shard.ObjectCountAsync(ctx)
 				if err != nil {
 					return err

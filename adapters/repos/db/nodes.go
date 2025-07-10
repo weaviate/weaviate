@@ -190,14 +190,20 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 				if err != nil {
 					i.logger.Errorf("error while getting number of replicas for shard %s: %w", shard.Name(), err)
 				}
+				objectcount, err := lazy.ObjectCountAsync(ctx)
+				if err != nil {
+					i.logger.Errorf("error while getting object count for lazy shard %s: %w", shard.Name(), err)
+				}
 				shardStatus := &models.NodeShardStatus{
 					Name:                 name,
+					ObjectCount: 		int64(objectcount),
 					Class:                class,
 					VectorIndexingStatus: shard.GetStatus().String(),
 					Loaded:               false,
 					ReplicationFactor:    shardingState.ReplicationFactor,
 					NumberOfReplicas:     numberOfReplicas,
 				}
+
 				*status = append(*status, shardStatus)
 				shardCount++
 				return nil
