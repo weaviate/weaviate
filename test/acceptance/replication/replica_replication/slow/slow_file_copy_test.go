@@ -59,7 +59,7 @@ func (suite *ReplicationTestSuite) TestReplicaMovementOneWriteExtraSlowFileCopy(
 		WithWeaviateCluster(3).
 		WithText2VecContextionary().
 		WithWeaviateEnv("WEAVIATE_TEST_COPY_REPLICA_SLEEP", "20s").
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "1s").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
