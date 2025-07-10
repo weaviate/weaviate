@@ -262,6 +262,13 @@ func (dynamic *dynamic) getBucketName() string {
 	return helpers.VectorsBucketLSM
 }
 
+func (dynamic *dynamic) getCompressedBucketName() string {
+	if dynamic.targetVector != "" {
+		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, dynamic.targetVector)
+	}
+	return helpers.VectorsCompressedBucketLSM
+}
+
 func (dynamic *dynamic) Compressed() bool {
 	dynamic.RLock()
 	defer dynamic.RUnlock()
@@ -594,8 +601,9 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "update dynamic")
 	}
 
-	dynamic.index = index
 	dynamic.upgraded.Store(true)
+	os.RemoveAll(filepath.Join(dynamic.rootPath, "lsm", dynamic.getBucketName()))
+	os.RemoveAll(filepath.Join(dynamic.rootPath, "lsm", dynamic.getCompressedBucketName()))
 
 	return nil
 }
