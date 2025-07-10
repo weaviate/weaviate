@@ -263,7 +263,7 @@ func (r *singleTenantRouter) getReadWriteReplicasLocation(collection string, sha
 // targetShards returns either all shards or a single one, depending on input.
 func (r *singleTenantRouter) targetShards(collection, shard string) ([]string, error) {
 	if r.schemaReader == nil {
-		return []string{}, nil
+		return []string{}, fmt.Errorf("schema reader is nil")
 	}
 	shardingState := r.schemaReader.CopyShardingState(collection)
 	if shardingState == nil {
