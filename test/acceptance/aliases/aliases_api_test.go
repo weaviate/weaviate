@@ -218,9 +218,11 @@ func Test_AliasesAPI(t *testing.T) {
 				expectedErrorMsg string
 			}{
 				{
+					// trying to create alias with existing class name.
+					// Should report "Hey, that alias that your are trying to create, there already exists class name with that".
 					name:             "clashing class name",
 					alias:            &models.Alias{Alias: books.DefaultClassName, Class: documents.Passage},
-					expectedErrorMsg: fmt.Sprintf("create alias: class %s already exists", documents.Passage),
+					expectedErrorMsg: fmt.Sprintf("create alias: class %s already exists", books.DefaultClassName),
 				},
 				{
 					name:             "clashing alias name",
