@@ -19,10 +19,13 @@ import (
 	"testing"
 	"time"
 
+	httptransport "github.com/go-openapi/runtime/client"
+	"github.com/go-openapi/strfmt"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client"
+	apiclient "github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/nodes"
@@ -171,7 +174,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	t.Logf("Starting data mutation in background targeting ")
-	go mutateData(t, ctx, helper.Client(t), cls.Class, tenantName, 100, nodeToAddress)
+	go mutateData(t, ctx, cls.Class, tenantName, 100, nodeToAddress)
 
 	// Start replication
 	t.Logf("Starting %s replication for tenant %s from node %s to target node %s", replicationType, tenantName, sourceNode, targetNode)
@@ -227,7 +230,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	}
 }
 
-func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, className string, tenantName string, wait int, nodeToAddress map[string]string) {
+func mutateData(t *testing.T, ctx context.Context, className string, tenantName string, wait int, nodeToAddress map[string]string) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -239,7 +242,7 @@ func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, clas
 			for node := range nodeToAddress {
 				nodeNames = append(nodeNames, node)
 			}
-			helper.SetupClient(nodeToAddress[random(nodeNames, 1)[0]])
+			client := newClient(nodeToAddress[random(nodeNames, 1)[0]])
 
 			// Add some new objects
 			randAdd := rand.Intn(20) + 1
@@ -333,4 +336,9 @@ func random[T any](s []T, k int) []T {
 		result[i] = s[idx]
 	}
 	return result
+}
+
+func newClient(address string) *client.Weaviate {
+	transport := httptransport.New(address, "/v1", []string{"http"})
+	return apiclient.New(transport, strfmt.Default)
 }
