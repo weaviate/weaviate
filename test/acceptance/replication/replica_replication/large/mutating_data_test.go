@@ -21,6 +21,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/graphql"
@@ -34,7 +35,16 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func TestReplicationReplicateWhileMutatingData(t *testing.T) {
+type ReplicationTestSuite struct {
+	suite.Suite
+}
+
+func (suite *ReplicationTestSuite) SetupTest() {
+	suite.T().Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+}
+
+func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
+	t := suite.T()
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
@@ -160,7 +170,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	defer cancel()
 	t.Logf("Starting data mutation in background targeting %s", nodeToAddress[otherNode])
 	helper.SetupClient(nodeToAddress[otherNode]) // Avoid hitting source node with mutations
-	go mutateData(t, ctx, helper.Client(t), cls.Class, tenantName, 0)
+	go mutateData(t, ctx, helper.Client(t), cls.Class, tenantName, 100)
 
 	// Start replication
 	t.Logf("Starting %s replication for tenant %s from node %s to target node %s", replicationType, tenantName, sourceNode, targetNode)
