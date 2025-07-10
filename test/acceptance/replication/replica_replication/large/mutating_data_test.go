@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package mutating
+package large
 
 import (
 	"context"
