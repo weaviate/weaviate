@@ -63,9 +63,11 @@ func (s *S3Storage) VerifyPermissions(ctx context.Context) error {
 		return fmt.Errorf("S3 client is not initialized")
 	}
 
-	// Check if bucket name is configured
+	// During initialization, bucket may not be configured yet due to runtime overrides
+	// being loaded after module initialization.
 	if s.BucketName == "" {
-		return fmt.Errorf("S3 bucket name is not configured - cannot verify permissions")
+		s.Logger.Debug("S3 bucket not configured yet - skipping permission verification")
+		return nil
 	}
 
 	s.LogVerificationStart()
@@ -126,7 +128,30 @@ func (s *S3Storage) Close() error {
 
 // UpdateConfig updates the backend configuration from the provided config
 func (s *S3Storage) UpdateConfig(config common.StorageConfig) (bool, error) {
-	return s.UpdateCommonConfig(config), nil
+	// Store old bucket name to detect changes
+	oldBucketName := s.BucketName
+
+	// Update the configuration
+	configChanged := s.UpdateCommonConfig(config)
+
+	// If bucket name changed, verify permissions
+	if oldBucketName != s.BucketName {
+		s.Logger.WithFields(logrus.Fields{
+			"old_bucket": oldBucketName,
+			"new_bucket": s.BucketName,
+		}).Info("S3 bucket name changed - verifying permissions")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := s.VerifyPermissions(ctx); err != nil {
+			s.Logger.WithError(err).Error("S3 permission verification failed after bucket change")
+			return configChanged, err
+		}
+		s.Logger.Info("S3 permissions verified successfully after bucket change")
+	}
+
+	return configChanged, nil
 }
 
 // verify we implement the required interfaces

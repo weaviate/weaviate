@@ -80,9 +80,11 @@ func (g *GCSStorage) VerifyPermissions(ctx context.Context) error {
 		return fmt.Errorf("storage client is not initialized")
 	}
 
-	// Check if bucket name is configured
+	// During initialization, bucket may not be configured yet due to runtime overrides
+	// being loaded after module initialization.
 	if g.BucketName == "" {
-		return fmt.Errorf("GCS bucket name is not configured - cannot verify permissions")
+		g.Logger.Debug("GCS bucket not configured yet - skipping permission verification")
+		return nil
 	}
 
 	g.LogVerificationStart()
@@ -154,7 +156,30 @@ func (g *GCSStorage) Close() error {
 
 // UpdateConfig updates the backend configuration from the provided config
 func (g *GCSStorage) UpdateConfig(config common.StorageConfig) (bool, error) {
-	return g.UpdateCommonConfig(config), nil
+	// Store old bucket name to detect changes
+	oldBucketName := g.BucketName
+
+	// Update the configuration
+	configChanged := g.UpdateCommonConfig(config)
+
+	// If bucket name changed, verify permissions
+	if oldBucketName != g.BucketName {
+		g.Logger.WithFields(logrus.Fields{
+			"old_bucket": oldBucketName,
+			"new_bucket": g.BucketName,
+		}).Info("GCS bucket name changed - verifying permissions")
+
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		defer cancel()
+
+		if err := g.VerifyPermissions(ctx); err != nil {
+			g.Logger.WithError(err).Error("GCS permission verification failed after bucket change")
+			return configChanged, err
+		}
+		g.Logger.Info("GCS permissions verified successfully after bucket change")
+	}
+
+	return configChanged, nil
 }
 
 // verify we implement the required interfaces

@@ -60,13 +60,14 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	}
 
 	// Validate required configuration
-	if config.Usage.GCSBucket == nil || config.Usage.GCSBucket.Get() == "" {
-		return fmt.Errorf("GCP bucket name not configured")
+	if config.Usage.GCSBucket.Get() == "" && !config.RuntimeOverrides.Enabled {
+		return fmt.Errorf("GCS bucket name not configured - set USAGE_GCS_BUCKET environment variable or enable runtime overrides with RUNTIME_OVERRIDES_ENABLED=true")
 	}
 
 	// Initialize logger
 	logger := params.GetLogger().WithField("component", Name)
 
+	// Create metrics first
 	metrics := common.NewMetrics(params.GetMetricsRegisterer(), Name)
 
 	// Create GCS storage backend with metrics
@@ -74,21 +75,19 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	if err != nil {
 		return fmt.Errorf("failed to create GCS storage: %w", err)
 	}
+
 	m.gcsStorage = gcsStorage
 
-	// Set nodeID directly during initialization
-	m.gcsStorage.NodeID = config.Cluster.Hostname
-
-	// Update GCS storage with initial configuration
+	// Update storage configuration (this may have empty bucket initially)
 	storageConfig := m.buildGCSConfig(config)
 	if _, err := m.gcsStorage.UpdateConfig(storageConfig); err != nil {
 		return fmt.Errorf("failed to configure GCS storage: %w", err)
 	}
 
 	// Create base module with GCS storage
-	m.BaseModule = common.NewBaseModule(Name, gcsStorage)
+	m.BaseModule = common.NewBaseModule(Name, m.gcsStorage)
 
-	// Initialize base module with metrics (this calls VerifyPermissions)
+	// Initialize base module with metrics
 	if err := m.InitializeCommon(ctx, config, logger, metrics); err != nil {
 		return err
 	}

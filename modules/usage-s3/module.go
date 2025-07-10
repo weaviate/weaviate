@@ -60,8 +60,8 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	}
 
 	// Validate required configuration
-	if config.Usage.S3Bucket == nil || config.Usage.S3Bucket.Get() == "" {
-		return fmt.Errorf("S3 bucket name not configured")
+	if config.Usage.S3Bucket.Get() == "" && !config.RuntimeOverrides.Enabled {
+		return fmt.Errorf("S3 bucket name not configured - set USAGE_S3_BUCKET environment variable or enable runtime overrides with RUNTIME_OVERRIDES_ENABLED=true")
 	}
 
 	// Initialize logger
@@ -75,21 +75,19 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	if err != nil {
 		return fmt.Errorf("failed to create S3 storage: %w", err)
 	}
+
 	m.s3Storage = s3Storage
 
-	// Set nodeID directly during initialization
-	m.s3Storage.NodeID = config.Cluster.Hostname
-
-	// Update S3 storage with initial configuration
+	// Update storage configuration (this may have empty bucket initially)
 	storageConfig := m.buildS3Config(config)
 	if _, err := m.s3Storage.UpdateConfig(storageConfig); err != nil {
 		return fmt.Errorf("failed to configure S3 storage: %w", err)
 	}
 
 	// Create base module with S3 storage
-	m.BaseModule = common.NewBaseModule(Name, s3Storage)
+	m.BaseModule = common.NewBaseModule(Name, m.s3Storage)
 
-	// Initialize base module with metrics (this calls VerifyPermissions)
+	// Initialize base module with metrics
 	if err := m.InitializeCommon(ctx, config, logger, metrics); err != nil {
 		return err
 	}
