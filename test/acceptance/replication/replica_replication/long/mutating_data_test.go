@@ -9,11 +9,10 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package long
+package large
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"math/rand"
 	"testing"
@@ -26,7 +25,6 @@ import (
 	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client"
 	"github.com/weaviate/weaviate/client/batch"
-	"github.com/weaviate/weaviate/client/graphql"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/replication"
@@ -206,26 +204,26 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	t.Log("Waiting for a while to ensure all data is replicated")
 	time.Sleep(10 * time.Second) // Wait a bit to ensure all data is replicated
 
-	// Verify that shards all have consistent data
-	t.Log("Verifying data consistency of tenant")
-
-	objectCountByReplica := make(map[string]int64)
+	// Verify that all replicas have the same object UUIDs
+	t.Log("Verifying object UUIDs across replicas")
+	uuidsByReplica := map[string][]string{}
 	for node, address := range nodeToAddress {
 		helper.SetupClient(address)
-		res, err := helper.Client(t).Graphql.GraphqlPost(graphql.NewGraphqlPostParams().WithBody(&models.GraphQLQuery{
-			Query: fmt.Sprintf(`{ Aggregate { %s(tenant: "%s") { meta { count } } } }`, cls.Class, tenantName),
-		}), nil)
-		require.Nil(t, err, "failed to get object count for tenant %s on node %s", tenantName, node)
-		val, err := res.Payload.Data["Aggregate"].(map[string]any)["Paragraph"].([]any)[0].(map[string]any)["meta"].(map[string]any)["count"].(json.Number).Int64()
-		require.Nil(t, err, "failed to parse object count for tenant %s on node %s", tenantName, node)
-		objectCountByReplica[node] = val
+		limit := int64(10000)
+		res, err := helper.Client(t).Objects.ObjectsList(
+			objects.NewObjectsListParams().WithClass(&cls.Class).WithTenant(&tenantName).WithLimit(&limit),
+			nil,
+		)
+		require.Nil(t, err, "failed to list objects for tenant %s on node %s", tenantName, node)
+		uuids := make([]string, len(res.Payload.Objects))
+		for i, obj := range res.Payload.Objects {
+			uuids[i] = string(obj.ID)
+		}
+		uuidsByReplica[node] = uuids
 	}
-
-	// Verify that all replicas have the same number of objects
-	t.Log("Verifying object counts across replicas")
-	for node, count := range objectCountByReplica {
-		t.Logf("Node %s has %d objects for tenant %s", node, count, tenantName)
-		assert.Equal(t, objectCountByReplica[nodeNames[0]], count, "object count mismatch for tenant %s on node %s", tenantName, node)
+	for node, uuids := range uuidsByReplica {
+		t.Logf("Node %s has %d UUIDs for tenant %s", node, len(uuids), tenantName)
+		assert.ElementsMatch(t, uuidsByReplica[nodeNames[0]], uuids, "UUID mismatch for tenant %s on node %s", tenantName, node)
 	}
 }
 
