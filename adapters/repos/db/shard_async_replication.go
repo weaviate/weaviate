@@ -494,6 +494,7 @@ func (s *Shard) SetAsyncReplicationEnabled(_ context.Context, enabled bool) erro
 	s.asyncReplicationCancelFunc()
 
 	s.hashtree = nil
+	s.asyncReplicationStatsByTargetNode = nil
 	s.hashtreeFullyInitialized = false
 
 	return nil
