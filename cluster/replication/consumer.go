@@ -614,7 +614,19 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		logger.WithError(err).Error("failure while getting shard replicas")
 		return api.ShardReplicationState(""), err
 	}
-	replicaExists := slices.Contains(nodes, op.Op.TargetShard.NodeId)
+
+	if !slices.Contains(nodes, op.Op.TargetShard.NodeId) {
+		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
+			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
+				// The replica already exists, this is not an error and it got updated after our sanity check
+				// due to eventual consistency of the sharding state.
+				logger.Debug("replica already exists, skipping")
+			} else {
+				logger.WithError(err).Error("failure while adding replica to shard")
+				return api.ShardReplicationState(""), err
+			}
+		}
+	}
 
 	// this time will be used to make sure async replication has propagated any writes which
 	// were received during the hydrating phase
@@ -639,17 +651,14 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if !replicaExists {
-		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
-			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
-				// The replica already exists, this is not an error and it got updated after our sanity check
-				// due to eventual consistency of the sharding state.
-				logger.Debug("replica already exists, skipping")
-			} else {
-				logger.WithError(err).Error("failure while adding replica to shard")
-				return api.ShardReplicationState(""), err
-			}
-		}
+	if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger); err != nil {
+		logger.WithError(err).Error("failure while waiting for async replication to complete while finalizing")
+		return api.ShardReplicationState(""), err
+	}
+
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
+		return api.ShardReplicationState(""), ctx.Err()
 	}
 
 	switch op.Op.TransferType {
