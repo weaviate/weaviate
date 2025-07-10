@@ -306,6 +306,20 @@ func (u *UserConfig) validate() error {
 	if u.RQ.Enabled {
 		enabled++
 	}
+	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
+	if enabled == 2 && defaultCompression != "" {
+		switch defaultCompression {
+		case CompressionBQ:
+			u.BQ.Enabled = DefaultBQEnabled
+		case CompressionPQ:
+			u.PQ.Enabled = DefaultPQEnabled
+		case CompressionSQ:
+			u.SQ.Enabled = DefaultSQEnabled
+		case CompressionRQ:
+			u.RQ.Enabled = DefaultRQEnabled
+		}
+		enabled--
+	}
 	if enabled > 1 {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
 	}
