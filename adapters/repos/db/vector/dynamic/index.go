@@ -608,11 +608,13 @@ func (dynamic *dynamic) doUpgrade() error {
 	dynamic.index = index
 	dynamic.upgraded.Store(true)
 
+	bDir := dynamic.store.Bucket(dynamic.getBucketName()).GetDir()
 	dynamic.store.ShutdownBucket(ctx, dynamic.getBucketName())
-	os.RemoveAll(filepath.Join(dynamic.rootPath, "lsm", dynamic.getBucketName()))
+	os.RemoveAll(bDir)
 	if dynamic.flatBQ && !dynamic.hnswUC.BQ.Enabled {
+		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
 		dynamic.store.ShutdownBucket(ctx, dynamic.getCompressedBucketName())
-		os.RemoveAll(filepath.Join(dynamic.rootPath, "lsm", dynamic.getCompressedBucketName()))
+		os.RemoveAll(bDir)
 	}
 
 	return nil
