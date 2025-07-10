@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package slow
+package mutating
 
 import (
 	"context"
@@ -34,13 +34,11 @@ import (
 	"github.com/weaviate/weaviate/test/helper/sample-schema/articles"
 )
 
-func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
-	t := suite.T()
+func TestReplicationReplicateWhileMutatingData(t *testing.T) {
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("REPLICATION_ENGINE_MAX_WORKERS", "100").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {

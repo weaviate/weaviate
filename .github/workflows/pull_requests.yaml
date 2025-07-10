@@ -364,6 +364,7 @@ jobs:
           "--acceptance-only-async-replication",
           "--acceptance-only-replica-replication-fast",
           "--acceptance-only-replica-replication-slow",
+          "--acceptance-only-replica-replication-large",
           "--acceptance-go-client-only-fast",
           "--acceptance-only-python",
         ]

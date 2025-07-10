@@ -55,6 +55,7 @@ function main() {
           --acceptance-only-replication|-aor) run_all_tests=false; run_acceptance_replication_tests=true ;;
           --acceptance-only-replica-replication-fast|-aorrf) run_all_tests=false; run_acceptance_replica_replication_fast_tests=true ;;
           --acceptance-only-replica-replication-slow|-aorrs) run_all_tests=false; run_acceptance_replica_replication_slow_tests=true ;;
+          --acceptance-only-replica-replication-large|-aorrs) run_all_tests=false; run_acceptance_replica_replication_large_tests=true ;;
           --acceptance-only-async-replication|-aoar) run_all_tests=false; run_acceptance_async_replication_tests=true ;;
           --acceptance-only-objects|-aoob) run_all_tests=false; run_acceptance_objects=true ;;
           --only-acceptance-*|-oa)run_all_tests=false; only_acceptance=true;only_acceptance_value=$1;;
@@ -402,6 +403,15 @@ function run_acceptance_replica_replication_fast_tests() {
 
 function run_acceptance_replica_replication_slow_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/slow'); do
+    if ! go test -timeout=30m -count 1 -race "$pkg"; then
+      echo "Test for $pkg failed" >&2
+      return 1
+    fi
+  done
+}
+
+function run_acceptance_replica_replication_large_tests() {
+  for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/large'); do
     if ! go test -timeout=30m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
