@@ -158,7 +158,6 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	}
 
 	// Choose other node as the target node
-	var otherNode string
 	var sourceNode string
 	var targetNode string
 	for _, shard := range shardingState.Payload.ShardingState.Shards {
@@ -166,15 +165,13 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 			continue
 		}
 		sourceNode = shard.Replicas[0]                                 // Take the first (of two) replica as the source node
-		otherNode = shard.Replicas[1]                                  // The second replica is the other node
 		targetNode = symmetricDifference(nodeNames, shard.Replicas)[0] // Choose the other node as the target
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	t.Logf("Starting data mutation in background targeting %s", nodeToAddress[otherNode])
-	helper.SetupClient(nodeToAddress[otherNode]) // Avoid hitting source node with mutations
-	go mutateData(t, ctx, helper.Client(t), cls.Class, tenantName, 100)
+	t.Logf("Starting data mutation in background targeting ")
+	go mutateData(t, ctx, helper.Client(t), cls.Class, tenantName, 100, nodeToAddress)
 
 	// Start replication
 	t.Logf("Starting %s replication for tenant %s from node %s to target node %s", replicationType, tenantName, sourceNode, targetNode)
@@ -230,13 +227,20 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	}
 }
 
-func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, className string, tenantName string, wait int) {
+func mutateData(t *testing.T, ctx context.Context, client *client.Weaviate, className string, tenantName string, wait int, nodeToAddress map[string]string) {
 	for {
 		select {
 		case <-ctx.Done():
 			t.Log("Mutation context done, stopping data mutation")
 			return
 		default:
+			// Select a random node to mutate data to on this iteration
+			nodeNames := make([]string, 0, len(nodeToAddress))
+			for node := range nodeToAddress {
+				nodeNames = append(nodeNames, node)
+			}
+			helper.SetupClient(nodeToAddress[random(nodeNames, 1)[0]])
+
 			// Add some new objects
 			randAdd := rand.Intn(20) + 1
 			btch := make([]*models.Object, randAdd)
