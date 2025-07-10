@@ -307,6 +307,7 @@ func (u *UserConfig) validate(defaultCompression *configRuntime.DynamicValue[str
 	if u.RQ.Enabled {
 		enabled++
 	}
+<<<<<<< HEAD
 	compression := defaultCompression.Get()
 	if enabled == 2 && compression != "" && compression != vectorIndexCommon.NoCompression {
 		switch compression {
@@ -318,6 +319,19 @@ func (u *UserConfig) validate(defaultCompression *configRuntime.DynamicValue[str
 			u.SQ.Enabled = false
 		case vectorIndexCommon.CompressionRQ:
 			u.RQ.Enabled = false
+=======
+	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
+	if enabled == 2 && defaultCompression != "" {
+		switch defaultCompression {
+		case CompressionBQ:
+			u.BQ.Enabled = DefaultBQEnabled
+		case CompressionPQ:
+			u.PQ.Enabled = DefaultPQEnabled
+		case CompressionSQ:
+			u.SQ.Enabled = DefaultSQEnabled
+		case CompressionRQ:
+			u.RQ.Enabled = DefaultRQEnabled
+>>>>>>> 8610e9d92b (check number of quantization algorithms enabled)
 		}
 		enabled--
 	}
