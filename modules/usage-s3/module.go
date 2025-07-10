@@ -92,12 +92,25 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 		return err
 	}
 
-	logger.WithFields(map[string]interface{}{
+	// Build log fields, omitting empty values for cleaner output
+	logFields := map[string]interface{}{
 		"node_id":             config.Cluster.Hostname,
-		"collection_interval": config.Usage.ScrapeInterval.Get(),
-		"s3_bucket":           config.Usage.S3Bucket.Get(),
-		"s3_prefix":           config.Usage.S3Prefix.Get(),
-	}).Info("initializing usage-s3 module with configuration")
+		"collection_interval": config.Usage.ScrapeInterval.Get().String(),
+	}
+
+	if bucket := config.Usage.S3Bucket.Get(); bucket != "" {
+		logFields["s3_bucket"] = bucket
+	} else if config.RuntimeOverrides.Enabled {
+		logFields["s3_bucket"] = "[pending runtime overrides]"
+	}
+
+	if prefix := config.Usage.S3Prefix.Get(); prefix != "" {
+		logFields["s3_prefix"] = prefix
+	} else if config.RuntimeOverrides.Enabled {
+		logFields["s3_prefix"] = "[pending runtime overrides]"
+	}
+
+	logger.WithFields(logFields).Info("initializing usage-s3 module with configuration")
 
 	return nil
 }

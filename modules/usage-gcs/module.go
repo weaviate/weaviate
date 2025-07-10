@@ -92,12 +92,25 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 		return err
 	}
 
-	logger.WithFields(map[string]interface{}{
+	// Build log fields, omitting empty values for cleaner output
+	logFields := map[string]interface{}{
 		"node_id":             config.Cluster.Hostname,
-		"collection_interval": config.Usage.ScrapeInterval.Get(),
-		"gcs_bucket":          config.Usage.GCSBucket.Get(),
-		"gcs_prefix":          config.Usage.GCSPrefix.Get(),
-	}).Info("initializing usage-gcs module with configuration")
+		"collection_interval": config.Usage.ScrapeInterval.Get().String(),
+	}
+
+	if bucket := config.Usage.GCSBucket.Get(); bucket != "" {
+		logFields["gcs_bucket"] = bucket
+	} else if config.RuntimeOverrides.Enabled {
+		logFields["gcs_bucket"] = "[pending runtime overrides]"
+	}
+
+	if prefix := config.Usage.GCSPrefix.Get(); prefix != "" {
+		logFields["gcs_prefix"] = prefix
+	} else if config.RuntimeOverrides.Enabled {
+		logFields["gcs_prefix"] = "[pending runtime overrides]"
+	}
+
+	logger.WithFields(logFields).Info("initializing usage-gcs module with configuration")
 
 	return nil
 }
