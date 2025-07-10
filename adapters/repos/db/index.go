@@ -863,9 +863,11 @@ func (i *Index) replicationEnabled() bool {
 }
 
 func (i *Index) shardHasMultipleReplicasWrite(shardName string) bool {
+	// if replication is enabled, we always have multiple replicas
 	if i.replicationEnabled() {
 		return true
 	}
+	// if the router is nil, preserve previous behavior by returning false
 	if i.router == nil {
 		return false
 	}
@@ -873,14 +875,18 @@ func (i *Index) shardHasMultipleReplicasWrite(shardName string) bool {
 	if err != nil {
 		return false
 	}
+	// we're including additional replicas here to make sure we at least try to push the write
+	// to them if they exist
 	allReplicas := append(replicas.NodeNames(), additionalReplicas.NodeNames()...)
 	return len(allReplicas) > 1
 }
 
 func (i *Index) shardHasMultipleReplicasRead(shardName string) bool {
+	// if replication is enabled, we always have multiple replicas
 	if i.replicationEnabled() {
 		return true
 	}
+	// if the router is nil, preserve previous behavior by returning false
 	if i.router == nil {
 		return false
 	}
@@ -891,6 +897,7 @@ func (i *Index) shardHasMultipleReplicasRead(shardName string) bool {
 	return len(replicas.NodeNames()) > 1
 }
 
+// anyShardHasMultipleReplicasRead returns true if any of the shards has multiple replicas
 func (i *Index) anyShardHasMultipleReplicasRead(shardNames []string) bool {
 	if i.replicationEnabled() {
 		return true
@@ -916,6 +923,8 @@ const (
 // The caller should always call the release function.
 func (i *Index) getShardForDirectLocalOperation(ctx context.Context, shardName string, operation localShardOperation) (ShardLike, func(), error) {
 	shard, release, err := i.GetShard(ctx, shardName)
+	// NOTE release should always be ok to call, even if there is an error or the shard is nil,
+	// see Index.getOptInitLocalShard for more details.
 	if err != nil {
 		return nil, release, err
 	}
@@ -943,6 +952,7 @@ func (i *Index) getShardForDirectLocalOperation(ctx context.Context, shardName s
 	}
 
 	// if the local node is not in the list of replicas, don't return the shard (but still allow the caller to release)
+	// we should not read/write from the local shard if the local node is not in the list of replicas (eg we should use the remote)
 	if !slices.Contains(replicaSet.NodeNames(), i.replicator.LocalNodeName()) {
 		return nil, release, nil
 	}
