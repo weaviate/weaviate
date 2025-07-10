@@ -131,21 +131,36 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	)
 	require.Nil(t, err)
 
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	t.Log("Starting data mutation in background")
-	go mutateData(t, ctx, helper.Client(t), cls.Class, tenantName, 100)
+	verbose := verbosity.OutputVerbose
+	ns, err = helper.Client(t).Nodes.NodesGetClass(
+		nodes.NewNodesGetClassParams().WithClassName(cls.Class).WithOutput(&verbose),
+		nil,
+	)
+	require.Nil(t, err)
+
+	nodeToAddress := map[string]string{}
+	for idx, node := range ns.Payload.Nodes {
+		nodeToAddress[node.Name] = compose.GetWeaviateNode(idx + 1).URI()
+	}
 
 	// Choose other node as the target node
-	var targetNode string
+	var otherNode string
 	var sourceNode string
+	var targetNode string
 	for _, shard := range shardingState.Payload.ShardingState.Shards {
 		if shard.Shard != tenantName {
 			continue
 		}
 		sourceNode = shard.Replicas[0]                                 // Take the first (of two) replica as the source node
+		otherNode = shard.Replicas[1]                                  // The second replica is the other node
 		targetNode = symmetricDifference(nodeNames, shard.Replicas)[0] // Choose the other node as the target
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	t.Logf("Starting data mutation in background targeting %s", nodeToAddress[otherNode])
+	helper.SetupClient(nodeToAddress[otherNode]) // Avoid hitting source node with mutations
+	go mutateData(t, ctx, helper.Client(t), cls.Class, tenantName, 0)
 
 	// Start replication
 	t.Logf("Starting %s replication for tenant %s from node %s to target node %s", replicationType, tenantName, sourceNode, targetNode)
@@ -180,18 +195,6 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 
 	// Verify that shards all have consistent data
 	t.Log("Verifying data consistency of tenant")
-
-	verbose := verbosity.OutputVerbose
-	ns, err = helper.Client(t).Nodes.NodesGetClass(
-		nodes.NewNodesGetClassParams().WithClassName(cls.Class).WithOutput(&verbose),
-		nil,
-	)
-	require.Nil(t, err)
-
-	nodeToAddress := map[string]string{}
-	for idx, node := range ns.Payload.Nodes {
-		nodeToAddress[node.Name] = compose.GetWeaviateNode(idx + 1).URI()
-	}
 
 	objectCountByReplica := make(map[string]int64)
 	for node, address := range nodeToAddress {
