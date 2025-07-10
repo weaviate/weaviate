@@ -204,7 +204,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	cancel() // stop mutating to allow the verification to proceed
 
 	t.Log("Waiting for a while to ensure all data is replicated")
-	time.Sleep(time.Minute) // Wait a bit to ensure all data is replicated
+	time.Sleep(10 * time.Second) // Wait a bit to ensure all data is replicated
 
 	// Verify that shards all have consistent data
 	t.Log("Verifying data consistency of tenant")
