@@ -15,12 +15,14 @@ import (
 	"context"
 	"fmt"
 	"slices"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/weaviate/weaviate/cluster/replication/metrics"
 	"github.com/weaviate/weaviate/cluster/schema"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	"github.com/weaviate/weaviate/usecases/sharding"
 
 	"github.com/cenkalti/backoff/v4"
 	"github.com/pkg/errors"
@@ -637,9 +639,9 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 		return api.ShardReplicationState(""), ctx.Err()
 	}
 
-	if !slices.Contains(nodes, op.Op.TargetShard.NodeId) {
+	if !replicaExists {
 		if _, err := c.leaderClient.ReplicationAddReplicaToShard(ctx, op.Op.TargetShard.CollectionId, op.Op.TargetShard.ShardId, op.Op.TargetShard.NodeId, op.Op.ID); err != nil {
-			if replicaExists {
+			if strings.Contains(err.Error(), sharding.ErrReplicaAlreadyExists.Error()) {
 				// The replica already exists, this is not an error and it got updated after our sanity check
 				// due to eventual consistency of the sharding state.
 				logger.Debug("replica already exists, skipping")
