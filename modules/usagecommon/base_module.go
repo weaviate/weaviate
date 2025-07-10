@@ -123,9 +123,9 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 	}
 
 	b.logger.WithFields(logrus.Fields{
-		"base_interval":  b.interval,
-		"load_interval":  loadInterval,
-		"default_jitter": DefaultJitterInterval,
+		"base_interval":  b.interval.String(),
+		"load_interval":  loadInterval.String(),
+		"default_jitter": DefaultJitterInterval.String(),
 	}).Debug("starting periodic collection with ticker")
 
 	// Create ticker with base interval
@@ -136,7 +136,7 @@ func (b *BaseModule) collectAndUploadPeriodically(ctx context.Context) {
 	defer loadTicker.Stop()
 
 	b.logger.WithFields(logrus.Fields{
-		"interval":       b.interval,
+		"interval":       b.interval.String(),
 		"ticker_created": time.Now(),
 		"next_fire":      time.Now().Add(b.interval),
 	}).Debug("ticker created successfully, entering main loop")
@@ -218,8 +218,8 @@ func (b *BaseModule) reloadConfig(ticker *time.Ticker) {
 	// Check for interval updates
 	if interval := b.config.Usage.ScrapeInterval.Get(); interval > 0 && b.interval != interval {
 		b.logger.WithFields(logrus.Fields{
-			"old_interval": b.interval,
-			"new_interval": interval,
+			"old_interval": b.interval.String(),
+			"new_interval": interval.String(),
 		}).Info("collection interval updated")
 		b.interval = interval
 		// Reset ticker with new interval
