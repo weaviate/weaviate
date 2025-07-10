@@ -649,7 +649,6 @@ func (i *Index) updateReplicationConfig(ctx context.Context, cfg *models.Replica
 
 	i.Config.ReplicationFactor = cfg.Factor
 	i.Config.DeletionStrategy = cfg.DeletionStrategy
-	// TODO use router?
 	i.Config.AsyncReplicationEnabled = cfg.AsyncEnabled && i.Config.ReplicationFactor > 1 && !i.asyncReplicationGloballyDisabled()
 
 	err := i.ForEachLoadedShard(func(name string, shard ShardLike) error {
@@ -796,7 +795,6 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
-	// TODO we could pass routing plan/router through into PutObject, maybe as part of salvatorre refactor?
 	if i.shardHasMultipleReplicas(shardName) {
 		cl := types.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
@@ -805,13 +803,13 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 		return nil
 	}
 
-	// no replication, remote shard (or local not yet inited)
 	shard, release, err := i.getShardForDirectLocalOperation(ctx, shardName, localShardOperationWrite)
 	defer release()
 	if err != nil {
 		return err
 	}
 
+	// no replication, remote shard (or local not yet inited)
 	if shard == nil {
 		if err := i.remote.PutObject(ctx, shardName, object, schemaVersion); err != nil {
 			return fmt.Errorf("put remote object: shard=%q: %w", shardName, err)
@@ -891,73 +889,6 @@ func (i *Index) anyShardHasMultipleReplicas(shardNames []string) bool {
 	return false
 }
 
-// getShardForDirectLocalWrite returns a shard if it can be written to locally, and a release function to release the shard.
-// If the caller should not write to the local shard directly, the returned shard will be nil.
-// The caller should always call the release function.
-// func (i *Index) getShardForDirectLocalWrite(ctx context.Context, shardName string) (ShardLike, func(), error) {
-// 	shard, release, err := i.GetShard(ctx, shardName)
-// 	if err != nil {
-// 		return nil, release, err
-// 	}
-
-// 	// if the router is nil, just use the default behavior
-// 	if i.router == nil {
-// 		return shard, release, nil
-// 	}
-
-// 	// if we can't get the replicas, just use the default behavior
-// 	replicas, additionalReplicas, err := i.router.GetWriteReplicasLocation(i.Config.ClassName.String(), shardName)
-// 	if err != nil {
-// 		return shard, release, nil
-// 	}
-
-// 	// if the local node is not in the list of replicas, don't return the shard (but still allow the caller to release)
-// 	if !slices.Contains(replicas.NodeNames(), i.replicator.LocalNodeName()) {
-// 		fmt.Println("NATEE getShardForDirectLocalWrite local node is not in the list of replicas")
-// 		return nil, release, nil
-// 	}
-
-// 	return shard, release, nil
-// }
-
-// // getShardForDirectLocalRead returns a shard if it can be read from locally, and a release function to release the shard.
-// // If the caller should not read from the local shard directly, the returned shard will be nil.
-// // The caller should always call the release function.
-// func (i *Index) getShardForDirectLocalRead(ctx context.Context, shardName string) (ShardLike, func(), error) {
-// 	shard, release, err := i.GetShard(ctx, shardName)
-// 	if err != nil {
-// 		fmt.Println("NATEE getShardForDirectLocalRead error", err)
-// 		return nil, release, err
-// 	}
-
-// 	// if the router is nil, just use the default behavior
-// 	if i.router == nil {
-// 		fmt.Println("NATEE getShardForDirectLocalRead router is nil")
-// 		return shard, release, nil
-// 	}
-
-// 	// if we can't get the replicas, just use the default behavior
-// 	replicas, err := i.router.GetReadReplicasLocation(i.Config.ClassName.String(), shardName)
-// 	if err != nil {
-// 		fmt.Println("NATEE getShardForDirectLocalRead GetReadReplicasLocation error", err)
-// 		return shard, release, nil
-// 	}
-// 	// TODO maybe we should actually just check if we CAN use the local replica for read instead, is it always this or remote?
-
-// 	// check if the only read replica is the local replica
-// 	// shardHasOnlyLocalReplicaRead := len(replicas.NodeNames()) == 1 &&
-// 	// 	replicas.NodeNames()[0] == i.replicator.LocalNodeName()
-
-// 	// if the local node is not in the list of replicas, don't return the shard (but still allow the caller to release)
-// 	if !slices.Contains(replicas.NodeNames(), i.replicator.LocalNodeName()) {
-// 		fmt.Println("NATEE getShardForDirectLocalRead local node is not in the list of replicas")
-// 		return nil, release, nil
-// 	}
-
-// 	fmt.Println("NATEE getShardForDirectLocalRead shardHasOnlyLocalReplicaRead is true")
-// 	return shard, release, nil
-// }
-
 type localShardOperation string
 
 const (
@@ -965,6 +896,10 @@ const (
 	localShardOperationRead  localShardOperation = "read"
 )
 
+// getShardForDirectLocalOperation is used to try to get a shard for a local read/write operation.
+// It will return the shard if it is found, and a release function to release the shard.
+// The shard will be nil if the shard is not found, or if the local shard should not be used.
+// The caller should always call the release function.
 func (i *Index) getShardForDirectLocalOperation(ctx context.Context, shardName string, operation localShardOperation) (ShardLike, func(), error) {
 	shard, release, err := i.GetShard(ctx, shardName)
 	if err != nil {
@@ -1004,7 +939,6 @@ func (i *Index) asyncReplicationEnabled() bool {
 	i.replicationConfigLock.RLock()
 	defer i.replicationConfigLock.RUnlock()
 
-	// TODO use router?
 	return i.Config.ReplicationFactor > 1 && i.Config.AsyncReplicationEnabled && !i.asyncReplicationGloballyDisabled()
 }
 
@@ -1167,9 +1101,7 @@ func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 				defer release()
 				if err != nil {
 					errs = []error{err}
-				}
-
-				if shard != nil {
+				} else if shard != nil {
 					i.shardTransferMutex.RLockGuard(func() error {
 						errs = shard.PutObjectBatch(ctx, group.objects)
 						return nil
@@ -1266,14 +1198,13 @@ func (i *Index) AddReferencesBatch(ctx context.Context, refs objects.BatchRefere
 		if i.shardHasMultipleReplicas(shardName) {
 			errs = i.replicator.AddReferences(ctx, shardName, group.refs, types.ConsistencyLevel(replProps.ConsistencyLevel), schemaVersion)
 		} else {
+			// anonymous function to ensure that the shard is released after each loop iteration
 			func() {
 				shard, release, err := i.getShardForDirectLocalOperation(ctx, shardName, localShardOperationWrite)
 				defer release()
 				if err != nil {
 					errs = duplicateErr(err, len(group.refs))
-				}
-
-				if shard != nil {
+				} else if shard != nil {
 					i.shardTransferMutex.RLockGuard(func() error {
 						errs = shard.AddReferencesBatch(ctx, group.refs)
 						return nil
@@ -1436,9 +1367,7 @@ func (i *Index) multiObjectByID(ctx context.Context,
 		defer release()
 		if err != nil {
 			return nil, err
-		}
-
-		if shard != nil {
+		} else if shard != nil {
 			objects, err = shard.MultiObjectByID(ctx, group.ids)
 			if err != nil {
 				return nil, errors.Wrapf(err, "local shard %s", shardId(i.ID(), shardName))
@@ -2136,13 +2065,13 @@ func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 		return nil
 	}
 
-	// no replication, remote shard (or local not yet inited)
 	shard, release, err := i.getShardForDirectLocalOperation(ctx, shardName, localShardOperationWrite)
 	defer release()
 	if err != nil {
 		return err
 	}
 
+	// no replication, remote shard (or local not yet inited)
 	if shard == nil {
 		if err := i.remote.DeleteObject(ctx, shardName, id, deletionTime, schemaVersion); err != nil {
 			return fmt.Errorf("delete remote object: shard=%q: %w", shardName, err)
@@ -2343,13 +2272,13 @@ func (i *Index) mergeObject(ctx context.Context, merge objects.MergeDocument,
 		return nil
 	}
 
-	// no replication, remote shard (or local not yet inited)
 	shard, release, err := i.getShardForDirectLocalOperation(ctx, shardName, localShardOperationWrite)
 	defer release()
 	if err != nil {
 		return err
 	}
 
+	// no replication, remote shard (or local not yet inited)
 	if shard == nil {
 		if err := i.remote.MergeObject(ctx, shardName, merge, schemaVersion); err != nil {
 			return fmt.Errorf("update remote object: shard=%q: %w", shardName, err)
@@ -2399,9 +2328,9 @@ func (i *Index) aggregate(ctx context.Context,
 		var err error
 		var res *aggregation.Result
 
-		// anonymous func is here to ensure release is executed after each loop iteration
 		var shard ShardLike
 		var release func()
+		// anonymous func is here to ensure release is executed after each loop iteration
 		func() {
 			shard, release, err = i.getShardForDirectLocalOperation(ctx, shardName, localShardOperationRead)
 			defer release()
