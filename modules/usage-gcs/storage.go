@@ -83,7 +83,6 @@ func (g *GCSStorage) VerifyPermissions(ctx context.Context) error {
 	g.LogVerificationStart()
 
 	if g.IsLocalhostEnvironment() {
-		g.LogVerificationSkipped("emulator environment")
 		return nil
 	}
 

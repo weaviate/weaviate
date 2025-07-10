@@ -210,17 +210,57 @@ func TestGCSStorage_UpdateConfig(t *testing.T) {
 	assert.False(t, changed)
 }
 
-func TestParseUsageConfig(t *testing.T) {
+func TestParseGCSConfig(t *testing.T) {
 	tests := []struct {
 		name    string
 		envVars map[string]string
 		wantErr bool
 	}{
 		{
-			name: "all environment variables set",
+			name: "all GCS environment variables set",
 			envVars: map[string]string{
-				"USAGE_GCS_BUCKET":      "test-bucket",
-				"USAGE_GCS_PREFIX":      "test-prefix",
+				"USAGE_GCS_BUCKET": "test-bucket",
+				"USAGE_GCS_PREFIX": "test-prefix",
+			},
+			wantErr: false,
+		},
+		{
+			name:    "no environment variables",
+			envVars: map[string]string{},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set environment variables
+			for k, v := range tt.envVars {
+				t.Setenv(k, v)
+			}
+
+			config := &config.Config{
+				Usage: config.UsageConfig{},
+			}
+
+			err := parseGCSConfig(config)
+			if tt.wantErr {
+				assert.Error(t, err)
+			} else {
+				assert.NoError(t, err)
+			}
+		})
+	}
+}
+
+func TestParseCommonUsageConfig(t *testing.T) {
+	tests := []struct {
+		name    string
+		envVars map[string]string
+		wantErr bool
+	}{
+		{
+			name: "all common environment variables set",
+			envVars: map[string]string{
 				"USAGE_SCRAPE_INTERVAL": "2h",
 				"USAGE_POLICY_VERSION":  "2025-06-01",
 			},
@@ -229,7 +269,6 @@ func TestParseUsageConfig(t *testing.T) {
 		{
 			name: "invalid scrape interval",
 			envVars: map[string]string{
-				"USAGE_GCS_BUCKET":      "test-bucket",
 				"USAGE_SCRAPE_INTERVAL": "invalid-duration",
 			},
 			wantErr: true,
@@ -252,7 +291,7 @@ func TestParseUsageConfig(t *testing.T) {
 				Usage: config.UsageConfig{},
 			}
 
-			err := parseUsageConfig(config)
+			err := common.ParseCommonUsageConfig(config)
 			if tt.wantErr {
 				assert.Error(t, err)
 			} else {

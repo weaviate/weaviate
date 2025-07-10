@@ -66,7 +66,6 @@ func (s *S3Storage) VerifyPermissions(ctx context.Context) error {
 	s.LogVerificationStart()
 
 	if s.IsLocalhostEnvironment() {
-		s.LogVerificationSkipped("localhost environment")
 		return nil
 	}
 

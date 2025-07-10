@@ -20,9 +20,11 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/usage/types"
+	"github.com/weaviate/weaviate/usecases/config"
+	"github.com/weaviate/weaviate/usecases/config/runtime"
 )
 
-// BaseStorage contains common fields and methods for all storage backends
+// BaseStorage provides common functionality for all storage backends
 type BaseStorage struct {
 	BucketName string
 	Prefix     string
@@ -39,12 +41,7 @@ func NewBaseStorage(logger logrus.FieldLogger, metrics *Metrics) *BaseStorage {
 	}
 }
 
-// IsLocalhostEnvironment checks if we're running in a localhost/emulator environment
-func (b *BaseStorage) IsLocalhostEnvironment() bool {
-	return os.Getenv("CLUSTER_IN_LOCALHOST") != ""
-}
-
-// ConstructObjectKey builds the full object key with prefix and nodeID
+// ConstructObjectKey creates the full object key path for storage
 func (b *BaseStorage) ConstructObjectKey() string {
 	now := time.Now().UTC()
 	timestamp := time.Date(now.Year(), now.Month(), now.Day(), now.Hour(), now.Minute(), 0, 0, time.UTC).Format("2006-01-02T15-04-05Z")
@@ -66,7 +63,7 @@ func (b *BaseStorage) MarshalUsageData(usage *types.Report) ([]byte, error) {
 	return data, nil
 }
 
-// UpdateCommonConfig handles common configuration updates
+// UpdateCommonConfig updates common configuration fields and returns whether anything changed
 func (b *BaseStorage) UpdateCommonConfig(config StorageConfig) bool {
 	changed := false
 
@@ -92,11 +89,20 @@ func (b *BaseStorage) UpdateCommonConfig(config StorageConfig) bool {
 
 	// Check for nodeID changes
 	if config.NodeID != "" && b.NodeID != config.NodeID {
+		b.Logger.WithFields(logrus.Fields{
+			"old_node_id": b.NodeID,
+			"new_node_id": config.NodeID,
+		}).Info("node ID updated")
 		b.NodeID = config.NodeID
 		changed = true
 	}
 
 	return changed
+}
+
+// IsLocalhostEnvironment checks if running in localhost/emulator mode
+func (b *BaseStorage) IsLocalhostEnvironment() bool {
+	return os.Getenv("CLUSTER_IN_LOCALHOST") != ""
 }
 
 // LogVerificationStart logs the start of permission verification
@@ -108,23 +114,16 @@ func (b *BaseStorage) LogVerificationStart() {
 	}).Info("")
 }
 
-// LogVerificationSkipped logs when verification is skipped for localhost
-func (b *BaseStorage) LogVerificationSkipped(reason string) {
-	b.Logger.WithFields(logrus.Fields{
-		"reason": reason,
-	}).Info("bucket access verification ignored")
-}
-
 // LogVerificationSuccess logs successful permission verification
-func (b *BaseStorage) LogVerificationSuccess(additionalFields ...logrus.Fields) {
+func (b *BaseStorage) LogVerificationSuccess(extraFields ...logrus.Fields) {
 	fields := logrus.Fields{
 		"bucket": b.BucketName,
 		"prefix": b.Prefix,
 	}
 
-	// Merge additional fields if provided
-	for _, additional := range additionalFields {
-		for k, v := range additional {
+	// Merge any extra fields provided
+	for _, extra := range extraFields {
+		for k, v := range extra {
 			fields[k] = v
 		}
 	}
@@ -132,7 +131,25 @@ func (b *BaseStorage) LogVerificationSuccess(additionalFields ...logrus.Fields) 
 	b.Logger.WithFields(fields).Info("permissions verified successfully")
 }
 
-// RecordUploadMetrics updates the uploaded file size metric
+// RecordUploadMetrics records upload metrics
 func (b *BaseStorage) RecordUploadMetrics(dataSize int) {
-	b.Metrics.UploadedFileSize.Set(float64(dataSize))
+	if b.Metrics != nil && b.Metrics.UploadedFileSize != nil {
+		b.Metrics.UploadedFileSize.Set(float64(dataSize))
+	}
+}
+
+// ParseCommonUsageConfig parses common environment variables shared by all usage modules
+func ParseCommonUsageConfig(config *config.Config) error {
+	// Parse common environment variables that both S3 and GCS modules use
+	if v := os.Getenv("USAGE_SCRAPE_INTERVAL"); v != "" {
+		duration, err := time.ParseDuration(v)
+		if err != nil {
+			return fmt.Errorf("invalid %s: %w", "USAGE_SCRAPE_INTERVAL", err)
+		}
+		config.Usage.ScrapeInterval = runtime.NewDynamicValue(duration)
+	}
+	if v := os.Getenv("USAGE_POLICY_VERSION"); v != "" {
+		config.Usage.PolicyVersion = runtime.NewDynamicValue(v)
+	}
+	return nil
 }

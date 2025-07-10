@@ -24,6 +24,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/weaviate/weaviate/entities/moduletools"
+	common "github.com/weaviate/weaviate/modules/usagecommon"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
@@ -321,15 +322,45 @@ func TestModule_SetUsageService(t *testing.T) {
 	assert.NotNil(t, m.BaseModule)
 }
 
-func TestParseUsageConfig(t *testing.T) {
-	t.Run("all environment variables set", func(t *testing.T) {
+func TestParseS3Config(t *testing.T) {
+	t.Run("all S3 environment variables set", func(t *testing.T) {
 		os.Setenv("USAGE_S3_BUCKET", "env-bucket")
 		os.Setenv("USAGE_S3_PREFIX", "env-prefix")
-		os.Setenv("USAGE_SCRAPE_INTERVAL", "15m")
-		os.Setenv("USAGE_POLICY_VERSION", "2025-06-01")
 		defer func() {
 			os.Unsetenv("USAGE_S3_BUCKET")
 			os.Unsetenv("USAGE_S3_PREFIX")
+		}()
+
+		config := &config.Config{
+			Usage: config.UsageConfig{},
+		}
+
+		err := parseS3Config(config)
+		require.NoError(t, err)
+
+		assert.Equal(t, "env-bucket", config.Usage.S3Bucket.Get())
+		assert.Equal(t, "env-prefix", config.Usage.S3Prefix.Get())
+	})
+
+	t.Run("no environment variables set", func(t *testing.T) {
+		config := &config.Config{
+			Usage: config.UsageConfig{},
+		}
+
+		err := parseS3Config(config)
+		require.NoError(t, err)
+
+		// Should be nil when not set
+		assert.Nil(t, config.Usage.S3Bucket)
+		assert.Nil(t, config.Usage.S3Prefix)
+	})
+}
+
+func TestParseCommonUsageConfig(t *testing.T) {
+	t.Run("all common environment variables set", func(t *testing.T) {
+		os.Setenv("USAGE_SCRAPE_INTERVAL", "15m")
+		os.Setenv("USAGE_POLICY_VERSION", "2025-06-01")
+		defer func() {
 			os.Unsetenv("USAGE_SCRAPE_INTERVAL")
 			os.Unsetenv("USAGE_POLICY_VERSION")
 		}()
@@ -338,11 +369,9 @@ func TestParseUsageConfig(t *testing.T) {
 			Usage: config.UsageConfig{},
 		}
 
-		err := parseUsageConfig(config)
+		err := common.ParseCommonUsageConfig(config)
 		require.NoError(t, err)
 
-		assert.Equal(t, "env-bucket", config.Usage.S3Bucket.Get())
-		assert.Equal(t, "env-prefix", config.Usage.S3Prefix.Get())
 		assert.Equal(t, 15*time.Minute, config.Usage.ScrapeInterval.Get())
 		assert.Equal(t, "2025-06-01", config.Usage.PolicyVersion.Get())
 	})
@@ -352,12 +381,10 @@ func TestParseUsageConfig(t *testing.T) {
 			Usage: config.UsageConfig{},
 		}
 
-		err := parseUsageConfig(config)
+		err := common.ParseCommonUsageConfig(config)
 		require.NoError(t, err)
 
 		// Should be nil when not set
-		assert.Nil(t, config.Usage.S3Bucket)
-		assert.Nil(t, config.Usage.S3Prefix)
 		assert.Nil(t, config.Usage.ScrapeInterval)
 		assert.Nil(t, config.Usage.PolicyVersion)
 	})
@@ -370,7 +397,7 @@ func TestParseUsageConfig(t *testing.T) {
 			Usage: config.UsageConfig{},
 		}
 
-		err := parseUsageConfig(config)
+		err := common.ParseCommonUsageConfig(config)
 		require.Error(t, err)
 		assert.Contains(t, err.Error(), "invalid USAGE_SCRAPE_INTERVAL")
 	})

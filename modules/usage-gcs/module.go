@@ -15,7 +15,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
@@ -53,7 +52,10 @@ func (m *module) Type() modulecapabilities.ModuleType {
 func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) error {
 	// Parse usage configuration from environment
 	config := params.GetConfig()
-	if err := parseUsageConfig(config); err != nil {
+	if err := common.ParseCommonUsageConfig(config); err != nil {
+		return err
+	}
+	if err := parseGCSConfig(config); err != nil {
 		return err
 	}
 
@@ -119,22 +121,12 @@ func (m *module) buildGCSConfig(config *config.Config) common.StorageConfig {
 	return storageConfig
 }
 
-func parseUsageConfig(config *config.Config) error {
+func parseGCSConfig(config *config.Config) error {
 	if v := os.Getenv("USAGE_GCS_BUCKET"); v != "" {
 		config.Usage.GCSBucket = runtime.NewDynamicValue(v)
 	}
 	if v := os.Getenv("USAGE_GCS_PREFIX"); v != "" {
 		config.Usage.GCSPrefix = runtime.NewDynamicValue(v)
-	}
-	if v := os.Getenv("USAGE_SCRAPE_INTERVAL"); v != "" {
-		duration, err := time.ParseDuration(v)
-		if err != nil {
-			return fmt.Errorf("invalid %s: %w", "USAGE_SCRAPE_INTERVAL", err)
-		}
-		config.Usage.ScrapeInterval = runtime.NewDynamicValue(duration)
-	}
-	if v := os.Getenv("USAGE_POLICY_VERSION"); v != "" {
-		config.Usage.PolicyVersion = runtime.NewDynamicValue(v)
 	}
 	return nil
 }
