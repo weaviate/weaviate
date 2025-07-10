@@ -121,6 +121,7 @@ type dynamic struct {
 	hnswSnapshotOnStartup   bool
 	hnswWaitForCachePrefill bool
 	LazyLoadSegments        bool
+	flatBQ                  bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -175,6 +176,7 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		hnswSnapshotOnStartup:   cfg.HNSWSnapshotOnStartup,
 		hnswWaitForCachePrefill: cfg.HNSWWaitForCachePrefill,
 		LazyLoadSegments:        cfg.LazyLoadSegments,
+		flatBQ:                  uc.FlatUC.BQ.Enabled,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
@@ -601,9 +603,17 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "update dynamic")
 	}
 
+	ctx := context.Background()
+	dynamic.index.Drop(ctx)
+	dynamic.index = index
 	dynamic.upgraded.Store(true)
+
+	dynamic.store.ShutdownBucket(ctx, dynamic.getBucketName())
 	os.RemoveAll(filepath.Join(dynamic.rootPath, "lsm", dynamic.getBucketName()))
-	os.RemoveAll(filepath.Join(dynamic.rootPath, "lsm", dynamic.getCompressedBucketName()))
+	if dynamic.flatBQ && !dynamic.hnswUC.BQ.Enabled {
+		dynamic.store.ShutdownBucket(ctx, dynamic.getCompressedBucketName())
+		os.RemoveAll(filepath.Join(dynamic.rootPath, "lsm", dynamic.getCompressedBucketName()))
+	}
 
 	return nil
 }
