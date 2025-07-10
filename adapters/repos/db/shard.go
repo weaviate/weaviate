@@ -225,11 +225,12 @@ type Shard struct {
 	queues        map[string]*VectorIndexQueue
 
 	// async replication
-	asyncReplicationRWMux      sync.RWMutex
-	asyncReplicationConfig     asyncReplicationConfig
-	hashtree                   hashtree.AggregatedHashTree
-	hashtreeFullyInitialized   bool
-	asyncReplicationCancelFunc context.CancelFunc
+	asyncReplicationRWMux           sync.RWMutex
+	asyncReplicationConfig          asyncReplicationConfig
+	hashtree                        hashtree.AggregatedHashTree
+	hashtreeFullyInitialized        bool
+	minimalHashtreeInitializationCh chan struct{}
+	asyncReplicationCancelFunc      context.CancelFunc
 
 	lastComparedHosts                 []string
 	lastComparedHostsMux              sync.RWMutex

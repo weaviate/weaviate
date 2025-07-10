@@ -127,10 +127,17 @@ func (s *Shard) mergeObjectInStorage(merge objects.MergeDocument,
 
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+
+		err := s.waitForMinimalHashTreeInitialization(context.Background())
+		if err != nil {
+			return err
+		}
+
 		lock.Lock()
 		defer lock.Unlock()
 
-		var err error
 		prevObj, err = fetchObject(bucket, idBytes)
 		if err != nil {
 			return errors.Wrap(err, "get bucket")
@@ -206,6 +213,14 @@ func (s *Shard) mutableMergeObjectLSM(merge objects.MergeDocument,
 ) (mutableMergeResult, error) {
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 	out := mutableMergeResult{}
+
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	err := s.waitForMinimalHashTreeInitialization(context.Background())
+	if err != nil {
+		return out, err
+	}
 
 	// see comment in shard_write_put.go::putObjectLSM
 	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
