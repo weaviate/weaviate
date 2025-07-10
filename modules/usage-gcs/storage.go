@@ -80,6 +80,11 @@ func (g *GCSStorage) VerifyPermissions(ctx context.Context) error {
 		return fmt.Errorf("storage client is not initialized")
 	}
 
+	// Check if bucket name is configured
+	if g.BucketName == "" {
+		return fmt.Errorf("GCS bucket name is not configured - cannot verify permissions")
+	}
+
 	g.LogVerificationStart()
 
 	if g.IsLocalhostEnvironment() {

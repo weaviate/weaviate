@@ -63,6 +63,11 @@ func (s *S3Storage) VerifyPermissions(ctx context.Context) error {
 		return fmt.Errorf("S3 client is not initialized")
 	}
 
+	// Check if bucket name is configured
+	if s.BucketName == "" {
+		return fmt.Errorf("S3 bucket name is not configured - cannot verify permissions")
+	}
+
 	s.LogVerificationStart()
 
 	if s.IsLocalhostEnvironment() {

@@ -80,18 +80,18 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	// Set nodeID directly during initialization
 	m.s3Storage.NodeID = config.Cluster.Hostname
 
-	// Create base module with S3 storage
-	m.BaseModule = common.NewBaseModule(Name, s3Storage)
-
-	// Initialize base module with metrics
-	if err := m.InitializeCommon(ctx, config, logger, metrics); err != nil {
-		return err
-	}
-
 	// Update S3 storage with initial configuration
 	storageConfig := m.buildS3Config(config)
 	if _, err := m.s3Storage.UpdateConfig(storageConfig); err != nil {
 		return fmt.Errorf("failed to configure S3 storage: %w", err)
+	}
+
+	// Create base module with S3 storage
+	m.BaseModule = common.NewBaseModule(Name, s3Storage)
+
+	// Initialize base module with metrics (this calls VerifyPermissions)
+	if err := m.InitializeCommon(ctx, config, logger, metrics); err != nil {
+		return err
 	}
 
 	logger.WithFields(map[string]interface{}{
