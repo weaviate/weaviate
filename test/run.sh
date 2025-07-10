@@ -14,6 +14,7 @@ function main() {
   run_acceptance_replication_tests=false
   run_acceptance_replica_replication_fast_tests=false
   run_acceptance_replica_replication_slow_tests=false
+  run_acceptance_replica_replication_large_tests=false
   run_acceptance_async_replication_tests=false
   run_acceptance_objects=false
   only_acceptance=false
