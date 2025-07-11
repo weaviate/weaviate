@@ -134,7 +134,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
 			Offset: 0,
-			Limit:  100,
+			Limit:  int(e.config.QueryDefaults.LimitGraphQL),
 		}
 	}
 
