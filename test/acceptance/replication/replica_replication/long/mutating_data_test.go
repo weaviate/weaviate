@@ -53,7 +53,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "30s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "40s").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
