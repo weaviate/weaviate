@@ -27,7 +27,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -258,8 +257,7 @@ type Index struct {
 
 	shardReindexer ShardReindexerV3
 
-	router      routerTypes.Router
-	readPlanner clusterRouter.ReadPlanner
+	router routerTypes.Router
 }
 
 func (i *Index) ID() string {
@@ -281,8 +279,7 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 	shardState *sharding.State, invertedIndexConfig schema.InvertedIndexConfig,
 	vectorIndexUserConfig schemaConfig.VectorIndexConfig,
 	vectorIndexUserConfigs map[string]schemaConfig.VectorIndexConfig,
-	router routerTypes.Router, readPlanner clusterRouter.ReadPlanner,
-	sg schemaUC.SchemaGetter, cs inverted.ClassSearcher, logger logrus.FieldLogger,
+	router routerTypes.Router, sg schemaUC.SchemaGetter, cs inverted.ClassSearcher, logger logrus.FieldLogger,
 	nodeResolver nodeResolver, remoteClient sharding.RemoteIndexClient,
 	replicaClient replica.Client,
 	globalReplicationConfig *replication.GlobalConfig,
@@ -327,7 +324,6 @@ func NewIndex(ctx context.Context, cfg IndexConfig,
 		shardLoadLimiter:        cfg.ShardLoadLimiter,
 		shardReindexer:          shardReindexer,
 		router:                  router,
-		readPlanner:             readPlanner,
 	}
 
 	getDeletionStrategy := func() string {
@@ -1529,7 +1525,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 		Tenant:           tenant,
 		ConsistencyLevel: cl,
 	}
-	readPlan, err := i.readPlanner.Plan(planOptions)
+	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
 	}
@@ -1878,7 +1874,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 		Tenant:           tenant,
 		ConsistencyLevel: cl,
 	}
-	readPlan, err := i.readPlanner.Plan(planOptions)
+	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
 	if err != nil {
 		return nil, nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
 	}
@@ -2346,7 +2342,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 		Tenant:           tenant,
 		ConsistencyLevel: cl,
 	}
-	readPlan, err := i.readPlanner.Plan(planOptions)
+	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
 	if err != nil {
 		return nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
 	}
