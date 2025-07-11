@@ -540,6 +540,11 @@ func CreateAliasWithAuthz(t *testing.T, alias *models.Alias, authInfo runtime.Cl
 	AssertRequestOk(t, resp, err, nil)
 }
 
+func CreateAliasAuth(t *testing.T, alias *models.Alias, key string) {
+	t.Helper()
+	CreateAliasWithAuthz(t, alias, CreateAuth(key))
+}
+
 func GetAliases(t *testing.T, className *string) *models.AliasResponse {
 	return GetAliasesWithAuthz(t, className, nil)
 }
