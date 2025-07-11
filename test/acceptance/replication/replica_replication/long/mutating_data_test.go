@@ -195,6 +195,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 			replication.NewReplicationDetailsParams().WithID(opId),
 			nil,
 		)
+		fmt.Println("NATEE state", res.Payload.Status.State)
 		require.Nil(t, err, "failed to get replication operation %s", opId)
 		assert.True(ct, res.Payload.Status.State == models.ReplicationReplicateDetailsReplicaStatusStateREADY, "replication operation not completed yet")
 	}, 300*time.Second, 5*time.Second, "replication operations did not complete in time")
