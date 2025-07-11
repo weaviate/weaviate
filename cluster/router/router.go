@@ -23,6 +23,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/objects"
+
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
 
 	"github.com/weaviate/weaviate/entities/models"
@@ -199,7 +201,7 @@ func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeN
 // validateTenant for a single-tenant router checks the tenant is empty and returns an error if it is not.
 func (r *singleTenantRouter) validateTenant(tenant string) error {
 	if tenant != "" {
-		return fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", r.collection)
+		return objects.NewErrMultiTenancy(fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", r.collection))
 	}
 	return nil
 }
@@ -414,7 +416,7 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 // validateTenant for a multi-tenant router checks the tenant is not empty and returns an error if it is.
 func (r *multiTenantRouter) validateTenant(tenant string) error {
 	if tenant == "" {
-		return fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", r.collection)
+		return objects.NewErrMultiTenancy(fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", r.collection))
 	}
 	return nil
 }
@@ -516,6 +518,9 @@ func (r *multiTenantRouter) tenantExistsAndIsActive(tenantStatus map[string]stri
 
 // BuildWriteRoutingPlan constructs a write routing plan for multi-tenant collections.
 func (r *multiTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
+	if err := r.validateTenant(params.Tenant); err != nil {
+		return types.WriteRoutingPlan{}, err
+	}
 	if params.Shard == "" {
 		params.Shard = params.Tenant
 	}
@@ -555,6 +560,9 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 
 // BuildReadRoutingPlan constructs a read routing plan for multi-tenant collections.
 func (r *multiTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
+	if err := r.validateTenant(params.Tenant); err != nil {
+		return types.ReadRoutingPlan{}, err
+	}
 	return r.buildReadRoutingPlan(params)
 }
 
