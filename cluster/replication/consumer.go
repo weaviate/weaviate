@@ -618,7 +618,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	// this time will be used to make sure async replication has propagated any writes which
 	// were received during the hydrating phase
-	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(5 * time.Second).UnixMilli()
+	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
 	overrides := newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
 	if err := c.startAsyncReplication(ctx, op, overrides, logger); err != nil {
 		return api.ShardReplicationState(""), err
