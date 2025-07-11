@@ -89,8 +89,8 @@ type Segment interface {
 	quantileKeys(q int) [][]byte
 	ReadOnlyTombstones() (*sroar.Bitmap, error)
 	replaceStratParseData(in []byte) ([]byte, []byte, error)
-	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
-	segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, bool, error)
+	roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool) (roaringset.BitmapLayer, func(), error)
+	roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool) error
 	storeBloomFilterOnDisk(path string) error
 	storeBloomFilterSecondaryOnDisk(path string, pos int) error
 	storeCountNetOnDisk() error

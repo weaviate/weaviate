@@ -344,14 +344,16 @@ func (s *lazySegment) replaceStratParseData(in []byte) ([]byte, []byte, error) {
 	return s.segment.replaceStratParseData(in)
 }
 
-func (s *lazySegment) roaringSetGet(key []byte) (roaringset.BitmapLayer, error) {
+func (s *lazySegment) roaringSetGet(key []byte, bitmapBufPool roaringset.BitmapBufPool,
+) (roaringset.BitmapLayer, func(), error) {
 	s.mustLoad()
-	return s.segment.roaringSetGet(key)
+	return s.segment.roaringSetGet(key, bitmapBufPool)
 }
 
-func (s *lazySegment) segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, bool, error) {
+func (s *lazySegment) roaringSetMergeWith(key []byte, input roaringset.BitmapLayer, bitmapBufPool roaringset.BitmapBufPool,
+) error {
 	s.mustLoad()
-	return s.segment.segmentNodeFromBuffer(offset)
+	return s.segment.roaringSetMergeWith(key, input, bitmapBufPool)
 }
 
 func (s *lazySegment) storeBloomFilterOnDisk(path string) error {
