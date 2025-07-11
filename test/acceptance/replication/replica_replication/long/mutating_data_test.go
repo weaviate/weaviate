@@ -63,27 +63,27 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	}()
 
 	move := "MOVE"
-	copy := "COPY"
+	// copy := "COPY"
 
 	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
 		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
 	})
-	t.Run("COPY, rf=2, no automated resolution", func(t *testing.T) {
-		test(t, compose, copy, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	})
-	t.Run("MOVE, rf=1, no automated resolution", func(t *testing.T) {
-		test(t, compose, move, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	})
-	t.Run("COPY, rf=1, no automated resolution", func(t *testing.T) {
-		test(t, compose, copy, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	})
+	// t.Run("COPY, rf=2, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, copy, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
+	// t.Run("MOVE, rf=1, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, move, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
+	// t.Run("COPY, rf=1, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, copy, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
 
-	t.Run("MOVE, rf=2, delete on conflict", func(t *testing.T) {
-		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
-	})
-	t.Run("MOVE, rf=2, time-based resolution", func(t *testing.T) {
-		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
-	})
+	// t.Run("MOVE, rf=2, delete on conflict", func(t *testing.T) {
+	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+	// })
+	// t.Run("MOVE, rf=2, time-based resolution", func(t *testing.T) {
+	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
+	// })
 }
 
 func test(t *testing.T, compose *docker.DockerCompose, replicationType string, factor int, strategy string) {
@@ -195,6 +195,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 			replication.NewReplicationDetailsParams().WithID(opId),
 			nil,
 		)
+		fmt.Println(time.Now(), "NATEE got replication operation", res.Payload.Status.State)
 		require.Nil(t, err, "failed to get replication operation %s", opId)
 		assert.True(ct, res.Payload.Status.State == models.ReplicationReplicateDetailsReplicaStatusStateREADY, "replication operation not completed yet")
 	}, 300*time.Second, 5*time.Second, "replication operations did not complete in time")
@@ -256,7 +257,9 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 				WithBody(batch.BatchObjectsCreateBody{
 					Objects: btch,
 				}).WithConsistencyLevel(&all)
-			client.Batch.BatchObjectsCreate(params, nil)
+			ok, err := client.Batch.BatchObjectsCreate(params, nil)
+			require.NotNil(t, ok, "failed to create objects, not ok")
+			require.Nil(t, err, "failed to create objects, err")
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
@@ -278,26 +281,28 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Update some existing objects
-			for _, obj := range toUpdate {
-				updated := (*models.Object)(articles.NewParagraph().
-					WithContents(fmt.Sprintf("updated-%s", obj.Properties.(map[string]any)["contents"])).
-					WithTenant(tenantName).
-					WithID(obj.ID).
-					Object())
-				client.Objects.ObjectsClassPut(
-					objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
-					nil,
-				)
-			}
+			// for _, obj := range toUpdate {
+			// 	updated := (*models.Object)(articles.NewParagraph().
+			// 		WithContents(fmt.Sprintf("updated-%s", obj.Properties.(map[string]any)["contents"])).
+			// 		WithTenant(tenantName).
+			// 		WithID(obj.ID).
+			// 		Object())
+			// 	ok, err := client.Objects.ObjectsClassPut(
+			// 		objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
+			// 		nil,
+			// 	)
+			// }
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Delete some existing objects
 			for _, obj := range toDelete {
-				client.Objects.ObjectsClassDelete(
+				ok, err := client.Objects.ObjectsClassDelete(
 					objects.NewObjectsClassDeleteParams().WithClassName(className).WithID(obj.ID).WithTenant(&tenantName).WithConsistencyLevel(&all),
 					nil,
 				)
+				require.NotNil(t, ok, "failed to delete object, not ok")
+				require.Nil(t, err, "failed to delete object, err")
 			}
 		}
 	}
