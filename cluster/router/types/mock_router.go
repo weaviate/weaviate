@@ -75,6 +75,62 @@ func (_c *MockRouter_AllHostnames_Call) RunAndReturn(run func() []string) *MockR
 	return _c
 }
 
+// BuildReadRoutingPlan provides a mock function with given fields: params
+func (_m *MockRouter) BuildReadRoutingPlan(params RoutingPlanBuildOptions) (ReadRoutingPlan, error) {
+	ret := _m.Called(params)
+
+	if len(ret) == 0 {
+		panic("no return value specified for BuildReadRoutingPlan")
+	}
+
+	var r0 ReadRoutingPlan
+	var r1 error
+	if rf, ok := ret.Get(0).(func(RoutingPlanBuildOptions) (ReadRoutingPlan, error)); ok {
+		return rf(params)
+	}
+	if rf, ok := ret.Get(0).(func(RoutingPlanBuildOptions) ReadRoutingPlan); ok {
+		r0 = rf(params)
+	} else {
+		r0 = ret.Get(0).(ReadRoutingPlan)
+	}
+
+	if rf, ok := ret.Get(1).(func(RoutingPlanBuildOptions) error); ok {
+		r1 = rf(params)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockRouter_BuildReadRoutingPlan_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'BuildReadRoutingPlan'
+type MockRouter_BuildReadRoutingPlan_Call struct {
+	*mock.Call
+}
+
+// BuildReadRoutingPlan is a helper method to define mock.On call
+//   - params RoutingPlanBuildOptions
+func (_e *MockRouter_Expecter) BuildReadRoutingPlan(params interface{}) *MockRouter_BuildReadRoutingPlan_Call {
+	return &MockRouter_BuildReadRoutingPlan_Call{Call: _e.mock.On("BuildReadRoutingPlan", params)}
+}
+
+func (_c *MockRouter_BuildReadRoutingPlan_Call) Run(run func(params RoutingPlanBuildOptions)) *MockRouter_BuildReadRoutingPlan_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(RoutingPlanBuildOptions))
+	})
+	return _c
+}
+
+func (_c *MockRouter_BuildReadRoutingPlan_Call) Return(_a0 ReadRoutingPlan, _a1 error) *MockRouter_BuildReadRoutingPlan_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockRouter_BuildReadRoutingPlan_Call) RunAndReturn(run func(RoutingPlanBuildOptions) (ReadRoutingPlan, error)) *MockRouter_BuildReadRoutingPlan_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // BuildWriteRoutingPlan provides a mock function with given fields: params
 func (_m *MockRouter) BuildWriteRoutingPlan(params RoutingPlanBuildOptions) (WriteRoutingPlan, error) {
 	ret := _m.Called(params)

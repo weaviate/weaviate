@@ -98,17 +98,6 @@ func (p WriteRoutingPlan) String() string {
 	)
 }
 
-// Replicas returns the primary write Replicas for the operation.
-func (p WriteRoutingPlan) Replicas() []Replica {
-	return p.ReplicaSet.Replicas
-}
-
-// AdditionalReplicas returns secondary write Replicas,
-// typically used during shard migration or replication.
-func (p WriteRoutingPlan) AdditionalReplicas() []Replica {
-	return p.ReplicaSet.AdditionalReplicas
-}
-
 // LogFields returns a structured representation of the ReadRoutingPlan for logging purposes.
 func (p ReadRoutingPlan) LogFields() logrus.Fields {
 	tenant := p.Tenant
@@ -137,37 +126,6 @@ func (p WriteRoutingPlan) LogFields() logrus.Fields {
 	}
 }
 
-// ValidateConsistencyLevel validates that the resolved consistency level can be satisfied
-// by the number of available read Replicas.
-//
-// Returns:
-//   - The resolved numeric consistency level.
-//   - An error if the level exceeds the number of available Replicas.
-func (p ReadRoutingPlan) ValidateConsistencyLevel() (int, error) {
-	return validateConsistencyLevel(p.ConsistencyLevel, p.ReplicaSet.Replicas)
-}
-
-// ValidateConsistencyLevel validates that the resolved consistency level can be satisfied
-// by the number of available write Replicas.
-//
-// Returns:
-//   - The resolved numeric consistency level.
-//   - An error if the level exceeds the number of available Replicas.
-func (p WriteRoutingPlan) ValidateConsistencyLevel() (int, error) {
-	return validateConsistencyLevel(p.ConsistencyLevel, p.ReplicaSet.Replicas)
-}
-
-func validateConsistencyLevel(level ConsistencyLevel, replicas []Replica) (int, error) {
-	resolved := level.ToInt(len(replicas))
-	if resolved > len(replicas) {
-		return 0, fmt.Errorf(
-			"impossible to satisfy consistency level (%d) > available Replicas (%d) Replicas=%+q",
-			resolved, len(replicas), replicas,
-		)
-	}
-	return resolved, nil
-}
-
 // NodeNames returns the hostnames of the Replicas included in the ReadRoutingPlan.
 func (p ReadRoutingPlan) NodeNames() []string {
 	return p.ReplicaSet.NodeNames()
@@ -182,6 +140,11 @@ func (p ReadRoutingPlan) HostAddresses() []string {
 // in the ReadRoutingPlan.
 func (p ReadRoutingPlan) Shards() []string {
 	return p.ReplicaSet.Shards()
+}
+
+// Replicas returns a list of replicas
+func (p ReadRoutingPlan) Replicas() []Replica {
+	return p.ReplicaSet.Replicas
 }
 
 // HostNames returns the hostnames of the primary write Replicas
@@ -202,6 +165,11 @@ func (p WriteRoutingPlan) Shards() []string {
 	return p.ReplicaSet.Shards()
 }
 
+// Replicas returns a list of replicas
+func (p WriteRoutingPlan) Replicas() []Replica {
+	return p.ReplicaSet.Replicas
+}
+
 // AdditionalHostNames returns the hostnames of the additional write Replicas,
 // which are not part of the primary ReplicaSet, in the WriteRoutingPlan.
 func (p WriteRoutingPlan) AdditionalHostNames() []string {
@@ -218,4 +186,9 @@ func (p WriteRoutingPlan) AdditionalHostAddresses() []string {
 // in the WriteRoutingPlan.
 func (p WriteRoutingPlan) AdditionalShards() []string {
 	return p.ReplicaSet.AdditionalShards()
+}
+
+// AdditionalReplicas returns a list of additional replicas
+func (p WriteRoutingPlan) AdditionalReplicas() []Replica {
+	return p.ReplicaSet.AdditionalReplicas
 }

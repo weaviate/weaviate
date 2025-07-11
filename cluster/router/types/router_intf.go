@@ -60,6 +60,9 @@ type Router interface {
 	// BuildWriteRoutingPlan constructs a routing plan for a write operation based on the provided options.
 	BuildWriteRoutingPlan(params RoutingPlanBuildOptions) (WriteRoutingPlan, error)
 
+	// BuildReadRoutingPlan constructs a routing plan for a write operation based on the provided options.
+	BuildReadRoutingPlan(params RoutingPlanBuildOptions) (ReadRoutingPlan, error)
+
 	// NodeHostname returns the hostname for a given node name.
 	//
 	// Parameters:

@@ -119,7 +119,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		m.db.schemaReader,
 		m.db.replicationFSM,
 	).Build()
-	readPlanner := router.NewReadPlanner(indexRouter, collection, nil /* default strategy */, "", m.localNodeName)
+	readPlanner := router.NewReadPlanner(indexRouter, collection)
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                                    schema.ClassName(class.Class),
