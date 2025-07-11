@@ -653,7 +653,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 		// this time will be used to make sure async replication has propagated any writes which
 		// were received between the end of the first waitForAsyncReplication and adding the replica to the shard
-		asyncReplicationUpperTimeBoundUnixMillis = time.Now().Add(5 * time.Second).UnixMilli()
+		asyncReplicationUpperTimeBoundUnixMillis = time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
 		overrides = newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
 		if err := c.startAsyncReplication(ctx, op, overrides, logger); err != nil {
 			return api.ShardReplicationState(""), err
