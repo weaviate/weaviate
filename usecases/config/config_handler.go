@@ -107,6 +107,7 @@ type Config struct {
 	Debug                               bool                     `json:"debug" yaml:"debug"`
 	QueryDefaults                       QueryDefaults            `json:"query_defaults" yaml:"query_defaults"`
 	QueryMaximumResults                 int64                    `json:"query_maximum_results" yaml:"query_maximum_results"`
+	QueryHybridMaximumResults           int64                    `json:"query_hybrid_maximum_results" yaml:"query_hybrid_maximum_results"`
 	QueryNestedCrossReferenceLimit      int64                    `json:"query_nested_cross_reference_limit" yaml:"query_nested_cross_reference_limit"`
 	QueryCrossReferenceDepthLimit       int                      `json:"query_cross_reference_depth_limit" yaml:"query_cross_reference_depth_limit"`
 	Contextionary                       Contextionary            `json:"contextionary" yaml:"contextionary"`
@@ -324,11 +325,15 @@ func (a AutoSchema) Validate() error {
 
 // QueryDefaults for optional parameters
 type QueryDefaults struct {
-	Limit int64 `json:"limit" yaml:"limit"`
+	Limit        int64 `json:"limit" yaml:"limit"`
+	LimitGraphQL int64 `json:"limitGraphQL" yaml:"limitGraphQL"`
 }
 
 // DefaultQueryDefaultsLimit is the default query limit when no limit is provided
-const DefaultQueryDefaultsLimit int64 = 10
+const (
+	DefaultQueryDefaultsLimit        int64 = 10
+	DefaultQueryDefaultsLimitGraphQL int64 = 100
+)
 
 type Contextionary struct {
 	URL string `json:"url" yaml:"url"`
