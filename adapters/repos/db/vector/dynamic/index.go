@@ -14,6 +14,7 @@ package dynamic
 import (
 	"context"
 	"encoding/binary"
+	simpleErrors "errors"
 	"fmt"
 	"io"
 	"math"
@@ -603,18 +604,33 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "update dynamic")
 	}
 
-	ctx := context.Background()
-	dynamic.index.Drop(ctx)
+	dynamic.index.Drop(dynamic.ctx)
 	dynamic.index = index
 	dynamic.upgraded.Store(true)
 
+	var errs []error
 	bDir := dynamic.store.Bucket(dynamic.getBucketName()).GetDir()
-	dynamic.store.ShutdownBucket(ctx, dynamic.getBucketName())
-	os.RemoveAll(bDir)
+	err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getBucketName())
+	if err == nil {
+		errs = append(errs, err)
+	}
+	err = os.RemoveAll(bDir)
+	if err == nil {
+		errs = append(errs, err)
+	}
 	if dynamic.flatBQ && !dynamic.hnswUC.BQ.Enabled {
 		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
-		dynamic.store.ShutdownBucket(ctx, dynamic.getCompressedBucketName())
-		os.RemoveAll(bDir)
+		err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName())
+		if err == nil {
+			errs = append(errs, err)
+		}
+		err = os.RemoveAll(bDir)
+		if err == nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		dynamic.logger.Warn(simpleErrors.Join(errs...))
 	}
 
 	return nil
