@@ -57,7 +57,8 @@ var defaultConfig = config.Config{
 	QueryDefaults: config.QueryDefaults{
 		Limit: 100,
 	},
-	QueryMaximumResults: 100,
+	QueryMaximumResults:       100,
+	QueryHybridMaximumResults: 100,
 }
 
 func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) []string {
