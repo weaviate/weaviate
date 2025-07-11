@@ -53,7 +53,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "30s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "20s").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -73,6 +73,26 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	})
 	t.Run("MOVE, rf=2, time-based resolution", func(t *testing.T) {
 		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
+	})
+
+	t.Run("COPY, rf=2, no automated resolution", func(t *testing.T) {
+		test(t, compose, copy, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	})
+	t.Run("COPY, rf=2, delete on conflict", func(t *testing.T) {
+		test(t, compose, copy, 2, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+	})
+	t.Run("COPY, rf=2, time-based resolution", func(t *testing.T) {
+		test(t, compose, copy, 2, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
+	})
+
+	t.Run("MOVE, rf=1, no automated resolution", func(t *testing.T) {
+		test(t, compose, move, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	})
+	t.Run("MOVE, rf=1, delete on conflict", func(t *testing.T) {
+		test(t, compose, move, 1, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+	})
+	t.Run("MOVE, rf=1, time-based resolution", func(t *testing.T) {
+		test(t, compose, move, 1, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
 	})
 
 	t.Run("COPY, rf=1, no automated resolution", func(t *testing.T) {
