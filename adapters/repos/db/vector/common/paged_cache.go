@@ -98,3 +98,50 @@ func (p *PagedCache[T]) Reset() {
 func (p *PagedCache[T]) Cap() int {
 	return len(p.cache) * p.pageSize
 }
+
+// FlatCache is a cache that stores elements in a contiguous slice.
+// It is optimized for cases where random access speed is more important than memory usage.
+// The cache will grow as needed.
+type FlatCache[T any] struct {
+	cache   []T
+	initCap int // Initial capacity for the cache
+}
+
+// NewFlatCache creates a new FlatCache with the given initial capacity.
+func NewFlatCache[T any](initialCapacity int) *FlatCache[T] {
+	return &FlatCache[T]{
+		cache:   make([]T, initialCapacity),
+		initCap: initialCapacity,
+	}
+}
+
+// Get returns the element at the given index.
+// If the index is out of bounds, it will return zero value of T.
+func (f *FlatCache[T]) Get(id int) T {
+	if id < 0 || id >= len(f.cache) {
+		var zero T
+		return zero
+	}
+
+	return f.cache[id]
+}
+
+// Set sets the element at the given index.
+// If the index is out of bounds, it will grow the cache.
+func (f *FlatCache[T]) Set(id int, value T) {
+	if id >= len(f.cache) {
+		f.grow(id + 2000)
+	}
+	f.cache[id] = value
+}
+
+func (f *FlatCache[T]) grow(newSize int) {
+	newCache := make([]T, newSize)
+	copy(newCache, f.cache)
+	f.cache = newCache
+}
+
+// Reset frees the cache and creates a new empty slice with the initial capacity.
+func (f *FlatCache[T]) Reset() {
+	f.cache = make([]T, f.initCap)
+}

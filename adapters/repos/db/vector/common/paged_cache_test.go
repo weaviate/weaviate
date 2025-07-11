@@ -76,53 +76,111 @@ func BenchmarkPagedCache(b *testing.B) {
 	}
 
 	b.Run("PagedCache/Set", func(b *testing.B) {
-		cache := NewPagedCacheWith[int](pageSize, 10)
-
 		for i := 0; i < b.N; i++ {
-			cache.Reset()
+			b.StopTimer()
+			cache := NewPagedCacheWith[int](pageSize, 10)
+			b.StartTimer()
 
-			for j := 0; j < 10000; j++ {
+			for j := 0; j < 1000; j++ {
 				cache.Set(keys[j], &values[j])
 			}
 		}
 	})
 
-	b.Run("FlatCache/Set", func(b *testing.B) {
-		cache := make([]*int, 500_000_000)
+	cache := NewPagedCacheWith[int](pageSize, 10)
 
-		for i := 0; i < b.N; i++ {
-			clear(cache)
-
-			for j := 0; j < 10000; j++ {
-				cache[keys[j]] = &values[j]
-			}
-		}
-	})
+	for j := 0; j < 10000; j++ {
+		cache.Set(keys[j], &values[j])
+	}
 
 	b.Run("PagedCache/Get", func(b *testing.B) {
-		cache := NewPagedCacheWith[int](pageSize, 10)
-
-		for j := 0; j < 10000; j++ {
-			cache.Set(keys[j], &values[j])
-		}
-
 		for i := 0; i < b.N; i++ {
 			for j := 0; j < 10000; j++ {
 				_ = cache.Get(keys[j])
 			}
 		}
 	})
+}
+
+func TestFlatCache(t *testing.T) {
+	cache := NewFlatCache[int](10)
+
+	require.Len(t, cache.cache, 10, "wrong initial size of cache")
+
+	setN := func(n int) {
+		for i := 0; i < n; i++ {
+			cache.Set(i, i)
+		}
+	}
+
+	checkN := func(n int) {
+		for i := 0; i < n; i++ {
+			v := cache.Get(i)
+			if v != i {
+				t.Errorf("expected %d, got %d", i, v)
+			}
+		}
+	}
+
+	setN(10)
+	checkN(10)
+
+	setN(1000)
+	checkN(1000)
+
+	cache.Reset()
+
+	setN(1000)
+	checkN(1000)
+
+	cache.Reset()
+
+	setN(100)
+	require.Equal(t, 10, cache.Get(10))
+	require.Zero(t, cache.Get(140))
+
+	cache.Reset()
+	for i := 0; i < 100; i += 2 {
+		cache.Set(i, i)
+	}
+	for i := 0; i < 100; i += 2 {
+		require.Equal(t, i, cache.Get(i))
+	}
+	for i := 1; i < 100; i += 2 {
+		require.Zero(t, cache.Get(i))
+	}
+}
+
+func BenchmarkFlatCache(b *testing.B) {
+	keys := make([]int, 10000)
+	values := make([]int, 10000)
+	for i := range 10000 {
+		keys[i] = int(rand.Int31n(500_000_000))
+		values[i] = rand.Int()
+	}
+
+	b.Run("FlatCache/Set", func(b *testing.B) {
+		for i := 0; i < b.N; i++ {
+			b.StopTimer()
+			cache := NewFlatCache[int](10)
+			b.StartTimer()
+
+			for j := 0; j < 1000; j++ {
+				cache.Set(keys[j], values[j])
+			}
+		}
+	})
+
+	cache := NewFlatCache[int](10)
+
+	for j := 0; j < 10000; j++ {
+		cache.Set(keys[j], values[j])
+	}
 
 	b.Run("FlatCache/Get", func(b *testing.B) {
-		cache := make([]*int, 500_000_000)
-
-		for j := 0; j < 10000; j++ {
-			cache[keys[j]] = &values[j]
-		}
-
 		for i := 0; i < b.N; i++ {
 			for j := 0; j < 10000; j++ {
-				_ = cache[keys[j]]
+				_ = cache.Get(keys[j])
 			}
 		}
 	})
