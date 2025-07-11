@@ -95,7 +95,7 @@ func (p *readPlanner) selectReplicasForConsistency(shardGroups map[string][]type
 			continue
 		}
 
-		selected := shardReplicas[:1]
+		selected := shardReplicas[:consistencyLevel]
 		selectedReplicas = append(selectedReplicas, selected...)
 	}
 
