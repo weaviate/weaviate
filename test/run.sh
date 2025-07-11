@@ -417,7 +417,7 @@ function run_acceptance_replica_replication_slow_tests() {
 
 function run_acceptance_replica_replication_long_tests() {
   for pkg in $(go list ./.../ | grep 'test/acceptance/replication/replica_replication/long'); do
-    if ! go test -timeout=30m -count 1 -race "$pkg"; then
+    if ! go test -v -timeout=30m -count 1 -race "$pkg"; then
       echo "Test for $pkg failed" >&2
       return 1
     fi
