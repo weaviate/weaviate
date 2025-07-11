@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package usagecommon
+package usage
 
 import (
 	"context"

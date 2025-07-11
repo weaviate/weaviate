@@ -25,7 +25,7 @@ import (
 	storageapi "google.golang.org/api/storage/v1"
 
 	"github.com/weaviate/weaviate/cluster/usage/types"
-	common "github.com/weaviate/weaviate/modules/usagecommon"
+	common "github.com/weaviate/weaviate/usecases/modulecomponents/usage"
 )
 
 // GCSStorage implements the StorageBackend interface for GCS

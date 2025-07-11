@@ -25,10 +25,10 @@ import (
 	clusterusage "github.com/weaviate/weaviate/cluster/usage"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
-	common "github.com/weaviate/weaviate/modules/usagecommon"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	common "github.com/weaviate/weaviate/usecases/modulecomponents/usage"
 )
 
 func TestModule_Name(t *testing.T) {

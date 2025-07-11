@@ -25,7 +25,7 @@ import (
 	"github.com/sirupsen/logrus"
 
 	"github.com/weaviate/weaviate/cluster/usage/types"
-	common "github.com/weaviate/weaviate/modules/usagecommon"
+	common "github.com/weaviate/weaviate/usecases/modulecomponents/usage"
 )
 
 // S3Storage implements the StorageBackend interface for S3
