@@ -33,6 +33,7 @@ import (
 	"github.com/weaviate/weaviate/entities/vectorindex/common"
 	"github.com/weaviate/weaviate/usecases/cluster"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	usagetypes "github.com/weaviate/weaviate/usecases/modulecomponents/usage/types"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -99,17 +100,6 @@ type RuntimeOverrides struct {
 	Enabled      bool          `json:"enabled"`
 	Path         string        `json:"path" yaml:"path"`
 	LoadInterval time.Duration `json:"load_interval" yaml:"load_interval"`
-}
-
-// UsageConfig holds configuration for usage data collection and upload
-type UsageConfig struct {
-	GCSBucket *runtime.DynamicValue[string] `json:"usage_gcs_bucket" yaml:"usage_gcs_bucket"`
-	GCSPrefix *runtime.DynamicValue[string] `json:"usage_gcs_prefix" yaml:"usage_gcs_prefix"`
-
-	S3Bucket       *runtime.DynamicValue[string]        `json:"usage_s3_bucket" yaml:"usage_s3_bucket"`
-	S3Prefix       *runtime.DynamicValue[string]        `json:"usage_s3_prefix" yaml:"usage_s3_prefix"`
-	ScrapeInterval *runtime.DynamicValue[time.Duration] `json:"usage_scrape_interval" yaml:"usage_scrape_interval"`
-	PolicyVersion  *runtime.DynamicValue[string]        `json:"usage_policy_version" yaml:"usage_policy_version"`
 }
 
 // Config outline of the config file
@@ -223,7 +213,7 @@ type Config struct {
 	InvertedSorterDisabled *runtime.DynamicValue[bool] `json:"inverted_sorter_disabled" yaml:"inverted_sorter_disabled"`
 
 	// Usage configuration for the usage module
-	Usage UsageConfig `json:"usage" yaml:"usage"`
+	Usage usagetypes.UsageConfig `json:"usage" yaml:"usage"`
 }
 
 type MapToBlockamaxConfig struct {

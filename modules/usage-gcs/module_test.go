@@ -29,6 +29,7 @@ import (
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
 	common "github.com/weaviate/weaviate/usecases/modulecomponents/usage"
+	usagetypes "github.com/weaviate/weaviate/usecases/modulecomponents/usage/types"
 )
 
 func TestModule_Name(t *testing.T) {
@@ -54,7 +55,7 @@ func TestModule_Init_Success(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: config.UsageConfig{
+		Usage: usagetypes.UsageConfig{
 			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
 			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
@@ -78,7 +79,7 @@ func TestModule_Init_MissingEnvVars(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: config.UsageConfig{
+		Usage: usagetypes.UsageConfig{
 			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
 			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
@@ -100,7 +101,7 @@ func TestModule_Init_MissingBucket(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: config.UsageConfig{
+		Usage: usagetypes.UsageConfig{
 			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
 			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
@@ -126,7 +127,7 @@ func TestModule_Init_MissingHostname(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "", // Missing hostname
 		},
-		Usage: config.UsageConfig{
+		Usage: usagetypes.UsageConfig{
 			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
 			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
@@ -152,7 +153,7 @@ func TestModule_Init_InvalidScrapeInterval(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: config.UsageConfig{
+		Usage: usagetypes.UsageConfig{
 			PolicyVersion: runtime.NewDynamicValue("2025-06-01"),
 		},
 	}
@@ -178,7 +179,7 @@ func TestModule_Init_ConfigurationParsing(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: config.UsageConfig{
+		Usage: usagetypes.UsageConfig{
 			ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute), // existing config takes priority
 			PolicyVersion:  runtime.NewDynamicValue("2025-01-01"),    // existing config takes priority
 		},
@@ -220,7 +221,7 @@ func TestModule_SetUsageService(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: config.UsageConfig{
+		Usage: usagetypes.UsageConfig{
 			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
 			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},
@@ -304,7 +305,7 @@ func TestModule_BuildGCSConfig(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: config.UsageConfig{
+		Usage: usagetypes.UsageConfig{
 			GCSBucket:     runtime.NewDynamicValue("test-bucket"),
 			GCSPrefix:     runtime.NewDynamicValue("test-prefix"),
 			PolicyVersion: runtime.NewDynamicValue("2025-06-01"),
@@ -326,7 +327,7 @@ func TestModule_BuildGCSConfig_EmptyValues(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: config.UsageConfig{
+		Usage: usagetypes.UsageConfig{
 			// All values are nil/empty
 		},
 	}
@@ -418,7 +419,7 @@ func TestParseGCSConfig(t *testing.T) {
 			}
 
 			config := &config.Config{
-				Usage: config.UsageConfig{
+				Usage: usagetypes.UsageConfig{
 					ScrapeInterval: runtime.NewDynamicValue(5 * time.Minute),
 					PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 				},
@@ -525,7 +526,7 @@ func TestParseCommonUsageConfig(t *testing.T) {
 			}
 
 			config := &config.Config{
-				Usage: config.UsageConfig{},
+				Usage: usagetypes.UsageConfig{},
 			}
 
 			// Set existing values if specified
@@ -566,7 +567,7 @@ func TestModule_Close(t *testing.T) {
 		Cluster: cluster.Config{
 			Hostname: "test-node",
 		},
-		Usage: config.UsageConfig{
+		Usage: usagetypes.UsageConfig{
 			ScrapeInterval: runtime.NewDynamicValue(2 * time.Hour),
 			PolicyVersion:  runtime.NewDynamicValue("2025-06-01"),
 		},

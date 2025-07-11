@@ -27,6 +27,7 @@ import (
 	"github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/usecases/config"
 	"github.com/weaviate/weaviate/usecases/config/runtime"
+	usagetypes "github.com/weaviate/weaviate/usecases/modulecomponents/usage/types"
 )
 
 // TestUsageResponse_Marshaling tests the JSON marshaling of usage response
@@ -263,7 +264,7 @@ func TestCollectAndUploadPeriodically_ConfigChangesAndStop(t *testing.T) {
 
 	// Use a dynamic config that we can mutate
 	testConfig := config.Config{
-		Usage: config.UsageConfig{
+		Usage: usagetypes.UsageConfig{
 			ScrapeInterval: runtime.NewDynamicValue(10 * time.Millisecond),
 		},
 		RuntimeOverrides: config.RuntimeOverrides{
