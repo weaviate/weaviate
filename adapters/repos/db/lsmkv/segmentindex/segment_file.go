@@ -54,6 +54,7 @@ type SegmentWriter interface {
 //	   ```
 type SegmentFile struct {
 	header         *Header
+	headerInverted *HeaderInverted
 	writer         SegmentWriter
 	reader         *bufio.Reader
 	checksumWriter integrity.ChecksumWriter
@@ -64,6 +65,7 @@ type SegmentFile struct {
 	// when it is later re-written
 	writtenTo         bool
 	checksumsDisabled bool
+	headerSize        int64
 }
 
 type SegmentFileOption func(*SegmentFile)
@@ -83,6 +85,12 @@ func WithReader(reader io.Reader) SegmentFileOption {
 	return func(segmentFile *SegmentFile) {
 		segmentFile.reader = bufio.NewReader(reader)
 		segmentFile.checksumReader = integrity.NewCRC32Reader(reader)
+	}
+}
+
+func WithHeaderSize(size int64) SegmentFileOption {
+	return func(segmentFile *SegmentFile) {
+		segmentFile.headerSize = size
 	}
 }
 
@@ -131,6 +139,12 @@ func (f *SegmentFile) SetHeader(header *Header) {
 	f.header = header
 }
 
+// SetHeaderInverted sets the inverted header in the SegmentFile without writing anything. This should be used if the
+// inverted header was already written by another reader.
+func (f *SegmentFile) SetHeaderInverted(headerInverted *HeaderInverted) {
+	f.headerInverted = headerInverted
+}
+
 // WriteHeader writes the header struct to the underlying writer.
 // This method resets the internal hash, so that the header can be written
 // to the checksum last. For more details see SegmentFile.
@@ -155,6 +169,40 @@ func (f *SegmentFile) WriteHeader(header *Header) (int64, error) {
 	// WriteChecksum is called.
 	if !f.writtenTo {
 		n, err := header.WriteTo(f.checksumWriter)
+		if err != nil {
+			return n, fmt.Errorf("write segment file header: %w", err)
+		}
+		// We save the header, and only write it to the checksum at the end
+		f.checksumWriter.Reset()
+		f.writtenTo = true
+		return n, nil
+	}
+
+	return 0, nil
+}
+
+// WriteHeaderInverted does the same as WriteHeader, but for the extra header on inverted indexes.
+func (f *SegmentFile) WriteHeaderInverted(headerInverted *HeaderInverted) (int64, error) {
+	if f.writer == nil {
+		return 0, fmt.Errorf(" SegmentFile not initialized with a reader, " +
+			"try adding one with segmentindex.WithBufferedWriter(*bufio.Writer)")
+	}
+
+	if f.checksumsDisabled {
+		if f.writtenTo {
+			return 0, nil
+		}
+		return headerInverted.WriteTo(f.writer)
+	}
+
+	f.headerInverted = headerInverted
+	// If this is a memtable flush, we want to write the header up front.
+	// If this is a compaction, the dummy header already exists, and will
+	// be overwritten through a different writer. In that case, all we care
+	// about is saving the header pointer, so we can add it to the hash when
+	// WriteChecksum is called.
+	if !f.writtenTo {
+		n, err := headerInverted.WriteTo(f.checksumWriter)
 		if err != nil {
 			return n, fmt.Errorf("write segment file header: %w", err)
 		}
@@ -227,7 +275,7 @@ func (f *SegmentFile) ValidateChecksum(size int64) error {
 
 	f.checksumReader = integrity.NewCRC32Reader(f.reader)
 
-	var header [HeaderSize]byte
+	header := make([]byte, f.headerSize)
 	_, err := f.reader.Read(header[:])
 	if err != nil {
 		return fmt.Errorf("read segment file header: %w", err)
@@ -235,7 +283,7 @@ func (f *SegmentFile) ValidateChecksum(size int64) error {
 
 	var (
 		buffer    = make([]byte, 4096) // Buffer for chunked reads
-		dataSize  = size - HeaderSize - ChecksumSize
+		dataSize  = size - f.headerSize - ChecksumSize
 		remaining = dataSize
 	)
 
@@ -260,7 +308,7 @@ func (f *SegmentFile) ValidateChecksum(size int64) error {
 	}
 
 	f.reader.Reset(bytes.NewReader(header[:]))
-	_, err = f.checksumReader.Read(make([]byte, HeaderSize))
+	_, err = f.checksumReader.Read(make([]byte, f.headerSize))
 	if err != nil {
 		return fmt.Errorf("add header to checksum: %w", err)
 	}
@@ -278,6 +326,12 @@ func (f *SegmentFile) addHeaderToChecksum() error {
 	if _, err := f.header.WriteTo(b); err != nil {
 		return fmt.Errorf(
 			"serialize segment header to write to checksum hash: %w", err)
+	}
+	if f.headerInverted != nil {
+		if _, err := f.headerInverted.WriteTo(b); err != nil {
+			return fmt.Errorf(
+				"serialize segment inverted header to write to checksum hash: %w", err)
+		}
 	}
 	if _, err := f.checksumWriter.HashWrite(b.Bytes()); err != nil {
 		return fmt.Errorf("write segment header to checksum hash: %w", err)
