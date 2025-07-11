@@ -92,7 +92,7 @@ func (db *DB) init(ctx context.Context) error {
 				db.schemaReader,
 				db.replicationFSM,
 			).Build()
-			readPlanner := router.NewReadPlanner(indexRouter, collection, nil /* default strategy */, "", db.localNodeName)
+			readPlanner := router.NewReadPlanner(indexRouter, collection)
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                                    schema.ClassName(class.Class),
 				RootPath:                                     db.config.RootPath,

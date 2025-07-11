@@ -63,7 +63,6 @@ type (
 // Finder finds replicated objects
 type Finder struct {
 	router       router
-	readPlanner  readPlanner
 	nodeName     string
 	finderStream // stream of objects
 	// control the op backoffs in the coordinator's Pull
@@ -74,7 +73,6 @@ type Finder struct {
 // NewFinder constructs a new finder instance
 func NewFinder(className string,
 	router router,
-	readPlanner readPlanner,
 	nodeName string,
 	client RClient,
 	l logrus.FieldLogger,
@@ -84,9 +82,8 @@ func NewFinder(className string,
 ) *Finder {
 	cl := FinderClient{client}
 	return &Finder{
-		router:      router,
-		readPlanner: readPlanner,
-		nodeName:    nodeName,
+		router:   router,
+		nodeName: nodeName,
 		finderStream: finderStream{
 			repairer: repairer{
 				class:               className,
@@ -322,7 +319,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
-	routingPlan, err := f.readPlanner.Plan(types.RoutingPlanBuildOptions{
+	routingPlan, err := f.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 		Shard:            shardName,
 		ConsistencyLevel: types.ConsistencyLevelOne,
 	})
@@ -391,7 +388,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}
 	}
 
-	replicaNodeNames := make([]string, 0, len(routingPlan.ReplicaSet.NodeNames()))
+	replicaNodeNames := make([]string, 0, len(routingPlan.Shards()))
 	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
 	for _, replica := range targetNodesToUse {
 		replicaNodeNames = append(replicaNodeNames, replica)

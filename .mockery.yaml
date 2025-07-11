@@ -68,7 +68,6 @@ packages:
   github.com/weaviate/weaviate/cluster/router/types:
     interfaces:
       Router:
-      ReadReplicaStrategy:
   github.com/weaviate/weaviate/entities/moduletools:
     interfaces:
       ModuleInitParams:
