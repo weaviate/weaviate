@@ -278,7 +278,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 					maxDeleteDuration = duration
 				}
 			}
-			t.Log("Mutation context done, stopping data mutation. Min create duration: %s, max create duration: %s, min update duration: %s, max update duration: %s, min delete duration: %s, max delete duration: %s", minCreateDuration, maxCreateDuration, minUpdateDuration, maxUpdateDuration, minDeleteDuration, maxDeleteDuration)
+			t.Logf("Mutation context done, stopping data mutation. Min create duration: %s, max create duration: %s, min update duration: %s, max update duration: %s, min delete duration: %s, max delete duration: %s", minCreateDuration, maxCreateDuration, minUpdateDuration, maxUpdateDuration, minDeleteDuration, maxDeleteDuration)
 
 			t.Log("Mutation context done, stopping data mutation")
 			return
