@@ -788,10 +788,6 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 	return clusterRouter.NewBuilder(f.CLS, false, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
 }
 
-func (f *fakeFactory) newReadPlanner(router types.Router, collection string, directCandidate string, localNodeName string) clusterRouter.ReadPlanner {
-	return clusterRouter.NewReadPlanner(router, collection)
-}
-
 func (f *fakeFactory) newReplicatorWithSourceNode(thisNode string) *replica.Replicator {
 	router := f.newRouter(thisNode)
 	getDeletionStrategy := func() string {

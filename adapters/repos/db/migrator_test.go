@@ -18,7 +18,6 @@ import (
 	"slices"
 	"testing"
 
-	clusterRouter "github.com/weaviate/weaviate/cluster/router"
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -92,7 +91,6 @@ func TestUpdateIndexTenants(t *testing.T) {
 			}
 
 			router := routerTypes.NewMockRouter(t)
-			readPlanner := clusterRouter.NewMockReadPlanner(t)
 
 			index, err := NewIndex(context.Background(), IndexConfig{
 				ClassName:         schema.ClassName("TestClass"),
@@ -100,7 +98,7 @@ func TestUpdateIndexTenants(t *testing.T) {
 				ReplicationFactor: 1,
 				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 			}, originalSS, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, router, readPlanner, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+				hnsw.NewDefaultUserConfig(), nil, router, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 			require.NoError(t, err)
 
 			shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil, NewShardReindexerV3Noop(), false)
@@ -223,7 +221,6 @@ func TestUpdateIndexShards(t *testing.T) {
 			})
 
 			router := routerTypes.NewMockRouter(t)
-			readPlanner := clusterRouter.NewMockReadPlanner(t)
 			// Create index with proper configuration
 			index, err := NewIndex(ctx, IndexConfig{
 				ClassName:         schema.ClassName("TestClass"),
@@ -231,7 +228,7 @@ func TestUpdateIndexShards(t *testing.T) {
 				ReplicationFactor: 1,
 				ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 			}, initialState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-				hnsw.NewDefaultUserConfig(), nil, router, readPlanner, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop())
+				hnsw.NewDefaultUserConfig(), nil, router, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, memwatch.NewDummyMonitor(), NewShardReindexerV3Noop())
 			require.NoError(t, err)
 
 			// Initialize shards
@@ -315,14 +312,13 @@ func TestListAndGetFilesWithIntegrityChecking(t *testing.T) {
 	}
 
 	router := routerTypes.NewMockRouter(t)
-	readPlanner := clusterRouter.NewMockReadPlanner(t)
 	index, err := NewIndex(context.Background(), IndexConfig{
 		ClassName:         schema.ClassName("TestClass"),
 		RootPath:          t.TempDir(),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, originalSS, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, router, readPlanner, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+		hnsw.NewDefaultUserConfig(), nil, router, mockSchemaGetter, nil, logger, nil, nil, nil, nil, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.NoError(t, err)
 
 	shard, err := NewShard(context.Background(), nil, "shard1", index, class, nil, scheduler, nil, NewShardReindexerV3Noop(), false)

@@ -165,7 +165,6 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				return testCase.allShardNodes, nil
 			})
 			myRouter := router.NewBuilder("collection1", testCase.partitioningEnabled, clusterState, schemaGetterMock, schemaReaderMock, shardReplicationFSM).Build()
-			rp := router.NewReadPlanner(myRouter, "collection1")
 
 			// Setup the FSM with the right state
 			shardReplicationFSM.Replicate(1, &api.ReplicationReplicateShardRequest{
@@ -191,7 +190,7 @@ func TestReadRoutingWithFSM(t *testing.T) {
 				tenant = "shard1"
 			}
 			// Build the routing plan
-			readPlan, err := rp.Plan(types.RoutingPlanBuildOptions{
+			readPlan, err := myRouter.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
 				Shard:  "shard1",
 				Tenant: tenant,
 			})

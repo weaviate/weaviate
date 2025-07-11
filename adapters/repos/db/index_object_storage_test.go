@@ -18,7 +18,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -149,7 +148,6 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			mockSchema.EXPECT().ShardOwner(tt.className, tt.shardName).Maybe().Return("test-node", nil)
 
 			mockRouter := types.NewMockRouter(t)
-			mockReadPlanner := router.NewMockReadPlanner(t)
 			// Create index
 			index, err := NewIndex(ctx, IndexConfig{
 				RootPath:              dirName,
@@ -160,7 +158,7 @@ func TestIndex_ObjectStorageSize_Comprehensive(t *testing.T) {
 			}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 				enthnsw.UserConfig{
 					VectorCacheMaxObjects: 1000,
-				}, nil, mockRouter, mockReadPlanner, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+				}, nil, mockRouter, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 			require.NoError(t, err)
 			defer index.Shutdown(ctx)
 
@@ -297,7 +295,6 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	mockSchema.EXPECT().TenantsShards(ctx, className, tenantName).Maybe().Return(map[string]string{tenantName: models.TenantActivityStatusHOT}, nil)
 
 	mockRouter := types.NewMockRouter(t)
-	mockReadPlanner := router.NewMockReadPlanner(t)
 
 	// Create index with lazy loading disabled to test active calculation methods
 	index, err := NewIndex(ctx, IndexConfig{
@@ -310,7 +307,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, nil, mockRouter, mockReadPlanner, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+		}, nil, mockRouter, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.NoError(t, err)
 
 	// Add properties
@@ -387,7 +384,7 @@ func TestIndex_CalculateUnloadedObjectsMetrics_ActiveVsUnloaded(t *testing.T) {
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
 		enthnsw.UserConfig{
 			VectorCacheMaxObjects: 1000,
-		}, index.GetVectorIndexConfigs(), mockRouter, mockReadPlanner, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
+		}, index.GetVectorIndexConfigs(), mockRouter, mockSchema, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.NoError(t, err)
 	defer newIndex.Shutdown(ctx)
 
