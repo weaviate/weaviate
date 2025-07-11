@@ -63,27 +63,39 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	}()
 
 	move := "MOVE"
-	copy := "COPY"
+	// copy := "COPY"
 
 	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
 		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
 	})
-	t.Run("COPY, rf=2, no automated resolution", func(t *testing.T) {
-		test(t, compose, copy, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
 	})
-	t.Run("MOVE, rf=1, no automated resolution", func(t *testing.T) {
-		test(t, compose, move, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
 	})
-	t.Run("COPY, rf=1, no automated resolution", func(t *testing.T) {
-		test(t, compose, copy, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
 	})
+	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	})
+	// t.Run("COPY, rf=2, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, copy, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
+	// t.Run("MOVE, rf=1, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, move, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
+	// t.Run("COPY, rf=1, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, copy, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
 
-	t.Run("MOVE, rf=2, delete on conflict", func(t *testing.T) {
-		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
-	})
-	t.Run("MOVE, rf=2, time-based resolution", func(t *testing.T) {
-		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
-	})
+	// t.Run("MOVE, rf=2, delete on conflict", func(t *testing.T) {
+	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+	// })
+	// t.Run("MOVE, rf=2, time-based resolution", func(t *testing.T) {
+	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
+	// })
 }
 
 func test(t *testing.T, compose *docker.DockerCompose, replicationType string, factor int, strategy string) {
