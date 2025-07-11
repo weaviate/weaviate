@@ -10,12 +10,13 @@ import (
 
 // Updater handles write operations for the SPFresh index.
 type Updater struct {
-	UserConfig *UserConfig   // UserConfig contains user-defined settings for the rebuilder.
-	SPTAG      SPTAG         // SPTAG provides access to the SPTAG index for centroid operations.
-	Store      PostingStore  // Used for managing persistence of postings.
-	Logger     *logrus.Entry // Logger for logging operations and errors.
-	VersionMap *VersionMap   // VersionMap provides access to vector versions.
-	IDs        *common.MonotonicCounter[uint64]
+	UserConfig     *UserConfig                      // UserConfig contains user-defined settings for the rebuilder.
+	Logger         *logrus.Entry                    // Logger for logging operations and errors.
+	SPTAG          SPTAG                            // SPTAG provides access to the SPTAG index for centroid operations.
+	Store          BlockController                  // Used for managing persistence of postings.
+	VersionMap     *VersionMap                      // VersionMap provides access to vector versions.
+	IDs            *common.MonotonicCounter[uint64] // IDs is a monotonic counter for generating unique IDs for postings.
+	LocalRebuilder *LocalRebuilder                  // LocalRebuilder manages background operations for postings.
 }
 
 func (u *Updater) Insert(ctx context.Context, id uint64, vector []float32) error {
@@ -59,6 +60,22 @@ func (u *Updater) Insert(ctx context.Context, id uint64, vector []float32) error
 	err = u.SPTAG.Upsert(postingID, vector)
 	if err != nil {
 		return errors.Wrapf(err, "failed to upsert new centroid %d", postingID)
+	}
+
+	// ensure the posting size is within the configured limits
+	count, err := u.Store.VectorCount(postingID)
+	if err != nil {
+		return errors.Wrapf(err, "failed to get vector count for posting %d", postingID)
+	}
+	if count > u.UserConfig.MaxPostingSize {
+		// enqueue a split operation.
+		err = u.LocalRebuilder.Enqueue(ctx, Operation{
+			OpType:    BackgroundOpSplit,
+			PostingID: postingID,
+		})
+		if err != nil {
+			return err
+		}
 	}
 
 	return nil
