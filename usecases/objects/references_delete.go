@@ -175,7 +175,7 @@ func removeReference(obj *models.Object, prop string, remove *models.SingleRef) 
 
 	refs, ok := properties[prop].(models.MultipleRef)
 	if !ok {
-		return false, fmt.Sprintf("property %q with type %T is not a valid cross-reference", prop, refs)
+		return false, fmt.Sprintf("property %s of type %T is not a valid cross-reference", prop, refs)
 	}
 
 	var removed bool
