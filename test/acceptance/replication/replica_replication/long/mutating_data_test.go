@@ -242,9 +242,44 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 }
 
 func mutateData(t *testing.T, ctx context.Context, className string, tenantName string, wait int, nodeToAddress map[string]string) {
+	createDurations := []time.Duration{}
+	updateDurations := []time.Duration{}
+	deleteDurations := []time.Duration{}
 	for {
 		select {
 		case <-ctx.Done():
+			minCreateDuration := time.Minute
+			maxCreateDuration := time.Duration(0)
+			minUpdateDuration := time.Minute
+			maxUpdateDuration := time.Duration(0)
+			minDeleteDuration := time.Minute
+			maxDeleteDuration := time.Duration(0)
+			for _, duration := range createDurations {
+				if duration < minCreateDuration {
+					minCreateDuration = duration
+				}
+				if duration > maxCreateDuration {
+					maxCreateDuration = duration
+				}
+			}
+			for _, duration := range updateDurations {
+				if duration < minUpdateDuration {
+					minUpdateDuration = duration
+				}
+				if duration > maxUpdateDuration {
+					maxUpdateDuration = duration
+				}
+			}
+			for _, duration := range deleteDurations {
+				if duration < minDeleteDuration {
+					minDeleteDuration = duration
+				}
+				if duration > maxDeleteDuration {
+					maxDeleteDuration = duration
+				}
+			}
+			t.Log("Mutation context done, stopping data mutation. Min create duration: %s, max create duration: %s, min update duration: %s, max update duration: %s, min delete duration: %s, max delete duration: %s", minCreateDuration, maxCreateDuration, minUpdateDuration, maxUpdateDuration, minDeleteDuration, maxDeleteDuration)
+
 			t.Log("Mutation context done, stopping data mutation")
 			return
 		default:
@@ -269,7 +304,9 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 				WithBody(batch.BatchObjectsCreateBody{
 					Objects: btch,
 				}).WithConsistencyLevel(&all)
+			start := time.Now()
 			client.Batch.BatchObjectsCreate(params, nil)
+			createDurations = append(createDurations, time.Since(start))
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
@@ -297,20 +334,24 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 					WithTenant(tenantName).
 					WithID(obj.ID).
 					Object())
+				start := time.Now()
 				client.Objects.ObjectsClassPut(
 					objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
 					nil,
 				)
+				updateDurations = append(updateDurations, time.Since(start))
 			}
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Delete some existing objects
 			for _, obj := range toDelete {
+				start := time.Now()
 				client.Objects.ObjectsClassDelete(
 					objects.NewObjectsClassDeleteParams().WithClassName(className).WithID(obj.ID).WithTenant(&tenantName).WithConsistencyLevel(&all),
 					nil,
 				)
+				deleteDurations = append(deleteDurations, time.Since(start))
 			}
 		}
 	}
