@@ -391,7 +391,7 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 		}
 	}
 
-	replicaNodeNames := make([]string, 0, len(routingPlan.Replicas()))
+	replicaNodeNames := make([]string, 0, len(routingPlan.Shards()))
 	replicasHostAddrs := make([]string, 0, len(routingPlan.HostAddresses()))
 	for _, replica := range targetNodesToUse {
 		replicaNodeNames = append(replicaNodeNames, replica)

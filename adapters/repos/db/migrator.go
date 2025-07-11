@@ -56,20 +56,22 @@ type processor interface {
 }
 
 type Migrator struct {
-	db      *DB
-	cloud   modulecapabilities.OffloadCloud
-	logger  logrus.FieldLogger
-	cluster processor
-	nodeId  string
+	db            *DB
+	cloud         modulecapabilities.OffloadCloud
+	logger        logrus.FieldLogger
+	cluster       processor
+	nodeId        string
+	localNodeName string
 
 	classLocks *esync.KeyLocker
 }
 
-func NewMigrator(db *DB, logger logrus.FieldLogger) *Migrator {
+func NewMigrator(db *DB, logger logrus.FieldLogger, localNodeName string) *Migrator {
 	return &Migrator{
-		db:         db,
-		logger:     logger,
-		classLocks: esync.NewKeyLocker(),
+		db:            db,
+		logger:        logger,
+		classLocks:    esync.NewKeyLocker(),
+		localNodeName: localNodeName,
 	}
 }
 
@@ -108,8 +110,9 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 	}
 
 	shardingState := m.db.schemaGetter.CopyShardingState(class.Class)
+	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
-		schema.ClassName(class.Class).String(),
+		collection,
 		shardingState.PartitioningEnabled,
 		m.db.nodeSelector,
 		m.db.schemaGetter,

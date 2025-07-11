@@ -38,14 +38,15 @@ import (
 )
 
 func (db *DB) Aggregate(ctx context.Context,
-	params aggregation.Params, modules *modules.Provider,
+	params aggregation.Params, replProps *additional.ReplicationProperties,
+	modules *modules.Provider,
 ) (*aggregation.Result, error) {
 	idx := db.GetIndex(params.ClassName)
 	if idx == nil {
 		return nil, fmt.Errorf("tried to browse non-existing index for %s", params.ClassName)
 	}
 
-	return idx.aggregate(ctx, params, modules)
+	return idx.aggregate(ctx, replProps, params, modules, params.Tenant)
 }
 
 func (db *DB) GetQueryMaximumResults() int {

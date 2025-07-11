@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
+
 	"github.com/go-openapi/strfmt"
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/stretchr/testify/assert"
@@ -119,14 +121,14 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		Logger:  logger,
 		Workers: 1,
 	})
-
+	router := routerTypes.NewMockRouter(t)
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
 		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.Nil(t, err)
@@ -177,7 +179,6 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 
 	indexFilesAfterDelete, err := getIndexFilenames(dirName, class.Class)
 	require.Nil(t, err)
-
 	// recreate the index
 	index, err = NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
@@ -185,7 +186,7 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
 			schema:     fakeSchema,
 			shardState: shardState,
 		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
@@ -316,13 +317,14 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		Logger:  logger,
 		Workers: 1,
 	})
+	router := routerTypes.NewMockRouter(t)
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
 		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.Nil(t, err)
@@ -404,11 +406,12 @@ func TestIndex_DropUnloadedShard(t *testing.T) {
 		Logger:  logger,
 		Workers: 1,
 	})
+	router := routerTypes.NewMockRouter(t)
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:  dirName,
 		ClassName: schema.ClassName(class.Class),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
 		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil, NewShardReindexerV3Noop())
 	require.Nil(t, err)
@@ -476,13 +479,14 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		Logger:  logger,
 		Workers: 1,
 	})
+	router := routerTypes.NewMockRouter(t)
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
 		ReplicationFactor: 1,
 		ShardLoadLimiter:  NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(class.InvertedIndexConfig),
-		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
 			schema: fakeSchema, shardState: shardState,
 		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, cpFile, nil, NewShardReindexerV3Noop())
 	require.Nil(t, err)
@@ -534,6 +538,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 		Workers: 1,
 	})
 
+	router := routerTypes.NewMockRouter(t)
 	idx, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:              rootDir,
 		ClassName:             schema.ClassName(class.Class),
@@ -541,7 +546,7 @@ func emptyIdx(t *testing.T, rootDir string, class *models.Class) *Index {
 		ReplicationFactor:     1,
 		ShardLoadLimiter:      NewShardLoadLimiter(monitoring.NoopRegisterer, 1),
 	}, shardState, inverted.ConfigFromModel(invertedConfig()),
-		hnsw.NewDefaultUserConfig(), nil, nil, &fakeSchemaGetter{
+		hnsw.NewDefaultUserConfig(), nil, router, &fakeSchemaGetter{
 			shardState: shardState,
 		}, nil, logger, nil, nil, nil, &replication.GlobalConfig{}, nil, class, nil, scheduler, nil, nil, NewShardReindexerV3Noop())
 	require.Nil(t, err)
