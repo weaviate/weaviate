@@ -92,6 +92,10 @@ func testMulti2VecJinaAI(host string) func(t *testing.T) {
 					multimodal.InsertObjects(t, dataFolderPath, class.Class, false)
 				})
 
+				t.Run("check objects", func(t *testing.T) {
+					multimodal.CheckObjects(t, dataFolderPath, class.Class, []string{"clip", "clip_weights"}, nil)
+				})
+
 				t.Run("nearImage", func(t *testing.T) {
 					blob, err := multimodal.GetImageBlob(dataFolderPath, 2)
 					require.NoError(t, err)

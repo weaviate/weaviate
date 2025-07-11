@@ -17,42 +17,29 @@ import (
 
 	"github.com/stretchr/testify/require"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/entities/vectorindex/hnsw"
 	"github.com/weaviate/weaviate/test/helper"
 	"github.com/weaviate/weaviate/test/helper/sample-schema/multimodal"
 )
 
-func testMulti2VecClip(host string) func(t *testing.T) {
+func testMulti2MultivecJinaAI(host string) func(t *testing.T) {
 	return func(t *testing.T) {
 		helper.SetupClient(host)
 		// Define path to test/helper/sample-schema/multimodal/data folder
 		dataFolderPath := "../../../test/helper/sample-schema/multimodal/data"
 		// Define class
-		vectorizerName := "multi2vec-clip"
+		vectorizerName := "multi2multivec-jinaai"
 		className := "ClipTest"
 		class := multimodal.BaseClass(className, false)
 		class.VectorConfig = map[string]models.VectorConfig{
 			"clip": {
 				Vectorizer: map[string]interface{}{
 					vectorizerName: map[string]interface{}{
-						"imageFields":        []interface{}{multimodal.PropertyImage},
-						"vectorizeClassName": false,
-					},
-				},
-				VectorIndexType: "flat",
-			},
-			"clip_weights": {
-				Vectorizer: map[string]interface{}{
-					vectorizerName: map[string]interface{}{
-						"textFields":  []interface{}{multimodal.PropertyImageTitle, multimodal.PropertyImageDescription},
 						"imageFields": []interface{}{multimodal.PropertyImage},
-						"weights": map[string]interface{}{
-							"textFields":  []interface{}{0.05, 0.05},
-							"imageFields": []interface{}{0.9},
-						},
-						"vectorizeClassName": false,
 					},
 				},
-				VectorIndexType: "flat",
+				VectorIndexType:   "hnsw",
+				VectorIndexConfig: hnsw.MultivectorConfig{Enabled: true},
 			},
 		}
 		// create schema
@@ -64,7 +51,7 @@ func testMulti2VecClip(host string) func(t *testing.T) {
 		})
 
 		t.Run("check objects", func(t *testing.T) {
-			multimodal.CheckObjects(t, dataFolderPath, class.Class, []string{"clip", "clip_weights"}, nil)
+			multimodal.CheckObjects(t, dataFolderPath, class.Class, nil, []string{"clip"})
 		})
 
 		t.Run("nearImage", func(t *testing.T) {
@@ -79,11 +66,20 @@ func testMulti2VecClip(host string) func(t *testing.T) {
 			`, blob, targetVector)
 			titleProperty := multimodal.PropertyImageTitle
 			titlePropertyValue := "waterfalls"
-			targetVectors := map[string]int{
-				"clip":         512,
-				"clip_weights": 512,
-			}
-			multimodal.TestQuery(t, class.Class, nearMediaArgument, titleProperty, titlePropertyValue, targetVectors)
+			multimodal.TestQuery(t, class.Class, nearMediaArgument, titleProperty, titlePropertyValue, nil)
+		})
+
+		t.Run("nearText", func(t *testing.T) {
+			titleProperty := multimodal.PropertyImageTitle
+			titlePropertyValue := "waterfalls"
+			targetVector := "clip"
+			nearMediaArgument := fmt.Sprintf(`
+				nearText: {
+					concepts: "%s"
+					targetVectors: ["%s"]
+				}
+			`, titlePropertyValue, targetVector)
+			multimodal.TestQuery(t, class.Class, nearMediaArgument, titleProperty, titlePropertyValue, nil)
 		})
 	}
 }

@@ -29,6 +29,7 @@ const (
 	Extension           ModuleType = "Extension"
 	Img2Vec             ModuleType = "Img2Vec"
 	Multi2Vec           ModuleType = "Multi2Vec"
+	Multi2Multivec      ModuleType = "Multi2Multivec"
 	Ref2Vec             ModuleType = "Ref2Vec"
 	Text2ManyVec        ModuleType = "Text2ManyVec"
 	Text2Multivec       ModuleType = "Text2Multivec"
