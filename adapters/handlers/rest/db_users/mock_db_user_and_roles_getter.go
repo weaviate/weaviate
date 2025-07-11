@@ -577,7 +577,8 @@ func (_c *MockDbUserAndRolesGetter_RotateKey_Call) RunAndReturn(run func(string,
 func NewMockDbUserAndRolesGetter(t interface {
 	mock.TestingT
 	Cleanup(func())
-}) *MockDbUserAndRolesGetter {
+},
+) *MockDbUserAndRolesGetter {
 	mock := &MockDbUserAndRolesGetter{}
 	mock.Mock.Test(t)
 
