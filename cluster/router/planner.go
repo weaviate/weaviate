@@ -17,72 +17,87 @@ import (
 	"github.com/weaviate/weaviate/cluster/router/types"
 )
 
-// ReadPlanner builds a routing plan for one read request.  The plan contains
-// exactly one replica per shard, chosen according to the configured strategy
-// selected by a specific implementation of ReadReplicaStrategy
-// (random by default, or “prefer local node” when WithDirectCandidate is used).
+// ReadPlanner builds a routing plan for one read request. The plan contains
+// the appropriate number of replicas per shard based on the consistency level.
 type ReadPlanner interface {
 	Plan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error)
 }
 
-// readPlanner is the concrete, unexported implementation.  It uses a Router
-// to discover all available replicas and a ReadReplicaStrategy to choose one
-// replica per shard to select the replica to hit for a read operation among
-// all available replicas.
+// readPlanner is the concrete, unexported implementation. It uses a Router
+// to build routing plans and selects the appropriate number of replicas
+// based on the consistency level requirements.
 type readPlanner struct {
 	router     types.Router
-	strategy   types.ReadReplicaStrategy
 	collection string
 }
 
 var _ ReadPlanner = (*readPlanner)(nil)
 
-// NewReadPlanner returns a ready-to-use read planner suitable for read operations. By default
-// it spreads reads randomly across replicas to favor read load distribution across the cluster;
-// passing option WithDirectCandidate will result in a planner that favor reading shards from the
-// local node rather than making remote read operations.
-//
-//	// default random picker (does not use option WithDirectCandidate)
-//	p := types.NewReadPlanner(router)
-//
-//	// prefer reads from the local node when available
-//	p := types.NewReadPlanner(router, types.WithDirectCandidate(myNode))
-func NewReadPlanner(router types.Router, collection string, strategy types.ReadReplicaStrategy, directCandidate, localNodeName string) ReadPlanner {
-	if strategy == nil {
-		strategy = types.NewDirectCandidateReadStrategy(types.NewDirectCandidate(directCandidate, localNodeName))
-	}
+// NewReadPlanner returns a ready-to-use read planner suitable for read operations.
+// The planner uses the router's BuildReadRoutingPlan method and then selects
+// the appropriate number of replicas based on consistency level requirements.
+func NewReadPlanner(router types.Router, collection string) ReadPlanner {
 	return &readPlanner{
 		router:     router,
-		strategy:   strategy,
 		collection: collection,
 	}
 }
 
-// Plan asks the router for candidate replicas, applies the picker to select a suitable subset of
-// replicas, and returns a fully-formed ReadRoutingPlan with one replica per shard.
+// Plan gets all available replicas from the router and selects the appropriate
+// number of replicas per shard based on the consistency level. It preserves
+// the router's preferred node ordering while ensuring enough replicas are
+// available to satisfy the consistency requirements.
 func (p *readPlanner) Plan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	readReplicas, err := p.router.GetReadReplicasLocation(p.collection, params.Tenant, params.Shard)
+	plan, err := p.router.BuildReadRoutingPlan(params)
 	if err != nil {
-		return types.ReadRoutingPlan{}, fmt.Errorf("failed to get read replicas for collection %q shard %q: %w", p.collection, params.Shard, err)
+		return types.ReadRoutingPlan{}, fmt.Errorf("failed to build read routing plan for collection %q: %w", p.collection, err)
 	}
 
-	if readReplicas.EmptyReplicas() {
-		return types.ReadRoutingPlan{}, fmt.Errorf("no replicas available for collection %q shard %q", p.collection, params.Shard)
-	}
-
-	chosen := p.strategy.Apply(readReplicas, params)
-	plan := types.ReadRoutingPlan{
-		Shard:            params.Shard,
-		Tenant:           params.Tenant,
-		ReplicaSet:       chosen,
-		ConsistencyLevel: params.ConsistencyLevel,
-	}
-
-	cl, err := plan.ValidateConsistencyLevel()
+	shardGroups := p.groupReplicasByShard(plan.ReplicaSet.Replicas)
+	selectedReplicas, err := p.selectReplicasForConsistency(shardGroups, plan.IntConsistencyLevel)
 	if err != nil {
-		return types.ReadRoutingPlan{}, fmt.Errorf("consistency validation failed: %w", err)
+		return types.ReadRoutingPlan{}, fmt.Errorf("failed to select replicas for consistency level %d: %w", plan.IntConsistencyLevel, err)
 	}
-	plan.IntConsistencyLevel = cl
 
-	return plan, nil
+	return types.ReadRoutingPlan{
+		Shard:               plan.Shard,
+		Tenant:              plan.Tenant,
+		ReplicaSet:          types.ReadReplicaSet{Replicas: selectedReplicas},
+		ConsistencyLevel:    plan.ConsistencyLevel,
+		IntConsistencyLevel: plan.IntConsistencyLevel,
+	}, nil
+}
+
+// groupReplicasByShard organizes replicas by their shard name while preserving
+// the original ordering (which includes preferred node logic from the router).
+func (p *readPlanner) groupReplicasByShard(replicas []types.Replica) map[string][]types.Replica {
+	shardGroups := make(map[string][]types.Replica)
+
+	for _, replica := range replicas {
+		shardGroups[replica.ShardName] = append(shardGroups[replica.ShardName], replica)
+	}
+
+	return shardGroups
+}
+
+// selectReplicasForConsistency selects the appropriate number of replicas
+// per shard based on the consistency level requirements.
+//
+// This method assumes the routing plan has already been validated by the router's
+// ValidateConsistencyLevel() method, ensuring that:
+// - consistencyLevel is a valid positive integer
+// - each shard has at least consistencyLevel replicas available
+func (p *readPlanner) selectReplicasForConsistency(shardGroups map[string][]types.Replica, consistencyLevel int) ([]types.Replica, error) {
+	var selectedReplicas []types.Replica
+
+	for _, shardReplicas := range shardGroups {
+		if len(shardReplicas) == 0 {
+			continue
+		}
+
+		selected := shardReplicas[:1]
+		selectedReplicas = append(selectedReplicas, selected...)
+	}
+
+	return selectedReplicas, nil
 }
