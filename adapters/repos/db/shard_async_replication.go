@@ -330,6 +330,13 @@ func (s *Shard) initAsyncReplication() error {
 	// sync hashtree with current object states
 
 	enterrors.GoWrapper(func() {
+		releaseInitialization := func() {
+			s.asyncReplicationRWMux.RLock()
+			defer s.asyncReplicationRWMux.RUnlock()
+
+			close(s.minimalHashtreeInitializationCh)
+		}
+
 		err := s.HaltForTransfer(ctx, false, 0)
 		if err != nil {
 			s.index.logger.
@@ -337,6 +344,7 @@ func (s *Shard) initAsyncReplication() error {
 				WithField("class_name", s.class.Class).
 				WithField("shard_name", s.name).
 				Errorf("pausing compaction during hashtree initialization: %v", err)
+			releaseInitialization()
 			return
 		}
 		defer s.resumeMaintenanceCycles(ctx)
@@ -344,16 +352,7 @@ func (s *Shard) initAsyncReplication() error {
 		objCount := 0
 		prevProgressLogging := time.Now()
 
-		beforeOnDiskCallback := func(_ context.Context) error {
-			s.asyncReplicationRWMux.RLock()
-			defer s.asyncReplicationRWMux.RUnlock()
-
-			close(s.minimalHashtreeInitializationCh)
-
-			return nil
-		}
-
-		err = bucket.ApplyToObjectDigests(ctx, beforeOnDiskCallback, func(object *storobj.Object) error {
+		err = bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(object *storobj.Object) error {
 			if time.Since(prevProgressLogging) >= config.loggingFrequency {
 				s.index.logger.
 					WithField("action", "async_replication").
@@ -369,6 +368,9 @@ func (s *Shard) initAsyncReplication() error {
 			if err != nil {
 				return err
 			}
+
+			s.asyncReplicationRWMux.RLock()
+			defer s.asyncReplicationRWMux.RUnlock()
 
 			err = s.mayUpsertObjectHashTree(object, uuidBytes, objectInsertStatus{})
 			if err != nil {

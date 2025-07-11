@@ -396,7 +396,7 @@ func (b *Bucket) IterateObjects(ctx context.Context, f func(object *storobj.Obje
 }
 
 func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
-	beforeOnDiskCallback func(ctx context.Context) error, f func(object *storobj.Object) error,
+	afterInMemCallback func(), f func(object *storobj.Object) error,
 ) error {
 	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
 	onDiskCursor := b.CursorOnDisk()
@@ -406,6 +406,8 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 
 	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
 	err := func() error {
+		defer afterInMemCallback()
+
 		inMemCursor := b.CursorInMem()
 		defer inMemCursor.Close()
 
@@ -428,11 +430,6 @@ func (b *Bucket) ApplyToObjectDigests(ctx context.Context,
 
 		return nil
 	}()
-	if err != nil {
-		return err
-	}
-
-	err = beforeOnDiskCallback(ctx)
 	if err != nil {
 		return err
 	}
