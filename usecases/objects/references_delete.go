@@ -170,7 +170,7 @@ func (req *DeleteReferenceInput) validateSchema(class *models.Class) error {
 func removeReference(obj *models.Object, prop string, remove *models.SingleRef) (ok bool, errmsg string) {
 	properties := obj.Properties.(map[string]interface{})
 	if properties == nil || properties[prop] == nil {
-		return false, fmt.Sprintf("collection %q does not have property %q", obj.Class, prop)
+		return false, ""
 	}
 
 	refs, ok := properties[prop].(models.MultipleRef)
