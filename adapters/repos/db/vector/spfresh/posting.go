@@ -44,18 +44,18 @@ func (p Posting) Dimensions() int {
 type PostingStore interface {
 	// Get reads the entire data of the given posting.
 	// The returned data must not be modified by the caller.
-	Get(ctx context.Context, id uint64) (Posting, error)
+	Get(ctx context.Context, postingID uint64) (Posting, error)
 
 	// ParallelGet reads multiple postings concurrently.
 	// The returned data slices are in the same order as the ids.
 	// If any id is not found, the function returns an error.
-	ParallelGet(ctx context.Context, ids []uint64) ([]Posting, error)
+	ParallelGet(ctx context.Context, postingIDs []uint64) ([]Posting, error)
 
 	// Put writes the full content of a posting, overwriting any existing data.
-	Put(ctx context.Context, id uint64, posting Posting) error
+	Put(ctx context.Context, postingID uint64, posting Posting) error
 
 	// Append appends new data to an existing posting.
-	Append(ctx context.Context, id uint64, vector *Vector) error
+	Append(ctx context.Context, postingID uint64, vector *Vector) error
 }
 
 // A PostingSplitter splits a posting into two evenly distributed groups.

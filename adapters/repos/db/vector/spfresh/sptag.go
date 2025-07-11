@@ -6,11 +6,11 @@ import (
 )
 
 type SPTAG interface {
-	UpsertCentroid(id uint64, centroid []float32) error
-	DeleteCentroid(id uint64) error
+	Upsert(id uint64, centroid []float32) error
+	Delete(id uint64) error
 	Search(query []float32, k int) ([]uint64, error)
-	SplitCentroid(oldID uint64, newID1, newID2 uint64, c1, c2 []float32) error
-	MergeCentroids(oldID1, oldID2, newID uint64, newCentroid []float32) error
+	Split(oldID uint64, newID1, newID2 uint64, c1, c2 []float32) error
+	Merge(oldID1, oldID2, newID uint64, newCentroid []float32) error
 }
 
 type DummySPTAG struct {
