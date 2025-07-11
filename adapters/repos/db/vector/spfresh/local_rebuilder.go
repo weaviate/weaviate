@@ -28,7 +28,7 @@ type Operation struct {
 type LocalRebuilder struct {
 	UserConfig *UserConfig     // UserConfig contains user-defined settings for the rebuilder.
 	SPTAG      SPTAG           // SPTAG provides access to the SPTAG index for centroid operations.
-	Store      PostingStore    // Used for managing persistence of postings.
+	Store      BlockController // Used for managing persistence of postings.
 	Logger     *logrus.Entry   // Logger for logging operations and errors.
 	Splitter   PostingSplitter // Used for splitting postings into two.
 	VersionMap *VersionMap     // VersionMap provides access to vector versions.
@@ -38,6 +38,8 @@ type LocalRebuilder struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
+
+	splitDedup deduplicator // Deduplicator to prevent multiple split operations on the same posting
 }
 
 func (r *LocalRebuilder) Start(ctx context.Context) {
@@ -72,13 +74,23 @@ func (r *LocalRebuilder) Start(ctx context.Context) {
 	}
 }
 
-func (r *LocalRebuilder) Enqueue(ctx context.Context, op Operation, postingID uint64) error {
+func (r *LocalRebuilder) Enqueue(ctx context.Context, op Operation) error {
 	if r.ctx == nil {
 		return nil // Not started yet
 	}
 
 	if r.ctx.Err() != nil {
 		return r.ctx.Err() // Context already cancelled
+	}
+
+	// Check if the operation is a split and if it's already in progress
+	if op.OpType == BackgroundOpSplit {
+		if !r.splitDedup.tryEnqueue(op.PostingID) {
+			r.Logger.WithField("postingID", op.PostingID).
+				WithField("operation", op.OpType).
+				Debug("Split operation already in progress, skipping enqueue")
+			return nil // Skip if the operation is already in progress
+		}
 	}
 
 	// Enqueue the operation to the channel
@@ -145,6 +157,8 @@ func (r *LocalRebuilder) Close(ctx context.Context) error {
 }
 
 func (r *LocalRebuilder) doSplit(op Operation) error {
+	defer r.splitDedup.done(op.PostingID) // Ensure we mark the operation as done
+
 	// TODO: Use WAL
 
 	p, err := r.Store.Get(r.ctx, op.PostingID)
@@ -209,4 +223,36 @@ func (r *LocalRebuilder) doSplit(op Operation) error {
 	// TODO: add reassign logic
 
 	return nil
+}
+
+// deduplicator is a simple mutex-based deduplicator for operations.
+// It ensures that only one operation per posting ID can be enqueued at a time.
+type deduplicator struct {
+	mu       sync.Mutex
+	inflight map[uint64]struct{} // map of inflight operations by posting ID
+}
+
+func (d *deduplicator) tryEnqueue(postingID uint64) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	if d.inflight == nil {
+		d.inflight = make(map[uint64]struct{})
+		d.inflight[postingID] = struct{}{}
+		return true // First operation, no duplicates
+	}
+
+	if _, exists := d.inflight[postingID]; exists {
+		return false // Operation already in progress
+	}
+
+	d.inflight[postingID] = struct{}{}
+	return true
+}
+
+func (d *deduplicator) done(postingID uint64) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+
+	delete(d.inflight, postingID)
 }
