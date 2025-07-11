@@ -107,6 +107,7 @@ func WithChecksumsDisabled(disable bool) SegmentFileOption {
 func NewSegmentFile(opts ...SegmentFileOption) *SegmentFile {
 	s := &SegmentFile{
 		checksumsDisabled: true,
+		headerSize:        HeaderSize,
 	}
 	for _, opt := range opts {
 		opt(s)
