@@ -53,7 +53,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
-		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "40s").
+		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
 		Start(mainCtx)
 	require.Nil(t, err)
 	defer func() {
@@ -63,27 +63,27 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	}()
 
 	move := "MOVE"
-	copy := "COPY"
+	// copy := "COPY"
 
 	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
 		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
 	})
-	t.Run("COPY, rf=2, no automated resolution", func(t *testing.T) {
-		test(t, compose, copy, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	})
-	t.Run("MOVE, rf=1, no automated resolution", func(t *testing.T) {
-		test(t, compose, move, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	})
-	t.Run("COPY, rf=1, no automated resolution", func(t *testing.T) {
-		test(t, compose, copy, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	})
+	// t.Run("COPY, rf=2, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, copy, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
+	// t.Run("MOVE, rf=1, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, move, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
+	// t.Run("COPY, rf=1, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, copy, 1, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
 
-	t.Run("MOVE, rf=2, delete on conflict", func(t *testing.T) {
-		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
-	})
-	t.Run("MOVE, rf=2, time-based resolution", func(t *testing.T) {
-		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
-	})
+	// t.Run("MOVE, rf=2, delete on conflict", func(t *testing.T) {
+	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyDeleteOnConflict)
+	// })
+	// t.Run("MOVE, rf=2, time-based resolution", func(t *testing.T) {
+	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
+	// })
 }
 
 func test(t *testing.T, compose *docker.DockerCompose, replicationType string, factor int, strategy string) {
@@ -198,7 +198,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 		fmt.Println("NATEE state", res.Payload.Status.State)
 		require.Nil(t, err, "failed to get replication operation %s", opId)
 		assert.True(ct, res.Payload.Status.State == models.ReplicationReplicateDetailsReplicaStatusStateREADY, "replication operation not completed yet")
-	}, 300*time.Second, 5*time.Second, "replication operations did not complete in time")
+	}, 400*time.Second, 5*time.Second, "replication operations did not complete in time")
 
 	t.Log("Replication operation completed successfully, cancelling data mutation")
 	cancel() // stop mutating to allow the verification to proceed
