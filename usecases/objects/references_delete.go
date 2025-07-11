@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 
 	"github.com/weaviate/weaviate/entities/schema"
 	"github.com/weaviate/weaviate/usecases/auth/authorization"
@@ -166,7 +167,7 @@ func (req *DeleteReferenceInput) validateSchema(class *models.Class) error {
 
 // removeReference removes ref from object obj with property prop.
 // It returns ok (removal took place) and an error message
-func removeReference(obj *models.Object, prop string, ref *models.SingleRef) (ok bool, errmsg string) {
+func removeReference(obj *models.Object, prop string, remove *models.SingleRef) (ok bool, errmsg string) {
 	properties := obj.Properties.(map[string]interface{})
 	if properties == nil || properties[prop] == nil {
 		return false, fmt.Sprintf("collection %q does not have property %q", obj.Class, prop)
@@ -177,12 +178,13 @@ func removeReference(obj *models.Object, prop string, ref *models.SingleRef) (ok
 		return false, fmt.Sprintf("property %q with type %T is not a valid cross-reference", prop, refs)
 	}
 
-	newrefs := make(models.MultipleRef, 0, len(refs))
-	for _, r := range refs {
-		if r.Beacon != ref.Beacon {
-			newrefs = append(newrefs, r)
+	var removed bool
+	properties[prop] = slices.DeleteFunc(refs, func(ref *models.SingleRef) bool {
+		if ref.Beacon == remove.Beacon {
+			removed = removed || true
+			return true
 		}
-	}
-	properties[prop] = newrefs
-	return len(refs) != len(newrefs), ""
+		return false
+	})
+	return removed, ""
 }
