@@ -1724,7 +1724,7 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_ConsistencyLevelValidation(t *te
 	mockNodeSelector := mocks.NewMockNodeSelector("node1", "node2")
 	mockSchemaReader := schemaTypes.NewMockSchemaReader(t)
 
-	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "").Return([]string{"node1", "node2"}, nil)
+	mockSchemaReader.EXPECT().ShardReplicas("TestClass", "alice").Return([]string{"node1", "node2"}, nil)
 
 	tenantStatus := map[string]string{
 		"alice": models.TenantActivityStatusHOT,
@@ -1732,9 +1732,9 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_ConsistencyLevelValidation(t *te
 	mockSchemaGetter.EXPECT().OptimisticTenantStatus(mock.Anything, "TestClass", "alice").
 		Return(tenantStatus, nil)
 
-	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "", []string{"node1", "node2"}).
+	mockReplicationFSM.EXPECT().FilterOneShardReplicasRead("TestClass", "alice", []string{"node1", "node2"}).
 		Return([]string{"node1", "node2"})
-	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "", []string{"node1", "node2"}).
+	mockReplicationFSM.EXPECT().FilterOneShardReplicasWrite("TestClass", "alice", []string{"node1", "node2"}).
 		Return([]string{"node1"}, []string{"node2"})
 
 	r := router.NewBuilder(
