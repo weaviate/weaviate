@@ -254,6 +254,7 @@ func (m *Memtable) flushDataInverted(f *segmentindex.SegmentFile, ogF *diskio.Me
 	version := segmentindex.ChooseHeaderVersion(m.enableChecksumValidation)
 	if err := compactor.WriteHeaders(nil, ogF, bufw, f, 0, version,
 		header.SecondaryIndices, header.IndexStart, segmentindex.StrategyInverted, &headerInverted); err != nil {
+		return nil, nil, fmt.Errorf("write headers: %w", err)
 	}
 
 	return keys[:actuallyWritten], tombstones, nil
