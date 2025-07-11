@@ -12,10 +12,10 @@
 package lsmkv
 
 import (
-	"bufio"
 	"bytes"
 	"encoding/binary"
 	"encoding/gob"
+	"fmt"
 	"io"
 	"maps"
 	"math"
@@ -23,9 +23,11 @@ import (
 	"github.com/pkg/errors"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/weaviate/sroar"
+	"github.com/weaviate/weaviate/adapters/repos/db/compactor"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted/terms"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/segmentindex"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv/varenc"
+	"github.com/weaviate/weaviate/entities/diskio"
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
@@ -44,7 +46,8 @@ type compactorInverted struct {
 	cleanupTombstones bool
 
 	w    io.WriteSeeker
-	bufw *bufio.Writer
+	bufw compactor.Writer
+	mw   *compactor.MemoryWriter
 
 	scratchSpacePath string
 
@@ -62,26 +65,42 @@ type compactorInverted struct {
 	tfEncoder    varenc.VarEncEncoder[uint64]
 
 	k1, b, avgPropLen float64
+
+	enableChecksumValidation bool
+
+	segmentFile *segmentindex.SegmentFile
 }
 
 func newCompactorInverted(w io.WriteSeeker,
 	c1, c2 *segmentCursorInvertedReusable, level, secondaryIndexCount uint16,
 	scratchSpacePath string, cleanupTombstones bool,
-	k1, b, avgPropLen float64,
+	k1, b, avgPropLen float64, enableChecksumValidation bool, maxNewFileSize int64,
 ) *compactorInverted {
+	observeWrite := monitoring.GetMetrics().FileIOWrites.With(prometheus.Labels{
+		"operation": "compaction",
+		"strategy":  StrategyMapCollection,
+	})
+	writeCB := func(written int64) {
+		observeWrite.Observe(float64(written))
+	}
+	meteredW := diskio.NewMeteredWriter(w, writeCB)
+	writer, mw := compactor.NewWriter(meteredW, maxNewFileSize)
+
 	return &compactorInverted{
-		c1:                  c1,
-		c2:                  c2,
-		w:                   w,
-		bufw:                bufio.NewWriterSize(w, 256*1024),
-		currentLevel:        level,
-		cleanupTombstones:   cleanupTombstones,
-		secondaryIndexCount: secondaryIndexCount,
-		scratchSpacePath:    scratchSpacePath,
-		offset:              0,
-		k1:                  k1,
-		b:                   b,
-		avgPropLen:          avgPropLen,
+		c1:                       c1,
+		c2:                       c2,
+		w:                        meteredW,
+		bufw:                     writer,
+		mw:                       mw,
+		currentLevel:             level,
+		cleanupTombstones:        cleanupTombstones,
+		secondaryIndexCount:      secondaryIndexCount,
+		scratchSpacePath:         scratchSpacePath,
+		offset:                   0,
+		k1:                       k1,
+		b:                        b,
+		avgPropLen:               avgPropLen,
+		enableChecksumValidation: enableChecksumValidation,
 	}
 }
 
@@ -91,6 +110,11 @@ func (c *compactorInverted) do() error {
 	if err := c.init(); err != nil {
 		return errors.Wrap(err, "init")
 	}
+
+	c.segmentFile = segmentindex.NewSegmentFile(
+		segmentindex.WithBufferedWriter(c.bufw),
+		segmentindex.WithChecksumsDisabled(!c.enableChecksumValidation),
+	)
 
 	c.tombstonesToWrite, err = c.c1.segment.ReadOnlyTombstones()
 	if err != nil {
@@ -120,6 +144,8 @@ func (c *compactorInverted) do() error {
 
 	tombstones := c.computeTombstonesAndPropLengths()
 
+	keysOffset := segmentindex.HeaderSize + segmentindex.SegmentInvertedDefaultHeaderSize + len(c.c1.segment.invertedHeader.DataFields)
+
 	kis, err := c.writeKeys()
 	if err != nil {
 		return errors.Wrap(err, "write keys")
@@ -142,21 +168,24 @@ func (c *compactorInverted) do() error {
 	}
 
 	// flush buffered, so we can safely seek on underlying writer
-	if err := c.bufw.Flush(); err != nil {
-		return errors.Wrap(err, "flush buffered")
+	if c.mw == nil {
+		if err := c.bufw.Flush(); err != nil {
+			return fmt.Errorf("flush buffered: %w", err)
+		}
 	}
 
-	// TODO: checksums currently not supported for StrategyInverted,
-	//       which was introduced with segmentindex.SegmentV1. When
-	//       support is added, we can bump this header version to 1.
-	version := uint16(0)
-	if err := c.writeHeader(c.currentLevel, version, c.secondaryIndexCount,
-		treeOffset); err != nil {
+	c.invertedHeader.KeysOffset = uint64(keysOffset)
+	c.invertedHeader.TombstoneOffset = uint64(tombstoneOffset)
+	c.invertedHeader.PropertyLengthsOffset = uint64(propertyLengthsOffset)
+
+	version := segmentindex.ChooseHeaderVersion(c.enableChecksumValidation)
+	if err := compactor.WriteHeaders(c.mw, c.w, c.bufw, c.segmentFile, c.currentLevel, version,
+		c.secondaryIndexCount, treeOffset, segmentindex.StrategyInverted, c.invertedHeader); err != nil {
 		return errors.Wrap(err, "write header")
 	}
 
-	if err := c.writeInvertedHeader(tombstoneOffset, propertyLengthsOffset); err != nil {
-		return errors.Wrap(err, "write keys length")
+	if _, err := c.segmentFile.WriteChecksum(); err != nil {
+		return fmt.Errorf("write compactorMap segment checksum: %w", err)
 	}
 
 	return nil
@@ -179,12 +208,10 @@ func (c *compactorInverted) init() error {
 	if _, err := c.bufw.Write(make([]byte, segmentindex.SegmentInvertedDefaultHeaderSize+len(c.c1.segment.invertedHeader.DataFields))); err != nil {
 		return errors.Wrap(err, "write empty inverted header")
 	}
+
 	c.offset = segmentindex.HeaderSize + segmentindex.SegmentInvertedDefaultHeaderSize + len(c.c1.segment.invertedHeader.DataFields)
 
 	c.invertedHeader = &segmentindex.HeaderInverted{
-		// TODO: checksums currently not supported for StrategyInverted,
-		//       which was introduced with segmentindex.SegmentV1. When
-		//       support is added, we can bump this header version to 1.
 		Version:               0,
 		KeysOffset:            uint64(c.offset),
 		TombstoneOffset:       0,
@@ -211,11 +238,11 @@ func (c *compactorInverted) writeTombstones(tombstones *sroar.Bitmap) (int, erro
 
 	buf := make([]byte, 8)
 	binary.LittleEndian.PutUint64(buf, uint64(len(tombstonesBuffer)))
-	if _, err := c.bufw.Write(buf); err != nil {
+	if _, err := c.segmentFile.BodyWriter().Write(buf); err != nil {
 		return 0, err
 	}
 
-	if _, err := c.bufw.Write(tombstonesBuffer); err != nil {
+	if _, err := c.segmentFile.BodyWriter().Write(tombstonesBuffer); err != nil {
 		return 0, err
 	}
 	c.offset += len(tombstonesBuffer) + 8
@@ -246,21 +273,21 @@ func (c *compactorInverted) writePropertyLengths(propLengths map[uint64]uint32) 
 	buf := make([]byte, 8)
 
 	binary.LittleEndian.PutUint64(buf, math.Float64bits(average))
-	if _, err := c.bufw.Write(buf); err != nil {
+	if _, err := c.segmentFile.BodyWriter().Write(buf); err != nil {
 		return 0, err
 	}
 
 	binary.LittleEndian.PutUint64(buf, count)
-	if _, err := c.bufw.Write(buf); err != nil {
+	if _, err := c.segmentFile.BodyWriter().Write(buf); err != nil {
 		return 0, err
 	}
 
 	binary.LittleEndian.PutUint64(buf, uint64(b.Len()))
-	if _, err := c.bufw.Write(buf); err != nil {
+	if _, err := c.segmentFile.BodyWriter().Write(buf); err != nil {
 		return 0, err
 	}
 
-	if _, err := c.bufw.Write(b.Bytes()); err != nil {
+	if _, err := c.segmentFile.BodyWriter().Write(b.Bytes()); err != nil {
 		return 0, err
 	}
 	c.offset += b.Len() + 8 + 8 + 8
@@ -362,7 +389,7 @@ func (c *compactorInverted) writeIndividualNode(offset int, key []byte,
 		primaryKey:  keyCopy,
 		offset:      offset,
 		propLengths: propertyLengths,
-	}.KeyIndexAndWriteTo(c.bufw, c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
+	}.KeyIndexAndWriteTo(c.segmentFile.BodyWriter(), c.docIdEncoder, c.tfEncoder, c.k1, c.b, c.avgPropLen)
 }
 
 func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
@@ -376,51 +403,8 @@ func (c *compactorInverted) writeIndices(keys []segmentindex.Key) error {
 		}),
 	}
 
-	_, err := indices.WriteTo(c.bufw)
+	_, err := indices.WriteTo(c.segmentFile.BodyWriter())
 	return err
-}
-
-// writeHeader assumes that everything has been written to the underlying
-// writer and it is now safe to seek to the beginning and override the initial
-// header
-func (c *compactorInverted) writeHeader(level, version, secondaryIndices uint16,
-	startOfIndex uint64,
-) error {
-	if _, err := c.w.Seek(0, io.SeekStart); err != nil {
-		return errors.Wrap(err, "seek to beginning to write header")
-	}
-
-	h := &segmentindex.Header{
-		Level:            level,
-		Version:          version,
-		SecondaryIndices: secondaryIndices,
-		Strategy:         segmentindex.StrategyInverted,
-		IndexStart:       startOfIndex,
-	}
-
-	if _, err := h.WriteTo(c.w); err != nil {
-		return err
-	}
-
-	return nil
-}
-
-// writeInvertedHeader assumes that everything has been written to the underlying
-// writer and it is now safe to seek to the beginning and override the initial
-// header
-func (c *compactorInverted) writeInvertedHeader(tombstoneOffset, propertyLengthsOffset int) error {
-	if _, err := c.w.Seek(16, io.SeekStart); err != nil {
-		return errors.Wrap(err, "seek to beginning to write inverted header")
-	}
-
-	c.invertedHeader.TombstoneOffset = uint64(tombstoneOffset)
-	c.invertedHeader.PropertyLengthsOffset = uint64(propertyLengthsOffset)
-
-	if _, err := c.invertedHeader.WriteTo(c.w); err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // Removes values with tombstone set from input slice. Output slice may be smaller than input one.

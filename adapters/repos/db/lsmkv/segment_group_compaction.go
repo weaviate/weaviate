@@ -345,7 +345,7 @@ func (sg *SegmentGroup) compactOnce() (bool, error) {
 		c := newCompactorInverted(f,
 			leftSegment.newInvertedCursorReusable(),
 			rightSegment.newInvertedCursorReusable(),
-			level, secondaryIndices, scratchSpacePath, cleanupTombstones, k1, b, avgPropLen)
+			level, secondaryIndices, scratchSpacePath, cleanupTombstones, k1, b, avgPropLen, sg.enableChecksumValidation, maxNewFileSize)
 
 		if sg.metrics != nil {
 			sg.metrics.CompactionMap.With(prometheus.Labels{"path": pathLabel}).Inc()
