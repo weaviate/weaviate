@@ -169,12 +169,12 @@ func (req *DeleteReferenceInput) validateSchema(class *models.Class) error {
 func removeReference(obj *models.Object, prop string, ref *models.SingleRef) (ok bool, errmsg string) {
 	properties := obj.Properties.(map[string]interface{})
 	if properties == nil || properties[prop] == nil {
-		return false, ""
+		return false, fmt.Sprintf("collection %q does not have property %q", obj.Class, prop)
 	}
 
 	refs, ok := properties[prop].(models.MultipleRef)
 	if !ok {
-		return false, "source list is not well formed"
+		return false, fmt.Sprintf("property %q with type %T is not a valid cross-reference", prop, refs)
 	}
 
 	newrefs := make(models.MultipleRef, 0, len(refs))
