@@ -645,6 +645,7 @@ type IndexConfig struct {
 	RootPath                            string
 	ClassName                           schema.ClassName
 	QueryMaximumResults                 int64
+	QueryHybridMaximumResults           int64
 	QueryNestedRefLimit                 int64
 	ResourceUsage                       config.ResourceUsage
 	MemtablesFlushDirtyAfter            int
