@@ -28,6 +28,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -62,6 +63,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 	shardName string, index *Index, class *models.Class, jobQueueCh chan job,
 	indexCheckpoints *indexcheckpoint.Checkpoints, memMonitor memwatch.AllocChecker,
 	shardLoadLimiter ShardLoadLimiter, shardReindexer ShardReindexerV3,
+	bitmapBufPool roaringset.BitmapBufPool,
 ) *LazyLoadShard {
 	if memMonitor == nil {
 		memMonitor = memwatch.NewDummyMonitor()
@@ -77,6 +79,7 @@ func NewLazyLoadShard(ctx context.Context, promMetrics *monitoring.PrometheusMet
 			scheduler:        index.scheduler,
 			indexCheckpoints: indexCheckpoints,
 			shardReindexer:   shardReindexer,
+			bitmapBufPool:    bitmapBufPool,
 		},
 		memMonitor:       memMonitor,
 		shardLoadLimiter: shardLoadLimiter,
@@ -92,6 +95,7 @@ type deferredShardOpts struct {
 	scheduler        *queue.Scheduler
 	indexCheckpoints *indexcheckpoint.Checkpoints
 	shardReindexer   ShardReindexerV3
+	bitmapBufPool    roaringset.BitmapBufPool
 }
 
 func (l *LazyLoadShard) mustLoad() {
@@ -123,7 +127,7 @@ func (l *LazyLoadShard) Load(ctx context.Context) error {
 
 	shard, err := NewShard(ctx, l.shardOpts.promMetrics, l.shardOpts.name, l.shardOpts.index,
 		l.shardOpts.class, l.shardOpts.jobQueueCh, l.shardOpts.scheduler,
-		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer)
+		l.shardOpts.indexCheckpoints, l.shardOpts.shardReindexer, l.shardOpts.bitmapBufPool)
 	if err != nil {
 		msg := fmt.Sprintf("Unable to load shard %s: %v", l.shardOpts.name, err)
 		l.shardOpts.index.logger.WithField("error", "shard_load").WithError(err).Error(msg)
