@@ -281,17 +281,17 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Update some existing objects
-			// for _, obj := range toUpdate {
-			// 	updated := (*models.Object)(articles.NewParagraph().
-			// 		WithContents(fmt.Sprintf("updated-%s", obj.Properties.(map[string]any)["contents"])).
-			// 		WithTenant(tenantName).
-			// 		WithID(obj.ID).
-			// 		Object())
-			// 	ok, err := client.Objects.ObjectsClassPut(
-			// 		objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
-			// 		nil,
-			// 	)
-			// }
+			for _, obj := range toUpdate {
+				updated := (*models.Object)(articles.NewParagraph().
+					WithContents(fmt.Sprintf("updated-%s", obj.Properties.(map[string]any)["contents"])).
+					WithTenant(tenantName).
+					WithID(obj.ID).
+					Object())
+				_, _ = client.Objects.ObjectsClassPut(
+					objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
+					nil,
+				)
+			}
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
