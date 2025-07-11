@@ -611,21 +611,21 @@ func (dynamic *dynamic) doUpgrade() error {
 	var errs []error
 	bDir := dynamic.store.Bucket(dynamic.getBucketName()).GetDir()
 	err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getBucketName())
-	if err == nil {
+	if err != nil {
 		errs = append(errs, err)
 	}
 	err = os.RemoveAll(bDir)
-	if err == nil {
+	if err != nil {
 		errs = append(errs, err)
 	}
 	if dynamic.flatBQ && !dynamic.hnswUC.BQ.Enabled {
 		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
 		err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName())
-		if err == nil {
+		if err != nil {
 			errs = append(errs, err)
 		}
 		err = os.RemoveAll(bDir)
-		if err == nil {
+		if err != nil {
 			errs = append(errs, err)
 		}
 	}
