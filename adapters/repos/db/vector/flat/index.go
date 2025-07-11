@@ -1060,3 +1060,15 @@ type FlatStats struct{}
 func (s *FlatStats) IndexType() common.IndexType {
 	return common.IndexTypeFlat
 }
+
+func (h *flat) ShouldUpgrade() (bool, int) {
+	return false, 0
+}
+
+func (h *flat) Upgrade(callback func()) error {
+	return nil
+}
+
+func (h *flat) Upgraded() bool {
+	return false
+}
