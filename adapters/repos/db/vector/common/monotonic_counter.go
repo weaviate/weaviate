@@ -1,6 +1,6 @@
 package common
 
-import "sync"
+import "sync/atomic"
 
 type Unsigned interface {
 	~uint | ~uint8 | ~uint16 | ~uint32 | ~uint64
@@ -9,18 +9,28 @@ type Unsigned interface {
 // MonotonicCounter is a thread-safe counter that increments monotonically.
 // It is a simple wrapper to avoid accidental resets, decrements, overflow,
 // or other operations that could break the monotonicity.
-// The zero value of the MonotonicCounter is a valid counter with a starting value of zero.
 type MonotonicCounter[T Unsigned] struct {
-	m     sync.Mutex
-	value T
+	value AtomicCounter[T]
 }
 
-// NewMonotonicCounter creates a new MonotonicCounter with the given starting value.
+// NewUint64Counter creates a new Uint64 MonotonicCounter with the given starting value.
 // Next call to Next() will return the starting value + 1.
-func NewMonotonicCounter[T Unsigned](start T) *MonotonicCounter[T] {
-	return &MonotonicCounter[T]{
-		value: start,
-	}
+func NewUint64Counter(start uint64) *MonotonicCounter[uint64] {
+	var c MonotonicCounter[uint64]
+	var value atomic.Uint64
+	value.Store(start)
+	c.value = &value
+	return &c
+}
+
+// NewUint32Counter creates a new Uint32 MonotonicCounter with the given starting value.
+// Next call to Next() will return the starting value + 1.
+func NewUint32Counter(start uint32) *MonotonicCounter[uint32] {
+	var c MonotonicCounter[uint32]
+	var value atomic.Uint32
+	value.Store(start)
+	c.value = &value
+	return &c
 }
 
 // Next returns the next value of the counter.
@@ -28,7 +38,7 @@ func NewMonotonicCounter[T Unsigned](start T) *MonotonicCounter[T] {
 func (c *MonotonicCounter[T]) Next() T {
 	next, ok := c.TryNext()
 	if !ok {
-		panic("monotonic counter has hit its maximum value")
+		panic("MonotonicCounter overflow: reached maximum value")
 	}
 	return next
 }
@@ -36,24 +46,25 @@ func (c *MonotonicCounter[T]) Next() T {
 // TryNext returns (next, ok). When ok == false
 // the counter has hit its maximum and next == zero(T).
 func (c *MonotonicCounter[T]) TryNext() (T, bool) {
-	c.m.Lock()
-	defer c.m.Unlock()
-
-	max := ^T(0)
-	if c.value == max {
-		var zero T
-		return zero, false
+	for {
+		current := c.value.Load()
+		next := current + 1
+		if next < current { // Check for overflow
+			return next, false
+		}
+		if c.value.CompareAndSwap(current, next) {
+			return next, true
+		}
 	}
-	c.value++
-	return c.value, true
 }
 
 // NextN returns the next n values as a range: [start, end].
 // Panics if n is 0 or the range would overflow.
-func (c *MonotonicCounter[T]) NextN(n T) (start, end T) {
-	start, end, ok := c.TryNextN(n)
+func (c *MonotonicCounter[T]) NextN(n T) (start T, end T) {
+	var ok bool
+	start, end, ok = c.TryNextN(n)
 	if !ok {
-		panic("monotonic: counter overflow in NextN")
+		panic("MonotonicCounter overflow: reached maximum value")
 	}
 	return start, end
 }
@@ -63,21 +74,21 @@ func (c *MonotonicCounter[T]) NextN(n T) (start, end T) {
 // If the counter has hit its maximum value or the range would overflow,
 // it returns (0, 0, false).
 func (c *MonotonicCounter[T]) TryNextN(n T) (start, end T, ok bool) {
-	if n == 0 {
-		return
+	for {
+		current := c.value.Load()
+		end = current + n
+		if end < current { // Check for overflow
+			return 0, 0, false
+		}
+		if c.value.CompareAndSwap(current, end) {
+			start = current + 1
+			return start, end, true
+		}
 	}
+}
 
-	c.m.Lock()
-	defer c.m.Unlock()
-
-	max := ^T(0)
-	if max-c.value < n {
-		return
-	}
-
-	start = c.value + 1
-	end = c.value + n
-	c.value = end
-	ok = true
-	return
+type AtomicCounter[T any] interface {
+	Add(delta T) T
+	CompareAndSwap(old T, new T) (swapped bool)
+	Load() T
 }
