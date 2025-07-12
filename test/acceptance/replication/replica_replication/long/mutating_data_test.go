@@ -331,7 +331,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			// 	fmt.Println(time.Now(), "NATEE mutate create data btch[i].ID", btch[i].ID.String())
 			// 	counter++
 			// }
-			// all := "ALL"
+			all := "ALL"
 			// params := batch.NewBatchObjectsCreateParams().
 			// 	WithBody(batch.BatchObjectsCreateBody{
 			// 		Objects: btch,
