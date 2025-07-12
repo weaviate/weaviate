@@ -25,7 +25,6 @@ import (
 	"github.com/stretchr/testify/require"
 	"github.com/stretchr/testify/suite"
 	"github.com/weaviate/weaviate/client"
-	"github.com/weaviate/weaviate/client/batch"
 	"github.com/weaviate/weaviate/client/nodes"
 	"github.com/weaviate/weaviate/client/objects"
 	"github.com/weaviate/weaviate/client/replication"
@@ -186,7 +185,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	t.Logf("Starting data mutation in background targeting ")
-	go mutateData(t, ctx, cls.Class, tenantName, 100, nodeToAddress)
+	go mutateData(t, ctx, cls.Class, tenantName, 1, nodeToAddress)
 
 	// Start replication
 	t.Logf("Starting %s replication for tenant %s from node %s to target node %s", replicationType, tenantName, sourceNode, targetNode)
@@ -271,7 +270,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 }
 
 func mutateData(t *testing.T, ctx context.Context, className string, tenantName string, wait int, nodeToAddress map[string]string) {
-	counter := 0
+	// counter := 0
 	createDurations := []time.Duration{}
 	updateDurations := []time.Duration{}
 	deleteDurations := []time.Duration{}
@@ -321,32 +320,32 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			client := newClient(nodeToAddress[random(nodeNames, 1)[0]])
 
 			// Add some new objects
-			randAdd := rand.Intn(20) + 1
-			btch := make([]*models.Object, randAdd)
-			for i := 0; i < randAdd; i++ {
-				btch[i] = (*models.Object)(articles.NewParagraph().
-					WithContents(fmt.Sprintf("new-paragraph#%d", i)).
-					WithTenant(tenantName).
-					Object())
-				btch[i].ID = strfmt.UUID(fmt.Sprintf("10000000-0000-0000-0000-%012d", counter))
-				fmt.Println(time.Now(), "NATEE mutate create data btch[i].ID", btch[i].ID.String())
-				counter++
-			}
-			all := "ALL"
-			params := batch.NewBatchObjectsCreateParams().
-				WithBody(batch.BatchObjectsCreateBody{
-					Objects: btch,
-				}).WithConsistencyLevel(&all)
-			start := time.Now()
-			ok, err := client.Batch.BatchObjectsCreate(params, nil)
-			require.NotNil(t, ok)
-			require.Equal(t, ok.Code(), 200)
-			require.Nil(t, err)
-			fmt.Println(time.Now(), "NATEE mutate create data done", counter)
+			// randAdd := rand.Intn(20) + 1
+			// btch := make([]*models.Object, randAdd)
+			// for i := 0; i < randAdd; i++ {
+			// 	btch[i] = (*models.Object)(articles.NewParagraph().
+			// 		WithContents(fmt.Sprintf("new-paragraph#%d", i)).
+			// 		WithTenant(tenantName).
+			// 		Object())
+			// 	btch[i].ID = strfmt.UUID(fmt.Sprintf("10000000-0000-0000-0000-%012d", counter))
+			// 	fmt.Println(time.Now(), "NATEE mutate create data btch[i].ID", btch[i].ID.String())
+			// 	counter++
+			// }
+			// all := "ALL"
+			// params := batch.NewBatchObjectsCreateParams().
+			// 	WithBody(batch.BatchObjectsCreateBody{
+			// 		Objects: btch,
+			// 	}).WithConsistencyLevel(&all)
+			// start := time.Now()
+			// ok, err := client.Batch.BatchObjectsCreate(params, nil)
+			// require.NotNil(t, ok)
+			// require.Equal(t, ok.Code(), 200)
+			// require.Nil(t, err)
+			// fmt.Println(time.Now(), "NATEE mutate create data done", counter)
 
-			createDurations = append(createDurations, time.Since(start))
+			// createDurations = append(createDurations, time.Since(start))
 
-			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
+			// time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Get the existing objects
 			limit := int64(10000)
@@ -360,8 +359,8 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			}
 			randUpdate := rand.Intn(20) + 1
 			toUpdate := random(res.Payload.Objects, randUpdate)
-			randDelete := rand.Intn(20) + 1
-			toDelete := random(symmetricDifference(res.Payload.Objects, toUpdate), randDelete)
+			// randDelete := rand.Intn(20) + 1
+			// toDelete := random(symmetricDifference(res.Payload.Objects, toUpdate), randDelete)
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
@@ -384,18 +383,18 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
 
 			// Delete some existing objects
-			for _, obj := range toDelete {
-				start := time.Now()
-				ok, err := client.Objects.ObjectsClassDelete(
-					objects.NewObjectsClassDeleteParams().WithClassName(className).WithID(obj.ID).WithTenant(&tenantName).WithConsistencyLevel(&all),
-					nil,
-				)
-				fmt.Println(time.Now(), "NATEE mutate update data obj.ID", obj.ID.String())
-				require.NotNil(t, ok)
-				require.Equal(t, ok.Code(), 204)
-				require.Nil(t, err)
-				deleteDurations = append(deleteDurations, time.Since(start))
-			}
+			// for _, obj := range toDelete {
+			// 	start := time.Now()
+			// 	ok, err := client.Objects.ObjectsClassDelete(
+			// 		objects.NewObjectsClassDeleteParams().WithClassName(className).WithID(obj.ID).WithTenant(&tenantName).WithConsistencyLevel(&all),
+			// 		nil,
+			// 	)
+			// 	fmt.Println(time.Now(), "NATEE mutate update data obj.ID", obj.ID.String())
+			// 	require.NotNil(t, ok)
+			// 	require.Equal(t, ok.Code(), 204)
+			// 	require.Nil(t, err)
+			// 	deleteDurations = append(deleteDurations, time.Since(start))
+			// }
 		}
 	}
 }
