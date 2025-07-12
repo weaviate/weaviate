@@ -51,6 +51,7 @@ type VectorSearcher interface {
 }
 
 type explorer interface {
+	// GetClass returns search results for the given params.
 	GetClass(ctx context.Context, params dto.GetParams) ([]interface{}, error)
 	CrossClassVectorSearch(ctx context.Context, params ExploreParams) ([]search.Result, error)
 }

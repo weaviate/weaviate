@@ -72,6 +72,7 @@ func NewParser(uses127Api bool,
 	}
 }
 
+// Search transforms the given req into the returned GetParams
 func (p *Parser) Search(req *pb.SearchRequest, config *config.Config) (dto.GetParams, error) {
 	out := dto.GetParams{}
 	class, err := p.authorizedGetClass(req.Collection)
