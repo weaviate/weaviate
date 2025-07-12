@@ -382,10 +382,10 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			// 	fmt.Println(time.Now(), "NATEE mutate update data obj.ID", res.Payload.Objects[0].ID.String())
 			// } else {
 			for _, obj := range toUpdate {
-				if obj.ID.String() == "000000000-0000-0000-0000-000000000000" {
-					fmt.Println(time.Now(), "NATEE skipping update for obj.ID", obj.ID.String())
-					continue
-				}
+				// if obj.ID.String() == "000000000-0000-0000-0000-000000000000" {
+				// 	fmt.Println(time.Now(), "NATEE skipping update for obj.ID", obj.ID.String())
+				// 	continue
+				// }
 				updated := (*models.Object)(articles.NewParagraph().
 					WithContents(fmt.Sprintf("updated-%s", obj.Properties.(map[string]any)["contents"])).
 					WithTenant(tenantName).
@@ -416,10 +416,10 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			// 	deleteDurations = append(deleteDurations, time.Since(start))
 			// } else {
 			for _, obj := range toDelete {
-				if obj.ID.String() == "000000000-0000-0000-0000-000000000000" {
-					fmt.Println(time.Now(), "NATEE skipping delete for obj.ID", obj.ID.String())
-					continue
-				}
+				// if obj.ID.String() == "000000000-0000-0000-0000-000000000000" {
+				// 	fmt.Println(time.Now(), "NATEE skipping delete for obj.ID", obj.ID.String())
+				// 	continue
+				// }
 				start := time.Now()
 				ok, err := client.Objects.ObjectsClassDelete(
 					objects.NewObjectsClassDeleteParams().WithClassName(className).WithID(obj.ID).WithTenant(&tenantName).WithConsistencyLevel(&all),
