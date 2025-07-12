@@ -13,6 +13,8 @@ package backup
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -37,6 +39,34 @@ type DistributedBackupDescriptor struct {
 	Leader                  string                     `json:"leader"`
 	Error                   string                     `json:"error"`
 	PreCompressionSizeBytes int64                      `json:"preCompressionSizeBytes"` // Size of this node's backup in bytes before compression
+}
+
+// patternToRegexp converts a wildcard pattern to a regular expression string
+func patternToRegexp(pattern string) string {
+	return strings.ReplaceAll(pattern, "*", ".*") // Replace * with .* for matching any characters
+}
+
+// IsGloballyIncluded checks if a class name matches the given inclusion pattern
+func IsGloballyIncluded(className string, patterns []string) bool {
+	if len(patterns) == 0 {
+		return true // No patterns, include everything
+	}
+	for _, pattern := range patterns {
+		if matched, err := regexp.MatchString(patternToRegexp(pattern), className); err == nil && matched {
+			return true
+		}
+	}
+	return false
+}
+
+// IsGloballyExcluded checks if a class name matches the given exclusion pattern
+func IsGloballyExcluded(className string, patterns []string) bool {
+	for _, pattern := range patterns {
+		if matched, err := regexp.MatchString(patternToRegexp(pattern), className); err == nil && matched {
+			return true
+		}
+	}
+	return false
 }
 
 // Len returns how many nodes exist in d
@@ -100,13 +130,8 @@ func (d *DistributedBackupDescriptor) Include(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
 	pred := func(s string) bool {
-		_, ok := set[s]
-		return ok
+		return IsGloballyIncluded(s, classes)
 	}
 	d.Filter(pred)
 }
@@ -116,13 +141,8 @@ func (d *DistributedBackupDescriptor) Exclude(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
 	pred := func(s string) bool {
-		_, ok := set[s]
-		return !ok
+		return !IsGloballyExcluded(s, classes)
 	}
 	d.Filter(pred)
 }
@@ -302,13 +322,8 @@ func (d *BackupDescriptor) Include(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
 	pred := func(s string) bool {
-		_, ok := set[s]
-		return ok
+		return IsGloballyIncluded(s, classes)
 	}
 	d.Filter(pred)
 }
@@ -318,13 +333,8 @@ func (d *BackupDescriptor) Exclude(classes []string) {
 	if len(classes) == 0 {
 		return
 	}
-	set := make(map[string]struct{}, len(classes))
-	for _, cls := range classes {
-		set[cls] = struct{}{}
-	}
 	pred := func(s string) bool {
-		_, ok := set[s]
-		return !ok
+		return !IsGloballyExcluded(s, classes)
 	}
 	d.Filter(pred)
 }
