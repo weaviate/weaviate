@@ -15,6 +15,7 @@ import (
 	"context"
 	"fmt"
 	"math/rand"
+	"slices"
 	"testing"
 	"time"
 
@@ -137,6 +138,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 			WithContents(fmt.Sprintf("paragraph#%d", j)).
 			WithTenant(tenantName).
 			Object())
+		batch[j].ID = strfmt.UUID(fmt.Sprintf("00000000-0000-0000-0000-%012d", j))
 	}
 	helper.CreateObjectsBatch(t, batch)
 
@@ -207,7 +209,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 			replication.NewReplicationDetailsParams().WithID(opId),
 			nil,
 		)
-		fmt.Println("NATEE state", res.Payload.Status.State)
+		fmt.Println(time.Now(), "NATEE state", res.Payload.Status.State)
 		require.Nil(t, err, "failed to get replication operation %s", opId)
 		assert.True(ct, res.Payload.Status.State == models.ReplicationReplicateDetailsReplicaStatusStateREADY, "replication operation not completed yet")
 	}, 400*time.Second, 5*time.Second, "replication operations did not complete in time")
@@ -237,11 +239,39 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	}
 	for node, uuids := range uuidsByReplica {
 		t.Logf("Node %s has %d UUIDs for tenant %s", node, len(uuids), tenantName)
-		assert.ElementsMatch(t, uuidsByReplica[nodeNames[0]], uuids, "UUID mismatch for tenant %s on node %s", tenantName, node)
+		// assert.ElementsMatch(t, uuidsByReplica[nodeNames[0]], uuids, "UUID mismatch for tenant %s on node %s", tenantName, node)
 	}
+	// find any uuids that are missing on any nodes
+	fmt.Println(time.Now(), "NATEE checking for missing uuids")
+	node0uuids := uuidsByReplica[nodeNames[0]]
+	node1uuids := uuidsByReplica[nodeNames[1]]
+	node2uuids := uuidsByReplica[nodeNames[2]]
+	failed := false
+	for node, uuids := range uuidsByReplica {
+		for _, uuid := range uuids {
+			if !slices.Contains(node0uuids, uuid) {
+				fmt.Println(time.Now(), "NATEE missing uuid", uuid, "on node", node, "based on node0uuids")
+				failed = true
+			}
+			if !slices.Contains(node1uuids, uuid) {
+				fmt.Println(time.Now(), "NATEE missing uuid", uuid, "on node", node, "based on node1uuids")
+				failed = true
+			}
+			if !slices.Contains(node2uuids, uuid) {
+				fmt.Println(time.Now(), "NATEE missing uuid", uuid, "on node", node, "based on node2uuids")
+				failed = true
+			}
+		}
+	}
+	if failed {
+		fmt.Println(time.Now(), "NATEE sleeping")
+		time.Sleep(time.Hour)
+	}
+	assert.False(t, failed, "failed to verify object UUIDs across replicas")
 }
 
 func mutateData(t *testing.T, ctx context.Context, className string, tenantName string, wait int, nodeToAddress map[string]string) {
+	counter := 0
 	createDurations := []time.Duration{}
 	updateDurations := []time.Duration{}
 	deleteDurations := []time.Duration{}
@@ -298,6 +328,9 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 					WithContents(fmt.Sprintf("new-paragraph#%d", i)).
 					WithTenant(tenantName).
 					Object())
+				btch[i].ID = strfmt.UUID(fmt.Sprintf("10000000-0000-0000-0000-%012d", counter))
+				fmt.Println(time.Now(), "NATEE mutate create data btch[i].ID", btch[i].ID.String())
+				counter++
 			}
 			all := "ALL"
 			params := batch.NewBatchObjectsCreateParams().
@@ -305,7 +338,12 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 					Objects: btch,
 				}).WithConsistencyLevel(&all)
 			start := time.Now()
-			client.Batch.BatchObjectsCreate(params, nil)
+			ok, err := client.Batch.BatchObjectsCreate(params, nil)
+			require.NotNil(t, ok)
+			require.Equal(t, ok.Code(), 200)
+			require.Nil(t, err)
+			fmt.Println(time.Now(), "NATEE mutate create data done", counter)
+
 			createDurations = append(createDurations, time.Since(start))
 
 			time.Sleep(time.Duration(wait) * time.Millisecond) // Sleep to simulate some delay between mutations
@@ -339,6 +377,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 					objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
 					nil,
 				)
+				fmt.Println(time.Now(), "NATEE mutate update data obj.ID", obj.ID.String())
 				updateDurations = append(updateDurations, time.Since(start))
 			}
 
@@ -347,10 +386,14 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			// Delete some existing objects
 			for _, obj := range toDelete {
 				start := time.Now()
-				client.Objects.ObjectsClassDelete(
+				ok, err := client.Objects.ObjectsClassDelete(
 					objects.NewObjectsClassDeleteParams().WithClassName(className).WithID(obj.ID).WithTenant(&tenantName).WithConsistencyLevel(&all),
 					nil,
 				)
+				fmt.Println(time.Now(), "NATEE mutate update data obj.ID", obj.ID.String())
+				require.NotNil(t, ok)
+				require.Equal(t, ok.Code(), 204)
+				require.Nil(t, err)
 				deleteDurations = append(deleteDurations, time.Since(start))
 			}
 		}

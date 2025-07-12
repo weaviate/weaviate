@@ -772,6 +772,7 @@ func (i *Index) determineObjectShardByStatus(ctx context.Context, id strfmt.UUID
 func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) error {
+	fmt.Println(time.Now(), "NATEE putObject", object.ID().String())
 	if err := i.validateMultiTenancy(object.Object.Tenant); err != nil {
 		return err
 	}
@@ -1052,6 +1053,19 @@ func parseAsStringToTime(in interface{}) (time.Time, error) {
 func (i *Index) putObjectBatch(ctx context.Context, objects []*storobj.Object,
 	replProps *additional.ReplicationProperties, schemaVersion uint64,
 ) []error {
+	objIDs := []string{}
+	if len(objects) <= 21 {
+		for _, obj := range objects {
+			objIDs = append(objIDs, obj.ID().String())
+		}
+	} else {
+		fmt.Println(time.Now(), "NATEE putObjectBatch", len(objects), "objects")
+		for i := 0; i < 21; i++ {
+			objIDs = append(objIDs, objects[i].ID().String())
+		}
+	}
+	fmt.Println(time.Now(), "NATEE putObjectBatch", objIDs)
+
 	type objsAndPos struct {
 		objects []*storobj.Object
 		pos     []int
@@ -1503,6 +1517,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	addlProps additional.Properties, replProps *additional.ReplicationProperties, tenant string, autoCut int,
 	properties []string,
 ) ([]*storobj.Object, []float32, error) {
+	fmt.Println(time.Now(), "NATEE objectSearch", limit, "limit", tenant, "tenant")
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return nil, nil, err
 	}
@@ -2062,6 +2077,7 @@ func (i *Index) IncomingSearch(ctx context.Context, shardName string,
 func (i *Index) deleteObject(ctx context.Context, id strfmt.UUID,
 	deletionTime time.Time, replProps *additional.ReplicationProperties, tenant string, schemaVersion uint64,
 ) error {
+	fmt.Println(time.Now(), "NATEE deleteObject", id.String())
 	if err := i.validateMultiTenancy(tenant); err != nil {
 		return err
 	}
