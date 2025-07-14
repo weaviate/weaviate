@@ -125,6 +125,12 @@ type ObjectsListParams struct {
 	*/
 	Tenant *string
 
+	/* ConsistencyLevel.
+
+	   Specifies the consistency level for the request. Must be one of: ALL, QUORUM, ONE
+	*/
+	ConsistencyLevel *string
+
 	timeout    time.Duration
 	Context    context.Context
 	HTTPClient *http.Client
@@ -275,6 +281,17 @@ func (o *ObjectsListParams) WithTenant(tenant *string) *ObjectsListParams {
 // SetTenant adds the tenant to the objects list params
 func (o *ObjectsListParams) SetTenant(tenant *string) {
 	o.Tenant = tenant
+}
+
+// WithConsistencyLevel adds the consistencyLevel to the objects list params
+func (o *ObjectsListParams) WithConsistencyLevel(consistencyLevel *string) *ObjectsListParams {
+	o.SetConsistencyLevel(consistencyLevel)
+	return o
+}
+
+// SetConsistencyLevel adds the consistencyLevel to the objects list params
+func (o *ObjectsListParams) SetConsistencyLevel(consistencyLevel *string) {
+	o.ConsistencyLevel = consistencyLevel
 }
 
 // WriteToRequest writes these params to a swagger request
