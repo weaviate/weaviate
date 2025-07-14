@@ -80,3 +80,7 @@ packages:
   github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers:
     interfaces:
       CompressionStats:
+  github.com/weaviate/weaviate/usecases/modulecomponents/usage:
+    interfaces:
+      StorageBackend:
+
