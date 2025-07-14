@@ -12,6 +12,7 @@
 package modstggcs
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -90,12 +91,15 @@ func (g *gcsClient) getObject(ctx context.Context, bucket *storage.BucketHandle,
 		return nil, errors.Wrapf(err, "new reader: %v", objectName)
 	}
 	defer reader.Close()
-	// Read file contents
-	content, err := io.ReadAll(reader)
+
+	// Read file contents using io.Copy for better memory management
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, reader)
 	if err != nil {
 		return nil, errors.Wrapf(err, "read object: %v", objectName)
 	}
 
+	content := buf.Bytes()
 	metric, err := monitoring.GetMetrics().BackupRestoreDataTransferred.GetMetricWithLabelValues(Name, "class")
 	if err == nil {
 		metric.Add(float64(len(content)))
@@ -122,6 +126,11 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 
 	iter := bucket.Objects(ctx, &storage.Query{Prefix: g.config.BackupPath, MatchGlob: "**/" + ubak.GlobalBackupFile})
 	for {
+		// Check context before each iteration
+		if err := ctx.Err(); err != nil {
+			return nil, fmt.Errorf("context cancelled: %w", err)
+		}
+
 		next, err := iter.Next()
 		if errors.Is(err, iterator.Done) {
 			break
@@ -144,7 +153,6 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 			return nil, fmt.Errorf("unmarshal object %q: %w", next.Name, err)
 		}
 		meta = append(meta, &desc)
-
 	}
 
 	return meta, nil
