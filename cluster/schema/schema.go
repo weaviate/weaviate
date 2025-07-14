@@ -113,17 +113,12 @@ func (s *schema) ClassEqual(name string) string {
 }
 
 func (s *schema) unsafeClassEqual(name string) string {
-	for alias := range s.aliases {
-		if strings.EqualFold(alias, name) {
-			return alias
-		}
+	name = s.canonicalTitleCase(name)
+	_, ok := s.classes[name]
+	if !ok {
+		return ""
 	}
-	for k := range s.classes {
-		if strings.EqualFold(k, name) {
-			return k
-		}
-	}
-	return ""
+	return name
 }
 
 func (s *schema) MultiTenancy(class string) models.MultiTenancyConfig {
@@ -632,7 +627,7 @@ func (s *schema) RestoreAlias(data []byte) error {
 }
 
 func (s *schema) createAlias(class, alias string) error {
-	alias = s.canonicalAlias(alias)
+	alias = s.canonicalTitleCase(alias)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -671,7 +666,9 @@ func (s *schema) unsafeAliasExists(alias string) bool {
 	return ok
 }
 
-func (s *schema) canonicalAlias(alias string) string {
+// canonicalTitleCase converts given string into Title case (e.g: appleOrange -> AppleOrgange)
+// This is the canonical form used how class and alias are created and stored in the schema
+func (s *schema) canonicalTitleCase(alias string) string {
 	if len(alias) < 1 {
 		return alias
 	}
@@ -710,7 +707,7 @@ func (s *schema) getAliases(alias, class string) map[string]string {
 }
 
 func (s *schema) ResolveAlias(alias string) string {
-	alias = s.canonicalAlias(alias)
+	alias = s.canonicalTitleCase(alias)
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return s.unsafeResolveAlias(alias)
@@ -721,7 +718,7 @@ func (s *schema) unsafeResolveAlias(alias string) string {
 }
 
 func (s *schema) deleteAlias(alias string) error {
-	alias = s.canonicalAlias(alias)
+	alias = s.canonicalTitleCase(alias)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
