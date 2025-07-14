@@ -222,8 +222,8 @@ type CommitLogger interface {
 	SwitchCommitLogs(bool) error
 	AddPQCompression(compressionhelpers.PQData) error
 	AddSQCompression(compressionhelpers.SQData) error
-	AddRQCompression(compressionhelpers.RQData) error
 	AddMuvera(multivector.MuveraData) error
+	AddRQCompression(compressionhelpers.RQData) error
 	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)
