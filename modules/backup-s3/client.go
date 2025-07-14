@@ -125,7 +125,7 @@ func (s *s3Client) AllBackups(ctx context.Context,
 
 	for info := range objectsInfo {
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("context cancelled: %w", err)
+			return nil, err
 		}
 
 		// Only process global backup files - this is the key filter
@@ -144,7 +144,7 @@ func (s *s3Client) AllBackups(ctx context.Context,
 		// Ensure object is closed to prevent connection leaks
 		defer obj.Close()
 
-		// Use a buffer to limit memory usage and add timeout protection
+		// Use a buffer to limit memory usage
 		var buf bytes.Buffer
 		_, err = io.Copy(&buf, obj)
 		if err != nil {
@@ -191,7 +191,7 @@ func (s *s3Client) GetObject(ctx context.Context, backupID, key, overrideBucket,
 	// Ensure object is closed to prevent connection leaks
 	defer obj.Close()
 
-	// Use a buffer to limit memory usage and add timeout protection
+	// Use a buffer to limit memory usage
 	var buf bytes.Buffer
 	_, err = io.Copy(&buf, obj)
 	if err != nil {

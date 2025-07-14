@@ -128,7 +128,7 @@ func (g *gcsClient) AllBackups(ctx context.Context) ([]*backup.DistributedBackup
 	for {
 		// Check context before each iteration
 		if err := ctx.Err(); err != nil {
-			return nil, fmt.Errorf("context cancelled: %w", err)
+			return nil, err
 		}
 
 		next, err := iter.Next()
