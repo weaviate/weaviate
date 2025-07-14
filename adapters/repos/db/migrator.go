@@ -109,11 +109,10 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
-	shardingState := m.db.schemaGetter.CopyShardingState(class.Class)
 	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
 		collection,
-		shardingState.PartitioningEnabled,
+		class.MultiTenancyConfig.Enabled,
 		m.db.nodeSelector,
 		m.db.schemaGetter,
 		m.db.schemaReader,

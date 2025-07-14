@@ -85,7 +85,7 @@ func (db *DB) init(ctx context.Context) error {
 			collection := schema.ClassName(class.Class).String()
 			indexRouter := router.NewBuilder(
 				collection,
-				shardingState.PartitioningEnabled,
+				class.MultiTenancyConfig.Enabled,
 				db.nodeSelector,
 				db.schemaGetter,
 				db.schemaReader,
