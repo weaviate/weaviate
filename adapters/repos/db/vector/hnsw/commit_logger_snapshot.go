@@ -1161,6 +1161,10 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 	}
 
 	if isEncoded {
+		_, err = ReadAndHash(r, hasher, b[:1]) // encoding type
+		if err != nil {
+			return nil, errors.Wrapf(err, "read encoding type")
+		}
 		switch b[0] {
 		case SnapshotEncoderTypeMuvera:
 			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.Dimensions
@@ -1235,6 +1239,8 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				Gaussians:    gaussians,
 				S:            s,
 			}
+		default:
+			return nil, fmt.Errorf("unsupported encoder type %d", b[0])
 		}
 	}
 
