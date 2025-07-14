@@ -717,9 +717,9 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 	}
 	offset += writeUint16Size
 
-	isEncoded := state.Compressed || state.MuveraEnabled
+	isCompressed := state.Compressed
 
-	if err := writeBool(w, isEncoded); err != nil {
+	if err := writeBool(w, isCompressed); err != nil {
 		return 0, err
 	}
 	offset += writeByteSize
@@ -789,7 +789,16 @@ func (l *hnswCommitLogger) writeMetadataTo(state *DeserializationResult, w io.Wr
 			return 0, err
 		}
 		offset += writeUint32Size
-	} else if state.MuveraEnabled && state.EncoderMuvera != nil { // Muvera
+	}
+
+	isEncoded := state.MuveraEnabled
+
+	if err := writeBool(w, isEncoded); err != nil {
+		return 0, err
+	}
+	offset += writeByteSize
+
+	if state.MuveraEnabled && state.EncoderMuvera != nil { // Muvera
 		// first byte is the encoder type
 		if err := writeByte(w, byte(SnapshotEncoderTypeMuvera)); err != nil {
 			return 0, err
@@ -898,14 +907,14 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 	}
 	res.Level = binary.LittleEndian.Uint16(b[:2])
 
-	_, err = ReadAndHash(r, hasher, b[:1]) // isEncoded
+	_, err = ReadAndHash(r, hasher, b[:1]) // isCompressed
 	if err != nil {
 		return nil, errors.Wrapf(err, "read compressed")
 	}
-	isEncoded := b[0] == 1
+	isCompressed := b[0] == 1
 
 	// Compressed data
-	if isEncoded {
+	if isCompressed {
 		_, err = ReadAndHash(r, hasher, b[:1]) // encoding type
 		if err != nil {
 			return nil, errors.Wrapf(err, "read compressed")
@@ -1004,6 +1013,23 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				A:          a,
 				B:          b,
 			}
+		default:
+			return nil, fmt.Errorf("unsupported compression type %d", b[0])
+		}
+	}
+
+	_, err = ReadAndHash(r, hasher, b[:1]) // isEncoded
+	if err != nil {
+		return nil, errors.Wrapf(err, "read isEncoded")
+	}
+	isEncoded := b[0] == 1
+
+	if isEncoded {
+		_, err = ReadAndHash(r, hasher, b[:1]) // encoder type
+		if err != nil {
+			return nil, errors.Wrapf(err, "read encoder type")
+		}
+		switch b[0] {
 		case SnapshotEncoderTypeMuvera:
 			_, err = ReadAndHash(r, hasher, b[:4]) // Muvera.Dimensions
 			if err != nil {
@@ -1078,7 +1104,7 @@ func (l *hnswCommitLogger) readStateFrom(filename string, checkpoints []Checkpoi
 				S:            s,
 			}
 		default:
-			return nil, fmt.Errorf("unsupported compression type %d", b[0])
+			return nil, fmt.Errorf("unsupported encoder type %d", b[0])
 		}
 	}
 
