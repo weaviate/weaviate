@@ -101,6 +101,10 @@ func testGenerativeOllama(rest, grpc, ollamaApiEndpoint string) func(t *testing.
 						Kind:           params,
 					})
 				})
+				t.Run("check if other properties are being added to prompt", func(t *testing.T) {
+					prompt := "Write a summary using: planet's name: {name}, mean radius: {meanRadius}, moons: {satellites}, surface temperatures [min,mean,max]: {surfaceTemperaturesCelcius} and is habitable: {isHabitable} information"
+					planets.CreatePromptTestWithParamsWithDebug(t, class.Class, prompt, "", true)
+				})
 			})
 		}
 	}
