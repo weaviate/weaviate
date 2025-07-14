@@ -124,18 +124,18 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 			buf3_1, put3 := pool.Get()
 			binary.BigEndian.PutUint16(buf3_1[:2], val3)
 
-			buf4_1tmp, put4 := pool.Get()
-			binary.BigEndian.PutUint16(buf4_1tmp[:2], val4)
+			buf4_1, put4 := pool.Get()
+			binary.BigEndian.PutUint16(buf4_1[:2], val4)
 
-			buf5_1tmp, put5 := pool.Get()
-			binary.BigEndian.PutUint16(buf5_1tmp[:2], val5)
+			buf5_1, put5 := pool.Get()
+			binary.BigEndian.PutUint16(buf5_1[:2], val5)
 
 			// put in order
 			put1()
 			put2()
 			put3()
-			put4()
-			put5()
+			put4() // should be discarded
+			put5() // should be discarded
 		})
 
 		t.Run("get buffers - only 3 (limit) have values", func(t *testing.T) {
@@ -148,11 +148,11 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 			buf3_2, put3 := pool.Get()
 			val3_2 := binary.BigEndian.Uint16(buf3_2[:2])
 
-			buf4_2tmp, put4 := pool.Get()
-			val4_2 := binary.BigEndian.Uint16(buf4_2tmp[:2])
+			buf4_2, put4 := pool.Get()
+			val4_2 := binary.BigEndian.Uint16(buf4_2[:2])
 
-			buf5_2tmp, put5 := pool.Get()
-			val5_2 := binary.BigEndian.Uint16(buf5_2tmp[:2])
+			buf5_2, put5 := pool.Get()
+			val5_2 := binary.BigEndian.Uint16(buf5_2[:2])
 
 			assert.Equal(t, val1, val1_2)
 			assert.Equal(t, val2, val2_2)
@@ -161,43 +161,43 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 			assert.Equal(t, uint16(0), val5_2)
 
 			// write again to temp buffers
-			binary.BigEndian.PutUint16(buf4_2tmp[:2], val4)
-			binary.BigEndian.PutUint16(buf5_2tmp[:2], val5)
+			binary.BigEndian.PutUint16(buf4_2[:2], val4)
+			binary.BigEndian.PutUint16(buf5_2[:2], val5)
 
 			// put in reverse order
 			put5()
 			put4()
 			put3()
-			put2()
-			put1()
+			put2() // should be discarded
+			put1() // should be discarded
 		})
 
 		t.Run("get buffers - only 3 (limit) have values (in reverse order)", func(t *testing.T) {
-			buf1_3, put := pool.Get()
-			val1_3 := binary.BigEndian.Uint16(buf1_3[:2])
-			defer put()
-
-			buf2_3, put := pool.Get()
-			val2_3 := binary.BigEndian.Uint16(buf2_3[:2])
-			defer put()
-
-			buf3_3, put := pool.Get()
-			val3_3 := binary.BigEndian.Uint16(buf3_3[:2])
+			buf5_3, put := pool.Get()
+			val5_3 := binary.BigEndian.Uint16(buf5_3[:2])
 			defer put()
 
 			buf4_3, put := pool.Get()
 			val4_3 := binary.BigEndian.Uint16(buf4_3[:2])
 			defer put()
 
-			buf5_3, put := pool.Get()
-			val5_3 := binary.BigEndian.Uint16(buf5_3[:2])
+			buf3_3, put := pool.Get()
+			val3_3 := binary.BigEndian.Uint16(buf3_3[:2])
 			defer put()
 
-			assert.Equal(t, val1, val3_3)
-			assert.Equal(t, val2, val2_3)
-			assert.Equal(t, val3, val1_3)
-			assert.Equal(t, uint16(0), val4_3)
-			assert.Equal(t, uint16(0), val5_3)
+			buf2_3, put := pool.Get()
+			val2_3 := binary.BigEndian.Uint16(buf2_3[:2])
+			defer put()
+
+			buf1_3, put := pool.Get()
+			val1_3 := binary.BigEndian.Uint16(buf1_3[:2])
+			defer put()
+
+			assert.Equal(t, uint16(0), val1_3)
+			assert.Equal(t, uint16(0), val2_3)
+			assert.Equal(t, val3, val3_3)
+			assert.Equal(t, val4, val4_3)
+			assert.Equal(t, val5, val5_3)
 		})
 	})
 
@@ -287,7 +287,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 			buf3_1, put3 := pool.Get()
 			binary.BigEndian.PutUint16(buf3_1[:2], val3)
 
-			cleaned := pool.Cleanup()
+			cleaned := pool.Cleanup(limit)
 			put1()
 			put2()
 			put3()
@@ -319,7 +319,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 			binary.BigEndian.PutUint16(buf3_1[:2], val3)
 
 			put1()
-			cleaned := pool.Cleanup()
+			cleaned := pool.Cleanup(limit)
 			put2()
 			put3()
 
@@ -355,7 +355,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 
 			put1()
 			put2()
-			cleaned := pool.Cleanup()
+			cleaned := pool.Cleanup(limit)
 			put3()
 
 			buf3_2, put := pool.Get()
@@ -383,7 +383,7 @@ func TestBufPoolFixedInMemory(t *testing.T) {
 			put1()
 			put2()
 			put3()
-			cleaned := pool.Cleanup()
+			cleaned := pool.Cleanup(limit)
 
 			buf0_2, put := pool.Get()
 			val0_2 := binary.BigEndian.Uint16(buf0_2[:2])
@@ -565,7 +565,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		assert.Equal(t, uint16(11023), val1024_5)
 		assert.Equal(t, uint16(0), val1024_6tmp)
 
-		cleaned := pool.cleanup()
+		cleaned := pool.cleanup(3)
 
 		// 3 of 4 256s, 3 of 3 512s, 2 of 2 1024s buffers should be cleaned
 		assert.Equal(t, map[int]int{256: 3, 512: 3, 1024: 2}, cleaned)
@@ -617,7 +617,7 @@ func TestBitmapBufPoolRanged(t *testing.T) {
 		assert.Equal(t, uint16(10512), val512_2)
 		assert.Equal(t, uint16(11024), val1024_2)
 
-		stop := pool.StartPeriodicCleanup(logger, 500*time.Microsecond)
+		stop := pool.StartPeriodicCleanup(logger, 2, 500*time.Microsecond)
 		defer stop()
 
 		// wait for cleanup
