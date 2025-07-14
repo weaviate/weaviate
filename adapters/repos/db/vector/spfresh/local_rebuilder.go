@@ -39,7 +39,7 @@ type LocalRebuilder struct {
 	cancel context.CancelFunc
 	wg     sync.WaitGroup
 
-	splitDedup deduplicator // Deduplicator to prevent multiple split operations on the same posting
+	dedup deduplicator // Deduplicator to prevent multiple operations on the same posting
 }
 
 func (r *LocalRebuilder) Start(ctx context.Context) {
@@ -83,21 +83,18 @@ func (r *LocalRebuilder) Enqueue(ctx context.Context, op Operation) error {
 		return r.ctx.Err() // Context already cancelled
 	}
 
-	// Check if the operation is a split and if it's already in progress
-	if op.OpType == BackgroundOpSplit {
-		if !r.splitDedup.tryEnqueue(op.PostingID) {
-			r.Logger.WithField("postingID", op.PostingID).
-				WithField("operation", op.OpType).
-				Debug("Split operation already in progress, skipping enqueue")
-			return nil // Skip if the operation is already in progress
-		}
+	// Check if the operation is already in progress
+	if !r.dedup.tryEnqueue(op) {
+		r.Logger.WithField("postingID", op.PostingID).
+			WithField("operation", op.OpType).
+			Debug("Operation already in progress, skipping enqueue")
+		return nil
 	}
 
 	// Enqueue the operation to the channel
 	select {
 	case r.ch <- op:
 	case <-ctx.Done():
-		// Context cancelled, do not enqueue
 		return ctx.Err()
 	}
 
@@ -117,8 +114,8 @@ func (r *LocalRebuilder) worker() {
 		// Process the operation
 		switch op.OpType {
 		case BackgroundOpSplit:
-			err = r.doSplit(op)
 			// Handle split operation
+			err = r.doSplit(op)
 		case BackgroundOpMerge:
 			// Handle merge operation
 		case BackgroundOpReassign:
@@ -157,7 +154,7 @@ func (r *LocalRebuilder) Close(ctx context.Context) error {
 }
 
 func (r *LocalRebuilder) doSplit(op Operation) error {
-	defer r.splitDedup.done(op.PostingID) // Ensure we mark the operation as done
+	defer r.dedup.done(op) // Ensure we mark the operation as done
 
 	// TODO: Use WAL
 
@@ -225,34 +222,33 @@ func (r *LocalRebuilder) doSplit(op Operation) error {
 	return nil
 }
 
-// deduplicator is a simple mutex-based deduplicator for operations.
-// It ensures that only one operation per posting ID can be enqueued at a time.
+// deduplicator ensures only one operation per posting ID can be enqueued at a time.
 type deduplicator struct {
 	mu       sync.Mutex
-	inflight map[uint64]struct{} // map of inflight operations by posting ID
+	inflight map[Operation]struct{} // map of inflight operations by posting ID
 }
 
-func (d *deduplicator) tryEnqueue(postingID uint64) bool {
+func (d *deduplicator) tryEnqueue(op Operation) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	if d.inflight == nil {
-		d.inflight = make(map[uint64]struct{})
-		d.inflight[postingID] = struct{}{}
+		d.inflight = make(map[Operation]struct{})
+		d.inflight[op] = struct{}{}
 		return true // First operation, no duplicates
 	}
 
-	if _, exists := d.inflight[postingID]; exists {
+	if _, exists := d.inflight[op]; exists {
 		return false // Operation already in progress
 	}
 
-	d.inflight[postingID] = struct{}{}
+	d.inflight[op] = struct{}{}
 	return true
 }
 
-func (d *deduplicator) done(postingID uint64) {
+func (d *deduplicator) done(op Operation) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	delete(d.inflight, postingID)
+	delete(d.inflight, op)
 }
