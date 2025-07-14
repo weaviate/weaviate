@@ -428,3 +428,35 @@ func (p *NodesPermission) Permission() *models.Permission {
 	perm := models.Permission(*p)
 	return &perm
 }
+
+type AliasesPermission models.Permission
+
+func NewAliasesPermission() *AliasesPermission {
+	return &AliasesPermission{}
+}
+
+func (p *AliasesPermission) WithAction(action string) *AliasesPermission {
+	p.Action = authorization.String(action)
+	return p
+}
+
+func (p *AliasesPermission) WithCollection(collection string) *AliasesPermission {
+	if p.Aliases == nil {
+		p.Aliases = &models.PermissionAliases{}
+	}
+	p.Aliases.Collection = authorization.String(collection)
+	return p
+}
+
+func (p *AliasesPermission) WithAlias(alias string) *AliasesPermission {
+	if p.Aliases == nil {
+		p.Aliases = &models.PermissionAliases{}
+	}
+	p.Aliases.Alias = authorization.String(alias)
+	return p
+}
+
+func (p *AliasesPermission) Permission() *models.Permission {
+	perm := models.Permission(*p)
+	return &perm
+}
