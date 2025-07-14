@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/models"
 
@@ -42,6 +43,7 @@ type RemoteIndex struct {
 	stateGetter  shardingStateGetter
 	client       RemoteIndexClient
 	nodeResolver nodeResolver
+	router       remoteRouter
 }
 
 type shardingStateGetter interface {
@@ -50,15 +52,22 @@ type shardingStateGetter interface {
 	ShardReplicas(class, shard string) ([]string, error)
 }
 
+type remoteRouter interface {
+	GetReadWriteReplicasLocation(collection string, shard string) (readReplicas types.ReplicaSet, writeReplicas types.ReplicaSet, additionalWriteReplicas types.ReplicaSet, err error)
+}
+
 func NewRemoteIndex(className string,
-	stateGetter shardingStateGetter, nodeResolver nodeResolver,
+	stateGetter shardingStateGetter,
+	nodeResolver nodeResolver,
 	client RemoteIndexClient,
+	router remoteRouter,
 ) *RemoteIndex {
 	return &RemoteIndex{
 		class:        className,
 		stateGetter:  stateGetter,
 		client:       client,
 		nodeResolver: nodeResolver,
+		router:       router,
 	}
 }
 
@@ -321,6 +330,7 @@ func (ri *RemoteIndex) SearchShard(ctx context.Context, shard string,
 	f := func(node, host string) (interface{}, error) {
 		objs, scores, err := ri.client.SearchShard(ctx, host, ri.class, shard,
 			queryVec, targetVector, distance, limit, filters, keywordRanking, sort, cursor, groupBy, adds, targetCombination, properties)
+		// fmt.Println(time.Now(), "NATEE RemoteIndex SeachShard res", node, host, shard, len(objs))
 		if err != nil {
 			return nil, err
 		}
@@ -436,9 +446,9 @@ func (ri *RemoteIndex) queryAllReplicas(
 	do func(nodeName, host string) (ReplicasSearchResult, error),
 	localNode string,
 ) (resp []ReplicasSearchResult, err error) {
-	replicas, err := ri.stateGetter.ShardReplicas(ri.class, shard)
-	if err != nil || len(replicas) == 0 {
-		return nil, fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, err)
+	replicas, err := ri.getReplicasForRead(shard)
+	if err != nil {
+		return nil, err
 	}
 
 	queryOne := func(replica string) (ReplicasSearchResult, error) {
@@ -511,11 +521,11 @@ func (ri *RemoteIndex) queryReplicas(
 	shard string,
 	do func(nodeName, host string) (interface{}, error),
 ) (resp interface{}, node string, err error) {
-	replicas, err := ri.stateGetter.ShardReplicas(ri.class, shard)
-	if err != nil || len(replicas) == 0 {
+	replicas, err := ri.getReplicasForRead(shard)
+	if err != nil {
 		return nil,
 			"",
-			fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, err)
+			err
 	}
 
 	queryOne := func(replica string) (interface{}, error) {
@@ -543,3 +553,120 @@ func (ri *RemoteIndex) queryReplicas(
 	}
 	return
 }
+
+func (ri *RemoteIndex) getReplicasForRead(shard string) ([]string, error) {
+	var replicas []string
+	if ri.router != nil {
+		readPlan, _, _, err := ri.router.GetReadWriteReplicasLocation(ri.class, shard)
+		if err != nil {
+			return nil, fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
+		}
+		rr := []string{}
+		for _, r := range readPlan.Replicas {
+			rr = append(rr, r.NodeName)
+		}
+		replicas = rr
+	} else {
+		var err error
+		replicas, err = ri.stateGetter.ShardReplicas(ri.class, shard)
+		if err != nil {
+			return nil, fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
+		}
+	}
+	if len(replicas) == 0 {
+		return nil, fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, errors.New("no replicas"))
+	}
+	return replicas, nil
+}
+
+// func (ri *RemoteIndex) getReplicasForWrite(shard string) ([]string, error) {
+// 	var replicas []string
+// 	if ri.router != nil {
+// 		routingPlan, err := ri.router.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
+// 			Shard:            shard,
+// 			ConsistencyLevel: types.ConsistencyLevelOne,
+// 		})
+// 		if err != nil {
+// 			return nil, fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
+// 		}
+// 		rr := []string{}
+// 		for _, r := range routingPlan.Replicas() {
+// 			rr = append(rr, r.NodeName)
+// 		}
+// 		replicas = rr
+// 	} else {
+// 		var err error
+// 		replicas, err = ri.stateGetter.ShardReplicas(ri.class, shard)
+// 		if err != nil {
+// 			return nil, fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
+// 		}
+// 	}
+// 	if len(replicas) == 0 {
+// 		return nil, fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, errors.New("no replicas"))
+// 	}
+// 	return replicas, nil
+// }
+
+// func (ri *RemoteIndex) getShardOwnerForRead(shard string) (string, error) {
+// 	var replicas []string
+// 	if ri.router != nil {
+// 		routingPlan, err := ri.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
+// 			Shard:            shard,
+// 			ConsistencyLevel: types.ConsistencyLevelOne,
+// 		})
+// 		if err != nil {
+// 			return "", fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
+// 		}
+// 		rr := []string{}
+// 		for _, r := range routingPlan.Replicas() {
+// 			rr = append(rr, r.NodeName)
+// 		}
+// 		replicas = rr
+// 	} else {
+// 		var err error
+// 		replicas, err = ri.stateGetter.ShardReplicas(ri.class, shard)
+// 		if err != nil {
+// 			return "", fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
+// 		}
+// 	}
+// 	if len(replicas) == 0 {
+// 		return "", fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, errors.New("no replicas"))
+// 	}
+// 	// we randomize the owner if there is more than one node
+// 	// - avoid hotspots
+// 	// - tolerate down nodes
+// 	// - distribute load
+// 	return replicas[rand.Intn(len(replicas))], nil
+// }
+
+// func (ri *RemoteIndex) getShardOwnerForWrite(shard string) (string, error) {
+// 	var replicas []string
+// 	if ri.router != nil {
+// 		routingPlan, err := ri.router.BuildWriteRoutingPlan(types.RoutingPlanBuildOptions{
+// 			Shard:            shard,
+// 			ConsistencyLevel: types.ConsistencyLevelOne,
+// 		})
+// 		if err != nil {
+// 			return "", fmt.Errorf("class %q error getting replicas for shard %q: %w", ri.class, shard, err)
+// 		}
+// 		rr := []string{}
+// 		for _, r := range routingPlan.Replicas() {
+// 			rr = append(rr, r.NodeName)
+// 		}
+// 		replicas = rr
+// 	} else {
+// 		var err error
+// 		replicas, err = ri.stateGetter.ShardReplicas(ri.class, shard)
+// 		if err != nil {
+// 			return "", err
+// 		}
+// 	}
+// 	if len(replicas) == 0 {
+// 		return "", fmt.Errorf("class %q has no physical shard %q: %w", ri.class, shard, errors.New("no replicas"))
+// 	}
+// 	// we randomize the owner if there is more than one node
+// 	// - avoid hotspots
+// 	// - tolerate down nodes
+// 	// - distribute load
+// 	return replicas[rand.Intn(len(replicas))], nil
+// }
