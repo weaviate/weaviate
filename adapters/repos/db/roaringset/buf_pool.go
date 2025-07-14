@@ -36,8 +36,6 @@ func cloneToBuf(pool BitmapBufPool, bm *sroar.Bitmap) (cloned *sroar.Bitmap, put
 
 func NewBitmapBufPoolDefault(logger logrus.FieldLogger, inMemoMaxBufSize int, maxMemoSizeForBufs int,
 ) (pool BitmapBufPool, close func()) {
-	cleanupInterval := 10 * time.Second
-
 	syncMinRangeP2 := 9  // 2^9 = 512B
 	syncMaxRangeP2 := 20 // 2^20 = 1MB
 	syncRanges := calculateSyncBufferRanges(syncMinRangeP2, syncMaxRangeP2)
@@ -52,10 +50,17 @@ func NewBitmapBufPoolDefault(logger logrus.FieldLogger, inMemoMaxBufSize int, ma
 		allRanges = append(allRanges, inMemoRanges...)
 	}
 
+	stopCleanup := func() {}
 	p := NewBitmapBufPoolRanged(syncMaxBufSize, inMemoBufsLimits, allRanges...)
-	stop := p.StartPeriodicCleanup(logger, cleanupInterval)
+	if ln := len(inMemoRanges); ln > 0 {
+		limitMaxRange := inMemoBufsLimits[inMemoRanges[ln-1]]
+		nBuffers := (limitMaxRange + 1) / 2
+		cleanupInterval := 1 * time.Minute
+		// try to clean half of buffers every minute
+		stopCleanup = p.StartPeriodicCleanup(logger, nBuffers, cleanupInterval)
+	}
 
-	return p, stop
+	return p, stopCleanup
 }
 
 // -----------------------------------------------------------------------------
@@ -133,15 +138,15 @@ func (p *bitmapBufPoolRanged) CloneToBuf(bm *sroar.Bitmap) (cloned *sroar.Bitmap
 	return cloneToBuf(p, bm)
 }
 
-func (p *bitmapBufPoolRanged) cleanup() map[int]int {
+func (p *bitmapBufPoolRanged) cleanup(n int) map[int]int {
 	cleaned := map[int]int{}
 	for i := p.firstInMemoRngIdx; i < len(p.ranges); i++ {
-		cleaned[p.ranges[i]] = p.poolsInMemo[i-p.firstInMemoRngIdx].Cleanup()
+		cleaned[p.ranges[i]] = p.poolsInMemo[i-p.firstInMemoRngIdx].Cleanup(n)
 	}
 	return cleaned
 }
 
-func (p *bitmapBufPoolRanged) StartPeriodicCleanup(logger logrus.FieldLogger, interval time.Duration) (stop func()) {
+func (p *bitmapBufPoolRanged) StartPeriodicCleanup(logger logrus.FieldLogger, n int, interval time.Duration) (stop func()) {
 	ctx, cancel := context.WithCancel(context.Background())
 	errors.GoWrapper(func() {
 		ticker := time.NewTicker(interval)
@@ -152,7 +157,7 @@ func (p *bitmapBufPoolRanged) StartPeriodicCleanup(logger logrus.FieldLogger, in
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				p.cleanup()
+				p.cleanup(n)
 			}
 		}
 	}, logger)
@@ -207,71 +212,52 @@ func (p *BufPoolFixedSync) Get() (buf []byte, put func()) {
 type BufPoolFixedInMemory struct {
 	cap    int
 	limit  int
-	bufsCh chan *[]byte  // chan of free buffers
-	leftCh chan struct{} // chan of markings of buffers left to be created up to provided limit
+	bufsCh chan *[]byte
 }
 
 func NewBufPoolFixedInMemory(cap int, limit int) *BufPoolFixedInMemory {
-	bufCh := make(chan *[]byte, limit)
-	leftCh := make(chan struct{}, limit)
-	for i := 0; i < limit; i++ {
-		leftCh <- struct{}{}
-	}
-
 	return &BufPoolFixedInMemory{
 		cap:    cap,
 		limit:  limit,
-		bufsCh: bufCh,
-		leftCh: leftCh,
+		bufsCh: make(chan *[]byte, limit),
 	}
 }
 
 func (p *BufPoolFixedInMemory) Get() (buf []byte, put func()) {
-	// take free buffer if available
+	var ptr *[]byte
 	select {
-	case ptr := <-p.bufsCh:
-		return *ptr, func() {
-			select {
-			case p.bufsCh <- ptr:
-				// ok
-			default:
-				// should not happen
-			}
-		}
+	case ptr = <-p.bufsCh:
+		buf = *ptr
 	default:
+		buf = make([]byte, 0, p.cap)
+		ptr = &buf
 	}
+	return buf, func() { p.put(ptr) }
+}
 
-	// no free buffer
+func (p *BufPoolFixedInMemory) put(ptr *[]byte) bool {
 	select {
-	case <-p.leftCh:
-		// create new buffer if limit not yet reached
-		buf := make([]byte, 0, p.cap)
-		ptr := &buf
-		return *ptr, func() {
-			select {
-			case p.bufsCh <- ptr:
-				// ok
-			default:
-				// should not happen
-			}
-		}
+	case p.bufsCh <- ptr:
+		// successfully returned
+		return true
 	default:
-		// limit reached, create temp buffer outside of pool
-		return make([]byte, 0, p.cap), func() {}
+		// chan full, discard buffer
+		return false
 	}
 }
 
 // Cleanup removes available buffers from the pool and returs number of buffers removed.
 // Buffers are removed up to configured limit to prevent indefinite removal in case
 // new ones are created in the parallel.
-func (p *BufPoolFixedInMemory) Cleanup() int {
+func (p *BufPoolFixedInMemory) Cleanup(n int) int {
 	i := 0
-	for ; i < p.limit; i++ {
+outer:
+	for n = min(n, p.limit); i < n; i++ {
 		select {
 		case <-p.bufsCh:
-			p.leftCh <- struct{}{}
+			// discard taken buffer
 		default:
-			return i
+			break outer
 		}
 	}
 	return i
