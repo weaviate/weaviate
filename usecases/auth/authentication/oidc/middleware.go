@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/coreos/go-oidc/v3/oidc"
@@ -222,10 +223,21 @@ func (c *Client) useCertificate() (*http.Client, error) {
 		if len(segments) != 2 {
 			return nil, fmt.Errorf("invalid S3 URI, must contain bucket and key: %s", c.Config.Certificate.Get())
 		}
+		region := os.Getenv("AWS_REGION")
+		if region == "" {
+			region = os.Getenv("AWS_DEFAULT_REGION")
+		}
+		creds := credentials.NewIAM("")
+		// check if we are able to get the credentials using AWS IAM
+		if _, err := creds.GetWithContext(nil); err != nil {
+			// if IAM doesn't work, check environment settings for creds, set anonymous access if none found
+			creds = credentials.NewEnvAWS()
+		}
 		bucketName, objectKey := segments[0], segments[1]
 		minioClient, err := minio.New("s3.amazonaws.com", &minio.Options{
-			Creds:  credentials.NewEnvAWS(),
+			Creds:  creds,
 			Secure: true,
+			Region: region,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("failed to create S3 client: %w", err)
