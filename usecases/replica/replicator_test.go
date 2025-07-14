@@ -765,6 +765,7 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 			physical := sharding.Physical{
 				Name:           shard,
 				BelongsToNodes: replicaNodes,
+				Status:         models.TenantActivityStatusHOT,
 			}
 			state.Physical[shard] = physical
 		}
@@ -779,12 +780,21 @@ func (f *fakeFactory) newRouter(thisNode string) types.Router {
 		return v, nil
 	}).Maybe()
 	replicationFsmMock := replicationTypes.NewMockReplicationFSMReader(f.t)
-	replicationFsmMock.On("FilterOneShardReplicasRead", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) []string {
-		return shardReplicasLocation
-	}).Maybe()
-	replicationFsmMock.On("FilterOneShardReplicasWrite", mock.Anything, mock.Anything, mock.Anything).Return(func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
-		return shardReplicasLocation, []string{}
-	}).Maybe()
+	replicationFsmMock.On("FilterOneShardReplicasRead", mock.Anything, mock.Anything, mock.Anything).Return(
+		func(collection string, shard string, shardReplicasLocation []string) []string {
+			if replicas, ok := f.Shard2replicas[shard]; ok {
+				return replicas
+			}
+			return shardReplicasLocation
+		}).Maybe()
+
+	replicationFsmMock.On("FilterOneShardReplicasWrite", mock.Anything, mock.Anything, mock.Anything).Return(
+		func(collection string, shard string, shardReplicasLocation []string) ([]string, []string) {
+			if replicas, ok := f.Shard2replicas[shard]; ok {
+				return replicas, []string{}
+			}
+			return shardReplicasLocation, []string{}
+		}).Maybe()
 	return clusterRouter.NewBuilder(f.CLS, false, clusterState, schemaGetterMock, schemaReaderMock, replicationFsmMock).Build()
 }
 

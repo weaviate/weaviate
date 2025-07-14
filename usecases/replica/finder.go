@@ -322,10 +322,8 @@ func (f *Finder) CollectShardDifferences(ctx context.Context,
 	shardName string, ht hashtree.AggregatedHashTree, diffTimeoutPerNode time.Duration,
 	targetNodeOverrides []additional.AsyncReplicationTargetNodeOverride,
 ) (diffReader *ShardDifferenceReader, err error) {
-	routingPlan, err := f.router.BuildReadRoutingPlan(types.RoutingPlanBuildOptions{
-		Shard:            shardName,
-		ConsistencyLevel: types.ConsistencyLevelOne,
-	})
+	options := f.router.BuildRoutingPlanOptions(shardName, shardName, types.ConsistencyLevelOne, "")
+	routingPlan, err := f.router.BuildReadRoutingPlan(options)
 	if err != nil {
 		return nil, fmt.Errorf("%w : class %q shard %q", err, f.class, shardName)
 	}

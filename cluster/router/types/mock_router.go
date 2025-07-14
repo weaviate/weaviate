@@ -131,6 +131,55 @@ func (_c *MockRouter_BuildReadRoutingPlan_Call) RunAndReturn(run func(RoutingPla
 	return _c
 }
 
+// BuildRoutingPlanOptions provides a mock function with given fields: tenant, shard, cl, directCandidate
+func (_m *MockRouter) BuildRoutingPlanOptions(tenant string, shard string, cl ConsistencyLevel, directCandidate string) RoutingPlanBuildOptions {
+	ret := _m.Called(tenant, shard, cl, directCandidate)
+
+	if len(ret) == 0 {
+		panic("no return value specified for BuildRoutingPlanOptions")
+	}
+
+	var r0 RoutingPlanBuildOptions
+	if rf, ok := ret.Get(0).(func(string, string, ConsistencyLevel, string) RoutingPlanBuildOptions); ok {
+		r0 = rf(tenant, shard, cl, directCandidate)
+	} else {
+		r0 = ret.Get(0).(RoutingPlanBuildOptions)
+	}
+
+	return r0
+}
+
+// MockRouter_BuildRoutingPlanOptions_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'BuildRoutingPlanOptions'
+type MockRouter_BuildRoutingPlanOptions_Call struct {
+	*mock.Call
+}
+
+// BuildRoutingPlanOptions is a helper method to define mock.On call
+//   - tenant string
+//   - shard string
+//   - cl ConsistencyLevel
+//   - directCandidate string
+func (_e *MockRouter_Expecter) BuildRoutingPlanOptions(tenant interface{}, shard interface{}, cl interface{}, directCandidate interface{}) *MockRouter_BuildRoutingPlanOptions_Call {
+	return &MockRouter_BuildRoutingPlanOptions_Call{Call: _e.mock.On("BuildRoutingPlanOptions", tenant, shard, cl, directCandidate)}
+}
+
+func (_c *MockRouter_BuildRoutingPlanOptions_Call) Run(run func(tenant string, shard string, cl ConsistencyLevel, directCandidate string)) *MockRouter_BuildRoutingPlanOptions_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string), args[1].(string), args[2].(ConsistencyLevel), args[3].(string))
+	})
+	return _c
+}
+
+func (_c *MockRouter_BuildRoutingPlanOptions_Call) Return(_a0 RoutingPlanBuildOptions) *MockRouter_BuildRoutingPlanOptions_Call {
+	_c.Call.Return(_a0)
+	return _c
+}
+
+func (_c *MockRouter_BuildRoutingPlanOptions_Call) RunAndReturn(run func(string, string, ConsistencyLevel, string) RoutingPlanBuildOptions) *MockRouter_BuildRoutingPlanOptions_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
 // BuildWriteRoutingPlan provides a mock function with given fields: params
 func (_m *MockRouter) BuildWriteRoutingPlan(params RoutingPlanBuildOptions) (WriteRoutingPlan, error) {
 	ret := _m.Called(params)

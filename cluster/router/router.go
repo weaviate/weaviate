@@ -23,6 +23,8 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/weaviate/weaviate/usecases/replica"
+
 	"github.com/weaviate/weaviate/usecases/objects"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -352,7 +354,7 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 	}
 
 	if len(readReplicas.Replicas) == 0 {
-		return types.ReadRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, err)
+		return types.ReadRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, replica.ErrReplicas)
 	}
 
 	cl, err := readReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
@@ -389,7 +391,7 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 	}
 
 	if len(writeReplicas.Replicas) == 0 {
-		return types.WriteRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, err)
+		return types.WriteRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, replica.ErrReplicas)
 	}
 
 	cl, err := writeReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
@@ -411,6 +413,15 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 	}
 
 	return plan, nil
+}
+
+func (r *singleTenantRouter) BuildRoutingPlanOptions(_, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
+	return types.RoutingPlanBuildOptions{
+		Shard:               shard,
+		Tenant:              "",
+		ConsistencyLevel:    cl,
+		DirectCandidateNode: directCandidate,
+	}
 }
 
 // validateTenant for a multi-tenant router checks the tenant is not empty and returns an error if it is.
@@ -534,7 +545,7 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 	}
 
 	if len(writeReplicas.Replicas) == 0 {
-		return types.WriteRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, err)
+		return types.WriteRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, replica.ErrReplicas)
 	}
 
 	cl, err := writeReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
@@ -576,7 +587,7 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 	}
 
 	if len(readReplicas.Replicas) == 0 {
-		return types.ReadRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, err)
+		return types.ReadRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, replica.ErrReplicas)
 	}
 
 	cl, err := readReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
@@ -603,4 +614,13 @@ func (r *multiTenantRouter) validateTenantShard(tenant, shard string) error {
 	}
 
 	return nil
+}
+
+func (r *multiTenantRouter) BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
+	return types.RoutingPlanBuildOptions{
+		Shard:               shard,
+		Tenant:              tenant,
+		ConsistencyLevel:    cl,
+		DirectCandidateNode: directCandidate,
+	}
 }
