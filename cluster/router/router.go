@@ -614,6 +614,9 @@ func (r *multiTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOp
 	if params.Shard == "" {
 		params.Shard = params.Tenant
 	}
+	if err := r.validateTenant(params.Tenant); err != nil {
+		return types.ReadRoutingPlan{}, err
+	}
 	return r.buildReadRoutingPlan(params)
 }
 
