@@ -31,6 +31,7 @@ import (
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/diskio"
@@ -327,67 +328,13 @@ func (s *Shard) initAsyncReplication() error {
 	s.hashtreeFullyInitialized = false
 	s.minimalHashtreeInitializationCh = make(chan struct{})
 
-	// sync hashtree with current object states
-
 	enterrors.GoWrapper(func() {
-		err := s.HaltForTransfer(ctx, false, 0)
-		if err != nil {
-			s.index.logger.
-				WithField("action", "async_replication").
-				WithField("class_name", s.class.Class).
-				WithField("shard_name", s.name).
-				Errorf("pausing compaction during hashtree initialization: %v", err)
-			return
-		}
-		defer s.resumeMaintenanceCycles(ctx)
-
-		objCount := 0
-		prevProgressLogging := time.Now()
-
-		beforeOnDiskCallback := func(_ context.Context) error {
-			s.asyncReplicationRWMux.RLock()
-			defer s.asyncReplicationRWMux.RUnlock()
-
-			close(s.minimalHashtreeInitializationCh)
-
-			return nil
-		}
-
-		err = bucket.ApplyToObjectDigests(ctx, beforeOnDiskCallback, func(object *storobj.Object) error {
-			if time.Since(prevProgressLogging) >= config.loggingFrequency {
-				s.index.logger.
-					WithField("action", "async_replication").
-					WithField("class_name", s.class.Class).
-					WithField("shard_name", s.name).
-					WithField("object_count", objCount).
-					WithField("took", fmt.Sprintf("%v", time.Since(start))).
-					Infof("hashtree initialization in progress...")
-				prevProgressLogging = time.Now()
+		for i := 0; ; i++ {
+			err := s.initHashtree(ctx, config, bucket)
+			if err == nil {
+				break
 			}
 
-			uuidBytes, err := parseBytesUUID(object.ID())
-			if err != nil {
-				return err
-			}
-
-			err = s.mayUpsertObjectHashTree(object, uuidBytes, objectInsertStatus{})
-			if err != nil {
-				return err
-			}
-
-			objCount++
-
-			if config.initShieldCPUEveryN > 0 {
-				if objCount%config.initShieldCPUEveryN == 0 {
-					// yield the processor so other goroutines can run
-					runtime.Gosched()
-					time.Sleep(time.Millisecond)
-				}
-			}
-
-			return nil
-		})
-		if err != nil {
 			if ctx.Err() != nil {
 				s.index.logger.
 					WithField("action", "async_replication").
@@ -401,37 +348,109 @@ func (s *Shard) initAsyncReplication() error {
 				WithField("action", "async_replication").
 				WithField("class_name", s.class.Class).
 				WithField("shard_name", s.name).
-				Errorf("iterating objects during hashtree initialization: %v", err)
-			return
-		}
+				Errorf("hashtree initialization attempt %d failure: %v", i, err)
 
-		s.asyncReplicationRWMux.Lock()
+			// exponential backoff: min(2^i * 100ms, 5s)
+			backoff := min(time.Duration(1<<i)*100*time.Millisecond, 5*time.Second)
+			time.Sleep(backoff)
 
-		if s.hashtree == nil {
+			s.asyncReplicationRWMux.Lock()
+			s.hashtree.Reset()
+			s.minimalHashtreeInitializationCh = make(chan struct{})
 			s.asyncReplicationRWMux.Unlock()
+		}
+	}, s.index.logger)
 
+	return nil
+}
+
+func (s *Shard) initHashtree(ctx context.Context, config asyncReplicationConfig, bucket *lsmkv.Bucket) error {
+	start := time.Now()
+
+	releaseInitialization := func() {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+
+		close(s.minimalHashtreeInitializationCh)
+	}
+
+	err := s.store.PauseCompaction(ctx)
+	if err != nil {
+		releaseInitialization()
+		return fmt.Errorf("pausing compaction: %w", err)
+	}
+	defer s.store.ResumeCompaction(ctx)
+
+	objCount := 0
+	prevProgressLogging := time.Now()
+
+	err = bucket.ApplyToObjectDigests(ctx, releaseInitialization, func(object *storobj.Object) error {
+		if time.Since(prevProgressLogging) >= config.loggingFrequency {
 			s.index.logger.
 				WithField("action", "async_replication").
 				WithField("class_name", s.class.Class).
 				WithField("shard_name", s.name).
-				Info("hashtree initialization stopped")
-			return
+				WithField("object_count", objCount).
+				WithField("took", fmt.Sprintf("%v", time.Since(start))).
+				Infof("hashtree initialization in progress...")
+			prevProgressLogging = time.Now()
 		}
 
-		s.hashtreeFullyInitialized = true
+		uuidBytes, err := parseBytesUUID(object.ID())
+		if err != nil {
+			return err
+		}
+
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+
+		err = s.mayUpsertObjectHashTree(object, uuidBytes, objectInsertStatus{})
+		if err != nil {
+			return err
+		}
+
+		objCount++
+
+		if config.initShieldCPUEveryN > 0 {
+			if objCount%config.initShieldCPUEveryN == 0 {
+				// yield the processor so other goroutines can run
+				runtime.Gosched()
+				time.Sleep(time.Millisecond)
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		return fmt.Errorf("iterating objects: %w", err)
+	}
+
+	s.asyncReplicationRWMux.Lock()
+
+	if s.hashtree == nil {
+		s.asyncReplicationRWMux.Unlock()
 
 		s.index.logger.
 			WithField("action", "async_replication").
 			WithField("class_name", s.class.Class).
 			WithField("shard_name", s.name).
-			WithField("object_count", objCount).
-			WithField("took", fmt.Sprintf("%v", time.Since(start))).
-			Info("hashtree successfully initialized")
+			Info("hashtree initialization stopped")
+		return nil
+	}
 
-		s.asyncReplicationRWMux.Unlock()
+	s.hashtreeFullyInitialized = true
 
-		s.initHashBeater(ctx, config)
-	}, s.index.logger)
+	s.index.logger.
+		WithField("action", "async_replication").
+		WithField("class_name", s.class.Class).
+		WithField("shard_name", s.name).
+		WithField("object_count", objCount).
+		WithField("took", fmt.Sprintf("%v", time.Since(start))).
+		Info("hashtree successfully initialized")
+
+	s.asyncReplicationRWMux.Unlock()
+
+	s.initHashBeater(ctx, config)
 
 	return nil
 }
