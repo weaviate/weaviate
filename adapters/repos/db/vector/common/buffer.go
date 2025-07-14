@@ -12,216 +12,238 @@
 package common
 
 const (
-	flatDefaultInitCapacity = 1000 // Default initial capacity for buffers
-	flatMinimumGrowthDelta  = 2000 // Minimum growth delta for flat buffers
-	pagedDefaultPageSize    = 512  // Default page size for paged buffers
-	pagedDefaultInitPages   = 10   // Default initial number of pages for paged buffers
+	flatDefaultInitCapacity = 1000       // Default initial capacity for buffers
+	flatMaxReusableCapacity = 10_000_000 // Maximum reusable capacity for flat buffers
+	flatMinimumGrowthDelta  = 2000       // Minimum growth delta for flat buffers
+	pagedDefaultPageSize    = 512        // Default page size for paged buffers
+	pagedDefaultInitPages   = 10         // Default initial number of pages for paged buffers
+	pagedMinimumGrowthDelta = 10         // Minimum growth delta for paged buffers
 )
 
-// FlatBuffer stores elements in a contiguous slice.
+// FlatBuffer is a thread-safe buffer that stores elements in a contiguous slice.
 // It is optimized for cases where random access speed is more important than memory usage.
 // The buffer will grow as needed.
-// It is not thread-safe.
 type FlatBuffer[T any] struct {
-	buf []T
+	locks *ShardedRWLocks
+	buf   []T
+}
+
+func NewFlatBuffer[T any](initSize uint64) *FlatBuffer[T] {
+	if initSize == 0 {
+		initSize = flatDefaultInitCapacity
+	}
+
+	return &FlatBuffer[T]{
+		locks: NewShardedRWLocks(512),
+		buf:   make([]T, initSize),
+	}
 }
 
 // Get returns the element at the given index.
 // If the index is out of bounds, it will return zero value of T.
 func (f *FlatBuffer[T]) Get(id uint64) T {
+	f.locks.RLock(id)
 	if int(id) >= len(f.buf) {
+		f.locks.RUnlock(id)
 		var zero T
 		return zero
 	}
-
-	return f.buf[id]
-}
-
-// Set sets the element at the given index.
-// If the index is out of bounds, it will grow the array.
-func (f *FlatBuffer[T]) Set(id uint64, value T) {
-	if int(id) >= len(f.buf) {
-		f.Grow(id + flatMinimumGrowthDelta)
-	}
-	f.buf[id] = value
-}
-
-func (f *FlatBuffer[T]) Grow(newSize uint64) {
-	if newSize < uint64(len(f.buf)) {
-		return
-	}
-
-	newArray := make([]T, newSize)
-	copy(newArray, f.buf)
-	f.buf = newArray
-}
-
-// Reset frees the array and creates a new empty slice with the initial capacity.
-func (f *FlatBuffer[T]) Reset() {
-	f.buf = make([]T, flatDefaultInitCapacity)
-}
-
-// Cap returns the current capacity of the array.
-func (f *FlatBuffer[T]) Cap() int {
-	return len(f.buf)
-}
-
-// PagedBuffer stores elements in pages of a fixed size.
-// It is optimized for cases where the buffer is sparse and the number of elements is not known in advance.
-// The buffer will grow as needed and will reuse pages that have been freed.
-// It is not thread-safe.
-type PagedBuffer[T any] struct {
-	buf       [][]T
-	pageSize  uint64
-	freePages [][]T
-}
-
-// Get returns the element at the given index.
-// If the element is not in the buffer, it will return nil.
-func (p *PagedBuffer[T]) Get(id uint64) T {
-	if p.pageSize == 0 {
-		var zero T
-		return zero
-	}
-
-	pageID := id / p.pageSize
-
-	if p.buf[pageID] == nil {
-		var zero T
-		return zero
-	}
-
-	slotID := id % p.pageSize
-
-	return p.buf[pageID][slotID]
-}
-
-// Set sets the element at the given index.
-// If the page does not exist, it will be created.
-func (p *PagedBuffer[T]) Set(id uint64, value T) {
-	if p.pageSize == 0 {
-		p.Grow(pagedDefaultInitPages)
-	}
-
-	pageID := id / p.pageSize
-	slotID := id % p.pageSize
-
-	if int(pageID) >= len(p.buf) {
-		p.Grow(pageID)
-	}
-
-	if p.buf[pageID] == nil {
-		p.buf[pageID] = p.getPage()
-	}
-
-	p.buf[pageID][slotID] = value
-}
-
-func (p *PagedBuffer[T]) Grow(page uint64) {
-	if p.pageSize == 0 {
-		p.pageSize = pagedDefaultPageSize
-	}
-
-	newSize := max(int(page+10), len(p.buf)*2)
-	newBuf := make([][]T, newSize)
-	copy(newBuf, p.buf)
-	p.buf = newBuf
-}
-
-func (p *PagedBuffer[T]) getPage() []T {
-	if len(p.freePages) > 0 {
-		lastIndex := len(p.freePages) - 1
-		page := p.freePages[lastIndex]
-		p.freePages = p.freePages[:lastIndex]
-		return page
-	}
-
-	return make([]T, p.pageSize)
-}
-
-// Reset clears the array and frees all pages.
-// Free pages are reused when new pages are needed.
-func (p *PagedBuffer[T]) Reset() {
-	for i := range p.buf {
-		if p.buf[i] != nil {
-			clear(p.buf[i])
-			p.freePages = append(p.freePages, p.buf[i])
-			p.buf[i] = nil
-		}
-	}
-}
-
-// Cap returns the current capacity of the array.
-func (p *PagedBuffer[T]) Cap() int {
-	return len(p.buf) * int(p.pageSize)
-}
-
-type Buffer[T any] interface {
-	Get(id uint64) T
-	Set(id uint64, value T)
-	Reset()
-	Grow(newSize uint64)
-	Cap() int
-}
-
-// SafeBuffer is a thread-safe array that grows as needed.
-type SafeBuffer[T any] struct {
-	locks  *ShardedRWLocks
-	buffer Buffer[T]
-}
-
-// Get returns the element at the given index.
-// If the index is out of bounds, it will return zero value of T.
-func (s *SafeBuffer[T]) Get(id uint64) T {
-	s.locks.Lock(id)
-	v := s.buffer.Get(id)
-	s.locks.Unlock(id)
-
+	v := f.buf[id]
+	f.locks.RUnlock(id)
 	return v
 }
 
 // Set sets the element at the given index.
 // If the index is out of bounds, it will grow the array.
-func (s *SafeBuffer[T]) Set(id uint64, value T) {
-	s.locks.Lock(id)
-	s.buffer.Set(id, value)
-	s.locks.Unlock(id)
-}
-
-func (s *SafeBuffer[T]) Grow(newSize uint64) {
-	s.locks.LockAll()
-	s.buffer.Grow(newSize)
-	s.locks.UnlockAll()
-}
-
-// Reset frees the array and creates a new empty slice with the initial capacity.
-func (s *SafeBuffer[T]) Reset() {
-	s.locks.LockAll()
-	s.buffer.Reset()
-	s.locks.UnlockAll()
-}
-
-// NewFlatBuffer creates a thread-safe FlatBuffer with the given initial capacity.
-func NewSafeFlatBuffer[T any](initialCapacity uint64) *SafeBuffer[T] {
-	var fb FlatBuffer[T]
-	fb.Grow(initialCapacity)
-
-	return &SafeBuffer[T]{
-		buffer: &fb,
-		locks:  NewShardedRWLocks(16),
+func (f *FlatBuffer[T]) Set(id uint64, value T) {
+	f.locks.Lock(id)
+	if int(id) >= len(f.buf) {
+		f.locks.Unlock(id)
+		f.Grow(id + flatMinimumGrowthDelta)
+		f.locks.Lock(id) // Re-lock after growing
 	}
+	f.buf[id] = value
+	f.locks.Unlock(id)
 }
 
-// NewPagedBuffer creates a new PagedBuffer with the given page size.
-// The array will start with 10 pages.
-func NewSafePagedBuffer[T any](pageSize uint64) *PagedBuffer[T] {
-	return NewSafePagedBufferWith[T](pageSize, 10)
+// Delete sets the element at the given index to zero value of T.
+func (f *FlatBuffer[T]) Delete(index uint64) {
+	f.locks.Lock(index)
+
+	if int(index) >= len(f.buf) {
+		f.locks.Unlock(index)
+		return
+	}
+
+	var zero T
+	f.buf[index] = zero
+	f.locks.Unlock(index)
 }
 
-// NewPagedBufferWith creates a new PagedBuffer with the given page size and initial number of pages.
-func NewSafePagedBufferWith[T any](pageSize, initialPages uint64) *PagedBuffer[T] {
+func (f *FlatBuffer[T]) Grow(newSize uint64) {
+	f.locks.RLock(0)
+	if newSize <= uint64(len(f.buf)) {
+		f.locks.RUnlock(0)
+		return // No need to grow
+	}
+	f.locks.RUnlock(0)
+	f.locks.LockAll()
+	f.grow(newSize)
+	f.locks.UnlockAll()
+}
+
+func (f *FlatBuffer[T]) grow(newSize uint64) {
+	if newSize < uint64(len(f.buf)) {
+		return
+	}
+
+	if int(newSize) > cap(f.buf) {
+		newArray := make([]T, newSize)
+		copy(newArray, f.buf)
+		f.buf = newArray
+		return
+	}
+	f.buf = f.buf[:newSize]
+}
+
+// Reset clears the underlying slice and reuses the existing memory.
+// This is useful to avoid memory allocations when the buffer is reused frequently.
+func (f *FlatBuffer[T]) Reset() {
+	f.locks.LockAll()
+	// If the buffer is too large, we reset it to the default initial capacity
+	if cap(f.buf) > flatMaxReusableCapacity {
+		f.buf = make([]T, flatDefaultInitCapacity)
+	} else {
+		f.buf = f.buf[:flatDefaultInitCapacity]
+		clear(f.buf)
+	}
+	f.locks.UnlockAll()
+}
+
+// Cap returns the current capacity of the underlying slice.
+func (f *FlatBuffer[T]) Cap() int {
+	f.locks.RLock(0)
+	c := cap(f.buf)
+	f.locks.RUnlock(0)
+	return c
+}
+
+// Len returns the size of the buffer.
+func (f *FlatBuffer[T]) Len() int {
+	f.locks.RLock(0)
+	l := len(f.buf)
+	f.locks.RUnlock(0)
+	return l
+}
+
+// PagedBuffer is a thread-safe buffer thatstores elements in pages of a fixed size.
+// It is optimized for cases where the buffer is sparse and the number of elements is not known in advance.
+// The buffer will grow as needed.
+type PagedBuffer[T any] struct {
+	locks    *ShardedRWLocks
+	buf      [][]T
+	pageSize uint64
+}
+
+func NewPagedBuffer[T any](pageSize uint64) *PagedBuffer[T] {
+	if pageSize == 0 {
+		pageSize = pagedDefaultPageSize
+	}
+
 	return &PagedBuffer[T]{
+		locks:    NewShardedRWLocks(32),
 		pageSize: pageSize,
-		buf:      make([][]T, initialPages),
 	}
+}
+
+// Get returns the element at the given index.
+// If the element is not in the buffer, it will return nil.
+func (p *PagedBuffer[T]) Get(id uint64) T {
+	pageID := id / p.pageSize
+
+	p.locks.RLock(pageID)
+	if len(p.buf) <= int(pageID) || p.buf[pageID] == nil {
+		p.locks.RUnlock(pageID)
+		var zero T
+		return zero
+	}
+
+	slotID := id % p.pageSize
+
+	v := p.buf[pageID][slotID]
+	p.locks.RUnlock(pageID)
+	return v
+}
+
+// Set sets the element at the given index.
+// If the page does not exist, it will be created.
+func (p *PagedBuffer[T]) Set(id uint64, value T) {
+	pageID := id / p.pageSize
+	slotID := id % p.pageSize
+
+	// get the current size of the buffer
+	p.locks.RLock(0)
+	size := uint64(len(p.buf))
+	p.locks.RUnlock(0)
+
+	if pageID >= size {
+		newSize := max(pageID+pagedMinimumGrowthDelta, size*2)
+		p.Grow(newSize)
+	}
+
+	p.locks.Lock(pageID)
+	if p.buf[pageID] == nil {
+		p.buf[pageID] = make([]T, p.pageSize)
+	}
+
+	p.buf[pageID][slotID] = value
+	p.locks.Unlock(pageID)
+}
+
+// Delete sets the element at the given index to zero value of T.
+func (p *PagedBuffer[T]) Delete(id uint64) {
+	pageID := id / p.pageSize
+	slotID := id % p.pageSize
+
+	p.locks.Lock(pageID)
+	if len(p.buf) <= int(pageID) || p.buf[pageID] == nil {
+		p.locks.Unlock(pageID)
+		return // No page to delete from
+	}
+
+	var zero T
+	p.buf[pageID][slotID] = zero
+	p.locks.Unlock(pageID)
+}
+
+// Grow increases the size of the buffer to accommodate at least `page` pages.
+func (p *PagedBuffer[T]) Grow(newSize uint64) {
+	p.locks.LockAll()
+	if newSize <= uint64(len(p.buf)) {
+		p.locks.UnlockAll()
+		return // No need to grow
+	}
+
+	newBuf := make([][]T, newSize)
+	copy(newBuf, p.buf)
+	p.buf = newBuf
+	p.locks.UnlockAll()
+}
+
+// Reset clears all pages of the array but does not change its capacity.
+func (p *PagedBuffer[T]) Reset() {
+	p.locks.LockAll()
+	for i := range p.buf {
+		clear(p.buf[i]) // optional: zero memory
+		p.buf[i] = nil
+	}
+	p.locks.UnlockAll()
+}
+
+// Cap returns the current capacity of the array.
+func (p *PagedBuffer[T]) Cap() int {
+	p.locks.RLock(0)
+	defer p.locks.RUnlock(0)
+
+	return len(p.buf) * int(p.pageSize)
 }

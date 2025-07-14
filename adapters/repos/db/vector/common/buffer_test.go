@@ -13,13 +13,14 @@ package common
 
 import (
 	"math/rand"
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestPagedBuffer(t *testing.T) {
-	var buf PagedBuffer[int]
+	buf := NewPagedBuffer[int](10)
 	require.Equal(t, buf.Cap(), 0, "wrong initial cap")
 
 	setN := func(n int) {
@@ -67,8 +68,8 @@ func TestPagedBuffer(t *testing.T) {
 }
 
 func TestFlatBuffer(t *testing.T) {
-	var buf FlatBuffer[int]
-	require.Equal(t, buf.Cap(), 0, "wrong initial cap")
+	buf := NewFlatBuffer[int](4)
+	require.Equal(t, buf.Cap(), 4, "wrong initial cap")
 
 	setN := func(n int) {
 		for i := 0; i < n; i++ {
@@ -112,6 +113,20 @@ func TestFlatBuffer(t *testing.T) {
 	for i := 1; i < 100; i += 2 {
 		require.Zero(t, buf.Get(uint64(i)))
 	}
+
+	require.Zero(t, buf.Get(1_000_000))
+
+	buf.Grow(10_000)
+	require.Equal(t, buf.Cap(), 10_000, "buffer did not grow as expected")
+	buf.Grow(5000)
+	require.Equal(t, buf.Cap(), 10_000, "buffer did not grow as expected")
+
+	buf.Reset()
+	require.Equal(t, buf.Cap(), 1000, "buffer did not reset to initial capacity")
+	require.Zero(t, buf.Get(1_000_000))
+	buf.Grow(10_000)
+	require.Equal(t, buf.Cap(), 10_000, "buffer did not grow as expected")
+	buf.Grow(5000)
 }
 
 func BenchmarkBufferSparse(b *testing.B) {
@@ -124,7 +139,7 @@ func BenchmarkBufferSparse(b *testing.B) {
 
 	b.Run("PagedBuffer/Set", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			var buf PagedBuffer[int]
+			buf := NewPagedBuffer[int](512)
 
 			for j := 0; j < 1000; j++ {
 				buf.Set(keys[j], values[j])
@@ -132,7 +147,7 @@ func BenchmarkBufferSparse(b *testing.B) {
 		}
 	})
 
-	var pbbuf PagedBuffer[int]
+	pbbuf := NewPagedBuffer[int](512)
 
 	for j := 0; j < 10_000; j++ {
 		pbbuf.Set(keys[j], values[j])
@@ -148,7 +163,7 @@ func BenchmarkBufferSparse(b *testing.B) {
 
 	b.Run("FlatArray/Set", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			var buf FlatBuffer[int]
+			buf := NewFlatBuffer[int](1000)
 
 			for j := 0; j < 1000; j++ {
 				buf.Set(uint64(keys[j]), values[j])
@@ -156,7 +171,7 @@ func BenchmarkBufferSparse(b *testing.B) {
 		}
 	})
 
-	var fbuf FlatBuffer[int]
+	fbuf := NewFlatBuffer[int](1000)
 
 	for j := 0; j < 10_000; j++ {
 		fbuf.Set(uint64(keys[j]), values[j])
@@ -174,7 +189,7 @@ func BenchmarkBufferSparse(b *testing.B) {
 func BenchmarkBufferMonotonic(b *testing.B) {
 	b.Run("PagedBuffer/Set", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			var buf PagedBuffer[int]
+			buf := NewPagedBuffer[int](512)
 
 			for j := 0; j < 10_000; j++ {
 				buf.Set(uint64(j), j)
@@ -182,7 +197,7 @@ func BenchmarkBufferMonotonic(b *testing.B) {
 		}
 	})
 
-	var pbbuf PagedBuffer[int]
+	pbbuf := NewPagedBuffer[int](512)
 
 	for j := 0; j < 10_000; j++ {
 		pbbuf.Set(uint64(j), j)
@@ -198,7 +213,7 @@ func BenchmarkBufferMonotonic(b *testing.B) {
 
 	b.Run("FlatArray/Set", func(b *testing.B) {
 		for i := 0; i < b.N; i++ {
-			var buf FlatBuffer[int]
+			buf := NewFlatBuffer[int](1000)
 
 			for j := 0; j < 10_000; j++ {
 				buf.Set(uint64(j), j)
@@ -206,7 +221,7 @@ func BenchmarkBufferMonotonic(b *testing.B) {
 		}
 	})
 
-	var fbuf FlatBuffer[int]
+	fbuf := NewFlatBuffer[int](1000)
 
 	for j := 0; j < 10_000; j++ {
 		fbuf.Set(uint64(j), j)
@@ -219,4 +234,52 @@ func BenchmarkBufferMonotonic(b *testing.B) {
 			}
 		}
 	})
+}
+
+func TestFlatBufferConcurrentSetAndGet(t *testing.T) {
+	buf := NewFlatBuffer[int](5)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(2)
+		go func(i int) {
+			defer wg.Done()
+
+			for j := 0; j < 1000; j++ {
+				buf.Set(uint64(j), j)
+			}
+		}(i)
+		go func(i int) {
+			defer wg.Done()
+
+			for j := 0; j < 1000; j++ {
+				_ = buf.Get(uint64(j))
+			}
+		}(i)
+	}
+	wg.Wait()
+}
+
+func TestPagedBufferConcurrentSetAndGet(t *testing.T) {
+	buf := NewPagedBuffer[int](5)
+
+	var wg sync.WaitGroup
+	for i := 0; i < 100; i++ {
+		wg.Add(2)
+		go func(i int) {
+			defer wg.Done()
+
+			for j := 0; j < 1000; j++ {
+				buf.Set(uint64(j), j)
+			}
+		}(i)
+		go func(i int) {
+			defer wg.Done()
+
+			for j := 0; j < 1000; j++ {
+				_ = buf.Get(uint64(j))
+			}
+		}(i)
+	}
+	wg.Wait()
 }
