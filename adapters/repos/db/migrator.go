@@ -110,10 +110,11 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
+	multiTenancyEnabled := class.MultiTenancyConfig != nil && class.MultiTenancyConfig.Enabled
 	collection := schema.ClassName(class.Class).String()
 	indexRouter := router.NewBuilder(
 		collection,
-		class.MultiTenancyConfig.Enabled,
+		multiTenancyEnabled,
 		m.db.nodeSelector,
 		m.db.schemaGetter,
 		m.db.schemaReader,
