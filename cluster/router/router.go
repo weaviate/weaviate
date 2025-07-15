@@ -56,6 +56,10 @@ func newRouterError(message, collection, tenant, shard string, cause error) rout
 	}
 }
 
+func newTenantError(cause error) objects.ErrMultiTenancy {
+	return objects.NewErrMultiTenancy(cause)
+}
+
 func (e routerError) Error() string {
 	return fmt.Sprintf("router error '%s' (collection: %q, tenant: %q, shard: %q): %v", e.message, e.collection, e.tenant, e.shard, e.cause)
 }
@@ -203,7 +207,7 @@ func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeN
 // validateTenant for a single-tenant router checks the tenant is empty and returns an error if it is not.
 func (r *singleTenantRouter) validateTenant(tenant string) error {
 	if tenant != "" {
-		return objects.NewErrMultiTenancy(fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", r.collection))
+		return fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", r.collection)
 	}
 	return nil
 }
@@ -221,7 +225,7 @@ func (r *singleTenantRouter) AllHostnames() []string {
 // GetReadWriteReplicasLocation returns read and write replicas for single-tenant collections.
 func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (readReplicas types.ReadReplicaSet, writeReplicas types.WriteReplicaSet, err error) {
 	if err := r.validateTenant(tenant); err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newRouterError("tenant validation", r.collection, tenant, shard, err)
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newTenantError(err)
 	}
 	return r.getReadWriteReplicasLocation(collection, tenant, shard)
 }
@@ -229,7 +233,7 @@ func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, ten
 // GetWriteReplicasLocation returns write replicas for single-tenant collections.
 func (r *singleTenantRouter) GetWriteReplicasLocation(collection string, tenant string, shard string) (types.WriteReplicaSet, error) {
 	if err := r.validateTenant(tenant); err != nil {
-		return types.WriteReplicaSet{}, newRouterError("tenant validation", r.collection, tenant, shard, err)
+		return types.WriteReplicaSet{}, newTenantError(err)
 	}
 	_, writeReplicas, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
 	if err != nil {
@@ -241,7 +245,7 @@ func (r *singleTenantRouter) GetWriteReplicasLocation(collection string, tenant 
 // GetReadReplicasLocation returns read replicas for single-tenant collections.
 func (r *singleTenantRouter) GetReadReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, error) {
 	if err := r.validateTenant(tenant); err != nil {
-		return types.ReadReplicaSet{}, newRouterError("tenant validation", r.collection, tenant, shard, err)
+		return types.ReadReplicaSet{}, newTenantError(err)
 	}
 	readReplicas, _, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
 	if err != nil {
@@ -342,7 +346,7 @@ func (r *singleTenantRouter) resolveNodeNamesToReplicas(nodeNames []string, shar
 // BuildReadRoutingPlan constructs a read routing plan for single-tenant collections.
 func (r *singleTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
 	if err := r.validateTenant(params.Tenant); err != nil {
-		return types.ReadRoutingPlan{}, newRouterError("tenant validation", r.collection, params.Tenant, params.Shard, err)
+		return types.ReadRoutingPlan{}, newTenantError(err)
 	}
 	return r.buildReadRoutingPlan(params)
 }
@@ -379,7 +383,7 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 // BuildWriteRoutingPlan constructs a write routing plan for single-tenant collections.
 func (r *singleTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
 	if err := r.validateTenant(params.Tenant); err != nil {
-		return types.WriteRoutingPlan{}, newRouterError("tenant validation", r.collection, params.Tenant, params.Shard, err)
+		return types.WriteRoutingPlan{}, newTenantError(err)
 	}
 	return r.buildWriteRoutingPlan(params)
 }
@@ -427,7 +431,7 @@ func (r *singleTenantRouter) BuildRoutingPlanOptions(_, shard string, cl types.C
 // validateTenant for a multi-tenant router checks the tenant is not empty and returns an error if it is.
 func (r *multiTenantRouter) validateTenant(tenant string) error {
 	if tenant == "" {
-		return objects.NewErrMultiTenancy(fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", r.collection))
+		return fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", r.collection)
 	}
 	return nil
 }
@@ -448,7 +452,7 @@ func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tena
 		shard = tenant
 	}
 	if err := r.validateTenant(tenant); err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newRouterError("tenant validation", r.collection, tenant, shard, err)
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newTenantError(err)
 	}
 	if err := r.validateTenantShard(tenant, shard); err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newRouterError("tenant shard validation", r.collection, tenant, shard, err)
@@ -462,7 +466,7 @@ func (r *multiTenantRouter) GetWriteReplicasLocation(collection string, tenant s
 		shard = tenant
 	}
 	if err := r.validateTenant(tenant); err != nil {
-		return types.WriteReplicaSet{}, newRouterError("tenant validation", r.collection, tenant, shard, err)
+		return types.WriteReplicaSet{}, newTenantError(err)
 	}
 	if err := r.validateTenantShard(tenant, shard); err != nil {
 		return types.WriteReplicaSet{}, newRouterError("tenant shard validation", r.collection, tenant, shard, err)
@@ -477,7 +481,7 @@ func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant st
 		shard = tenant
 	}
 	if err := r.validateTenant(tenant); err != nil {
-		return types.ReadReplicaSet{}, newRouterError("tenant validation", r.collection, tenant, shard, err)
+		return types.ReadReplicaSet{}, newTenantError(err)
 	}
 	if err := r.validateTenantShard(tenant, shard); err != nil {
 		return types.ReadReplicaSet{}, newRouterError("tenant shard validation", r.collection, tenant, shard, err)
@@ -489,15 +493,15 @@ func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant st
 func (r *multiTenantRouter) getReadWriteReplicasLocation(collection string, tenant, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
 	tenantStatus, err := r.schemaGetter.OptimisticTenantStatus(context.TODO(), collection, tenant)
 	if err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newRouterError("tenant status", r.collection, tenant, shard, err)
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newTenantError(err)
 	}
 
 	ok, err := r.tenantExistsAndIsActive(tenantStatus, tenant)
 	if err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newRouterError("tenant status", r.collection, tenant, shard, err)
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newTenantError(err)
 	}
 	if !ok {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newRouterError("missing tenant", r.collection, tenant, shard, err)
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newTenantError(err)
 	}
 
 	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
@@ -518,7 +522,7 @@ func (r *multiTenantRouter) getReadWriteReplicasLocation(collection string, tena
 func (r *multiTenantRouter) tenantExistsAndIsActive(tenantStatus map[string]string, tenant string) (bool, error) {
 	status, ok := tenantStatus[tenant]
 	if !ok {
-		return false, fmt.Errorf("error while checking tenant existence: %q", tenant)
+		return false, fmt.Errorf("tenant not found: %q", tenant)
 	}
 
 	if status != models.TenantActivityStatusHOT {
@@ -533,7 +537,7 @@ func (r *multiTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildO
 		params.Shard = params.Tenant
 	}
 	if err := r.validateTenant(params.Tenant); err != nil {
-		return types.WriteRoutingPlan{}, err
+		return types.WriteRoutingPlan{}, newTenantError(err)
 	}
 	return r.buildWriteRoutingPlan(params)
 }

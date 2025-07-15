@@ -782,7 +782,7 @@ func TestMultiTenantRouter_BuildRoutingPlan_TenantNotFoundDuringBuild(t *testing
 	).Build()
 	rs, err := r.GetReadReplicasLocation("TestClass", "nonexistent", "")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "error while checking tenant existence: \"nonexistent\"")
+	require.Contains(t, err.Error(), "tenant not found: \"nonexistent\"")
 	require.Empty(t, rs.Replicas)
 }
 
@@ -923,9 +923,9 @@ func TestMultiTenantRouter_MixedTenantStates(t *testing.T) {
 	}{
 		"active-tenant-1": {models.TenantActivityStatusHOT, true, "router error for active-tenant-1"},
 		"active-tenant-2": {models.TenantActivityStatusHOT, true, "router error for active-tenant-2"},
-		"cold-tenant":     {models.TenantActivityStatusCOLD, false, "router error for cold-tenant"},
-		"frozen-tenant":   {models.TenantActivityStatusFROZEN, false, "router error for frozen tenant"},
-		"freezing-tenant": {models.TenantActivityStatusFREEZING, false, "router error  for freezing tenant"},
+		"cold-tenant":     {models.TenantActivityStatusCOLD, false, "tenant not active"},
+		"frozen-tenant":   {models.TenantActivityStatusFROZEN, false, "tenant not active"},
+		"freezing-tenant": {models.TenantActivityStatusFREEZING, false, "tenant not active"},
 	}
 
 	mockSchemaGetter := schema.NewMockSchemaGetter(t)
@@ -961,7 +961,7 @@ func TestMultiTenantRouter_MixedTenantStates(t *testing.T) {
 				require.Equal(t, []string{"node2"}, ws.AdditionalNodeNames())
 			} else {
 				require.Error(t, err, "%s: should fail", tenantsStatus.description)
-				require.Contains(t, err.Error(), "router error 'tenant status'", "error should mention tenant not active")
+				require.Contains(t, err.Error(), "tenant not active", "error should mention tenant not active")
 				require.Empty(t, rs.Replicas)
 				require.Empty(t, ws.Replicas)
 				require.Empty(t, ws.AdditionalReplicas)
