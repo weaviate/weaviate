@@ -365,7 +365,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			// Get the existing objects
 			limit := int64(10000)
 			one := "ONE"
-			fmt.Println(time.Now(), "NATEE mutate data starting list", iteration)
+			fmt.Println(time.Now(), "NATEE mutate data starting list op", iteration)
 			res, err := client.Objects.ObjectsList(
 				objects.NewObjectsListParams().WithClass(&className).WithTenant(&tenantName).WithLimit(&limit).WithConsistencyLevel(&one),
 				nil,
