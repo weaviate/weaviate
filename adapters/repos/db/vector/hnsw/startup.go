@@ -292,6 +292,10 @@ func (h *hnsw) restoreDocMappings() error {
 		if err != nil {
 			return errors.Wrap(err, fmt.Sprintf("failed to get %s_mv_mappings from the bucket", h.id))
 		}
+		if len(docIDBytes) == 0 { // only happens if ungraceful shutdown happened while inserting
+			h.nodes[node.id] = nil
+			continue
+		}
 		docID := binary.BigEndian.Uint64(docIDBytes)
 		if docID != prevDocID {
 			relativeID = 0
