@@ -90,9 +90,7 @@ func FromEnv(config *Config) error {
 	}
 
 	if entcfg.Enabled(os.Getenv("REINDEX_VECTOR_DIMENSIONS_AT_STARTUP")) {
-		if config.TrackVectorDimensions {
-			config.ReindexVectorDimensionsAtStartup = true
-		}
+		config.ReindexVectorDimensionsAtStartup = true
 	}
 
 	if entcfg.Enabled(os.Getenv("DISABLE_LAZY_LOAD_SHARDS")) {
