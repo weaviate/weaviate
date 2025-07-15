@@ -16,8 +16,10 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/weaviate/weaviate/usecases/integrity"
+	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
 type SegmentWriter interface {
@@ -269,6 +271,18 @@ func (f *SegmentFile) WriteChecksum() (int64, error) {
 
 // ValidateChecksum determines if a segment's content matches its checksum
 func (f *SegmentFile) ValidateChecksum(size int64) error {
+	start := time.Now()
+	read := 0
+
+	defer func() {
+		duration := time.Since(start)
+		m := monitoring.GetMetrics()
+		// Record the duration of the checksum validation
+		if m != nil {
+			m.ChecksumValidationDuration.Observe(float64(duration) / float64(time.Second))
+			m.ChecksumBytesRead.Observe(float64(read))
+		}
+	}()
 	if f.reader == nil {
 		return fmt.Errorf(" SegmentFile not initialized with a reader, " +
 			"try adding one with segmentindex.WithReader(io.Reader)")
@@ -277,10 +291,11 @@ func (f *SegmentFile) ValidateChecksum(size int64) error {
 	f.checksumReader = integrity.NewCRC32Reader(f.reader)
 
 	header := make([]byte, f.headerSize)
-	_, err := f.reader.Read(header[:])
+	n, err := f.reader.Read(header[:])
 	if err != nil {
 		return fmt.Errorf("read segment file header: %w", err)
 	}
+	read += n
 
 	var (
 		buffer    = make([]byte, 4096) // Buffer for chunked reads
@@ -300,19 +315,22 @@ func (f *SegmentFile) ValidateChecksum(size int64) error {
 		}
 
 		remaining -= int64(n)
+		read += n
 	}
 
 	var checksumBytes [ChecksumSize]byte
-	_, err = f.reader.Read(checksumBytes[:])
+	n, err = f.reader.Read(checksumBytes[:])
 	if err != nil {
 		return fmt.Errorf("read segment file checksum: %w", err)
 	}
+	read += n
 
 	f.reader.Reset(bytes.NewReader(header[:]))
-	_, err = f.checksumReader.Read(make([]byte, f.headerSize))
+	n, err = f.checksumReader.Read(make([]byte, f.headerSize))
 	if err != nil {
 		return fmt.Errorf("add header to checksum: %w", err)
 	}
+	read += n
 
 	computedChecksum := f.checksumReader.Hash()
 	if !bytes.Equal(computedChecksum, checksumBytes[:]) {
