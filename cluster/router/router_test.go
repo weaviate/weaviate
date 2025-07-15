@@ -424,7 +424,7 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_TenantNotActive(t *testi
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "luke", "")
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "error while checking tenant active status: \"luke\"")
+	require.Contains(t, err.Error(), "tenant not active: \"luke\"")
 	require.Empty(t, rs.Replicas)
 	require.Empty(t, ws.Replicas)
 	require.Empty(t, ws.AdditionalReplicas)
@@ -588,7 +588,7 @@ func TestMultiTenantRouter_TenantStatusChangeDuringOperation(t *testing.T) {
 
 	rs, ws, err = r.GetReadWriteReplicasLocation("TestClass", "luke", "")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "error while checking tenant active status: \"luke\"")
+	require.Contains(t, err.Error(), "tenant not active: \"luke\"")
 	require.Empty(t, rs.Replicas)
 	require.Empty(t, ws.Replicas)
 	require.Empty(t, ws.AdditionalReplicas)
@@ -601,10 +601,10 @@ func TestMultiTenantRouter_VariousTenantStatuses(t *testing.T) {
 		errMsg    string
 	}{
 		{models.TenantActivityStatusHOT, false, ""},
-		{models.TenantActivityStatusCOLD, true, "error while checking tenant active status"},
-		{models.TenantActivityStatusFROZEN, true, "error while checking tenant active status"},
-		{models.TenantActivityStatusFREEZING, true, "error while checking tenant active status"},
-		{"UNKNOWN_STATUS", true, "error while checking tenant active status"},
+		{models.TenantActivityStatusCOLD, true, "tenant not active"},
+		{models.TenantActivityStatusFROZEN, true, "tenant not active"},
+		{models.TenantActivityStatusFREEZING, true, "tenant not active"},
+		{"UNKNOWN_STATUS", true, "tenant not active"},
 	}
 
 	for _, test := range statusTests {
@@ -1357,7 +1357,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_TenantNotActive(t *testing.T) {
 	).Build()
 	ws, err := r.GetWriteReplicasLocation("TestClass", "alice", "")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "error while checking tenant active status")
+	require.Contains(t, err.Error(), "tenant not active")
 	require.Empty(t, ws.Replicas)
 	require.Empty(t, ws.AdditionalReplicas)
 }

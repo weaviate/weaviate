@@ -522,7 +522,7 @@ func (r *multiTenantRouter) tenantExistsAndIsActive(tenantStatus map[string]stri
 	}
 
 	if status != models.TenantActivityStatusHOT {
-		return false, fmt.Errorf("error while checking tenant active status: %q", tenant)
+		return false, fmt.Errorf("tenant not active: %q", tenant)
 	}
 	return true, nil
 }
