@@ -368,7 +368,7 @@ const AuthCode = "auth"
 // why a OIDC request fails
 // use docker.GetTokensFromMockOIDCWithHelperManualTest(t, "127.0.0.1:48001") to get the tokens
 func TestRbacWithOIDCManual(t *testing.T) {
-	// t.Skip("This is for testing/debugging only")
+	t.Skip("This is for testing/debugging only")
 	rsaKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	m, _ := mockoidc.NewServer(rsaKey)
 	ln, _ := net.Listen("tcp", "127.0.0.1:48001")
