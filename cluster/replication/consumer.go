@@ -618,7 +618,7 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 
 	// this time will be used to make sure async replication has propagated any writes which
 	// were received during the hydrating phase
-	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(time.Second * 5).UnixMilli()
+	asyncReplicationUpperTimeBoundUnixMillis := time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
 	overrides := newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
 	if err := c.startAsyncReplication(ctx, op, overrides, logger); err != nil {
 		return api.ShardReplicationState(""), err
@@ -650,6 +650,29 @@ func (c *CopyOpConsumer) processFinalizingOp(ctx context.Context, op ShardReplic
 				return api.ShardReplicationState(""), err
 			}
 		}
+
+		// this time will be used to make sure async replication has propagated any writes which
+		// were received between the end of the first waitForAsyncReplication and adding the replica to the shard
+		asyncReplicationUpperTimeBoundUnixMillis = time.Now().Add(c.asyncReplicationMinimumWait.Get()).UnixMilli()
+		overrides = newOverrides(op, asyncReplicationUpperTimeBoundUnixMillis)
+		if err := c.startAsyncReplication(ctx, op, overrides, logger); err != nil {
+			return api.ShardReplicationState(""), err
+		}
+
+		if ctx.Err() != nil {
+			logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
+			return api.ShardReplicationState(""), ctx.Err()
+		}
+
+		if err := c.waitForAsyncReplication(ctx, op, asyncReplicationUpperTimeBoundUnixMillis, logger); err != nil {
+			logger.WithError(err).Error("failure while waiting for async replication to complete while finalizing")
+			return api.ShardReplicationState(""), err
+		}
+	}
+
+	if ctx.Err() != nil {
+		logger.WithError(ctx.Err()).Debug("error while processing replication operation, shutting down")
+		return api.ShardReplicationState(""), ctx.Err()
 	}
 
 	switch op.Op.TransferType {
