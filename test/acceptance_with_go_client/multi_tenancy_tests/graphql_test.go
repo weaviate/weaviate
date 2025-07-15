@@ -439,7 +439,7 @@ func TestGraphQL_MultiTenancy(t *testing.T) {
 
 			require.Nil(t, err)
 			assertExploreContainsErrors(t, resp,
-				"vector search: search index pizza: class Pizza has multi-tenancy enabled, but request was without tenant",
+				"vector search: search index pizza: error while planning read operation for collection Pizza: class Pizza has multi-tenancy enabled, but request was without tenant",
 			)
 		})
 	})
