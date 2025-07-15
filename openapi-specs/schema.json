@@ -1442,7 +1442,7 @@
       }
     },
     "BackupRestoreStatusResponse": {
-      "description": "The definition of a backup restore metadata",
+      "description": "The definition of a backup restore metadata.",
       "properties": {
         "id": {
           "description": "The ID of the backup. Must be URL-safe and work as a filesystem path, only lowercase, numbers, underscore, minus characters allowed.",
@@ -1453,15 +1453,15 @@
           "type": "string"
         },
         "path": {
-          "description": "destination path of backup files proper to selected backup backend, contains bucket and path",
+          "description": "Destination path of backup files proper to selected backup backend, contains bucket and path.",
           "type": "string"
         },
         "error": {
-          "description": "error message if restoration failed",
+          "description": "Error message if backup restoration failed.",
           "type": "string"
         },
         "status": {
-          "description": "phase of backup restoration process",
+          "description": "Phase of backup restoration process.",
           "type": "string",
           "default": "STARTED",
           "enum": [
@@ -1476,20 +1476,20 @@
       }
     },
     "BackupConfig": {
-      "description": "Backup custom configuration",
+      "description": "Backup custom configuration.",
       "type": "object",
       "properties": {
         "Endpoint": {
           "type": "string",
-          "description": "name of the endpoint, e.g. s3.amazonaws.com"
+          "description": "Name of the endpoint, e.g. s3.amazonaws.com."
         },
         "Bucket": {
           "type": "string",
-          "description": "Name of the bucket, container, volume, etc"
+          "description": "Name of the bucket, container, volume, etc."
         },
         "Path": {
           "type": "string",
-          "description": "Path or key within the bucket"
+          "description": "Path or key within the bucket."
         },
         "CPUPercentage": {
           "description": "Desired CPU core utilization ranging from 1%-80%",
@@ -1656,22 +1656,22 @@
       }
     },
     "BackupRestoreRequest": {
-      "description": "Request body for restoring a backup for a set of collections (classes)",
+      "description": "Request body for restoring a backup for a set of collections (classes).",
       "properties": {
         "config": {
-          "description": "Custom configuration for the backup restoration process",
+          "description": "Custom configuration for the backup restoration process.",
           "type": "object",
           "$ref": "#/definitions/RestoreConfig"
         },
         "include": {
-          "description": "List of collections (classes) to include in the backup restoration process",
+          "description": "List of collections (classes) to include in the backup restoration process.",
           "type": "array",
           "items": {
             "type": "string"
           }
         },
         "exclude": {
-          "description": "List of collections (classes) to exclude from the backup restoration process",
+          "description": "List of collections (classes) to exclude from the backup restoration process.",
           "type": "array",
           "items": {
             "type": "string"
@@ -1694,7 +1694,7 @@
           "type": "string"
         },
         "classes": {
-          "description": "The list of colletions (classes) for which the backup restoration process was started.",
+          "description": "The list of collections (classes) for which the backup restoration process was started.",
           "type": "array",
           "items": {
             "type": "string"
@@ -1709,7 +1709,7 @@
           "type": "string"
         },
         "error": {
-          "description": "Error message if restoration failed.",
+          "description": "Error message if backup restoration failed.",
           "type": "string"
         },
         "status": {
@@ -2526,12 +2526,12 @@
           "example": "ee722219-b8ec-4db1-8f8d-5150bb1a9e0c"
         },
         "class": {
-          "description": "The name of the collection (class) which is used in this classification",
+          "description": "The name of the collection (class) which is used in this classification.",
           "type": "string",
           "example": "City"
         },
         "classifyProperties": {
-          "description": "Which ref-property to set as part of the classification",
+          "description": "Which ref-property to set as part of the classification.",
           "type": "array",
           "items": {
             "type": "string"
@@ -2606,29 +2606,29 @@
       "description": "Additional information to a specific classification.",
       "properties": {
         "started": {
-          "description": "time when this classification was started",
+          "description": "Time when this classification was started.",
           "type": "string",
           "format": "date-time",
           "example": "2017-07-21T17:32:28Z"
         },
         "completed": {
-          "description": "time when this classification finished",
+          "description": "Time when this classification finished.",
           "type": "string",
           "format": "date-time",
           "example": "2017-07-21T17:32:28Z"
         },
         "count": {
-          "description": "number of objects which were taken into consideration for classification",
+          "description": "Number of objects which were taken into consideration for classification.",
           "type": "integer",
           "example": 147
         },
         "countSucceeded": {
-          "description": "number of objects successfully classified",
+          "description": "Number of objects successfully classified.",
           "type": "integer",
           "example": 140
         },
         "countFailed": {
-          "description": "number of objects which could not be classified - see error message for details",
+          "description": "Number of objects which could not be classified - see error message for details.",
           "type": "integer",
           "example": 7
         }
@@ -2636,17 +2636,17 @@
       "type": "object"
     },
     "WhereFilter": {
-      "description": "Filter search results using a where filter",
+      "description": "Filter search results using a where filter.",
       "properties": {
         "operands": {
-          "description": "combine multiple where filters, requires 'And' or 'Or' operator",
+          "description": "Combine multiple where filters, requires 'And' or 'Or' operator.",
           "type": "array",
           "items": {
             "$ref": "#/definitions/WhereFilter"
           }
         },
         "operator": {
-          "description": "operator to use",
+          "description": "Operator to use.",
           "type": "string",
           "enum": [
             "And",
@@ -2666,7 +2666,7 @@
           "example": "GreaterThanEqual"
         },
         "path": {
-          "description": "path to the property currently being filtered",
+          "description": "Path to the property currently being filtered.",
           "type": "array",
           "items": {
             "type": "string"
@@ -2797,7 +2797,7 @@
     },
     "WhereFilterGeoRange": {
       "type": "object",
-      "description": "filter within a distance of a georange",
+      "description": "Filter within a distance of a georange.",
       "properties": {
         "geoCoordinates": {
           "$ref": "#/definitions/GeoCoordinates",
@@ -2816,14 +2816,14 @@
     },
     "Tenant": {
       "type": "object",
-      "description": "attributes representing a single tenant within weaviate",
+      "description": "Attributes representing a single tenant within Weaviate.",
       "properties": {
         "name": {
           "description": "The name of the tenant (required).",
           "type": "string"
         },
         "activityStatus": {
-          "description": "activity status of the tenant's shard. Optional for creating tenant (implicit `ACTIVE`) and required for updating tenant. For creation, allowed values are `ACTIVE` - tenant is fully active and `INACTIVE` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, `ACTIVE`, `INACTIVE` and also `OFFLOADED` - as INACTIVE, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: `OFFLOADING` - tenant is transitioning from ACTIVE/INACTIVE to OFFLOADED, `ONLOADING` - tenant is transitioning from OFFLOADED to ACTIVE/INACTIVE. We still accept deprecated names `HOT` (now `ACTIVE`), `COLD` (now `INACTIVE`), `FROZEN` (now `OFFLOADED`), `FREEZING` (now `OFFLOADING`), `UNFREEZING` (now `ONLOADING`).",
+          "description": "Activity status of the tenant's shard. Optional for creating tenant (implicit `ACTIVE`) and required for updating tenant. For creation, allowed values are `ACTIVE` - tenant is fully active and `INACTIVE` - tenant is inactive; no actions can be performed on tenant, tenant's files are stored locally. For updating, `ACTIVE`, `INACTIVE` and also `OFFLOADED` - as INACTIVE, but files are stored on cloud storage. The following values are read-only and are set by the server for internal use: `OFFLOADING` - tenant is transitioning from ACTIVE/INACTIVE to OFFLOADED, `ONLOADING` - tenant is transitioning from OFFLOADED to ACTIVE/INACTIVE. We still accept deprecated names `HOT` (now `ACTIVE`), `COLD` (now `INACTIVE`), `FROZEN` (now `OFFLOADED`), `FREEZING` (now `OFFLOADING`), `UNFREEZING` (now `ONLOADING`).",
           "type": "string",
           "enum": [
             "ACTIVE",
@@ -3080,7 +3080,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "Request body is well-formed but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3122,7 +3122,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "Request body is well-formed but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -3552,7 +3552,7 @@
             "description": "user not found"
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "Request body is well-formed but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -4950,7 +4950,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the class exists and the object properties are valid.",
+            "description": "Request body is well-formed but semantically erroneous. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5116,10 +5116,7 @@
             "description": "Object patched successfully."
           },
           "400": {
-            "description": "Malformed patch request body.",
-            "schema": {
-              "$ref": "#/definitions/ErrorResponse"
-            }
+            "description": "Malformed patch request body."
           },
           "401": {
             "description": "Unauthorized or invalid credentials."
@@ -5202,7 +5199,7 @@
             "description": "Object not found."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the class exists and the object properties are valid.",
+            "description": "Request body is well-formed but semantically erroneous. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5332,7 +5329,7 @@
             "description": "Object not found."
           },
           "422": {
-            "description": "Request is well-formed but erroneous.",
+            "description": "Request body is well-formed but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5403,7 +5400,7 @@
             "description": "Object not found."
           },
           "422": {
-            "description": "Request is well-formed but erroneous.",
+            "description": "Request body is well-formed but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5477,7 +5474,7 @@
             "description": "Object not found."
           },
           "422": {
-            "description": "Request body is well-formed but semantically erroneous. Ensure the class exists and the object properties are valid.",
+            "description": "Request body is well-formed but semantically erroneous. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -5619,7 +5616,7 @@
             "description": "Object does not exist."
           },
           "422": {
-            "description": "Request is well-formed but erroneous (e.g., invalid UUID format).",
+            "description": "Request body is well-formed but semantically erroneous (e.g., invalid UUID format).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6146,7 +6143,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but the object is invalid according to the schema or class definition.",
+            "description": "Request body is well-formed but the object is invalid according to the collection (class) definition.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6237,7 +6234,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed but semantically erroneous. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6303,7 +6300,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed but contains semantic errors (e.g., invalid filter).",
+            "description": "Request body is well-formed but semantically erroneous (e.g., invalid filter).",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6326,7 +6323,7 @@
     },
     "/batch/references": {
       "post": {
-        "description": "Batch create cross-references between collections items (objects or objects) in bulk.",
+        "description": "Batch create cross-references between collection items in bulk.",
         "operationId": "batch.references.create",
         "x-serviceIds": [
           "weaviate.local.add"
@@ -6335,7 +6332,7 @@
           {
             "in": "body",
             "name": "body",
-            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help",
+            "description": "A list of references to be batched. The ideal size depends on the used database connector. Please see the documentation of the used connector for help.",
             "required": true,
             "schema": {
               "type": "array",
@@ -6374,7 +6371,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous. Are you sure the class is defined in the configuration file?",
+            "description": "Request body is well-formed but semantically erroneous. Ensure the collection exists and the object properties are valid.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6386,7 +6383,7 @@
             }
           }
         },
-        "summary": "Creates new Cross-References between arbitrary classes in bulk.",
+        "summary": "Create cross-references in bulk",
         "tags": [
           "batch",
           "references"
@@ -6434,7 +6431,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "Request body is well-formed but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
@@ -6492,7 +6489,7 @@
             }
           },
           "422": {
-            "description": "Request body is well-formed (i.e., syntactically correct), but semantically erroneous.",
+            "description": "Request body is well-formed but semantically erroneous.",
             "schema": {
               "$ref": "#/definitions/ErrorResponse"
             }
