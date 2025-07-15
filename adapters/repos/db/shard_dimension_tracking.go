@@ -88,13 +88,15 @@ func (s *Shard) calcTargetVectorDimensions(ctx context.Context, targetVector str
 	return calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, calcEntry), nil
 }
 
+// initDimensionTracking initializes the dimension tracking for a shard.
+// it's no op if the trackVectorDimensions is disabled or the usage is enabled
 func (s *Shard) initDimensionTracking() {
 	// do not use the context passed from NewShard, as that one is only meant for
 	// initialization. However, this goroutine keeps running forever, so if the
 	// startup context expires, this would error.
 	// https://github.com/weaviate/weaviate/issues/5091
 	rootCtx := context.Background()
-	if s.index.Config.TrackVectorDimensions {
+	if s.index.Config.TrackVectorDimensions && !s.index.Config.UsageEnabled {
 		s.dimensionTrackingInitialized.Store(true)
 
 		// The timeout is rather arbitrary, it's just meant to prevent a context

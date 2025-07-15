@@ -18,11 +18,11 @@ import (
 	"path"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router"
-
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
 	"github.com/weaviate/weaviate/adapters/repos/db/inverted"
+	"github.com/weaviate/weaviate/cluster/router"
 	"github.com/weaviate/weaviate/entities/diskio"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/models"
@@ -111,6 +111,7 @@ func (db *DB) init(ctx context.Context) error {
 				IndexRangeableInMemory:                       db.config.IndexRangeableInMemory,
 				MaxSegmentSize:                               db.config.MaxSegmentSize,
 				TrackVectorDimensions:                        db.config.TrackVectorDimensions,
+				UsageEnabled:                                 db.config.UsageEnabled,
 				AvoidMMap:                                    db.config.AvoidMMap,
 				DisableLazyLoadShards:                        db.config.DisableLazyLoadShards,
 				ForceFullReplicasSearch:                      db.config.ForceFullReplicasSearch,
