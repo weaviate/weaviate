@@ -226,8 +226,14 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 				u.setStatus(backup.Cancelled)
 				desc.Status = string(backup.Cancelled)
 				u.releaseIndexes(classes, desc.ID)
+				// Don't overwrite context.Canceled error with PutMeta errors
+				if putMetaErr := u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); putMetaErr != nil {
+					u.log.WithError(putMetaErr).Warn("failed to upload metadata for cancelled backup")
+				}
+			} else {
+				// Only wrap with PutMeta error if it's not a cancellation
+				err = fmt.Errorf("upload %w: %w", err, u.backend.PutMeta(ctx, desc, overrideBucket, overridePath))
 			}
-			err = fmt.Errorf("upload %w: %w", err, u.backend.PutMeta(ctx, desc, overrideBucket, overridePath))
 		} else {
 			u.log.Info("start uploading meta data")
 			if err = u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); err != nil {
