@@ -348,7 +348,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 								continue
 							}
 						} else {
-							docID, _ := h.cache.GetKeys(nodeId)
+							var docID uint64
+							if h.compressed.Load() {
+								docID, _ = h.compressor.GetKeys(nodeId)
+							} else {
+								docID, _ = h.cache.GetKeys(nodeId)
+							}
 							if allowList.Contains(docID) {
 								connectionsReusable[realLen] = nodeId
 								realLen++
@@ -391,7 +396,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 								pendingNextRound = append(pendingNextRound, expId)
 							}
 						} else {
-							docID, _ := h.cache.GetKeys(expId)
+							var docID uint64
+							if h.compressed.Load() {
+								docID, _ = h.compressor.GetKeys(expId)
+							} else {
+								docID, _ = h.cache.GetKeys(expId)
+							}
 							if allowList.Contains(docID) {
 								visitedExp.Visit(expId)
 								connectionsReusable[realLen] = expId
@@ -421,7 +431,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 			if strategy == RRE && level == 0 {
 				if isMultivec {
-					docID, _ := h.cache.GetKeys(neighborID)
+					var docID uint64
+					if h.compressed.Load() {
+						docID, _ = h.compressor.GetKeys(neighborID)
+					} else {
+						docID, _ = h.cache.GetKeys(neighborID)
+					}
 					if !allowList.Contains(docID) {
 						continue
 					}
@@ -458,7 +473,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					// filter restricting this search further. As a result we have to
 					// ignore items not on the list
 					if isMultivec {
-						docID, _ := h.cache.GetKeys(neighborID)
+						var docID uint64
+						if h.compressed.Load() {
+							docID, _ = h.compressor.GetKeys(neighborID)
+						} else {
+							docID, _ = h.cache.GetKeys(neighborID)
+						}
 						if !allowList.Contains(docID) {
 							continue
 						}
@@ -522,7 +542,12 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			// filter restricting this search further. As a result we have to
 			// ignore items not on the list
 			if isMultivec {
-				docID, _ := h.cache.GetKeys(ep.ID)
+				var docID uint64
+				if h.compressed.Load() {
+					docID, _ = h.compressor.GetKeys(ep.ID)
+				} else {
+					docID, _ = h.cache.GetKeys(ep.ID)
+				}
 				if !allowList.Contains(docID) {
 					continue
 				}
@@ -755,7 +780,11 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 			} else {
 				for _, id := range entryPointNode.connections[0] {
 					if isMultivec {
-						id, _ = h.cache.GetKeys(id)
+						if h.compressed.Load() {
+							id, _ = h.compressor.GetKeys(id)
+						} else {
+							id, _ = h.cache.GetKeys(id)
+						}
 					}
 					if allowList.Contains(id) {
 						counter++
