@@ -194,7 +194,7 @@ func TestIndex_CalculateUnloadedVectorsMetrics(t *testing.T) {
 			}
 
 			mockRouter := types.NewMockRouter(t)
-			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, "", tt.shardName).
+			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
 				Return(types.WriteReplicaSet{
 					Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
 					AdditionalReplicas: nil,
@@ -463,7 +463,7 @@ func TestIndex_CalculateUnloadedDimensionsUsage(t *testing.T) {
 				},
 			}
 			mockRouter := types.NewMockRouter(t)
-			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, "", tt.shardName).
+			mockRouter.EXPECT().GetWriteReplicasLocation(tt.className, mock.Anything, tt.shardName).
 				Return(types.WriteReplicaSet{
 					Replicas:           []types.Replica{{NodeName: "test-node", ShardName: tt.shardName, HostAddr: "10.14.57.56"}},
 					AdditionalReplicas: nil,
@@ -651,7 +651,7 @@ func TestIndex_VectorStorageSize_ActiveVsUnloaded(t *testing.T) {
 	mockSchema.EXPECT().ShardFromUUID("TestClass", mock.Anything).Return("test-shard").Maybe()
 
 	mockRouter := types.NewMockRouter(t)
-	mockRouter.EXPECT().GetWriteReplicasLocation(className, "", shardName).
+	mockRouter.EXPECT().GetWriteReplicasLocation(className, mock.Anything, shardName).
 		Return(types.WriteReplicaSet{
 			Replicas:           []types.Replica{{NodeName: "test-node", ShardName: shardName, HostAddr: "10.14.57.56"}},
 			AdditionalReplicas: nil,
