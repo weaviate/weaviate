@@ -121,7 +121,23 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		Logger:  logger,
 		Workers: 1,
 	})
+	shardName := ""
+	nodeName := ""
+	for _, physical := range shardState.Physical {
+		shardName = physical.Name
+		nodeName = physical.BelongsToNodes[0]
+		break
+	}
 	router := routerTypes.NewMockRouter(t)
+	router.EXPECT().GetWriteReplicasLocation(class.Class, "", shardName).Return(
+		routerTypes.WriteReplicaSet{
+			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
+			AdditionalReplicas: nil,
+		}, nil).Maybe()
+	router.EXPECT().GetReadReplicasLocation(class.Class, "", shardName).Return(
+		routerTypes.ReadReplicaSet{
+			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
+		}, nil).Maybe()
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
@@ -317,7 +333,23 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		Logger:  logger,
 		Workers: 1,
 	})
+	shardName := ""
+	nodeName := ""
+	for _, physical := range shardState.Physical {
+		shardName = physical.Name
+		nodeName = physical.BelongsToNodes[0]
+		break
+	}
 	router := routerTypes.NewMockRouter(t)
+	router.EXPECT().GetWriteReplicasLocation(class.Class, "", shardName).Return(
+		routerTypes.WriteReplicaSet{
+			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
+			AdditionalReplicas: nil,
+		}, nil).Maybe()
+	router.EXPECT().GetReadReplicasLocation(class.Class, "", shardName).Return(
+		routerTypes.ReadReplicaSet{
+			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
+		}, nil).Maybe()
 	index, err := NewIndex(ctx, IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
@@ -479,7 +511,23 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		Logger:  logger,
 		Workers: 1,
 	})
+	shardName := ""
+	nodeName := ""
+	for _, physical := range shardState.Physical {
+		shardName = physical.Name
+		nodeName = physical.BelongsToNodes[0]
+		break
+	}
 	router := routerTypes.NewMockRouter(t)
+	router.EXPECT().GetWriteReplicasLocation(class.Class, "", shardName).Return(
+		routerTypes.WriteReplicaSet{
+			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
+			AdditionalReplicas: nil,
+		}, nil).Maybe()
+	router.EXPECT().GetReadReplicasLocation(class.Class, "", shardName).Return(
+		routerTypes.ReadReplicaSet{
+			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
+		}, nil).Maybe()
 	index, err := NewIndex(testCtx(), IndexConfig{
 		RootPath:          dirName,
 		ClassName:         schema.ClassName(class.Class),
