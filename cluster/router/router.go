@@ -56,6 +56,10 @@ func newRouterError(message, collection, tenant, shard string, cause error) rout
 	}
 }
 
+func newTenantError(cause error) objects.ErrMultiTenancy {
+	return objects.NewErrMultiTenancy(cause)
+}
+
 func (e routerError) Error() string {
 	return fmt.Sprintf("router error '%s' (collection: %q, tenant: %q, shard: %q): %v", e.message, e.collection, e.tenant, e.shard, e.cause)
 }
@@ -205,7 +209,7 @@ func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeN
 // validateTenant for a single-tenant router checks the tenant is empty and returns an error if it is not.
 func (r *singleTenantRouter) validateTenant(tenant string) error {
 	if tenant != "" {
-		return objects.NewErrMultiTenancy(fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", r.collection))
+		return fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", r.collection)
 	}
 	return nil
 }
@@ -447,7 +451,7 @@ func (r *singleTenantRouter) BuildRoutingPlanOptions(_, shard string, cl types.C
 // validateTenant for a multi-tenant router checks the tenant is not empty and returns an error if it is.
 func (r *multiTenantRouter) validateTenant(tenant string) error {
 	if tenant == "" {
-		return objects.NewErrMultiTenancy(fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", r.collection))
+		return fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", r.collection)
 	}
 	return nil
 }
@@ -568,7 +572,7 @@ func (r *multiTenantRouter) tenantExistsAndIsActive(tenantStatus map[string]stri
 func (r *multiTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
 	params.Shard = tenantShard(params.Shard, params.Tenant)
 	if err := r.validateTenant(params.Tenant); err != nil {
-		return types.WriteRoutingPlan{}, err
+		return types.WriteRoutingPlan{}, newTenantError(err)
 	}
 	return r.buildWriteRoutingPlan(params)
 }
