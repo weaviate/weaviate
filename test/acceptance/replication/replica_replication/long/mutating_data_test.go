@@ -13,9 +13,12 @@ package large
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"math/rand"
 	"slices"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -69,18 +72,18 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
 		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
 	})
-	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
-		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	})
-	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
-		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	})
-	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
-		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	})
-	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
-		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	})
+	// t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
+	// t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
+	// t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
+	// t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	// })
 
 	// t.Run("COPY, rf=2, no automated resolution", func(t *testing.T) {
 	// 	test(t, compose, copy, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
@@ -99,6 +102,9 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyTimeBasedResolution)
 	// })
 }
+
+var mutateDataTriggeredSleep atomic.Bool
+var deletedIds sync.Map
 
 func test(t *testing.T, compose *docker.DockerCompose, replicationType string, factor int, strategy string) {
 	helper.SetupClient(compose.GetWeaviate().URI())
@@ -221,6 +227,11 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	t.Log("Waiting for a while to ensure all data is replicated")
 	time.Sleep(30 * time.Second) // Wait a bit to ensure all data is replicated
 
+	if mutateDataTriggeredSleep.Load() {
+		fmt.Println(time.Now(), "NATEE mutateDataTriggeredSleep is true, sleeping for debug")
+		time.Sleep(time.Hour)
+	}
+
 	// Verify that all replicas have the same object UUIDs
 	t.Log("Verifying object UUIDs across replicas")
 	uuidsByReplica := map[string][]string{}
@@ -321,7 +332,8 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 			for node := range nodeToAddress {
 				nodeNames = append(nodeNames, node)
 			}
-			client := newClient(nodeToAddress[random(nodeNames, 1)[0]])
+			r := random(nodeNames, 1)[0]
+			client := newClient(nodeToAddress[r])
 
 			// Add some new objects
 			randAdd := rand.Intn(20) + 1
@@ -352,14 +364,40 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 
 			// Get the existing objects
 			limit := int64(10000)
+			one := "ONE"
+			fmt.Println(time.Now(), "NATEE mutate data starting list", iteration)
 			res, err := client.Objects.ObjectsList(
-				objects.NewObjectsListParams().WithClass(&className).WithTenant(&tenantName).WithLimit(&limit),
+				objects.NewObjectsListParams().WithClass(&className).WithTenant(&tenantName).WithLimit(&limit).WithConsistencyLevel(&one),
 				nil,
 			)
+			fmt.Println(time.Now(), "NATEE mutate data listing done", iteration)
 			if err != nil {
 				t.Logf("Error listing objects for tenant %s: %v", tenantName, err)
 				continue
 			}
+			// check if any of the objects have been deleted
+			for _, obj := range res.Payload.Objects {
+				if _, ok := deletedIds.Load(obj.ID.String()); ok {
+					mutateDataTriggeredSleep.Store(true)
+					fmt.Println(time.Now(), "NATEE object", obj.ID.String(), "has been deleted, sleeping for debug")
+					fmt.Println("NATEE node was", r, nodeToAddress[r])
+
+					fmt.Println("NATEE check each node for deleted object")
+					for n, a := range nodeToAddress {
+						client := newClient(a)
+						gr, ge := client.Objects.ObjectsClassGet(
+							objects.NewObjectsClassGetParams().WithClassName(className).WithID(obj.ID).WithConsistencyLevel(&one).WithTenant(&tenantName),
+							nil,
+						)
+						fmt.Println(time.Now(), "NATEE check get object on node", n, a, gr, ge)
+
+						// TODO try a list with filter in case it's list vs get
+
+					}
+					time.Sleep(time.Hour)
+				}
+			}
+
 			// fmt.Println("NATEE first object", res.Payload.Objects[0].ID.String())
 			randUpdate := rand.Intn(20) + 1
 			toUpdate := random(res.Payload.Objects, randUpdate)
@@ -392,11 +430,22 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 					WithID(obj.ID).
 					Object())
 				start := time.Now()
-				client.Objects.ObjectsClassPut(
-					objects.NewObjectsClassPutParams().WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
+				ok, err := client.Objects.ObjectsClassPut(
+					objects.NewObjectsClassPutParams().WithClassName(className).WithID(obj.ID).WithBody(updated).WithConsistencyLevel(&all),
 					nil,
 				)
 				fmt.Println(time.Now(), "NATEE mutate update data obj.ID", obj.ID.String())
+				if err != nil {
+					fmt.Println(time.Now(), "NATEE error updating object", obj.ID.String(), err)
+					fmt.Println(time.Now(), "NATEE error updating object str", obj.ID.String(), err.Error())
+					fmt.Println(time.Now(), "NATEE error updating object unwrap", errors.Unwrap(err))
+					fmt.Println(time.Now(), "NATEE sleeping for debug update fail")
+					mutateDataTriggeredSleep.Store(true)
+					time.Sleep(time.Hour)
+				}
+				require.Nil(t, err)
+				require.NotNil(t, ok)
+				require.Equal(t, ok.Code(), 200)
 				updateDurations = append(updateDurations, time.Since(start))
 			}
 			// }
@@ -430,6 +479,7 @@ func mutateData(t *testing.T, ctx context.Context, className string, tenantName 
 				require.Equal(t, ok.Code(), 204)
 				require.Nil(t, err)
 				deleteDurations = append(deleteDurations, time.Since(start))
+				deletedIds.Store(obj.ID.String(), true)
 			}
 			// }
 		}

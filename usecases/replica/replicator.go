@@ -104,6 +104,7 @@ func (r *Replicator) PutObject(ctx context.Context,
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opPutObject), r.log)
 	isReady := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.PutObject(ctx, host, r.class, shard, requestID, obj, schemaVersion)
+		fmt.Println(time.Now(), "NATEE replicator PutObject", obj.ID().String(), host, resp, err, requestID)
 		if err == nil {
 			err = resp.FirstError()
 		}
@@ -136,6 +137,7 @@ func (r *Replicator) MergeObject(ctx context.Context,
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opMergeObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.MergeObject(ctx, host, r.class, shard, requestID, doc, schemaVersion)
+		fmt.Println(time.Now(), "NATEE replicator MergeObject", doc.ID.String(), host, resp, err, requestID)
 		if err == nil {
 			err = resp.FirstError()
 		}
@@ -172,6 +174,7 @@ func (r *Replicator) DeleteObject(ctx context.Context,
 	coord := newCoordinator[SimpleResponse](r, shard, r.requestID(opDeleteObject), r.log)
 	op := func(ctx context.Context, host, requestID string) error {
 		resp, err := r.client.DeleteObject(ctx, host, r.class, shard, requestID, id, deletionTime, schemaVersion)
+		fmt.Println(time.Now(), "NATEE replicator DeleteObject", id.String(), host, resp, err, requestID)
 		if err == nil {
 			err = resp.FirstError()
 		}
@@ -322,6 +325,7 @@ func (r *Replicator) simpleCommit(shard string) commitOp[SimpleResponse] {
 	return func(ctx context.Context, host, requestID string) (SimpleResponse, error) {
 		resp := SimpleResponse{}
 		err := r.client.Commit(ctx, host, r.class, shard, requestID, &resp)
+		fmt.Println(time.Now(), "NATEE replicator Commit", host, requestID, resp, err)
 		if err == nil {
 			err = resp.FirstError()
 		}

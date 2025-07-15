@@ -275,6 +275,7 @@ func (a *Client) ObjectsClassPut(params *ObjectsClassPutParams, authInfo runtime
 
 	result, err := a.transport.Submit(op)
 	if err != nil {
+		fmt.Println("NATEE objectsclassput error", result, err)
 		return nil, err
 	}
 	success, ok := result.(*ObjectsClassPutOK)
