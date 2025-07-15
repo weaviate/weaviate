@@ -799,11 +799,10 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 			return objects.NewErrInvalidUserInput("determine shard: %v", err)
 		}
 	}
-
-	if i.replicationEnabled() {
-		if replProps == nil {
-			replProps = defaultConsistency()
-		}
+	if replProps == nil {
+		replProps = defaultConsistency()
+	}
+	if i.shardHasMultipleReplicasWrite(shardName, shardName) {
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
