@@ -24,6 +24,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/stretchr/testify/mock"
+
 	routerTypes "github.com/weaviate/weaviate/cluster/router/types"
 
 	"github.com/go-openapi/strfmt"
@@ -130,12 +132,12 @@ func TestIndex_DropWithDataAndRecreateWithDataIndex(t *testing.T) {
 		break
 	}
 	router := routerTypes.NewMockRouter(t)
-	router.EXPECT().GetWriteReplicasLocation(class.Class, "", shardName).Return(
+	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
 			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 			AdditionalReplicas: nil,
 		}, nil).Maybe()
-	router.EXPECT().GetReadReplicasLocation(class.Class, "", shardName).Return(
+	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{
 			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
@@ -344,12 +346,12 @@ func TestIndex_DropReadOnlyIndexWithData(t *testing.T) {
 		break
 	}
 	router := routerTypes.NewMockRouter(t)
-	router.EXPECT().GetWriteReplicasLocation(class.Class, "", shardName).Return(
+	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
 			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 			AdditionalReplicas: nil,
 		}, nil).Maybe()
-	router.EXPECT().GetReadReplicasLocation(class.Class, "", shardName).Return(
+	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{
 			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
@@ -524,12 +526,12 @@ func TestIndex_DropLoadedShard(t *testing.T) {
 		break
 	}
 	router := routerTypes.NewMockRouter(t)
-	router.EXPECT().GetWriteReplicasLocation(class.Class, "", shardName).Return(
+	router.EXPECT().GetWriteReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.WriteReplicaSet{
 			Replicas:           []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 			AdditionalReplicas: nil,
 		}, nil).Maybe()
-	router.EXPECT().GetReadReplicasLocation(class.Class, "", shardName).Return(
+	router.EXPECT().GetReadReplicasLocation(class.Class, mock.Anything, shardName).Return(
 		routerTypes.ReadReplicaSet{
 			Replicas: []routerTypes.Replica{{NodeName: nodeName, ShardName: shardName, HostAddr: "10.12.135.43"}},
 		}, nil).Maybe()
