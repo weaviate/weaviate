@@ -98,6 +98,7 @@ func (db *DB) init(ctx context.Context) error {
 				SeparateObjectsCompactions:                   db.config.SeparateObjectsCompactions,
 				CycleManagerRoutinesFactor:                   db.config.CycleManagerRoutinesFactor,
 				IndexRangeableInMemory:                       db.config.IndexRangeableInMemory,
+				RelaxImportVectorValidation:                  db.config.RelaxImportVectorValidation,
 				MaxSegmentSize:                               db.config.MaxSegmentSize,
 				TrackVectorDimensions:                        db.config.TrackVectorDimensions,
 				AvoidMMap:                                    db.config.AvoidMMap,

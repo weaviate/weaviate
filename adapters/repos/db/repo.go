@@ -230,6 +230,7 @@ type Config struct {
 	MaximumConcurrentShardLoads         int
 	CycleManagerRoutinesFactor          int
 	IndexRangeableInMemory              bool
+	RelaxImportVectorValidation         bool
 
 	HNSWMaxLogSize                               int64
 	HNSWDisableSnapshots                         bool

@@ -371,6 +371,10 @@ func FromEnv(config *Config) error {
 		return err
 	}
 
+	if entcfg.Enabled(os.Getenv("PERSISTENCE_LSM_RELAX_IMPORT_VECTOR_VALIDATION")) {
+		config.Persistence.LSMRelaxImportVectorValidation = true
+	}
+
 	if v := os.Getenv("PERSISTENCE_HNSW_MAX_LOG_SIZE"); v != "" {
 		parsed, err := parseResourceString(v)
 		if err != nil {

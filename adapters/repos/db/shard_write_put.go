@@ -225,7 +225,7 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 
 	if len(obj.Vector) > 0 && s.hasLegacyVectorIndex() {
 		// validation needs to happen before any changes are done. Otherwise, insertion is aborted somewhere in-between.
-		if index, ok := s.GetVectorIndex(""); ok {
+		if index, ok := s.GetVectorIndex(""); ok && !s.index.Config.RelaxImportVectorValidation {
 			if err = index.ValidateBeforeInsert(obj.Vector); err != nil {
 				return status, errors.Wrapf(err, "Validate vector index for %s", obj.ID())
 			}
