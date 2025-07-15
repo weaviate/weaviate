@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -94,6 +94,7 @@ func startWeaviate(ctx context.Context,
 	for key, value := range extraEnvSettings {
 		env[key] = value
 	}
+
 	httpPort := nat.Port("8080/tcp")
 	exposedPorts := []string{"8080/tcp"}
 	waitStrategies := []wait.Strategy{
@@ -115,6 +116,7 @@ func startWeaviate(ctx context.Context,
 			networkName: {containerName},
 		},
 		ExposedPorts: exposedPorts,
+		WaitingFor:   wait.ForAll(waitStrategies...),
 		Env:          env,
 		LifecycleHooks: []testcontainers.ContainerLifecycleHooks{
 			{

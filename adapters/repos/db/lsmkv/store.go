@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -22,14 +22,14 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
-	enterrors "github.com/weaviate/weaviate/entities/errors"
-	entsentry "github.com/weaviate/weaviate/entities/sentry"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/errorcompounder"
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+	entsentry "github.com/weaviate/weaviate/entities/sentry"
 	"github.com/weaviate/weaviate/entities/storagestate"
 	wsync "github.com/weaviate/weaviate/entities/sync"
 )
@@ -613,6 +613,6 @@ func (s *Store) updateBucketDir(bucket *Bucket, bucketDir, newBucketDir string) 
 
 	bucket.disk.dir = newBucketDir
 	for _, segment := range segments {
-		segment.path = updatePath(segment.path)
+		segment.setPath(updatePath(segment.getPath()))
 	}
 }

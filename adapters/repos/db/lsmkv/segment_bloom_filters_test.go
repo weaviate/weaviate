@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -110,6 +110,10 @@ func TestCreateBloomInit(t *testing.T) {
 		WithStrategy(StrategyReplace))
 	require.Nil(t, err)
 	defer b2.Shutdown(ctx)
+
+	// just to ensure segments are loaded
+	cursor := b2.Cursor()
+	cursor.Close()
 
 	files, err := os.ReadDir(dirName)
 	require.Nil(t, err)

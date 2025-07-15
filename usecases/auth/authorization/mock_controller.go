@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -588,8 +588,7 @@ func (_c *MockController_UpdateRolesPermissions_Call) RunAndReturn(run func(map[
 func NewMockController(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockController {
+}) *MockController {
 	mock := &MockController{}
 	mock.Mock.Test(t)
 

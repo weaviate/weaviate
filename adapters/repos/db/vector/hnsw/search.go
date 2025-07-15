@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -158,6 +158,11 @@ func (h *hnsw) SearchByMultiVectorDistance(ctx context.Context, vector [][]float
 }
 
 func (h *hnsw) shouldRescore() bool {
+	if h.compressed.Load() {
+		if (h.sqConfig.Enabled && h.sqConfig.RescoreLimit == 0) || (h.rqConfig.Enabled && h.rqConfig.RescoreLimit == 0) {
+			return false
+		}
+	}
 	return h.compressed.Load() && !h.doNotRescore
 }
 
@@ -294,7 +299,7 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 		}
 
 		if strategy != ACORN {
-			if len(candidateNode.connections[level]) > h.maximumConnectionsLayerZero {
+			if candidateNode.connections.LenAtLayer(uint8(level)) > h.maximumConnectionsLayerZero {
 				// How is it possible that we could ever have more connections than the
 				// allowed maximum? It is not anymore, but there was a bug that allowed
 				// this to happen in versions prior to v1.12.0:
@@ -306,11 +311,11 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 				//
 				// This was discovered as part of
 				// https://github.com/weaviate/weaviate/issues/1897
-				connectionsReusable = make([]uint64, len(candidateNode.connections[level]))
+				connectionsReusable = make([]uint64, candidateNode.connections.LenAtLayer(uint8(level)))
 			} else {
-				connectionsReusable = connectionsReusable[:len(candidateNode.connections[level])]
+				connectionsReusable = connectionsReusable[:candidateNode.connections.LenAtLayer(uint8(level))]
 			}
-			copy(connectionsReusable, candidateNode.connections[level])
+			connectionsReusable = candidateNode.connections.CopyLayer(connectionsReusable, uint8(level))
 		} else {
 			connectionsReusable = sliceConnectionsReusable.Slice
 			pendingNextRound := slicePendingNextRound.Slice
@@ -319,8 +324,8 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 			realLen := 0
 			index := 0
 
-			pendingNextRound = pendingNextRound[:len(candidateNode.connections[level])]
-			copy(pendingNextRound, candidateNode.connections[level])
+			pendingNextRound = pendingNextRound[:candidateNode.connections.LenAtLayer(uint8(level))]
+			pendingNextRound = candidateNode.connections.CopyLayer(pendingNextRound, uint8(level))
 			hop := 1
 			maxHops := 2
 			for hop <= maxHops && realLen < 8*h.maximumConnectionsLayerZero && len(pendingNextRound) > 0 {
@@ -348,7 +353,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 								continue
 							}
 						} else {
-							docID, _ := h.cache.GetKeys(nodeId)
+							var docID uint64
+							if h.compressed.Load() {
+								docID, _ = h.compressor.GetKeys(nodeId)
+							} else {
+								docID, _ = h.cache.GetKeys(nodeId)
+							}
 							if allowList.Contains(docID) {
 								connectionsReusable[realLen] = nodeId
 								realLen++
@@ -369,7 +379,9 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					if node == nil {
 						continue
 					}
-					for _, expId := range node.connections[level] {
+					iterator := node.connections.ElementIterator(uint8(level))
+					for iterator.Next() {
+						_, expId := iterator.Current()
 						if visitedExp.Visited(expId) {
 							continue
 						}
@@ -391,7 +403,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 								pendingNextRound = append(pendingNextRound, expId)
 							}
 						} else {
-							docID, _ := h.cache.GetKeys(expId)
+							var docID uint64
+							if h.compressed.Load() {
+								docID, _ = h.compressor.GetKeys(expId)
+							} else {
+								docID, _ = h.cache.GetKeys(expId)
+							}
 							if allowList.Contains(docID) {
 								visitedExp.Visit(expId)
 								connectionsReusable[realLen] = expId
@@ -421,7 +438,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 
 			if strategy == RRE && level == 0 {
 				if isMultivec {
-					docID, _ := h.cache.GetKeys(neighborID)
+					var docID uint64
+					if h.compressed.Load() {
+						docID, _ = h.compressor.GetKeys(neighborID)
+					} else {
+						docID, _ = h.cache.GetKeys(neighborID)
+					}
 					if !allowList.Contains(docID) {
 						continue
 					}
@@ -458,7 +480,12 @@ func (h *hnsw) searchLayerByVectorWithDistancerWithStrategy(ctx context.Context,
 					// filter restricting this search further. As a result we have to
 					// ignore items not on the list
 					if isMultivec {
-						docID, _ := h.cache.GetKeys(neighborID)
+						var docID uint64
+						if h.compressed.Load() {
+							docID, _ = h.compressor.GetKeys(neighborID)
+						} else {
+							docID, _ = h.cache.GetKeys(neighborID)
+						}
 						if !allowList.Contains(docID) {
 							continue
 						}
@@ -522,7 +549,12 @@ func (h *hnsw) insertViableEntrypointsAsCandidatesAndResults(
 			// filter restricting this search further. As a result we have to
 			// ignore items not on the list
 			if isMultivec {
-				docID, _ := h.cache.GetKeys(ep.ID)
+				var docID uint64
+				if h.compressed.Load() {
+					docID, _ = h.compressor.GetKeys(ep.ID)
+				} else {
+					docID, _ = h.cache.GetKeys(ep.ID)
+				}
 				if !allowList.Contains(docID) {
 					continue
 				}
@@ -750,19 +782,25 @@ func (h *hnsw) knnSearchByVector(ctx context.Context, searchVec []float32, k int
 		} else {
 			counter := float32(0)
 			entryPointNode.Lock()
-			if len(entryPointNode.connections) < 1 {
+			if entryPointNode.connections.Layers() < 1 {
 				strategy = ACORN
 			} else {
-				for _, id := range entryPointNode.connections[0] {
+				iterator := entryPointNode.connections.ElementIterator(0)
+				for iterator.Next() {
+					_, value := iterator.Current()
 					if isMultivec {
-						id, _ = h.cache.GetKeys(id)
+						if h.compressed.Load() {
+							value, _ = h.compressor.GetKeys(value)
+						} else {
+							value, _ = h.cache.GetKeys(value)
+						}
 					}
-					if allowList.Contains(id) {
+					if allowList.Contains(value) {
 						counter++
 					}
 				}
 				entryPointNode.Unlock()
-				if counter/float32(len(h.nodes[entryPointID].connections[0])) > float32(h.acornFilterRatio) {
+				if counter/float32(h.nodes[entryPointID].connections.LenAtLayer(0)) > float32(h.acornFilterRatio) {
 					strategy = RRE
 				} else {
 					strategy = ACORN
@@ -975,6 +1013,11 @@ func (h *hnsw) QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVe
 func (h *hnsw) rescore(ctx context.Context, res *priorityqueue.Queue[any], k int, compressorDistancer compressionhelpers.CompressorDistancer) error {
 	if h.sqConfig.Enabled && h.sqConfig.RescoreLimit >= k {
 		for res.Len() > h.sqConfig.RescoreLimit {
+			res.Pop()
+		}
+	}
+	if h.rqConfig.Enabled && h.rqConfig.RescoreLimit >= k {
+		for res.Len() > h.rqConfig.RescoreLimit {
 			res.Pop()
 		}
 	}

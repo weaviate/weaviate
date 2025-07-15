@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,8 @@ import (
 	"fmt"
 	"slices"
 	"time"
+
+	"github.com/weaviate/weaviate/cluster/router"
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
@@ -105,12 +107,22 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		return fmt.Errorf("index for class %v already found locally", idx.ID())
 	}
 
+	shardingState := m.db.schemaGetter.CopyShardingState(class.Class)
+	indexRouter := router.NewBuilder(
+		schema.ClassName(class.Class).String(),
+		shardingState.PartitioningEnabled,
+		m.db.nodeSelector,
+		m.db.schemaGetter,
+		m.db.schemaReader,
+		m.db.replicationFSM,
+	).Build()
 	idx, err := NewIndex(ctx,
 		IndexConfig{
 			ClassName:                                    schema.ClassName(class.Class),
 			RootPath:                                     m.db.config.RootPath,
 			ResourceUsage:                                m.db.config.ResourceUsage,
 			QueryMaximumResults:                          m.db.config.QueryMaximumResults,
+			QueryHybridMaximumResults:                    m.db.config.QueryHybridMaximumResults,
 			QueryNestedRefLimit:                          m.db.config.QueryNestedRefLimit,
 			MemtablesFlushDirtyAfter:                     m.db.config.MemtablesFlushDirtyAfter,
 			MemtablesInitialSizeMB:                       m.db.config.MemtablesInitialSizeMB,
@@ -118,6 +130,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 			MemtablesMinActiveSeconds:                    m.db.config.MemtablesMinActiveSeconds,
 			MemtablesMaxActiveSeconds:                    m.db.config.MemtablesMaxActiveSeconds,
 			MinMMapSize:                                  m.db.config.MinMMapSize,
+			LazySegmentsDisabled:                         m.db.config.LazySegmentsDisabled,
 			MaxReuseWalSize:                              m.db.config.MaxReuseWalSize,
 			SegmentsCleanupIntervalSeconds:               m.db.config.SegmentsCleanupIntervalSeconds,
 			SeparateObjectsCompactions:                   m.db.config.SeparateObjectsCompactions,
@@ -154,7 +167,7 @@ func (m *Migrator) AddClass(ctx context.Context, class *models.Class,
 		inverted.ConfigFromModel(class.InvertedIndexConfig),
 		convertToVectorIndexConfig(class.VectorIndexConfig),
 		convertToVectorIndexConfigs(class.VectorConfig),
-		m.db.router, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
+		indexRouter, m.db.schemaGetter, m.db, m.logger, m.db.nodeResolver, m.db.remoteIndex,
 		m.db.replicaClient, &m.db.config.Replication, m.db.promMetrics, class, m.db.jobQueueCh, m.db.scheduler, m.db.indexCheckpoints,
 		m.db.memMonitor, m.db.reindexer)
 	if err != nil {
@@ -198,7 +211,7 @@ func (m *Migrator) LoadShard(ctx context.Context, class, shard string) error {
 	if idx == nil {
 		return fmt.Errorf("could not find collection %s", class)
 	}
-	return idx.LoadLocalShard(ctx, shard)
+	return idx.LoadLocalShard(ctx, shard, false)
 }
 
 func (m *Migrator) DropShard(ctx context.Context, class, shard string) error {
@@ -293,17 +306,13 @@ func (m *Migrator) updateIndexTenantsStatus(ctx context.Context, idx *Index,
 		}
 
 		if phys.Status == models.TenantActivityStatusHOT {
-			// Only load the tenant if activity status == HOT
-			if err := idx.LoadLocalShard(ctx, shardName); err != nil {
+			// Only load the tenant if activity status == HOT.
+			if err := idx.LoadLocalShard(ctx, shardName, false); err != nil {
 				return fmt.Errorf("add missing tenant shard %s during update index: %w", shardName, err)
 			}
 		} else {
 			// Shutdown the tenant if activity status != HOT
-			shard := idx.shards.Load(shardName)
-			if shard == nil {
-				continue
-			}
-			if err := shard.Shutdown(ctx); err != nil {
+			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
 				return fmt.Errorf("shutdown tenant shard %s during update index: %w", shardName, err)
 			}
 		}
@@ -356,14 +365,13 @@ func (m *Migrator) updateIndexShards(ctx context.Context, idx *Index,
 	}
 
 	// Initialize missing shards and shutdown unneeded ones
-	for shardName, shard := range existingShards {
+	for shardName := range existingShards {
 		if !slices.Contains(requestedShards, shardName) {
-			if err := shard.Shutdown(ctx); err != nil {
-				// we log instead of returning an error, to avoid stopping the change
+			if err := idx.UnloadLocalShard(ctx, shardName); err != nil {
+				// TODO: an error should be returned but keeping the old behavior for now
 				m.logger.WithField("shard", shardName).Error("shutdown shard during update index: %w", err)
 				continue
 			}
-			idx.shards.LoadAndDelete(shardName)
 		}
 	}
 
@@ -500,7 +508,7 @@ func (m *Migrator) NewTenants(ctx context.Context, class *models.Class, creates 
 
 // UpdateTenants activates or deactivates tenant partitions and returns a commit func
 // that can be used to either commit or rollback the changes
-func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload) error {
+func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updates []*schemaUC.UpdateTenantPayload, implicitTenantActivation bool) error {
 	indexID := indexID(schema.ClassName(class.Class))
 
 	m.classLocks.Lock(indexID)
@@ -553,7 +561,7 @@ func (m *Migrator) UpdateTenants(ctx context.Context, class *models.Class, updat
 				ctx, cancel := context.WithTimeout(context.Background(), 1*time.Hour)
 				defer cancel()
 
-				if err := idx.LoadLocalShard(ctx, name); err != nil {
+				if err := idx.LoadLocalShard(ctx, name, implicitTenantActivation); err != nil {
 					ec.Add(err)
 					idx.logger.WithFields(logrus.Fields{
 						"action": "tenant_activation_lazy_load_shard",

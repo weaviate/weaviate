@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -81,10 +81,6 @@ func (s *Shard) putOne(ctx context.Context, uuid []byte, object *storobj.Object)
 
 	if err := s.GetPropertyLengthTracker().Flush(); err != nil {
 		return errors.Wrap(err, "flush prop length tracker to disk")
-	}
-
-	if err := s.mayUpsertObjectHashTree(object, uuid, status); err != nil {
-		return errors.Wrap(err, "object creation in hashtree")
 	}
 
 	return nil
@@ -246,10 +242,16 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 
 	// wrapped in function to handle lock/unlock
 	if err := func() error {
+		s.asyncReplicationRWMux.RLock()
+		defer s.asyncReplicationRWMux.RUnlock()
+
+		err := s.waitForMinimalHashTreeInitialization(context.Background())
+		if err != nil {
+			return err
+		}
+
 		lock.Lock()
 		defer lock.Unlock()
-
-		var err error
 
 		before = time.Now()
 		prevObj, err = fetchObject(bucket, idBytes)
@@ -279,6 +281,10 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 		}
 		s.metrics.PutObjectUpsertObject(before)
 
+		if err := s.mayUpsertObjectHashTree(obj, idBytes, status); err != nil {
+			return errors.Wrap(err, "object creation in hashtree")
+		}
+
 		return nil
 	}(); err != nil {
 		return objectInsertStatus{}, err
@@ -296,9 +302,6 @@ func (s *Shard) putObjectLSM(obj *storobj.Object, idBytes []byte,
 }
 
 func (s *Shard) mayUpsertObjectHashTree(object *storobj.Object, uuidBytes []byte, status objectInsertStatus) error {
-	s.asyncReplicationRWMux.RLock()
-	defer s.asyncReplicationRWMux.RUnlock()
-
 	if s.hashtree == nil {
 		return nil
 	}

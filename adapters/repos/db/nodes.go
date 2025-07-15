@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -204,8 +204,12 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 			}
 		}
 
-		objectCount := int64(shard.ObjectCountAsync())
-		totalCount += objectCount
+		objectCount, err := shard.ObjectCountAsync(ctx)
+		if err != nil {
+			i.logger.Errorf("error while getting object count for shard %s: %w", shard.Name(), err)
+		}
+
+		totalCount += int64(objectCount)
 
 		// FIXME stats of target vectors
 		var queueLen int64
@@ -230,7 +234,7 @@ func (i *Index) getShardsNodeStatus(ctx context.Context,
 		shardStatus := &models.NodeShardStatus{
 			Name:                   name,
 			Class:                  class,
-			ObjectCount:            objectCount,
+			ObjectCount:            int64(objectCount),
 			VectorIndexingStatus:   shard.GetStatus().String(),
 			VectorQueueLength:      queueLen,
 			Compressed:             compressed,

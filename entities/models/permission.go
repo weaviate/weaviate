@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -33,8 +33,11 @@ type Permission struct {
 
 	// allowed actions in weaviate.
 	// Required: true
-	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants create_replicate read_replicate update_replicate delete_replicate]
+	// Enum: [manage_backups read_cluster create_data read_data update_data delete_data read_nodes create_roles read_roles update_roles delete_roles create_collections read_collections update_collections delete_collections assign_and_revoke_users create_users read_users update_users delete_users create_tenants read_tenants update_tenants delete_tenants create_replicate read_replicate update_replicate delete_replicate create_aliases read_aliases update_aliases delete_aliases]
 	Action *string `json:"action"`
+
+	// aliases
+	Aliases *PermissionAliases `json:"aliases,omitempty"`
 
 	// backups
 	Backups *PermissionBackups `json:"backups,omitempty"`
@@ -66,6 +69,10 @@ func (m *Permission) Validate(formats strfmt.Registry) error {
 	var res []error
 
 	if err := m.validateAction(formats); err != nil {
+		res = append(res, err)
+	}
+
+	if err := m.validateAliases(formats); err != nil {
 		res = append(res, err)
 	}
 
@@ -111,7 +118,7 @@ var permissionTypeActionPropEnum []interface{}
 
 func init() {
 	var res []string
-	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_users","read_users","update_users","delete_users","create_tenants","read_tenants","update_tenants","delete_tenants","create_replicate","read_replicate","update_replicate","delete_replicate"]`), &res); err != nil {
+	if err := json.Unmarshal([]byte(`["manage_backups","read_cluster","create_data","read_data","update_data","delete_data","read_nodes","create_roles","read_roles","update_roles","delete_roles","create_collections","read_collections","update_collections","delete_collections","assign_and_revoke_users","create_users","read_users","update_users","delete_users","create_tenants","read_tenants","update_tenants","delete_tenants","create_replicate","read_replicate","update_replicate","delete_replicate","create_aliases","read_aliases","update_aliases","delete_aliases"]`), &res); err != nil {
 		panic(err)
 	}
 	for _, v := range res {
@@ -204,6 +211,18 @@ const (
 
 	// PermissionActionDeleteReplicate captures enum value "delete_replicate"
 	PermissionActionDeleteReplicate string = "delete_replicate"
+
+	// PermissionActionCreateAliases captures enum value "create_aliases"
+	PermissionActionCreateAliases string = "create_aliases"
+
+	// PermissionActionReadAliases captures enum value "read_aliases"
+	PermissionActionReadAliases string = "read_aliases"
+
+	// PermissionActionUpdateAliases captures enum value "update_aliases"
+	PermissionActionUpdateAliases string = "update_aliases"
+
+	// PermissionActionDeleteAliases captures enum value "delete_aliases"
+	PermissionActionDeleteAliases string = "delete_aliases"
 )
 
 // prop value enum
@@ -223,6 +242,25 @@ func (m *Permission) validateAction(formats strfmt.Registry) error {
 	// value enum
 	if err := m.validateActionEnum("action", "body", *m.Action); err != nil {
 		return err
+	}
+
+	return nil
+}
+
+func (m *Permission) validateAliases(formats strfmt.Registry) error {
+	if swag.IsZero(m.Aliases) { // not required
+		return nil
+	}
+
+	if m.Aliases != nil {
+		if err := m.Aliases.Validate(formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("aliases")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("aliases")
+			}
+			return err
+		}
 	}
 
 	return nil
@@ -384,6 +422,10 @@ func (m *Permission) validateUsers(formats strfmt.Registry) error {
 func (m *Permission) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
 	var res []error
 
+	if err := m.contextValidateAliases(ctx, formats); err != nil {
+		res = append(res, err)
+	}
+
 	if err := m.contextValidateBackups(ctx, formats); err != nil {
 		res = append(res, err)
 	}
@@ -419,6 +461,22 @@ func (m *Permission) ContextValidate(ctx context.Context, formats strfmt.Registr
 	if len(res) > 0 {
 		return errors.CompositeValidationError(res...)
 	}
+	return nil
+}
+
+func (m *Permission) contextValidateAliases(ctx context.Context, formats strfmt.Registry) error {
+
+	if m.Aliases != nil {
+		if err := m.Aliases.ContextValidate(ctx, formats); err != nil {
+			if ve, ok := err.(*errors.Validation); ok {
+				return ve.ValidateName("aliases")
+			} else if ce, ok := err.(*errors.CompositeError); ok {
+				return ce.ValidateName("aliases")
+			}
+			return err
+		}
+	}
+
 	return nil
 }
 
@@ -561,6 +619,46 @@ func (m *Permission) MarshalBinary() ([]byte, error) {
 // UnmarshalBinary interface implementation
 func (m *Permission) UnmarshalBinary(b []byte) error {
 	var res Permission
+	if err := swag.ReadJSON(b, &res); err != nil {
+		return err
+	}
+	*m = res
+	return nil
+}
+
+// PermissionAliases Resource definition for alias-related actions and permissions. Used to specify which aliases and collections can be accessed or modified.
+//
+// swagger:model PermissionAliases
+type PermissionAliases struct {
+
+	// A string that specifies which aliases this permission applies to. Can be an exact alias name or a regex pattern. The default value `*` applies the permission to all aliases.
+	Alias *string `json:"alias,omitempty"`
+
+	// A string that specifies which collections this permission applies to. Can be an exact collection name or a regex pattern. The default value `*` applies the permission to all collections.
+	Collection *string `json:"collection,omitempty"`
+}
+
+// Validate validates this permission aliases
+func (m *PermissionAliases) Validate(formats strfmt.Registry) error {
+	return nil
+}
+
+// ContextValidate validates this permission aliases based on context it is used
+func (m *PermissionAliases) ContextValidate(ctx context.Context, formats strfmt.Registry) error {
+	return nil
+}
+
+// MarshalBinary interface implementation
+func (m *PermissionAliases) MarshalBinary() ([]byte, error) {
+	if m == nil {
+		return nil, nil
+	}
+	return swag.WriteJSON(m)
+}
+
+// UnmarshalBinary interface implementation
+func (m *PermissionAliases) UnmarshalBinary(b []byte) error {
+	var res PermissionAliases
 	if err := swag.ReadJSON(b, &res); err != nil {
 		return err
 	}

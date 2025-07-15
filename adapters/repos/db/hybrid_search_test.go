@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,7 +17,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"testing"
 
@@ -58,7 +57,8 @@ var defaultConfig = config.Config{
 	QueryDefaults: config.QueryDefaults{
 		Limit: 100,
 	},
-	QueryMaximumResults: 100,
+	QueryMaximumResults:       100,
+	QueryHybridMaximumResults: 100,
 }
 
 func SetupStandardTestData(t require.TestingT, repo *DB, schemaGetter *fakeSchemaGetter, logger logrus.FieldLogger, k1, b float32) []string {
@@ -1063,11 +1063,6 @@ func (m *TesterModule) Init(ctx context.Context,
 }
 
 func (m *TesterModule) InitExtension(modules []modulecapabilities.Module) error {
-	return nil
-}
-
-func (m *TesterModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

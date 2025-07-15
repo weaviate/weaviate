@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -372,6 +372,7 @@ const (
 	AddPQ
 	AddSQ
 	AddMuvera
+	AddRQ
 )
 
 func (t HnswCommitType) String() string {
@@ -404,6 +405,8 @@ func (t HnswCommitType) String() string {
 		return "AddScalarQuantizer"
 	case AddMuvera:
 		return "AddMuvera"
+	case AddRQ:
+		return "AddRotationalQuantizer"
 	}
 	return "unknown commit type"
 }
@@ -424,6 +427,13 @@ func (l *hnswCommitLogger) AddSQCompression(data compressionhelpers.SQData) erro
 	defer l.Unlock()
 
 	return l.commitLogger.AddSQCompression(data)
+}
+
+func (l *hnswCommitLogger) AddRQCompression(data compressionhelpers.RQData) error {
+	l.Lock()
+	defer l.Unlock()
+
+	return l.commitLogger.AddRQCompression(data)
 }
 
 func (l *hnswCommitLogger) AddMuvera(data multivector.MuveraData) error {

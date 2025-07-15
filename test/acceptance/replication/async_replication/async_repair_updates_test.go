@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -96,7 +96,7 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 	})
 
 	t.Run("verify that all nodes are running", func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			verbose := verbosity.OutputVerbose
 			params := nodes.NewNodesGetClassParams().WithOutput(&verbose)
 			body, clientErr := helper.Client(t).Nodes.NodesGetClass(params, nil)
@@ -107,26 +107,21 @@ func (suite *AsyncReplicationTestSuite) TestAsyncRepairObjectUpdateScenario() {
 			require.Len(ct, resp.Nodes, clusterSize)
 			for _, n := range resp.Nodes {
 				require.NotNil(ct, n.Status)
-				assert.Equal(ct, "HEALTHY", *n.Status)
+				require.Equal(ct, "HEALTHY", *n.Status)
 			}
 		}, 15*time.Second, 500*time.Millisecond)
 	})
 
 	t.Run(fmt.Sprintf("assert node %d has all the objects at its latest version", node), func(t *testing.T) {
-		assert.EventuallyWithT(t, func(ct *assert.CollectT) {
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
 			count := common.CountObjects(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class)
-			assert.EqualValues(ct, len(paragraphIDs), count)
+			require.EqualValues(ct, len(paragraphIDs), count)
 
 			for i, id := range paragraphIDs {
 				resp, err := common.GetObjectCL(t, compose.GetWeaviateNode(node).URI(), paragraphClass.Class, id, types.ConsistencyLevelOne)
-				assert.NoError(ct, err)
-				assert.NotNil(ct, resp)
-
-				if resp == nil {
-					continue
-				}
-
-				assert.Equal(ct, id, resp.ID)
+				require.NoError(ct, err)
+				require.NotNil(ct, resp)
+				require.Equal(ct, id, resp.ID)
 
 				props := resp.Properties.(map[string]interface{})
 				props["contents"] = fmt.Sprintf("paragraph#%d", i)

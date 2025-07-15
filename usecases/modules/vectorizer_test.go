@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -282,7 +282,7 @@ func TestProvider_UpdateVector(t *testing.T) {
 		ctx := context.Background()
 		modName := "colbert"
 		className := "SomeClass"
-		mod := newDummyModule(modName, modulecapabilities.Text2ColBERT)
+		mod := newDummyModule(modName, modulecapabilities.Text2Multivec)
 		class := models.Class{
 			Class: className,
 			VectorConfig: map[string]models.VectorConfig{

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,6 +59,10 @@ func (rs SchemaReader) ReadOnlyClassWithVersion(ctx context.Context, class strin
 		}
 		return nil
 	})
+	if rs.schema.ResolveAlias(class) != "" {
+		resolved, _ := rs.schema.ReadOnlyClass(class)
+		return resolved, nil
+	}
 	return cls, nil
 }
 

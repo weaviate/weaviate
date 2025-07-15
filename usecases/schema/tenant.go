@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -44,7 +44,7 @@ func (h *Handler) AddTenants(ctx context.Context,
 	for i, tenant := range tenants {
 		tenantNames[i] = tenant.Name
 	}
-	if err := h.Authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsMetadata(class, tenantNames...)...); err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsMetadata(class, tenantNames...)...); err != nil {
 		return 0, err
 	}
 
@@ -150,7 +150,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 		shardNames[idx] = tenants[idx].Name
 	}
 
-	if err := h.Authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsMetadata(class, shardNames...)...); err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsMetadata(class, shardNames...)...); err != nil {
 		return nil, err
 	}
 
@@ -194,7 +194,7 @@ func (h *Handler) UpdateTenants(ctx context.Context, principal *models.Principal
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) DeleteTenants(ctx context.Context, principal *models.Principal, class string, tenants []string) error {
-	if err := h.Authorizer.Authorize(principal, authorization.DELETE, authorization.ShardsMetadata(class, tenants...)...); err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.DELETE, authorization.ShardsMetadata(class, tenants...)...); err != nil {
 		return err
 	}
 
@@ -231,6 +231,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 
 	resourceFilter := filter.New[*models.Tenant](h.Authorizer, h.config.Authorization.Rbac)
 	filteredTenants := resourceFilter.Filter(
+		ctx,
 		h.logger,
 		principal,
 		allTenants,
@@ -244,7 +245,7 @@ func (h *Handler) GetConsistentTenants(ctx context.Context, principal *models.Pr
 }
 
 func (h *Handler) GetConsistentTenant(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) (*models.Tenant, error) {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -285,7 +286,7 @@ func (h *Handler) multiTenancy(class string) (clusterSchema.ClassInfo, error) {
 //
 // Class must exist and has partitioning enabled
 func (h *Handler) ConsistentTenantExists(ctx context.Context, principal *models.Principal, class string, consistency bool, tenant string) error {
-	if err := h.Authorizer.Authorize(principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
+	if err := h.Authorizer.Authorize(ctx, principal, authorization.READ, authorization.ShardsMetadata(class, tenant)...); err != nil {
 		return err
 	}
 

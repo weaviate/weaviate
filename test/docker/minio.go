@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -57,10 +57,6 @@ func startMinIO(ctx context.Context, networkName string, buckets map[string]stri
 		for bName, region := range buckets {
 			if bName == "" {
 				continue
-			}
-			_, _, err = container.Exec(ctx, []string{"mc", "mb", "--region", region, fmt.Sprintf("data/%s", bName)})
-			if err != nil {
-				return nil, fmt.Errorf("failed to create bucket %s: %s", bName, err.Error())
 			}
 			_, _, err = container.Exec(ctx, []string{"mc", "mb", "--region", region, fmt.Sprintf("data/%s", bName)})
 			if err != nil {

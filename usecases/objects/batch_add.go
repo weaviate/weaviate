@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -36,9 +36,14 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 ) (BatchObjects, error) {
 	ctx = classcache.ContextWithClassCache(ctx)
 
+	classAlias := make(map[string]string)
 	classesShards := make(map[string][]string)
 	for _, obj := range objects {
 		obj.Class = schema.UppercaseClassName(obj.Class)
+		if cls, aliasName := b.resolveAlias(obj.Class); aliasName != "" {
+			classAlias[cls] = aliasName
+			obj.Class = cls
+		}
 		classesShards[obj.Class] = append(classesShards[obj.Class], obj.Tenant)
 	}
 	knownClasses := map[string]versioned.Class{}
@@ -52,15 +57,19 @@ func (b *BatchManager) AddObjects(ctx context.Context, principal *models.Princip
 		}
 		knownClasses[className] = vClass[className]
 
-		if err := b.authorizer.Authorize(principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 
-		if err := b.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
+		if err := b.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, shards...)...); err != nil {
 			return nil, err
 		}
 	}
 
+	if len(classAlias) > 0 {
+		batchObjects, err := b.addObjects(ctx, principal, objects, repl, knownClasses)
+		return b.batchInsertWithAliases(batchObjects, classAlias), err
+	}
 	return b.addObjects(ctx, principal, objects, repl, knownClasses)
 }
 

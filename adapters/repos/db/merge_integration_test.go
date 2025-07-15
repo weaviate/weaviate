@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -153,7 +153,7 @@ func Test_MergingObjects(t *testing.T) {
 		}, []float32{0.5}, nil, nil, nil, 0)
 		require.Nil(t, err)
 
-		targetDimensionsBefore := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
+		targetDimensionsBefore := getDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 
 		targets := []strfmt.UUID{target1, target2, target3, target4}
 
@@ -168,7 +168,7 @@ func Test_MergingObjects(t *testing.T) {
 			require.Nil(t, err)
 		}
 
-		targetDimensionsAfter := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
+		targetDimensionsAfter := getDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 		require.Equal(t, targetDimensionsBefore+4, targetDimensionsAfter)
 
 		err = repo.PutObject(context.Background(), &models.Object{
@@ -182,7 +182,7 @@ func Test_MergingObjects(t *testing.T) {
 		}, nil, nil, nil, nil, 0)
 		require.Nil(t, err)
 
-		targetDimensionsAfterNoVec := GetDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
+		targetDimensionsAfterNoVec := getDimensionsFromRepo(context.Background(), repo, "MergeTestTarget")
 		require.Equal(t, targetDimensionsAfter, targetDimensionsAfterNoVec)
 	})
 

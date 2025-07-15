@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,16 +16,14 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/mock"
-	"github.com/weaviate/weaviate/usecases/sharding"
-
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
-
 	"github.com/weaviate/weaviate/cluster/proto/api"
 	"github.com/weaviate/weaviate/entities/models"
+	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
 func Test_schemaCollectionMetrics(t *testing.T) {
@@ -352,5 +350,161 @@ func TestSchemaAddClassAfterRestoreWithNilClasses(t *testing.T) {
 		// Verify the class was added
 		assert.Equal(t, 1, len(s.classes))
 		assert.NotNil(t, s.classes["TestClass"])
+	})
+}
+
+func TestCreateAlias(t *testing.T) {
+	var (
+		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
+	)
+
+	require.Nil(t, sc.addClass(&models.Class{Class: "C"}, ss, 1))
+	require.Nil(t, sc.addClass(&models.Class{Class: "AnotherClass"}, ss, 1))
+
+	t.Run("successfully create alias", func(t *testing.T) {
+		err := sc.createAlias("C", "A1")
+		require.Nil(t, err)
+	})
+
+	t.Run("fail on conflicting creation", func(t *testing.T) {
+		err := sc.createAlias("C", "A1")
+		require.EqualError(t, err, "create alias: alias A1 already exists")
+	})
+
+	t.Run("fail on non-existing class", func(t *testing.T) {
+		err := sc.createAlias("D", "newAlias")
+		require.EqualError(t, err, "create alias: class D does not exist")
+	})
+
+	t.Run("fail on non-existing alias", func(t *testing.T) {
+		err := sc.createAlias("D", "A1")
+		require.EqualError(t, err, "create alias: alias A1 already exists")
+	})
+	t.Run("fail on creating alias with existing class name", func(t *testing.T) {
+		// We have two collection. "C" and "AnotherClass"
+		// 1. We try to create alias with name "AnotherClass" to class "C".
+		// 2. Should fail saying class with "AnotherClass" already exists.
+		err := sc.createAlias("C", "AnotherClass")
+		require.EqualError(t, err, "create alias: class AnotherClass already exists")
+	})
+}
+
+func TestReplaceAlias(t *testing.T) {
+	var (
+		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
+	)
+
+	require.Nil(t, sc.addClass(&models.Class{Class: "C1"}, ss, 1))
+	require.Nil(t, sc.addClass(&models.Class{Class: "C2"}, ss, 1))
+	require.Nil(t, sc.createAlias("C1", "A1"))
+
+	t.Run("successfully replace alias", func(t *testing.T) {
+		err := sc.replaceAlias("C2", "A1")
+		require.Nil(t, err)
+	})
+
+	t.Run("fail on non-existing alias", func(t *testing.T) {
+		err := sc.replaceAlias("C1", "A2")
+		require.EqualError(t, err, "replace alias: alias A2 does not exist")
+	})
+
+	t.Run("fail on non-existing class", func(t *testing.T) {
+		err := sc.replaceAlias("D", "A1")
+		require.EqualError(t, err, "replace alias: class D does not exist")
+	})
+}
+
+func TestDeleteAlias(t *testing.T) {
+	var (
+		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
+	)
+
+	require.Nil(t, sc.addClass(&models.Class{Class: "C"}, ss, 1))
+	require.Nil(t, sc.createAlias("C", "A1"))
+
+	t.Run("successfully delete alias", func(t *testing.T) {
+		err := sc.deleteAlias("A1")
+		require.Nil(t, err)
+	})
+
+	t.Run("idempotent deletion with non-existent alias", func(t *testing.T) {
+		err := sc.deleteAlias("A2")
+		require.Nil(t, err)
+	})
+}
+
+func TestResolveAlias(t *testing.T) {
+	var (
+		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
+	)
+
+	require.Nil(t, sc.addClass(&models.Class{Class: "C1"}, ss, 1))
+	require.Nil(t, sc.createAlias("C1", "A1"))
+
+	t.Run("successfully resolve alias", func(t *testing.T) {
+		alias := sc.ResolveAlias("A1")
+		assert.Equal(t, alias, "C1")
+	})
+
+	t.Run("empty response for non-existent alias", func(t *testing.T) {
+		alias := sc.ResolveAlias("A2")
+		assert.Empty(t, alias)
+	})
+}
+
+func TestGetAlias(t *testing.T) {
+	var (
+		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
+	)
+
+	require.Nil(t, sc.addClass(&models.Class{Class: "C1"}, ss, 1))
+	require.Nil(t, sc.addClass(&models.Class{Class: "C2"}, ss, 1))
+	require.Nil(t, sc.addClass(&models.Class{Class: "C3"}, ss, 1))
+	require.Nil(t, sc.createAlias("C1", "A1"))
+	require.Nil(t, sc.createAlias("C2", "A2"))
+	require.Nil(t, sc.createAlias("C2", "A3"))
+
+	t.Run("get aliases", func(t *testing.T) {
+		aliases := sc.getAliases("", "")
+		expected := map[string]string{
+			"A1": "C1",
+			"A2": "C2",
+			"A3": "C2",
+		}
+		assert.EqualValues(t, expected, aliases)
+	})
+
+	t.Run("get aliases for alias A1", func(t *testing.T) {
+		aliases := sc.getAliases("A1", "")
+		expected := map[string]string{
+			"A1": "C1",
+		}
+		assert.EqualValues(t, expected, aliases)
+	})
+
+	t.Run("get aliases for class C2", func(t *testing.T) {
+		aliases := sc.getAliases("", "C2")
+		expected := map[string]string{
+			"A2": "C2",
+			"A3": "C2",
+		}
+		assert.EqualValues(t, expected, aliases)
+	})
+
+	t.Run("get updated aliases", func(t *testing.T) {
+		require.Nil(t, sc.replaceAlias("C3", "A2"))
+
+		aliases := sc.getAliases("", "")
+		expected := map[string]string{
+			"A1": "C1",
+			"A2": "C3",
+			"A3": "C2",
+		}
+		assert.EqualValues(t, expected, aliases)
 	})
 }

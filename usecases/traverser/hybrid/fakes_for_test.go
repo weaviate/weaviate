@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -101,4 +101,8 @@ func (f *fakeSchemaManager) OptimisticTenantStatus(_ context.Context, class stri
 	res := map[string]string{}
 	res[tenant] = models.TenantActivityStatusHOT
 	return res, nil
+}
+
+func (f *fakeSchemaManager) ResolveAlias(string) string {
+	return ""
 }

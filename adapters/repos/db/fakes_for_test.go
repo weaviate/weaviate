@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -18,12 +18,11 @@ import (
 	"io"
 	"time"
 
-	"github.com/weaviate/weaviate/cluster/router/types"
-	"github.com/weaviate/weaviate/entities/dto"
-
 	"github.com/go-openapi/strfmt"
+	"github.com/weaviate/weaviate/cluster/router/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
+	"github.com/weaviate/weaviate/entities/dto"
 	"github.com/weaviate/weaviate/entities/filters"
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/schema"
@@ -50,6 +49,10 @@ func (f *fakeSchemaGetter) GetSchemaSkipAuth() schema.Schema {
 
 func (f *fakeSchemaGetter) ReadOnlyClass(class string) *models.Class {
 	return f.schema.GetClass(class)
+}
+
+func (f *fakeSchemaGetter) ResolveAlias(string) string {
+	return ""
 }
 
 func (f *fakeSchemaGetter) CopyShardingState(class string) *sharding.State {

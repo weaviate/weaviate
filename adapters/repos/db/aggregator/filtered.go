@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,7 +59,7 @@ func (fa *filteredAggregator) hybrid(ctx context.Context) (*aggregation.Result, 
 		}
 
 		if fa.params.ObjectLimit == nil {
-			limit := hybrid.DefaultLimit
+			limit := int(fa.defaultLimit)
 			fa.params.ObjectLimit = &limit
 		}
 

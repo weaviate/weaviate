@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -24,6 +24,7 @@ import (
 
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/priorityqueue"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/cache"
@@ -107,6 +108,7 @@ type hnsw struct {
 	multiVectorForID          common.MultiVectorForID
 	trackDimensionsOnce       sync.Once
 	trackMuveraOnce           sync.Once
+	trackRQOnce               sync.Once
 	dims                      int32
 
 	cache               cache.Cache[float32]
@@ -172,6 +174,8 @@ type hnsw struct {
 	pqConfig   ent.PQConfig
 	bqConfig   ent.BQConfig
 	sqConfig   ent.SQConfig
+	rqConfig   ent.RQConfig
+	rqActive   bool
 	// rescoring compressed vectors is disk-bound. On cold starts, we cannot
 	// rescore sequentially, as that would take very long. This setting allows us
 	// to define the rescoring concurrency.
@@ -219,6 +223,7 @@ type CommitLogger interface {
 	AddPQCompression(compressionhelpers.PQData) error
 	AddSQCompression(compressionhelpers.SQData) error
 	AddMuvera(multivector.MuveraData) error
+	AddRQCompression(compressionhelpers.RQData) error
 	InitMaintenance()
 
 	CreateSnapshot() (bool, int64, error)
@@ -333,6 +338,7 @@ func New(cfg Config, uc ent.UserConfig,
 		pqConfig:                  uc.PQ,
 		bqConfig:                  uc.BQ,
 		sqConfig:                  uc.SQ,
+		rqConfig:                  uc.RQ,
 		rescoreConcurrency:        2 * runtime.GOMAXPROCS(0), // our default for IO-bound activties
 		shardedNodeLocks:          common.NewDefaultShardedRWLocks(),
 
@@ -367,10 +373,14 @@ func New(cfg Config, uc ent.UserConfig,
 		index.cache = nil
 	}
 
+	if uc.RQ.Enabled {
+		index.rqActive = true
+	}
+
 	if uc.Multivector.Enabled {
 		index.multiDistancerProvider = distancer.NewDotProductProvider()
 		if !uc.Multivector.MuveraConfig.Enabled {
-			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace))
+			err := index.store.CreateOrLoadBucket(context.Background(), cfg.ID+"_mv_mappings", lsmkv.WithStrategy(lsmkv.StrategyReplace), lsmkv.WithLazySegmentLoading(cfg.LazyLoadSegments))
 			if err != nil {
 				return nil, errors.Wrapf(err, "Create or load bucket (multivector store)")
 			}
@@ -811,6 +821,9 @@ func (h *hnsw) ShouldUpgrade() (bool, int) {
 	if h.sqConfig.Enabled {
 		return h.sqConfig.Enabled, h.sqConfig.TrainingLimit
 	}
+	if h.rqConfig.Enabled {
+		return h.rqConfig.Enabled, 1
+	}
 	return h.pqConfig.Enabled, h.pqConfig.TrainingLimit
 }
 
@@ -818,6 +831,9 @@ func (h *hnsw) ShouldCompressFromConfig(config config.VectorIndexConfig) (bool, 
 	hnswConfig := config.(ent.UserConfig)
 	if hnswConfig.SQ.Enabled {
 		return hnswConfig.SQ.Enabled, hnswConfig.SQ.TrainingLimit
+	}
+	if hnswConfig.RQ.Enabled {
+		return hnswConfig.RQ.Enabled, 1
 	}
 	return hnswConfig.PQ.Enabled, hnswConfig.PQ.TrainingLimit
 }
@@ -964,7 +980,7 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 			node.Lock()
 			defer node.Unlock()
 			l := node.level
-			if l == 0 && len(node.connections) == 0 {
+			if l == 0 && node.connections.Layers() == 0 {
 				return
 			}
 			c, ok := distributionLayers[l]
@@ -995,4 +1011,11 @@ func (h *hnsw) Stats() (common.IndexStats, error) {
 	stats.CompressionType = stats.CompressorStats.CompressionType()
 
 	return &stats, nil
+}
+
+func (h *hnsw) CompressionStats() compressionhelpers.CompressionStats {
+	if h.compressed.Load() {
+		return h.compressor.Stats()
+	}
+	return compressionhelpers.UncompressedStats{}
 }

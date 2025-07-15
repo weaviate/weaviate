@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -193,7 +193,7 @@ func TestQueryPlanner(t *testing.T) {
 			require.Nil(t, err)
 			defer store.Shutdown(ctx)
 
-			err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM)
+			err = store.CreateOrLoadBucket(ctx, helpers.ObjectsBucketLSM, lsmkv.WithCalcCountNetAdditions(true))
 			require.Nil(t, err)
 
 			objectsB := store.Bucket(helpers.ObjectsBucketLSM)

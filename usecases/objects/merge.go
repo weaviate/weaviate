@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -50,13 +50,12 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 	if err := m.validateInputs(updates); err != nil {
 		return &Error{"bad request", StatusBadRequest, err}
 	}
+	className, aliasName := m.resolveAlias(schema.UppercaseClassName(updates.Class))
+	updates.Class = className
 	cls, id := updates.Class, updates.ID
-	if err := m.authorizer.Authorize(principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.UPDATE, authorization.Objects(cls, updates.Tenant, id)); err != nil {
 		return &Error{err.Error(), StatusForbidden, err}
 	}
-
-	className := schema.UppercaseClassName(updates.Class)
-	updates.Class = className
 
 	ctx = classcache.ContextWithClassCache(ctx)
 
@@ -121,7 +120,11 @@ func (m *Manager) MergeObject(ctx context.Context, principal *models.Principal,
 		updates.Properties = map[string]interface{}{}
 	}
 
-	return m.patchObject(ctx, prevObj, updates, repl, propertiesToDelete, updates.Tenant, fetchedClass, maxSchemaVersion)
+	pathErr := m.patchObject(ctx, prevObj, updates, repl, propertiesToDelete, updates.Tenant, fetchedClass, maxSchemaVersion)
+	if aliasName != "" {
+		updates.Class = aliasName
+	}
+	return pathErr
 }
 
 // patchObject patches an existing object obj with updates

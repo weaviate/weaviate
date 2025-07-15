@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -284,6 +284,58 @@ func backupJourneyWithCancellation(t *testing.T, className, backend, basebackupI
 			require.NotNil(t, statusResp.Payload.Status)
 			require.Equal(t, string(backup.Cancelled), *statusResp.Payload.Status)
 		})
+	})
+}
+
+func backupJourneyWithListing(t *testing.T, journeyType journeyType, className, backend, backupID string, overrideBucket, overridePath string) {
+	if journeyType == clusterJourney && backend == "filesystem" || overrideBucket != "" {
+		return
+	}
+	if overridePath != "" {
+		backupID = fmt.Sprintf("%s_%s", backupID, overrideBucket)
+	}
+	// Create a backup first
+	cfg := helper.DefaultBackupConfig()
+	if overrideBucket != "" {
+		cfg.Bucket = overrideBucket
+		cfg.Path = overridePath
+	}
+	resp, err := helper.CreateBackup(t, cfg, className, backend, fmt.Sprintf("%s_for_listing", backupID))
+	helper.AssertRequestOk(t, resp, err, nil)
+
+	// Wait for backup to complete
+	ticker := time.NewTicker(90 * time.Second)
+wait:
+	for {
+		select {
+		case <-ticker.C:
+			break wait
+		default:
+			resp, err := helper.CreateBackupStatus(t, backend, fmt.Sprintf("%s_for_listing", backupID), overrideBucket, overridePath)
+			helper.AssertRequestOk(t, resp, err, nil)
+			if *resp.Payload.Status == string(backup.Success) {
+				break wait
+			}
+			time.Sleep(1 * time.Second)
+		}
+	}
+
+	// List backups and verify
+	listResp, err := helper.ListBackup(t, backend)
+	helper.AssertRequestOk(t, listResp, err, func() {
+		require.NotNil(t, listResp)
+		require.NotNil(t, listResp.Payload)
+		// Verify that our backup is in the list
+		found := false
+		for _, b := range listResp.Payload {
+			if b.ID == fmt.Sprintf("%s_for_listing", backupID) {
+				found = true
+				assert.Equal(t, string(backup.Success), b.Status)
+				assert.Contains(t, b.Classes, className)
+				break
+			}
+		}
+		assert.True(t, found, "backup not found in list")
 	})
 }
 

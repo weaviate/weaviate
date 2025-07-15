@@ -54,6 +54,10 @@ message ApplyRequest {
     TYPE_DELETE_TENANT = 18;
     TYPE_TENANT_PROCESS = 19;
 
+    TYPE_CREATE_ALIAS = 40;
+    TYPE_REPLACE_ALIAS = 41;
+    TYPE_DELETE_ALIAS = 42;
+
     TYPE_UPSERT_ROLES_PERMISSIONS = 60;
     TYPE_DELETE_ROLES = 61;
     TYPE_REMOVE_PERMISSIONS = 62;
@@ -65,6 +69,7 @@ message ApplyRequest {
     TYPE_ROTATE_USER_API_KEY = 82;
     TYPE_SUSPEND_USER = 83;
     TYPE_ACTIVATE_USER = 84;
+    TYPE_CREATE_USER_WITH_KEY = 85;
 
     TYPE_STORE_SCHEMA_V1 = 99;
 
@@ -124,6 +129,9 @@ message QueryRequest {
     TYPE_GET_USERS = 61;
     TYPE_USER_IDENTIFIER_EXISTS = 62;
 
+    TYPE_RESOLVE_ALIAS = 100;
+    TYPE_GET_ALIASES = 101;
+
     TYPE_GET_REPLICATION_DETAILS = 200;
     TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION = 201;
     TYPE_GET_REPLICATION_DETAILS_BY_COLLECTION_AND_SHARD = 202;
@@ -152,6 +160,7 @@ message AddTenantsRequest {
 message UpdateTenantsRequest {
   repeated Tenant tenants = 1;
   repeated string cluster_nodes = 2;
+  bool implicit_update_request = 3;
 }
 
 message TenantsProcess {
@@ -219,4 +228,18 @@ message SyncShardRequest {
   string collection = 1;
   string shard = 2;
   string node_id = 3;
+}
+
+message CreateAliasRequest {
+  string collection = 1;
+  string alias = 2;
+}
+
+message ReplaceAliasRequest {
+  string collection = 1;
+  string alias = 2;
+}
+
+message DeleteAliasRequest {
+  string alias = 1;
 }

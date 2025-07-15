@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -47,6 +47,10 @@ func testText2VecGoogle(rest, grpc, gcpProject, vectorizerName string) func(t *t
 			{
 				name:  "text-multilingual-embedding-002",
 				model: "text-multilingual-embedding-002",
+			},
+			{
+				name:  "gemini-embedding-001",
+				model: "gemini-embedding-001",
 			},
 		}
 		for _, tt := range tests {

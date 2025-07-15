@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -57,6 +57,13 @@ func ClassesContextionaryVectorizer(multishard bool) []*models.Class {
 	return []*models.Class{
 		document("text2vec-contextionary", multishard),
 		passage("text2vec-contextionary", multishard),
+	}
+}
+
+func ClassesModel2VecVectorizer(multishard bool) []*models.Class {
+	return []*models.Class{
+		document("text2vec-model2vec", multishard),
+		passage("text2vec-model2vec", multishard),
 	}
 }
 

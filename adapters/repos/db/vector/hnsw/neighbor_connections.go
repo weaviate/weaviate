@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -133,13 +133,13 @@ func (n *neighborFinderConnector) processRecursively(from uint64, results *prior
 	}
 	// lock the node itself
 	n.graph.nodes[from].Lock()
-	if level >= len(n.graph.nodes[from].connections) {
+	if level >= int(n.graph.nodes[from].connections.Layers()) {
 		n.graph.nodes[from].Unlock()
 		n.graph.shardedNodeLocks.RUnlock(from)
 		return nil
 	}
-	connections := make([]uint64, len(n.graph.nodes[from].connections[level]))
-	copy(connections, n.graph.nodes[from].connections[level])
+	connections := make([]uint64, n.graph.nodes[from].connections.LenAtLayer(uint8(level)))
+	n.graph.nodes[from].connections.CopyLayer(connections, uint8(level))
 	n.graph.nodes[from].Unlock()
 	n.graph.shardedNodeLocks.RUnlock(from)
 	for _, id := range connections {
@@ -207,8 +207,8 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 		visited := n.graph.pools.visitedLists.Borrow()
 		n.graph.pools.visitedListsLock.RUnlock()
 		n.node.Lock()
-		connections := make([]uint64, len(n.node.connections[level]))
-		copy(connections, n.node.connections[level])
+		connections := make([]uint64, n.node.connections.LenAtLayer(uint8(level)))
+		n.node.connections.CopyLayer(connections, uint8(level))
 		n.node.Unlock()
 		visited.Visit(n.node.id)
 		top := n.graph.efConstruction
@@ -279,13 +279,7 @@ func (n *neighborFinderConnector) doAtLevel(ctx context.Context, level int) erro
 	neighborsCpy := neighbors
 	// the node will potentially own the neighbors slice (cf. hnsw.vertex#setConnectionsAtLevel).
 	// if so, we need to create a copy
-	owned := n.node.setConnectionsAtLevel(level, neighbors)
-	if owned {
-		n.node.Lock()
-		neighborsCpy = make([]uint64, len(neighbors))
-		copy(neighborsCpy, neighbors)
-		n.node.Unlock()
-	}
+	n.node.setConnectionsAtLevel(level, neighbors)
 
 	if err := n.graph.commitLog.ReplaceLinksAtLevel(n.node.id, level, neighborsCpy); err != nil {
 		return errors.Wrapf(err, "ReplaceLinksAtLevel node %d at level %d", n.node.id, level)
@@ -379,13 +373,15 @@ func (n *neighborFinderConnector) connectNeighborAtLevel(neighborID uint64,
 			return err
 		}
 
+		ids := make([]uint64, 0, candidates.Len())
 		for candidates.Len() > 0 {
 			id := candidates.Pop().ID
-			neighbor.appendConnectionAtLevelNoLock(level, id, maximumConnections)
+			ids = append(ids, id)
 			if err := n.graph.commitLog.AddLinkAtLevel(neighbor.id, level, id); err != nil {
 				return err
 			}
 		}
+		neighbor.appendConnectionsAtLevelNoLock(level, ids, maximumConnections)
 	}
 
 	return nil

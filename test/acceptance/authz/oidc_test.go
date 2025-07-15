@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -45,14 +45,14 @@ func TestRbacWithOIDC(t *testing.T) {
 		{
 			name: "RBAC with OIDC",
 			image: docker.New().
-				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
+				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
 			nameCollision: false,
 			onlyOIDC:      true,
 		},
 		{
 			name: "RBAC with OIDC and API key",
 			image: docker.New().
-				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user").
+				WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key"),
 			nameCollision: false,
 		},
@@ -60,7 +60,7 @@ func TestRbacWithOIDC(t *testing.T) {
 			name: "RBAC with OIDC and API key overlapping user names",
 			image: docker.New().
 				WithWeaviate().WithMockOIDC().
-				WithRBAC().WithRbacAdmins("admin-user").
+				WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key").
 				WithApiKey().WithUserApiKey("custom-user", customKey),
 			nameCollision: true,
@@ -68,14 +68,14 @@ func TestRbacWithOIDC(t *testing.T) {
 		{
 			name: "RBAC with OIDC with certificate",
 			image: docker.New().
-				WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacAdmins("admin-user"),
+				WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
 			nameCollision: false,
 			onlyOIDC:      true,
 		},
 		{
 			name: "RBAC with OIDC with certificate and API key",
 			image: docker.New().
-				WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacAdmins("admin-user").
+				WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key"),
 			nameCollision: false,
 		},
@@ -83,7 +83,7 @@ func TestRbacWithOIDC(t *testing.T) {
 			name: "RBAC with OIDC with certificate and API key overlapping user names",
 			image: docker.New().
 				WithWeaviate().WithMockOIDCWithCertificate().
-				WithRBAC().WithRbacAdmins("admin-user").
+				WithRBAC().WithRbacRoots("admin-user").
 				WithApiKey().WithUserApiKey("other", "random-key").
 				WithApiKey().WithUserApiKey("custom-user", customKey),
 			nameCollision: true,
@@ -223,11 +223,11 @@ func TestRbacWithOIDCGroups(t *testing.T) {
 	}{
 		{
 			name:  "without certificate",
-			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
 		},
 		{
 			name:  "with certificate",
-			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
 		},
 	}
 	for _, test := range tests {
@@ -290,11 +290,11 @@ func TestRbacWithOIDCRootGroups(t *testing.T) {
 	}{
 		{
 			name:  "without certificate",
-			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
 		},
 		{
 			name:  "with certificate",
-			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
 		},
 	}
 	for _, test := range tests {
@@ -320,6 +320,39 @@ func TestRbacWithOIDCRootGroups(t *testing.T) {
 			require.NoError(t, err)
 		})
 	}
+}
+
+func TestRbacWithOIDCViewerGroups(t *testing.T) {
+	ctx := context.Background()
+	image := docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user")
+
+	compose, err := image.WithRbacViewerGroups("custom-group").Start(ctx)
+	require.NoError(t, err)
+	defer func() {
+		require.NoError(t, compose.Terminate(ctx))
+	}()
+	helper.SetupClient(compose.GetWeaviate().URI())
+	defer helper.ResetClient()
+
+	// the oidc mock server returns first the token for the admin user and then for the custom-user. See its
+	// description for details
+	tokenAdmin, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+	tokenCustom, _ := docker.GetTokensFromMockOIDCWithHelper(t, compose.GetMockOIDCHelper().URI())
+
+	className := strings.Replace(t.Name(), "/", "", 1) + "Class"
+	helper.DeleteClassWithAuthz(t, className, helper.CreateAuth(tokenAdmin))
+
+	// only viewer rights => custom user can NOT create collection
+	err = createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenCustom))
+	require.Error(t, err)
+	var forbidden *clschema.SchemaObjectsCreateForbidden
+	require.True(t, errors.As(err, &forbidden))
+
+	require.NoError(t, createClass(t, &models.Class{Class: className}, helper.CreateAuth(tokenAdmin)))
+
+	// can list collection
+	classes := helper.GetClassAuth(t, className, tokenCustom)
+	require.Equal(t, classes.Class, className)
 }
 
 const AuthCode = "auth"
@@ -360,11 +393,11 @@ func TestRbacWithOIDCAssignRevokeGroups(t *testing.T) {
 	}{
 		{
 			name:  "without certificate",
-			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDC().WithRBAC().WithRbacRoots("admin-user"),
 		},
 		{
 			name:  "with certificate",
-			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacAdmins("admin-user"),
+			image: docker.New().WithWeaviate().WithMockOIDCWithCertificate().WithRBAC().WithRbacRoots("admin-user"),
 		},
 	}
 	for _, test := range tests {

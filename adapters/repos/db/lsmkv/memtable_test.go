@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -27,7 +27,7 @@ func Test_MemtableSecondaryKeyBug(t *testing.T) {
 	dir := t.TempDir()
 
 	logger, _ := test.NewNullLogger()
-	cl, err := newCommitLogger(dir, StrategyReplace)
+	cl, err := newCommitLogger(dir, StrategyReplace, 0)
 	require.NoError(t, err)
 
 	m, err := newMemtable(path.Join(dir, "will-never-flush"), StrategyReplace, 1, cl, nil, logger, false, nil)

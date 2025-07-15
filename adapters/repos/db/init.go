@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,8 @@ import (
 	"os"
 	"path"
 	"time"
+
+	"github.com/weaviate/weaviate/cluster/router"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/indexcheckpoint"
@@ -79,11 +81,21 @@ func (db *DB) init(ctx context.Context) error {
 				return fmt.Errorf("replication config: %w", err)
 			}
 
+			shardingState := db.schemaGetter.CopyShardingState(class.Class)
+			indexRouter := router.NewBuilder(
+				schema.ClassName(class.Class).String(),
+				shardingState.PartitioningEnabled,
+				db.nodeSelector,
+				db.schemaGetter,
+				db.schemaReader,
+				db.replicationFSM,
+			).Build()
 			idx, err := NewIndex(ctx, IndexConfig{
 				ClassName:                                    schema.ClassName(class.Class),
 				RootPath:                                     db.config.RootPath,
 				ResourceUsage:                                db.config.ResourceUsage,
 				QueryMaximumResults:                          db.config.QueryMaximumResults,
+				QueryHybridMaximumResults:                    db.config.QueryHybridMaximumResults,
 				QueryNestedRefLimit:                          db.config.QueryNestedRefLimit,
 				MemtablesFlushDirtyAfter:                     db.config.MemtablesFlushDirtyAfter,
 				MemtablesInitialSizeMB:                       db.config.MemtablesInitialSizeMB,
@@ -91,6 +103,7 @@ func (db *DB) init(ctx context.Context) error {
 				MemtablesMinActiveSeconds:                    db.config.MemtablesMinActiveSeconds,
 				MemtablesMaxActiveSeconds:                    db.config.MemtablesMaxActiveSeconds,
 				MinMMapSize:                                  db.config.MinMMapSize,
+				LazySegmentsDisabled:                         db.config.LazySegmentsDisabled,
 				MaxReuseWalSize:                              db.config.MaxReuseWalSize,
 				SegmentsCleanupIntervalSeconds:               db.config.SegmentsCleanupIntervalSeconds,
 				SeparateObjectsCompactions:                   db.config.SeparateObjectsCompactions,
@@ -120,11 +133,12 @@ func (db *DB) init(ctx context.Context) error {
 				QuerySlowLogEnabled:                          db.config.QuerySlowLogEnabled,
 				QuerySlowLogThreshold:                        db.config.QuerySlowLogThreshold,
 				InvertedSorterDisabled:                       db.config.InvertedSorterDisabled,
-			}, db.schemaGetter.CopyShardingState(class.Class),
+				MaintenanceModeEnabled:                       db.config.MaintenanceModeEnabled,
+			}, shardingState,
 				inverted.ConfigFromModel(invertedConfig),
 				convertToVectorIndexConfig(class.VectorIndexConfig),
 				convertToVectorIndexConfigs(class.VectorConfig),
-				db.router, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
+				indexRouter, db.schemaGetter, db, db.logger, db.nodeResolver, db.remoteIndex,
 				db.replicaClient, &db.config.Replication, db.promMetrics, class, db.jobQueueCh, db.scheduler, db.indexCheckpoints,
 				db.memMonitor, db.reindexer)
 			if err != nil {

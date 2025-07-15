@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -119,7 +119,7 @@ func New(cfg Config, authZController authorization.Controller, snapshotter fsm.S
 }
 
 func (c *Service) onFSMCaughtUp(ctx context.Context) {
-	if !c.config.ReplicaMovementEnabled {
+	if c.config.ReplicaMovementDisabled {
 		return
 	}
 
@@ -217,7 +217,7 @@ func (c *Service) Close(ctx context.Context) error {
 		c.closeOnFSMCaughtUp <- struct{}{}
 	}, c.logger)
 
-	if c.config.ReplicaMovementEnabled {
+	if !c.config.ReplicaMovementDisabled {
 		c.logger.Info("closing replication engine ...")
 		if c.cancelReplicationEngine != nil {
 			c.cancelReplicationEngine()

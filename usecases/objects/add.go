@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -39,9 +39,10 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 	repl *additional.ReplicationProperties,
 ) (*models.Object, error) {
 	className := schema.UppercaseClassName(object.Class)
+	className, aliasName := m.resolveAlias(className)
 	object.Class = className
 
-	if err := m.authorizer.Authorize(principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.CREATE, authorization.ShardsData(className, object.Tenant)...); err != nil {
 		return nil, err
 	}
 
@@ -60,7 +61,15 @@ func (m *Manager) AddObject(ctx context.Context, principal *models.Principal, ob
 		return nil, fmt.Errorf("cannot process add object: %w", err)
 	}
 
-	return m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
+	obj, err := m.addObjectToConnectorAndSchema(ctx, principal, object, repl, fetchedClasses)
+	if err != nil {
+		return nil, err
+	}
+
+	if aliasName != "" {
+		return m.classNameToAlias(obj, aliasName), nil
+	}
+	return obj, nil
 }
 
 func (m *Manager) addObjectToConnectorAndSchema(ctx context.Context, principal *models.Principal,

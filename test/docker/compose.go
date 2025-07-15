@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -38,6 +38,7 @@ import (
 	modgenerativeollama "github.com/weaviate/weaviate/modules/generative-ollama"
 	modgenerativeopenai "github.com/weaviate/weaviate/modules/generative-openai"
 	modgenerativexai "github.com/weaviate/weaviate/modules/generative-xai"
+	modmulti2multivecjinaai "github.com/weaviate/weaviate/modules/multi2multivec-jinaai"
 	modmulti2veccohere "github.com/weaviate/weaviate/modules/multi2vec-cohere"
 	modmulti2vecgoogle "github.com/weaviate/weaviate/modules/multi2vec-google"
 	modmulti2vecjinaai "github.com/weaviate/weaviate/modules/multi2vec-jinaai"
@@ -48,7 +49,7 @@ import (
 	modrerankercohere "github.com/weaviate/weaviate/modules/reranker-cohere"
 	modrerankernvidia "github.com/weaviate/weaviate/modules/reranker-nvidia"
 	modrerankervoyageai "github.com/weaviate/weaviate/modules/reranker-voyageai"
-	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2colbert-jinaai"
+	modtext2colbertjinaai "github.com/weaviate/weaviate/modules/text2multivec-jinaai"
 	modaws "github.com/weaviate/weaviate/modules/text2vec-aws"
 	modcohere "github.com/weaviate/weaviate/modules/text2vec-cohere"
 	modgoogle "github.com/weaviate/weaviate/modules/text2vec-google"
@@ -128,8 +129,9 @@ type Compose struct {
 	weaviateAdminlistReadOnlyUsers []string
 	withWeaviateDbUsers            bool
 	withWeaviateRbac               bool
-	weaviateRbacAdmins             []string
+	weaviateRbacRoots              []string
 	weaviateRbacRootGroups         []string
+	weaviateRbacViewerGroups       []string
 	weaviateRbacViewers            []string
 	withSUMTransformers            bool
 	withCentroid                   bool
@@ -273,6 +275,12 @@ func (d *Compose) WithMulti2VecJinaAI(apiKey string) *Compose {
 	return d
 }
 
+func (d *Compose) WithMulti2MultivecJinaAI(apiKey string) *Compose {
+	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
+	d.enableModules = append(d.enableModules, modmulti2multivecjinaai.Name)
+	return d
+}
+
 func (d *Compose) WithMulti2VecBind() *Compose {
 	d.withBind = true
 	d.enableModules = append(d.enableModules, Multi2VecBind)
@@ -362,7 +370,7 @@ func (d *Compose) WithText2VecJinaAI(apiKey string) *Compose {
 	return d
 }
 
-func (d *Compose) WithText2ColBERTJinaAI(apiKey string) *Compose {
+func (d *Compose) WithText2MultivecJinaAI(apiKey string) *Compose {
 	d.weaviateEnvs["JINAAI_APIKEY"] = apiKey
 	d.enableModules = append(d.enableModules, modtext2colbertjinaai.Name)
 	return d
@@ -555,11 +563,11 @@ func (d *Compose) WithDbUsers() *Compose {
 	return d
 }
 
-func (d *Compose) WithRbacAdmins(usernames ...string) *Compose {
+func (d *Compose) WithRbacRoots(usernames ...string) *Compose {
 	if !d.withWeaviateRbac {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
-	d.weaviateRbacAdmins = append(d.weaviateRbacAdmins, usernames...)
+	d.weaviateRbacRoots = append(d.weaviateRbacRoots, usernames...)
 	return d
 }
 
@@ -568,6 +576,14 @@ func (d *Compose) WithRbacRootGroups(groups ...string) *Compose {
 		panic("RBAC is not enabled. Chain .WithRBAC() first")
 	}
 	d.weaviateRbacRootGroups = append(d.weaviateRbacRootGroups, groups...)
+	return d
+}
+
+func (d *Compose) WithRbacViewerGroups(groups ...string) *Compose {
+	if !d.withWeaviateRbac {
+		panic("RBAC is not enabled. Chain .WithRBAC() first")
+	}
+	d.weaviateRbacViewerGroups = append(d.weaviateRbacViewerGroups, groups...)
 	return d
 }
 
@@ -926,8 +942,8 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		settings["AUTHORIZATION_RBAC_ENABLED"] = "true"
 		settings["AUTHENTICATION_ANONYMOUS_ACCESS_ENABLED"] = "false" // incompatible
 
-		if len(d.weaviateRbacAdmins) > 0 {
-			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacAdmins, ",")
+		if len(d.weaviateRbacRoots) > 0 {
+			settings["AUTHORIZATION_RBAC_ROOT_USERS"] = strings.Join(d.weaviateRbacRoots, ",")
 		}
 		if len(d.weaviateRbacViewers) > 0 {
 			settings["AUTHORIZATION_VIEWER_USERS"] = strings.Join(d.weaviateRbacViewers, ",")
@@ -936,6 +952,10 @@ func (d *Compose) startCluster(ctx context.Context, size int, settings map[strin
 		if len(d.weaviateRbacRootGroups) > 0 {
 			settings["AUTHORIZATION_RBAC_ROOT_GROUPS"] = strings.Join(d.weaviateRbacRootGroups, ",")
 		}
+		if len(d.weaviateRbacViewerGroups) > 0 {
+			settings["AUTHORIZATION_RBAC_READONLY_GROUPS"] = strings.Join(d.weaviateRbacViewerGroups, ",")
+		}
+
 	}
 
 	if d.withWeaviateDbUsers {

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -59,7 +59,7 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 	filterOutput := verbosityString == verbosity.OutputVerbose && className == "" && m.rbacconfig.Enabled
 
 	if !filterOutput {
-		if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Nodes(verbosityString, className)...); err != nil {
+		if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Nodes(verbosityString, className)...); err != nil {
 			return nil, err
 		}
 	}
@@ -74,6 +74,7 @@ func (m *Manager) GetNodeStatus(ctx context.Context,
 
 		for i, nodeS := range status {
 			status[i].Shards = resourceFilter.Filter(
+				ctx,
 				m.logger,
 				principal,
 				nodeS.Shards,
@@ -94,7 +95,7 @@ func (m *Manager) GetNodeStatistics(ctx context.Context,
 	ctxWithTimeout, cancel := context.WithTimeout(ctx, GetNodeStatusTimeout)
 	defer cancel()
 
-	if err := m.authorizer.Authorize(principal, authorization.READ, authorization.Cluster()); err != nil {
+	if err := m.authorizer.Authorize(ctx, principal, authorization.READ, authorization.Cluster()); err != nil {
 		return nil, err
 	}
 	return m.db.GetNodeStatistics(ctxWithTimeout)

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -25,6 +25,8 @@ type Snapshot struct {
 	LegacySchema map[string]any `json:"classes"`
 	// Schema is the new schema that will be used to restore the FSM
 	Schema []byte `json:"schema,omitempty"`
+	// Aliases is the collection alias mapping
+	Aliases []byte `json:"aliases,omitempty"`
 	// RBAC is the rbac that will be used to restore the FSM
 	RBAC []byte `json:"rbac,omitempty"`
 	// DistributedTasks are the tasks that will be used to restore the FSM.

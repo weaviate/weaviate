@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -202,10 +202,6 @@ func (ob *objectsBatcher) storeObjectOfBatchInLSM(ctx context.Context,
 
 	if err := ctx.Err(); err != nil {
 		return errors.Wrapf(err, "end store object %d of batch", objectIndex)
-	}
-
-	if err := ob.shard.mayUpsertObjectHashTree(object, idBytes, status); err != nil {
-		return errors.Wrap(err, "object creation in hashtree")
 	}
 
 	return nil

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -35,14 +35,14 @@ type ReplicationNotImplementedTestSuite struct {
 
 func (suite *ReplicationNotImplementedTestSuite) SetupSuite() {
 	t := suite.T()
-	// t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
+	t.Setenv("TEST_WEAVIATE_IMAGE", "weaviate/test-server")
 
 	mainCtx := context.Background()
 
 	compose, err := docker.New().
 		WithWeaviateCluster(3).
 		WithWeaviateEnv("REPLICA_MOVEMENT_MINIMUM_ASYNC_WAIT", "5s").
-		WithWeaviateEnv("REPLICA_MOVEMENT_ENABLED", "false").
+		WithWeaviateEnv("REPLICA_MOVEMENT_DISABLED", "true").
 		Start(mainCtx)
 	require.Nil(t, err)
 	suite.compose = compose
@@ -70,10 +70,10 @@ func (suite *ReplicationNotImplementedTestSuite) TestReplicationNotImplemented()
 
 	t.Run("POST /replication/replicate", func(t *testing.T) {
 		_, err := helper.Client(t).Replication.Replicate(replication.NewReplicateParams().WithBody(&models.ReplicationReplicateReplicaRequest{
-			CollectionID:        string_("test-collection"),
-			DestinationNodeName: string_("dest-node"),
-			ShardID:             string_("test-shard"),
-			SourceNodeName:      string_("src-node"),
+			Collection: string_("test-collection"),
+			TargetNode: string_("tgt-node"),
+			Shard:      string_("test-shard"),
+			SourceNode: string_("src-node"),
 		}), nil)
 		require.IsType(t, &replication.ReplicateNotImplemented{}, err, fmt.Sprintf("Expected NotImplemented error for replicate but got %v", err))
 	})

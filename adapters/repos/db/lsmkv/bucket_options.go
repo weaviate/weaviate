@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -57,6 +57,20 @@ func WithMinWalThreshold(threshold int64) BucketOption {
 func WithWalThreshold(threshold uint64) BucketOption {
 	return func(b *Bucket) error {
 		b.walThreshold = threshold
+		return nil
+	}
+}
+
+// WithLazySegmentLoading enables that segments are only initialized when they are actually used
+//
+// This option should be used:
+//   - For buckets that are NOT used in every request. For example, the object bucket is accessed for
+//     almost all operations anyway.
+//   - For implicit request only (== requests originating with auto-tenant activation). Explicit activation should
+//     always load all segments.
+func WithLazySegmentLoading(lazyLoading bool) BucketOption {
+	return func(b *Bucket) error {
+		b.lazySegmentLoading = lazyLoading
 		return nil
 	}
 }
@@ -205,6 +219,13 @@ func WithForceCompaction(opt bool) BucketOption {
 func WithDisableCompaction(disable bool) BucketOption {
 	return func(b *Bucket) error {
 		b.disableCompaction = disable
+		return nil
+	}
+}
+
+func WithKeepLevelCompaction(keepLevelCompaction bool) BucketOption {
+	return func(b *Bucket) error {
+		b.keepLevelCompaction = keepLevelCompaction
 		return nil
 	}
 }

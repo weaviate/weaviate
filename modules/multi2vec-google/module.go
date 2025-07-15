@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,7 +13,6 @@ package modclip
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
@@ -138,11 +137,6 @@ func (m *Module) initVectorizer(ctx context.Context, timeout time.Duration,
 	m.videoVectorizer = vectorizer.New(client)
 	m.metaClient = client
 
-	return nil
-}
-
-func (m *Module) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

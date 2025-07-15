@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -162,6 +162,62 @@ func (_c *MockNodeSelector_NodeAddress_Call) Return(_a0 string) *MockNodeSelecto
 }
 
 func (_c *MockNodeSelector_NodeAddress_Call) RunAndReturn(run func(string) string) *MockNodeSelector_NodeAddress_Call {
+	_c.Call.Return(run)
+	return _c
+}
+
+// NodeGRPCPort provides a mock function with given fields: id
+func (_m *MockNodeSelector) NodeGRPCPort(id string) (int, error) {
+	ret := _m.Called(id)
+
+	if len(ret) == 0 {
+		panic("no return value specified for NodeGRPCPort")
+	}
+
+	var r0 int
+	var r1 error
+	if rf, ok := ret.Get(0).(func(string) (int, error)); ok {
+		return rf(id)
+	}
+	if rf, ok := ret.Get(0).(func(string) int); ok {
+		r0 = rf(id)
+	} else {
+		r0 = ret.Get(0).(int)
+	}
+
+	if rf, ok := ret.Get(1).(func(string) error); ok {
+		r1 = rf(id)
+	} else {
+		r1 = ret.Error(1)
+	}
+
+	return r0, r1
+}
+
+// MockNodeSelector_NodeGRPCPort_Call is a *mock.Call that shadows Run/Return methods with type explicit version for method 'NodeGRPCPort'
+type MockNodeSelector_NodeGRPCPort_Call struct {
+	*mock.Call
+}
+
+// NodeGRPCPort is a helper method to define mock.On call
+//   - id string
+func (_e *MockNodeSelector_Expecter) NodeGRPCPort(id interface{}) *MockNodeSelector_NodeGRPCPort_Call {
+	return &MockNodeSelector_NodeGRPCPort_Call{Call: _e.mock.On("NodeGRPCPort", id)}
+}
+
+func (_c *MockNodeSelector_NodeGRPCPort_Call) Run(run func(id string)) *MockNodeSelector_NodeGRPCPort_Call {
+	_c.Call.Run(func(args mock.Arguments) {
+		run(args[0].(string))
+	})
+	return _c
+}
+
+func (_c *MockNodeSelector_NodeGRPCPort_Call) Return(_a0 int, _a1 error) *MockNodeSelector_NodeGRPCPort_Call {
+	_c.Call.Return(_a0, _a1)
+	return _c
+}
+
+func (_c *MockNodeSelector_NodeGRPCPort_Call) RunAndReturn(run func(string) (int, error)) *MockNodeSelector_NodeGRPCPort_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -369,8 +425,7 @@ func (_c *MockNodeSelector_StorageCandidates_Call) RunAndReturn(run func() []str
 func NewMockNodeSelector(t interface {
 	mock.TestingT
 	Cleanup(func())
-},
-) *MockNodeSelector {
+}) *MockNodeSelector {
 	mock := &MockNodeSelector{}
 	mock.Mock.Test(t)
 

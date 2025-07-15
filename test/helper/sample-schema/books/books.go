@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -20,7 +20,7 @@ import (
 	"google.golang.org/protobuf/types/known/structpb"
 )
 
-const defaultClassName = "Books"
+const DefaultClassName = "Books"
 
 const (
 	Dune                  strfmt.UUID = "67b79643-cf8b-4b22-b206-6e63dbb4e000"
@@ -29,11 +29,19 @@ const (
 )
 
 func ClassContextionaryVectorizer() *models.Class {
-	return class(defaultClassName, "text2vec-contextionary")
+	return class(DefaultClassName, "text2vec-contextionary")
+}
+
+func ClassModel2VecVectorizer() *models.Class {
+	return class(DefaultClassName, "text2vec-model2vec")
+}
+
+func ClassModel2VecVectorizerWithName(className string) *models.Class {
+	return class(className, "text2vec-model2vec")
 }
 
 func ClassOpenAIWithOptions() *models.Class {
-	c := class(defaultClassName, "text2vec-openai")
+	c := class(DefaultClassName, "text2vec-openai")
 	c.ModuleConfig.(map[string]interface{})["text2vec-openai"] = map[string]interface{}{
 		"model":      "text-embedding-3-large",
 		"dimensions": 3072,
@@ -53,7 +61,7 @@ func ClassNamedOpenAIWithOptions() *models.Class {
 			VectorIndexType: "hnsw",
 		},
 	}
-	return classNamedVectors(defaultClassName, vc)
+	return classNamedVectors(DefaultClassName, vc)
 }
 
 func ClassNamedContextionaryVectorizer() *models.Class {
@@ -86,7 +94,7 @@ func ClassNamedContextionaryVectorizer() *models.Class {
 		},
 	}
 
-	return classNamedVectors(defaultClassName, vc)
+	return classNamedVectors(DefaultClassName, vc)
 }
 
 func ClassMixedContextionaryVectorizer() *models.Class {
@@ -110,7 +118,7 @@ func ClassMixedContextionaryVectorizer() *models.Class {
 		},
 	}
 
-	return classBase(defaultClassName, "text2vec-contextionary", vc)
+	return classBase(DefaultClassName, "text2vec-contextionary", vc)
 }
 
 func ClassContextionaryVectorizerWithName(className string) *models.Class {
@@ -118,15 +126,15 @@ func ClassContextionaryVectorizerWithName(className string) *models.Class {
 }
 
 func ClassContextionaryVectorizerWithSumTransformers() *models.Class {
-	return class(defaultClassName, "text2vec-contextionary", "sum-transformers")
+	return class(DefaultClassName, "text2vec-contextionary", "sum-transformers")
 }
 
 func ClassContextionaryVectorizerWithQnATransformers() *models.Class {
-	return class(defaultClassName, "text2vec-contextionary", "qna-transformers")
+	return class(DefaultClassName, "text2vec-contextionary", "qna-transformers")
 }
 
 func ClassTransformersVectorizer() *models.Class {
-	return class(defaultClassName, "text2vec-transformers")
+	return class(DefaultClassName, "text2vec-transformers")
 }
 
 func ClassTransformersVectorizerWithName(className string) *models.Class {
@@ -138,7 +146,7 @@ func ClassTransformersVectorizerWithQnATransformersWithName(className string) *m
 }
 
 func ClassCLIPVectorizer() *models.Class {
-	c := class(defaultClassName, "multi2vec-clip")
+	c := class(DefaultClassName, "multi2vec-clip")
 	c.ModuleConfig.(map[string]interface{})["multi2vec-clip"] = map[string]interface{}{
 		"textFields": []string{"title", "tags", "description"},
 	}
@@ -146,7 +154,7 @@ func ClassCLIPVectorizer() *models.Class {
 }
 
 func ClassBindVectorizer() *models.Class {
-	c := class(defaultClassName, "multi2vec-bind")
+	c := class(DefaultClassName, "multi2vec-bind")
 	c.ModuleConfig.(map[string]interface{})["multi2vec-bind"] = map[string]interface{}{
 		"textFields": []string{"title", "tags", "description"},
 	}
@@ -229,11 +237,11 @@ func classBase(className, vectorizer string, vectorConfig map[string]models.Vect
 }
 
 func Objects() []*models.Object {
-	return objects(defaultClassName)
+	return objects(DefaultClassName)
 }
 
 func BatchObjects() []*pb.BatchObject {
-	return batchObjects(defaultClassName)
+	return batchObjects(DefaultClassName)
 }
 
 func ObjectsWithName(className string) []*models.Object {

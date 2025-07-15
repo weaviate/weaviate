@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -40,6 +40,14 @@ import (
 	"github.com/weaviate/weaviate/usecases/replica"
 	"github.com/weaviate/weaviate/usecases/scaler"
 )
+
+const (
+	asyncReplicationTargetNodeEndpointPattern = "/indices/%s/shards/%s/async-replication-target-node"
+)
+
+func AsyncReplicationTargetNodeEndpoint(indexName, shardName string) string {
+	return fmt.Sprintf(asyncReplicationTargetNodeEndpointPattern, indexName, shardName)
+}
 
 type RemoteIndex struct {
 	retryClient
@@ -954,7 +962,7 @@ func (c *RemoteIndex) AddAsyncReplicationTargetNode(
 	}
 	value := []string{strconv.FormatUint(schemaVersion, 10)}
 	req, err := setupRequest(ctx, http.MethodPost, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/async-replication-target-node", indexName, shardName),
+		AsyncReplicationTargetNodeEndpoint(indexName, shardName),
 		url.Values{replica.SchemaVersionKey: value}.Encode(),
 		bytes.NewReader(body),
 	)
@@ -991,7 +999,7 @@ func (c *RemoteIndex) RemoveAsyncReplicationTargetNode(
 	}
 
 	req, err := setupRequest(ctx, http.MethodDelete, hostName,
-		fmt.Sprintf("/indices/%s/shards/%s/async-replication-target-node", indexName, shardName),
+		AsyncReplicationTargetNodeEndpoint(indexName, shardName),
 		"", bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create http request: %w", err)

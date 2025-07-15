@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -13,23 +13,20 @@ package modhuggingface
 
 import (
 	"context"
-	"net/http"
 	"os"
 	"time"
 
-	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
-
-	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
-
-	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
-
 	"github.com/pkg/errors"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/models"
 	"github.com/weaviate/weaviate/entities/modulecapabilities"
 	"github.com/weaviate/weaviate/entities/moduletools"
 	"github.com/weaviate/weaviate/modules/text2vec-huggingface/clients"
+	"github.com/weaviate/weaviate/modules/text2vec-huggingface/ent"
 	"github.com/weaviate/weaviate/usecases/modulecomponents/additional"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/batch"
+	"github.com/weaviate/weaviate/usecases/modulecomponents/text2vecbase"
 )
 
 const Name = "text2vec-huggingface"
@@ -62,7 +59,7 @@ func (m *HuggingFaceModule) Name() string {
 }
 
 func (m *HuggingFaceModule) Type() modulecapabilities.ModuleType {
-	return modulecapabilities.Text2MultiVec
+	return modulecapabilities.Text2ManyVec
 }
 
 func (m *HuggingFaceModule) Init(ctx context.Context,
@@ -116,11 +113,6 @@ func (m *HuggingFaceModule) initVectorizer(ctx context.Context, timeout time.Dur
 
 func (m *HuggingFaceModule) initAdditionalPropertiesProvider() error {
 	m.additionalPropertiesProvider = additional.NewText2VecProvider()
-	return nil
-}
-
-func (m *HuggingFaceModule) RootHandler() http.Handler {
-	// TODO: remove once this is a capability interface
 	return nil
 }
 

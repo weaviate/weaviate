@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -14,6 +14,7 @@ package dynamic
 import (
 	"context"
 	"encoding/binary"
+	simpleErrors "errors"
 	"fmt"
 	"io"
 	"math"
@@ -29,6 +30,7 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/flat"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
@@ -96,29 +98,32 @@ type upgradableIndexer interface {
 
 type dynamic struct {
 	sync.RWMutex
-	id                    string
-	targetVector          string
-	store                 *lsmkv.Store
-	logger                logrus.FieldLogger
-	rootPath              string
-	shardName             string
-	className             string
-	prometheusMetrics     *monitoring.PrometheusMetrics
-	vectorForIDThunk      common.VectorForID[float32]
-	tempVectorForIDThunk  common.TempVectorForID[float32]
-	distanceProvider      distancer.Provider
-	makeCommitLoggerThunk hnsw.MakeCommitLogger
-	threshold             uint64
-	index                 VectorIndex
-	upgraded              atomic.Bool
-	upgradeOnce           sync.Once
-	tombstoneCallbacks    cyclemanager.CycleCallbackGroup
-	hnswUC                hnswent.UserConfig
-	db                    *bbolt.DB
-	ctx                   context.Context
-	cancel                context.CancelFunc
-	hnswDisableSnapshots  bool
-	hnswSnapshotOnStartup bool
+	id                      string
+	targetVector            string
+	store                   *lsmkv.Store
+	logger                  logrus.FieldLogger
+	rootPath                string
+	shardName               string
+	className               string
+	prometheusMetrics       *monitoring.PrometheusMetrics
+	vectorForIDThunk        common.VectorForID[float32]
+	tempVectorForIDThunk    common.TempVectorForID[float32]
+	distanceProvider        distancer.Provider
+	makeCommitLoggerThunk   hnsw.MakeCommitLogger
+	threshold               uint64
+	index                   VectorIndex
+	upgraded                atomic.Bool
+	upgradeOnce             sync.Once
+	tombstoneCallbacks      cyclemanager.CycleCallbackGroup
+	hnswUC                  hnswent.UserConfig
+	db                      *bbolt.DB
+	ctx                     context.Context
+	cancel                  context.CancelFunc
+	hnswDisableSnapshots    bool
+	hnswSnapshotOnStartup   bool
+	hnswWaitForCachePrefill bool
+	LazyLoadSegments        bool
+	flatBQ                  bool
 }
 
 func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
@@ -144,31 +149,36 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 		DistanceProvider: cfg.DistanceProvider,
 		MinMMapSize:      cfg.MinMMapSize,
 		MaxWalReuseSize:  cfg.MaxWalReuseSize,
+		LazyLoadSegments: cfg.LazyLoadSegments,
+		AllocChecker:     cfg.AllocChecker,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 
 	index := &dynamic{
-		id:                    cfg.ID,
-		targetVector:          cfg.TargetVector,
-		logger:                logger,
-		rootPath:              cfg.RootPath,
-		shardName:             cfg.ShardName,
-		className:             cfg.ClassName,
-		prometheusMetrics:     cfg.PrometheusMetrics,
-		vectorForIDThunk:      cfg.VectorForIDThunk,
-		tempVectorForIDThunk:  cfg.TempVectorForIDThunk,
-		distanceProvider:      cfg.DistanceProvider,
-		makeCommitLoggerThunk: cfg.MakeCommitLoggerThunk,
-		store:                 store,
-		threshold:             uc.Threshold,
-		tombstoneCallbacks:    cfg.TombstoneCallbacks,
-		hnswUC:                uc.HnswUC,
-		db:                    cfg.SharedDB,
-		ctx:                   ctx,
-		cancel:                cancel,
-		hnswDisableSnapshots:  cfg.HNSWDisableSnapshots,
-		hnswSnapshotOnStartup: cfg.HNSWSnapshotOnStartup,
+		id:                      cfg.ID,
+		targetVector:            cfg.TargetVector,
+		logger:                  logger,
+		rootPath:                cfg.RootPath,
+		shardName:               cfg.ShardName,
+		className:               cfg.ClassName,
+		prometheusMetrics:       cfg.PrometheusMetrics,
+		vectorForIDThunk:        cfg.VectorForIDThunk,
+		tempVectorForIDThunk:    cfg.TempVectorForIDThunk,
+		distanceProvider:        cfg.DistanceProvider,
+		makeCommitLoggerThunk:   cfg.MakeCommitLoggerThunk,
+		store:                   store,
+		threshold:               uc.Threshold,
+		tombstoneCallbacks:      cfg.TombstoneCallbacks,
+		hnswUC:                  uc.HnswUC,
+		db:                      cfg.SharedDB,
+		ctx:                     ctx,
+		cancel:                  cancel,
+		hnswDisableSnapshots:    cfg.HNSWDisableSnapshots,
+		hnswSnapshotOnStartup:   cfg.HNSWSnapshotOnStartup,
+		hnswWaitForCachePrefill: cfg.HNSWWaitForCachePrefill,
+		LazyLoadSegments:        cfg.LazyLoadSegments,
+		flatBQ:                  uc.FlatUC.BQ.Enabled,
 	}
 
 	err := cfg.SharedDB.Update(func(tx *bbolt.Tx) error {
@@ -212,6 +222,8 @@ func New(cfg Config, uc ent.UserConfig, store *lsmkv.Store) (*dynamic, error) {
 				MakeCommitLoggerThunk: index.makeCommitLoggerThunk,
 				DisableSnapshots:      index.hnswDisableSnapshots,
 				SnapshotOnStartup:     index.hnswSnapshotOnStartup,
+				LazyLoadSegments:      index.LazyLoadSegments,
+				WaitForCachePrefill:   index.hnswWaitForCachePrefill,
 			},
 			index.hnswUC,
 			index.tombstoneCallbacks,
@@ -252,6 +264,13 @@ func (dynamic *dynamic) getBucketName() string {
 	}
 
 	return helpers.VectorsBucketLSM
+}
+
+func (dynamic *dynamic) getCompressedBucketName() string {
+	if dynamic.targetVector != "" {
+		return fmt.Sprintf("%s_%s", helpers.VectorsCompressedBucketLSM, dynamic.targetVector)
+	}
+	return helpers.VectorsCompressedBucketLSM
 }
 
 func (dynamic *dynamic) Compressed() bool {
@@ -529,6 +548,7 @@ func (dynamic *dynamic) doUpgrade() error {
 			MakeCommitLoggerThunk: dynamic.makeCommitLoggerThunk,
 			DisableSnapshots:      dynamic.hnswDisableSnapshots,
 			SnapshotOnStartup:     dynamic.hnswSnapshotOnStartup,
+			WaitForCachePrefill:   dynamic.hnswWaitForCachePrefill,
 		},
 		dynamic.hnswUC,
 		dynamic.tombstoneCallbacks,
@@ -585,8 +605,34 @@ func (dynamic *dynamic) doUpgrade() error {
 		return errors.Wrap(err, "update dynamic")
 	}
 
+	dynamic.index.Drop(dynamic.ctx)
 	dynamic.index = index
 	dynamic.upgraded.Store(true)
+
+	var errs []error
+	bDir := dynamic.store.Bucket(dynamic.getBucketName()).GetDir()
+	err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getBucketName())
+	if err != nil {
+		errs = append(errs, err)
+	}
+	err = os.RemoveAll(bDir)
+	if err != nil {
+		errs = append(errs, err)
+	}
+	if dynamic.flatBQ && !dynamic.hnswUC.BQ.Enabled {
+		bDir = dynamic.store.Bucket(dynamic.getCompressedBucketName()).GetDir()
+		err = dynamic.store.ShutdownBucket(dynamic.ctx, dynamic.getCompressedBucketName())
+		if err != nil {
+			errs = append(errs, err)
+		}
+		err = os.RemoveAll(bDir)
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	if len(errs) > 0 {
+		dynamic.logger.Warn(simpleErrors.Join(errs...))
+	}
 
 	return nil
 }
@@ -596,7 +642,22 @@ func (dynamic *dynamic) Iterate(fn func(id uint64) bool) {
 }
 
 func (dynamic *dynamic) Stats() (common.IndexStats, error) {
-	return &DynamicStats{}, errors.New("Stats() is not implemented for dynamic index")
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+	return dynamic.index.Stats()
+}
+
+func (dynamic *dynamic) CompressionStats() compressionhelpers.CompressionStats {
+	dynamic.RLock()
+	defer dynamic.RUnlock()
+
+	// Delegate to the underlying index (flat or hnsw)
+	if vectorIndex, ok := dynamic.index.(compressionhelpers.CompressionStats); ok {
+		return vectorIndex
+	}
+
+	// Fallback: return uncompressed stats if the underlying index doesn't support CompressionStats
+	return compressionhelpers.UncompressedStats{}
 }
 
 type DynamicStats struct{}

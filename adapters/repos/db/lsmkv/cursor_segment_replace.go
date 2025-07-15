@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -106,12 +106,12 @@ func (sg *SegmentGroup) newCursorsWithFlushingSupport() ([]innerCursorReplace, f
 
 	sg.maintenanceLock.RLock()
 
-	var segments []*segment
+	var segments []Segment
 
 	if len(sg.enqueuedSegments) == 0 {
 		segments = sg.segments
 	} else {
-		segments = make([]*segment, 0, len(sg.segments)+len(sg.enqueuedSegments))
+		segments = make([]Segment, 0, len(sg.segments)+len(sg.enqueuedSegments))
 		segments = append(segments, sg.segments...)
 		segments = append(segments, sg.enqueuedSegments...)
 	}
@@ -147,7 +147,7 @@ func (sg *SegmentGroup) newCursorsWithSecondaryIndex(pos int) ([]innerCursorRepl
 	out := make([]innerCursorReplace, 0, len(segments))
 
 	for _, segment := range segments {
-		if int(segment.secondaryIndexCount) <= pos {
+		if int(segment.getSecondaryIndexCount()) <= pos {
 			continue
 		}
 		out = append(out, segment.newCursorWithSecondaryIndex(pos))

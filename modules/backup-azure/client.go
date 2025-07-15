@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -28,6 +28,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob"
 	"github.com/Azure/azure-sdk-for-go/sdk/storage/azblob/bloberror"
 	"github.com/pkg/errors"
+
 	"github.com/weaviate/weaviate/entities/backup"
 	ubak "github.com/weaviate/weaviate/usecases/backup"
 	"github.com/weaviate/weaviate/usecases/modulecomponents"
@@ -139,21 +140,23 @@ func (a *azureClient) AllBackups(ctx context.Context) ([]*backup.DistributedBack
 		if err != nil {
 			return nil, fmt.Errorf("get next blob: %w", err)
 		}
+
 		if blob.ListBlobsFlatSegmentResponse.Segment != nil {
 			for _, item := range blob.ListBlobsFlatSegmentResponse.Segment.BlobItems {
-				if item.Name != nil {
-					if strings.Contains(*item.Name, ubak.GlobalBackupFile) {
-						contents, err := a.getObject(ctx, a.config.Container, *item.Name)
-						if err != nil {
-							return nil, fmt.Errorf("get blob item %q: %w", *item.Name, err)
-						}
-						var desc backup.DistributedBackupDescriptor
-						if err := json.Unmarshal(contents, &desc); err != nil {
-							return nil, fmt.Errorf("unmarshal blob item %q: %w", *item.Name, err)
-						}
-						meta = append(meta, &desc)
-					}
+				if item.Name == nil || !strings.Contains(*item.Name, ubak.GlobalBackupFile) {
+					continue
 				}
+
+				// now we have ubak.GlobalBackupFile
+				contents, err := a.getObject(ctx, a.config.Container, *item.Name)
+				if err != nil {
+					return nil, fmt.Errorf("get blob item %q: %w", *item.Name, err)
+				}
+				var desc backup.DistributedBackupDescriptor
+				if err := json.Unmarshal(contents, &desc); err != nil {
+					return nil, fmt.Errorf("unmarshal blob item %q: %w", *item.Name, err)
+				}
+				meta = append(meta, &desc)
 			}
 		}
 	}

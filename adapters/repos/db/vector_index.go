@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -16,6 +16,7 @@ import (
 
 	"github.com/weaviate/weaviate/adapters/repos/db/helpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
+	"github.com/weaviate/weaviate/adapters/repos/db/vector/compressionhelpers"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/hnsw/distancer"
 	schemaConfig "github.com/weaviate/weaviate/entities/schema/config"
 )
@@ -61,4 +62,6 @@ type VectorIndex interface {
 	QueryVectorDistancer(queryVector []float32) common.QueryVectorDistancer
 	QueryMultiVectorDistancer(queryVector [][]float32) common.QueryVectorDistancer
 	Stats() (common.IndexStats, error)
+	// CompressionStats returns the compression statistics for this index
+	CompressionStats() compressionhelpers.CompressionStats
 }

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -52,6 +52,7 @@ type PrometheusMetrics struct {
 	LSMObjectsBucketSegmentCount        *prometheus.GaugeVec
 	LSMCompressedVecsBucketSegmentCount *prometheus.GaugeVec
 	LSMSegmentCountByLevel              *prometheus.GaugeVec
+	LSMSegmentUnloaded                  *prometheus.GaugeVec
 	LSMSegmentObjects                   *prometheus.GaugeVec
 	LSMSegmentSize                      *prometheus.GaugeVec
 	LSMMemtableSize                     *prometheus.GaugeVec
@@ -484,6 +485,10 @@ func newPrometheusMetrics() *PrometheusMetrics {
 			Name: "lsm_segment_count",
 			Help: "Number of segments by level",
 		}, []string{"strategy", "class_name", "shard_name", "path", "level"}),
+		LSMSegmentUnloaded: promauto.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "lsm_segment_unloaded",
+			Help: "Number of unloaded segments",
+		}, []string{"strategy", "class_name", "shard_name", "path"}),
 		LSMMemtableSize: promauto.NewGaugeVec(prometheus.GaugeOpts{
 			Name: "lsm_memtable_size",
 			Help: "Size of memtable by path",

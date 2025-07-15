@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -134,7 +134,7 @@ func (e *Explorer) GetClass(ctx context.Context,
 	if params.Pagination == nil {
 		params.Pagination = &filters.Pagination{
 			Offset: 0,
-			Limit:  100,
+			Limit:  int(e.config.QueryDefaults.LimitGraphQL),
 		}
 	}
 

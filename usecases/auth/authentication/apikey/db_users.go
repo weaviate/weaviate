@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -39,6 +39,7 @@ const (
 
 type DBUsers interface {
 	CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLetters string, createdAt time.Time) error
+	CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error
 	DeleteUser(userId string) error
 	ActivateUser(userId string) error
 	DeactivateUser(userId string, revokeKey bool) error
@@ -55,6 +56,7 @@ type User struct {
 	ApiKeyFirstLetters string
 	CreatedAt          time.Time
 	LastUsedAt         time.Time
+	ImportedWithKey    bool
 }
 
 type DBUser struct {
@@ -71,15 +73,26 @@ type DBUserSnapshot struct {
 }
 
 type dbUserdata struct {
-	SecureKeyStorageById map[string]string
-	IdentifierToId       map[string]string
-	IdToIdentifier       map[string]string
-	Users                map[string]*User
-	UserKeyRevoked       map[string]struct{}
+	SecureKeyStorageById    map[string]string
+	IdentifierToId          map[string]string
+	IdToIdentifier          map[string]string
+	Users                   map[string]*User
+	UserKeyRevoked          map[string]struct{}
+	ImportedApiKeysWeakHash map[string][sha256.Size]byte
 }
 
 type memoryOnlyData struct {
-	WeakKeyStorageById map[string][sha256.Size]byte
+	weakKeyStorageById map[string][sha256.Size]byte
+	// imported keys from static users should not work after key rotation, eg the following scenario
+	// - import user with "key"
+	// - login works when using "key" through dynamic users
+	// - key rotation "key" => "new-key"
+	// - login works when using "new-key" through dynamic users
+	// - login using "key" is blocked and does not reach static user config where the old key is still present
+	//
+	// Note that this will NOT be persisted and we expect that the static user configuration does not contain "key" anymore
+	// on the next restart
+	importedApiKeysBlocked [][sha256.Size]byte
 }
 
 func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, error) {
@@ -115,12 +128,19 @@ func NewDBUser(path string, enabled bool, logger logrus.FieldLogger) (*DBUser, e
 		snapshot.Data.UserKeyRevoked = make(map[string]struct{})
 	}
 
+	if snapshot.Data.ImportedApiKeysWeakHash == nil {
+		snapshot.Data.ImportedApiKeysWeakHash = make(map[string][sha256.Size]byte)
+	}
+
 	dbUsers := &DBUser{
-		path:           fullpath,
-		lock:           &sync.RWMutex{},
-		weakHashLock:   &sync.RWMutex{},
-		data:           snapshot.Data,
-		memoryOnlyData: memoryOnlyData{WeakKeyStorageById: make(map[string][sha256.Size]byte)},
+		path:         fullpath,
+		lock:         &sync.RWMutex{},
+		weakHashLock: &sync.RWMutex{},
+		data:         snapshot.Data,
+		memoryOnlyData: memoryOnlyData{
+			weakKeyStorageById:     make(map[string][sha256.Size]byte),
+			importedApiKeysBlocked: make([][sha256.Size]byte, 0),
+		},
 	}
 
 	// we save every change to file after a request is done, EXCEPT the lastUsedAt time as we do not want to write to a
@@ -164,6 +184,27 @@ func (c *DBUser) CreateUser(userId, secureHash, userIdentifier, apiKeyFirstLette
 	return c.storeToFile()
 }
 
+func (c *DBUser) CreateUserWithKey(userId, apiKeyFirstLetters string, weakHash [sha256.Size]byte, createdAt time.Time) error {
+	c.lock.Lock()
+	defer c.lock.Unlock()
+
+	if len(apiKeyFirstLetters) > 3 {
+		return errors.New("api key first letters too long")
+	}
+
+	c.data.ImportedApiKeysWeakHash[userId] = weakHash
+	c.memoryOnlyData.importedApiKeysBlocked = append(c.memoryOnlyData.importedApiKeysBlocked, weakHash)
+	c.data.Users[userId] = &User{
+		Id:                 userId,
+		Active:             true,
+		InternalIdentifier: "imported_" + userId,
+		CreatedAt:          createdAt,
+		ApiKeyFirstLetters: apiKeyFirstLetters,
+		ImportedWithKey:    true,
+	}
+	return c.storeToFile()
+}
+
 func (c *DBUser) RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier, newIdentifier string) error {
 	if len(apiKeyFirstLetters) > 3 {
 		return errors.New("api key first letters too long")
@@ -183,10 +224,15 @@ func (c *DBUser) RotateKey(userId, apiKeyFirstLetters, secureHash, oldIdentifier
 		c.data.IdentifierToId[newIdentifier] = userId
 		c.data.Users[userId].InternalIdentifier = newIdentifier
 	}
-	c.data.Users[userId].ApiKeyFirstLetters = apiKeyFirstLetters
+	if c.data.Users[userId].ImportedWithKey {
+		c.data.Users[userId].ImportedWithKey = false
+		delete(c.data.ImportedApiKeysWeakHash, userId)
 
+	}
+
+	c.data.Users[userId].ApiKeyFirstLetters = apiKeyFirstLetters
 	c.data.SecureKeyStorageById[userId] = secureHash
-	delete(c.memoryOnlyData.WeakKeyStorageById, userId)
+	delete(c.memoryOnlyData.weakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
 	return c.storeToFile()
 }
@@ -199,8 +245,9 @@ func (c *DBUser) DeleteUser(userId string) error {
 	delete(c.data.IdentifierToId, c.data.IdToIdentifier[userId])
 	delete(c.data.IdToIdentifier, userId)
 	delete(c.data.Users, userId)
-	delete(c.memoryOnlyData.WeakKeyStorageById, userId)
+	delete(c.memoryOnlyData.weakKeyStorageById, userId)
 	delete(c.data.UserKeyRevoked, userId)
+	delete(c.data.ImportedApiKeysWeakHash, userId)
 	return c.storeToFile()
 }
 
@@ -271,6 +318,46 @@ func (c *DBUser) UpdateLastUsedTimestamp(users map[string]time.Time) {
 	}
 }
 
+func (c *DBUser) ValidateImportedKey(token string) (*models.Principal, error) {
+	c.lock.RLock()
+	defer c.lock.RUnlock()
+
+	keyHashGiven := sha256.Sum256([]byte(token))
+	for userId, keyHashStored := range c.data.ImportedApiKeysWeakHash {
+		if subtle.ConstantTimeCompare(keyHashGiven[:], keyHashStored[:]) != 1 {
+			continue
+		}
+		if c.data.Users[userId] != nil && !c.data.Users[userId].Active {
+			return nil, fmt.Errorf("user deactivated")
+		}
+
+		if _, ok := c.data.UserKeyRevoked[userId]; ok {
+			return nil, fmt.Errorf("key is revoked")
+		}
+
+		// Last used time does not have to be exact. If we have multiple concurrent requests for the same
+		// user, only recording one of them is good enough
+		if c.data.Users[userId].TryLock() {
+			c.data.Users[userId].LastUsedAt = time.Now()
+			c.data.Users[userId].Unlock()
+		}
+
+		return &models.Principal{Username: userId, UserType: models.UserTypeInputDb}, nil
+	}
+
+	return nil, nil
+}
+
+func (c *DBUser) IsBlockedKey(token string) bool {
+	keyHashGiven := sha256.Sum256([]byte(token))
+	for _, keyHashStored := range c.memoryOnlyData.importedApiKeysBlocked {
+		if subtle.ConstantTimeCompare(keyHashGiven[:], keyHashStored[:]) == 1 {
+			return true
+		}
+	}
+	return false
+}
+
 func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Principal, error) {
 	c.lock.RLock()
 	defer c.lock.RUnlock()
@@ -285,7 +372,7 @@ func (c *DBUser) ValidateAndExtract(key, userIdentifier string) (*models.Princip
 		return nil, fmt.Errorf("invalid token")
 	}
 	c.weakHashLock.RLock()
-	weakHash, ok := c.memoryOnlyData.WeakKeyStorageById[userId]
+	weakHash, ok := c.memoryOnlyData.weakKeyStorageById[userId]
 	c.weakHashLock.RUnlock()
 	if ok {
 		// use the secureHash as salt for the computation of the weaker in-memory
@@ -337,7 +424,7 @@ func (c *DBUser) validateStrongHash(key, secureHash, userId string) error {
 	weakHash := sha256.Sum256(token)
 
 	c.weakHashLock.Lock()
-	c.memoryOnlyData.WeakKeyStorageById[userId] = weakHash
+	c.memoryOnlyData.weakKeyStorageById[userId] = weakHash
 	c.weakHashLock.Unlock()
 
 	return nil

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -12,12 +12,14 @@
 package db
 
 import (
+	"context"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/sirupsen/logrus"
+
 	"github.com/weaviate/weaviate/entities/tenantactivity"
 )
 
@@ -97,10 +99,14 @@ func (o *nodeWideMetricsObserver) observeIfShardsReady() {
 func (o *nodeWideMetricsObserver) observeUnlocked() {
 	start := time.Now()
 
-	totalObjectCount := 0
+	totalObjectCount := int64(0)
 	for _, index := range o.db.indices {
 		index.ForEachShard(func(name string, shard ShardLike) error {
-			totalObjectCount += shard.ObjectCountAsync()
+			objectCount, err := shard.ObjectCountAsync(context.Background())
+			if err != nil {
+				o.db.logger.Errorf("error while getting object count for shard %s: %w", shard.Name(), err)
+			}
+			totalObjectCount += objectCount
 			return nil
 		})
 	}

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -139,31 +139,75 @@ func (s *Shard) ObjectDigestsInRange(ctx context.Context,
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
 
-	cursor := bucket.Cursor()
+	// note: it's important to first create the on disk cursor so to avoid potential double scanning over flushing memtable
+	cursor := bucket.CursorOnDisk()
 	defer cursor.Close()
+
+	inmemProcessedDocIDs := make(map[uint64]struct{})
 
 	n := 0
 
+	// note: read-write access to active and flushing memtable will be blocked only during the scope of this inner function
+	err = func() error {
+		inMemCursor := bucket.CursorInMem()
+		defer inMemCursor.Close()
+
+		for k, v := inMemCursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = inMemCursor.Next() {
+			select {
+			case <-ctx.Done():
+				return ctx.Err()
+			default:
+				obj, err := storobj.FromBinaryUUIDOnly(v)
+				if err != nil {
+					return fmt.Errorf("cannot unmarshal object: %w", err)
+				}
+
+				replicaObj := types.RepairResponse{
+					ID:         obj.ID().String(),
+					UpdateTime: obj.LastUpdateTimeUnix(),
+					// TODO: use version when supported
+					Version: 0,
+				}
+
+				objs = append(objs, replicaObj)
+
+				inmemProcessedDocIDs[obj.DocID] = struct{}{}
+
+				n++
+			}
+		}
+
+		return nil
+	}()
+	if err != nil {
+		return nil, err
+	}
+
 	for k, v := cursor.Seek(initialUUIDBytes); n < limit && k != nil && bytes.Compare(k, finalUUIDBytes) < 1; k, v = cursor.Next() {
-		if ctx.Err() != nil {
+		select {
+		case <-ctx.Done():
 			return objs, ctx.Err()
+		default:
+			obj, err := storobj.FromBinaryUUIDOnly(v)
+			if err != nil {
+				return objs, fmt.Errorf("cannot unmarshal object: %w", err)
+			}
+
+			if _, ok := inmemProcessedDocIDs[obj.DocID]; ok {
+				continue
+			}
+
+			replicaObj := types.RepairResponse{
+				ID:         obj.ID().String(),
+				UpdateTime: obj.LastUpdateTimeUnix(),
+				// TODO: use version when supported
+				Version: 0,
+			}
+
+			objs = append(objs, replicaObj)
+
+			n++
 		}
-
-		obj, err := storobj.FromBinaryUUIDOnly(v)
-		if err != nil {
-			return objs, fmt.Errorf("cannot unmarshal object: %w", err)
-		}
-
-		replicaObj := types.RepairResponse{
-			ID:         obj.ID().String(),
-			UpdateTime: obj.LastUpdateTimeUnix(),
-			// TODO: use version when supported
-			Version: 0,
-		}
-
-		objs = append(objs, replicaObj)
-
-		n++
 	}
 
 	return objs, nil
@@ -683,12 +727,27 @@ func (s *Shard) uuidFromDocID(docID uint64) (strfmt.UUID, error) {
 }
 
 func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionTime time.Time) error {
+	s.asyncReplicationRWMux.RLock()
+	defer s.asyncReplicationRWMux.RUnlock()
+
+	err := s.waitForMinimalHashTreeInitialization(ctx)
+	if err != nil {
+		return err
+	}
+
 	idBytes, err := uuid.MustParse(id.String()).MarshalBinary()
 	if err != nil {
 		return err
 	}
 
 	bucket := s.store.Bucket(helpers.ObjectsBucketLSM)
+
+	// see comment in shard_write_put.go::putObjectLSM
+	lock := &s.docIdLock[s.uuidToIdLockPoolId(idBytes)]
+
+	lock.Lock()
+	defer lock.Unlock()
+
 	existing, err := bucket.Get(idBytes)
 	if err != nil {
 		return errors.Wrap(err, "unexpected error on previous lookup")
@@ -715,6 +774,10 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 		return errors.Wrap(err, "delete object from bucket")
 	}
 
+	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
+		return errors.Wrap(err, "object deletion in hashtree")
+	}
+
 	err = s.cleanupInvertedIndexOnDelete(existing, docID)
 	if err != nil {
 		return errors.Wrap(err, "delete object from bucket")
@@ -728,10 +791,6 @@ func (s *Shard) batchDeleteObject(ctx context.Context, id strfmt.UUID, deletionT
 	})
 	if err != nil {
 		return err
-	}
-
-	if err = s.mayDeleteObjectHashTree(idBytes, updateTime); err != nil {
-		return errors.Wrap(err, "object deletion in hashtree")
 	}
 
 	return nil

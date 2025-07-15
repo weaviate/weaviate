@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -17,6 +17,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
+	"github.com/weaviate/weaviate/adapters/repos/db/roaringsetrange"
 
 	"github.com/pkg/errors"
 
@@ -33,8 +36,69 @@ import (
 	"github.com/weaviate/weaviate/usecases/monitoring"
 )
 
+type Segment interface {
+	getPath() string
+	setPath(path string)
+	getStrategy() segmentindex.Strategy
+	getSecondaryIndexCount() uint16
+	getCountNetAdditions() int
+	getLevel() uint16
+	getSize() int64
+	setSize(size int64)
+	getIndexSize() int
+
+	PayloadSize() int
+	Size() int
+	bloomFilterPath() string
+	bloomFilterSecondaryPath(pos int) string
+	bufferedReaderAt(offset uint64, operation string) (io.Reader, error)
+	bytesReaderFrom(in []byte) (*bytes.Reader, error)
+	close() error
+	collectionStratParseData(in []byte) ([]value, error)
+	computeAndStoreBloomFilter(path string) error
+	computeAndStoreSecondaryBloomFilter(path string, pos int) error
+	copyNode(b []byte, offset nodeOffset) error
+	countNetPath() string
+	dropImmediately() error
+	dropMarked() error
+	exists(key []byte) (bool, error)
+	get(key []byte) ([]byte, error)
+	getBySecondaryIntoMemory(pos int, key []byte, buffer []byte) ([]byte, []byte, []byte, error)
+	getCollection(key []byte) ([]value, error)
+	getInvertedData() *segmentInvertedData
+	getSegment() *segment
+	isLoaded() bool
+	loadBloomFilterFromDisk() error
+	loadBloomFilterSecondaryFromDisk(pos int) error
+	loadCountNetFromDisk() error
+	markForDeletion() error
+	MergeTombstones(other *sroar.Bitmap) (*sroar.Bitmap, error)
+	newCollectionCursor() *segmentCursorCollection
+	newCollectionCursorReusable() *segmentCursorCollectionReusable
+	newCursor() *segmentCursorReplace
+	newCursorWithSecondaryIndex(pos int) *segmentCursorReplace
+	newMapCursor() *segmentCursorMap
+	newNodeReader(offset nodeOffset, operation string) (*nodeReader, error)
+	newRoaringSetCursor() *roaringset.SegmentCursor
+	newRoaringSetRangeCursor() roaringsetrange.SegmentCursor
+	newRoaringSetRangeReader() *roaringsetrange.SegmentReader
+	precomputeBloomFilter() error
+	precomputeBloomFilters() ([]string, error)
+	precomputeCountNetAdditions(updatedCountNetAdditions int) ([]string, error)
+	precomputeSecondaryBloomFilter(pos int) error
+	quantileKeys(q int) [][]byte
+	ReadOnlyTombstones() (*sroar.Bitmap, error)
+	replaceStratParseData(in []byte) ([]byte, []byte, error)
+	roaringSetGet(key []byte) (roaringset.BitmapLayer, error)
+	segmentNodeFromBuffer(offset nodeOffset) (*roaringset.SegmentNode, bool, error)
+	storeBloomFilterOnDisk(path string) error
+	storeBloomFilterSecondaryOnDisk(path string, pos int) error
+	storeCountNetOnDisk() error
+}
+
 type segment struct {
 	path                string
+	metaPaths           []string
 	level               uint16
 	secondaryIndexCount uint16
 	version             uint16
@@ -89,13 +153,15 @@ type diskIndex interface {
 }
 
 type segmentConfig struct {
-	mmapContents             bool
-	useBloomFilter           bool
-	calcCountNetAdditions    bool
-	overwriteDerived         bool
-	enableChecksumValidation bool
-	MinMMapSize              int64
-	allocChecker             memwatch.AllocChecker
+	mmapContents                 bool
+	useBloomFilter               bool
+	calcCountNetAdditions        bool
+	overwriteDerived             bool
+	enableChecksumValidation     bool
+	MinMMapSize                  int64
+	allocChecker                 memwatch.AllocChecker
+	fileList                     map[string]int64
+	precomputedCountNetAdditions *int
 }
 
 // newSegment creates a new segment structure, representing an LSM disk segment.
@@ -131,11 +197,21 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 		}
 	}()
 
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return nil, fmt.Errorf("stat file: %w", err)
+	var size int64
+	if cfg.fileList != nil {
+		if fileSize, ok := cfg.fileList[file.Name()]; ok {
+			size = fileSize
+		}
 	}
-	size := fileInfo.Size()
+
+	// fallback to getting the filesize from disk in case it wasn't prefetched (for example, for new segments after compaction)
+	if size == 0 {
+		fileInfo, err := file.Stat()
+		if err != nil {
+			return nil, fmt.Errorf("stat file: %w", err)
+		}
+		size = fileInfo.Size()
+	}
 
 	// mmap has some overhead, we can read small files directly to memory
 	var contents []byte
@@ -143,16 +219,24 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	var allocCheckerErr error
 
 	if size <= cfg.MinMMapSize { // check if it is a candidate for full reading
-		allocCheckerErr = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
-		if allocCheckerErr != nil {
-			logger.Debugf("memory pressure: cannot fully read segment")
+		if cfg.allocChecker == nil {
+			logger.WithFields(logrus.Fields{
+				"path":        path,
+				"size":        size,
+				"minMMapSize": cfg.MinMMapSize,
+			}).Info("allocChecker is nil, skipping memory pressure check for new segment")
+		} else {
+			allocCheckerErr = cfg.allocChecker.CheckAlloc(size) // check if we have enough memory
+			if allocCheckerErr != nil {
+				logger.Debugf("memory pressure: cannot fully read segment")
+			}
 		}
 	}
 
 	useBloomFilter := cfg.useBloomFilter
 	readFromMemory := cfg.mmapContents
-	if size > cfg.MinMMapSize || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
-		contents2, err := mmap.MapRegion(file, int(fileInfo.Size()), mmap.RDONLY, 0, 0)
+	if size > cfg.MinMMapSize || cfg.allocChecker == nil || allocCheckerErr != nil { // mmap the file if it's too large or if we have memory pressure
+		contents2, err := mmap.MapRegion(file, int(size), mmap.RDONLY, 0, 0)
 		if err != nil {
 			return nil, fmt.Errorf("mmap file: %w", err)
 		}
@@ -181,7 +265,7 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	if header.Version >= segmentindex.SegmentV1 && cfg.enableChecksumValidation {
 		file.Seek(0, io.SeekStart)
 		segmentFile := segmentindex.NewSegmentFile(segmentindex.WithReader(file))
-		if err := segmentFile.ValidateChecksum(fileInfo); err != nil {
+		if err := segmentFile.ValidateChecksum(size); err != nil {
 			return nil, fmt.Errorf("validate segment %q: %w", path, err)
 		}
 	}
@@ -265,12 +349,12 @@ func newSegment(path string, logger logrus.FieldLogger, metrics *Metrics,
 	}
 
 	if seg.useBloomFilter {
-		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived); err != nil {
+		if err := seg.initBloomFilters(metrics, cfg.overwriteDerived, cfg.fileList); err != nil {
 			return nil, err
 		}
 	}
 	if seg.calcCountNetAdditions {
-		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived); err != nil {
+		if err := seg.initCountNetAdditions(existsLower, cfg.overwriteDerived, cfg.precomputedCountNetAdditions, cfg.fileList); err != nil {
 			return nil, err
 		}
 	}
@@ -415,6 +499,54 @@ func (s *segment) markForDeletion() error {
 // and index
 func (s *segment) Size() int {
 	return int(s.size)
+}
+
+func (s *segment) getPath() string {
+	return s.path
+}
+
+func (s *segment) setPath(path string) {
+	s.path = path
+}
+
+func (s *segment) getStrategy() segmentindex.Strategy {
+	return s.strategy
+}
+
+func (s *segment) getSecondaryIndexCount() uint16 {
+	return s.secondaryIndexCount
+}
+
+func (s *segment) getCountNetAdditions() int {
+	return s.countNetAdditions
+}
+
+func (s *segment) getLevel() uint16 {
+	return s.level
+}
+
+func (s *segment) getSize() int64 {
+	return s.size
+}
+
+func (s *segment) setSize(size int64) {
+	s.size = size
+}
+
+func (s *segment) getIndexSize() int {
+	return s.index.Size()
+}
+
+func (s *segment) getInvertedData() *segmentInvertedData {
+	return s.invertedData
+}
+
+func (s *segment) getSegment() *segment {
+	return s
+}
+
+func (s *segment) isLoaded() bool {
+	return true
 }
 
 // PayloadSize is only the payload of the index, excluding the index

@@ -4,7 +4,7 @@
 //  \ V  V /  __/ (_| |\ V /| | (_| | ||  __/
 //   \_/\_/ \___|\__,_| \_/ |_|\__,_|\__\___|
 //
-//  Copyright © 2016 - 2024 Weaviate B.V. All rights reserved.
+//  Copyright © 2016 - 2025 Weaviate B.V. All rights reserved.
 //
 //  CONTACT: hello@weaviate.io
 //
@@ -51,4 +51,28 @@ func Fsync(path string) error {
 	defer f.Close()
 
 	return f.Sync()
+}
+
+// GetFileWithSizes gets all files in a directory including their filesize
+func GetFileWithSizes(dirPath string) (map[string]int64, error) {
+	dir, err := os.Open(dirPath)
+	if err != nil {
+		return nil, err
+	}
+	defer dir.Close()
+
+	// Read all entries at once including file sizes
+	fileInfos, err := dir.Readdir(-1)
+	if err != nil {
+		return nil, err
+	}
+
+	fileSizes := make(map[string]int64)
+	for _, info := range fileInfos {
+		if !info.IsDir() { // Skip directories
+			fileSizes[info.Name()] = info.Size()
+		}
+	}
+
+	return fileSizes, nil
 }
