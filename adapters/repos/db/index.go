@@ -794,7 +794,7 @@ func (i *Index) putObject(ctx context.Context, object *storobj.Object,
 	if replProps == nil {
 		replProps = defaultConsistency()
 	}
-	if i.shardHasMultipleReplicasWrite(object.Object.Tenant, shardName) {
+	if i.shardHasMultipleReplicasWrite(shardName, shardName) {
 		cl := routerTypes.ConsistencyLevel(replProps.ConsistencyLevel)
 		if err := i.replicator.PutObject(ctx, shardName, object, cl, schemaVersion); err != nil {
 			return fmt.Errorf("replicate insertion: shard=%q: %w", shardName, err)
