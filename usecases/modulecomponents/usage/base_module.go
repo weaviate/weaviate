@@ -29,7 +29,7 @@ const (
 	DefaultCollectionInterval  = 1 * time.Hour
 	DefaultJitterInterval      = 30 * time.Second
 	DefaultRuntimeLoadInterval = 2 * time.Minute
-	DefaultPolicyVersion       = "2025-06-01" // TODO: update this to the actual version
+	DefaultPolicyVersion       = "2025-06-01"
 )
 
 // BaseModule contains the common logic for usage collection modules
@@ -97,7 +97,7 @@ func (b *BaseModule) InitializeCommon(ctx context.Context, config *config.Config
 
 	// Verify storage permissions
 	if err := b.storage.VerifyPermissions(ctx); err != nil {
-		return fmt.Errorf("storage permission check failed: %w", err)
+		return fmt.Errorf("failed to verify storage permissions: %w", err)
 	}
 
 	// Start periodic collection and upload
