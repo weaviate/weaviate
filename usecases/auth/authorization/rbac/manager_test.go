@@ -210,7 +210,7 @@ func TestRestoreEmptyData(t *testing.T) {
 
 	policies, err := m.casbin.GetPolicy()
 	require.NoError(t, err)
-	require.Len(t, policies, 4)
+	require.Len(t, policies, 5)
 
 	err = m.Restore([]byte{})
 	require.NoError(t, err)
@@ -218,7 +218,7 @@ func TestRestoreEmptyData(t *testing.T) {
 	// nothing overwritten
 	policies, err = m.casbin.GetPolicy()
 	require.NoError(t, err)
-	require.Len(t, policies, 4)
+	require.Len(t, policies, 5)
 }
 
 func TestSnapshotAndRestoreUpgrade(t *testing.T) {
@@ -238,6 +238,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 				{"role:some_role", "users/.*", "A", "users"},
 				// build-in roles are added after restore
 				{"role:viewer", "*", authorization.READ, "*"},
+				{"role:read-only", "*", authorization.READ, "*"},
 				{"role:admin", "*", conv.VALID_VERBS, "*"},
 				{"role:root", "*", conv.VALID_VERBS, "*"},
 			},
@@ -250,6 +251,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 			},
 			policiesExpected: [][]string{
 				{"role:viewer", "*", "R", "*"},
+				{"role:read-only", "*", "R", "*"},
 				{"role:admin", "*", conv.VALID_VERBS, "*"},
 				// build-in roles are added after restore
 				{"role:root", "*", conv.VALID_VERBS, "*"},
@@ -264,6 +266,7 @@ func TestSnapshotAndRestoreUpgrade(t *testing.T) {
 				{"role:admin", "*", "(C)|(R)|(U)|(D)|(A)", "*"},
 				// build-in roles are added after restore
 				{"role:viewer", "*", authorization.READ, "*"},
+				{"role:read-only", "*", authorization.READ, "*"},
 				{"role:root", "*", conv.VALID_VERBS, "*"},
 			},
 			groupingsInput: [][]string{
