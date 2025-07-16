@@ -25,8 +25,6 @@ import (
 
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 
-	"github.com/weaviate/weaviate/usecases/replica"
-
 	"github.com/weaviate/weaviate/usecases/objects"
 
 	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
@@ -39,28 +37,6 @@ import (
 	schemaTypes "github.com/weaviate/weaviate/cluster/schema/types"
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
-
-type routerError struct {
-	message    string
-	collection string
-	tenant     string
-	shard      string
-	cause      error
-}
-
-func newRouterError(message, collection, tenant, shard string, cause error) routerError {
-	return routerError{
-		message:    message,
-		collection: collection,
-		tenant:     tenant,
-		shard:      shard,
-		cause:      cause,
-	}
-}
-
-func (e routerError) Error() string {
-	return fmt.Sprintf("router error '%s' (collection: %q, tenant: %q, shard: %q): %v", e.message, e.collection, e.tenant, e.shard, e.cause)
-}
 
 // Builder provides a builder for creating router instances based on configuration.
 // Use NewBuilder() with all required parameters, then call Build() to get the appropriate Router implementation,
@@ -256,7 +232,7 @@ func (r *singleTenantRouter) getReadWriteReplicasLocation(collection string, ten
 ) {
 	targetShards, err := r.targetShards(collection, shard)
 	if err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newRouterError("no target shard found", r.collection, tenant, shard, err)
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
 
 	var allReadReplicas []types.Replica
@@ -266,7 +242,7 @@ func (r *singleTenantRouter) getReadWriteReplicasLocation(collection string, ten
 	for _, shardName := range targetShards {
 		read, write, additional, err := r.replicasForShard(collection, tenant, shardName)
 		if err != nil {
-			return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newRouterError("no replica found", r.collection, tenant, shardName, err)
+			return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 		}
 
 		allReadReplicas = append(allReadReplicas, read...)
@@ -313,7 +289,7 @@ func (r *singleTenantRouter) replicasForShard(collection, tenant, shard string) 
 	}
 	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
 	if err != nil {
-		return nil, nil, nil, newRouterError("no replica found", r.collection, tenant, shard, err)
+		return nil, nil, nil, fmt.Errorf("error while getting replicas for collection %q shard %q: %w", collection, shard, err)
 	}
 
 	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
@@ -352,16 +328,16 @@ func (r *singleTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildO
 func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
 	readReplicas, _, err := r.getReadWriteReplicasLocation(r.collection, params.Tenant, params.Shard)
 	if err != nil {
-		return types.ReadRoutingPlan{}, newRouterError("fetching replicas", r.collection, params.Tenant, params.Shard, err)
+		return types.ReadRoutingPlan{}, err
 	}
 
 	if len(readReplicas.Replicas) == 0 {
-		return types.ReadRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, replica.ErrReplicas)
+		return types.ReadRoutingPlan{}, fmt.Errorf("no read replica found")
 	}
 
 	cl, err := readReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
 	if err != nil {
-		return types.ReadRoutingPlan{}, newRouterError("consistency level validation", r.collection, params.Tenant, params.Shard, err)
+		return types.ReadRoutingPlan{}, err
 	}
 
 	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
@@ -389,16 +365,16 @@ func (r *singleTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuild
 func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
 	_, writeReplicas, err := r.getReadWriteReplicasLocation(r.collection, params.Tenant, params.Shard)
 	if err != nil {
-		return types.WriteRoutingPlan{}, newRouterError("fetching replicas", r.collection, params.Tenant, params.Shard, err)
+		return types.WriteRoutingPlan{}, err
 	}
 
 	if len(writeReplicas.Replicas) == 0 {
-		return types.WriteRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, replica.ErrReplicas)
+		return types.WriteRoutingPlan{}, fmt.Errorf("no write replica found")
 	}
 
 	cl, err := writeReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
 	if err != nil {
-		return types.WriteRoutingPlan{}, newRouterError("consistency level validation", r.collection, params.Tenant, params.Shard, err)
+		return types.WriteRoutingPlan{}, err
 	}
 
 	// Order replicas with direct candidate first
@@ -453,7 +429,7 @@ func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tena
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
 	if err := r.validateTenantShard(tenant, shard); err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newRouterError("tenant shard validation", r.collection, tenant, shard, err)
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
 	return r.getReadWriteReplicasLocation(collection, tenant, shard)
 }
@@ -467,7 +443,7 @@ func (r *multiTenantRouter) GetWriteReplicasLocation(collection string, tenant s
 		return types.WriteReplicaSet{}, err
 	}
 	if err := r.validateTenantShard(tenant, shard); err != nil {
-		return types.WriteReplicaSet{}, newRouterError("tenant shard validation", r.collection, tenant, shard, err)
+		return types.WriteReplicaSet{}, err
 	}
 	_, writeReplicas, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
 	return writeReplicas, err
@@ -482,7 +458,7 @@ func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant st
 		return types.ReadReplicaSet{}, err
 	}
 	if err := r.validateTenantShard(tenant, shard); err != nil {
-		return types.ReadReplicaSet{}, newRouterError("tenant shard validation", r.collection, tenant, shard, err)
+		return types.ReadReplicaSet{}, err
 	}
 	readReplicas, _, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
 	return readReplicas, err
@@ -500,7 +476,7 @@ func (r *multiTenantRouter) getReadWriteReplicasLocation(collection string, tena
 
 	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
 	if err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newRouterError("no replica found", r.collection, tenant, shard, err)
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
 
 	readNodeNames := r.replicationFSMReader.FilterOneShardReplicasRead(collection, shard, replicas)
@@ -538,11 +514,11 @@ func (r *multiTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildO
 func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
 	_, writeReplicas, err := r.getReadWriteReplicasLocation(r.collection, params.Tenant, params.Shard)
 	if err != nil {
-		return types.WriteRoutingPlan{}, newRouterError("fetching replicas", r.collection, params.Tenant, params.Shard, err)
+		return types.WriteRoutingPlan{}, err
 	}
 
 	if len(writeReplicas.Replicas) == 0 {
-		return types.WriteRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, replica.ErrReplicas)
+		return types.WriteRoutingPlan{}, fmt.Errorf("no read replica found")
 	}
 
 	cl, err := writeReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
@@ -580,16 +556,16 @@ func (r *multiTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOp
 func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
 	readReplicas, _, err := r.getReadWriteReplicasLocation(r.collection, params.Tenant, params.Shard)
 	if err != nil {
-		return types.ReadRoutingPlan{}, newRouterError("fetching replicas", r.collection, params.Tenant, params.Shard, err)
+		return types.ReadRoutingPlan{}, err
 	}
 
 	if len(readReplicas.Replicas) == 0 {
-		return types.ReadRoutingPlan{}, newRouterError("no replica found", r.collection, params.Tenant, params.Shard, replica.ErrReplicas)
+		return types.ReadRoutingPlan{}, fmt.Errorf("no read replica found")
 	}
 
 	cl, err := readReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
 	if err != nil {
-		return types.ReadRoutingPlan{}, newRouterError("consistency level validation", r.collection, params.Tenant, params.Shard, err)
+		return types.ReadRoutingPlan{}, err
 	}
 
 	// Order replicas with direct candidate first
