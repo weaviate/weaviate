@@ -73,18 +73,18 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
 		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
 	})
-	// t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
-	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	// })
-	// t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
-	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	// })
-	// t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
-	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	// })
-	// t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
-	// 	test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
-	// })
+	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	})
+	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	})
+	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	})
+	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
+		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
+	})
 
 	// t.Run("COPY, rf=2, no automated resolution", func(t *testing.T) {
 	// 	test(t, compose, copy, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
