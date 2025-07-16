@@ -1348,14 +1348,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_SpecifiedShard(t *testing.T) {
 	r := router.NewBuilder("TestClass", false, mockNodeSelector,
 		mockSchemaGetter, mockSchemaReader, mockReplFSM).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:              "",
-		Shard:               "shardA",
-		ConsistencyLevel:    types.ConsistencyLevelOne,
-		DirectCandidateNode: "",
-	}
-
-	plan, err := r.BuildWriteRoutingPlan(opts)
+	plan, err := r.BuildWriteRoutingPlan("", "shardA", types.ConsistencyLevelOne, "")
 	require.NoError(t, err)
 
 	want := []types.Replica{{NodeName: "node1", ShardName: "shardA", HostAddr: "host1"}}
@@ -1393,14 +1386,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_DefaultShard(t *testing.T) {
 	r := router.NewBuilder("TestClass", true, mockNodeSelector,
 		mockSchemaGetter, mockSchemaReader, mockReplFSM).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:              tenant,
-		Shard:               "",
-		ConsistencyLevel:    types.ConsistencyLevelOne,
-		DirectCandidateNode: "",
-	}
-
-	plan, err := r.BuildWriteRoutingPlan(opts)
+	plan, err := r.BuildWriteRoutingPlan(tenant, "", types.ConsistencyLevelOne, "")
 	require.NoError(t, err)
 
 	want := []types.Replica{{NodeName: "node1", ShardName: tenant, HostAddr: "host1"}}
@@ -1432,13 +1418,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_NoReplicas(t *testing.T) {
 		mockReplicationFSM,
 	).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:           "",
-		Shard:            "shard1",
-		ConsistencyLevel: types.ConsistencyLevelOne,
-	}
-
-	plan, err := r.BuildWriteRoutingPlan(opts)
+	plan, err := r.BuildWriteRoutingPlan("", "shard1", types.ConsistencyLevelOne, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no write replica found")
 	require.Empty(t, plan.ReplicaSet.Replicas)
@@ -1459,13 +1439,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_TenantValidation(t *testing.T)
 		mockReplicationFSM,
 	).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:           "some-tenant",
-		Shard:            "shard1",
-		ConsistencyLevel: types.ConsistencyLevelOne,
-	}
-
-	plan, err := r.BuildWriteRoutingPlan(opts)
+	plan, err := r.BuildWriteRoutingPlan("some-tenant", "shard1", types.ConsistencyLevelOne, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "class TestClass has multi-tenancy disabled, but request was with tenant")
 	require.Empty(t, plan.ReplicaSet.Replicas)
@@ -1494,13 +1468,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_ConsistencyLevelValidation(t *
 		mockReplicationFSM,
 	).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:           "",
-		Shard:            "shard1",
-		ConsistencyLevel: "INVALID_LEVEL", // Invalid consistency level
-	}
-
-	plan, err := r.BuildWriteRoutingPlan(opts)
+	plan, err := r.BuildWriteRoutingPlan("", "shard1", "INVALID_LEVEL", "")
 	require.NoError(t, err)
 	require.Equal(t, 1, plan.IntConsistencyLevel)
 }
@@ -1528,14 +1496,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_ReplicaOrdering(t *testing.T) 
 		mockReplicationFSM,
 	).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:              "",
-		Shard:               "shard1",
-		ConsistencyLevel:    types.ConsistencyLevelOne,
-		DirectCandidateNode: "node2", // Should be ordered first
-	}
-
-	plan, err := r.BuildWriteRoutingPlan(opts)
+	plan, err := r.BuildWriteRoutingPlan("", "shard1", types.ConsistencyLevelOne, "node2")
 	require.NoError(t, err)
 	require.Equal(t, "node2", plan.ReplicaSet.Replicas[0].NodeName, "DirectCandidateNode should be first")
 }
@@ -1568,13 +1529,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_NoReplicas(t *testing.T) {
 		mockReplicationFSM,
 	).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:           "alice",
-		Shard:            "",
-		ConsistencyLevel: types.ConsistencyLevelOne,
-	}
-
-	plan, err := r.BuildWriteRoutingPlan(opts)
+	plan, err := r.BuildWriteRoutingPlan("alice", "", types.ConsistencyLevelOne, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "no read replica found")
 	require.Empty(t, plan.ReplicaSet.Replicas)
@@ -1608,13 +1563,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_ConsistencyLevelValidation(t *t
 		mockReplicationFSM,
 	).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:           "alice",
-		Shard:            "",
-		ConsistencyLevel: "INVALID_LEVEL",
-	}
-
-	plan, err := r.BuildWriteRoutingPlan(opts)
+	plan, err := r.BuildWriteRoutingPlan("alice", "", "INVALID_LEVEL", "")
 	require.NoError(t, err)
 	require.Equal(t, 1, plan.IntConsistencyLevel)
 }
@@ -1647,14 +1596,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_ReplicaOrdering(t *testing.T) {
 		mockReplicationFSM,
 	).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:              "alice",
-		Shard:               "",
-		ConsistencyLevel:    types.ConsistencyLevelOne,
-		DirectCandidateNode: "node3", // Should be ordered first
-	}
-
-	plan, err := r.BuildWriteRoutingPlan(opts)
+	plan, err := r.BuildWriteRoutingPlan("alice", "", types.ConsistencyLevelOne, "node3")
 	require.NoError(t, err)
 	require.Equal(t, "node3", plan.ReplicaSet.Replicas[0].NodeName, "DirectCandidateNode should be first")
 }
@@ -1678,13 +1620,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_TenantNotFound(t *testing.T) {
 		mockReplicationFSM,
 	).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:           "nonexistent",
-		Shard:            "",
-		ConsistencyLevel: types.ConsistencyLevelOne,
-	}
-
-	plan, err := r.BuildWriteRoutingPlan(opts)
+	plan, err := r.BuildWriteRoutingPlan("nonexistent", "", types.ConsistencyLevelOne, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "tenant not found: \"nonexistent\"")
 	require.Empty(t, plan.ReplicaSet.Replicas)
@@ -1706,13 +1642,7 @@ func TestSingleTenantRouter_BuildReadRoutingPlan_TenantValidation(t *testing.T) 
 		mockReplicationFSM,
 	).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:           "some-tenant", // Single tenant should reject non-empty tenant
-		Shard:            "shard1",
-		ConsistencyLevel: types.ConsistencyLevelOne,
-	}
-
-	plan, err := r.BuildReadRoutingPlan(opts)
+	plan, err := r.BuildReadRoutingPlan("some-tenant", "shard1", types.ConsistencyLevelOne, "")
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "class TestClass has multi-tenancy disabled, but request was with tenant")
 	require.Empty(t, plan.ReplicaSet.Replicas)
@@ -1746,13 +1676,7 @@ func TestMultiTenantRouter_BuildReadRoutingPlan_ConsistencyLevelValidation(t *te
 		mockReplicationFSM,
 	).Build()
 
-	opts := types.RoutingPlanBuildOptions{
-		Tenant:           "alice",
-		Shard:            "",
-		ConsistencyLevel: "INVALID_LEVEL",
-	}
-
-	plan, err := r.BuildReadRoutingPlan(opts)
+	plan, err := r.BuildReadRoutingPlan("alice", "", "INVALID_LEVEL", "")
 	require.NoError(t, err)
 	require.Equal(t, 1, plan.IntConsistencyLevel)
 }
