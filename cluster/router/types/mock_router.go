@@ -75,9 +75,9 @@ func (_c *MockRouter_AllHostnames_Call) RunAndReturn(run func() []string) *MockR
 	return _c
 }
 
-// BuildReadRoutingPlan provides a mock function with given fields: params
-func (_m *MockRouter) BuildReadRoutingPlan(params RoutingPlanBuildOptions) (ReadRoutingPlan, error) {
-	ret := _m.Called(params)
+// BuildReadRoutingPlan provides a mock function with given fields: tenant, shard, cl, directCandidate
+func (_m *MockRouter) BuildReadRoutingPlan(tenant string, shard string, cl ConsistencyLevel, directCandidate string) (ReadRoutingPlan, error) {
+	ret := _m.Called(tenant, shard, cl, directCandidate)
 
 	if len(ret) == 0 {
 		panic("no return value specified for BuildReadRoutingPlan")
@@ -85,17 +85,17 @@ func (_m *MockRouter) BuildReadRoutingPlan(params RoutingPlanBuildOptions) (Read
 
 	var r0 ReadRoutingPlan
 	var r1 error
-	if rf, ok := ret.Get(0).(func(RoutingPlanBuildOptions) (ReadRoutingPlan, error)); ok {
-		return rf(params)
+	if rf, ok := ret.Get(0).(func(string, string, ConsistencyLevel, string) (ReadRoutingPlan, error)); ok {
+		return rf(tenant, shard, cl, directCandidate)
 	}
-	if rf, ok := ret.Get(0).(func(RoutingPlanBuildOptions) ReadRoutingPlan); ok {
-		r0 = rf(params)
+	if rf, ok := ret.Get(0).(func(string, string, ConsistencyLevel, string) ReadRoutingPlan); ok {
+		r0 = rf(tenant, shard, cl, directCandidate)
 	} else {
 		r0 = ret.Get(0).(ReadRoutingPlan)
 	}
 
-	if rf, ok := ret.Get(1).(func(RoutingPlanBuildOptions) error); ok {
-		r1 = rf(params)
+	if rf, ok := ret.Get(1).(func(string, string, ConsistencyLevel, string) error); ok {
+		r1 = rf(tenant, shard, cl, directCandidate)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -109,14 +109,17 @@ type MockRouter_BuildReadRoutingPlan_Call struct {
 }
 
 // BuildReadRoutingPlan is a helper method to define mock.On call
-//   - params RoutingPlanBuildOptions
-func (_e *MockRouter_Expecter) BuildReadRoutingPlan(params interface{}) *MockRouter_BuildReadRoutingPlan_Call {
-	return &MockRouter_BuildReadRoutingPlan_Call{Call: _e.mock.On("BuildReadRoutingPlan", params)}
+//   - tenant string
+//   - shard string
+//   - cl ConsistencyLevel
+//   - directCandidate string
+func (_e *MockRouter_Expecter) BuildReadRoutingPlan(tenant interface{}, shard interface{}, cl interface{}, directCandidate interface{}) *MockRouter_BuildReadRoutingPlan_Call {
+	return &MockRouter_BuildReadRoutingPlan_Call{Call: _e.mock.On("BuildReadRoutingPlan", tenant, shard, cl, directCandidate)}
 }
 
-func (_c *MockRouter_BuildReadRoutingPlan_Call) Run(run func(params RoutingPlanBuildOptions)) *MockRouter_BuildReadRoutingPlan_Call {
+func (_c *MockRouter_BuildReadRoutingPlan_Call) Run(run func(tenant string, shard string, cl ConsistencyLevel, directCandidate string)) *MockRouter_BuildReadRoutingPlan_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(RoutingPlanBuildOptions))
+		run(args[0].(string), args[1].(string), args[2].(ConsistencyLevel), args[3].(string))
 	})
 	return _c
 }
@@ -126,7 +129,7 @@ func (_c *MockRouter_BuildReadRoutingPlan_Call) Return(_a0 ReadRoutingPlan, _a1 
 	return _c
 }
 
-func (_c *MockRouter_BuildReadRoutingPlan_Call) RunAndReturn(run func(RoutingPlanBuildOptions) (ReadRoutingPlan, error)) *MockRouter_BuildReadRoutingPlan_Call {
+func (_c *MockRouter_BuildReadRoutingPlan_Call) RunAndReturn(run func(string, string, ConsistencyLevel, string) (ReadRoutingPlan, error)) *MockRouter_BuildReadRoutingPlan_Call {
 	_c.Call.Return(run)
 	return _c
 }
@@ -180,9 +183,9 @@ func (_c *MockRouter_BuildRoutingPlanOptions_Call) RunAndReturn(run func(string,
 	return _c
 }
 
-// BuildWriteRoutingPlan provides a mock function with given fields: params
-func (_m *MockRouter) BuildWriteRoutingPlan(params RoutingPlanBuildOptions) (WriteRoutingPlan, error) {
-	ret := _m.Called(params)
+// BuildWriteRoutingPlan provides a mock function with given fields: tenant, shard, cl, directCandidate
+func (_m *MockRouter) BuildWriteRoutingPlan(tenant string, shard string, cl ConsistencyLevel, directCandidate string) (WriteRoutingPlan, error) {
+	ret := _m.Called(tenant, shard, cl, directCandidate)
 
 	if len(ret) == 0 {
 		panic("no return value specified for BuildWriteRoutingPlan")
@@ -190,17 +193,17 @@ func (_m *MockRouter) BuildWriteRoutingPlan(params RoutingPlanBuildOptions) (Wri
 
 	var r0 WriteRoutingPlan
 	var r1 error
-	if rf, ok := ret.Get(0).(func(RoutingPlanBuildOptions) (WriteRoutingPlan, error)); ok {
-		return rf(params)
+	if rf, ok := ret.Get(0).(func(string, string, ConsistencyLevel, string) (WriteRoutingPlan, error)); ok {
+		return rf(tenant, shard, cl, directCandidate)
 	}
-	if rf, ok := ret.Get(0).(func(RoutingPlanBuildOptions) WriteRoutingPlan); ok {
-		r0 = rf(params)
+	if rf, ok := ret.Get(0).(func(string, string, ConsistencyLevel, string) WriteRoutingPlan); ok {
+		r0 = rf(tenant, shard, cl, directCandidate)
 	} else {
 		r0 = ret.Get(0).(WriteRoutingPlan)
 	}
 
-	if rf, ok := ret.Get(1).(func(RoutingPlanBuildOptions) error); ok {
-		r1 = rf(params)
+	if rf, ok := ret.Get(1).(func(string, string, ConsistencyLevel, string) error); ok {
+		r1 = rf(tenant, shard, cl, directCandidate)
 	} else {
 		r1 = ret.Error(1)
 	}
@@ -214,14 +217,17 @@ type MockRouter_BuildWriteRoutingPlan_Call struct {
 }
 
 // BuildWriteRoutingPlan is a helper method to define mock.On call
-//   - params RoutingPlanBuildOptions
-func (_e *MockRouter_Expecter) BuildWriteRoutingPlan(params interface{}) *MockRouter_BuildWriteRoutingPlan_Call {
-	return &MockRouter_BuildWriteRoutingPlan_Call{Call: _e.mock.On("BuildWriteRoutingPlan", params)}
+//   - tenant string
+//   - shard string
+//   - cl ConsistencyLevel
+//   - directCandidate string
+func (_e *MockRouter_Expecter) BuildWriteRoutingPlan(tenant interface{}, shard interface{}, cl interface{}, directCandidate interface{}) *MockRouter_BuildWriteRoutingPlan_Call {
+	return &MockRouter_BuildWriteRoutingPlan_Call{Call: _e.mock.On("BuildWriteRoutingPlan", tenant, shard, cl, directCandidate)}
 }
 
-func (_c *MockRouter_BuildWriteRoutingPlan_Call) Run(run func(params RoutingPlanBuildOptions)) *MockRouter_BuildWriteRoutingPlan_Call {
+func (_c *MockRouter_BuildWriteRoutingPlan_Call) Run(run func(tenant string, shard string, cl ConsistencyLevel, directCandidate string)) *MockRouter_BuildWriteRoutingPlan_Call {
 	_c.Call.Run(func(args mock.Arguments) {
-		run(args[0].(RoutingPlanBuildOptions))
+		run(args[0].(string), args[1].(string), args[2].(ConsistencyLevel), args[3].(string))
 	})
 	return _c
 }
@@ -231,7 +237,7 @@ func (_c *MockRouter_BuildWriteRoutingPlan_Call) Return(_a0 WriteRoutingPlan, _a
 	return _c
 }
 
-func (_c *MockRouter_BuildWriteRoutingPlan_Call) RunAndReturn(run func(RoutingPlanBuildOptions) (WriteRoutingPlan, error)) *MockRouter_BuildWriteRoutingPlan_Call {
+func (_c *MockRouter_BuildWriteRoutingPlan_Call) RunAndReturn(run func(string, string, ConsistencyLevel, string) (WriteRoutingPlan, error)) *MockRouter_BuildWriteRoutingPlan_Call {
 	_c.Call.Return(run)
 	return _c
 }

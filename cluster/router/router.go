@@ -318,15 +318,15 @@ func (r *singleTenantRouter) resolveNodeNamesToReplicas(nodeNames []string, shar
 }
 
 // BuildReadRoutingPlan constructs a read routing plan for single-tenant collections.
-func (r *singleTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	if err := r.validateTenant(params.Tenant); err != nil {
+func (r *singleTenantRouter) BuildReadRoutingPlan(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) (types.ReadRoutingPlan, error) {
+	if err := r.validateTenant(tenant); err != nil {
 		return types.ReadRoutingPlan{}, err
 	}
-	return r.buildReadRoutingPlan(params)
+	return r.buildReadRoutingPlan(tenant, shard, cl, directCandidate)
 }
 
-func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	readReplicas, _, err := r.getReadWriteReplicasLocation(r.collection, params.Tenant, params.Shard)
+func (r *singleTenantRouter) buildReadRoutingPlan(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) (types.ReadRoutingPlan, error) {
+	readReplicas, _, err := r.getReadWriteReplicasLocation(r.collection, tenant, shard)
 	if err != nil {
 		return types.ReadRoutingPlan{}, err
 	}
@@ -335,35 +335,35 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 		return types.ReadRoutingPlan{}, fmt.Errorf("no read replica found")
 	}
 
-	cl, err := readReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
+	level, err := readReplicas.ValidateConsistencyLevel(cl)
 	if err != nil {
 		return types.ReadRoutingPlan{}, err
 	}
 
-	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	orderedReplicas := sort(readReplicas.Replicas, preferredNode(directCandidate, r.nodeSelector.LocalName()))
 
 	plan := types.ReadRoutingPlan{
-		Shard: params.Shard,
+		Shard: shard,
 		ReplicaSet: types.ReadReplicaSet{
 			Replicas: orderedReplicas,
 		},
-		ConsistencyLevel:    params.ConsistencyLevel,
-		IntConsistencyLevel: cl,
+		ConsistencyLevel:    cl,
+		IntConsistencyLevel: level,
 	}
 
 	return plan, nil
 }
 
 // BuildWriteRoutingPlan constructs a write routing plan for single-tenant collections.
-func (r *singleTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
-	if err := r.validateTenant(params.Tenant); err != nil {
+func (r *singleTenantRouter) BuildWriteRoutingPlan(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) (types.WriteRoutingPlan, error) {
+	if err := r.validateTenant(tenant); err != nil {
 		return types.WriteRoutingPlan{}, err
 	}
-	return r.buildWriteRoutingPlan(params)
+	return r.buildWriteRoutingPlan(tenant, shard, cl, directCandidate)
 }
 
-func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
-	_, writeReplicas, err := r.getReadWriteReplicasLocation(r.collection, params.Tenant, params.Shard)
+func (r *singleTenantRouter) buildWriteRoutingPlan(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) (types.WriteRoutingPlan, error) {
+	_, writeReplicas, err := r.getReadWriteReplicasLocation(r.collection, tenant, shard)
 	if err != nil {
 		return types.WriteRoutingPlan{}, err
 	}
@@ -372,22 +372,22 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuild
 		return types.WriteRoutingPlan{}, fmt.Errorf("no write replica found")
 	}
 
-	cl, err := writeReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
+	level, err := writeReplicas.ValidateConsistencyLevel(cl)
 	if err != nil {
 		return types.WriteRoutingPlan{}, err
 	}
 
 	// Order replicas with direct candidate first
-	sortedWriteReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	sortedWriteReplicas := sort(writeReplicas.Replicas, preferredNode(directCandidate, r.nodeSelector.LocalName()))
 
 	plan := types.WriteRoutingPlan{
-		Shard: params.Shard,
+		Shard: shard,
 		ReplicaSet: types.WriteReplicaSet{
 			Replicas:           sortedWriteReplicas,
 			AdditionalReplicas: writeReplicas.AdditionalReplicas,
 		},
-		ConsistencyLevel:    params.ConsistencyLevel,
-		IntConsistencyLevel: cl,
+		ConsistencyLevel:    cl,
+		IntConsistencyLevel: level,
 	}
 
 	return plan, nil
@@ -501,18 +501,18 @@ func (r *multiTenantRouter) tenantExistsAndIsActive(tenantStatus map[string]stri
 }
 
 // BuildWriteRoutingPlan constructs a write routing plan for multi-tenant collections.
-func (r *multiTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
-	if params.Shard == "" {
-		params.Shard = params.Tenant
+func (r *multiTenantRouter) BuildWriteRoutingPlan(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) (types.WriteRoutingPlan, error) {
+	if shard == "" {
+		shard = tenant
 	}
-	if err := r.validateTenant(params.Tenant); err != nil {
+	if err := r.validateTenant(tenant); err != nil {
 		return types.WriteRoutingPlan{}, err
 	}
-	return r.buildWriteRoutingPlan(params)
+	return r.buildWriteRoutingPlan(tenant, shard, cl, directCandidate)
 }
 
-func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
-	_, writeReplicas, err := r.getReadWriteReplicasLocation(r.collection, params.Tenant, params.Shard)
+func (r *multiTenantRouter) buildWriteRoutingPlan(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) (types.WriteRoutingPlan, error) {
+	_, writeReplicas, err := r.getReadWriteReplicasLocation(r.collection, tenant, shard)
 	if err != nil {
 		return types.WriteRoutingPlan{}, err
 	}
@@ -521,40 +521,40 @@ func (r *multiTenantRouter) buildWriteRoutingPlan(params types.RoutingPlanBuildO
 		return types.WriteRoutingPlan{}, fmt.Errorf("no read replica found")
 	}
 
-	cl, err := writeReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
+	level, err := writeReplicas.ValidateConsistencyLevel(cl)
 	if err != nil {
 		return types.WriteRoutingPlan{}, err
 	}
 
 	// Order replicas with direct candidate first
-	orderedReplicas := sort(writeReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	orderedReplicas := sort(writeReplicas.Replicas, preferredNode(directCandidate, r.nodeSelector.LocalName()))
 
 	plan := types.WriteRoutingPlan{
-		Shard: params.Shard,
+		Shard: shard,
 		ReplicaSet: types.WriteReplicaSet{
 			Replicas:           orderedReplicas,
 			AdditionalReplicas: writeReplicas.AdditionalReplicas,
 		},
-		ConsistencyLevel:    params.ConsistencyLevel,
-		IntConsistencyLevel: cl,
+		ConsistencyLevel:    cl,
+		IntConsistencyLevel: level,
 	}
 
 	return plan, nil
 }
 
 // BuildReadRoutingPlan constructs a read routing plan for multi-tenant collections.
-func (r *multiTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	if params.Shard == "" {
-		params.Shard = params.Tenant
+func (r *multiTenantRouter) BuildReadRoutingPlan(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) (types.ReadRoutingPlan, error) {
+	if shard == "" {
+		shard = tenant
 	}
-	if err := r.validateTenant(params.Tenant); err != nil {
+	if err := r.validateTenant(tenant); err != nil {
 		return types.ReadRoutingPlan{}, err
 	}
-	return r.buildReadRoutingPlan(params)
+	return r.buildReadRoutingPlan(tenant, shard, cl, directCandidate)
 }
 
-func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
-	readReplicas, _, err := r.getReadWriteReplicasLocation(r.collection, params.Tenant, params.Shard)
+func (r *multiTenantRouter) buildReadRoutingPlan(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) (types.ReadRoutingPlan, error) {
+	readReplicas, _, err := r.getReadWriteReplicasLocation(r.collection, tenant, shard)
 	if err != nil {
 		return types.ReadRoutingPlan{}, err
 	}
@@ -563,21 +563,21 @@ func (r *multiTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildOp
 		return types.ReadRoutingPlan{}, fmt.Errorf("no read replica found")
 	}
 
-	cl, err := readReplicas.ValidateConsistencyLevel(params.ConsistencyLevel)
+	level, err := readReplicas.ValidateConsistencyLevel(cl)
 	if err != nil {
 		return types.ReadRoutingPlan{}, err
 	}
 
 	// Order replicas with direct candidate first
-	orderedReplicas := sort(readReplicas.Replicas, preferredNode(params.DirectCandidateNode, r.nodeSelector.LocalName()))
+	orderedReplicas := sort(readReplicas.Replicas, preferredNode(directCandidate, r.nodeSelector.LocalName()))
 
 	return types.ReadRoutingPlan{
-		Shard: params.Shard,
+		Shard: shard,
 		ReplicaSet: types.ReadReplicaSet{
 			Replicas: orderedReplicas,
 		},
-		ConsistencyLevel:    params.ConsistencyLevel,
-		IntConsistencyLevel: cl,
+		ConsistencyLevel:    cl,
+		IntConsistencyLevel: level,
 	}, nil
 }
 
