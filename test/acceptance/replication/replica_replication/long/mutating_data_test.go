@@ -69,6 +69,7 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 	move := "MOVE"
 	// copy := "COPY"
 
+	// delete this comment
 	t.Run("MOVE, rf=2, no automated resolution", func(t *testing.T) {
 		test(t, compose, move, 2, models.ReplicationConfigDeletionStrategyNoAutomatedResolution)
 	})
