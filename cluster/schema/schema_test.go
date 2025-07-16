@@ -26,6 +26,22 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+func TestCollectionNameConflictWithAlias(t *testing.T) {
+	var (
+		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
+	)
+
+	require.Nil(t, sc.addClass(&models.Class{Class: "CoolCar"}, ss, 1))
+
+	err := sc.createAlias("CoolCar", "MyCar")
+	require.NoError(t, err)
+
+	// checking to see if class exists should consider the existing alias as well
+	got := sc.ClassEqual("MyCar")
+	assert.NotEmpty(t, got)
+}
+
 func Test_schemaCollectionMetrics(t *testing.T) {
 	r := prometheus.NewPedanticRegistry()
 

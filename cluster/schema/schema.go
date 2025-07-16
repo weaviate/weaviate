@@ -113,6 +113,11 @@ func (s *schema) ClassEqual(name string) string {
 }
 
 func (s *schema) unsafeClassEqual(name string) string {
+	for alias := range s.aliases {
+		if strings.EqualFold(alias, name) {
+			return alias
+		}
+	}
 	for k := range s.classes {
 		if strings.EqualFold(k, name) {
 			return k
