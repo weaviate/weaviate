@@ -113,11 +113,6 @@ func (s *schema) ClassEqual(name string) string {
 }
 
 func (s *schema) unsafeClassEqual(name string) string {
-	for alias := range s.aliases {
-		if strings.EqualFold(alias, name) {
-			return alias
-		}
-	}
 	for k := range s.classes {
 		if strings.EqualFold(k, name) {
 			return k
@@ -667,8 +662,12 @@ func (s *schema) replaceAlias(newClass, alias string) error {
 
 // unsafeAliasExists is not concurrency-safe! Lock s.aliases before calling
 func (s *schema) unsafeAliasExists(alias string) bool {
-	_, ok := s.aliases[alias]
-	return ok
+	for v := range s.aliases {
+		if strings.EqualFold(v, alias) {
+			return true
+		}
+	}
+	return false
 }
 
 func (s *schema) canonicalAlias(alias string) string {
