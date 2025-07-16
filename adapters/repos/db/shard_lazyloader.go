@@ -28,10 +28,10 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
+	"github.com/weaviate/weaviate/entities/cyclemanager"
 	"github.com/weaviate/weaviate/entities/dto"
 	enterrors "github.com/weaviate/weaviate/entities/errors"
 	"github.com/weaviate/weaviate/entities/filters"
@@ -468,7 +468,7 @@ func (l *LazyLoadShard) AnalyzeObject(object *storobj.Object) ([]inverted.Proper
 	return l.shard.AnalyzeObject(object)
 }
 
-func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error) {
+func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, error) {
 	l.mutex.Lock()
 	if l.loaded {
 		l.mutex.Unlock()
@@ -476,25 +476,38 @@ func (l *LazyLoadShard) DimensionsUsage(ctx context.Context, targetVector string
 	}
 	l.mutex.Unlock()
 
-	// For unloaded shards, use the unloaded shard/tenant calculation method
-	// This avoids loading the shard into memory
-	return l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
-}
 
-func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int, error) {
-	l.mutex.Lock()
-	if l.loaded {
-		l.mutex.Unlock()
-		return l.shard.Dimensions(ctx, targetVector)
+	path :=l.Index().path()
+	bucket, err := lsmkv.NewBucketCreator().NewBucket(ctx,
+		shardPathDimensionsLSM(path, l.Name()),
+		path,
+		l.Index().logger,
+		nil,
+		cyclemanager.NewCallbackGroupNoop(),
+		cyclemanager.NewCallbackGroupNoop(),
+	)
+	if err != nil {
+		return 0, 0, err
 	}
-	l.mutex.Unlock()
+	defer bucket.Shutdown(ctx)
 
-	// For unloaded shards, get dimensions from unloaded shard/tenant calculation
-	dimensionality, err := l.shardOpts.index.CalculateUnloadedDimensionsUsage(ctx, l.shardOpts.name, targetVector)
-	return dimensionality.Count, err
+
+	dimensions, count := calcTargetVectorDimensionsFromBucket(ctx, bucket, targetVector, func(dimLen int, v int64) (int64, int64) {
+		return v, int64(dimLen)
+	})
+
+	return dimensions, count, nil
 }
 
-func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int) int {
+func (l *LazyLoadShard) Dimensions(ctx context.Context, targetVector string) (int64, error) {
+	dimensions, count, err := l.DimensionsUsage(ctx, targetVector)
+	if err != nil {
+		return 0, fmt.Errorf("error while getting dimensions for shard %s: %w", l.shardOpts.name, err)
+	}
+	return dimensions*count, nil
+}
+
+func (l *LazyLoadShard) QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64 {
 	l.mustLoad()
 	return l.shard.QuantizedDimensions(ctx, targetVector, segments)
 }

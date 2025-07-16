@@ -187,7 +187,7 @@ func (p PQStats) CompressionType() string {
 	return "pq"
 }
 
-func (p PQStats) CompressionRatio(dimensions int) float64 {
+func (p PQStats) CompressionRatio(dimensions int64) float64 {
 	// PQ compression: original size = dimensions * 4 bytes (float32)
 	// compressed size = segments * 1 byte (one code per segment)
 	originalSize := dimensions * 4

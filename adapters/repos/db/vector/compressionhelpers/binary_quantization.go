@@ -56,7 +56,7 @@ func (b BQStats) CompressionType() string {
 	return "bq"
 }
 
-func (b BQStats) CompressionRatio(_ int) float64 {
+func (b BQStats) CompressionRatio(_ int64) float64 {
 	// BQ compression: original size = dimensions * 4 bytes (float32)
 	// compressed size = ceil(dimensions / 64) * 8 bytes (uint64)
 	// For practical vector dimensions, the ratio approaches 32
