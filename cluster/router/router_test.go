@@ -415,7 +415,7 @@ func TestMultiTenantRouter_GetReadWriteReplicasLocation_TenantNotActive(t *testi
 	rs, ws, err := r.GetReadWriteReplicasLocation("TestClass", "luke", "")
 
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "tenant not active: \"luke\"")
+	require.Contains(t, err.Error(), "tenant not active: 'luke'")
 	require.Empty(t, rs.Replicas)
 	require.Empty(t, ws.Replicas)
 	require.Empty(t, ws.AdditionalReplicas)
@@ -573,7 +573,7 @@ func TestMultiTenantRouter_TenantStatusChangeDuringOperation(t *testing.T) {
 
 	rs, ws, err = r.GetReadWriteReplicasLocation("TestClass", "luke", "")
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "tenant not active: \"luke\"")
+	require.Contains(t, err.Error(), "tenant not active: 'luke'")
 	require.Empty(t, rs.Replicas)
 	require.Empty(t, ws.Replicas)
 	require.Empty(t, ws.AdditionalReplicas)
@@ -1440,7 +1440,7 @@ func TestSingleTenantRouter_BuildWriteRoutingPlan_NoReplicas(t *testing.T) {
 
 	plan, err := r.BuildWriteRoutingPlan(opts)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no replica found")
+	require.Contains(t, err.Error(), "no write replica found")
 	require.Empty(t, plan.ReplicaSet.Replicas)
 }
 
@@ -1576,7 +1576,7 @@ func TestMultiTenantRouter_BuildWriteRoutingPlan_NoReplicas(t *testing.T) {
 
 	plan, err := r.BuildWriteRoutingPlan(opts)
 	require.Error(t, err)
-	require.Contains(t, err.Error(), "no replica found")
+	require.Contains(t, err.Error(), "no read replica found")
 	require.Empty(t, plan.ReplicaSet.Replicas)
 }
 
