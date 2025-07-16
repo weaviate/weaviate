@@ -11,7 +11,10 @@
 
 package config
 
-import "strings"
+import (
+	"os"
+	"strings"
+)
 
 func Enabled(value string) bool {
 	switch strings.ToLower(value) {
@@ -20,4 +23,9 @@ func Enabled(value string) bool {
 	default:
 		return false
 	}
+}
+
+func EnvEnabled(value string) bool {
+	val := os.Getenv(value)
+	return Enabled(val)
 }
