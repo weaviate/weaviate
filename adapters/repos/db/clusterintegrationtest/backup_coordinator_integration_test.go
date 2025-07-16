@@ -55,8 +55,10 @@ func TestDistributedBackups(t *testing.T) {
 				name: fmt.Sprintf("node-%d", i),
 			}
 
-			node.init(t, dirName, shardStateSerialized, &nodes, overallShardState)
 			nodes = append(nodes, node)
+		}
+		for _, node := range nodes {
+			node.init(t, dirName, shardStateSerialized, &nodes, overallShardState)
 		}
 	})
 

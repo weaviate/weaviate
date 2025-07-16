@@ -92,8 +92,9 @@ func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return(names).Maybe()
 	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return(names, nil).Maybe()
 	mockNodeSelector := cluster.NewMockNodeSelector(t)
-	mockNodeSelector.EXPECT().LocalName().Return("node1").Maybe()
-	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).Return("node1", true).Maybe()
+	mockNodeSelector.EXPECT().LocalName().Return(n.name).Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(node string) (string, bool) { return node, true }).Maybe()
+
 	n.repo, err = db.New(logger, n.name, db.Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  localDir,
