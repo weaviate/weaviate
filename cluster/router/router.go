@@ -23,6 +23,8 @@ import (
 	"context"
 	"fmt"
 
+	enterrors "github.com/weaviate/weaviate/entities/errors"
+
 	"github.com/weaviate/weaviate/usecases/replica"
 
 	"github.com/weaviate/weaviate/usecases/objects"
@@ -54,10 +56,6 @@ func newRouterError(message, collection, tenant, shard string, cause error) rout
 		shard:      shard,
 		cause:      cause,
 	}
-}
-
-func newTenantError(cause error) objects.ErrMultiTenancy {
-	return objects.NewErrMultiTenancy(cause)
 }
 
 func (e routerError) Error() string {
@@ -207,7 +205,7 @@ func buildReplicas(nodeNames []string, shard string, hostnameResolver func(nodeN
 // validateTenant for a single-tenant router checks the tenant is empty and returns an error if it is not.
 func (r *singleTenantRouter) validateTenant(tenant string) error {
 	if tenant != "" {
-		return fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", r.collection)
+		return objects.NewErrMultiTenancy(fmt.Errorf("class %s has multi-tenancy disabled, but request was with tenant", r.collection))
 	}
 	return nil
 }
@@ -225,7 +223,7 @@ func (r *singleTenantRouter) AllHostnames() []string {
 // GetReadWriteReplicasLocation returns read and write replicas for single-tenant collections.
 func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, tenant string, shard string) (readReplicas types.ReadReplicaSet, writeReplicas types.WriteReplicaSet, err error) {
 	if err := r.validateTenant(tenant); err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newTenantError(err)
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
 	return r.getReadWriteReplicasLocation(collection, tenant, shard)
 }
@@ -233,7 +231,7 @@ func (r *singleTenantRouter) GetReadWriteReplicasLocation(collection string, ten
 // GetWriteReplicasLocation returns write replicas for single-tenant collections.
 func (r *singleTenantRouter) GetWriteReplicasLocation(collection string, tenant string, shard string) (types.WriteReplicaSet, error) {
 	if err := r.validateTenant(tenant); err != nil {
-		return types.WriteReplicaSet{}, newTenantError(err)
+		return types.WriteReplicaSet{}, err
 	}
 	_, writeReplicas, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
 	if err != nil {
@@ -245,7 +243,7 @@ func (r *singleTenantRouter) GetWriteReplicasLocation(collection string, tenant 
 // GetReadReplicasLocation returns read replicas for single-tenant collections.
 func (r *singleTenantRouter) GetReadReplicasLocation(collection string, tenant string, shard string) (types.ReadReplicaSet, error) {
 	if err := r.validateTenant(tenant); err != nil {
-		return types.ReadReplicaSet{}, newTenantError(err)
+		return types.ReadReplicaSet{}, err
 	}
 	readReplicas, _, err := r.getReadWriteReplicasLocation(collection, tenant, shard)
 	if err != nil {
@@ -330,7 +328,7 @@ func (r *singleTenantRouter) writeReplicasForShard(collection, tenant, shard str
 // BuildReadRoutingPlan constructs a read routing plan for single-tenant collections.
 func (r *singleTenantRouter) BuildReadRoutingPlan(params types.RoutingPlanBuildOptions) (types.ReadRoutingPlan, error) {
 	if err := r.validateTenant(params.Tenant); err != nil {
-		return types.ReadRoutingPlan{}, newTenantError(err)
+		return types.ReadRoutingPlan{}, err
 	}
 	return r.buildReadRoutingPlan(params)
 }
@@ -367,7 +365,7 @@ func (r *singleTenantRouter) buildReadRoutingPlan(params types.RoutingPlanBuildO
 // BuildWriteRoutingPlan constructs a write routing plan for single-tenant collections.
 func (r *singleTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildOptions) (types.WriteRoutingPlan, error) {
 	if err := r.validateTenant(params.Tenant); err != nil {
-		return types.WriteRoutingPlan{}, newTenantError(err)
+		return types.WriteRoutingPlan{}, err
 	}
 	return r.buildWriteRoutingPlan(params)
 }
@@ -415,7 +413,7 @@ func (r *singleTenantRouter) BuildRoutingPlanOptions(_, shard string, cl types.C
 // validateTenant for a multi-tenant router checks the tenant is not empty and returns an error if it is.
 func (r *multiTenantRouter) validateTenant(tenant string) error {
 	if tenant == "" {
-		return fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", r.collection)
+		return objects.NewErrMultiTenancy(fmt.Errorf("class %s has multi-tenancy enabled, but request was without tenant", r.collection))
 	}
 	return nil
 }
@@ -436,7 +434,7 @@ func (r *multiTenantRouter) GetReadWriteReplicasLocation(collection string, tena
 		shard = tenant
 	}
 	if err := r.validateTenant(tenant); err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newTenantError(err)
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
 	if err := r.validateTenantShard(tenant, shard); err != nil {
 		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newRouterError("tenant shard validation", r.collection, tenant, shard, err)
@@ -450,7 +448,7 @@ func (r *multiTenantRouter) GetWriteReplicasLocation(collection string, tenant s
 		shard = tenant
 	}
 	if err := r.validateTenant(tenant); err != nil {
-		return types.WriteReplicaSet{}, newTenantError(err)
+		return types.WriteReplicaSet{}, err
 	}
 	if err := r.validateTenantShard(tenant, shard); err != nil {
 		return types.WriteReplicaSet{}, newRouterError("tenant shard validation", r.collection, tenant, shard, err)
@@ -465,7 +463,7 @@ func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant st
 		shard = tenant
 	}
 	if err := r.validateTenant(tenant); err != nil {
-		return types.ReadReplicaSet{}, newTenantError(err)
+		return types.ReadReplicaSet{}, err
 	}
 	if err := r.validateTenantShard(tenant, shard); err != nil {
 		return types.ReadReplicaSet{}, newRouterError("tenant shard validation", r.collection, tenant, shard, err)
@@ -477,15 +475,11 @@ func (r *multiTenantRouter) GetReadReplicasLocation(collection string, tenant st
 func (r *multiTenantRouter) getReadWriteReplicasLocation(collection string, tenant, shard string) (types.ReadReplicaSet, types.WriteReplicaSet, error) {
 	tenantStatus, err := r.schemaGetter.OptimisticTenantStatus(context.TODO(), collection, tenant)
 	if err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newTenantError(err)
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, objects.NewErrMultiTenancy(err)
 	}
 
-	ok, err := r.tenantExistsAndIsActive(tenantStatus, tenant)
-	if err != nil {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newTenantError(err)
-	}
-	if !ok {
-		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, newTenantError(err)
+	if err = r.tenantExistsAndIsActive(tenantStatus, tenant); err != nil {
+		return types.ReadReplicaSet{}, types.WriteReplicaSet{}, err
 	}
 
 	replicas, err := r.schemaReader.ShardReplicas(collection, shard)
@@ -503,16 +497,15 @@ func (r *multiTenantRouter) getReadWriteReplicasLocation(collection string, tena
 	return types.ReadReplicaSet{Replicas: readReplicas}, types.WriteReplicaSet{Replicas: writeReplicas, AdditionalReplicas: additionalWriteReplicas}, nil
 }
 
-func (r *multiTenantRouter) tenantExistsAndIsActive(tenantStatus map[string]string, tenant string) (bool, error) {
+func (r *multiTenantRouter) tenantExistsAndIsActive(tenantStatus map[string]string, tenant string) error {
 	status, ok := tenantStatus[tenant]
 	if !ok {
-		return false, fmt.Errorf("tenant not found: %q", tenant)
+		return objects.NewErrMultiTenancy(fmt.Errorf("%w: %q", enterrors.ErrTenantNotFound, tenant))
 	}
-
 	if status != models.TenantActivityStatusHOT {
-		return false, fmt.Errorf("tenant not active: %q", tenant)
+		return objects.NewErrMultiTenancy(fmt.Errorf("%w: '%s'", enterrors.ErrTenantNotActive, tenant))
 	}
-	return true, nil
+	return nil
 }
 
 // BuildWriteRoutingPlan constructs a write routing plan for multi-tenant collections.
@@ -521,7 +514,7 @@ func (r *multiTenantRouter) BuildWriteRoutingPlan(params types.RoutingPlanBuildO
 		params.Shard = params.Tenant
 	}
 	if err := r.validateTenant(params.Tenant); err != nil {
-		return types.WriteRoutingPlan{}, newTenantError(err)
+		return types.WriteRoutingPlan{}, err
 	}
 	return r.buildWriteRoutingPlan(params)
 }
