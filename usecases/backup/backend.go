@@ -241,13 +241,13 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 			desc.Status = string(backup.Cancelled)
 		}
 
-		u.log.Info("start uploading metadata for failed backup")
+		u.log.Info("start uploading metadata for cancelled or failed backup")
 		if metaErr := u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); metaErr != nil {
 			// combine errors for shadowing the original error in case
 			// of putMeta failure
 			err = fmt.Errorf("upload %w: %w", err, metaErr)
 		}
-		u.log.Info("finish uploading metadata for failed backup")
+		u.log.Info("finish uploading metadata for cancelled or failed backup")
 	}()
 
 	contextChecker := func(ctx context.Context) error {
