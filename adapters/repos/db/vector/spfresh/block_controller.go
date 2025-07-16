@@ -127,16 +127,34 @@ func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *
 	}
 
 	for {
+		var newOffsets []uint64
+
 		// load the current offsets
 		offsets := mapping.Load()
-		oldOffset := offsets[len(offsets)-1]
+		lastOffset := offsets[len(offsets)-1]
 
-		// read-modify-write the last block to a new block
-		lastBlock, err := b.store.Get(ctx, oldOffset)
+		// get the last block
+		lastBlock, err := b.store.Get(ctx, lastOffset)
 		if err != nil {
-			return errors.Wrapf(err, "failed to get last block %d for posting %d", oldOffset, postingID)
+			return errors.Wrapf(err, "failed to get last block %d for posting %d", lastOffset, postingID)
 		}
-		lastBlock = append(lastBlock, data...)
+
+		// check if the last block has enough space to append the new data
+		if len(lastBlock)+len(data) < blockSize {
+			// append to the last block
+			lastBlock = append(lastBlock, data...)
+			// allocate a new offsets slice with the same length
+			newOffsets = make([]uint64, len(offsets))
+		} else {
+			lastBlock = data
+			// allocate a new offsets slice with one more element
+			newOffsets = make([]uint64, len(offsets)+1)
+		}
+
+		// copy the old offsets
+		copy(newOffsets, offsets)
+		// set the new block offset at the end
+		newOffsets[len(newOffsets)-1] = newBlockOffset
 
 		// store the new block
 		err = b.store.Put(ctx, newBlockOffset, lastBlock)
@@ -144,16 +162,11 @@ func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *
 			return errors.Wrapf(err, "failed to put new block %d for posting %d", newBlockOffset, postingID)
 		}
 
-		// update the mapping with the new offsets
-		newOffsets := make([]uint64, len(offsets))
-		copy(newOffsets, offsets)
-		newOffsets[len(newOffsets)-1] = newBlockOffset
-
 		if mapping.Offsets.CompareAndSwap(&offsets, &newOffsets) {
-			// successfully updated the mapping.
+			// successfully updated the mapping
 
 			// add the old offset back to the free block pool
-			b.blockPool.freeBlockPool.Put(oldOffset)
+			b.blockPool.freeBlockPool.Put(lastOffset)
 			return nil
 		}
 	}
