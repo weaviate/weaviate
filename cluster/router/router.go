@@ -38,28 +38,6 @@ import (
 	"github.com/weaviate/weaviate/usecases/cluster"
 )
 
-type routerError struct {
-	message    string
-	collection string
-	tenant     string
-	shard      string
-	cause      error
-}
-
-func newRouterError(message, collection, tenant, shard string, cause error) routerError {
-	return routerError{
-		message:    message,
-		collection: collection,
-		tenant:     tenant,
-		shard:      shard,
-		cause:      cause,
-	}
-}
-
-func (e routerError) Error() string {
-	return fmt.Sprintf("router error '%s' (collection: %q, tenant: %q, shard: %q): %v", e.message, e.collection, e.tenant, e.shard, e.cause)
-}
-
 // Builder provides a builder for creating router instances based on configuration.
 // Use NewBuilder() with all required parameters, then call Build() to get the appropriate Router implementation,
 // either a multi-tenant router or a single tenant router. The multi-tenant router will use the tenant name as the
