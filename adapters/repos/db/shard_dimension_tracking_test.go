@@ -36,7 +36,7 @@ import (
 )
 
 func Benchmark_Migration(b *testing.B) {
-	fmt.Printf("Running benchmark %v times\n", b.N)
+	b.Logf("Running benchmark %v times\n", b.N)
 	for i := 0; i < b.N; i++ {
 		func() {
 			r := getRandomSeed()
@@ -93,11 +93,11 @@ func Benchmark_Migration(b *testing.B) {
 				}
 			}
 
-			fmt.Printf("Added vectors, now migrating\n")
+			b.Logf("Added vectors, now migrating\n")
 
 			repo.config.TrackVectorDimensions = true
 			migrator.RecalculateVectorDimensions(context.TODO())
-			fmt.Printf("Benchmark complete")
+			b.Logf("Benchmark complete")
 		}()
 	}
 }
@@ -251,8 +251,8 @@ func Test_DimensionTracking(t *testing.T) {
 		idx.ForEachShard(func(name string, shard ShardLike) error {
 			dim, err := shard.Dimensions(context.Background(), "")
 			assert.NoError(t, err)
-			assert.Equal(t, 12800, dim)
-			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), "", 64))
+			assert.Equal(t, int64(12800), dim)
+			assert.Equal(t, int64(6400), shard.QuantizedDimensions(context.Background(), "", 64))
 			return nil
 		})
 	})
@@ -276,8 +276,8 @@ func Test_DimensionTracking(t *testing.T) {
 		idx.ForEachShard(func(name string, shard ShardLike) error {
 			dim, err := shard.Dimensions(context.Background(), "")
 			assert.NoError(t, err)
-			assert.Equal(t, 11520, dim)
-			assert.Equal(t, 5760, shard.QuantizedDimensions(context.Background(), "", 64))
+			assert.Equal(t, int64(11520), dim)
+			assert.Equal(t, int64(5760), shard.QuantizedDimensions(context.Background(), "", 64))
 			return nil
 		})
 	})
@@ -327,10 +327,10 @@ func Test_DimensionTracking(t *testing.T) {
 		idx.ForEachShard(func(name string, shard ShardLike) error {
 			dim, err := shard.Dimensions(context.Background(), "")
 			assert.NoError(t, err)
-			assert.Equal(t, 6400, dim)
-			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 64))
-			assert.Equal(t, 1600, shard.QuantizedDimensions(context.Background(), "", 32))
-			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 0))
+			assert.Equal(t, int64(6400), dim)
+			assert.Equal(t, int64(3200), shard.QuantizedDimensions(context.Background(), "", 64))
+			assert.Equal(t, int64(1600), shard.QuantizedDimensions(context.Background(), "", 32))
+			assert.Equal(t, int64(3200), shard.QuantizedDimensions(context.Background(), "", 0))
 			return nil
 		})
 	})
@@ -380,11 +380,11 @@ func Test_DimensionTracking(t *testing.T) {
 		idx.ForEachShard(func(name string, shard ShardLike) error {
 			dim, err := shard.Dimensions(context.Background(), "")
 			assert.NoError(t, err)
-			assert.Equal(t, 12800, dim)
-			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), "", 64))
-			assert.Equal(t, 3200, shard.QuantizedDimensions(context.Background(), "", 32))
+			assert.Equal(t, int64(12800), dim)
+			assert.Equal(t, int64(6400), shard.QuantizedDimensions(context.Background(), "", 64))
+			assert.Equal(t, int64(3200), shard.QuantizedDimensions(context.Background(), "", 32))
 			// segments = 0, will use 128/2 = 64 segments and so value should be 6400
-			assert.Equal(t, 6400, shard.QuantizedDimensions(context.Background(), "", 0))
+			assert.Equal(t, int64(6400), shard.QuantizedDimensions(context.Background(), "", 0))
 			return nil
 		})
 	})
@@ -555,6 +555,7 @@ func TestTotalDimensionTrackingMetrics(t *testing.T) {
 						err := db.PutObject(context.Background(), obj, legacyVec, namedVecs, multiVecs, nil, 0)
 						require.Nil(t, err)
 					}
+
 					publishDimensionMetricsFromRepo(context.Background(), db, class.Class)
 				}
 

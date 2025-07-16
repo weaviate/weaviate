@@ -169,8 +169,8 @@ func TestMultiVectorUtil_Equal(t *testing.T) {
 
 func Test_CalculateOptimalSegments(t *testing.T) {
 	type testCase struct {
-		dimensions       int
-		expectedSegments int
+		dimensions       int64
+		expectedSegments int64
 	}
 
 	for _, tc := range []testCase{
@@ -215,7 +215,7 @@ func Test_CalculateOptimalSegments(t *testing.T) {
 			expectedSegments: 1,
 		},
 	} {
-		segments := CalculateOptimalSegments(tc.dimensions)
+		segments := CalculateOptimalSegments(int64(tc.dimensions))
 		assert.Equal(t, tc.expectedSegments, segments)
 	}
 }

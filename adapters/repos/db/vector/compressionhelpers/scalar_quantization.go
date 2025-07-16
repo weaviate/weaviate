@@ -213,7 +213,7 @@ func (s SQStats) CompressionType() string {
 	return "sq"
 }
 
-func (s SQStats) CompressionRatio(_ int) float64 {
+func (s SQStats) CompressionRatio(_ int64) float64 {
 	// SQ compression: original size = dimensions * 4 bytes (float32)
 	// compressed size = dimensions * 1 byte + 8 bytes (for sum and sum2)
 	// For practical vector dimensions (typically 1536+), the ratio approaches 4

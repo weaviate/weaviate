@@ -33,7 +33,6 @@ import (
 	"github.com/weaviate/weaviate/adapters/repos/db/queue"
 	"github.com/weaviate/weaviate/adapters/repos/db/roaringset"
 	"github.com/weaviate/weaviate/cluster/router/types"
-	usagetypes "github.com/weaviate/weaviate/cluster/usage/types"
 	"github.com/weaviate/weaviate/entities/additional"
 	"github.com/weaviate/weaviate/entities/aggregation"
 	"github.com/weaviate/weaviate/entities/backup"
@@ -143,10 +142,10 @@ type ShardLike interface {
 	filePutter(context.Context, string) (io.WriteCloser, error)
 
 	// Dimensions returns the total number of dimensions for a given vector
-	Dimensions(ctx context.Context, targetVector string) (int, error)
+	Dimensions(ctx context.Context, targetVector string) (int64, error)
 	// DimensionsUsage returns the total number of dimensions and the number of objects for a given vector
-	DimensionsUsage(ctx context.Context, targetVector string) (usagetypes.Dimensionality, error)
-	QuantizedDimensions(ctx context.Context, targetVector string, segments int) int
+	DimensionsUsage(ctx context.Context, targetVector string) (int64, int64, error)
+	QuantizedDimensions(ctx context.Context, targetVector string, segments int64) int64
 
 	extendDimensionTrackerLSM(dimLength int, docID uint64, targetVector string) error
 	publishDimensionMetrics(ctx context.Context)
@@ -444,19 +443,19 @@ func (s *Shard) VectorStorageSize(ctx context.Context) (int64, error) {
 	// Iterate over all vector indexes to calculate storage size for both default and targeted vectors
 	if err := s.ForEachVectorIndex(func(targetVector string, index VectorIndex) error {
 		// Get dimensions and object count from the dimensions bucket for this specific target vector
-		dimensionality := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v []lsmkv.MapPair) (int, int) {
-			return len(v), dimLen
+		dimensionality, count := calcTargetVectorDimensionsFromStore(ctx, s.store, targetVector, func(dimLen int, v int64) (int64, int64) {
+			return int64(v), int64(dimLen)
 		})
 
-		if dimensionality.Count == 0 || dimensionality.Dimensions == 0 {
+		if count == 0 || dimensionality == 0 {
 			return nil
 		}
 
 		// Calculate uncompressed size (float32 = 4 bytes per dimension)
-		uncompressedSize := int64(dimensionality.Count) * int64(dimensionality.Dimensions) * 4
+		uncompressedSize := int64(count) * int64(dimensionality) * 4
 
 		// For active tenants, always use the direct vector index compression rate
-		compressionRate := index.CompressionStats().CompressionRatio(dimensionality.Dimensions)
+		compressionRate := index.CompressionStats().CompressionRatio(dimensionality)
 
 		// Calculate total size using actual compression rate
 		totalSize += int64(float64(uncompressedSize) * compressionRate)
