@@ -9,7 +9,7 @@
 //  CONTACT: hello@weaviate.io
 //
 
-package usagegcs
+package usages3
 
 import (
 	"context"
@@ -24,13 +24,13 @@ import (
 )
 
 const (
-	Name = "usage-gcs"
+	Name = "usage-s3"
 )
 
-// module is the GCS usage module using the common base
+// module is the S3 usage module using the common base
 type module struct {
 	*common.BaseModule
-	gcsStorage *GCSStorage
+	s3Storage *S3Storage
 }
 
 func New() *module {
@@ -55,13 +55,13 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	if err := common.ParseCommonUsageConfig(config); err != nil {
 		return err
 	}
-	if err := parseGCSConfig(config); err != nil {
+	if err := parseS3Config(config); err != nil {
 		return err
 	}
 
 	// Validate required configuration
-	if config.Usage.GCSBucket.Get() == "" && !config.RuntimeOverrides.Enabled {
-		return fmt.Errorf("GCS bucket name not configured - set USAGE_GCS_BUCKET environment variable or enable runtime overrides with RUNTIME_OVERRIDES_ENABLED=true")
+	if config.Usage.S3Bucket.Get() == "" && !config.RuntimeOverrides.Enabled {
+		return fmt.Errorf("S3 bucket name not configured - set USAGE_S3_BUCKET environment variable or enable runtime overrides with RUNTIME_OVERRIDES_ENABLED=true")
 	}
 
 	// Initialize logger
@@ -70,22 +70,22 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 	// Create metrics first
 	metrics := common.NewMetrics(params.GetMetricsRegisterer(), Name)
 
-	// Create GCS storage backend with metrics
-	gcsStorage, err := NewGCSStorage(ctx, logger, metrics)
+	// Create S3 storage backend with metrics
+	s3Storage, err := NewS3Storage(ctx, logger, metrics)
 	if err != nil {
-		return fmt.Errorf("failed to create GCS storage: %w", err)
+		return fmt.Errorf("failed to create S3 storage: %w", err)
 	}
 
-	m.gcsStorage = gcsStorage
+	m.s3Storage = s3Storage
 
 	// Update storage configuration (this may have empty bucket initially)
-	storageConfig := m.buildGCSConfig(config)
-	if _, err := m.gcsStorage.UpdateConfig(storageConfig); err != nil {
-		return fmt.Errorf("failed to configure GCS storage: %w", err)
+	storageConfig := m.buildS3Config(config)
+	if _, err := m.s3Storage.UpdateConfig(storageConfig); err != nil {
+		return fmt.Errorf("failed to configure S3 storage: %w", err)
 	}
 
-	// Create base module with GCS storage
-	m.BaseModule = common.NewBaseModule(Name, m.gcsStorage)
+	// Create base module with S3 storage
+	m.BaseModule = common.NewBaseModule(Name, m.s3Storage)
 
 	// Initialize base module with metrics
 	if err := m.InitializeCommon(ctx, config, logger, metrics); err != nil {
@@ -98,33 +98,33 @@ func (m *module) Init(ctx context.Context, params moduletools.ModuleInitParams) 
 		"collection_interval": config.Usage.ScrapeInterval.Get().String(),
 	}
 
-	if bucket := config.Usage.GCSBucket.Get(); bucket != "" {
-		logFields["gcs_bucket"] = bucket
+	if bucket := config.Usage.S3Bucket.Get(); bucket != "" {
+		logFields["s3_bucket"] = bucket
 	} else if config.RuntimeOverrides.Enabled {
-		logFields["gcs_bucket"] = "[pending runtime overrides]"
+		logFields["s3_bucket"] = "[pending runtime overrides]"
 	}
 
-	if prefix := config.Usage.GCSPrefix.Get(); prefix != "" {
-		logFields["gcs_prefix"] = prefix
+	if prefix := config.Usage.S3Prefix.Get(); prefix != "" {
+		logFields["s3_prefix"] = prefix
 	} else if config.RuntimeOverrides.Enabled {
-		logFields["gcs_prefix"] = "[pending runtime overrides]"
+		logFields["s3_prefix"] = "[pending runtime overrides]"
 	}
 
-	logger.WithFields(logFields).Info("initializing usage-gcs module with configuration")
+	logger.WithFields(logFields).Info("initializing usage-s3 module with configuration")
 
 	return nil
 }
 
-func (m *module) buildGCSConfig(config *config.Config) common.StorageConfig {
+func (m *module) buildS3Config(config *config.Config) common.StorageConfig {
 	storageConfig := common.StorageConfig{
 		NodeID: config.Cluster.Hostname,
 	}
 
-	if config.Usage.GCSBucket != nil {
-		storageConfig.Bucket = config.Usage.GCSBucket.Get()
+	if config.Usage.S3Bucket != nil {
+		storageConfig.Bucket = config.Usage.S3Bucket.Get()
 	}
-	if config.Usage.GCSPrefix != nil {
-		storageConfig.Prefix = config.Usage.GCSPrefix.Get()
+	if config.Usage.S3Prefix != nil {
+		storageConfig.Prefix = config.Usage.S3Prefix.Get()
 	}
 	if config.Usage.PolicyVersion != nil {
 		storageConfig.Version = config.Usage.PolicyVersion.Get()
@@ -133,22 +133,22 @@ func (m *module) buildGCSConfig(config *config.Config) common.StorageConfig {
 	return storageConfig
 }
 
-func parseGCSConfig(config *config.Config) error {
-	gcsBucket := ""
-	if config.Usage.GCSBucket != nil {
-		gcsBucket = config.Usage.GCSBucket.Get()
-	} else if v := os.Getenv("USAGE_GCS_BUCKET"); v != "" {
-		gcsBucket = v
+func parseS3Config(config *config.Config) error {
+	s3Bucket := ""
+	if config.Usage.S3Bucket != nil {
+		s3Bucket = config.Usage.S3Bucket.Get()
+	} else if v := os.Getenv("USAGE_S3_BUCKET"); v != "" {
+		s3Bucket = v
 	}
-	config.Usage.GCSBucket = runtime.NewDynamicValue(gcsBucket)
+	config.Usage.S3Bucket = runtime.NewDynamicValue(s3Bucket)
 
-	gcsPrefix := ""
-	if config.Usage.GCSPrefix != nil {
-		gcsPrefix = config.Usage.GCSPrefix.Get()
-	} else if v := os.Getenv("USAGE_GCS_PREFIX"); v != "" {
-		gcsPrefix = v
+	s3Prefix := ""
+	if config.Usage.S3Prefix != nil {
+		s3Prefix = config.Usage.S3Prefix.Get()
+	} else if v := os.Getenv("USAGE_S3_PREFIX"); v != "" {
+		s3Prefix = v
 	}
-	config.Usage.GCSPrefix = runtime.NewDynamicValue(gcsPrefix)
+	config.Usage.S3Prefix = runtime.NewDynamicValue(s3Prefix)
 
 	return nil
 }
