@@ -1518,7 +1518,7 @@ func (i *Index) objectSearch(ctx context.Context, limit int, filters *filters.Lo
 	}
 	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
+		return nil, nil, err
 	}
 
 	// If the request is a BM25F with no properties selected, use all possible properties
@@ -1889,7 +1889,7 @@ func (i *Index) objectVectorSearch(ctx context.Context, searchVectors []models.V
 	}
 	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
 	if err != nil {
-		return nil, nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
+		return nil, nil, err
 	}
 
 	if len(readPlan.Shards()) == 1 && !i.Config.ForceFullReplicasSearch {
@@ -2354,7 +2354,7 @@ func (i *Index) aggregate(ctx context.Context, replProps *additional.Replication
 	}
 	readPlan, err := i.router.BuildReadRoutingPlan(planOptions)
 	if err != nil {
-		return nil, fmt.Errorf("error while planning read operation for collection %s: %w", i.Config.ClassName.String(), err)
+		return nil, err
 	}
 
 	results := make([]*aggregation.Result, len(readPlan.Shards()))
