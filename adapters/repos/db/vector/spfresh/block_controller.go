@@ -3,6 +3,7 @@ package spfresh
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 
 	"github.com/pkg/errors"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
@@ -23,27 +24,28 @@ var (
 type BlockController struct {
 	store   Store
 	encoder BlockEncoder
-	// mapping of posting IDs to their blocks offsets.
+	// mappings of posting IDs to their blocks offsets.
 	// FlatBuffer is used here because the initial store implementation
 	// will use monotonic counters for block offsets.
 	// Once we switch to SSD blocks (e.g. SPDK), we can switch to a different
 	// implementation that supports sparse mappings.
-	mapping   *common.FlatBuffer[BlockMapping]
+	mappings  *common.FlatBuffer[BlockOffsets]
 	blockPool *BlockProvider
 	bufPool   sync.Pool
 }
 
 // Get reads the entire data of the given posting.
 func (b *BlockController) Get(ctx context.Context, postingID uint64) (Posting, error) {
-	mapping := b.mapping.Get(postingID)
-	if mapping.PostingID == 0 {
+	mapping := b.mappings.Get(postingID)
+	if mapping.Offsets == nil {
 		return nil, ErrPostingNotFound
 	}
 
 	buf := b.getBuffer()
 	defer b.putBuffer(buf)
 
-	for _, blockID := range mapping.BlockOffsets {
+	offsets := mapping.Load()
+	for _, blockID := range offsets {
 		block, err := b.store.Get(ctx, blockID)
 		if err != nil {
 			return nil, errors.Wrapf(err, "failed to get block %d for posting %d", blockID, postingID)
@@ -90,16 +92,13 @@ func (b *BlockController) Put(ctx context.Context, postingID uint64, posting Pos
 	}
 
 	// copy the previous mapping if it exists
-	old := b.mapping.Get(postingID)
+	old := b.mappings.Get(postingID)
 
 	// update the mapping with the new offsets
-	b.mapping.Set(postingID, BlockMapping{
-		PostingID:    postingID,
-		BlockOffsets: offsets,
-	})
+	b.mappings.Set(postingID, NewBlockOffsets(offsets))
 
 	// add the old offsets back to the free block pool
-	for _, offset := range old.BlockOffsets {
+	for _, offset := range old.Load() {
 		b.blockPool.freeBlockPool.Put(offset)
 	}
 
@@ -108,7 +107,56 @@ func (b *BlockController) Put(ctx context.Context, postingID uint64, posting Pos
 
 // Append appends new data to an existing posting.
 func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *Vector) error {
-	return nil
+	if vector == nil || len(vector.Data) == 0 {
+		return errors.New("vector cannot be nil or empty")
+	}
+
+	// encode the vector
+	data, err := b.encoder.EncodeVector(vector)
+	if err != nil {
+		return errors.Wrapf(err, "failed to encode vector for posting %d", postingID)
+	}
+
+	// allocate a new block
+	newBlockOffset := b.blockPool.getFreeBlockOffset()
+
+	// get posting mapping
+	mapping := b.mappings.Get(postingID)
+	if mapping.Offsets == nil {
+		return ErrPostingNotFound
+	}
+
+	for {
+		// load the current offsets
+		offsets := mapping.Load()
+		oldOffset := offsets[len(offsets)-1]
+
+		// read-modify-write the last block to a new block
+		lastBlock, err := b.store.Get(ctx, oldOffset)
+		if err != nil {
+			return errors.Wrapf(err, "failed to get last block %d for posting %d", oldOffset, postingID)
+		}
+		lastBlock = append(lastBlock, data...)
+
+		// store the new block
+		err = b.store.Put(ctx, newBlockOffset, lastBlock)
+		if err != nil {
+			return errors.Wrapf(err, "failed to put new block %d for posting %d", newBlockOffset, postingID)
+		}
+
+		// update the mapping with the new offsets
+		newOffsets := make([]uint64, len(offsets))
+		copy(newOffsets, offsets)
+		newOffsets[len(newOffsets)-1] = newBlockOffset
+
+		if mapping.Offsets.CompareAndSwap(&offsets, &newOffsets) {
+			// successfully updated the mapping.
+
+			// add the old offset back to the free block pool
+			b.blockPool.freeBlockPool.Put(oldOffset)
+			return nil
+		}
+	}
 }
 
 // VectorCount returns the number of vectors in a posting.
@@ -116,10 +164,29 @@ func (b *BlockController) VectorCount(postingID uint64) (int, error) {
 	return 0, nil
 }
 
-// BlockMapping represents the mapping of a posting ID to its associated blocks.
-type BlockMapping struct {
-	PostingID    uint64
-	BlockOffsets []uint64
+// BlockOffsets represents the mapping of a posting ID to its associated blocks.
+type BlockOffsets struct {
+	Offsets *atomic.Pointer[[]uint64]
+}
+
+func NewBlockOffsets(offsets []uint64) BlockOffsets {
+	ptr := atomic.Pointer[[]uint64]{}
+	ptr.Store(&offsets)
+
+	return BlockOffsets{
+		Offsets: &ptr,
+	}
+}
+
+func (b *BlockOffsets) Load() []uint64 {
+	if b.Offsets == nil {
+		return nil
+	}
+	offsets := b.Offsets.Load()
+	if offsets == nil {
+		return nil
+	}
+	return *offsets
 }
 
 // Store defines the interface for a storage backend that can retrieve blocks by their ID.
@@ -132,7 +199,8 @@ type Store interface {
 // BlockEncoder encodes and decodes vectors to and from blocks.
 type BlockEncoder interface {
 	Encode(vectors []Vector) ([]byte, error)
-	Decode(bloc []byte) ([]Vector, error)
+	EncodeVector(vector *Vector) ([]byte, error)
+	Decode(block []byte) ([]Vector, error)
 }
 
 type BlockProvider struct {
