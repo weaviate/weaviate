@@ -12,7 +12,9 @@
 package spfresh
 
 import (
+	"bytes"
 	"context"
+	"encoding/binary"
 	"sync"
 	"sync/atomic"
 
@@ -22,14 +24,12 @@ import (
 
 const (
 	// hardcoded block size for postings.
-	// Once we switch to SSD blocks, this can be changed to a more dynamic value.
+	// Once we switch to SPDK, this can be changed to a more dynamic value.
 	blockSize = 4096
 )
 
-var (
-	// ErrPostingNotFound is returned when a posting with the given ID does not exist.
-	ErrPostingNotFound = errors.New("posting not found")
-)
+// ErrPostingNotFound is returned when a posting with the given ID does not exist.
+var ErrPostingNotFound = errors.New("posting not found")
 
 // BlockController manages I/O of postings on disk.
 type BlockController struct {
@@ -79,10 +79,11 @@ func (b *BlockController) Put(ctx context.Context, postingID uint64, posting Pos
 	}
 
 	// encode the posting into binary data
-	data, err := b.encoder.Encode(posting)
+	data, release, err := b.encoder.Encode(posting)
 	if err != nil {
 		return errors.Wrapf(err, "failed to encode posting %d", postingID)
 	}
+	defer release()
 
 	// store the posting in individual blocks
 	var offsets []uint64
@@ -124,10 +125,11 @@ func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *
 	}
 
 	// encode the vector
-	data, err := b.encoder.EncodeVector(vector)
+	data, release, err := b.encoder.EncodeVector(vector)
 	if err != nil {
 		return errors.Wrapf(err, "failed to encode vector for posting %d", postingID)
 	}
+	defer release()
 
 	// allocate a new block
 	newBlockOffset := b.blockPool.getFreeBlockOffset()
@@ -214,14 +216,117 @@ func NewPostingMetadata(offsets []uint64, vectorCount uint64) PostingMetadata {
 // It is used by the BlockController to read blocks from disk.
 type Store interface {
 	Get(ctx context.Context, offset uint64) ([]byte, error)
+	// Put writes a block to the store at the given offset.
+	// It overwrites the full block.
 	Put(ctx context.Context, offset uint64, block []byte) error
 }
 
 // BlockEncoder encodes and decodes vectors to and from blocks.
-type BlockEncoder interface {
-	Encode(vectors []Vector) ([]byte, error)
-	EncodeVector(vector *Vector) ([]byte, error)
-	Decode(block []byte) ([]Vector, error)
+type BlockEncoder struct {
+	Dimensions    int // Number of dimensions of the vectors to encode/decode
+	DimensionSize int // Size of each dimension in bytes, e.g., 4 for float32
+
+	bufPool sync.Pool // Buffer pool for reusing byte slices
+}
+
+func NewBlockEncoder(dimensions int, dimensionSize int) *BlockEncoder {
+	return &BlockEncoder{
+		Dimensions:    dimensions,
+		DimensionSize: dimensionSize,
+		bufPool: sync.Pool{
+			New: func() any {
+				return new(bytes.Buffer)
+			},
+		},
+	}
+}
+
+func (e *BlockEncoder) getBuffer() *bytes.Buffer {
+	buf := e.bufPool.Get().(*bytes.Buffer)
+	buf.Reset()
+	return buf
+}
+
+func (e *BlockEncoder) putBuffer(buf *bytes.Buffer) {
+	buf.Reset()
+	e.bufPool.Put(buf)
+}
+
+func (e *BlockEncoder) Encode(vectors []Vector) ([]byte, func(), error) {
+	buf := e.getBuffer()
+
+	for _, vector := range vectors {
+		err := e.encodeVector(buf, &vector)
+		if err != nil {
+			return nil, nil, errors.Wrapf(err, "failed to encode vector %d", vector.ID)
+		}
+	}
+
+	return buf.Bytes(), func() { e.putBuffer(buf) }, nil
+}
+
+func (e *BlockEncoder) encodeVector(out *bytes.Buffer, vector *Vector) error {
+	if len(vector.Data) != e.Dimensions {
+		return errors.Errorf("vector %d has %d dimensions, expected %d", vector.ID, len(vector.Data), e.Dimensions)
+	}
+
+	_ = binary.Write(out, binary.LittleEndian, vector.ID)
+	_ = binary.Write(out, binary.LittleEndian, vector.Version)
+	// we do not write the vector size
+	for _, value := range vector.Data {
+		_ = binary.Write(out, binary.LittleEndian, value)
+	}
+	return nil
+}
+
+func (e *BlockEncoder) EncodeVector(vector *Vector) ([]byte, func(), error) {
+	buf := e.getBuffer()
+	defer e.putBuffer(buf)
+
+	err := e.encodeVector(buf, vector)
+	if err != nil {
+		return nil, nil, errors.Wrapf(err, "failed to encode vector %d", vector.ID)
+	}
+	return buf.Bytes(), func() { e.putBuffer(buf) }, nil
+}
+
+func (e *BlockEncoder) Decode(block []byte) ([]Vector, error) {
+	var vectors []Vector
+
+	for {
+		if len(block) < 8+e.Dimensions*e.DimensionSize {
+			break // not enough data for another vector
+		}
+
+		var id uint64
+		var version VectorVersion
+		err := binary.Read(bytes.NewReader(block[:8]), binary.LittleEndian, &id)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to read vector ID")
+		}
+		err = binary.Read(bytes.NewReader(block[8:16]), binary.LittleEndian, &version)
+		if err != nil {
+			return nil, errors.Wrap(err, "failed to read vector version")
+		}
+
+		data := make([]float32, e.Dimensions)
+		for i := 0; i < e.Dimensions; i++ {
+			err = binary.Read(bytes.NewReader(block[16+i*e.DimensionSize:]), binary.LittleEndian, &data[i])
+			if err != nil {
+				return nil, errors.Wrapf(err, "failed to read vector data for ID %d", id)
+			}
+		}
+
+		vectors = append(vectors, Vector{
+			ID:      id,
+			Version: version,
+			Data:    data,
+		})
+
+		block = block[16+e.Dimensions*e.DimensionSize:]
+	}
+
+	return vectors, nil
 }
 
 type BlockProvider struct {
