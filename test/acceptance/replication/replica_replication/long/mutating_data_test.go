@@ -105,9 +105,9 @@ func (suite *ReplicationTestSuite) TestReplicationReplicateWhileMutatingData() {
 }
 
 var mutateDataTriggeredSleep atomic.Bool
-var deletedIds sync.Map
 
 func test(t *testing.T, compose *docker.DockerCompose, replicationType string, factor int, strategy string) {
+	mutateDataTriggeredSleep.Store(false)
 	helper.SetupClient(compose.GetWeaviate().URI())
 
 	cls := articles.ParagraphsClass()
@@ -284,6 +284,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 }
 
 func mutateData(t *testing.T, ctx context.Context, className string, tenantName string, wait int, nodeToAddress map[string]string) {
+	var deletedIds sync.Map
 	iteration := -1
 	counter := 0
 	createDurations := []time.Duration{}
