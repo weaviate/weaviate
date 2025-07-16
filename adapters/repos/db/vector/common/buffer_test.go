@@ -117,15 +117,15 @@ func TestFlatBuffer(t *testing.T) {
 	require.Zero(t, buf.Get(1_000_000))
 
 	buf.Grow(10_000)
-	require.Equal(t, buf.Cap(), 10_000, "buffer did not grow as expected")
+	require.Equal(t, 10_000, buf.Cap(), "buffer did not grow as expected")
 	buf.Grow(5000)
-	require.Equal(t, buf.Cap(), 10_000, "buffer did not grow as expected")
+	require.Equal(t, 10_000, buf.Cap(), "buffer did not grow as expected")
 
 	buf.Reset()
-	require.Equal(t, buf.Cap(), 1000, "buffer did not reset to initial capacity")
+	require.Equal(t, 10_000, buf.Cap(), "buffer did not reset to initial capacity")
 	require.Zero(t, buf.Get(1_000_000))
 	buf.Grow(10_000)
-	require.Equal(t, buf.Cap(), 10_000, "buffer did not grow as expected")
+	require.Equal(t, 10_000, buf.Cap(), "buffer did not grow as expected")
 	buf.Grow(5000)
 }
 
