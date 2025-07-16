@@ -5,19 +5,19 @@ import (
 	"sync/atomic"
 )
 
-type stackNode[T any] struct {
+type node[T any] struct {
 	value T
-	next  *stackNode[T]
+	next  *node[T]
 }
 
 // Stack is a lock-free stack implementation using atomic operations.
 // It allows concurrent Push and Pop operations without locks.
 type Stack[T any] struct {
-	head atomic.Pointer[stackNode[T]]
+	head atomic.Pointer[node[T]]
 }
 
 func (s *Stack[T]) Push(value T) {
-	newNode := &stackNode[T]{value: value}
+	newNode := &node[T]{value: value}
 	for {
 		oldHead := s.head.Load()
 		newNode.next = oldHead
@@ -41,8 +41,13 @@ func (s *Stack[T]) Pop() (value T, ok bool) {
 	}
 }
 
+func (s *Stack[T]) IsEmpty() bool {
+	oldHead := s.head.Load()
+	return oldHead == nil
+}
+
 // must be a power of two for the randomness to work correctly
-const numShards = 32
+const numShards = 8
 
 // Pool is a sharded, lock-free freelist.
 type Pool[T any] struct {
