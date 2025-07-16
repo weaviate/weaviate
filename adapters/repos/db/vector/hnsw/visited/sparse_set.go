@@ -11,7 +11,10 @@
 
 package visited
 
-import "sync"
+import (
+	"math/bits"
+	"sync"
+)
 
 type segment struct {
 	bitSet []byte
@@ -60,10 +63,9 @@ func (s *segmentedBitSet) grow(size uint64) {
 }
 
 type SparseSet struct {
-	collisionRate    uint64
-	collidingBitSet  []byte
-	segmentedBitSets *segmentedBitSet
-	masks            []byte
+	segmentedBitSets *segmentedBitSet // Most frequently accessed
+	collidingBitSet  []byte           // Second most frequent
+	collisionRate    uint64           // Used in calculations
 }
 
 func NewSparseSet(size, collisionRate int) *SparseSet {
@@ -75,7 +77,6 @@ func NewSparseSet(size, collisionRate int) *SparseSet {
 		collisionRate:    uint64(collisionRate),
 		collidingBitSet:  make([]byte, (size/collisionRate)/8+1),
 		segmentedBitSets: newSegmentedBitSet(size, collisionRate),
-		masks:            masks,
 	}
 }
 
@@ -85,29 +86,50 @@ func (s *SparseSet) Visit(node uint64) {
 	if node >= uint64(s.Len()) {
 		s.grow(node)
 	}
-	segment := node / s.collisionRate / 8
-	segmentIndex := node / s.collisionRate % 8
-	segmentedInded := node / s.collisionRate
-	if s.collidingBitSet[segment]&s.masks[segmentIndex] == 0 {
-		s.resetSegment(segmentedInded)
-		s.collidingBitSet[segment] = s.collidingBitSet[segment] | s.masks[segmentIndex]
+
+	// Pre-compute bit shift values for collisionRate (assuming it's a power of 2)
+	collisionShift := uint64(bits.TrailingZeros64(s.collisionRate))
+
+	// Optimized address calculations using bit operations
+	segment := node >> (collisionShift + 3)      // node / (collisionRate * 8)
+	segmentIndex := (node >> collisionShift) & 7 // (node / collisionRate) % 8
+	segmentedIndex := node >> collisionShift     // node / collisionRate
+
+	// Check if segment is already marked as having visited nodes
+	segmentMask := byte(1 << segmentIndex)
+	if s.collidingBitSet[segment]&segmentMask == 0 {
+		s.resetSegment(segmentedIndex)
+		s.collidingBitSet[segment] |= segmentMask
 	}
-	byteInSegment := (node % s.collisionRate) / 8
-	s.segmentedBitSets.set(segmentedInded, byteInSegment, s.masks[node%8])
+
+	// Set the bit in the segment's bitset
+	byteInSegment := (node & (s.collisionRate - 1)) >> 3 // (node % collisionRate) / 8
+	bitMask := byte(1 << (node & 7))                     // 1 << (node % 8)
+
+	// Inline the segment access to avoid function call overhead
+	s.segmentedBitSets.segments[segmentedIndex].bitSet[byteInSegment] |= bitMask
 }
 
 func (s *SparseSet) Visited(node uint64) bool {
 	if node >= uint64(s.Len()) {
 		return false
 	}
-	segment := node / s.collisionRate / 8
-	segmentIndex := node / s.collisionRate % 8
-	if s.collidingBitSet[segment]&s.masks[segmentIndex] == 0 {
+
+	// Assuming collisionRate is a power of 2, use bit shifts
+	collisionShift := uint64(bits.TrailingZeros64(s.collisionRate))
+
+	segment := node >> (collisionShift + 3)      // divide by collisionRate * 8
+	segmentIndex := (node >> collisionShift) & 7 // mod 8
+
+	if s.collidingBitSet[segment]&(1<<segmentIndex) == 0 {
 		return false
 	}
-	segmentedInded := node / s.collisionRate
-	byteInSegment := (node % s.collisionRate) / 8
-	return s.segmentedBitSets.get(segmentedInded, byteInSegment, s.masks[node%8])
+
+	segmentedIndex := node >> collisionShift
+	byteInSegment := (node & (s.collisionRate - 1)) >> 3 // mod collisionRate, then div 8
+	bitMask := byte(1 << (node & 7))                     // mod 8
+
+	return s.segmentedBitSets.segments[segmentedIndex].bitSet[byteInSegment]&bitMask != 0
 }
 
 func (s *SparseSet) Reset() {
