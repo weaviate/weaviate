@@ -242,7 +242,11 @@ func (u *uploader) all(ctx context.Context, classes []string, desc *backup.Backu
 		}
 
 		u.log.Info("start uploading metadata for failed backup")
-		err = fmt.Errorf("upload %w: %w", err, u.backend.PutMeta(ctx, desc, overrideBucket, overridePath))
+		if metaErr := u.backend.PutMeta(ctx, desc, overrideBucket, overridePath); metaErr != nil {
+			// combine errors for shadowing the original error in case
+			// of putMeta failure
+			err = fmt.Errorf("upload %w: %w", err, metaErr)
+		}
 		u.log.Info("finish uploading metadata for failed backup")
 	}()
 
