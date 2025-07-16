@@ -179,7 +179,8 @@ var (
 	Viewer       = "viewer"
 	Admin        = "admin"
 	Root         = "root"
-	BuiltInRoles = []string{Viewer, Admin, Root}
+	ReadOnly     = "read-only" // support will be added in stable/v1.30
+	BuiltInRoles = []string{Viewer, Admin, Root, ReadOnly}
 
 	// viewer : can view everything , roles, users, schema, data
 	// editor : can create/read/update everything , roles, users, schema, data
