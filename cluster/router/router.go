@@ -377,15 +377,6 @@ func (r *singleTenantRouter) buildWriteRoutingPlan(tenant, shard string, cl type
 	return plan, nil
 }
 
-func (r *singleTenantRouter) BuildRoutingPlanOptions(_, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
-	return types.RoutingPlanBuildOptions{
-		Shard:               shard,
-		Tenant:              "",
-		ConsistencyLevel:    cl,
-		DirectCandidateNode: directCandidate,
-	}
-}
-
 // validateTenant for a multi-tenant router checks the tenant is not empty and returns an error if it is.
 func (r *multiTenantRouter) validateTenant(tenant string) error {
 	if tenant == "" {
@@ -571,13 +562,4 @@ func (r *multiTenantRouter) validateTenantShard(tenant, shard string) error {
 	}
 
 	return nil
-}
-
-func (r *multiTenantRouter) BuildRoutingPlanOptions(tenant, shard string, cl types.ConsistencyLevel, directCandidate string) types.RoutingPlanBuildOptions {
-	return types.RoutingPlanBuildOptions{
-		Shard:               shard,
-		Tenant:              tenant,
-		ConsistencyLevel:    cl,
-		DirectCandidateNode: directCandidate,
-	}
 }
