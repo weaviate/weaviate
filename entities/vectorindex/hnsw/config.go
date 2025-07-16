@@ -41,6 +41,11 @@ const (
 	MinmumMaxConnections  = 4
 	MaximumMaxConnections = 2047
 	MinmumEFConstruction  = 4
+
+	CompressionBQ = "bq"
+	CompressionPQ = "pq"
+	CompressionSQ = "sq"
+	CompressionRQ = "rq"
 )
 
 // UserConfig bundles all values settable by a user in the per-class settings
@@ -129,6 +134,20 @@ func (u *UserConfig) SetDefaults() {
 			DProjections: DefaultMultivectorDProjections,
 			Repetitions:  DefaultMultivectorRepetitions,
 		},
+	}
+
+	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
+	if defaultCompression != "" {
+		switch defaultCompression {
+		case CompressionBQ:
+			u.BQ.Enabled = true
+		case CompressionPQ:
+			u.PQ.Enabled = true
+		case CompressionSQ:
+			u.SQ.Enabled = true
+		case CompressionRQ:
+			u.RQ.Enabled = true
+		}
 	}
 }
 
@@ -286,6 +305,20 @@ func (u *UserConfig) validate() error {
 	}
 	if u.RQ.Enabled {
 		enabled++
+	}
+	defaultCompression := os.Getenv("DEFAULT_COMPRESSION")
+	if enabled == 2 && defaultCompression != "" {
+		switch defaultCompression {
+		case CompressionBQ:
+			u.BQ.Enabled = DefaultBQEnabled
+		case CompressionPQ:
+			u.PQ.Enabled = DefaultPQEnabled
+		case CompressionSQ:
+			u.SQ.Enabled = DefaultSQEnabled
+		case CompressionRQ:
+			u.RQ.Enabled = DefaultRQEnabled
+		}
+		enabled--
 	}
 	if enabled > 1 {
 		return fmt.Errorf("invalid hnsw config: more than a single compression methods enabled")
