@@ -181,8 +181,7 @@ func (c *coordinator[T]) Push(ctx context.Context,
 	ask readyOp,
 	com commitOp[T],
 ) (<-chan _Result[T], int, error) {
-	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, "")
-	writeRoutingPlan, err := c.Router.BuildWriteRoutingPlan(options)
+	writeRoutingPlan, err := c.Router.BuildWriteRoutingPlan(c.Shard, c.Shard, cl, "")
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
@@ -223,8 +222,7 @@ func (c *coordinator[T]) Pull(ctx context.Context,
 	op readOp[T], directCandidate string,
 	timeout time.Duration,
 ) (<-chan _Result[T], int, error) {
-	options := c.Router.BuildRoutingPlanOptions(c.Shard, c.Shard, cl, directCandidate)
-	readRoutingPlan, err := c.Router.BuildReadRoutingPlan(options)
+	readRoutingPlan, err := c.Router.BuildReadRoutingPlan(c.Shard, c.Shard, cl, directCandidate)
 	if err != nil {
 		return nil, 0, fmt.Errorf("%w : class %q shard %q", err, c.Class, c.Shard)
 	}
