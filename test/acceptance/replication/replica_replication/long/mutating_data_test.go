@@ -228,7 +228,7 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	time.Sleep(30 * time.Second) // Wait a bit to ensure all data is replicated
 
 	if mutateDataTriggeredSleep.Load() {
-		fmt.Println(time.Now(), "NATEE mutateDataTriggeredSleep is true, sleeping for debug")
+		fmt.Println(time.Now(), "NATEE mutateDataTriggeredSleep is true, sleeping for debug wait")
 		time.Sleep(time.Hour)
 	}
 
