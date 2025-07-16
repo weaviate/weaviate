@@ -26,6 +26,37 @@ import (
 	"github.com/weaviate/weaviate/usecases/sharding"
 )
 
+func TestSchemaAliasCasing(t *testing.T) {
+	// Alias name should be case-insensitive similar to collection.
+	// Meaning, MyCar, MYCar, myCar all same.
+
+	var (
+		sc = NewSchema(t.Name(), nil, prometheus.NewPedanticRegistry())
+		ss = &sharding.State{Physical: make(map[string]sharding.Physical)}
+	)
+
+	require.Nil(t, sc.addClass(&models.Class{Class: "CoolCar"}, ss, 1))
+	err := sc.createAlias("CoolCar", "MyCar")
+	require.Nil(t, err)
+
+	// Try creating it with different cases.
+	err = sc.createAlias("CoolCar", "MYCar")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+
+	err = sc.createAlias("CoolCar", "mYCar")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+
+	err = sc.createAlias("CoolCar", "mycar")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+
+	err = sc.createAlias("CoolCar", "MYCAR")
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "already exists")
+}
+
 func Test_schemaCollectionMetrics(t *testing.T) {
 	r := prometheus.NewPedanticRegistry()
 
