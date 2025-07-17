@@ -100,6 +100,20 @@ func buildUrl(baseURL, resourceName, deploymentID, apiVersion string, isAzure bo
 
 	host := baseURL
 	path := "/v1/embeddings"
+	if host != "" && host != "https://api.openai.com" {
+		// For third-party providers, use the path from the base URL
+		parsedURL, err := url.Parse(host)
+		if err != nil {
+			return "", fmt.Errorf("invalid base URL: %w", err)
+		}
+		parsedPath := parsedURL.Path
+		// If the path is not empty, append the embeddings path to it
+		if parsedPath != "" {
+			path = parsedPath + "/embeddings"
+		}
+		// Use the base URL without the path as the host
+		host = parsedURL.Scheme + "://" + parsedURL.Host
+	}
 	return url.JoinPath(host, path)
 }
 
