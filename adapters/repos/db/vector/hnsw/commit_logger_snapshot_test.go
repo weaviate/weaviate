@@ -1116,6 +1116,79 @@ func TestMetadataWriteAndRestore(t *testing.T) {
 		require.Equal(t, state.EncoderMuvera.S[0][0][0], restoredState.EncoderMuvera.S[0][0][0])
 	})
 
+	t.Run("v2 metadata - with Muvera encoding and SQ compression", func(t *testing.T) {
+		// Create state with Muvera encoding
+		state := &DeserializationResult{
+			Entrypoint:    172,
+			Level:         8,
+			Compressed:    true,
+			MuveraEnabled: true,
+			Nodes:         make([]*vertex, 180),
+			CompressionSQData: &compressionhelpers.SQData{
+				Dimensions: 64,
+				A:          1.5,
+				B:          2.7,
+			},
+			EncoderMuvera: &multivector.MuveraData{
+				Dimensions:   8,
+				KSim:         2,
+				NumClusters:  4,
+				DProjections: 1,
+				Repetitions:  1,
+				Gaussians: [][][]float32{
+					{
+						make([]float32, 8),
+						make([]float32, 8),
+					},
+				},
+				S: [][][]float32{
+					{
+						make([]float32, 8),
+					},
+				},
+			},
+		}
+
+		// Initialize with some values
+		for i := 0; i < 8; i++ {
+			state.EncoderMuvera.Gaussians[0][0][i] = float32(i) * 0.1
+			state.EncoderMuvera.S[0][0][i] = float32(i) * 0.2
+		}
+
+		dir := t.TempDir()
+		id := "test"
+		cl := createTestCommitLoggerForSnapshots(t, dir, id)
+
+		// Write snapshot to a temporary file
+		snapshotPath := filepath.Join(snapshotDirectory(dir, id), "test.snapshot")
+		err := cl.writeSnapshot(state, snapshotPath)
+		require.NoError(t, err)
+
+		// Read snapshot back
+		restoredState, err := cl.readSnapshot(snapshotPath)
+		require.NoError(t, err)
+
+		// Verify all fields match
+		require.Equal(t, state.Compressed, true)
+		require.Equal(t, state.Entrypoint, restoredState.Entrypoint)
+		require.Equal(t, state.Level, restoredState.Level)
+		require.Equal(t, state.CompressionSQData.Dimensions, restoredState.CompressionSQData.Dimensions)
+		require.Equal(t, state.CompressionSQData.A, restoredState.CompressionSQData.A)
+		require.Equal(t, state.CompressionSQData.B, restoredState.CompressionSQData.B)
+		require.Equal(t, state.MuveraEnabled, restoredState.MuveraEnabled)
+		require.Equal(t, len(state.Nodes), len(restoredState.Nodes))
+		require.NotNil(t, restoredState.EncoderMuvera)
+		require.Equal(t, state.EncoderMuvera.Dimensions, restoredState.EncoderMuvera.Dimensions)
+		require.Equal(t, state.EncoderMuvera.KSim, restoredState.EncoderMuvera.KSim)
+		require.Equal(t, state.EncoderMuvera.NumClusters, restoredState.EncoderMuvera.NumClusters)
+		require.Equal(t, state.EncoderMuvera.DProjections, restoredState.EncoderMuvera.DProjections)
+		require.Equal(t, state.EncoderMuvera.Repetitions, restoredState.EncoderMuvera.Repetitions)
+		require.Equal(t, len(state.EncoderMuvera.Gaussians), len(restoredState.EncoderMuvera.Gaussians))
+		require.Equal(t, len(state.EncoderMuvera.S), len(restoredState.EncoderMuvera.S))
+		require.Equal(t, state.EncoderMuvera.Gaussians[0][0][0], restoredState.EncoderMuvera.Gaussians[0][0][0])
+		require.Equal(t, state.EncoderMuvera.S[0][0][0], restoredState.EncoderMuvera.S[0][0][0])
+	})
+
 	t.Run("v2 metadata - compression is supported", func(t *testing.T) {
 		// Create state with compression (v2 supports compression)
 		state := &DeserializationResult{
