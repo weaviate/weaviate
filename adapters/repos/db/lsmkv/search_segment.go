@@ -39,6 +39,7 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 		firstNonExhausted = -1
 		pivotID = math.MaxUint64
 
+		// Find pivot document
 		for pivotPoint = 0; pivotPoint < len(results); pivotPoint++ {
 			if results[pivotPoint].exhausted {
 				continue
@@ -62,13 +63,14 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 			return topKHeap
 		}
 
+		// Compute upper bound
 		upperBound = float32(0)
-		for i := 0; i < pivotPoint+1; i++ {
+		for i := 0; i <= pivotPoint; i++ {
 			if results[i].exhausted {
 				continue
 			}
 			if results[i].currentBlockMaxId < pivotID {
-				results[i].AdvanceAtLeastShallow(pivotID)
+				results[i].AdvanceAtLeastShallow(pivotID + 1)
 			}
 			upperBound += results[i].currentBlockImpact
 		}
@@ -78,6 +80,7 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 				docInfos = make([]*terms.DocPointerWithScore, termCount)
 			}
 			if pivotID == results[firstNonExhausted].idPointer {
+				// Fully score pivot document
 				score := 0.0
 				termsMatched := 0
 				for _, term := range results {
@@ -88,21 +91,18 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 					_, s, d := term.Score(averagePropLength, additionalExplanations)
 					score += s
 					upperBound -= term.currentBlockImpact - float32(s)
-
 					if additionalExplanations {
 						docInfos[term.QueryTermIndex()] = d
 					}
+				}
 
-					//if !topKHeap.ShouldEnqueue(upperBound, limit) {
-					//	break
-					//}
-				}
+				// Advance all lists at pivotID
 				for _, term := range results {
-					if !term.exhausted && term.idPointer != pivotID {
-						break
+					if !term.exhausted && term.idPointer == pivotID {
+						term.Advance()
 					}
-					term.Advance()
 				}
+
 				if topKHeap.ShouldEnqueue(float32(score), limit) && termsMatched >= minimumOrTokensMatch {
 					topKHeap.InsertAndPop(pivotID, score, limit, &worstDist, docInfos)
 				}
@@ -110,24 +110,24 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 				sort.Sort(results)
 
 			} else {
+				// Skip scoring: force advance past pivotID
 				nextList := pivotPoint
 				for results[nextList].idPointer == pivotID {
 					nextList--
 				}
-				results[nextList].AdvanceAtLeast(pivotID)
+				results[nextList].AdvanceAtLeast(pivotID + 1)
 
-				// sort partial
+				// Partial sort
 				for i := nextList + 1; i < len(results); i++ {
 					if results[i].idPointer < results[i-1].idPointer {
-						// swap
 						results[i], results[i-1] = results[i-1], results[i]
 					} else {
 						break
 					}
 				}
-
 			}
 		} else {
+			// Upper bound not competitive: skip ahead
 			nextList := pivotPoint
 			maxWeight := results[nextList].Idf()
 
@@ -138,29 +138,24 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 				}
 			}
 
-			// max uint
 			next := uint64(math.MaxUint64)
-
 			for i := 0; i <= pivotPoint; i++ {
 				if results[i].currentBlockMaxId < next {
 					next = results[i].currentBlockMaxId
 				}
 			}
-
 			next += 1
-
 			if pivotPoint+1 < len(results) && results[pivotPoint+1].idPointer < next {
 				next = results[pivotPoint+1].idPointer
 			}
-
 			if next <= pivotID {
 				next = pivotID + 1
 			}
+
 			results[nextList].AdvanceAtLeast(next)
 
 			for i := nextList + 1; i < len(results); i++ {
 				if results[i].idPointer < results[i-1].idPointer {
-					// swap
 					results[i], results[i-1] = results[i-1], results[i]
 				} else if results[i].exhausted && i < len(results)-1 {
 					results[i], results[i+1] = results[i+1], results[i]
@@ -168,9 +163,7 @@ func DoBlockMaxWand(limit int, results Terms, averagePropLength float64, additio
 					break
 				}
 			}
-
 		}
-
 	}
 }
 

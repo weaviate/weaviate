@@ -435,13 +435,14 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		return
 	}
 
+	// Skip blocks that end before docId
 	for s.blockEntryIdx < len(s.blockEntries) && docId > s.blockEntries[s.blockEntryIdx].MaxId {
 		s.blockEntryIdx++
 		s.decoded = false
 		s.freqDecoded = false
 	}
 
-	if (s.blockEntryIdx == len(s.blockEntries)-1 && docId > s.blockEntries[s.blockEntryIdx].MaxId) || s.blockEntryIdx >= len(s.blockEntries) {
+	if s.blockEntryIdx >= len(s.blockEntries) {
 		s.exhaust()
 		return
 	}
@@ -450,8 +451,22 @@ func (s *SegmentBlockMax) AdvanceAtLeast(docId uint64) {
 		s.decodeBlock()
 	}
 
-	for s.blockDataIdx < s.blockDataSize-1 && docId > s.blockDataDecoded.DocIds[s.blockDataIdx] {
+	// Advance within block (use >= to ensure we move past current docId)
+	for s.blockDataIdx < s.blockDataSize && docId >= s.blockDataDecoded.DocIds[s.blockDataIdx] {
 		s.blockDataIdx++
+	}
+
+	// If we passed block end, load next block
+	if s.blockDataIdx >= s.blockDataSize {
+		s.blockEntryIdx++
+		s.decoded = false
+		s.freqDecoded = false
+		if s.blockEntryIdx >= len(s.blockEntries) {
+			s.exhaust()
+			return
+		}
+		s.decodeBlock()
+		s.blockDataIdx = 0
 	}
 
 	s.advanceOnTombstoneOrFilter()
@@ -461,27 +476,20 @@ func (s *SegmentBlockMax) AdvanceAtLeastShallow(docId uint64) {
 	if s.exhausted {
 		return
 	}
-	if docId <= s.blockEntries[s.blockEntryIdx].MaxId {
-		return
-	}
-
+	// Skip blocks that end before docId
 	for s.blockEntryIdx < len(s.blockEntries) && docId > s.blockEntries[s.blockEntryIdx].MaxId {
-
 		s.blockEntryIdx++
 		s.blockDataIdx = 0
 		s.decoded = false
 		s.freqDecoded = false
-		if s.blockEntryIdx >= len(s.blockEntries) {
-			s.exhaust()
-			return
-		}
 	}
-
-	if (s.blockEntryIdx == len(s.blockEntries)-1 && docId > s.blockEntries[s.blockEntryIdx].MaxId) || s.blockEntryIdx >= len(s.blockEntries) {
+	if s.blockEntryIdx >= len(s.blockEntries) {
 		s.exhaust()
 		return
 	}
-	s.idPointer = s.blockEntries[s.blockEntryIdx-1].MaxId
+
+	// Update pointers for current block
+	s.idPointer = s.blockEntries[s.blockEntryIdx].MaxId
 	s.currentBlockMaxId = s.blockEntries[s.blockEntryIdx].MaxId
 	s.currentBlockImpact = s.computeCurrentBlockImpact()
 }
