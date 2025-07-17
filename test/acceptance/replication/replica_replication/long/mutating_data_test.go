@@ -213,27 +213,24 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 	t.Log("Waiting for a while to ensure all data is replicated")
 	time.Sleep(30 * time.Second) // Wait a bit to ensure all data is replicated
 
-	if mutateDataTriggeredSleep.Load() {
-		fmt.Println(time.Now(), "NATEE mutateDataTriggeredSleep is true, sleeping for debug wait")
-		time.Sleep(time.Hour)
-	}
-
 	// Verify that all replicas have the same object UUIDs
 	t.Log("Verifying object UUIDs across replicas")
 	uuidsByReplica := map[string][]string{}
 	for node, address := range nodeToAddress {
 		helper.SetupClient(address)
 		limit := int64(10000)
-		res, err := helper.Client(t).Objects.ObjectsList(
-			objects.NewObjectsListParams().WithClass(&cls.Class).WithTenant(&tenantName).WithLimit(&limit),
-			nil,
-		)
-		require.Nil(t, err, "failed to list objects for tenant %s on node %s", tenantName, node)
-		uuids := make([]string, len(res.Payload.Objects))
-		for i, obj := range res.Payload.Objects {
-			uuids[i] = string(obj.ID)
-		}
-		uuidsByReplica[node] = uuids
+		require.EventuallyWithT(t, func(ct *assert.CollectT) {
+			res, err := helper.Client(t).Objects.ObjectsList(
+				objects.NewObjectsListParams().WithClass(&cls.Class).WithTenant(&tenantName).WithLimit(&limit),
+				nil,
+			)
+			assert.Nil(ct, err, "failed to list objects for tenant %s on node %s", tenantName, node)
+			uuids := make([]string, len(res.Payload.Objects))
+			for i, obj := range res.Payload.Objects {
+				uuids[i] = string(obj.ID)
+			}
+			uuidsByReplica[node] = uuids
+		}, 10*time.Second, 3*time.Second, "failed to list objects for tenant %s on node %s", tenantName, node)
 	}
 	for node, uuids := range uuidsByReplica {
 		t.Logf("Node %s has %d UUIDs for tenant %s", node, len(uuids), tenantName)
@@ -261,6 +258,11 @@ func test(t *testing.T, compose *docker.DockerCompose, replicationType string, f
 			}
 		}
 	}
+	if mutateDataTriggeredSleep.Load() {
+		fmt.Println(time.Now(), "NATEE mutateDataTriggeredSleep is true, sleeping for debug wait")
+		time.Sleep(time.Hour)
+	}
+
 	if failed {
 		fmt.Println(time.Now(), "NATEE sleeping")
 		time.Sleep(time.Hour)
