@@ -24,7 +24,12 @@ import (
 	"os"
 	"path"
 	"sync"
+	"testing"
 	"time"
+
+	"github.com/stretchr/testify/mock"
+	replicationTypes "github.com/weaviate/weaviate/cluster/replication/types"
+	"github.com/weaviate/weaviate/cluster/schema/types"
 
 	"github.com/sirupsen/logrus/hooks/test"
 	"github.com/weaviate/weaviate/adapters/clients"
@@ -54,8 +59,8 @@ type node struct {
 	hostname      string
 }
 
-func (n *node) init(dirName string, shardStateRaw []byte,
-	allNodes *[]*node,
+func (n *node) init(t *testing.T, dirName string, shardStateRaw []byte,
+	allNodes *[]*node, shardingState *sharding.State,
 ) {
 	localDir := path.Join(dirName, n.name)
 	logger, _ := test.NewNullLogger()
@@ -64,8 +69,9 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	for _, node := range *allNodes {
 		names = append(names, node.name)
 	}
+	nodeSelector := mocks.NewMockNodeSelector(names...)
 	nodeResolver := &nodeResolver{
-		NodeSelector: mocks.NewMockNodeSelector(names...),
+		NodeSelector: nodeSelector,
 		nodes:        allNodes,
 		local:        n.name,
 	}
@@ -79,12 +85,23 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	client := clients.NewRemoteIndex(&http.Client{})
 	nodesClient := clients.NewRemoteNode(&http.Client{})
 	replicaClient := clients.NewReplicationClient(&http.Client{})
-	n.repo, err = db.New(logger, db.Config{
+	mockSchemaReader := types.NewMockSchemaReader(t)
+	mockSchemaReader.EXPECT().CopyShardingState(mock.Anything).Return(shardState).Maybe()
+	mockSchemaReader.EXPECT().ShardReplicas(mock.Anything, mock.Anything).Return(names, nil).Maybe()
+	mockReplicationFSMReader := replicationTypes.NewMockReplicationFSMReader(t)
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasRead(mock.Anything, mock.Anything, mock.Anything).Return(names).Maybe()
+	mockReplicationFSMReader.EXPECT().FilterOneShardReplicasWrite(mock.Anything, mock.Anything, mock.Anything).Return(names, nil).Maybe()
+	mockNodeSelector := cluster.NewMockNodeSelector(t)
+	mockNodeSelector.EXPECT().LocalName().Return(n.name).Maybe()
+	mockNodeSelector.EXPECT().NodeHostname(mock.Anything).RunAndReturn(func(node string) (string, bool) { return node, true }).Maybe()
+
+	n.repo, err = db.New(logger, n.name, db.Config{
 		MemtablesFlushDirtyAfter:  60,
 		RootPath:                  localDir,
 		QueryMaximumResults:       10000,
 		MaxImportGoroutinesFactor: 1,
-	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor())
+	}, client, nodeResolver, nodesClient, replicaClient, nil, memwatch.NewDummyMonitor(),
+		mockNodeSelector, mockSchemaReader, mockReplicationFSMReader)
 	if err != nil {
 		panic(err)
 	}
@@ -109,7 +126,7 @@ func (n *node) init(dirName string, shardStateRaw []byte,
 	n.scheduler = ubak.NewScheduler(
 		&fakeAuthorizer{}, backupClient, n.repo, backendProvider, nodeResolver, n.schemaManager, logger)
 
-	n.migrator = db.NewMigrator(n.repo, logger)
+	n.migrator = db.NewMigrator(n.repo, logger, n.name)
 
 	indices := clusterapi.NewIndices(sharding.NewRemoteIndexIncoming(n.repo, n.schemaManager, modules.NewProvider(logger, config.Config{})),
 		n.repo, clusterapi.NewNoopAuthHandler(), func() bool { return false }, logger)

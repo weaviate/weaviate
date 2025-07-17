@@ -82,8 +82,11 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 				name: fmt.Sprintf("node-%d", i),
 			}
 
-			node.init(dirName, shardStateSerialized, &nodes)
 			nodes = append(nodes, node)
+		}
+
+		for _, node := range nodes {
+			node.init(t, dirName, shardStateSerialized, &nodes, overallShardState)
 		}
 	})
 
@@ -366,7 +369,7 @@ func testDistributed(t *testing.T, dirName string, rnd *rand.Rand, batch bool) {
 
 		logger, _ := test.NewNullLogger()
 		node := nodes[rnd.Intn(len(nodes))]
-		res, err := node.repo.Aggregate(context.Background(), params, modules.NewProvider(logger, config.Config{}))
+		res, err := node.repo.Aggregate(context.Background(), params, nil, modules.NewProvider(logger, config.Config{}))
 		require.Nil(t, err)
 
 		expectedResult := &aggregation.Result{
@@ -712,9 +715,11 @@ func TestDistributedVectorDistance(t *testing.T) {
 				node := &node{
 					name: fmt.Sprintf("node-%d", i),
 				}
-
-				node.init(dirName, shardStateSerialized, &nodes)
 				nodes = append(nodes, node)
+			}
+
+			for _, node := range nodes {
+				node.init(t, dirName, shardStateSerialized, &nodes, overallShardState)
 			}
 
 			for i := range nodes {
