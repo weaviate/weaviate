@@ -33,11 +33,12 @@ var ErrPostingNotFound = errors.New("posting not found")
 
 // BlockController manages I/O of postings on disk.
 type BlockController struct {
-	store     Store
-	encoder   *BlockEncoder
-	metadata  *common.FlatBuffer[PostingMetadata]
-	blockPool *BlockProvider
-	bufPool   sync.Pool
+	store       Store
+	encoder     *BlockEncoder
+	metadata    *common.FlatBuffer[PostingMetadata]
+	blockPool   *BlockProvider
+	bufPool     sync.Pool // holds byte slices for reading blocks
+	mappingPool sync.Pool // holds slices of uint64 for offsets
 }
 
 type BlockControllerConfig struct {
@@ -54,6 +55,12 @@ func NewBlockController(store Store, freeBlockPool *common.Pool[uint64], config 
 		bufPool: sync.Pool{
 			New: func() any {
 				b := make([]byte, 0, 3*blockSize)
+				return &b
+			},
+		},
+		mappingPool: sync.Pool{
+			New: func() any {
+				b := make([]uint64, 0, 3)
 				return &b
 			},
 		},
@@ -185,11 +192,11 @@ func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *
 			// append to the last block
 			lastBlock = append(lastBlock, data...)
 			// allocate a new offsets slice with the same length
-			newOffsets = make([]uint64, len(o))
+			newOffsets = b.getOffsetBuffer(len(o))
 		} else {
 			lastBlock = data
 			// allocate a new offsets slice with one more element
-			newOffsets = make([]uint64, len(o)+1)
+			newOffsets = b.getOffsetBuffer(len(o) + 1)
 		}
 
 		// copy the old offsets
@@ -212,9 +219,22 @@ func (b *BlockController) Append(ctx context.Context, postingID uint64, vector *
 
 			// add the old offset back to the free block pool
 			b.blockPool.freeBlockPool.Put(lastOffset)
+
+			// add the old offset slice back to the mapping pool
+			b.mappingPool.Put(oldOffsets)
 			return nil
 		}
 	}
+}
+
+func (b *BlockController) getOffsetBuffer(size int) []uint64 {
+	buf := b.mappingPool.Get().(*[]uint64)
+	if cap(*buf) < size {
+		*buf = make([]uint64, size)
+	} else {
+		*buf = (*buf)[:size]
+	}
+	return *buf
 }
 
 // VectorCount returns the number of vectors in a posting.
@@ -399,7 +419,7 @@ func (m *MemoryStore) Put(ctx context.Context, offset uint64, block []byte) erro
 		return errors.New("block cannot be empty")
 	}
 
-	cp := make([]byte, len(block))
+	cp := make([]byte, len(block), blockSize)
 	copy(cp, block)
 	m.data.Set(offset, cp)
 
