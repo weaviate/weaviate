@@ -19,6 +19,7 @@ import (
 	"sync/atomic"
 
 	"github.com/pkg/errors"
+	"github.com/weaviate/weaviate/adapters/repos/db/lsmkv"
 	"github.com/weaviate/weaviate/adapters/repos/db/vector/common"
 )
 
@@ -26,6 +27,9 @@ const (
 	// hardcoded block size for postings.
 	// Once we switch to SPDK, this can be changed to a more dynamic value.
 	blockSize = 4096
+
+	// bucketName is the name of the bucket where postings are stored in the LSM store.
+	bucketName = "spfresh_blocks"
 )
 
 // ErrPostingNotFound is returned when a posting with the given ID does not exist.
@@ -113,7 +117,7 @@ func (b *BlockController) Put(ctx context.Context, postingID uint64, posting Pos
 	defer release()
 
 	// store the posting in individual blocks
-	var offsets []uint64
+	offsets := make([]uint64, 0, len(data)/blockSize+1)
 	for len(data) > 0 {
 		offset := b.blockPool.getFreeBlockOffset()
 		if len(data) < blockSize {
@@ -318,7 +322,6 @@ func (e *BlockEncoder) encodeVector(out *bytes.Buffer, vector *Vector) error {
 
 func (e *BlockEncoder) EncodeVector(vector *Vector) ([]byte, func(), error) {
 	buf := e.getBuffer()
-	defer e.putBuffer(buf)
 
 	err := e.encodeVector(buf, vector)
 	if err != nil {
@@ -424,4 +427,31 @@ func (m *MemoryStore) Put(ctx context.Context, offset uint64, block []byte) erro
 	m.data.Set(offset, cp)
 
 	return nil
+}
+
+type LSMStore struct {
+	store *lsmkv.Store
+}
+
+func NewLSMStore(store *lsmkv.Store) *LSMStore {
+	return &LSMStore{
+		store: store,
+	}
+}
+
+func (l *LSMStore) Get(ctx context.Context, offset uint64) ([]byte, error) {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], offset)
+	return l.store.Bucket(bucketName).Get(buf[:])
+}
+
+// Put writes a block to the store at the given offset.
+// It overwrites the full block.
+func (l *LSMStore) Put(ctx context.Context, offset uint64, block []byte) error {
+	var buf [8]byte
+	binary.LittleEndian.PutUint64(buf[:], offset)
+	// data must be copied
+	cp := make([]byte, len(block), blockSize)
+	copy(cp, block)
+	return l.store.Bucket(bucketName).Put(buf[:], cp)
 }
