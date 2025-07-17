@@ -17,6 +17,33 @@ import (
 	"github.com/sirupsen/logrus"
 )
 
+// RoutingPlanBuildOptions contains parameters used to construct a routing plan
+// for either read or write operations.
+//
+// Fields:
+//   - Shard: The name of the shard to route to. For multi-tenant collections, this must be the tenant name.
+//     For single-tenant collections, this should be empty to route to all shards, or optionally set to a specific shard
+//     if targeting all shards when creating routing plans for reading.
+//   - Tenant: The tenant name targeted by this routing plan. Expected to be empty and ignored for single-tenant collections.
+//   - ConsistencyLevel: The desired level of consistency for the operation.
+//   - DirectCandidateNode: Optional. The preferred node to use first when building the routing plan.
+//     If empty, the local node is used as the default candidate.
+type RoutingPlanBuildOptions struct {
+	Shard               string
+	Tenant              string
+	ConsistencyLevel    ConsistencyLevel
+	DirectCandidateNode string
+}
+
+// String returns a human-readable representation of the RoutingPlanBuildOptions.
+// Useful for debugging and logging.
+func (o RoutingPlanBuildOptions) String() string {
+	return fmt.Sprintf(
+		"RoutingPlanBuildOptions{shard: %q, tenant: %q, consistencyLevel: %s, directCandidateNode: %q}",
+		o.Shard, o.Tenant, o.ConsistencyLevel, o.DirectCandidateNode,
+	)
+}
+
 // ReadRoutingPlan represents the plan for routing a read operation.
 //
 // Fields:
